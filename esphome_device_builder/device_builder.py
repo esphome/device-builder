@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from .controllers.components import ComponentCatalog
     from .controllers.config import ConfigController
     from .controllers.devices import DevicesController
+    from .controllers.editor import EditorController
     from .controllers.firmware import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class DeviceBuilder:
         self.devices: DevicesController | None = None
         self.automations: AutomationsController | None = None
         self.firmware: FirmwareController | None = None
+        self.editor: EditorController | None = None
 
         # Command registry — populated from controllers
         self.command_handlers: dict[str, CommandHandler] = {}
@@ -65,6 +67,7 @@ class DeviceBuilder:
         from .controllers.components import ComponentCatalog
         from .controllers.config import ConfigController
         from .controllers.devices import DevicesController
+        from .controllers.editor import EditorController
         from .controllers.firmware import FirmwareController
 
         self.loop = asyncio.get_running_loop()
@@ -78,8 +81,10 @@ class DeviceBuilder:
         self.devices = DevicesController(self)
         self.automations = AutomationsController(self)
         self.firmware = FirmwareController(self)
+        self.editor = EditorController(self)
         await self.devices.start()
         await self.firmware.start()
+        await self.editor.start()
 
         # Collect command handlers from all controllers
         for controller in (
@@ -89,6 +94,7 @@ class DeviceBuilder:
             self.devices,
             self.automations,
             self.firmware,
+            self.editor,
         ):
             self.command_handlers.update(collect_api_commands(controller))
 
@@ -117,6 +123,8 @@ class DeviceBuilder:
             task.cancel()
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        if self.editor is not None:
+            await self.editor.stop()
 
     async def _run_background(self) -> None:
         """Background polling loop."""
