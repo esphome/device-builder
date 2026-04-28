@@ -1,7 +1,5 @@
 """Editor controller — live YAML validation via persistent `esphome vscode --ace` subprocess.
 
-Mirrors the protocol used by the upstream ESPHome dashboard
-(esphome/dashboard/src/editor/esphome-editor.ts ←→ esphome/esphome/vscode.py).
 The subprocess is spawned lazily on first validate request, kept warm to
 avoid per-call interpreter startup cost, and torn down on app stop.
 """
