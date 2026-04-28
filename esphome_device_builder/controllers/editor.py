@@ -1,4 +1,5 @@
-"""Editor controller — supports the in-browser YAML editor.
+"""
+Editor controller — supports the in-browser YAML editor.
 
 Currently exposes live YAML validation; future editor utilities (formatting,
 schema-driven completion, etc.) will live here too.
@@ -49,13 +50,15 @@ class EditorController:
         self._esphome_cmd: list[str] = []
 
     async def start(self) -> None:
-        """Resolve the `esphome` CLI invocation used to spawn validator subprocesses."""
+        """Async initialize the controller."""
+        # resolve the `esphome` CLI invocation used to spawn validator subprocesses
         self._esphome_cmd = _find_esphome_cmd()
 
     async def stop(self) -> None:
-        """Tear down every warm validator subprocess on app shutdown."""
+        """Stop the controller.."""
         sessions = list(self._sessions.values())
         self._sessions.clear()
+        # tear down every warm validator subprocess on app shutdown
         for session in sessions:
             await self._terminate_subprocess(session)
 
@@ -88,7 +91,7 @@ class EditorController:
             raise RuntimeError("esphome vscode subprocess did not start in time") from err
 
     async def _terminate_subprocess(self, session: _EditorSession) -> None:
-        """Politely shut down `session`'s subprocess, escalating to terminate/kill if needed."""
+        """Terminate the session's subprocess."""
         proc = session.proc
         session.proc = None
         if proc is None or proc.returncode is not None:
@@ -111,7 +114,8 @@ class EditorController:
                 await proc.wait()
 
     def _resolve_file(self, requested: str, configuration: str, content: str) -> str:
-        """Answer a `read_file` request from the validator subprocess.
+        """
+        Answer a `read_file` request from the validator subprocess.
 
         Returns the in-memory `content` for the file currently being edited
         and falls back to reading from disk for any other path the subprocess
@@ -144,7 +148,8 @@ class EditorController:
         message_id: str = "",
         **kwargs: Any,
     ) -> dict:
-        """Validate `content` as the YAML for `configuration`.
+        """
+        Validate `content` as the YAML for `configuration`.
 
         Returns ``{"yaml_errors": [...], "validation_errors": [...]}`` —
         the same shape upstream ``vscode.py`` produces. Each error has a
@@ -166,7 +171,8 @@ class EditorController:
     async def _validate_locked(
         self, session: _EditorSession, configuration: str, content: str
     ) -> dict:
-        """Run a single validation round-trip against `session`'s subprocess.
+        """
+        Run a single validation round-trip against `session`'s subprocess.
 
         Caller must hold ``session.lock``; the stdin/stdout protocol is stateful
         and any interleaving would corrupt subsequent responses.
