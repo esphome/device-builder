@@ -1,7 +1,7 @@
-"""Editor controller — live YAML validation via persistent `esphome vscode --ace` subprocess.
+"""Editor controller — supports the in-browser YAML editor.
 
-The subprocess is spawned lazily on first validate request, kept warm to
-avoid per-call interpreter startup cost, and torn down on app stop.
+Currently exposes live YAML validation; future editor utilities (formatting,
+schema-driven completion, etc.) will live here too.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,37 +24,54 @@ _STARTUP_TIMEOUT = 15.0
 _VALIDATE_TIMEOUT = 30.0
 
 
-class EditorController:
-    """Owns a long-lived `esphome vscode --ace` subprocess for structured YAML.
+@dataclass
+class _EditorSession:
+    """Per-configuration validator state: one warm subprocess plus a serialization lock."""
 
-    Single-flights validation requests through an asyncio.Lock so the stateful
-    stdin/stdout protocol stays consistent.
+    proc: asyncio.subprocess.Process | None = None
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+class EditorController:
+    """Backs the WebSocket commands used by the YAML editor in the dashboard.
+
+    Today this means structured YAML validation via the upstream
+    `esphome vscode --ace` subprocess: clients send their in-memory YAML and
+    receive the same `{yaml_errors, validation_errors}` payload the upstream
+    dashboard renders inline. Each configuration keeps its own warm
+    subprocess so concurrent edits on different devices do not block each
+    other.
     """
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
-        self._proc: asyncio.subprocess.Process | None = None
-        self._lock = asyncio.Lock()
+        self._sessions: dict[str, _EditorSession] = {}
         self._esphome_cmd: list[str] = []
 
     async def start(self) -> None:
+        """Resolve the `esphome` CLI invocation used to spawn validator subprocesses."""
         self._esphome_cmd = _find_esphome_cmd()
 
     async def stop(self) -> None:
-        await self._terminate_subprocess()
+        """Tear down every warm validator subprocess on app shutdown."""
+        sessions = list(self._sessions.values())
+        self._sessions.clear()
+        for session in sessions:
+            await self._terminate_subprocess(session)
 
     # ------------------------------------------------------------------
     # Subprocess management
     # ------------------------------------------------------------------
 
-    async def _ensure_subprocess(self) -> None:
-        if self._proc is not None and self._proc.returncode is None:
+    async def _ensure_subprocess(self, session: _EditorSession) -> None:
+        """Spawn the `esphome vscode --ace` subprocess for `session` if not already running."""
+        if session.proc is not None and session.proc.returncode is None:
             return
 
         config_dir = str(self._db.settings.config_dir)
         cmd = [*self._esphome_cmd, "vscode", config_dir, "--ace"]
         _LOGGER.info("Spawning vscode subprocess: %s", " ".join(cmd))
-        self._proc = await asyncio.create_subprocess_exec(
+        session.proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
@@ -62,16 +80,17 @@ class EditorController:
 
         # Drain the initial {"type": "version", ...} line so the next read
         # in validate_yaml lands on a real response.
-        assert self._proc.stdout is not None
+        assert session.proc.stdout is not None
         try:
-            await asyncio.wait_for(self._proc.stdout.readline(), timeout=_STARTUP_TIMEOUT)
+            await asyncio.wait_for(session.proc.stdout.readline(), timeout=_STARTUP_TIMEOUT)
         except TimeoutError as err:
-            await self._terminate_subprocess()
+            await self._terminate_subprocess(session)
             raise RuntimeError("esphome vscode subprocess did not start in time") from err
 
-    async def _terminate_subprocess(self) -> None:
-        proc = self._proc
-        self._proc = None
+    async def _terminate_subprocess(self, session: _EditorSession) -> None:
+        """Politely shut down `session`'s subprocess, escalating to terminate/kill if needed."""
+        proc = session.proc
+        session.proc = None
         if proc is None or proc.returncode is not None:
             return
         try:
@@ -92,11 +111,11 @@ class EditorController:
                 await proc.wait()
 
     def _resolve_file(self, requested: str, configuration: str, content: str) -> str:
-        """Resolve a `read_file` request from the subprocess.
+        """Answer a `read_file` request from the validator subprocess.
 
-        The main file being edited returns the in-memory content; any other
-        file (e.g. `!include`d secrets.yaml) is read from disk so validation
-        sees a complete, current view.
+        Returns the in-memory `content` for the file currently being edited
+        and falls back to reading from disk for any other path the subprocess
+        asks about (e.g. files pulled in via `!include`).
         """
         cfg_dir = Path(self._db.settings.config_dir).resolve()
         try:
@@ -132,21 +151,28 @@ class EditorController:
         ``message`` and (for validation errors) a ``range`` with
         ``{start_line, start_col, end_line, end_col}`` (0-indexed).
         """
-        async with self._lock:
+        session = self._sessions.setdefault(configuration, _EditorSession())
+        async with session.lock:
             try:
                 return await asyncio.wait_for(
-                    self._validate_locked(configuration, content),
+                    self._validate_locked(session, configuration, content),
                     timeout=_VALIDATE_TIMEOUT,
                 )
             except (TimeoutError, RuntimeError, BrokenPipeError):
-                # Subprocess wedged or died — kill it, surface no errors so the
-                # editor stays usable. Next call will respawn.
-                await self._terminate_subprocess()
+                # Subprocess wedged or died — kill it so the next call respawns.
+                await self._terminate_subprocess(session)
                 raise
 
-    async def _validate_locked(self, configuration: str, content: str) -> dict:
-        await self._ensure_subprocess()
-        proc = self._proc
+    async def _validate_locked(
+        self, session: _EditorSession, configuration: str, content: str
+    ) -> dict:
+        """Run a single validation round-trip against `session`'s subprocess.
+
+        Caller must hold ``session.lock``; the stdin/stdout protocol is stateful
+        and any interleaving would corrupt subsequent responses.
+        """
+        await self._ensure_subprocess(session)
+        proc = session.proc
         assert proc is not None and proc.stdin is not None and proc.stdout is not None
 
         request = {"type": "validate", "file": configuration}
