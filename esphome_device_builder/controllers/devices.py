@@ -185,11 +185,81 @@ def _detect_platform_from_yaml(path: Path) -> str:
         return ""
 
 
+def _parse_esphome_meta(
+    yaml_content: str,
+) -> tuple[str | None, str | None, str | None]:
+    """Parse the top-level ``esphome:`` block for ``{name, friendly_name, comment}``.
+
+    Returns ``None`` for any field that isn't present in the YAML so callers
+    can distinguish "key absent" (fall through to storage) from "explicit
+    empty string" (user cleared the value).
+    """
+    name: str | None = None
+    friendly_name: str | None = None
+    comment: str | None = None
+    in_esphome = False
+
+    for line in yaml_content.splitlines():
+        if line and not line[0].isspace() and ":" in line:
+            key = line.split(":")[0].strip()
+            in_esphome = key == "esphome"
+            continue
+        if not in_esphome:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("#") or not stripped:
+            continue
+        for field, setter in (
+            ("name", "name"),
+            ("friendly_name", "friendly_name"),
+            ("comment", "comment"),
+        ):
+            prefix = f"{field}:"
+            if stripped.startswith(prefix):
+                value = stripped[len(prefix) :].strip()
+                # Strip inline `# comment` and matching quotes.
+                if "#" in value and not (value.startswith('"') or value.startswith("'")):
+                    value = value.split("#", 1)[0].rstrip()
+                if (value.startswith('"') and value.endswith('"')) or (
+                    value.startswith("'") and value.endswith("'")
+                ):
+                    value = value[1:-1]
+                if setter == "name":
+                    name = value
+                elif setter == "friendly_name":
+                    friendly_name = value
+                else:
+                    comment = value
+                break
+
+    return name, friendly_name, comment
+
+
 def _load_device_from_storage(path: Path, board_id: str = "") -> Device:
-    """Build a Device model from a YAML config file and its StorageJSON."""
+    """Build a Device model from a YAML config file and its StorageJSON.
+
+    User-editable fields (``name`` / ``friendly_name`` / ``comment``) come
+    from the YAML when present so the dashboard reflects edits immediately,
+    without having to wait for the next compile to refresh ``StorageJSON``.
+    """
     filename = path.name
     storage = StorageJSON.load(ext_storage_path(filename))
-    name = storage.name if storage else filename.removesuffix(".yml").removesuffix(".yaml")
+
+    try:
+        yaml_content = path.read_text(encoding="utf-8")
+    except OSError:
+        yaml_content = ""
+    yaml_name, yaml_friendly, yaml_comment = _parse_esphome_meta(yaml_content)
+
+    fallback_name = filename.removesuffix(".yml").removesuffix(".yaml")
+    storage_name = storage.name if storage else None
+    name = yaml_name or storage_name or fallback_name
+
+    storage_friendly = storage.friendly_name if storage else None
+    friendly_name = yaml_friendly if yaml_friendly is not None else (storage_friendly or name)
+
+    storage_comment = storage.comment if storage else None
+    comment = yaml_comment if yaml_comment is not None else storage_comment
 
     # Detect pending config changes
     has_pending = True  # default: needs compile
@@ -211,9 +281,9 @@ def _load_device_from_storage(path: Path, board_id: str = "") -> Device:
 
     return Device(
         name=name,
-        friendly_name=storage.friendly_name if storage else name,
+        friendly_name=friendly_name,
         configuration=filename,
-        comment=storage.comment if storage else None,
+        comment=comment,
         board_id=board_id,
         target_platform=target_platform,
         address=storage.address or "" if storage else "",
@@ -584,8 +654,9 @@ class DevicesController:
             yaml_content = f"esphome:\n  name: {name}\n  friendly_name: {friendly}\n\n"
 
         # Derive board_id from YAML when not explicitly provided
+        parsed_platform = ""
         if not board_id and self._db.boards:
-            _, pio_board, variant = _parse_platform_from_yaml(yaml_content)
+            parsed_platform, pio_board, variant = _parse_platform_from_yaml(yaml_content)
             if pio_board:
                 matched = self._db.boards.find_by_pio_board(pio_board, variant)
                 if matched:
@@ -601,7 +672,7 @@ class DevicesController:
 
         # Pre-create StorageJSON so device metadata is available immediately
         def _init_storage() -> None:
-            platform = str(board.esphome.platform) if board else ""
+            platform = str(board.esphome.platform) if board else parsed_platform
             storage = StorageJSON(
                 storage_version=1,
                 name=name,
