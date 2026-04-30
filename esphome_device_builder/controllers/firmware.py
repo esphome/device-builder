@@ -570,7 +570,8 @@ class FirmwareController:
                 await self._verify_chip(job)
 
             config_path = str(self._db.settings.rel_path(job.configuration))
-            cmd = self._build_command(job.job_type, config_path, job.port)
+            cache_args = self._build_cache_args(job)
+            cmd = self._build_command(job.job_type, config_path, job.port, cache_args)
             _LOGGER.debug("Running: %s", " ".join(cmd))
 
             # Force ANSI color output even though stdout isn't a TTY.
@@ -820,15 +821,27 @@ class FirmwareController:
 
         _LOGGER.debug("Chip verified: %s on %s", detected, job.port)
 
-    def _build_command(self, job_type: JobType, config_path: str, port: str) -> list[str]:
-        """Build the esphome CLI command for a given job type."""
+    def _build_command(
+        self,
+        job_type: JobType,
+        config_path: str,
+        port: str,
+        cache_args: list[str] | None = None,
+    ) -> list[str]:
+        """Build the esphome CLI command for a given job type.
+
+        ``cache_args`` are global ``--mdns-address-cache`` /
+        ``--dns-address-cache`` flags. They must come *before* the
+        subcommand because esphome's argparse parses them on the
+        top-level parser, not the per-subcommand one.
+        """
         cmd_map = {
             JobType.COMPILE: "compile",
             JobType.UPLOAD: "upload",
             JobType.INSTALL: "run",
             JobType.CLEAN: "clean",
         }
-        cmd = [*self._esphome_cmd, cmd_map[job_type], config_path]
+        cmd = [*self._esphome_cmd, *(cache_args or []), cmd_map[job_type], config_path]
         if job_type == JobType.INSTALL:
             # Without --no-logs the CLI tails logs forever after the
             # upload, never returning — the job would never complete.
@@ -836,6 +849,22 @@ class FirmwareController:
         if job_type in (JobType.UPLOAD, JobType.INSTALL) and port:
             cmd.extend(["--device", port])
         return cmd
+
+    def _build_cache_args(self, job: FirmwareJob) -> list[str]:
+        """Return ``--mdns/--dns-address-cache`` args to splice into the CLI command.
+
+        Mirrors the gating in ``esphome/dashboard/web_server.py``:
+        only OTA uploads (``port == "OTA"``) where the device has the
+        API integration loaded benefit from a pre-seeded cache. Serial
+        flashes don't talk to the device's network address at all.
+        """
+        if job.job_type not in (JobType.UPLOAD, JobType.INSTALL):
+            return []
+        if job.port != "OTA":
+            return []
+        if self._db.devices is None:
+            return []
+        return self._db.devices.get_address_cache_args(job.configuration)
 
     # ------------------------------------------------------------------
     # Internals — job management

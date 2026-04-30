@@ -39,6 +39,19 @@ StateChangeCallback = Callable[[str, DeviceState, str], None]
 # Empty string signals the device went offline / was removed from mDNS.
 IPChangeCallback = Callable[[str, str], None]
 
+# Callback fired when mDNS reports a new ESPHome version for a device
+# (i.e. the ``version`` TXT record on the ``_esphomelib._tcp.local.``
+# announcement). Lets the controller refresh ``StorageJSON`` so the
+# stored "deployed" version reflects what's actually running on the
+# device — important when devices were OTA-updated outside this
+# dashboard or flashed from another tool.
+VersionChangeCallback = Callable[[str, str], None]
+
+# TXT record key carrying the ESPHome firmware version on the device.
+# Bytes literal because zeroconf hands us raw bytes from the mDNS
+# packet; we decode at the call site.
+_TXT_RECORD_VERSION = b"version"
+
 
 class DeviceStateMonitor:
     """
@@ -55,12 +68,15 @@ class DeviceStateMonitor:
         get_devices: Callable[[], list[Device]],
         on_state_change: StateChangeCallback,
         on_ip_change: IPChangeCallback,
+        on_version_change: VersionChangeCallback | None = None,
     ) -> None:
         self._get_devices = get_devices
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
+        self._on_version_change = on_version_change
         self._state_source: dict[str, str] = {}  # device name → "mdns" | "ping"
         self._device_ips: dict[str, str] = {}  # device name → last known IP
+        self._device_versions: dict[str, str] = {}  # device name → last reported version
         self._zeroconf: AsyncEsphomeZeroconf | None = None
         self._mdns_browser: Any = None
         self._ping_task: asyncio.Task | None = None
@@ -136,6 +152,49 @@ class DeviceStateMonitor:
         self._on_ip_change(name, ip)
         return True
 
+    def apply_version(self, name: str, version: str) -> bool:
+        """
+        Record a firmware version observation from mDNS.
+
+        Same dedup pattern as ``apply_ip``: only forward when the value
+        actually changed. The owning controller is responsible for
+        persisting the new version (e.g. updating ``StorageJSON``) and
+        emitting a UI event.
+        """
+        if not version or self._on_version_change is None:
+            return False
+        if self._find_device_by_name(name) is None:
+            return False
+        if self._device_versions.get(name) == version:
+            return False
+        self._device_versions[name] = version
+        self._on_version_change(name, version)
+        return True
+
+    def get_cached_addresses(self, host_name: str) -> list[str] | None:
+        """Return zeroconf-cached IPs for *host_name* without triggering a query.
+
+        Mirrors ``MDNSStatus.get_cached_addresses`` in the legacy dashboard:
+        consult the zeroconf cache only — do not initiate a network resolve.
+        Returns ``None`` when zeroconf isn't running, the cache misses, or
+        the entry has expired.
+        """
+        if self._zeroconf is None:
+            return None
+        try:
+            from zeroconf import AddressResolver, IPVersion
+        except ImportError:
+            return None
+
+        normalized = host_name.rstrip(".").lower()
+        base_name = normalized.partition(".")[0]
+        resolver_name = f"{base_name}.local."
+        info = AddressResolver(resolver_name)
+        if not info.load_from_cache(self._zeroconf.zeroconf):
+            return None
+        addresses = info.parsed_scoped_addresses(IPVersion.All)
+        return addresses or None
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -199,7 +258,15 @@ class DeviceStateMonitor:
     async def _resolve_and_apply(
         self, zeroconf: Any, service_type: str, name: str, device_name: str
     ) -> None:
-        """Mark the device online and try to resolve its IPv4 address from mDNS."""
+        """Mark the device online and pull IP + firmware version from mDNS.
+
+        The ``_esphomelib._tcp.local.`` announcement carries a ``version``
+        TXT record with the firmware version actually running on the
+        device. This is the source of truth for what's deployed —
+        ``StorageJSON.esphome_version`` only knows what the dashboard
+        last compiled, which can disagree with reality after an
+        out-of-band OTA or a reflash from another tool.
+        """
         # State first — even if the resolve fails or times out, we know the device is online.
         self.apply(device_name, DeviceState.ONLINE, "mdns")
 
@@ -220,6 +287,16 @@ class DeviceStateMonitor:
                 # Strip any zone suffix (e.g. "fe80::1%en0") for display purposes.
                 ip = addresses[0].split("%", 1)[0]
                 self.apply_ip(device_name, ip)
+            version_bytes = info.properties.get(_TXT_RECORD_VERSION) if info.properties else None
+            if version_bytes:
+                try:
+                    self.apply_version(device_name, version_bytes.decode())
+                except UnicodeDecodeError:
+                    _LOGGER.debug(
+                        "Could not decode mDNS version TXT for %s: %r",
+                        device_name,
+                        version_bytes,
+                    )
         except Exception:
             _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)
 

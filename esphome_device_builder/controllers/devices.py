@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome import const
 from esphome.dashboard.util.text import friendly_name_slugify
+from esphome.helpers import sort_ip_addresses
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 
 try:
@@ -49,6 +50,51 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None) -> list[str]:
+    """Build ``--mdns-address-cache`` / ``--dns-address-cache`` CLI args.
+
+    Mirrors ``build_cache_arguments`` in
+    ``esphome/dashboard/web_server.py``. We hand the IP we already
+    resolved (via mDNS) to the CLI so it skips its own DNS / zeroconf
+    lookup — that lookup is the slow path on a fresh OTA invocation,
+    especially when zeroconf takes a couple of seconds to find the
+    device on a busy network.
+
+    For ``.local`` addresses we prefer zeroconf's own cache (it can
+    contain multiple IPs — IPv4 + IPv6 — and matches the source the
+    legacy dashboard uses). We fall back to the single IP we tracked
+    via mDNS resolution so the CLI gets *something* even if the
+    zeroconf cache entry expired between resolution and build time.
+    """
+    address = device.address
+    if not address:
+        return []
+
+    # mDNS hostnames are case-insensitive and may carry a trailing dot
+    # (the absolute form). Normalise once for both the suffix check and
+    # the CLI arg so the cache key matches what the CLI expects.
+    normalized = address.rstrip(".").lower()
+    is_local = normalized.endswith(".local")
+
+    addresses: list[str] = []
+    if is_local and monitor is not None:
+        cached = monitor.get_cached_addresses(address)
+        if cached:
+            addresses = list(cached)
+
+    if not addresses and device.ip:
+        addresses = [device.ip]
+
+    if not addresses:
+        return []
+
+    cache_type = "mdns" if is_local else "dns"
+    return [
+        f"--{cache_type}-address-cache",
+        f"{normalized}={','.join(sort_ip_addresses(addresses))}",
+    ]
+
+
 class DevicesController:
     """Manage device configurations, file watching, and CLI operations."""
 
@@ -69,6 +115,7 @@ class DevicesController:
             get_devices=self._get_devices,
             on_state_change=self._on_state_change,
             on_ip_change=self._on_ip_change,
+            on_version_change=self._on_version_change,
         )
 
     # ------------------------------------------------------------------
@@ -93,6 +140,26 @@ class DevicesController:
     def get_devices(self) -> list[Device]:
         """Snapshot of the currently-loaded devices."""
         return self._scanner.devices
+
+    def get_address_cache_args(self, configuration: str) -> list[str]:
+        """Return ``--mdns/--dns-address-cache`` CLI args for *configuration*.
+
+        Empty list when the device is unknown, doesn't have the API
+        integration loaded (so OTA wouldn't talk to it anyway), or we
+        have no cached IP to hand the CLI. Intended for the firmware
+        controller to splice into ``esphome upload`` / ``esphome run``
+        invocations on OTA so the CLI skips its own mDNS / DNS lookup.
+        """
+        target_name = configuration.removesuffix(".yaml").removesuffix(".yml")
+        device = next((d for d in self._scanner.devices if d.name == target_name), None)
+        if device is None:
+            return []
+        # The CLI's address cache is only consulted when the API client
+        # is in use — for non-API devices the OTA path doesn't go
+        # through the same resolver and the cache args would be inert.
+        if "api" not in device.loaded_integrations:
+            return []
+        return _build_address_cache_args(device, self._state_monitor)
 
     # ------------------------------------------------------------------
     # API commands — listing
@@ -561,6 +628,59 @@ class DevicesController:
         device.ip = ip
         _LOGGER.debug("Device %s IP: %s", name, ip or "(cleared)")
         self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+
+    def _on_version_change(self, name: str, version: str) -> None:
+        """Persist a fresh ESPHome version observed via mDNS.
+
+        Mirrors ``DashboardImportDiscovery.update_device_mdns`` in the
+        legacy dashboard: when a device announces a different version
+        than what we last compiled, write it back to ``StorageJSON`` so
+        the dashboard reflects what's *actually* on the device. The
+        in-memory ``Device`` is updated alongside so connected clients
+        see the change without waiting for the next scan.
+        """
+        device = next((d for d in self._scanner.devices if d.name == name), None)
+        if device is None:
+            return
+        if device.deployed_version == version:
+            return
+
+        # Disk write runs off the event loop — StorageJSON.load/save are
+        # blocking. Track it as a background task so any error gets
+        # logged via the loop's exception handler instead of vanishing.
+        self._db.create_background_task(
+            self._persist_storage_version_async(device.configuration, version)
+        )
+
+        old_version = device.deployed_version
+        device.deployed_version = version
+        device.update_available = bool(device.current_version and version != device.current_version)
+        _LOGGER.info("Device %s version: %s → %s (via mdns)", name, old_version or "?", version)
+        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+
+    async def _persist_storage_version_async(self, configuration: str, version: str) -> None:
+        """Update ``StorageJSON.esphome_version`` on disk if it differs."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._persist_storage_version, configuration, version)
+
+    @staticmethod
+    def _persist_storage_version(configuration: str, version: str) -> None:
+        """Run the synchronous StorageJSON load/save for the version write-through."""
+        storage_path = ext_storage_path(configuration)
+        storage = StorageJSON.load(storage_path)
+        if storage is None:
+            return
+        if storage.esphome_version == version:
+            return
+        previous = storage.esphome_version
+        storage.esphome_version = version
+        storage.save(storage_path)
+        _LOGGER.debug(
+            "Updated StorageJSON for %s with mdns version %s (was %s)",
+            configuration,
+            version,
+            previous,
+        )
 
     def _load_ignored_devices(self) -> None:
         storage_path = ignored_devices_storage_path()
