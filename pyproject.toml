@@ -39,7 +39,7 @@ test = [
   "pytest==9.0.2",
   "pytest-aiohttp==1.1.0",
   "pytest-cov==7.0.0",
-  "ruff==0.15.6",
+  "ruff==0.15.12",
 ]
 
 [project.urls]
