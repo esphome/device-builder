@@ -129,21 +129,23 @@ class DeviceStateMonitor:
         if self._ping_task is not None:
             self._ping_task.cancel()
             self._ping_task = None
-        # Cancel any in-flight mDNS resolve tasks before tearing down
-        # zeroconf so they don't fire ``apply_*`` callbacks against an
-        # already-closed instance and don't leave warnings about
-        # pending tasks at shutdown.
-        for task in self._tasks:
-            task.cancel()
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
-            self._tasks.clear()
+        # Cancel the browser FIRST so it stops dispatching new mDNS
+        # callbacks. If we drained ``self._tasks`` first, the browser
+        # could still spawn new resolve tasks during the ``gather``
+        # await and they'd miss the snapshot we took.
         if self._mdns_browser is not None:
             try:
                 await self._mdns_browser.async_cancel()
             except Exception:
                 _LOGGER.debug("mDNS browser cancel failed", exc_info=True)
             self._mdns_browser = None
+        # Now drain any in-flight resolve tasks. New tasks can no
+        # longer appear, so a single snapshot is safe.
+        for task in self._tasks:
+            task.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+            self._tasks.clear()
         if self._zeroconf is not None:
             try:
                 await self._zeroconf.async_close()
