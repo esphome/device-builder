@@ -411,7 +411,14 @@ def load_device_from_storage(
         comment=comment,
         board_id=board_id,
         target_platform=target_platform,
-        address=storage.address or "" if storage else "",
+        # StorageJSON only exists after a successful compile, so a
+        # freshly-added (or never-built) device would otherwise carry
+        # an empty ``address`` and fall out of the ping sweep — stuck
+        # in UNKNOWN forever. Fall back to ``<name>.local``, which
+        # matches what every ESPHome device's mDNS layer announces as
+        # by default. The scanner refreshes this on the next compile
+        # if the user picks a different ``esphome.address``.
+        address=(storage.address if storage and storage.address else f"{name}.local"),
         ip=ip,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
