@@ -219,9 +219,10 @@ def generate_component_yaml(
         indent = "  "
 
     for key, value in fields.items():
-        if key == "id" and not value:
-            value = _generate_id(unqualified, fields.get("name"))
-        lines.extend(_emit_field(key, value, indent))
+        emit_value = (
+            _generate_id(unqualified, fields.get("name")) if key == "id" and not value else value
+        )
+        lines.extend(_emit_field(key, emit_value, indent))
 
     return "\n".join(lines)
 

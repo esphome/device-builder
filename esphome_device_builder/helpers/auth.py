@@ -314,7 +314,7 @@ _PUBLIC_PREFIXES = ("/assets/", "/boards/images/")
 
 
 @web.middleware
-async def auth_middleware(request: web.Request, handler: Any) -> web.StreamResponse:
+async def auth_middleware(request: web.Request, handler: Any) -> web.StreamResponse:  # noqa: PLR0911
     """
     Gate REST endpoints by ``Authorization`` header.
 

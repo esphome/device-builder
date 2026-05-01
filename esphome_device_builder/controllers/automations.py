@@ -242,9 +242,11 @@ class AutomationsController:
         triggers = list(_DEVICE_TRIGGERS)
 
         # Add component-level triggers matching present platform types
-        for trigger in _COMPONENT_TRIGGERS:
-            if any(pt in present_types for pt in trigger.platform_types):
-                triggers.append(trigger)
+        triggers.extend(
+            trigger
+            for trigger in _COMPONENT_TRIGGERS
+            if any(pt in present_types for pt in trigger.platform_types)
+        )
 
         return {
             "triggers": [t.to_dict() for t in triggers],

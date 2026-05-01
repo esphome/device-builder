@@ -1140,10 +1140,7 @@ def load_image_map() -> dict[str, str]:
         parts = [p for p in path.strip("/").split("/")[1:] if p]
         if not parts:
             continue
-        if len(parts) >= 2:
-            component_id = f"{parts[0]}.{parts[1]}"
-        else:
-            component_id = parts[0]
+        component_id = f"{parts[0]}.{parts[1]}" if len(parts) >= 2 else parts[0]
         out.setdefault(component_id, _IMAGE_BASE_URL + image)
         # Also store under the bare stem when only one platform exists,
         # so lookups by either id work.
@@ -1373,7 +1370,7 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
     return inner
 
 
-def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:
+def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noqa: PLR0912, PLR0915
     """Build a single ConfigEntry dict from a schema's config_var entry."""
     if not isinstance(raw, dict):
         # Some schemas use bare ``{}``-shaped placeholders for fields
@@ -1439,9 +1436,8 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:
 
     # Key-name fallback — ``icon`` / ``mac_address`` are usually
     # untyped strings in the schema.
-    if entry_type is None:
-        if key == "icon":
-            entry_type = "icon"
+    if entry_type is None and key == "icon":
+        entry_type = "icon"
 
     if entry_type is None and inner_schema and inner_schema.get("config_vars"):
         entry_type = "nested"
@@ -1592,7 +1588,7 @@ def _build_options(raw: dict) -> list[dict] | None:
         return None
     options: list[dict] = []
     for value, info in values.items():
-        label = value if value else "(none)"
+        label = value or "(none)"
         if isinstance(info, dict) and info.get("docs"):
             label = info["docs"]
         options.append({"label": label, "value": value})
@@ -1638,24 +1634,18 @@ def _is_own_id_field(raw: dict) -> bool:
     """
     if raw.get("key") == "GeneratedID":
         return True
-    if isinstance(raw.get("id_type"), dict) and "use_id_type" not in raw:
-        return True
-    return False
+    return bool(isinstance(raw.get("id_type"), dict) and "use_id_type" not in raw)
 
 
 def _resolve_pin_features(raw: dict) -> list[str]:
     """Translate the schema's ``modes`` list into our PinFeature enum keys."""
     modes = raw.get("modes") or []
-    out: list[str] = []
-    for m in modes:
-        # Schema uses ``input``/``output``/``pullup``/``pulldown`` etc.
-        # Our PinFeature enum tracks more capability tags (i2c_sda,
-        # spi_clk, ...) but those don't appear here — only directional
-        # / pull modes do. Pass them through; downstream code can drop
-        # unknown values via _safe_enum.
-        if isinstance(m, str):
-            out.append(m)
-    return out
+    # Schema uses ``input``/``output``/``pullup``/``pulldown`` etc.
+    # Our PinFeature enum tracks more capability tags (i2c_sda,
+    # spi_clk, ...) but those don't appear here — only directional
+    # / pull modes do. Pass them through; downstream code can drop
+    # unknown values via _safe_enum.
+    return [m for m in modes if isinstance(m, str)]
 
 
 def _detect_platform_type(inner_schema: dict) -> str | None:
@@ -1779,7 +1769,7 @@ def _looks_like_boolean_enum(raw: dict) -> bool:
     if not isinstance(values, dict):
         return False
     keys = {str(k).lower() for k in values}
-    return keys == {"true", "false"} or keys == {"true", "false", "yes", "no"}
+    return keys in ({"true", "false"}, {"true", "false", "yes", "no"})
 
 
 def _looks_like_time_period_default(value: Any) -> bool:
@@ -2034,7 +2024,7 @@ def _get_esphome_loader() -> Any:
         return _ESPHOME_LOADER_CACHE["module"]
     _ESPHOME_LOADER_CACHE["resolved"] = True
     try:
-        import esphome.loader as loader
+        from esphome import loader
 
         _ESPHOME_LOADER_CACHE["module"] = loader
         _LOGGER.info("esphome introspection enabled (esphome.loader importable)")
@@ -2200,7 +2190,7 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
     return out
 
 
-def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], str]:
+def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], str]:  # noqa: PLR0915
     """Walk the live ``CONFIG_SCHEMA`` to recover types the schema lost.
 
     The pre-built schema collapses many ``cv.boolean`` / ``cv.float_`` /
@@ -2377,7 +2367,7 @@ def _load_unit_of_measurement_options() -> list[dict[str, str]]:
     Empty list when esphome isn't importable.
     """
     try:
-        import esphome.const as const
+        from esphome import const
     except Exception:
         return []
     raw = sorted(

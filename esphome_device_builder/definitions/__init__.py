@@ -94,9 +94,11 @@ def _resolve_images(board_dir: Path, manifest_images: list[str] | None) -> list[
     images_dir = board_dir / "images"
     if images_dir.is_dir():
         known = {p.rsplit("/", 1)[-1] for p in images}
-        for img in sorted(images_dir.iterdir()):
-            if img.suffix.lower() in _IMAGE_EXTENSIONS and img.name not in known:
-                images.append(_local_to_url(img))
+        images.extend(
+            _local_to_url(img)
+            for img in sorted(images_dir.iterdir())
+            if img.suffix.lower() in _IMAGE_EXTENSIONS and img.name not in known
+        )
 
     return images
 

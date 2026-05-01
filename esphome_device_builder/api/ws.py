@@ -6,6 +6,7 @@ Single /ws endpoint. Dispatches commands to handlers registered on DeviceBuilder
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -75,10 +76,8 @@ class WebSocketClient:
 
     async def send(self, data: dict[str, Any]) -> None:
         """Send a JSON message."""
-        try:
+        with contextlib.suppress(ConnectionResetError):
             await self._ws.send_str(orjson.dumps(data).decode())
-        except ConnectionResetError:
-            pass
         if self._close_after_send:
             await self._ws.close()
 

@@ -13,10 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def json_response(data: Any, status: int = 200) -> web.Response:
     """Return a JSON response, serialising dataclasses via mashumaro."""
-    if hasattr(data, "to_dict"):
-        body = data.to_dict()
-    else:
-        body = data
+    body = data.to_dict() if hasattr(data, "to_dict") else data
     return web.Response(
         status=status,
         content_type="application/json",

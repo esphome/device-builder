@@ -622,7 +622,7 @@ class FirmwareController:
         except asyncio.CancelledError:
             pass
 
-    async def _execute_job(self, job: FirmwareJob) -> None:
+    async def _execute_job(self, job: FirmwareJob) -> None:  # noqa: PLR0912, PLR0915
         """Execute a single firmware job."""
         job.status = JobStatus.RUNNING
         job.started_at = datetime.now(UTC).isoformat()
@@ -836,10 +836,8 @@ class FirmwareController:
                 self._current_job.job_id if self._current_job else "?",
                 _TERMINATE_GRACE_SECONDS,
             )
-            try:
+            with suppress(ProcessLookupError):
                 proc.kill()
-            except ProcessLookupError:
-                pass
 
     async def _reset_build_env(self, job: FirmwareJob) -> None:
         """

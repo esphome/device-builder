@@ -189,7 +189,7 @@ def device_uses_mqtt(yaml_content: str) -> bool:
     return False
 
 
-def parse_esphome_meta(
+def parse_esphome_meta(  # noqa: PLR0912
     yaml_content: str,
 ) -> tuple[str | None, str | None, str | None]:
     """

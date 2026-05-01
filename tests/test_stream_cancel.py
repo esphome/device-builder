@@ -35,8 +35,7 @@ def _make_client() -> WebSocketClient:
 
 def _make_controller() -> DevicesController:
     """Return a DevicesController shell that ``_stream_subprocess`` can use."""
-    ctrl = DevicesController.__new__(DevicesController)
-    return ctrl
+    return DevicesController.__new__(DevicesController)
 
 
 async def test_register_and_cancel_stream_runs_task_to_cancellation() -> None:

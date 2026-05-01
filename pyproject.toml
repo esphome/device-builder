@@ -85,6 +85,9 @@ ignore = [
   "D203", # conflicts with D211
   "D213", # conflicts with D212
   "D417", # false positives
+  "PLC0415", # late imports are deliberate (avoid circular deps, lazy esphome load)
+  "PLR0913", # too many arguments — not a useful constraint here
+  "PLR2004", # magic value comparison — too noisy for status codes / structural checks
   "S101", # assert used for type checking
   "S104", # binding to all interfaces
 ]
@@ -95,10 +98,16 @@ select = [
   "D", # pydocstyle
   "E", # pycodestyle errors
   "F", # pyflakes
+  "FLY", # flynt: convert string formatting to f-strings
+  "FURB", # refurb
   "I", # isort
   "N", # pep8-naming
+  "PERF", # performance
+  "PL", # pylint
+  "RET", # flake8-return
   "RUF", # ruff-specific
   "S", # flake8-bandit
+  "SIM", # flake8-simplify
   "T20", # flake8-print
   "UP", # pyupgrade
   "W", # pycodestyle warnings

@@ -22,6 +22,7 @@ back to its mtime check.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import sys
@@ -96,10 +97,8 @@ async def compute_yaml_config_hash(yaml_path: Path) -> str | None:
         # Race: the subprocess may have exited between the timeout
         # firing and ``kill()`` being called — swallow the lookup
         # error so a recoverable timeout doesn't bubble up.
-        try:
+        with contextlib.suppress(ProcessLookupError):
             proc.kill()
-        except ProcessLookupError:
-            pass
         await proc.wait()
         return None
 

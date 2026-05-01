@@ -19,6 +19,8 @@ try:
 except ImportError:
     import_config = None  # type: ignore[assignment]
 
+import contextlib
+
 from ..helpers.api import api_command
 from ..helpers.config_hash import compute_yaml_config_hash
 from ..helpers.device_yaml import (
@@ -933,10 +935,8 @@ class DevicesController:
             if proc is not None and proc.returncode is None:
                 # Reap so the transport closes cleanly; shielded so an
                 # additional cancellation doesn't strand the subprocess.
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await asyncio.shield(proc.wait())
-                except asyncio.CancelledError:
-                    pass
 
         await client.send_event(
             message_id, "result", {"success": exit_code == 0, "code": exit_code}

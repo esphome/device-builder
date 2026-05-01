@@ -26,6 +26,8 @@ try:
 except ImportError:  # pragma: no cover — paho-mqtt arrives via the [esphome] extra
     paho_mqtt = None  # type: ignore[assignment]
 
+import contextlib
+
 from ..models import DeviceState
 
 _LOGGER = logging.getLogger(__name__)
@@ -114,10 +116,8 @@ class DeviceMqttMonitor:
         if self._task is None:
             return
         self._task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await self._task
-        except asyncio.CancelledError:
-            pass
         self._task = None
         self._last_seen.clear()
 

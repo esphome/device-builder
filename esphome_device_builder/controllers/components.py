@@ -249,9 +249,8 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
     so the resolution applies at every depth.
     """
     default = entry.default_value
-    if target_platform and entry.platform_defaults:
-        if target_platform in entry.platform_defaults:
-            default = entry.platform_defaults[target_platform]
+    if target_platform and entry.platform_defaults and target_platform in entry.platform_defaults:
+        default = entry.platform_defaults[target_platform]
     nested = (
         [_materialise_entry(e, target_platform) for e in entry.config_entries]
         if entry.config_entries

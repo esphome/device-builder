@@ -278,7 +278,7 @@ class DeviceStateMonitor:
             # mDNS reports "<my-device>._esphomelib._tcp.local." — strip
             # the service suffix and convert hyphens (mDNS) back to
             # underscores (YAML config naming).
-            device_name = name.split(".")[0].replace("-", "_")
+            device_name = name.split(".", maxsplit=1)[0].replace("-", "_")
             _LOGGER.debug("mDNS: %s %s (raw: %s)", state_change, device_name, name)
 
             # zeroconf callbacks fire on a different thread — bounce work

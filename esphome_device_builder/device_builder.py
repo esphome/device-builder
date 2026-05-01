@@ -8,6 +8,7 @@ the DevicesController, not here.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -126,10 +127,8 @@ class DeviceBuilder:
         """Shut down the application."""
         if self._bg_task:
             self._bg_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._bg_task
-            except asyncio.CancelledError:
-                pass
         for task in self._background_tasks:
             task.cancel()
         if self._background_tasks:

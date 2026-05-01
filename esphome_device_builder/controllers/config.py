@@ -10,7 +10,7 @@ import os
 import tempfile
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -167,10 +167,8 @@ def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
             json.dump(data, fh, indent=2)
         os.replace(tmp_path, path)
     except Exception:
-        try:
+        with suppress(OSError):
             tmp_path.unlink()
-        except OSError:
-            pass
         raise
 
 
