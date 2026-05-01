@@ -8,6 +8,10 @@ import hmac
 import json
 import logging
 import os
+import tempfile
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -118,6 +122,27 @@ class DashboardSettings:
 # Metadata persistence (device-builder.json)
 # ---------------------------------------------------------------------------
 
+# Several controllers (firmware queue, device CRUD, preferences, IP
+# cache) all RMW this file from the executor pool. Without serialisation
+# two writers landing in the same window lose each other's updates.
+_METADATA_LOCK = threading.Lock()
+
+
+@contextmanager
+def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
+    """
+    Atomic read-modify-write context for the metadata sidecar.
+
+    Yields the current metadata dict. Mutate it in place; on exit the
+    changes are persisted atomically. Concurrent transactions are
+    serialised so updates can't clobber each other. Use this for any
+    write to the sidecar.
+    """
+    with _METADATA_LOCK:
+        data = _load_metadata(config_dir)
+        yield data
+        _save_metadata(config_dir, data)
+
 
 def _load_metadata(config_dir: Path) -> dict[str, Any]:
     path = config_dir / _METADATA_FILE
@@ -130,7 +155,19 @@ def _load_metadata(config_dir: Path) -> dict[str, Any]:
 
 def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
     path = config_dir / _METADATA_FILE
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    # tempfile + os.replace so lock-free readers never observe a partial write.
+    fd, tmp_name = tempfile.mkstemp(prefix=f"{_METADATA_FILE}.", suffix=".tmp", dir=str(config_dir))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def get_board_id(config_dir: Path, filename: str) -> str:
@@ -155,17 +192,16 @@ def set_device_metadata(
     persisted value unchanged (mDNS clears the in-memory IP whenever a
     device drops off the network, but the cache is still useful).
     """
-    data = _load_metadata(config_dir)
-    entry = data.setdefault(filename, {})
-    if board_id is not None:
-        entry["board_id"] = board_id
-    if friendly_name is not None:
-        entry["friendly_name"] = friendly_name
-    if comment is not None:
-        entry["comment"] = comment
-    if ip:
-        entry["ip"] = ip
-    _save_metadata(config_dir, data)
+    with metadata_transaction(config_dir) as data:
+        entry = data.setdefault(filename, {})
+        if board_id is not None:
+            entry["board_id"] = board_id
+        if friendly_name is not None:
+            entry["friendly_name"] = friendly_name
+        if comment is not None:
+            entry["comment"] = comment
+        if ip:
+            entry["ip"] = ip
 
 
 def get_device_metadata(config_dir: Path, filename: str) -> dict[str, Any]:
@@ -181,9 +217,8 @@ def get_device_ip(config_dir: Path, filename: str) -> str:
 
 def remove_device_metadata(config_dir: Path, filename: str) -> None:
     """Remove metadata for a device."""
-    data = _load_metadata(config_dir)
-    data.pop(filename, None)
-    _save_metadata(config_dir, data)
+    with metadata_transaction(config_dir) as data:
+        data.pop(filename, None)
 
 
 def load_preferences(config_dir: Path) -> UserPreferences:
@@ -197,9 +232,8 @@ def load_preferences(config_dir: Path) -> UserPreferences:
 
 def save_preferences(config_dir: Path, prefs: UserPreferences) -> None:
     """Save user preferences to disk."""
-    data = _load_metadata(config_dir)
-    data[_PREFS_KEY] = prefs.to_dict()
-    _save_metadata(config_dir, data)
+    with metadata_transaction(config_dir) as data:
+        data[_PREFS_KEY] = prefs.to_dict()
 
 
 # ---------------------------------------------------------------------------

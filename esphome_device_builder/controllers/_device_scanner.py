@@ -14,6 +14,7 @@ import logging
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
+from typing import NamedTuple
 
 from esphome import util
 
@@ -24,6 +25,13 @@ _LOGGER = logging.getLogger(__name__)
 
 # (inode, device, mtime, size) — combined cache key for change detection.
 _CacheKey = tuple[int, int, float, int]
+
+
+class DeviceFileMetadata(NamedTuple):
+    """Persisted sidecar fields the scanner threads into each ``Device``."""
+
+    board_id: str
+    ip: str
 
 
 class ScanChange(StrEnum):
@@ -39,6 +47,10 @@ class ScanChange(StrEnum):
 # for firing whatever events / state updates are appropriate.
 ScanCallback = Callable[[ScanChange, Device], None]
 
+# Callback that resolves the persisted sidecar metadata for a device
+# file. Called once per (added or updated) file during a scan.
+MetadataResolver = Callable[[Path, str], DeviceFileMetadata]
+
 
 class DeviceScanner:
     """
@@ -51,17 +63,11 @@ class DeviceScanner:
     def __init__(
         self,
         config_dir: Path,
-        get_board_id: Callable[[Path, str], str],
+        get_metadata: MetadataResolver,
         on_change: ScanCallback,
-        get_ip: Callable[[Path, str], str] | None = None,
     ) -> None:
         self._config_dir = config_dir
-        self._get_board_id = get_board_id
-        # Optional IP resolver — looks up the last-known resolved IP
-        # from the metadata sidecar so the OTA address cache survives
-        # restarts. Defaults to a no-op so tests that don't care about
-        # persistence stay simple.
-        self._get_ip = get_ip or (lambda _config_dir, _filename: "")
+        self._get_metadata = get_metadata
         self._on_change = on_change
         self._devices: dict[Path, Device] = {}
         self._cache_keys: dict[Path, _CacheKey] = {}
@@ -131,9 +137,8 @@ class DeviceScanner:
         result: dict[Path, Device] = {}
         for path in paths:
             try:
-                board_id = self._get_board_id(self._config_dir, path.name)
-                ip = self._get_ip(self._config_dir, path.name)
-                result[path] = load_device_from_storage(path, board_id, ip)
+                metadata = self._get_metadata(self._config_dir, path.name)
+                result[path] = load_device_from_storage(path, metadata.board_id, metadata.ip)
             except Exception:
                 _LOGGER.warning("Failed to load device from %s", path.name)
         return result

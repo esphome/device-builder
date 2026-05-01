@@ -36,11 +36,9 @@ from ..models import (
     WizardResponse,
 )
 from ._device_mqtt_coordinator import DeviceMqttCoordinator
-from ._device_scanner import DeviceScanner, ScanChange
+from ._device_scanner import DeviceFileMetadata, DeviceScanner, ScanChange
 from ._device_state_monitor import DeviceStateMonitor
 from .config import (
-    get_board_id,
-    get_device_ip,
     get_device_metadata,
     remove_device_metadata,
     set_device_metadata,
@@ -65,9 +63,8 @@ class DevicesController:
 
         self._scanner = DeviceScanner(
             config_dir=self._db.settings.config_dir,
-            get_board_id=self._resolve_board_id,
+            get_metadata=self._resolve_device_metadata,
             on_change=self._on_scan_change,
-            get_ip=get_device_ip,
         )
         self._state_monitor = DeviceStateMonitor(
             get_devices=self._get_devices,
@@ -522,10 +519,11 @@ class DevicesController:
         """Bridge for the state monitor (``self._scanner.devices`` is a property)."""
         return self._scanner.devices
 
-    def _resolve_board_id(self, config_dir: Path, filename: str) -> str:
-        """Resolve a device's board_id from metadata, falling back to YAML.
+    def _resolve_device_metadata(self, config_dir: Path, filename: str) -> DeviceFileMetadata:
+        """
+        Resolve a device's persisted ``board_id`` and ``ip``.
 
-        Priority:
+        ``board_id`` priority:
           1. ``metadata.json`` — set explicitly when the user picks a
              board through the UI, or backfilled by a previous scan.
           2. Parse the YAML's ``esphome.platform`` / ``board`` /
@@ -541,10 +539,19 @@ class DevicesController:
 
         On any successful YAML-derived match we persist the result to
         metadata so subsequent scans skip the YAML parse.
+
+        ``ip`` is the last-known resolved address from the metadata
+        sidecar (``""`` if never seen).
         """
-        bid = get_board_id(config_dir, filename)
-        if bid:
-            return bid
+        md = get_device_metadata(config_dir, filename)
+        ip = str(md.get("ip", ""))
+        board_id = str(md.get("board_id", ""))
+        if not board_id:
+            board_id = self._derive_board_id_from_yaml(config_dir, filename)
+        return DeviceFileMetadata(board_id=board_id, ip=ip)
+
+    def _derive_board_id_from_yaml(self, config_dir: Path, filename: str) -> str:
+        """Parse the device YAML and look up a matching catalog board, or ``""``."""
         if self._db.boards is None:
             return ""
         yaml_path = config_dir / filename

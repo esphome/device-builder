@@ -21,7 +21,7 @@ from uuid import uuid4
 from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 from esphome.storage_json import StorageJSON, ext_storage_path
 
-from ..controllers.config import _load_metadata, _save_metadata
+from ..controllers.config import _load_metadata, metadata_transaction
 from ..helpers.api import api_command
 from ..models import EventType, FirmwareJob, JobStatus, JobType
 
@@ -1118,8 +1118,7 @@ class FirmwareController:
         config_dir = self._db.settings.config_dir
 
         def _save() -> None:
-            data = _load_metadata(config_dir)
-            data[_JOBS_KEY] = [j.to_dict() for j in self._jobs.values()]
-            _save_metadata(config_dir, data)
+            with metadata_transaction(config_dir) as data:
+                data[_JOBS_KEY] = [j.to_dict() for j in self._jobs.values()]
 
         await loop.run_in_executor(None, _save)

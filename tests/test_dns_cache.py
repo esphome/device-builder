@@ -395,3 +395,32 @@ def test_on_ip_change_skips_persist_for_empty_value() -> None:
 
     assert device.ip == ""
     db.create_background_task.assert_not_called()
+
+
+def test_metadata_transaction_serialises_concurrent_writers(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """
+    Concurrent ``set_device_metadata`` calls from threads can't lose updates.
+
+    Without the module-level lock the load → mutate → save cycle would
+    race: two writers would both load the same snapshot, each add their
+    own field, and the later save would clobber the earlier. The lock
+    serialises the cycle so every write lands.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from esphome_device_builder.controllers.config import (
+        _load_metadata,
+        set_device_metadata,
+    )
+
+    writer_count = 32
+
+    def _write(i: int) -> None:
+        set_device_metadata(tmp_path, f"device-{i}.yaml", board_id=f"board-{i}")
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(_write, range(writer_count)))
+
+    data = _load_metadata(tmp_path)
+    for i in range(writer_count):
+        assert data[f"device-{i}.yaml"]["board_id"] == f"board-{i}"
