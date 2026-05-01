@@ -23,6 +23,8 @@ import aiohttp
 from aiohttp import web
 from esphome import yaml_util
 
+from ..helpers.subprocess import create_subprocess_exec
+
 _LOGGER = logging.getLogger(__name__)
 
 _ESPHOME_CMD = [sys.executable, "-m", "esphome"]
@@ -50,7 +52,7 @@ async def _handle_legacy_ws_command(
         if extra_args_fn:
             cmd.extend(extra_args_fn(data))
 
-        proc = await asyncio.create_subprocess_exec(
+        proc = await create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

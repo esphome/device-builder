@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..helpers.api import api_command
+from ..helpers.subprocess import create_subprocess_exec
 from .firmware import _find_esphome_cmd
 
 if TYPE_CHECKING:
@@ -74,7 +75,7 @@ class EditorController:
         config_dir = str(self._db.settings.config_dir)
         cmd = [*self._esphome_cmd, "vscode", config_dir, "--ace"]
         _LOGGER.info("Spawning vscode subprocess: %s", " ".join(cmd))
-        session.proc = await asyncio.create_subprocess_exec(
+        session.proc = await create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,

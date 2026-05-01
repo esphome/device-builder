@@ -23,6 +23,7 @@ from esphome.storage_json import StorageJSON, ext_storage_path
 
 from ..controllers.config import _load_metadata, metadata_transaction
 from ..helpers.api import api_command
+from ..helpers.subprocess import create_subprocess_exec
 from ..models import EventType, FirmwareJob, JobStatus, JobType
 
 if TYPE_CHECKING:
@@ -666,7 +667,7 @@ class FirmwareController:
                 "CLICOLOR_FORCE": "1",
                 "PYTHONUNBUFFERED": "1",
             }
-            proc = await asyncio.create_subprocess_exec(
+            proc = await create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -922,7 +923,7 @@ class FirmwareController:
         if not expected_platform:
             return  # can't verify without knowing expected platform
 
-        proc = await asyncio.create_subprocess_exec(
+        proc = await create_subprocess_exec(
             sys.executable,
             "-m",
             "esptool",

@@ -25,6 +25,7 @@ from ..helpers.device_yaml import (
     generate_device_yaml,
     parse_platform_from_yaml,
 )
+from ..helpers.subprocess import create_subprocess_exec
 from ..helpers.yaml import merge_component_yaml, rewrite_esphome_name
 from ..models import (
     AddComponentResponse,
@@ -333,7 +334,7 @@ class DevicesController:
         config_path = str(self._db.settings.rel_path(configuration))
         cmd = [*self._esphome_cmd, "rename", config_path, new_name]
 
-        proc = await asyncio.create_subprocess_exec(
+        proc = await create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -905,7 +906,7 @@ class DevicesController:
         env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
         proc: asyncio.subprocess.Process | None = None
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,

@@ -27,6 +27,8 @@ import re
 import sys
 from pathlib import Path
 
+from .subprocess import create_subprocess_exec
+
 _LOGGER = logging.getLogger(__name__)
 
 # Inline script run as ``python -c <SCRIPT> <yaml_path>``. Run in a
@@ -73,7 +75,7 @@ async def compute_yaml_config_hash(yaml_path: Path) -> str | None:
     than as an error to propagate.
     """
     try:
-        proc = await asyncio.create_subprocess_exec(
+        proc = await create_subprocess_exec(
             sys.executable,
             "-c",
             _HASH_SCRIPT,
