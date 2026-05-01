@@ -422,11 +422,12 @@ class DeviceStateMonitor:
         if not devices_to_ping:
             return
 
-        _LOGGER.debug(
-            "Pinging %d devices: %s",
-            len(devices_to_ping),
-            ", ".join(f"{d.name} ({d.address})" for d in devices_to_ping),
-        )
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "Pinging %d devices: %s",
+                len(devices_to_ping),
+                ", ".join(f"{d.name} ({d.address})" for d in devices_to_ping),
+            )
 
         for i in range(0, len(devices_to_ping), _PING_BATCH_SIZE):
             batch = devices_to_ping[i : i + _PING_BATCH_SIZE]
