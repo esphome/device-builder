@@ -538,8 +538,10 @@ class DevicesController:
         ``stream_id`` is the ``message_id`` returned when the streaming
         command was issued. Returns ``{"cancelled": True}`` if a matching
         in-flight stream was found; ``{"cancelled": False}`` otherwise
-        (already finished or never registered).
+        (already finished, never registered, or no client context).
         """
+        if client is None:
+            return {"cancelled": False}
         return {"cancelled": client.cancel_stream(stream_id)}
 
     # ------------------------------------------------------------------
@@ -894,16 +896,21 @@ class DevicesController:
         command (or a WS disconnect) can cancel it; cancellation kills the
         subprocess so it doesn't keep running detached.
         """
-        env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            env=env,
-        )
+        # Register before the first await so an early ``stop_stream`` (during
+        # subprocess spawn) still finds and cancels this task.
+        task = asyncio.current_task()
+        assert task is not None  # always running inside a Task
+        client.register_stream(message_id, task)
 
-        client.register_stream(message_id, asyncio.current_task())
+        env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
+        proc: asyncio.subprocess.Process | None = None
         try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=env,
+            )
             assert proc.stdout is not None
             async for line_bytes in proc.stdout:
                 line = line_bytes.decode("utf-8", errors="replace").rstrip("\n\r")
@@ -912,8 +919,9 @@ class DevicesController:
         except asyncio.CancelledError:
             # Synchronous kill only — no awaits in the cancel path. The
             # ``finally`` block reaps the process and ``devices/stop_stream``
-            # is what tells the frontend the cancel succeeded.
-            if proc.returncode is None:
+            # is what tells the frontend the cancel succeeded. ``proc`` may
+            # be ``None`` if cancellation arrived before spawn returned.
+            if proc is not None and proc.returncode is None:
                 proc.kill()
             # Honour the cancellation contract — only swallow if no
             # outstanding cancel requests remain on this task.
@@ -922,7 +930,7 @@ class DevicesController:
             return
         finally:
             client.unregister_stream(message_id)
-            if proc.returncode is None:
+            if proc is not None and proc.returncode is None:
                 # Reap so the transport closes cleanly; shielded so an
                 # additional cancellation doesn't strand the subprocess.
                 try:
