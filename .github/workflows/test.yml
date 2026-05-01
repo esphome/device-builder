@@ -64,14 +64,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux runs the full Python matrix; Windows and macOS only
-        # run on the newest Python to keep CI cost down while still
-        # catching OS-specific regressions.
+        # Linux covers the oldest and newest supported Python (3.12
+        # and 3.14); 3.13 sits between them and rarely surfaces
+        # anything 3.12 and 3.14 don't. Windows and macOS only run
+        # on the newest Python — enough to catch OS-specific
+        # regressions without paying for extra runs on slower runners.
         include:
           - os: ubuntu-latest
             python-version: "3.12"
-          - os: ubuntu-latest
-            python-version: "3.13"
           - os: ubuntu-latest
             python-version: "3.14"
           - os: windows-latest
