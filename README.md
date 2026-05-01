@@ -36,8 +36,15 @@ git clone https://github.com/esphome/device-builder
 cd device-builder
 script/setup
 source .venv/bin/activate
-esphome-device-builder ./configs --log-level debug
+esphome-device-builder ./configs --log-level debug --dev
 ```
+
+`--dev` serves `index.html` with `Cache-Control: no-cache` so a
+re-deployed frontend wheel isn't masked by a browser-cached SPA
+shell pointing at a now-deleted hashed bundle. Hashed bundles
+themselves stay `immutable` regardless. Skip `--dev` in production —
+the browser's default heuristic is fine when you're not rebuilding
+every few minutes.
 
 ## Roadmap
 

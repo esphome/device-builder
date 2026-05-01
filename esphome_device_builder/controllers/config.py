@@ -58,6 +58,12 @@ class DashboardSettings:
     host: str = "0.0.0.0"
     ingress_port: int = DEFAULT_INGRESS_PORT
     ingress_host: str = ""
+    # In dev mode the SPA shell is served with ``Cache-Control: no-cache``
+    # so a re-deployed wheel isn't masked by a browser-cached
+    # ``index.html`` pointing at a now-deleted hashed bundle. In
+    # production we let the browser apply its default heuristic; the
+    # hashed bundles are still served as ``immutable`` regardless.
+    dev_mode: bool = False
 
     def parse_args(self, args: Any) -> None:
         """Parse CLI arguments into settings."""
@@ -86,6 +92,7 @@ class DashboardSettings:
         self.host = getattr(args, "host", "0.0.0.0")
         self.ingress_port = getattr(args, "ingress_port", DEFAULT_INGRESS_PORT)
         self.ingress_host = getattr(args, "ingress_host", "") or ""
+        self.dev_mode = bool(getattr(args, "dev", False))
         CORE.config_path = self.config_dir / _DASHBOARD_SENTINEL_FILE
 
     def rel_path(self, *parts: str) -> Path:

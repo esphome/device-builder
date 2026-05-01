@@ -89,6 +89,16 @@ def main() -> None:
         help="Log level",
     )
     parser.add_argument("--log-file", default=None, help="Log to file (rotated)")
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help=(
+            "Development mode: serve ``index.html`` with ``Cache-Control: "
+            "no-cache`` so the browser always picks up a freshly-rebuilt "
+            "frontend wheel. Disabled by default — the browser's heuristic "
+            "is fine in production."
+        ),
+    )
 
     args = parser.parse_args()
 

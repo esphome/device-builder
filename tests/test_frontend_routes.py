@@ -35,9 +35,9 @@ def _make_frontend(tmp_path: Path) -> Path:
     return frontend
 
 
-def _make_app(frontend: Path) -> web.Application:
+def _make_app(frontend: Path, *, dev_mode: bool = False) -> web.Application:
     app = web.Application()
-    DeviceBuilder._register_frontend(app, frontend)
+    DeviceBuilder._register_frontend(app, frontend, dev_mode=dev_mode)
     return app
 
 
@@ -48,39 +48,50 @@ async def test_register_frontend_serves_index_at_root(
     resp = await client.get("/")
     assert resp.status == 200
     assert "<!doctype html>" in (await resp.text())
-    # index.html must always be revalidated so a re-deployed wheel
-    # doesn't get masked by a stale browser-cached HTML pointing at
-    # a hashed bundle that no longer exists.
+
+
+async def test_register_frontend_dev_mode_index_is_no_cache(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``dev_mode=True`` opts in to ``Cache-Control: no-cache`` for the SPA shell.
+
+    Without this, a re-deployed wheel during development would be
+    masked by a browser-cached ``index.html`` pointing at a now-deleted
+    hashed bundle.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path), dev_mode=True))
+    resp = await client.get("/")
+    assert resp.status == 200
     assert resp.headers["Cache-Control"] == "no-cache"
 
 
-async def test_register_frontend_hashed_bundle_is_immutable(
+async def test_register_frontend_default_index_omits_cache_control(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """Content-addressed bundles get a long ``immutable`` Cache-Control."""
+    """Production (default) leaves caching up to the browser's default heuristic."""
     client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
-    resp = await client.get("/app.abc123def4567890.js")
+    resp = await client.get("/")
     assert resp.status == 200
-    assert resp.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+    assert "Cache-Control" not in resp.headers
 
 
-async def test_register_frontend_non_hashed_top_level_is_revalidated(
+async def test_register_frontend_hashed_bundle_is_always_immutable(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """A top-level file without a content hash falls back to no-cache."""
+    """Hashed bundles are content-addressed → safe to cache forever in either mode."""
     frontend = _make_frontend(tmp_path)
-    (frontend / "robots.txt").write_text("User-agent: *\n")
-    client = await aiohttp_client(_make_app(frontend))
-    resp = await client.get("/robots.txt")
-    assert resp.status == 200
-    assert resp.headers["Cache-Control"] == "no-cache"
+    for dev_mode in (False, True):
+        client = await aiohttp_client(_make_app(frontend, dev_mode=dev_mode))
+        resp = await client.get("/app.abc123def4567890.js")
+        assert resp.status == 200, dev_mode
+        assert resp.headers["Cache-Control"] == "public, max-age=31536000, immutable", dev_mode
 
 
-async def test_register_frontend_spa_fallback_is_no_cache(
+async def test_register_frontend_dev_mode_spa_fallback_is_no_cache(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """The SPA-fallback ``index.html`` for a deep link is also no-cache."""
-    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    """Dev-mode SPA-fallback ``index.html`` for a deep link is also no-cache."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path), dev_mode=True))
     resp = await client.get("/device/foo.yaml")
     assert resp.status == 200
     assert resp.headers["Cache-Control"] == "no-cache"
