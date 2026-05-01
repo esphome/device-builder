@@ -76,7 +76,11 @@ class DeviceScanner:
 
     @property
     def devices(self) -> list[Device]:
-        """Snapshot of the currently-loaded devices."""
+        """Snapshot of the currently-loaded devices in lexicographic order.
+
+        ``_devices`` is kept in sorted insertion order by ``_do_scan`` so
+        this read stays O(n).
+        """
         return list(self._devices.values())
 
     @property
@@ -154,6 +158,15 @@ class DeviceScanner:
             self._cache_keys.pop(path, None)  # type: ignore[arg-type]
             if removed_device is not None:
                 self._on_change(ScanChange.REMOVED, removed_device)
+
+        # Rebuild ``_devices`` in lexicographic-path order. Without
+        # this, ``paths_to_load`` is a set so ``_devices`` ends up in
+        # hash-randomised insertion order — visible to the user as a
+        # different device list every restart. Cheap (one dict
+        # comprehension), keeps the ``devices`` property O(n).
+        if added_paths or removed_paths:
+            self._devices = {p: self._devices[p] for p in path_to_cache_key}
+            self._cache_keys = {p: self._cache_keys[p] for p in path_to_cache_key}
 
     def _build_cache_keys(self) -> dict[Path, _CacheKey]:
         """Build ``path → cache_key`` for every YAML file currently on disk."""
