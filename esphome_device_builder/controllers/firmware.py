@@ -173,6 +173,9 @@ def _signal_process_group(pid: int, sig: int) -> bool:
     same group — ``killpg(getpgid(spawned_pid), sig)`` therefore
     targets the build subtree without touching us.
 
+    POSIX-only — ``os.getpgid`` / ``os.killpg`` don't exist on Windows.
+    The Windows path goes through ``_terminate_subtree_windows`` instead.
+
     Falls back gracefully:
     * ``ProcessLookupError`` — the process already exited; nothing to do.
     * ``PermissionError`` — we lost the right to signal it; treat as a
@@ -188,6 +191,44 @@ def _signal_process_group(pid: int, sig: int) -> bool:
         return False
     except PermissionError:
         _LOGGER.warning("Permission denied signalling pgid %d (sig %s)", pgid, sig)
+        return False
+    return True
+
+
+async def _terminate_subtree_windows(pid: int) -> bool:
+    """
+    Forcibly kill *pid* and its descendants on Windows; return True iff invoked.
+
+    Windows has no process groups in the POSIX sense, so we shell out to
+    ``taskkill /F /T /PID`` — ``/T`` walks the parent-child tree from
+    *pid* down, ``/F`` is the forceful equivalent of SIGKILL. There's no
+    useful "polite" stage here: a compile chain (esphome → platformio →
+    gcc / esptool) ignores ``WM_CLOSE`` / ``CTRL_BREAK_EVENT`` anyway,
+    so we go straight to the kill.
+
+    Returns False (and logs a warning) if ``taskkill`` is missing or
+    times out — the caller should fall back to ``proc.kill()`` so the
+    parent at least dies even when the tree-walk fails.
+    """
+    try:
+        killer = await asyncio.create_subprocess_exec(
+            "taskkill",
+            "/F",
+            "/T",
+            "/PID",
+            str(pid),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        _LOGGER.warning("taskkill not found on PATH — can't tree-kill pid %d", pid)
+        return False
+    try:
+        await asyncio.wait_for(killer.wait(), timeout=_TERMINATE_GRACE_SECONDS)
+    except TimeoutError:
+        _LOGGER.warning("taskkill timed out for pid %d", pid)
+        with suppress(ProcessLookupError):
+            killer.kill()
         return False
     return True
 
@@ -872,13 +913,26 @@ class FirmwareController:
         two coroutines). We only nudge the process here.
 
         ESPHome forks PlatformIO which forks gcc / esptool / etc. The
-        spawn site uses ``start_new_session=True`` so the whole tree
-        shares a process group; we signal the group instead of just
-        the python parent — without that, the compiler children get
-        orphaned and the build keeps going until they finish.
+        spawn site uses ``start_new_session=True`` (POSIX) so the whole
+        tree shares a process group; we signal the group instead of
+        just the python parent — without that, the compiler children
+        get orphaned and the build keeps going until they finish.
+
+        Windows has no process groups in the POSIX sense; we use
+        ``taskkill /F /T`` to walk the parent-child tree from the
+        kernel's accounting and force-kill the whole subtree in one
+        shot. There's no graceful SIGTERM stage on Windows because the
+        compile chain doesn't honour any of the polite signals.
         """
         proc = self._current_process
         if proc is None or proc.returncode is not None:
+            return
+        if sys.platform == "win32":
+            if not await _terminate_subtree_windows(proc.pid):
+                # taskkill missing or hung — at least put the parent down
+                # so the runner loop can finalise the job.
+                with suppress(ProcessLookupError):
+                    proc.kill()
             return
         if not _signal_process_group(proc.pid, signal.SIGTERM):
             return
