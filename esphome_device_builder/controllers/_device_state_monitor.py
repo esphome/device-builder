@@ -343,11 +343,11 @@ class DeviceStateMonitor:
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """Pull IP / version / config_hash off a populated ``AsyncServiceInfo``."""
-        # ``ip_addresses_by_version`` returns ``IPv4Address``/``IPv6Address``
-        # objects — ``str()`` of those drops any zone suffix automatically,
-        # so no manual ``%``-stripping needed.
-        if addresses := info.ip_addresses_by_version(IPVersion.All):
-            self.apply_ip(device_name, str(addresses[0]))
+        # ``parsed_addresses`` returns scope-stripped strings
+        # (internally ``str_without_scope_id``) — no manual ``%``-stripping
+        # like ``parsed_scoped_addresses + .split("%", 1)[0]``.
+        if addresses := info.parsed_addresses(IPVersion.All):
+            self.apply_ip(device_name, addresses[0])
         properties = info.properties or {}
         version_bytes = properties.get(_TXT_RECORD_VERSION)
         if version_bytes:
