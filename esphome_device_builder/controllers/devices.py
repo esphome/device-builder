@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -11,21 +12,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from esphome import const
+from esphome.components.dashboard_import import import_config
 from esphome.dashboard.util.text import friendly_name_slugify
 from esphome.helpers import sort_ip_addresses
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
-
-try:
-    # The YAML-generation entrypoint for adopting discovered devices
-    # lives in ``esphome.components.dashboard_import`` — it fetches the
-    # package-import URL, writes a stub YAML, and (when asked) emits a
-    # fresh API encryption key. The previous ``esphome.config_helpers``
-    # path never resolved, so ``devices/import`` always raised.
-    from esphome.components.dashboard_import import import_config
-except ImportError:
-    import_config = None  # type: ignore[assignment]
-
-import contextlib
 
 from ..helpers.api import api_command
 from ..helpers.config_hash import compute_yaml_config_hash
@@ -587,10 +577,6 @@ class DevicesController:
         **kwargs: Any,
     ) -> dict:
         """Import / adopt a discovered device."""
-        if import_config is None:
-            msg = "import_config not available in this ESPHome version"
-            raise RuntimeError(msg)
-
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None,
