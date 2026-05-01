@@ -243,7 +243,7 @@ async def test_ping_sweep_does_not_apply_ip_for_local_hosts(fake_resolver) -> No
     assert ip_changes == []
 
 
-async def test_ping_sweep_rescues_local_device_from_zeroconf_cache(fake_resolver) -> None:
+async def test_ping_sweep_rescues_local_device_from_zeroconf_cache() -> None:
     """A ``.local`` device in zeroconf's cache short-circuits before ping.
 
     Catches the case where the ``AsyncServiceBrowser`` ``Added``
