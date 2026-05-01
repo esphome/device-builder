@@ -29,6 +29,15 @@ from esphome_device_builder.controllers.firmware import (
 )
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
 
+# Process groups, ``os.fork``, and ``SIGKILL`` are POSIX-only. The
+# whole stop-button cancellation strategy here (``killpg`` against the
+# subtree's session leader) doesn't apply on Windows, where job
+# objects are the equivalent primitive — skip the module wholesale.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX process-group / fork / SIGKILL semantics — not applicable on Windows.",
+)
+
 
 def _is_alive(pid: int) -> bool:
     """Return True if *pid* is still running. Survives EPERM on macOS."""
