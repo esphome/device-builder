@@ -365,12 +365,10 @@ class DeviceStateMonitor:
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """Pull IP / version / config_hash off a populated ``AsyncServiceInfo``."""
-        # Prefer V4 — IPv6 link-local (``fe80::/10``) is unusable for
-        # connections without a scope ID and ``parsed_addresses``
-        # strips scopes. ``parsed_addresses`` returns scope-stripped
-        # strings (internally ``str_without_scope_id``) — no manual
-        # ``%``-stripping needed.
-        addresses = info.parsed_addresses(IPVersion.V4Only) or info.parsed_addresses(
+        # Prefer V4; fall back to scoped V6 (link-local needs the
+        # ``%scope`` suffix to connect at all). Matches the upstream
+        # esphome dashboard's ``parsed_scoped_addresses`` usage.
+        addresses = info.parsed_scoped_addresses(IPVersion.V4Only) or info.parsed_scoped_addresses(
             IPVersion.V6Only
         )
         if addresses:

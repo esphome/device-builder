@@ -78,7 +78,7 @@ class _FakeServiceInfo:
     def load_from_cache(self, _zc: Any) -> bool:
         return True
 
-    def parsed_addresses(self, _ip_version: Any) -> list[str]:
+    def parsed_scoped_addresses(self, _ip_version: Any) -> list[str]:
         return []
 
     @property
