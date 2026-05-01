@@ -53,6 +53,7 @@ class WebSocketClient:
         self._authenticated = authenticated
         self._token = token
         self._tasks: set[asyncio.Task] = set()
+        self._stream_tasks: dict[str, asyncio.Task] = {}
         self._close_after_send: bool = False
 
     @property
@@ -104,6 +105,27 @@ class WebSocketClient:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task
+
+    def register_stream(self, message_id: str, task: asyncio.Task) -> None:
+        """Register a long-running task so ``cancel_stream`` can stop it.
+
+        Streaming command handlers call this with their own ``asyncio.current_task()``
+        so a later ``stop_stream`` (or any peer with the message id) can cancel them.
+        Pair with ``unregister_stream`` in a ``finally`` block.
+        """
+        self._stream_tasks[message_id] = task
+
+    def unregister_stream(self, message_id: str) -> None:
+        """Drop a previously-registered stream entry. Safe to call twice."""
+        self._stream_tasks.pop(message_id, None)
+
+    def cancel_stream(self, message_id: str) -> bool:
+        """Cancel a registered stream by its id. Returns True if cancelled."""
+        task = self._stream_tasks.pop(message_id, None)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        return True
 
     async def cleanup(self) -> None:
         """Cancel all pending tasks."""
