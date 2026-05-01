@@ -25,6 +25,10 @@ class JobType(StrEnum):
     UPLOAD = "upload"
     INSTALL = "install"  # compile + upload in one step
     CLEAN = "clean"
+    # Wipes ``.esphome/build/``, ``external_components/``, and
+    # ``platformio_cache/`` — forces the next compile to re-download
+    # toolchains and re-fetch external components from scratch.
+    RESET_BUILD_ENV = "reset_build_env"
 
 
 @dataclass

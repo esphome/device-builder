@@ -9,6 +9,7 @@ import importlib
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -52,6 +53,63 @@ _PROGRESS_PATTERN = re.compile(r"\[?\s*(\d{1,3})\s*%\]?")
 # the longer floor protects against esptool mid-flash where USB I/O
 # can stall the process briefly.
 _TERMINATE_GRACE_SECONDS = 3.0
+
+# History retention. Bulk operations can spawn dozens of jobs at once;
+# we want a useful audit trail without letting the metadata file grow
+# without bound.
+#   - "Primary" = COMPILE / UPLOAD / INSTALL: dedup'd to the most
+#     recent terminal job per device, then capped globally.
+#   - "Aux" = CLEAN / RESET_BUILD_ENV: kept in a separate small pool
+#     so they don't crowd out the device history.
+# Active (queued/running) jobs are exempt from both pools.
+_MAX_PRIMARY_TERMINAL_JOBS = 50
+_MAX_AUX_TERMINAL_JOBS = 5
+_PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
+    {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
+)
+
+# Per-job output cap for retained terminal jobs. Compile output for a
+# successful build runs ~3-10k lines; the head is mostly toolchain
+# noise that's rarely useful once the build finished. Live job output
+# is unbounded — the cap kicks in only when the job lands in a
+# terminal state.
+_MAX_OUTPUT_LINES_RETAINED = 2000
+_OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
+
+# Subdirectories of ``<config_dir>/.esphome/`` that ``RESET_BUILD_ENV``
+# wipes. Order is informational only — each is removed independently.
+_RESET_BUILD_ENV_TARGETS = (
+    "build",
+    "external_components",
+    "platformio_cache",
+)
+
+
+def _trim_job_output(job: FirmwareJob) -> None:
+    """
+    Cap ``job.output`` at the last ``_MAX_OUTPUT_LINES_RETAINED`` lines.
+
+    Mutates the job in place. Safe to call repeatedly on the same
+    job — already-trimmed output stays stable and the elided count
+    keeps growing as new lines are dropped.
+    """
+    output = job.output
+    extra_elided = 0
+    # Recover and fold in the previous elided count so repeated trims
+    # don't pretend only one line was dropped on each subsequent call.
+    if output and output[0].startswith(_OUTPUT_TRIM_NOTICE_PREFIX):
+        match = re.search(r"(\d+) earlier", output[0])
+        if match:
+            extra_elided = int(match.group(1))
+        output = output[1:]
+    if len(output) <= _MAX_OUTPUT_LINES_RETAINED:
+        return
+    new_elided = len(output) - _MAX_OUTPUT_LINES_RETAINED
+    total_elided = extra_elided + new_elided
+    job.output = [
+        f"{_OUTPUT_TRIM_NOTICE_PREFIX} {total_elided} earlier line(s) elided]\n",
+        *output[-_MAX_OUTPUT_LINES_RETAINED:],
+    ]
 
 
 def _find_esphome_cmd() -> list[str]:
@@ -191,6 +249,21 @@ class FirmwareController:
     async def clean(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
         """Queue a build clean job."""
         job = self._create_job(configuration, JobType.CLEAN)
+        return await self._enqueue(job)
+
+    @api_command("firmware/reset_build_env")
+    async def reset_build_env(self, **kwargs: Any) -> FirmwareJob:
+        """
+        Queue a full reset of the build environment.
+
+        Wipes per-device build outputs, external component checkouts,
+        and the PlatformIO download cache. The next compile re-fetches
+        external components and re-downloads toolchains from scratch
+        — slow to recover from but the most thorough way to escape a
+        poisoned cache. Runs through the same single-job queue as
+        compile/upload so it can't race a build in progress.
+        """
+        job = self._create_job("", JobType.RESET_BUILD_ENV)
         return await self._enqueue(job)
 
     @api_command("firmware/install")
@@ -418,6 +491,7 @@ class FirmwareController:
         if job.status == JobStatus.QUEUED:
             job.status = JobStatus.CANCELLED
             job.completed_at = datetime.now(UTC).isoformat()
+            self._prune_history()
             await self._persist_jobs()
             self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
             return
@@ -565,6 +639,12 @@ class FirmwareController:
         await self._persist_jobs()
 
         try:
+            # RESET_BUILD_ENV doesn't shell out — handle it inline.
+            # Errors fall through to the existing except blocks below.
+            if job.job_type == JobType.RESET_BUILD_ENV:
+                await self._reset_build_env(job)
+                return
+
             # Pre-flight: verify chip type for serial uploads
             if job.job_type in (JobType.UPLOAD, JobType.INSTALL):
                 await self._verify_chip(job)
@@ -726,6 +806,13 @@ class FirmwareController:
         finally:
             self._current_job = None
             self._current_process = None
+            if job.status in (
+                JobStatus.COMPLETED,
+                JobStatus.FAILED,
+                JobStatus.CANCELLED,
+            ):
+                _trim_job_output(job)
+                self._prune_history()
             await self._persist_jobs()
 
     async def _terminate_current_process(self) -> None:
@@ -754,6 +841,61 @@ class FirmwareController:
                 proc.kill()
             except ProcessLookupError:
                 pass
+
+    async def _reset_build_env(self, job: FirmwareJob) -> None:
+        """
+        Run a ``RESET_BUILD_ENV`` job to completion or cancellation.
+
+        Streams progress lines through the same ``JOB_OUTPUT`` event
+        used by compile/upload jobs and finalises ``job.status``
+        before returning. Mid-run cancellation is honoured between
+        targets, not during a single ``rmtree``.
+        """
+        esphome_root = self._db.settings.config_dir / ".esphome"
+        loop = asyncio.get_running_loop()
+
+        def _emit(text: str) -> None:
+            line = text if text.endswith("\n") else text + "\n"
+            job.output.append(line)
+            self._db.bus.fire(
+                EventType.JOB_OUTPUT,
+                {"job_id": job.job_id, "line": line},
+            )
+
+        _emit(f"Resetting build environment under {esphome_root}")
+
+        if not esphome_root.exists():
+            _emit("Nothing to do — .esphome/ does not exist yet.")
+        else:
+            for name in _RESET_BUILD_ENV_TARGETS:
+                # rmtree isn't interruptible from another coroutine,
+                # so we can only stop before starting the next target.
+                if job.job_id in self._cancel_requested:
+                    self._cancel_requested.discard(job.job_id)
+                    _emit("Reset cancelled by user.")
+                    job.status = JobStatus.CANCELLED
+                    job.completed_at = datetime.now(UTC).isoformat()
+                    self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
+                    return
+
+                target = esphome_root / name
+                if not target.exists():
+                    _emit(f"  skipped (not present): {name}/")
+                    continue
+                _emit(f"  removing {name}/ ...")
+                await loop.run_in_executor(None, shutil.rmtree, target)
+                _emit(f"  removed {name}/")
+
+        _emit(
+            "Reset complete — the next compile will re-download "
+            "toolchains and re-fetch external components."
+        )
+        job.exit_code = 0
+        job.completed_at = datetime.now(UTC).isoformat()
+        job.status = JobStatus.COMPLETED
+        job.progress = 100
+        self._db.bus.fire(EventType.JOB_COMPLETED, {"job": job})
+        _LOGGER.info("Job %s reset_build_env completed", job.job_id)
 
     async def _verify_chip(self, job: FirmwareJob) -> None:
         """
@@ -859,6 +1001,48 @@ class FirmwareController:
         self._db.bus.fire(EventType.JOB_QUEUED, {"job": job})
         await self._persist_jobs()
         return job
+
+    def _prune_history(self) -> None:
+        """
+        Trim ``self._jobs`` to the configured history limits.
+
+        Active (queued/running) jobs are always kept. Terminal
+        compile/upload/install jobs collapse to one entry per
+        configuration (newest wins) and are capped at
+        ``_MAX_PRIMARY_TERMINAL_JOBS``. Terminal clean/reset jobs are
+        kept in a separate pool capped at ``_MAX_AUX_TERMINAL_JOBS``.
+        Caller persists the result.
+        """
+        terminal_states = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
+
+        active: list[FirmwareJob] = []
+        primary: list[FirmwareJob] = []
+        aux: list[FirmwareJob] = []
+        for job in self._jobs.values():
+            if job.status not in terminal_states:
+                active.append(job)
+            elif job.job_type in _PRIMARY_JOB_TYPES:
+                primary.append(job)
+            else:
+                aux.append(job)
+
+        # Sort newest-first so dedup keeps the most recent entry per
+        # device and the cap retains the most recent N overall.
+        primary.sort(key=lambda j: j.created_at, reverse=True)
+        seen_configs: set[str] = set()
+        deduped_primary: list[FirmwareJob] = []
+        for job in primary:
+            if job.configuration:
+                if job.configuration in seen_configs:
+                    continue
+                seen_configs.add(job.configuration)
+            deduped_primary.append(job)
+        deduped_primary = deduped_primary[:_MAX_PRIMARY_TERMINAL_JOBS]
+
+        aux.sort(key=lambda j: j.created_at, reverse=True)
+        aux = aux[:_MAX_AUX_TERMINAL_JOBS]
+
+        self._jobs = {j.job_id: j for j in (*active, *deduped_primary, *aux)}
 
     # ------------------------------------------------------------------
     # Internals — persistence
