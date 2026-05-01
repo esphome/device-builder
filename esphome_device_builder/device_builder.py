@@ -311,21 +311,17 @@ class DeviceBuilder:
     @staticmethod
     def _register_frontend(app: web.Application, frontend_dir: Path) -> None:
         """Register static file routes for the built frontend."""
-        assets_dir = frontend_dir / "assets"
-        if assets_dir.is_dir():
-            app.router.add_static("/assets", assets_dir)
-
         index_html = frontend_dir / "index.html"
 
         async def handle_index(request: web.Request) -> web.FileResponse:
             return web.FileResponse(index_html)
 
-        for path in frontend_dir.iterdir():
-            if path.is_file():
-                rel = path.name
-                if rel == "index.html":
-                    app.router.add_get("/", handle_index)
-                else:
-                    app.router.add_static(f"/{rel}", path)
+        # FIFO route lookup means the explicit "/" handler wins for the
+        # bare root, and the catch-all add_static under "/" picks up
+        # everything else (hashed JS bundles, rspack license sidecars,
+        # the assets/ tree). API routes are registered before this so
+        # they continue to match first.
+        app.router.add_get("/", handle_index)
+        app.router.add_static("/", frontend_dir)
 
         _LOGGER.info("Serving frontend from %s", frontend_dir)
