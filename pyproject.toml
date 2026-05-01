@@ -46,8 +46,8 @@ test = [
 [project.urls]
 Documentation = "https://esphome.io"
 Homepage = "https://esphome.io"
-Issues = "https://github.com/esphome/device-builder-backend/issues"
-Repository = "https://github.com/esphome/device-builder-backend"
+Issues = "https://github.com/esphome/device-builder/issues"
+Repository = "https://github.com/esphome/device-builder"
 
 [project.scripts]
 esphome-device-builder = "esphome_device_builder.__main__:main"

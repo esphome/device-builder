@@ -33,8 +33,11 @@ on:
         required: true
         type: string
     secrets:
+      # ``ESPHOME_GITHUB_APP_ID`` is non-required so callers can
+      # supply it via Actions ``vars`` instead — the runtime check
+      # in the release job catches it when missing from both.
       ESPHOME_GITHUB_APP_ID:
-        required: true
+        required: false
       ESPHOME_GITHUB_APP_PRIVATE_KEY:
         required: true
       PYPI_TOKEN:
@@ -84,6 +87,16 @@ jobs:
           esac
           echo "✅ version $VERSION is valid for channel $CHANNEL"
 
+      - name: Reject already-existing tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${{ github.repository }}/git/refs/tags/${{ inputs.version }}" --silent 2>/dev/null; then
+            echo "::error::Tag '${{ inputs.version }}' already exists. Pick a new version."
+            exit 1
+          fi
+
   preflight:
     name: Preflight (lint + tests)
     needs: validate
@@ -91,7 +104,9 @@ jobs:
       contents: read
     uses: ./.github/workflows/test.yml
     with:
-      ref: ${{ github.ref }}
+      # Pin to the dispatch SHA so preflight, build and tag all
+      # cover the same commit even if main advances mid-run.
+      ref: ${{ github.sha }}
 
   build:
     name: Build sdist + wheel
@@ -100,6 +115,8 @@ jobs:
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
@@ -165,6 +182,7 @@ jobs:
       - name: Check out code from GitHub
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          ref: ${{ github.sha }}
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
           persist-credentials: true
@@ -176,7 +194,7 @@ jobs:
 
       - name: Create and push tag
         run: |
-          git tag -a "${{ inputs.version }}" -m "Release ${{ inputs.version }}"
+          git tag -a "${{ inputs.version }}" -m "Release ${{ inputs.version }}" "${{ github.sha }}"
           git push origin "${{ inputs.version }}"
 
       - name: Generate release notes and publish GitHub release

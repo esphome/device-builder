@@ -32,8 +32,8 @@ full flag set. A PyPI release is on the way.
 **From source** (requires [uv](https://docs.astral.sh/uv/)):
 
 ```bash
-git clone https://github.com/esphome/device-builder-dashboard-backend
-cd device-builder-dashboard-backend
+git clone https://github.com/esphome/device-builder
+cd device-builder
 script/setup
 source .venv/bin/activate
 esphome-device-builder ./configs --log-level debug

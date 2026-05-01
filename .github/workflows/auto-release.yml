@@ -32,23 +32,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          LATEST=$(gh release list --exclude-drafts --limit 1 \
-            --json createdAt,tagName --jq '.[0]' 2>/dev/null || echo "")
+          LATEST_TAG=$(gh release list --exclude-drafts --limit 1 \
+            --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
 
-          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
             echo "No previous release; will cut initial prerelease."
             echo "go=true" >> "$GITHUB_OUTPUT"
             echo "last_tag=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          DATE=$(echo "$LATEST" | jq -r '.createdAt')
-          TAG=$(echo "$LATEST" | jq -r '.tagName')
-          COUNT=$(git log --since="$DATE" --oneline | wc -l | tr -d ' ')
+          # Counting via the tag range (rather than ``--since=<date>``)
+          # is reliable when commits land via rebase / fast-forward
+          # with older committer dates.
+          git fetch --tags --quiet origin
+          COUNT=$(git rev-list "$LATEST_TAG"..HEAD --count)
 
-          echo "Latest release: $TAG ($DATE)"
+          echo "Latest release: $LATEST_TAG"
           echo "Commits since: $COUNT"
-          echo "last_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "last_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
 
           if [ "$COUNT" -ge 2 ]; then
             echo "go=true" >> "$GITHUB_OUTPUT"
