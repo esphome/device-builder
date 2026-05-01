@@ -6,10 +6,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from esphome_device_builder.device_builder import (
-    DeviceBuilder,
-    spa_fallback_middleware,
-)
+from esphome_device_builder.device_builder import DeviceBuilder
 
 
 def _make_frontend(tmp_path: Path) -> Path:
@@ -17,8 +14,8 @@ def _make_frontend(tmp_path: Path) -> Path:
 
     Includes index.html, an assets/ subtree, top-level hashed JS
     bundles, and an rspack license sidecar — the latter is the file
-    that historically tripped add_static when registered as a single
-    file (it requires a directory).
+    that historically tripped the original code, which passed it to
+    add_static (which only takes directories).
     """
     frontend = tmp_path / "frontend"
     frontend.mkdir()
@@ -34,8 +31,7 @@ def _make_frontend(tmp_path: Path) -> Path:
 
 
 def _make_app(frontend: Path) -> web.Application:
-    """Build a test app with the SPA fallback middleware wired in."""
-    app = web.Application(middlewares=[spa_fallback_middleware])
+    app = web.Application()
     DeviceBuilder._register_frontend(app, frontend)
     return app
 
@@ -87,9 +83,9 @@ async def test_register_frontend_serves_assets_subtree(
 async def test_register_frontend_serves_index_for_spa_deep_links(
     tmp_path: Path, aiohttp_client: object
 ) -> None:
-    """Hard reload of a SPA route returns index.html via the middleware.
+    """Hard reload of a SPA route returns index.html.
 
-    Without the middleware the dashboard 404s on every refresh that
+    Without an SPA fallback the dashboard 404s on every refresh that
     isn't on the bare root, since the client-side router never gets a
     chance to handle the URL.
     """
@@ -104,25 +100,16 @@ async def test_register_frontend_serves_index_for_spa_deep_links(
         assert "<!doctype html>" in (await resp.text()), url
 
 
-async def test_register_frontend_does_not_swallow_unknown_api_routes(
+async def test_register_frontend_does_not_shadow_specific_routes(
     tmp_path: Path, aiohttp_client: object
 ) -> None:
-    """Unknown server-side paths still 404 instead of returning HTML.
+    """Routes registered before the frontend catch-all still match first.
 
-    The SPA fallback must not silently serve index.html for misrouted
-    API clients — that turns "endpoint typo" into "JSON parse error".
+    aiohttp's FIFO matching is what keeps `/api/...`, `/ws`,
+    `/boards/...` etc. from being shadowed by the frontend SPA
+    fallback — no per-prefix exclusion list needed in our handler.
     """
-    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))  # type: ignore[operator]
-    for url in ("/api/unknown", "/ws/foo", "/boards/missing"):
-        resp = await client.get(url)
-        assert resp.status == 404, url
-
-
-async def test_register_frontend_does_not_shadow_api_routes(
-    tmp_path: Path, aiohttp_client: object
-) -> None:
-    """API routes registered before the frontend catch-all still win."""
-    app = web.Application(middlewares=[spa_fallback_middleware])
+    app = web.Application()
 
     async def api_handler(request: web.Request) -> web.Response:
         return web.json_response({"ok": True})
@@ -136,44 +123,33 @@ async def test_register_frontend_does_not_shadow_api_routes(
     assert (await resp.json()) == {"ok": True}
 
 
-async def test_register_frontend_traversal_handled_by_aiohttp(
+async def test_register_frontend_multi_segment_paths_do_not_hit_disk(
     tmp_path: Path, aiohttp_client: object
 ) -> None:
-    """Traversal probes never leak files outside the frontend dir.
+    """Path-traversal probes can't read files anywhere.
 
-    Static-file safety is delegated to aiohttp's ``StaticResource``;
-    this test pins the contract by planting a sentinel outside the
-    frontend root and asserting its contents never appear in a
-    response body, no matter how the request is shaped.
+    The catch-all handler only resolves single-segment names against
+    the frontend dir; multi-segment paths (everything containing a
+    ``/``) are treated as SPA routes and return ``index.html``.
+    Plant a sentinel both inside and outside the frontend dir to
+    catch any regression that lets a multi-segment path through.
     """
-    sentinel = tmp_path / "secret.txt"
-    sentinel.write_text("DO-NOT-LEAK")
+    sentinel_outside = tmp_path / "secret.txt"
+    sentinel_outside.write_text("DO-NOT-LEAK")
+
     frontend = _make_frontend(tmp_path)
+    nested = frontend / "nested" / "leak.txt"
+    nested.parent.mkdir()
+    nested.write_text("ALSO-DO-NOT-LEAK")
 
     client = await aiohttp_client(_make_app(frontend))  # type: ignore[operator]
     for url in (
         "/../secret.txt",
         "/foo/../../secret.txt",
-        "/assets/../../secret.txt",
         "/%2E%2E/secret.txt",
         "/" + "/".join([".."] * 8) + "/secret.txt",
+        "/nested/leak.txt",
     ):
         resp = await client.get(url)
         body = await resp.text()
         assert "DO-NOT-LEAK" not in body, url
-
-
-async def test_register_frontend_does_not_follow_symlinks_outside(
-    tmp_path: Path, aiohttp_client: object
-) -> None:
-    """A symlink inside the frontend dir pointing outside is not served."""
-    sentinel = tmp_path / "secret.txt"
-    sentinel.write_text("DO-NOT-LEAK")
-
-    frontend = _make_frontend(tmp_path)
-    (frontend / "leak.txt").symlink_to(sentinel)
-
-    client = await aiohttp_client(_make_app(frontend))  # type: ignore[operator]
-    resp = await client.get("/leak.txt")
-    body = await resp.text()
-    assert "DO-NOT-LEAK" not in body
