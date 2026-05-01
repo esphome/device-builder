@@ -89,15 +89,52 @@ async def test_register_frontend_serves_assets_subtree(
     assert (await resp.text()) == "<svg/>"
 
 
+async def test_register_frontend_serves_index_for_spa_deep_links(
+    tmp_path: Path, aiohttp_client: object
+) -> None:
+    """A hard reload on a SPA route (e.g. /device/foo.yaml) returns index.html.
+
+    Without an SPA fallback the dashboard 404s on every refresh that
+    isn't on the bare root, since the client-side router never gets a
+    chance to handle the URL.
+    """
+    frontend = _make_frontend(tmp_path)
+    app = web.Application()
+    DeviceBuilder._register_frontend(app, frontend)
+
+    client = await aiohttp_client(app)  # type: ignore[operator]
+    for url in (
+        "/device/apollo-r-pro-1-eth-5938e0.yaml",
+        "/devices",
+        "/settings/network",
+    ):
+        resp = await client.get(url)
+        assert resp.status == 200, url
+        assert "<!doctype html>" in (await resp.text()), url
+
+
+async def test_register_frontend_does_not_swallow_unknown_api_routes(
+    tmp_path: Path, aiohttp_client: object
+) -> None:
+    """Unknown server-side paths still 404 instead of returning HTML.
+
+    The SPA fallback must not silently serve index.html for misrouted
+    API clients — that turns "endpoint typo" into "JSON parse error".
+    """
+    frontend = _make_frontend(tmp_path)
+    app = web.Application()
+    DeviceBuilder._register_frontend(app, frontend)
+
+    client = await aiohttp_client(app)  # type: ignore[operator]
+    for url in ("/api/unknown", "/ws/foo", "/boards/missing"):
+        resp = await client.get(url)
+        assert resp.status == 404, url
+
+
 async def test_register_frontend_does_not_shadow_api_routes(
     tmp_path: Path, aiohttp_client: object
 ) -> None:
-    """API routes registered before the frontend catch-all still win.
-
-    The frontend catch-all is intentionally an "/" prefix add_static,
-    so we rely on aiohttp's FIFO route lookup to keep API endpoints
-    reachable. Lock that ordering down.
-    """
+    """API routes registered before the frontend catch-all still win."""
     frontend = _make_frontend(tmp_path)
     app = web.Application()
 
