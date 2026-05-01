@@ -202,7 +202,13 @@ _RAW_API_ENCRYPTION_RE = re.compile(
     # Matches an ``encryption:`` line that's indented under ``api:``
     # (any depth ≥ 1 space). Used as a draft-time heuristic — once
     # ``load_device_yaml`` succeeds, the resolved-config check wins.
-    r"^api:\s*\n(?:[ \t][^\n]*\n|\s*\n)*[ \t]+encryption:(?:\s|$)",
+    #
+    # The two body alternatives are exclusive: ``[ \t][^\n]*\n`` matches
+    # an indented (non-blank) line; ``\n`` alone matches a literal blank
+    # line. No overlap, so the engine can't backtrack between them on a
+    # long run of newlines (the previous ``\s*\n`` alternative could
+    # also consume a bare ``\n``, which CodeQL flagged as exponential).
+    r"^api:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+encryption:(?:\s|$)",
     re.MULTILINE,
 )
 
