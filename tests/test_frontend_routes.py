@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from aiohttp import web
+from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.device_builder import DeviceBuilder
 
@@ -30,27 +31,27 @@ def _make_frontend(tmp_path: Path) -> Path:
 
 
 async def test_register_frontend_serves_index_at_root(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     frontend = _make_frontend(tmp_path)
     app = web.Application()
     DeviceBuilder._register_frontend(app, frontend)
 
-    client = await aiohttp_client(app)  # type: ignore[operator]
+    client = await aiohttp_client(app)
     resp = await client.get("/")
     assert resp.status == 200
     assert "<!doctype html>" in (await resp.text())
 
 
 async def test_register_frontend_serves_top_level_bundles(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """Hashed JS bundles next to index.html are reachable."""
     frontend = _make_frontend(tmp_path)
     app = web.Application()
     DeviceBuilder._register_frontend(app, frontend)
 
-    client = await aiohttp_client(app)  # type: ignore[operator]
+    client = await aiohttp_client(app)
     app_resp = await client.get("/app.abc123.js")
     vendors_resp = await client.get("/vendors.def456.js")
     assert (await app_resp.text()) == "// bundle"
@@ -58,7 +59,7 @@ async def test_register_frontend_serves_top_level_bundles(
 
 
 async def test_register_frontend_serves_top_level_license_sidecar(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """A top-level *.LICENSE.txt no longer crashes startup or 404s.
 
@@ -70,27 +71,27 @@ async def test_register_frontend_serves_top_level_license_sidecar(
     app = web.Application()
     DeviceBuilder._register_frontend(app, frontend)
 
-    client = await aiohttp_client(app)  # type: ignore[operator]
+    client = await aiohttp_client(app)
     resp = await client.get("/vendors.def456.js.LICENSE.txt")
     assert resp.status == 200
     assert "license" in (await resp.text())
 
 
 async def test_register_frontend_serves_assets_subtree(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     frontend = _make_frontend(tmp_path)
     app = web.Application()
     DeviceBuilder._register_frontend(app, frontend)
 
-    client = await aiohttp_client(app)  # type: ignore[operator]
+    client = await aiohttp_client(app)
     resp = await client.get("/assets/logo/esphome.svg")
     assert resp.status == 200
     assert (await resp.text()) == "<svg/>"
 
 
 async def test_register_frontend_does_not_shadow_api_routes(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """API routes registered before the frontend catch-all still win.
 
@@ -107,7 +108,7 @@ async def test_register_frontend_does_not_shadow_api_routes(
     app.router.add_get("/api/ping", api_handler)
     DeviceBuilder._register_frontend(app, frontend)
 
-    client = await aiohttp_client(app)  # type: ignore[operator]
+    client = await aiohttp_client(app)
     resp = await client.get("/api/ping")
     assert resp.status == 200
     assert (await resp.json()) == {"ok": True}
