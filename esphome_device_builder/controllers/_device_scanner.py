@@ -53,9 +53,15 @@ class DeviceScanner:
         config_dir: Path,
         get_board_id: Callable[[Path, str], str],
         on_change: ScanCallback,
+        get_ip: Callable[[Path, str], str] | None = None,
     ) -> None:
         self._config_dir = config_dir
         self._get_board_id = get_board_id
+        # Optional IP resolver — looks up the last-known resolved IP
+        # from the metadata sidecar so the OTA address cache survives
+        # restarts. Defaults to a no-op so tests that don't care about
+        # persistence stay simple.
+        self._get_ip = get_ip or (lambda _config_dir, _filename: "")
         self._on_change = on_change
         self._devices: dict[Path, Device] = {}
         self._cache_keys: dict[Path, _CacheKey] = {}
@@ -126,7 +132,8 @@ class DeviceScanner:
         for path in paths:
             try:
                 board_id = self._get_board_id(self._config_dir, path.name)
-                result[path] = load_device_from_storage(path, board_id)
+                ip = self._get_ip(self._config_dir, path.name)
+                result[path] = load_device_from_storage(path, board_id, ip)
             except Exception:
                 _LOGGER.warning("Failed to load device from %s", path.name)
         return result

@@ -30,9 +30,13 @@ def _device(**overrides: Any) -> Device:
     return Device(**base)
 
 
-def _monitor(addresses: list[str] | None) -> Any:
+def _monitor(
+    addresses: list[str] | None = None,
+    dns_addresses: list[str] | None = None,
+) -> Any:
     monitor = MagicMock()
     monitor.get_cached_addresses.return_value = addresses
+    monitor.get_cached_dns_addresses.return_value = dns_addresses
     return monitor
 
 
@@ -70,19 +74,43 @@ def test_local_address_no_cache_no_ip_returns_empty() -> None:
 
 
 def test_non_local_address_uses_dns_cache() -> None:
-    """Non-``.local`` host with tracked IP → ``--dns-address-cache``."""
+    """Non-``.local`` host with DNS-cache hit → ``--dns-address-cache``."""
     args = _build_address_cache_args(
-        _device(address="esp.example.com", ip="10.0.0.1"), _monitor(None)
+        _device(address="esp.example.com"),
+        _monitor(dns_addresses=["10.0.0.1"]),
     )
+    assert args == ["--dns-address-cache", "esp.example.com=10.0.0.1"]
+
+
+def test_non_local_dns_cache_preferred_over_device_ip() -> None:
+    """A fresh DNS-cache hit wins over the stale ``device.ip`` fallback."""
+    args = _build_address_cache_args(
+        _device(address="esp.example.com", ip="10.0.0.99"),
+        _monitor(dns_addresses=["10.0.0.1"]),
+    )
+    assert args == ["--dns-address-cache", "esp.example.com=10.0.0.1"]
+
+
+def test_non_local_falls_back_to_device_ip() -> None:
+    """DNS cache miss + tracked IP → still emit a cache entry."""
+    args = _build_address_cache_args(_device(address="esp.example.com", ip="10.0.0.1"), _monitor())
     assert args == ["--dns-address-cache", "esp.example.com=10.0.0.1"]
 
 
 def test_non_local_skips_zeroconf_lookup() -> None:
     """Non-``.local`` addresses don't hit zeroconf — that cache is mDNS-only."""
-    monitor = _monitor(["1.1.1.1"])
-    args = _build_address_cache_args(_device(address="esp.example.com", ip="10.0.0.1"), monitor)
+    monitor = _monitor(addresses=["1.1.1.1"], dns_addresses=["10.0.0.1"])
+    args = _build_address_cache_args(_device(address="esp.example.com"), monitor)
     assert args == ["--dns-address-cache", "esp.example.com=10.0.0.1"]
     monitor.get_cached_addresses.assert_not_called()
+
+
+def test_local_skips_dns_cache_lookup() -> None:
+    """``.local`` addresses don't hit the DNS cache — zeroconf is the source of truth."""
+    monitor = _monitor(addresses=["192.168.1.50"], dns_addresses=["10.0.0.1"])
+    args = _build_address_cache_args(_device(), monitor)
+    assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
+    monitor.get_cached_dns_addresses.assert_not_called()
 
 
 def test_no_address_returns_empty() -> None:

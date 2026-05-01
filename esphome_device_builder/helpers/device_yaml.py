@@ -257,13 +257,17 @@ def parse_esphome_meta(
 # ---------------------------------------------------------------------------
 
 
-def load_device_from_storage(path: Path, board_id: str = "") -> Device:
+def load_device_from_storage(path: Path, board_id: str = "", ip: str = "") -> Device:
     """
     Build a Device model from a YAML config file and its StorageJSON.
 
     User-editable fields (name / friendly_name / comment) come from the
     YAML when present so the dashboard reflects edits immediately,
     without having to wait for the next compile to refresh StorageJSON.
+
+    *ip* is the last-known resolved address from the device-builder
+    metadata sidecar. Loading it back on startup lets the OTA address
+    cache hand the CLI a usable IP before the first ping/mDNS sweep.
     """
     filename = path.name
     storage = StorageJSON.load(ext_storage_path(filename))
@@ -307,6 +311,7 @@ def load_device_from_storage(path: Path, board_id: str = "") -> Device:
         board_id=board_id,
         target_platform=target_platform,
         address=storage.address or "" if storage else "",
+        ip=ip,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
         deployed_version=deployed,

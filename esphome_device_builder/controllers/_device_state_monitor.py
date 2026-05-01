@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
 
 from ..models import Device, DeviceState
+from ._dns_cache import DNSCache
 
 _LOGGER = logging.getLogger(__name__)
 _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
@@ -86,6 +87,11 @@ class DeviceStateMonitor:
         self._zeroconf: AsyncEsphomeZeroconf | None = None
         self._mdns_browser: Any = None
         self._ping_task: asyncio.Task | None = None
+        # DNS resolutions for non-mDNS hostnames are cached here so the
+        # ping sweep, OTA cache args, and device.ip tracking all share
+        # the same TTL'd lookup result instead of re-resolving every
+        # cycle.
+        self._dns_cache = DNSCache()
 
     async def start(self) -> None:
         """Start the mDNS browser and the periodic ping sweep."""
@@ -181,7 +187,8 @@ class DeviceStateMonitor:
         Return zeroconf-cached IPs for *host_name* without issuing a query.
 
         Returns ``None`` when zeroconf isn't running, the cache misses,
-        or the entry has expired.
+        or the entry has expired. mDNS-only — see
+        :meth:`get_cached_dns_addresses` for non-``.local`` hostnames.
         """
         if self._zeroconf is None:
             return None
@@ -198,6 +205,15 @@ class DeviceStateMonitor:
             return None
         addresses = info.parsed_scoped_addresses(IPVersion.All)
         return addresses or None
+
+    def get_cached_dns_addresses(self, host_name: str) -> list[str] | None:
+        """
+        Return DNS-cached IPs for *host_name* without issuing a lookup.
+
+        Populated by the ping sweep's pre-resolution pass. Returns
+        ``None`` on cache miss or when the entry has expired.
+        """
+        return self._dns_cache.get_cached_addresses(host_name)
 
     # ------------------------------------------------------------------
     # Internals
@@ -325,12 +341,33 @@ class DeviceStateMonitor:
 
         for i in range(0, len(devices_to_ping), _PING_BATCH_SIZE):
             batch = devices_to_ping[i : i + _PING_BATCH_SIZE]
-            tasks = [self._ping_device(d) for d in batch]
-            await asyncio.gather(*tasks, return_exceptions=True)
+            # Pre-resolve every batch via the DNS cache. icmplib would
+            # otherwise re-resolve internally on every ping, and the
+            # OTA cache args would have nothing to draw on for non-mDNS
+            # hostnames.
+            resolved = await asyncio.gather(
+                *(self._dns_cache.async_resolve(d.address) for d in batch),
+                return_exceptions=True,
+            )
+            ping_targets: list[tuple[Device, str]] = []
+            for device, addresses in zip(batch, resolved, strict=True):
+                target = device.address
+                if isinstance(addresses, list) and addresses:
+                    target = addresses[0]
+                    # mDNS owns IP tracking for ``.local`` hosts; only
+                    # backfill from DNS for non-mDNS hosts so a stale
+                    # DNS result can't clobber the live mDNS value.
+                    if not device.address.rstrip(".").lower().endswith(".local"):
+                        self.apply_ip(device.name, target)
+                ping_targets.append((device, target))
+            await asyncio.gather(
+                *(self._ping_device(device, target) for device, target in ping_targets),
+                return_exceptions=True,
+            )
 
-    async def _ping_device(self, device: Device) -> None:
+    async def _ping_device(self, device: Device, target: str) -> None:
         try:
-            result = await icmp_ping(device.address, count=1, timeout=3, privileged=False)
+            result = await icmp_ping(target, count=1, timeout=3, privileged=False)
         except Exception:
             return
         new_state = DeviceState.ONLINE if result.is_alive else DeviceState.OFFLINE

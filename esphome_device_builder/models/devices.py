@@ -27,9 +27,10 @@ class Device(DataClassORJSONMixin):
     board_id: str = ""
     target_platform: str = ""
     address: str = ""  # mDNS hostname from StorageJSON (e.g. "my_device.local")
-    ip: str = (
-        ""  # Resolved IPv4 address from mDNS discovery — empty until the device is seen online
-    )
+    # Last-known resolved IP. Populated by mDNS resolution and DNS
+    # pre-resolve in the ping sweep, persisted through the device-builder
+    # metadata sidecar so the OTA address cache survives a restart.
+    ip: str = ""
     web_port: int | None = None
     current_version: str = ""
     deployed_version: str = ""

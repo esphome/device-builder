@@ -40,6 +40,7 @@ from ._device_scanner import DeviceScanner, ScanChange
 from ._device_state_monitor import DeviceStateMonitor
 from .config import (
     get_board_id,
+    get_device_ip,
     get_device_metadata,
     remove_device_metadata,
     set_device_metadata,
@@ -66,6 +67,7 @@ class DevicesController:
             config_dir=self._db.settings.config_dir,
             get_board_id=self._resolve_board_id,
             on_change=self._on_scan_change,
+            get_ip=get_device_ip,
         )
         self._state_monitor = DeviceStateMonitor(
             get_devices=self._get_devices,
@@ -587,7 +589,14 @@ class DevicesController:
         self._db.bus.fire(EventType.DEVICE_STATE_CHANGED, {"device": device})
 
     def _on_ip_change(self, name: str, ip: str) -> None:
-        """Forward mDNS-resolved IP updates onto the event bus."""
+        """
+        Forward IP updates onto the event bus and persist non-empty values.
+
+        ``ip=""`` means the device dropped off mDNS — we keep the
+        last-known IP on disk so the OTA address cache stays warm
+        across the device's offline window. The DNS pre-resolve and
+        next mDNS resolve will overwrite it on reconnect.
+        """
         device = next((d for d in self._scanner.devices if d.name == name), None)
         if device is None:
             return
@@ -595,7 +604,17 @@ class DevicesController:
             return
         device.ip = ip
         _LOGGER.debug("Device %s IP: %s", name, ip or "(cleared)")
+        if ip:
+            self._db.create_background_task(self._persist_device_ip_async(device.configuration, ip))
         self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+
+    async def _persist_device_ip_async(self, configuration: str, ip: str) -> None:
+        """Save *ip* to the device-builder metadata sidecar."""
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+        await loop.run_in_executor(
+            None, lambda: set_device_metadata(config_dir, configuration, ip=ip)
+        )
 
     def _on_version_change(self, name: str, version: str) -> None:
         """Apply a fresh ESPHome version observed via mDNS."""
@@ -702,6 +721,7 @@ class DevicesController:
                     board_id=old_meta.get("board_id"),
                     friendly_name=(new_name if meta_friendly == old_name else meta_friendly),
                     comment=old_meta.get("comment"),
+                    ip=old_meta.get("ip"),
                 )
                 remove_device_metadata(config_dir, configuration)
         except Exception:
@@ -764,14 +784,21 @@ def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None
     normalized = address.rstrip(".").lower()
     is_local = normalized.endswith(".local")
 
+    # Preferred source per host type:
+    #   .local  → zeroconf cache (mDNS-only, freshest while the browser is alive)
+    #   non-.local → DNS cache populated by the ping sweep's pre-resolve pass
+    # Either falls back to ``device.ip`` (the last-known resolved IP) so
+    # an expired cache entry doesn't strip the cache args entirely.
     addresses: list[str] = []
-    if is_local and monitor is not None:
-        cached = monitor.get_cached_addresses(address)
+    if monitor is not None:
+        cached = (
+            monitor.get_cached_addresses(address)
+            if is_local
+            else monitor.get_cached_dns_addresses(address)
+        )
         if cached:
             addresses = list(cached)
 
-    # Fall back to the single IP we tracked via mDNS resolution — covers
-    # the case where the zeroconf cache entry expired between resolves.
     if not addresses and device.ip:
         addresses = [device.ip]
 

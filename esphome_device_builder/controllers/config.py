@@ -145,8 +145,16 @@ def set_device_metadata(
     board_id: str | None = None,
     friendly_name: str | None = None,
     comment: str | None = None,
+    ip: str | None = None,
 ) -> None:
-    """Set metadata fields for a device."""
+    """
+    Set metadata fields for a device.
+
+    ``ip`` is the last-known resolved IP — persisted so the address
+    cache survives backend restarts. Pass an empty string to leave the
+    persisted value unchanged (mDNS clears the in-memory IP whenever a
+    device drops off the network, but the cache is still useful).
+    """
     data = _load_metadata(config_dir)
     entry = data.setdefault(filename, {})
     if board_id is not None:
@@ -155,6 +163,8 @@ def set_device_metadata(
         entry["friendly_name"] = friendly_name
     if comment is not None:
         entry["comment"] = comment
+    if ip:
+        entry["ip"] = ip
     _save_metadata(config_dir, data)
 
 
@@ -162,6 +172,11 @@ def get_device_metadata(config_dir: Path, filename: str) -> dict[str, Any]:
     """Get all metadata for a device."""
     result = _load_metadata(config_dir).get(filename, {})
     return result if isinstance(result, dict) else {}
+
+
+def get_device_ip(config_dir: Path, filename: str) -> str:
+    """Return the last-known resolved IP for a device, or ``""`` if unknown."""
+    return str(_load_metadata(config_dir).get(filename, {}).get("ip", ""))
 
 
 def remove_device_metadata(config_dir: Path, filename: str) -> None:
