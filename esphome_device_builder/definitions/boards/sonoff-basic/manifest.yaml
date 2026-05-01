@@ -18,12 +18,13 @@ tags:
 docs_url: https://esphome.io/components/esp8266.html
 pins:
 - gpio: 0
-  label: GPIO0
+  label: BUTTON
   features:
   - pwm
   - strapping
-  available: null
-  notes: Strapping pin (boot mode select) — pulled high for normal boot
+  available: false
+  occupied_by: Front-panel push button
+  notes: Strapping pin — wired to the front-panel button (active low, internal pull-up)
 - gpio: 1
   label: GPIO1
   features:
@@ -90,19 +91,21 @@ pins:
   occupied_by: SPI Flash
   notes: SPI Flash CS — do not use
 - gpio: 12
-  label: GPIO12
+  label: RELAY
   features:
   - pwm
   - spi_miso
-  available: null
-  notes: Default SPI MISO
+  available: false
+  occupied_by: 10 A onboard relay
+  notes: Drives the front-panel relay (active high)
 - gpio: 13
-  label: GPIO13
+  label: STATUS_LED
   features:
   - pwm
   - spi_mosi
-  available: null
-  notes: Default SPI MOSI
+  available: false
+  occupied_by: Front-panel status LED
+  notes: Onboard blue status LED (active low — must be inverted)
 - gpio: 14
   label: GPIO14
   features:
@@ -128,3 +131,56 @@ pins:
   - adc
   available: null
   notes: Analog input (TOUT pin) — 0-1V range, single ADC channel; not a standard GPIO
+featured_components:
+- id: relay
+  component_id: switch.gpio
+  name: Onboard Relay
+  description: |
+    The 10 A AC relay is hard-wired to GPIO12. This recommendation pre-fills
+    the GPIO and gives it a sensible default name.
+  fields:
+    pin:
+      value: 12
+      locked: true
+    name: Relay
+- id: button
+  component_id: binary_sensor.gpio
+  name: Front-Panel Button
+  description: |
+    Front-panel push button on GPIO0 (active low — note ``inverted: true``
+    plus the internal pull-up).
+  fields:
+    pin:
+      value:
+        number: 0
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+- id: status-led-output
+  component_id: output.gpio
+  name: Status LED Output
+  description: |
+    Low-level GPIO output for the onboard blue LED on GPIO13. Pair with
+    a ``Status LED Light`` so Home Assistant can toggle it as a light.
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted: true
+- id: status-led-light
+  component_id: light.binary
+  name: Status LED Light
+  description: |
+    Binary light entity for the onboard status LED. Wire its ``output``
+    to the ``status-led-output`` you added.
+  fields:
+    name: Status LED
+featured_bundles:
+- id: status-led
+  name: Status LED (full setup)
+  description: |
+    Adds the GPIO output for the onboard LED plus a binary light entity
+    so it surfaces as a controllable light in Home Assistant.
+  component_ids: [status-led-output, status-led-light]

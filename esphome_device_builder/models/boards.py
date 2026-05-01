@@ -7,7 +7,7 @@ from enum import StrEnum
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
-from .common import PagedResponse, PinFeature  # PinFeature re-exported
+from .common import FieldPreset, PagedResponse, PinFeature  # PinFeature re-exported
 
 # `PinFeature` lives in .common (it's shared with config-entry pin
 # constraints), but is re-imported here for stability of existing
@@ -126,6 +126,47 @@ class BoardHardware(DataClassORJSONMixin):
 
 
 @dataclass
+class FeaturedComponent(DataClassORJSONMixin):
+    """
+    A component recommended for this board.
+
+    Surfaced in the catalog API under id ``featured.<board_id>.<id>`` and
+    category ``featured``. ``component_id`` points at the underlying
+    catalog entry the user is actually adding (``switch.gpio``,
+    ``binary_sensor.gpio``, ...) — the featured entry contributes
+    name/description overrides plus per-field presets keyed by
+    ``ConfigEntry.key``.
+    """
+
+    # Local id, unique within this board (e.g. "relay", "pir-motion").
+    id: str
+    component_id: str
+    name: str | None = None
+    description: str | None = None
+    fields: dict[str, FieldPreset] = field(default_factory=dict)
+
+
+@dataclass
+class FeaturedBundle(DataClassORJSONMixin):
+    """
+    A logical group of featured components added together.
+
+    Models hardware addons that span multiple ESPHome components — e.g.
+    a status LED that needs both ``output.gpio`` and ``light.binary``,
+    or an RGB+buzzer module. ``component_ids`` references the local id
+    of entries in ``featured_components`` on the same board; the
+    frontend triggers sequential ``devices/add_component`` calls for
+    each.
+    """
+
+    # Local id, unique within this board.
+    id: str
+    name: str
+    description: str = ""
+    component_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
 class BoardCatalogEntry(DataClassORJSONMixin):
     """A board definition in the catalog."""
 
@@ -142,6 +183,12 @@ class BoardCatalogEntry(DataClassORJSONMixin):
     product_url: str = ""
     featured: bool = False
     is_generic: bool = False
+    # Components recommended for this board, surfaced in the Add
+    # Component dialog as a "Recommended" section.
+    featured_components: list[FeaturedComponent] = field(default_factory=list)
+    # Logical groups of featured components that the frontend adds
+    # together (e.g. a status LED = output.gpio + light.binary).
+    featured_bundles: list[FeaturedBundle] = field(default_factory=list)
 
 
 @dataclass

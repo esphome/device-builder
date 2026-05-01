@@ -126,6 +126,16 @@
       "type": "boolean",
       "description": "True for generic fallback boards where not all pins may be physically accessible.",
       "default": false
+    },
+    "featured_components": {
+      "type": "array",
+      "description": "Components recommended for this board. Surfaced as a 'Recommended' section in the Add Component dialog.",
+      "items": { "$ref": "#/$defs/featured_component" }
+    },
+    "featured_bundles": {
+      "type": "array",
+      "description": "Logical groups of featured components added together (hardware addon modules, status-LED setups, ...).",
+      "items": { "$ref": "#/$defs/featured_bundle" }
     }
   },
   "$defs": {
@@ -173,6 +183,95 @@
           "description": "Extra guidance for the user."
         }
       }
+    },
+    "featured_component": {
+      "type": "object",
+      "description": "A component recommended for this board, optionally with pre-filled field values.",
+      "required": ["id", "component_id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Local id, unique within this board (e.g. 'relay', 'pir-motion').",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+        },
+        "component_id": {
+          "type": "string",
+          "description": "Underlying ComponentCatalogEntry id (e.g. 'switch.gpio').",
+          "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)?$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Override for the component's display name."
+        },
+        "description": {
+          "type": "string",
+          "description": "Override for the component's description."
+        },
+        "fields": {
+          "type": "object",
+          "description": "Per-config-entry presets, keyed by ConfigEntry.key.",
+          "additionalProperties": { "$ref": "#/$defs/field_preset_or_value" }
+        }
+      }
+    },
+    "featured_bundle": {
+      "type": "object",
+      "description": "A logical group of featured components added together.",
+      "required": ["id", "name", "component_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Local id, unique within this board.",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name for the bundle."
+        },
+        "description": {
+          "type": "string",
+          "description": "What the bundle represents (e.g. 'Onboard status LED')."
+        },
+        "component_ids": {
+          "type": "array",
+          "description": "Local ids referring to entries in featured_components on this same board.",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          }
+        }
+      }
+    },
+    "field_preset_or_value": {
+      "description": "Either a primitive shorthand (pre-fills a default), a list, or a verbose object form ({value, locked, suggestions}).",
+      "oneOf": [
+        { "type": ["string", "number", "integer", "boolean", "null"] },
+        { "type": "array" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "description": "Pre-filled value. Optional when only suggestions are set."
+            },
+            "locked": {
+              "type": "boolean",
+              "description": "When true, frontend disables the input and the backend rejects deviating user input on add.",
+              "default": false
+            },
+            "suggestions": {
+              "type": "array",
+              "description": "Limit the user's choice to this list (e.g. allowed GPIOs).",
+              "minItems": 1,
+              "items": { "type": ["string", "number", "integer", "boolean"] }
+            }
+          },
+          "not": { "required": ["locked", "suggestions"] }
+        }
+      ]
     }
   }
 }

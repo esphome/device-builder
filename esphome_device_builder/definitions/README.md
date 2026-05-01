@@ -118,6 +118,70 @@ Use `occupied_by` when a GPIO is connected to an onboard component. Examples:
 
 This tells the Device Builder to warn users before assigning these pins.
 
+### Featured Components
+
+A board manifest can recommend specific components for the Add Component
+dialog under a `featured_components:` section. Each entry references an
+existing catalog component by `component_id` (e.g. `switch.gpio`) and
+optionally pre-fills any of its config fields. Three preset modes:
+
+```yaml
+featured_components:
+  # 1) Recommend-only — points users at a component, no config preset.
+  - id: dht
+    component_id: sensor.dht
+    name: Temperature & Humidity (DHT)
+
+  # 2) Locked — fixed value the user cannot change.
+  - id: relay
+    component_id: switch.gpio
+    name: Onboard Relay
+    description: 10 A relay wired to GPIO12.
+    fields:
+      pin: { value: 12, locked: true }
+      name: Relay   # primitive shorthand → value="Relay", locked=false
+
+  # 3) Suggestions — short list of allowed values (frontend renders a picker).
+  - id: pir-motion
+    component_id: binary_sensor.gpio
+    name: PIR Motion Module
+    fields:
+      pin:
+        suggestions: [4, 5]
+        value: 4    # initial pick
+      device_class: motion
+```
+
+Inside `fields:`:
+
+- A bare primitive / list is shorthand for `{ value: <x>, locked: false }`.
+- The full mapping form is `{ value, locked, suggestions }`. `locked: true`
+  and `suggestions: [...]` are mutually exclusive.
+- Pin values can be either a bare integer or the rich ESPHome pin form
+  (`{ number: 0, mode: { input: true, pullup: true }, inverted: true }`)
+  for cases like the Sonoff button that need pull-ups and inversion.
+
+**Bundles** group multiple featured components that go together — typical
+case is a status LED that needs both `output.gpio` and `light.binary`:
+
+```yaml
+featured_bundles:
+  - id: status-led
+    name: Status LED (full setup)
+    description: GPIO output plus a binary light entity.
+    component_ids: [status-led-output, status-led-light]
+```
+
+`component_ids` references the local `id` of entries in
+`featured_components:` on the same board. The frontend adds bundle
+members sequentially via the regular `devices/add_component` flow.
+
+The validator (`script/validate_definitions.py`) cross-checks every
+featured component against `components.json`: the `component_id` must
+exist, every key in `fields:` must match a real `ConfigEntry.key`, and
+pin values / suggestions must reference GPIOs declared in the board's
+`pins:` list.
+
 ## Adding a Component
 
 Create a new subfolder in `components/` with a `manifest.yaml`:

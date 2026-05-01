@@ -34,6 +34,9 @@ from ..models import (
     BoardTag,
     Connectivity,
     Esp32Variant,
+    FeaturedBundle,
+    FeaturedComponent,
+    FieldPreset,
     PinFeature,
     Platform,
 )
@@ -151,6 +154,51 @@ def _load_pin(data: dict, board_id: str) -> BoardPin:
     )
 
 
+def _coerce_field_preset(raw: object) -> FieldPreset:
+    """
+    Normalise the YAML representation of a field preset.
+
+    Three accepted shapes:
+
+    - primitive (string/number/bool/null) → ``FieldPreset(value=raw)``
+    - list → ``FieldPreset(value=raw)`` (used for fields that take a list)
+    - dict → parsed as the explicit ``{value, locked, suggestions}`` form
+
+    Unknown keys in the dict form are silently dropped — schema validation
+    in ``script/validate_definitions.py`` is the strict gate.
+    """
+    if isinstance(raw, dict):
+        return FieldPreset(
+            value=raw.get("value"),
+            locked=bool(raw.get("locked", False)),
+            suggestions=list(raw["suggestions"]) if "suggestions" in raw else None,
+        )
+    return FieldPreset(value=raw)  # type: ignore[arg-type]
+
+
+def _load_featured_component(data: dict) -> FeaturedComponent:
+    """Load a FeaturedComponent from its YAML dict form."""
+    raw_fields = data.get("fields") or {}
+    fields = {key: _coerce_field_preset(val) for key, val in raw_fields.items()}
+    return FeaturedComponent(
+        id=data["id"],
+        component_id=data["component_id"],
+        name=data.get("name"),
+        description=data.get("description"),
+        fields=fields,
+    )
+
+
+def _load_featured_bundle(data: dict) -> FeaturedBundle:
+    """Load a FeaturedBundle from its YAML dict form."""
+    return FeaturedBundle(
+        id=data["id"],
+        name=data["name"],
+        description=data.get("description", ""),
+        component_ids=list(data.get("component_ids", [])),
+    )
+
+
 def _load_esphome_config(data: dict, board_id: str) -> BoardEsphomeConfig:
     """Load a BoardEsphomeConfig from a dict."""
     platform = Platform(data["platform"])
@@ -213,6 +261,12 @@ def load_board_catalog() -> BoardCatalogResponse:
                     product_url=data.get("product_url", ""),
                     featured=data.get("featured", False),
                     is_generic=data.get("is_generic", False),
+                    featured_components=[
+                        _load_featured_component(fc) for fc in data.get("featured_components", [])
+                    ],
+                    featured_bundles=[
+                        _load_featured_bundle(fb) for fb in data.get("featured_bundles", [])
+                    ],
                 )
             )
         except Exception:

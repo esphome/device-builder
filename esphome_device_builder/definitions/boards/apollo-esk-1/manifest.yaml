@@ -87,3 +87,75 @@ pins:
   features:
   - uart_tx
   available: true
+featured_components:
+- id: i2c-bus
+  component_id: i2c
+  name: I²C Bus (sensor modules)
+  description: |
+    The two FPC connectors expose the same I²C bus on GPIO0 (SCL) and
+    GPIO1 (SDA). Configure I²C once and any of the swappable sensor
+    modules (AHT20, additional I²C breakouts) will work.
+  fields:
+    scl:
+      value: 0
+      locked: true
+    sda:
+      value: 1
+      locked: true
+- id: aht20
+  component_id: sensor.aht10
+  name: AHT20 Temperature & Humidity
+  description: |
+    Sensor module shipped with the kit. Plug into either FPC connector;
+    it talks I²C so no per-pin config is needed beyond the bus above.
+  fields:
+    variant: AHT20
+- id: pir-motion
+  component_id: binary_sensor.gpio
+  name: PIR Motion Module (MH-SR602)
+  description: |
+    Motion sensor module included with the kit. Pin depends on which
+    FPC connector you plug it into — pick GPIO4 for connector A or
+    GPIO5 for connector B.
+  fields:
+    pin:
+      suggestions: [4, 5]
+      value: 4
+    device_class: motion
+- id: rgb-strip
+  component_id: light.esp32_rmt_led_strip
+  name: RGB LED Strip (addon module)
+  description: |
+    Addressable LED strip from the RGB+buzzer addon. Pin tracks the
+    FPC connector (GPIO4 for A, GPIO5 for B). Defaults to 8 LEDs in
+    GRB order — adjust to match your strip.
+  fields:
+    pin:
+      suggestions: [4, 5]
+      value: 4
+    num_leds: 8
+    rgb_order: GRB
+- id: buzzer-output
+  component_id: output.ledc
+  name: Piezo Buzzer (addon module)
+  description: |
+    PWM output driving the piezo buzzer on the RGB+buzzer addon.
+    Pick the FPC connector pin not used by the strip — GPIO4 or GPIO5.
+  fields:
+    pin:
+      suggestions: [4, 5]
+      value: 5
+- id: rtttl-player
+  component_id: rtttl
+  name: RTTTL Player (addon buzzer)
+  description: |
+    Plays RTTTL ringtones through the piezo buzzer above. Wire the
+    ``output`` field to the buzzer output you just added.
+featured_bundles:
+- id: rgb-buzzer-module
+  name: RGB LED + Buzzer Module
+  description: |
+    Plug-in addon shipped with the starter kit — addressable LED
+    strip plus a piezo buzzer. Adds the strip, the buzzer PWM output,
+    and the RTTTL player as one logical unit.
+  component_ids: [rgb-strip, buzzer-output, rtttl-player]

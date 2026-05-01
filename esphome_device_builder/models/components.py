@@ -66,6 +66,12 @@ class ComponentCategory(StrEnum):
     STEPPER = "stepper"
     WATER_HEATER = "water_heater"
     MISC = "misc"
+    # Synthetic category for components surfaced as board recommendations.
+    # Featured entries are materialised on the fly from the board catalog
+    # and only appear in API results when ``category=featured`` is the
+    # explicit filter — they are excluded from the regular catalog
+    # listing the same way ``core`` / ``ota`` / ``time`` / ``update`` are.
+    FEATURED = "featured"
 
 
 @dataclass

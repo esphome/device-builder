@@ -174,6 +174,14 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 | `boards/get_boards` | `{query?, platform?, variant?, tag?, offset?, limit?}` | `PagedBoardsResponse` | Search/list boards |
 | `boards/get_board` | `{board_id}` | `BoardCatalogEntry` | Get board with pin map |
 
+`BoardCatalogEntry` carries two recommendation lists for the Add Component dialog:
+
+- `featured_components: list[FeaturedComponent]` — components recommended for this board, surfaced in the catalog API as `featured.<board_id>.<local_id>` under category `featured`. Each entry can override the catalog `name`/`description` and pre-fill any subset of the underlying component's `config_entries` via a `fields` map keyed by `ConfigEntry.key`. Three preset modes per field:
+  - **default**: a primitive value the frontend pre-fills; user can change it.
+  - **locked**: `{value, locked: true}` — frontend disables the input and `devices/add_component` rejects deviating user values.
+  - **suggestions**: `{suggestions: [...]}` — frontend renders a picker, user must pick from the list.
+- `featured_bundles: list[FeaturedBundle]` — `{id, name, description, component_ids}` groups of featured components (e.g. "Status LED" = `output.gpio` + `light.binary`). The frontend triggers sequential `devices/add_component` calls for each `component_id` when the user adds a bundle.
+
 ### Components
 
 > Controller: [`ComponentCatalog`](../esphome_device_builder/controllers/components.py)
@@ -182,13 +190,15 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
-| `components/get_categories` | — | `[{id, name, count}]` | List categories with counts |
+| `components/get_categories` | `{board_id?}` | `[{id, name, count}]` | List categories with counts |
 | `components/get_components` | `{query?, category?, exclude_category?, platform?, board_id?, offset?, limit?}` | `PagedComponentsResponse` | Search/list components |
 | `components/get_component` | `{component_id, platform?, board_id?}` | `ComponentCatalogEntry` | Get component with config entries |
 
 `platform` filters to components compatible with the given target platform; components with an empty `supported_platforms` list are platform-agnostic and always included. `board_id` is a convenience — the boards catalog resolves it to a platform; `platform` wins when both are passed. The platform is also used to materialise each entry's `platform_defaults` into `default_value`.
 
 `category` / `exclude_category` accept either a single category or a list. Use `exclude_category` for the regular catalog selector to hide entries that belong to the dedicated "Add core configuration" dialog.
+
+**Featured components.** The board catalog's `featured_components` are surfaced through this same API under the synthetic category `featured` and ID prefix `featured.<board_id>.<local_id>`. They are **only** returned when `category` explicitly includes `featured` and `board_id` is supplied — the regular catalog listing never mixes them in. `get_categories` adds a `featured` entry with the board's recommended-count when `board_id` is set. A featured `ComponentCatalogEntry` carries the board overrides baked into its `config_entries`: `default_value` reflects the preset, and the new `locked: bool` and `suggestions: list[ConfigPrimitive] | None` fields tell the frontend to disable the input or render a picker. `devices/add_component` recognises `featured.*` ids — the wire shape doesn't change, but the backend resolves the underlying component, validates user input against the locked/suggestion constraints, and merges presets before delegating to the regular merge logic.
 
 ### Automations
 

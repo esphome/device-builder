@@ -1,0 +1,139 @@
+id: athom-smart-plug-v3
+name: Athom Smart Plug v3
+description: >
+  Athom Smart Plug v3 (PG02-V3) with an ESP32-C3 module, 16 A onboard
+  relay, HLW8012 energy metering, push button, and status LED. Sold
+  pre-flashed with ESPHome firmware. Popular drop-in replacement for
+  Sonoff/TP-Link plugs in Home Assistant deployments.
+manufacturer: Athom
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  cpu_frequency: 160MHz
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- relay
+- compact
+docs_url: https://esphome.io/components/sensor/hlw8012.html
+product_url: https://www.athom.tech/blank-1/esphome-smart-plug-v3
+pins:
+- gpio: 3
+  label: HLW_CF
+  features:
+  - pwm
+  available: false
+  occupied_by: HLW8012 CF (active power pulse)
+  notes: Pulse output proportional to active power
+- gpio: 4
+  label: HLW_CF1
+  features:
+  - adc
+  - pwm
+  available: false
+  occupied_by: HLW8012 CF1 (current/voltage pulse)
+  notes: Multiplexed current/voltage pulse output
+- gpio: 5
+  label: HLW_SEL
+  features:
+  - adc
+  - pwm
+  available: false
+  occupied_by: HLW8012 SEL (mux select)
+  notes: Selects whether CF1 reports current or voltage
+- gpio: 6
+  label: RELAY
+  features:
+  - pwm
+  available: false
+  occupied_by: 16 A onboard relay
+  notes: Active high — drives the front-panel relay
+- gpio: 7
+  label: STATUS_LED
+  features:
+  - pwm
+  available: false
+  occupied_by: Front-panel blue LED
+  notes: Active low — must be inverted for "on" = LED on
+- gpio: 9
+  label: BUTTON
+  features:
+  - boot_button
+  available: false
+  occupied_by: Front-panel push button
+  notes: Boot strapping pin — wired to the front-panel button (active low)
+featured_components:
+- id: relay
+  component_id: switch.gpio
+  name: Onboard Relay
+  description: |
+    16 A relay hard-wired to GPIO6. The pin is fixed; the rest of the
+    fields are yours to set.
+  fields:
+    pin:
+      value: 6
+      locked: true
+    name: Relay
+- id: button
+  component_id: binary_sensor.gpio
+  name: Front-Panel Button
+  description: |
+    Front-panel push button on GPIO9 (active low — uses internal pull-up
+    via the rich pin form).
+  fields:
+    pin:
+      value:
+        number: 9
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+- id: status-led-output
+  component_id: output.gpio
+  name: Status LED Output
+  description: |
+    Low-level GPIO output for the onboard blue LED on GPIO7. Pair with
+    a ``Status LED Light`` so Home Assistant can toggle it as a light.
+  fields:
+    pin:
+      value: 7
+      locked: true
+    inverted: true
+- id: status-led-light
+  component_id: light.binary
+  name: Status LED Light
+  description: |
+    Binary light entity for the onboard status LED. Wire its ``output``
+    to the ``status-led-output`` you added.
+  fields:
+    name: Status LED
+- id: power-monitor
+  component_id: sensor.hlw8012
+  name: HLW8012 Power Monitor
+  description: |
+    Energy-metering chip wired to GPIO3 (CF), GPIO4 (CF1), and GPIO5
+    (SEL). The pins are physically fixed on this board.
+  fields:
+    cf_pin:
+      value: 3
+      locked: true
+    cf1_pin:
+      value: 4
+      locked: true
+    sel_pin:
+      value: 5
+      locked: true
+    model: BL0937
+featured_bundles:
+- id: status-led
+  name: Status LED (full setup)
+  description: |
+    Adds the onboard LED's GPIO output plus a binary light entity so it
+    surfaces as a light in Home Assistant.
+  component_ids: [status-led-output, status-led-light]

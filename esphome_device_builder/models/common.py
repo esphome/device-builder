@@ -260,6 +260,18 @@ class ConfigEntry(DataClassORJSONMixin):
     # Most ESPHome fields are templatable.
     templatable: bool = False
 
+    # === featured-component overlays ===
+    # Populated only on materialised featured components — the regular
+    # catalog never sets these. ``locked=True`` tells the frontend to
+    # disable the input (the value comes from a board-side preset and
+    # the backend rejects deviating user input on add). ``suggestions``,
+    # when non-None, limits the user's choice to this list — most often
+    # used on PIN entries for addon modules whose pin can land on one
+    # of a few GPIOs.
+
+    locked: bool = False
+    suggestions: list[ConfigPrimitive] | None = None
+
     # === conditional visibility ===
     # `depends_on_value` and `depends_on_value_not` are mutually
     # exclusive — set at most one. Frontend hides the entry when the
@@ -338,3 +350,30 @@ class ConfigEntry(DataClassORJSONMixin):
     # device_class, ...) on top of `config_entries` for these. None
     # means a plain structured group.
     platform_type: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Featured-component presets (board-side)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FieldPreset(DataClassORJSONMixin):
+    """
+    Pre-filled value for a single config-entry on a featured component.
+
+    Three modes, expressed by which fields are populated:
+
+    - ``value`` only: pre-filled default, user can change it.
+    - ``value`` + ``locked=True``: fixed value. Frontend disables the input;
+      backend rejects deviating user input on add.
+    - ``suggestions``: short list of allowed values (frontend renders a
+      picker). ``value`` (if also set) is the initial selection.
+
+    ``locked`` and ``suggestions`` are mutually exclusive. ``value`` can be
+    a primitive, list, or dict — the latter for nested config entries.
+    """
+
+    value: ConfigPrimitive | list[Any] | dict[str, Any] | None = None
+    locked: bool = False
+    suggestions: list[ConfigPrimitive] | None = None

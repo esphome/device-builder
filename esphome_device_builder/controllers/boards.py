@@ -96,6 +96,16 @@ class BoardCatalog:
                 return board
         return None
 
+    def iter_boards(self) -> list[BoardCatalogEntry]:
+        """
+        Return every loaded board.
+
+        Returns the internal list directly — callers must treat it as
+        read-only. Used by the components controller to build the
+        featured-component registry at startup.
+        """
+        return self._boards
+
     def find_by_pio_board(self, pio_board: str, pio_variant: str = "") -> BoardCatalogEntry | None:
         """
         Find a board by its PlatformIO board id, preferring a matching variant.

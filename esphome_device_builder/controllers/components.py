@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +15,8 @@ from ..models import (
     ConfigEntry,
     ConfigEntryType,
     ConfigValueOption,
+    FeaturedComponent,
+    FieldPreset,
     PagedComponentsResponse,
     PinFeature,
     PinMode,
@@ -21,6 +24,10 @@ from ..models import (
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
+
+# Prefix used to route featured-component IDs to the featured registry.
+# Format: ``featured.<board_id>.<local_id>`` (e.g. ``featured.sonoff-basic.relay``).
+_FEATURED_PREFIX = "featured."
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,6 +41,12 @@ class ComponentCatalog:
         self._db = device_builder
         self._components: list[ComponentCatalogEntry] = []
         self._by_id: dict[str, ComponentCatalogEntry] = {}
+        # Featured-component lookups, populated by ``_build_featured_registry``
+        # after both catalogs have loaded. The ``_by_board`` index is what
+        # lets ``get_components`` scope a ``category=featured`` query to one
+        # board's recommendations rather than the whole catalog.
+        self._featured_by_id: dict[str, _FeaturedRecord] = {}
+        self._featured_by_board: dict[str, list[str]] = {}
 
     def load(self) -> None:
         """
@@ -56,7 +69,12 @@ class ComponentCatalog:
         data = loads(_COMPONENTS_JSON.read_bytes())
         self._components = [_load_component(c) for c in data.get("components", [])]
         self._by_id = {c.id: c for c in self._components}
-        _LOGGER.info("Component catalog loaded: %d components", len(self._components))
+        self._build_featured_registry()
+        _LOGGER.info(
+            "Component catalog loaded: %d components, %d featured",
+            len(self._components),
+            len(self._featured_by_id),
+        )
 
     @property
     def categories(self) -> list[dict[str, str | int]]:
@@ -66,21 +84,23 @@ class ComponentCatalog:
         Each entry is a ``{id, name, count}`` dict suitable for direct
         use in the catalog UI's filter list.
         """
-        counts: dict[str, int] = {}
-        for comp in self._components:
-            counts[comp.category] = counts.get(comp.category, 0) + 1
-        return sorted(
-            [
-                {"id": str(cat), "name": str(cat).replace("_", " ").title(), "count": count}
-                for cat, count in counts.items()
-            ],
-            key=lambda c: (-int(c["count"]), str(c["name"])),
-        )
+        return self._categories_for_board(None)
 
     @api_command("components/get_categories")
-    async def get_categories(self, **kwargs: Any) -> list[dict[str, str | int]]:
-        """Get all component categories with counts."""
-        return self.categories
+    async def get_categories(
+        self,
+        *,
+        board_id: str | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, str | int]]:
+        """
+        Get all component categories with counts.
+
+        When ``board_id`` is supplied, the response includes a synthetic
+        ``featured`` entry whose count reflects the recommended components
+        for that board (omitted entirely when the board has none).
+        """
+        return self._categories_for_board(board_id)
 
     @api_command("components/get_integration_docs")
     async def get_integration_docs(self, **kwargs: Any) -> dict[str, str]:
@@ -182,12 +202,24 @@ class ComponentCatalog:
         into ``default_value`` for that target platform — frontend
         gets the right default without having to know the
         cv.SplitDefault details.
+
+        ``component_id`` may also be a featured-component id of the form
+        ``featured.<board>.<local>`` — the response then carries the
+        underlying component with the board's ``FieldPreset`` overrides
+        baked into ``default_value`` / ``locked`` / ``suggestions``.
         """
-        platform = self._resolve_platform(platform, board_id)
+        if component_id.startswith(_FEATURED_PREFIX):
+            record = self._featured_by_id.get(component_id)
+            if record is None:
+                return None
+            target_platform = self._resolve_platform(platform, board_id or record.board_id)
+            return _materialise_featured(record, target_platform)
+
+        target_platform = self._resolve_platform(platform, board_id)
         component = self._by_id.get(component_id)
         if component is None:
             return None
-        return _materialise(component, platform)
+        return _materialise(component, target_platform)
 
     @api_command("components/get_components")
     async def get_components(
@@ -223,21 +255,43 @@ class ComponentCatalog:
         plus the platform-domain umbrellas ``ota`` / ``time`` /
         ``update``). Both filters can be combined though that's
         unusual.
+
+        Featured components are surfaced **only** when ``category``
+        explicitly includes ``featured`` and ``board_id`` is set — the
+        regular catalog listing never returns them.
         """
-        platform = self._resolve_platform(platform, board_id)
+        target_platform = self._resolve_platform(platform, board_id)
+        include_set = _as_category_set(category) if category else None
+        exclude_set = _as_category_set(exclude_category) if exclude_category else None
+
+        # Without a board_id there's no way to pick a subset, so an
+        # explicit ``category=featured`` filter without one returns an
+        # empty page rather than recommendations from unrelated hardware.
+        if include_set is not None and ComponentCategory.FEATURED.value in include_set and board_id:
+            featured_entries = self._featured_components_for_board(board_id, target_platform, query)
+            total = len(featured_entries)
+            page = featured_entries[offset : offset + limit]
+            return PagedComponentsResponse(
+                components=page,
+                total=total,
+                offset=offset,
+                limit=limit,
+                categories=self._categories_for_board(board_id),
+            )
+
         results = self._components
 
-        if category:
-            include_set = _as_category_set(category)
+        if include_set is not None:
             results = [c for c in results if c.category in include_set]
 
-        if exclude_category:
-            exclude_set = _as_category_set(exclude_category)
+        if exclude_set is not None:
             results = [c for c in results if c.category not in exclude_set]
 
-        if platform:
+        if target_platform:
             results = [
-                c for c in results if not c.supported_platforms or platform in c.supported_platforms
+                c
+                for c in results
+                if not c.supported_platforms or target_platform in c.supported_platforms
             ]
 
         if query:
@@ -251,14 +305,89 @@ class ComponentCatalog:
             ]
 
         total = len(results)
-        page = [_materialise(c, platform) for c in results[offset : offset + limit]]
+        page = [_materialise(c, target_platform) for c in results[offset : offset + limit]]
         return PagedComponentsResponse(
             components=page,
             total=total,
             offset=offset,
             limit=limit,
-            categories=self.categories,
+            categories=self._categories_for_board(board_id),
         )
+
+    def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
+        """Return the registry record for a ``featured.*`` id, or ``None``."""
+        return self._featured_by_id.get(component_id)
+
+    def _build_featured_registry(self) -> None:
+        """Walk the board catalog and index every featured component."""
+        self._featured_by_id = {}
+        self._featured_by_board = {}
+        if self._db is None or self._db.boards is None:
+            return
+        for board in self._db.boards.iter_boards():
+            ids: list[str] = []
+            for fc in board.featured_components:
+                full_id = f"{_FEATURED_PREFIX}{board.id}.{fc.id}"
+                underlying = self._by_id.get(fc.component_id)
+                if underlying is None:
+                    _LOGGER.warning(
+                        "Board %s featured.%s references unknown component %s — skipping",
+                        board.id,
+                        fc.id,
+                        fc.component_id,
+                    )
+                    continue
+                self._featured_by_id[full_id] = _FeaturedRecord(
+                    full_id=full_id,
+                    board_id=board.id,
+                    featured=fc,
+                    underlying=underlying,
+                )
+                ids.append(full_id)
+            if ids:
+                self._featured_by_board[board.id] = ids
+
+    def _categories_for_board(self, board_id: str | None) -> list[dict[str, str | int]]:
+        """Build the category list, optionally with a per-board ``featured`` count."""
+        counts: dict[str, int] = {}
+        for comp in self._components:
+            counts[comp.category] = counts.get(comp.category, 0) + 1
+        if board_id:
+            featured_count = len(self._featured_by_board.get(board_id, []))
+            if featured_count:
+                counts[ComponentCategory.FEATURED.value] = featured_count
+        return sorted(
+            [
+                {"id": str(cat), "name": str(cat).replace("_", " ").title(), "count": count}
+                for cat, count in counts.items()
+            ],
+            key=lambda c: (-int(c["count"]), str(c["name"])),
+        )
+
+    def _featured_components_for_board(
+        self,
+        board_id: str,
+        target_platform: str | None,
+        query: str | None,
+    ) -> list[ComponentCatalogEntry]:
+        """Materialise every featured component on *board_id*, optionally filtered by *query*."""
+        ids = self._featured_by_board.get(board_id, [])
+        entries: list[ComponentCatalogEntry] = []
+        for full_id in ids:
+            record = self._featured_by_id.get(full_id)
+            if record is None:
+                continue
+            entries.append(_materialise_featured(record, target_platform))
+        if query:
+            query_lower = query.lower()
+            entries = [
+                e
+                for e in entries
+                if query_lower in e.name.lower()
+                or query_lower in e.description.lower()
+                or query_lower in e.id.lower()
+            ]
+        return entries
 
     def _resolve_platform(
         self,
@@ -280,6 +409,85 @@ class ComponentCatalog:
         if board is None or board.esphome.platform is None:
             return None
         return board.esphome.platform.value.lower()
+
+
+# ---------------------------------------------------------------------------
+# Featured registry
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FeaturedRecord:
+    """
+    A featured component resolved against the underlying catalog entry.
+
+    ``underlying`` is the regular catalog entry the user is actually
+    adding (``switch.gpio``, ...); ``featured`` carries the manifest's
+    name/description overrides and per-field presets to layer on top.
+    """
+
+    full_id: str
+    board_id: str
+    featured: FeaturedComponent
+    underlying: ComponentCatalogEntry
+
+    @property
+    def underlying_id(self) -> str:
+        return self.underlying.id
+
+
+def _materialise_featured(
+    record: _FeaturedRecord,
+    target_platform: str | None,
+) -> ComponentCatalogEntry:
+    """
+    Return *record* as a ``ComponentCatalogEntry`` ready for the catalog API.
+
+    The result carries the synthetic ``featured.<board>.<local>`` id and
+    category ``featured``, the manifest's name/description overrides, and
+    each ``FieldPreset`` baked into the corresponding ``ConfigEntry`` as
+    ``default_value`` / ``locked`` / ``suggestions``.
+    """
+    underlying = record.underlying
+    fc = record.featured
+    return ComponentCatalogEntry(
+        id=record.full_id,
+        name=fc.name or underlying.name,
+        description=fc.description if fc.description is not None else underlying.description,
+        category=ComponentCategory.FEATURED,
+        docs_url=underlying.docs_url,
+        image_url=underlying.image_url,
+        dependencies=list(underlying.dependencies),
+        multi_conf=underlying.multi_conf,
+        supported_platforms=list(underlying.supported_platforms),
+        config_entries=[
+            _materialise_entry_with_preset(entry, target_platform, fc.fields.get(entry.key))
+            for entry in underlying.config_entries
+        ],
+    )
+
+
+def _materialise_entry_with_preset(
+    entry: ConfigEntry,
+    target_platform: str | None,
+    preset: FieldPreset | None,
+) -> ConfigEntry:
+    """
+    Return *entry* materialised for *target_platform* with *preset* applied.
+
+    ``preset.value`` overrides ``default_value``, ``preset.locked`` and
+    ``preset.suggestions`` ride through to the returned entry. Without a
+    preset this is equivalent to :func:`_materialise_entry`.
+    """
+    base = _materialise_entry(entry, target_platform)
+    if preset is None:
+        return base
+    if preset.value is not None:
+        base.default_value = preset.value  # type: ignore[assignment]
+    base.locked = preset.locked
+    if preset.suggestions is not None:
+        base.suggestions = list(preset.suggestions)
+    return base
 
 
 # ---------------------------------------------------------------------------

@@ -52,6 +52,7 @@ from .config import (
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
+    from .components import _FeaturedRecord
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -617,14 +618,32 @@ class DevicesController:
         ``fields`` is a flat mapping of config-entry key → value. For
         NESTED config entries the value is itself a dict matching the
         nested entry's structure (recursive).
+
+        Featured-component ids (``featured.<board>.<local>``) are
+        recognised here: the backend resolves them to the underlying
+        catalog component, validates user input against the manifest's
+        ``locked`` / ``suggestions`` constraints, and merges the
+        manifest's preset values into ``fields`` before delegating to
+        the regular merge logic.
         """
         assert self._db.components is not None  # type narrowing
-        component = await self._db.components.get_component(component_id=component_id)
+
+        fields = dict(fields or {})
+        underlying_component_id = component_id
+
+        if component_id.startswith("featured."):
+            record = self._db.components.get_featured_record(component_id)
+            if record is None:
+                msg = f"Unknown featured component: {component_id}"
+                raise ValueError(msg)
+            underlying_component_id = record.underlying_id
+            fields = _apply_featured_presets(record, fields)
+
+        component = await self._db.components.get_component(component_id=underlying_component_id)
         if component is None:
-            msg = f"Unknown component: {component_id}"
+            msg = f"Unknown component: {underlying_component_id}"
             raise ValueError(msg)
 
-        fields = fields or {}
         for entry in component.config_entries:
             if entry.required and entry.key not in fields:
                 msg = f"Missing required field: {entry.key}"
@@ -1460,6 +1479,55 @@ class DevicesController:
         await client.send_event(
             message_id, "result", {"success": exit_code == 0, "code": exit_code}
         )
+
+
+def _apply_featured_presets(
+    record: _FeaturedRecord,
+    user_fields: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Merge a featured component's presets onto *user_fields*.
+
+    Returns a new field map ready for the regular merge logic; raises
+    ``ValueError`` when *user_fields* violates a preset constraint.
+
+    Per-field semantics:
+
+    - Locked: user must omit the key or supply the locked value verbatim.
+    - Suggestions: user-supplied value must be one of the listed values;
+      omission falls back to the preset's ``value`` (when set).
+    - Plain default: filled in only when the user didn't supply one.
+    """
+    merged: dict[str, Any] = dict(user_fields)
+    for key, preset in record.featured.fields.items():
+        user_value = merged.get(key)
+        user_supplied = key in merged
+        if preset.locked:
+            if user_supplied and user_value != preset.value:
+                msg = (
+                    f"Featured component {record.full_id} field '{key}' is "
+                    f"locked to {preset.value!r}; cannot override with "
+                    f"{user_value!r}"
+                )
+                raise ValueError(msg)
+            if preset.value is not None:
+                merged[key] = preset.value
+            continue
+        if preset.suggestions is not None:
+            if user_supplied:
+                if user_value not in preset.suggestions:
+                    msg = (
+                        f"Featured component {record.full_id} field '{key}' "
+                        f"must be one of {preset.suggestions}; got "
+                        f"{user_value!r}"
+                    )
+                    raise ValueError(msg)
+            elif preset.value is not None:
+                merged[key] = preset.value
+            continue
+        if not user_supplied and preset.value is not None:
+            merged[key] = preset.value
+    return merged
 
 
 def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None) -> list[str]:
