@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -114,6 +115,10 @@ async def test_session_store_persists_across_instances(tmp_path: Path) -> None:
     assert fetched.token == session.token
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX file modes don't apply on Windows; ACLs are a different story.",
+)
 async def test_session_store_persists_with_restrictive_permissions(tmp_path: Path) -> None:
     """The persisted file is mode 0600 — readable only by the owner."""
     store = SessionStore(tmp_path)
