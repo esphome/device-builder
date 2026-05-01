@@ -94,7 +94,8 @@ On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/m
 | `firmware/compile` | `{configuration}` | `FirmwareJob` | Queue compile job |
 | `firmware/upload` | `{configuration, port?}` | `FirmwareJob` | Queue upload of existing binary |
 | `firmware/install` | `{configuration, port?: "OTA"}` | `FirmwareJob` | Queue compile + upload |
-| `firmware/clean` | `{configuration}` | `FirmwareJob` | Queue build clean |
+| `firmware/clean` | `{configuration}` | `FirmwareJob` | Queue build clean for one device |
+| `firmware/reset_build_env` | — | `FirmwareJob` | Queue full reset of `.esphome/` build dirs and PIO cache |
 | `firmware/compile_bulk` | `{configurations: string[]}` | `[FirmwareJob]` | Queue multiple compiles |
 | `firmware/install_bulk` | `{configurations: string[], port?: "OTA"}` | `[FirmwareJob]` | Queue multiple installs |
 | `firmware/get_jobs` | `{status?, configuration?}` | `[FirmwareJob]` | List jobs with filters |
@@ -107,6 +108,10 @@ On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/m
 | `firmware/clear` | `{status?}` | — | Remove finished jobs |
 
 **Job queue**: one job runs at a time, others wait. Jobs persist across server restarts. Output buffered in `FirmwareJob.output` — clients can reconnect via `firmware/follow_job`.
+
+**History retention**: terminal `compile`/`upload`/`install` jobs are kept in a global pool capped at 50, deduplicated to one entry per `configuration` (newest wins). Terminal `clean`/`reset_build_env` jobs sit in a separate pool capped at 5 so they don't crowd device history. Active (queued/running) jobs are exempt from pruning. Each retained job's `output` is trimmed to the last 2000 lines on terminal transition; a synthetic first line `... [output trimmed: N earlier line(s) elided]` indicates how many lines were dropped. `firmware/clear` still wipes terminal jobs on demand.
+
+**`firmware/reset_build_env`**: wipes `.esphome/build/`, `.esphome/external_components/`, and `.esphome/platformio_cache/` so the next compile re-fetches external components and re-downloads PlatformIO toolchains. Returns a `FirmwareJob` with empty `configuration` and `job_type: "reset_build_env"`. Streams progress through the same `JOB_OUTPUT` event as compile jobs. Mid-run cancellation is honoured between the three target directories, not during a single removal.
 
 **Cancel semantics**:
 - Queued jobs flip to `cancelled` immediately.
