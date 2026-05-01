@@ -82,7 +82,7 @@ class _FakeServiceInfo:
         return []
 
     @property
-    def properties(self) -> dict[bytes, bytes]:
+    def decoded_properties(self) -> dict[str, str | None]:
         return {}
 
 

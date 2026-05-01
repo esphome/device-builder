@@ -64,11 +64,6 @@ VersionChangeCallback = Callable[[str, str], None]
 # older devices simply never fire this callback.
 ConfigHashChangeCallback = Callable[[str, str], None]
 
-# zeroconf hands us raw bytes for TXT keys; declared once so the
-# call site can decode without re-typing the key.
-_TXT_RECORD_VERSION = b"version"
-_TXT_RECORD_CONFIG_HASH = b"config_hash"
-
 
 def device_name_from_service(service_name: str) -> str:
     """Extract the device name from an mDNS service-instance name.
@@ -344,35 +339,16 @@ class DeviceStateMonitor:
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """Pull IP / version / config_hash off a populated ``AsyncServiceInfo``."""
         # ``parsed_addresses`` returns scope-stripped strings
-        # (internally ``str_without_scope_id``) — no manual ``%``-stripping
-        # like ``parsed_scoped_addresses + .split("%", 1)[0]``.
+        # (internally ``str_without_scope_id``) — no manual ``%``-stripping.
         if addresses := info.parsed_addresses(IPVersion.All):
             self.apply_ip(device_name, addresses[0])
-        properties = info.properties or {}
-        self._apply_txt(device_name, properties, _TXT_RECORD_VERSION, "version", self.apply_version)
-        self._apply_txt(
-            device_name,
-            properties,
-            _TXT_RECORD_CONFIG_HASH,
-            "config_hash",
-            self.apply_config_hash,
-        )
-
-    def _apply_txt(
-        self,
-        device_name: str,
-        properties: dict[bytes, bytes | None],
-        key: bytes,
-        label: str,
-        setter: Callable[[str, str], bool],
-    ) -> None:
-        """Decode a TXT record and forward it to *setter*; log + skip on bad UTF-8."""
-        if not (value := properties.get(key)):
-            return
-        try:
-            setter(device_name, value.decode())
-        except UnicodeDecodeError:
-            _LOGGER.debug("Could not decode mDNS %s TXT for %s: %r", label, device_name, value)
+        # ``decoded_properties`` is a ``dict[str, str | None]`` — zeroconf
+        # already handles the UTF-8 decode and None-on-bad-bytes for us.
+        props = info.decoded_properties
+        if version := props.get("version"):
+            self.apply_version(device_name, version)
+        if config_hash := props.get("config_hash"):
+            self.apply_config_hash(device_name, config_hash)
 
     async def _ping_loop(self) -> None:
         try:
