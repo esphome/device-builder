@@ -312,6 +312,9 @@ class DeviceBuilder:
     def _register_frontend(app: web.Application, frontend_dir: Path) -> None:
         """Register routes for the built frontend.
 
+        Refuses to start if the installed wheel is missing
+        ``index.html`` or the ``assets/`` tree.
+
         ``add_static("/assets")`` serves images via aiohttp's vetted
         static handler (sendfile + traversal protection). Top-level
         bundles and the SPA fallback share a single catch-all GET
@@ -323,6 +326,19 @@ class DeviceBuilder:
         """
         index_html = frontend_dir / "index.html"
         assets_dir = frontend_dir / "assets"
+        missing: list[str] = []
+        if not index_html.is_file():
+            missing.append("index.html")
+        if not assets_dir.is_dir():
+            missing.append("assets/")
+        if missing:
+            raise RuntimeError(
+                f"Frontend at {frontend_dir} is missing required entries: "
+                f"{', '.join(missing)}. The installed "
+                "esphome-device-builder-frontend wheel looks broken — "
+                "rebuild it (`npm run build` in the frontend repo) and "
+                "reinstall, or uninstall it to run in API-only mode."
+            )
 
         async def handle_index(request: web.Request) -> web.FileResponse:
             return web.FileResponse(index_html)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from aiohttp import web
 
 from esphome_device_builder.device_builder import DeviceBuilder
@@ -208,3 +209,36 @@ async def test_register_frontend_url_encoded_slash_is_blocked(
         resp = await client.get(url)
         body = await resp.text()
         assert "DO-NOT-LEAK" not in body, url
+
+
+
+def test_register_frontend_raises_when_assets_missing(tmp_path: Path) -> None:
+    """A wheel without assets/ should fail loudly, not 404 silently."""
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<!doctype html>")
+
+    app = web.Application()
+    with pytest.raises(RuntimeError, match="assets/"):
+        DeviceBuilder._register_frontend(app, frontend)
+
+
+def test_register_frontend_raises_when_index_missing(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "assets").mkdir()
+
+    app = web.Application()
+    with pytest.raises(RuntimeError, match=r"index\.html"):
+        DeviceBuilder._register_frontend(app, frontend)
+
+
+def test_register_frontend_lists_all_missing_entries(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+
+    app = web.Application()
+    with pytest.raises(RuntimeError) as exc:
+        DeviceBuilder._register_frontend(app, frontend)
+    assert "index.html" in str(exc.value)
+    assert "assets/" in str(exc.value)
