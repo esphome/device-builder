@@ -641,15 +641,26 @@ class DevicesController:
         *,
         configuration: str,
         port: str = "",
+        no_states: bool = False,
         client: Any = None,
         message_id: str = "",
         **kwargs: Any,
     ) -> None:
-        """Stream live device logs. Per-connection, not queued."""
+        """
+        Stream live device logs. Per-connection, not queued.
+
+        ``no_states`` passes ``--no-states`` through to ``esphome logs``
+        so component state-publish lines (sensor / binary_sensor /
+        switch / cover / climate ...) are suppressed at the source.
+        Mirrors the legacy dashboard's "Show entity state changes"
+        toggle.
+        """
         config_path = str(self._db.settings.rel_path(configuration))
         cmd = [*self._esphome_cmd, "--dashboard", "logs", config_path]
         if port:
             cmd.extend(["--device", port])
+        if no_states:
+            cmd.append("--no-states")
         await self._stream_subprocess(cmd, client, message_id)
 
     @api_command("devices/stop_stream")
