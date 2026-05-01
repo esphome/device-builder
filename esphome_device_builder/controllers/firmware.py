@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 from contextlib import suppress
@@ -155,6 +156,40 @@ def _parse_progress(line: str) -> int | None:
     if 0 <= value <= 100:
         return value
     return None
+
+
+def _signal_process_group(pid: int, sig: int) -> bool:
+    """
+    Send *sig* to the process group of *pid*; return True iff delivered.
+
+    Used to take down the whole esphome → platformio → gcc tree when
+    the user hits Stop. ``proc.terminate()`` / ``proc.kill()`` only
+    signal the direct child (the python esphome process), so the
+    compiler grandchildren keep running and the build effectively
+    ignores the cancel. Pair this with ``start_new_session=True`` at
+    the spawn site: that makes the spawned process the leader of a
+    new session (and a new process group), and its descendants
+    inherit that group. The dashboard process itself is *not* in the
+    same group — ``killpg(getpgid(spawned_pid), sig)`` therefore
+    targets the build subtree without touching us.
+
+    Falls back gracefully:
+    * ``ProcessLookupError`` — the process already exited; nothing to do.
+    * ``PermissionError`` — we lost the right to signal it; treat as a
+      no-op rather than crashing the controller.
+    """
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        return False
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        _LOGGER.warning("Permission denied signalling pgid %d (sig %s)", pgid, sig)
+        return False
+    return True
 
 
 def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
@@ -678,6 +713,14 @@ class FirmwareController:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=env,
+                # Put the whole esphome → platformio → gcc tree in its
+                # own process group so ``_terminate_current_process``
+                # can signal the entire chain, not just the python
+                # parent. Without this, killing the parent leaves the
+                # compiler children orphaned and the build keeps
+                # running until they finish on their own — exactly the
+                # "stop compile doesn't work" symptom.
+                start_new_session=True,
             )
             self._current_process = proc
 
@@ -822,18 +865,22 @@ class FirmwareController:
             await self._persist_jobs()
 
     async def _terminate_current_process(self) -> None:
-        """Send SIGTERM to the running subprocess; escalate if it lingers.
+        """Signal the running subprocess (and its children); escalate if it lingers.
 
         The runner loop is the one that actually finalises the
         ``FirmwareJob`` on exit (so we don't double-write status from
         two coroutines). We only nudge the process here.
+
+        ESPHome forks PlatformIO which forks gcc / esptool / etc. The
+        spawn site uses ``start_new_session=True`` so the whole tree
+        shares a process group; we signal the group instead of just
+        the python parent — without that, the compiler children get
+        orphaned and the build keeps going until they finish.
         """
         proc = self._current_process
         if proc is None or proc.returncode is not None:
             return
-        try:
-            proc.terminate()
-        except ProcessLookupError:
+        if not _signal_process_group(proc.pid, signal.SIGTERM):
             return
         try:
             await asyncio.wait_for(proc.wait(), timeout=_TERMINATE_GRACE_SECONDS)
@@ -843,8 +890,7 @@ class FirmwareController:
                 self._current_job.job_id if self._current_job else "?",
                 _TERMINATE_GRACE_SECONDS,
             )
-            with suppress(ProcessLookupError):
-                proc.kill()
+            _signal_process_group(proc.pid, signal.SIGKILL)
 
     async def _reset_build_env(self, job: FirmwareJob) -> None:
         """
