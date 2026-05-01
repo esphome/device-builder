@@ -415,6 +415,62 @@ class DevicesController:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, path.write_text, content, "utf-8")
         await self._scanner.scan()
+        # Refresh ``StorageJSON`` so address / loaded_integrations /
+        # config_hash etc. reflect the new YAML without waiting for a
+        # full compile. Mirrors the upstream dashboard's
+        # ``async_schedule_storage_json_update`` (called from its
+        # ``EditRequestHandler`` after writing the YAML).
+        self._schedule_storage_regenerate(configuration)
+
+    def _schedule_storage_regenerate(self, configuration: str) -> None:
+        """
+        Run ``esphome compile --only-generate <yaml>`` in the background.
+
+        ``--only-generate`` walks ESPHome's full config validation
+        pipeline (resolving ``!secret`` / ``!include`` / packages /
+        ``dashboard_import``) and writes the resulting StorageJSON
+        without doing a real build. That populates ``address``,
+        ``loaded_integrations``, ``target_platform``, etc. for devices
+        that have never been compiled (the typical "wr2-test was just
+        added and shows UNKNOWN forever" path) and refreshes them
+        whenever the YAML changes.
+
+        Fire-and-forget: a follow-up ``_scanner.reload(configuration)``
+        on completion picks up the new storage and re-emits a
+        ``DEVICE_UPDATED`` event so the frontend reflects the new
+        address / integrations.
+        """
+        if not self._esphome_cmd:
+            return  # ``start()`` hasn't run yet — skip the regenerate.
+
+        async def _run() -> None:
+            config_path = str(self._db.settings.rel_path(configuration))
+            cmd = [*self._esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
+            try:
+                proc = await create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await proc.communicate()
+            except Exception:
+                _LOGGER.debug(
+                    "Storage regenerate spawn failed for %s",
+                    configuration,
+                    exc_info=True,
+                )
+                return
+            if proc.returncode != 0:
+                _LOGGER.debug(
+                    "Storage regenerate for %s exited %s: %s",
+                    configuration,
+                    proc.returncode,
+                    stderr.decode(errors="replace").strip()[:500],
+                )
+                return
+            await self._scanner.reload(configuration)
+
+        self._db.create_background_task(_run())
 
     @api_command("devices/get_api_key")
     async def get_api_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:
@@ -653,6 +709,15 @@ class DevicesController:
             ScanChange.REMOVED: EventType.DEVICE_REMOVED,
         }[kind]
         self._db.bus.fire(event, {"device": device})
+        # First-sight devices that have no compile output yet end up
+        # carrying the ``<filename>.local`` address fallback and an
+        # empty ``loaded_integrations`` list. Schedule a background
+        # ``--only-generate`` so the next scan picks up the real
+        # ``StorageJSON``-derived values without making the user wait
+        # for a real compile. Same upstream pattern used in
+        # ``async_schedule_storage_json_update``.
+        if kind is ScanChange.ADDED and not device.loaded_integrations:
+            self._schedule_storage_regenerate(device.configuration)
 
     def _on_state_change(self, name: str, state: DeviceState, source: str) -> None:
         """Forward state monitor updates onto the event bus."""
