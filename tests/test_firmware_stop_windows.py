@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers import firmware as firmware_module
 from esphome_device_builder.controllers.firmware import (
     FirmwareController,
     _terminate_subtree_windows,
@@ -69,5 +70,32 @@ async def test_terminate_subtree_windows_returns_false_when_taskkill_missing(
     async def _missing(*_args: object, **_kwargs: object) -> None:
         raise FileNotFoundError
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _missing)
+    # Patch the symbol as imported in the firmware module so the
+    # production code path (which goes through the helpers wrapper)
+    # actually exercises the fallback branch.
+    monkeypatch.setattr(firmware_module, "create_subprocess_exec", _missing)
+    assert await _terminate_subtree_windows(12345) is False
+
+
+async def test_terminate_subtree_windows_returns_false_on_taskkill_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-zero ``taskkill`` exit (access denied, missing pid, ...) reports failure."""
+
+    class _FakeProc:
+        returncode: int | None = None
+
+        async def wait(self) -> int:
+            self.returncode = 128
+            return 128
+
+        def kill(self) -> None:  # pragma: no cover — only used on timeout
+            pass
+
+    fake = _FakeProc()
+
+    async def _spawn(*_args: object, **_kwargs: object) -> _FakeProc:
+        return fake
+
+    monkeypatch.setattr(firmware_module, "create_subprocess_exec", _spawn)
     assert await _terminate_subtree_windows(12345) is False

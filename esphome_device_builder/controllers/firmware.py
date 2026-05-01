@@ -197,7 +197,7 @@ def _signal_process_group(pid: int, sig: int) -> bool:
 
 async def _terminate_subtree_windows(pid: int) -> bool:
     """
-    Forcibly kill *pid* and its descendants on Windows; return True iff invoked.
+    Forcibly kill *pid* and its descendants on Windows; return True iff successful.
 
     Windows has no process groups in the POSIX sense, so we shell out to
     ``taskkill /F /T /PID`` — ``/T`` walks the parent-child tree from
@@ -206,12 +206,13 @@ async def _terminate_subtree_windows(pid: int) -> bool:
     gcc / esptool) ignores ``WM_CLOSE`` / ``CTRL_BREAK_EVENT`` anyway,
     so we go straight to the kill.
 
-    Returns False (and logs a warning) if ``taskkill`` is missing or
-    times out — the caller should fall back to ``proc.kill()`` so the
+    Returns False (and logs a warning) when ``taskkill`` is missing,
+    times out, or exits non-zero (access denied, invalid pid, partial
+    failure). The caller should fall back to ``proc.kill()`` so the
     parent at least dies even when the tree-walk fails.
     """
     try:
-        killer = await asyncio.create_subprocess_exec(
+        killer = await create_subprocess_exec(
             "taskkill",
             "/F",
             "/T",
@@ -229,6 +230,13 @@ async def _terminate_subtree_windows(pid: int) -> bool:
         _LOGGER.warning("taskkill timed out for pid %d", pid)
         with suppress(ProcessLookupError):
             killer.kill()
+        return False
+    if killer.returncode != 0:
+        _LOGGER.warning(
+            "taskkill exited %s for pid %d — caller should fall back to proc.kill()",
+            killer.returncode,
+            pid,
+        )
         return False
     return True
 
