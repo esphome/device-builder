@@ -35,7 +35,15 @@ from ._dns_cache import DNSCache
 
 _LOGGER = logging.getLogger(__name__)
 _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
+# Ping fallback runs every 60s after a short bootstrap window.
+# ``_PING_BOOTSTRAP_DELAY`` gives the mDNS browser a head start so the
+# common case (everything announces) doesn't fire a ping sweep that
+# the browser would have answered for free a few seconds later. 10s
+# tracks the upstream esphome dashboard's ``MDNS_BOOTSTRAP_TIME``
+# (~7.5s) closely enough to stay correct without making the user wait
+# a full minute to see UNKNOWN devices flip OFFLINE on first load.
 _PING_INTERVAL = 60  # seconds between ping sweeps
+_PING_BOOTSTRAP_DELAY = 10  # seconds before the first ping sweep
 _PING_BATCH_SIZE = 10
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
 
@@ -379,7 +387,14 @@ class DeviceStateMonitor:
             self.apply_config_hash(device_name, config_hash)
 
     async def _ping_loop(self) -> None:
+        # First sweep after the short bootstrap window — gives mDNS a
+        # head start so we don't redundantly ping devices the browser
+        # is about to flip ONLINE for free, but still gets the UNKNOWN
+        # → OFFLINE transition in front of the user within ~10s of
+        # startup instead of after a full minute.
         try:
+            await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
+            await self._ping_sweep()
             while True:
                 await asyncio.sleep(_PING_INTERVAL)
                 await self._ping_sweep()
@@ -482,8 +497,11 @@ class DeviceStateMonitor:
         try:
             result = await icmp_ping(target, count=1, timeout=3, privileged=False)
             is_alive = result.is_alive
-        except Exception:
-            _LOGGER.debug("Ping of %s (%s) failed", device.name, target, exc_info=True)
+        except Exception as exc:
+            # ``.local`` hosts on systems without Avahi / mdnsd hit
+            # this every sweep; the traceback adds nothing and floods
+            # the logs. One-line debug is plenty.
+            _LOGGER.debug("Ping of %s (%s) failed: %s", device.name, target, exc)
             is_alive = False
         new_state = DeviceState.ONLINE if is_alive else DeviceState.OFFLINE
         self.apply(device.name, new_state, "ping")
