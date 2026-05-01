@@ -35,9 +35,10 @@ async def test_create_subprocess_exec_caller_close_fds_is_overridden() -> None:
         "create_subprocess_exec",
         new_callable=AsyncMock,
     ) as mock:
-        # If a caller passes close_fds=True, our explicit kwarg wins because
-        # it appears later in the call. We document that here so a future
-        # refactor doesn't reverse the precedence.
+        # If a caller passes close_fds=True, the helper still overrides it
+        # by explicitly setting kwargs["close_fds"] = False before delegating
+        # to asyncio. Documented here so a future refactor preserves the
+        # actual mechanism, not the wrong "later kwarg wins" rationale.
         await subprocess_helper.create_subprocess_exec("echo", "hi", close_fds=True)
 
     _, kwargs = mock.call_args

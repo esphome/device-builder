@@ -20,10 +20,14 @@ async def create_subprocess_exec(
     *args: str,
     **kwargs: Any,
 ) -> asyncio.subprocess.Process:
-    """``asyncio.create_subprocess_exec`` with ``close_fds=False`` forced.
+    """Spawn a subprocess via ``asyncio.create_subprocess_exec``.
 
-    Accepts the same kwargs as the underlying call. Use everywhere
-    instead of calling ``asyncio.create_subprocess_exec`` directly.
+    Positional and keyword arguments are forwarded to the underlying
+    call, except ``close_fds`` is always overridden to ``False``.
+    Callers must not rely on overriding ``close_fds`` or on kwargs
+    that require ``close_fds=True`` (e.g. ``pass_fds``). Use this
+    helper everywhere instead of calling
+    ``asyncio.create_subprocess_exec`` directly.
     """
     kwargs["close_fds"] = False
     return await asyncio.create_subprocess_exec(*args, **kwargs)
