@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import orjson
 from aiohttp import WSMsgType, web
@@ -150,14 +151,23 @@ class WebSocketClient:
             )
 
 
-async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
+async def websocket_handler(request: web.Request) -> web.StreamResponse:
     """Multiplexed WebSocket API endpoint."""
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-
     device_builder: DeviceBuilder = request.app["device_builder"]
     settings = device_builder.settings
     trusted_site = bool(request.app.get("trusted_site", False))
+
+    # Reject cross-origin browser connections on the password-gated public
+    # site. CORS middleware doesn't apply to WebSockets, so without this a
+    # malicious page could open /ws against a victim's dashboard. Clients
+    # without an Origin header (CLI tools, HA integration) are unaffected.
+    if settings.using_password and not trusted_site:
+        origin = request.headers.get("Origin")
+        if origin and not _origin_matches_host(origin, request.host):
+            return web.Response(status=403, text="Cross-origin connection rejected")
+
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
 
     pre_authenticated = trusted_site or not settings.using_password
     token: str | None = None
@@ -214,7 +224,16 @@ def create_ws_routes() -> web.RouteTableDef:
     routes = web.RouteTableDef()
 
     @routes.get("/ws")
-    async def ws_route(request: web.Request) -> web.WebSocketResponse:
+    async def ws_route(request: web.Request) -> web.StreamResponse:
         return await websocket_handler(request)
 
     return routes
+
+
+def _origin_matches_host(origin: str, request_host: str) -> bool:
+    """Return True when *origin*'s host:port matches the request's Host header."""
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    return bool(parsed.netloc) and parsed.netloc == request_host

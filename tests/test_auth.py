@@ -9,6 +9,8 @@ the esphome dependency chain, which is out of scope for unit tests.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -141,6 +143,80 @@ async def test_session_store_skips_expired_on_load(tmp_path: Path) -> None:
     assert await store2.validate(stale.token) is None
 
 
+async def test_session_store_load_skips_garbage_entries(tmp_path: Path) -> None:
+    """A corrupt session row can't take down the whole store."""
+    persisted = tmp_path / ".device-builder-sessions.json"
+    persisted.write_text(
+        json.dumps(
+            {
+                "sessions": [
+                    "not-a-dict",
+                    {"token": "missing-fields"},
+                    {
+                        "token": "wrong-types",
+                        "created_at": "yesterday",
+                        "last_used_at": 0,
+                        "expires_at": 0,
+                    },
+                    {
+                        "token": "good",
+                        "created_at": time.time(),
+                        "last_used_at": time.time(),
+                        "expires_at": time.time() + 60,
+                    },
+                ]
+            }
+        )
+    )
+
+    store = SessionStore(tmp_path)
+    assert await store.validate("good") is not None
+    assert await store.validate("missing-fields") is None
+    assert await store.validate("wrong-types") is None
+
+
+async def test_session_store_load_handles_top_level_garbage(tmp_path: Path) -> None:
+    """A non-dict top-level payload is treated as an empty store."""
+    persisted = tmp_path / ".device-builder-sessions.json"
+    persisted.write_text(json.dumps(["not", "a", "dict"]))
+    store = SessionStore(tmp_path)
+    assert store.active_count == 0
+
+
+async def test_session_store_validate_debounces_persist(tmp_path: Path) -> None:
+    """Validate doesn't rewrite the file on every refresh — only when expiry advances enough."""
+    store = SessionStore(tmp_path, ttl_seconds=24 * 3600)
+    session = await store.create()
+
+    persisted = tmp_path / ".device-builder-sessions.json"
+    mtime_before = persisted.stat().st_mtime_ns
+
+    # Validate a few times immediately. Expiry only nudges by microseconds,
+    # well under the 1 hour debounce, so the file should be left alone.
+    await asyncio.sleep(0.01)
+    for _ in range(5):
+        await store.validate(session.token)
+
+    assert persisted.stat().st_mtime_ns == mtime_before
+
+
+async def test_session_store_validate_persists_when_threshold_crossed(tmp_path: Path) -> None:
+    """When the per-session debounce threshold is crossed, validate writes again."""
+    store = SessionStore(tmp_path, ttl_seconds=24 * 3600)
+    session = await store.create()
+
+    persisted = tmp_path / ".device-builder-sessions.json"
+    mtime_before = persisted.stat().st_mtime_ns
+
+    # Simulate enough time having passed for the debounce to trigger by
+    # rolling the persisted-expires marker back further than the threshold.
+    store._persisted_expires[session.token] = session.expires_at - 7200
+    await asyncio.sleep(0.01)
+    await store.validate(session.token)
+
+    assert persisted.stat().st_mtime_ns > mtime_before
+
+
 # ---------------------------------------------------------------------------
 # RateLimiter
 # ---------------------------------------------------------------------------
@@ -198,6 +274,63 @@ def test_rate_limiter_lockout_expires() -> None:
 
     time.sleep(0.06)
     assert rl.remaining_lockout("7.7.7.7") == 0
+
+
+def test_rate_limiter_prunes_stale_entries() -> None:
+    """IPs whose only failures aged out of the window get evicted from the dict."""
+    rl = RateLimiter(max_attempts=10, window_seconds=0.05, lockout_seconds=60)
+    rl.record_failure("8.8.8.1")
+    rl.record_failure("8.8.8.2")
+    assert len(rl._attempts) == 2
+
+    # Force the prune interval to trigger on the next record_failure call.
+    rl._last_prune = 0.0
+    time.sleep(0.06)
+    rl.record_failure("8.8.8.3")
+
+    assert "8.8.8.1" not in rl._attempts
+    assert "8.8.8.2" not in rl._attempts
+    assert "8.8.8.3" in rl._attempts
+
+
+def test_rate_limiter_prune_keeps_locked_out_ips() -> None:
+    """Locked-out IPs must not be pruned even if their attempts aged out."""
+    rl = RateLimiter(max_attempts=2, window_seconds=0.05, lockout_seconds=60)
+    rl.record_failure("9.9.9.1")
+    rl.record_failure("9.9.9.1")  # triggers lockout
+
+    rl._last_prune = 0.0
+    time.sleep(0.06)
+    rl.record_failure("9.9.9.2")
+
+    assert "9.9.9.1" in rl._lockouts
+    assert rl.remaining_lockout("9.9.9.1") > 0
+
+
+# ---------------------------------------------------------------------------
+# WebSocket Origin check
+# ---------------------------------------------------------------------------
+
+
+def test_origin_matches_host_accepts_same_origin() -> None:
+    from esphome_device_builder.api.ws import _origin_matches_host
+
+    assert _origin_matches_host("http://homeassistant.local:6052", "homeassistant.local:6052")
+    assert _origin_matches_host("https://esphome.example.com", "esphome.example.com")
+
+
+def test_origin_matches_host_rejects_cross_origin() -> None:
+    from esphome_device_builder.api.ws import _origin_matches_host
+
+    assert not _origin_matches_host("https://attacker.com", "homeassistant.local:6052")
+    assert not _origin_matches_host("http://homeassistant.local:9999", "homeassistant.local:6052")
+
+
+def test_origin_matches_host_rejects_garbage() -> None:
+    from esphome_device_builder.api.ws import _origin_matches_host
+
+    assert not _origin_matches_host("", "homeassistant.local:6052")
+    assert not _origin_matches_host("not-a-url", "homeassistant.local:6052")
 
 
 # ---------------------------------------------------------------------------

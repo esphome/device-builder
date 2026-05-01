@@ -22,11 +22,15 @@ _LOGGER = logging.getLogger(__name__)
 _SESSIONS_FILENAME = ".device-builder-sessions.json"
 _TOKEN_TTL_SECONDS = 30 * 24 * 3600  # 30 days, sliding
 _TOKEN_BYTES = 32  # 256 bits of entropy
+# Re-persist a refreshed session at most once per hour to avoid disk churn
+# (e.g. on SD-card backed Home Assistant installs).
+_PERSIST_DEBOUNCE_SECONDS = 3600
 
 # 10 failed attempts in 5 minutes locks the IP for 5 minutes.
 _RATE_LIMIT_MAX_ATTEMPTS = 10
 _RATE_LIMIT_WINDOW_SECONDS = 5 * 60
 _RATE_LIMIT_LOCKOUT_SECONDS = 5 * 60
+_RATE_LIMIT_PRUNE_INTERVAL = 60
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +78,10 @@ class SessionStore:
         self._path = config_dir / _SESSIONS_FILENAME
         self._ttl = ttl_seconds
         self._sessions: dict[str, Session] = {}
+        # Tracks the ``expires_at`` that was last written to disk per token,
+        # so ``validate`` can debounce re-persists when the sliding window
+        # only nudges the expiry forward by a small amount.
+        self._persisted_expires: dict[str, float] = {}
         self._lock = asyncio.Lock()
         self._load()
 
@@ -88,7 +96,8 @@ class SessionStore:
                 expires_at=now + self._ttl,
             )
             self._sessions[session.token] = session
-            self._persist()
+            self._persisted_expires[session.token] = session.expires_at
+            await self._persist_async()
             return session
 
     async def validate(self, token: str) -> Session | None:
@@ -106,48 +115,68 @@ class SessionStore:
             now = time.time()
             if session.is_expired(now):
                 del self._sessions[token]
-                self._persist()
+                self._persisted_expires.pop(token, None)
+                await self._persist_async()
                 return None
             session.last_used_at = now
             session.expires_at = now + self._ttl
-            self._persist()
+            persisted = self._persisted_expires.get(token, 0.0)
+            if session.expires_at - persisted >= _PERSIST_DEBOUNCE_SECONDS:
+                self._persisted_expires[token] = session.expires_at
+                await self._persist_async()
             return session
 
     async def revoke(self, token: str) -> None:
         """Drop *token* from the store; no-op if unknown."""
         async with self._lock:
             if self._sessions.pop(token, None) is not None:
-                self._persist()
+                self._persisted_expires.pop(token, None)
+                await self._persist_async()
 
     async def revoke_all(self) -> None:
         """Drop every active session, forcing all clients to re-authenticate."""
         async with self._lock:
             self._sessions.clear()
-            self._persist()
+            self._persisted_expires.clear()
+            await self._persist_async()
 
     @property
     def active_count(self) -> int:
         """Number of currently valid sessions in the store."""
         return len(self._sessions)
 
+    async def _persist_async(self) -> None:
+        await asyncio.to_thread(self._persist)
+
     def _load(self) -> None:
         try:
             raw = self._path.read_text(encoding="utf-8")
         except FileNotFoundError:
+            return
+        except OSError as err:
+            _LOGGER.warning("Could not read sessions file (%s); starting fresh", err)
             return
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
             _LOGGER.warning("Sessions file is corrupt; starting fresh: %s", self._path)
             return
+        if not isinstance(data, dict):
+            return
         now = time.time()
-        for entry in data.get("sessions", []):
+        for entry in data.get("sessions") or []:
+            if not isinstance(entry, dict):
+                continue
             try:
                 session = Session(**entry)
-            except TypeError:
+                if session.is_expired(now):
+                    continue
+            except (TypeError, ValueError):
+                # Skip entries with unexpected fields or non-numeric timestamps
+                # so a corrupt row can't take down the whole store.
                 continue
-            if not session.is_expired(now):
-                self._sessions[session.token] = session
+            self._sessions[session.token] = session
+            self._persisted_expires[session.token] = session.expires_at
 
     def _persist(self) -> None:
         data = {"sessions": [asdict(s) for s in self._sessions.values()]}
@@ -184,6 +213,7 @@ class RateLimiter:
         # monotonic clock — wall-clock jumps must not extend or shorten lockouts
         self._attempts: dict[str, deque[float]] = {}
         self._lockouts: dict[str, float] = {}
+        self._last_prune: float = 0.0
 
     def remaining_lockout(self, ip: str) -> float:
         """Seconds until *ip* is unlocked, or ``0`` if it isn't locked."""
@@ -201,6 +231,7 @@ class RateLimiter:
     def record_failure(self, ip: str) -> None:
         """Record a failed attempt for *ip*, triggering a lockout at the threshold."""
         now = time.monotonic()
+        self._maybe_prune(now)
         cutoff = now - self._window
         attempts = self._attempts.setdefault(ip, deque())
         while attempts and attempts[0] < cutoff:
@@ -220,6 +251,22 @@ class RateLimiter:
         """Drop *ip*'s failure history and any active lockout."""
         self._attempts.pop(ip, None)
         self._lockouts.pop(ip, None)
+
+    def _maybe_prune(self, now: float) -> None:
+        # Drop IPs whose attempts are all outside the window and that aren't
+        # locked out. Without this, distributed probing can grow the dicts
+        # unboundedly even though each individual IP is well below threshold.
+        if now - self._last_prune < _RATE_LIMIT_PRUNE_INTERVAL:
+            return
+        self._last_prune = now
+        cutoff = now - self._window
+        stale = [
+            ip
+            for ip, attempts in self._attempts.items()
+            if (not attempts or attempts[-1] < cutoff) and ip not in self._lockouts
+        ]
+        for ip in stale:
+            self._attempts.pop(ip, None)
 
 
 # ---------------------------------------------------------------------------
