@@ -80,21 +80,11 @@ def create_legacy_routes() -> web.RouteTableDef:
 
         configured = [d.to_dict() for d in devices_ctrl.get_devices()]
 
-        importable = []
-        for name, imp in devices_ctrl.import_result.items():
-            if name in devices_ctrl.ignored_devices:
-                continue
-            importable.append(
-                {
-                    "name": name,
-                    "friendly_name": getattr(imp, "friendly_name", name),
-                    "package_import_url": getattr(imp, "package_import_url", ""),
-                    "project_name": getattr(imp, "project_name", ""),
-                    "project_version": getattr(imp, "project_version", ""),
-                    "network": getattr(imp, "network", "wifi"),
-                    "ignored": name in devices_ctrl.ignored_devices,
-                }
-            )
+        importable = [
+            imp.to_dict()
+            for name, imp in devices_ctrl.import_result.items()
+            if name not in devices_ctrl.ignored_devices
+        ]
 
         return web.json_response({"configured": configured, "importable": importable})
 

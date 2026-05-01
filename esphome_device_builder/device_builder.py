@@ -201,13 +201,21 @@ class DeviceBuilder:
             unsub = self.bus.add_listener(event_type, _on_event)
             unsubscribers.append(unsub)
 
-        # Send initial device list
+        # Send initial device + importable lists. Importable devices
+        # are populated by the mDNS browser and per-device events
+        # fire only on transitions; without seeding the snapshot here
+        # a fresh page load misses every importable device the dashboard
+        # had already seen by then.
         if self.devices:
             devices = self.devices.get_devices()
+            importable = self.devices.get_importable_devices()
             await client.send_event(
                 message_id,
                 "initial_state",
-                {"devices": [d.to_dict() for d in devices]},
+                {
+                    "devices": [d.to_dict() for d in devices],
+                    "importable": [d.to_dict() for d in importable],
+                },
             )
 
         # Confirm subscription

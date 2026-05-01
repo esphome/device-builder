@@ -20,7 +20,11 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from esphome.zeroconf import AsyncEsphomeZeroconf
+from esphome.zeroconf import (
+    AsyncEsphomeZeroconf,
+    DashboardImportDiscovery,
+    DiscoveredImport,
+)
 from zeroconf import AddressResolver, IPVersion, ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
@@ -30,7 +34,7 @@ except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
 
 from ..helpers.hostname import is_local_hostname, normalize_hostname
-from ..models import Device, DeviceState
+from ..models import AdoptableDevice, Device, DeviceState
 from ._dns_cache import DNSCache
 
 _LOGGER = logging.getLogger(__name__)
@@ -80,6 +84,14 @@ VersionChangeCallback = Callable[[str, str], None]
 # older devices simply never fire this callback.
 ConfigHashChangeCallback = Callable[[str, str], None]
 
+# Callback fired when zeroconf turns up a previously-unseen device that
+# advertises ``package_import_url`` / ``project_name`` /
+# ``project_version`` TXT records — the signal that this is a factory
+# build ready to be adopted into the dashboard. The companion
+# ``ImportableRemovedCallback`` fires when the service goes away.
+ImportableAddedCallback = Callable[[AdoptableDevice], None]
+ImportableRemovedCallback = Callable[[str], None]
+
 
 def device_name_from_service(service_name: str) -> str:
     """Extract the device name from an mDNS service-instance name.
@@ -113,16 +125,29 @@ class DeviceStateMonitor:
         on_ip_change: IPChangeCallback,
         on_version_change: VersionChangeCallback | None = None,
         on_config_hash_change: ConfigHashChangeCallback | None = None,
+        on_importable_added: ImportableAddedCallback | None = None,
+        on_importable_removed: ImportableRemovedCallback | None = None,
+        is_ignored: Callable[[str], bool] | None = None,
     ) -> None:
         self._get_devices = get_devices
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
         self._on_version_change = on_version_change
         self._on_config_hash_change = on_config_hash_change
+        self._on_importable_added = on_importable_added
+        self._on_importable_removed = on_importable_removed
+        self._is_ignored = is_ignored or (lambda _name: False)
         self._state_source: dict[str, str] = {}  # device name → "mdns" | "ping"
         self._device_ips: dict[str, str] = {}  # device name → last known IP
         self._device_versions: dict[str, str] = {}  # device name → last reported version
         self._device_config_hashes: dict[str, str] = {}  # device name → last reported config hash
+        # ``DashboardImportDiscovery`` is the upstream esphome class
+        # that watches the same ``_esphomelib._tcp.local.`` browser for
+        # ``package_import_url`` TXT records and turns them into
+        # ``DiscoveredImport`` entries. Hooking it as a sibling
+        # browser-callback keeps us in lockstep with whatever the
+        # upstream considers an importable device.
+        self._import_discovery: DashboardImportDiscovery | None = None
         self._zeroconf: AsyncEsphomeZeroconf | None = None
         self._mdns_browser: Any = None
         self._ping_task: asyncio.Task | None = None
@@ -289,6 +314,36 @@ class DeviceStateMonitor:
         addresses = info.parsed_scoped_addresses(IPVersion.All)
         return addresses or None
 
+    def get_importable_devices(self) -> list[AdoptableDevice]:
+        """
+        Snapshot of devices currently advertising as importable.
+
+        Built fresh each call from ``DashboardImportDiscovery``'s
+        ``import_state`` so the ``ignored`` flag and the configured-
+        device filter both reflect the live dashboard state. Callers
+        (e.g. the WebSocket ``initial_state`` event) get the same view
+        the per-device ADDED events would have surfaced incrementally.
+        """
+        if self._import_discovery is None:
+            return []
+        configured_names = {d.name for d in self._get_devices()}
+        out: list[AdoptableDevice] = []
+        for discovered in self._import_discovery.import_state.values():
+            if discovered.device_name in configured_names:
+                continue
+            out.append(
+                AdoptableDevice(
+                    name=discovered.device_name,
+                    friendly_name=discovered.friendly_name or "",
+                    package_import_url=discovered.package_import_url,
+                    project_name=discovered.project_name,
+                    project_version=discovered.project_version,
+                    network=discovered.network,
+                    ignored=self._is_ignored(discovered.device_name),
+                )
+            )
+        return out
+
     def get_cached_dns_addresses(self, host_name: str) -> list[str] | None:
         """
         Return DNS-cached IPs for *host_name* without issuing a lookup.
@@ -353,11 +408,17 @@ class DeviceStateMonitor:
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
 
+        # ``DashboardImportDiscovery`` from upstream esphome owns the
+        # TXT-record parsing for adoptable factory firmwares. Adding
+        # its callback as a second handler on the same browser means
+        # we share zeroconf cache reads with the state-change handler
+        # above instead of running a parallel browser.
+        self._import_discovery = DashboardImportDiscovery(self._on_import_update)
         try:
             self._mdns_browser = AsyncServiceBrowser(
                 self._zeroconf.zeroconf,
                 _ESPHOME_SERVICE_TYPE,
-                handlers=[_on_service_state_change],
+                handlers=[_on_service_state_change, self._import_discovery.browser_callback],
             )
             _LOGGER.info("mDNS browser started for %s", _ESPHOME_SERVICE_TYPE)
         except Exception:
@@ -374,6 +435,39 @@ class DeviceStateMonitor:
             _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)
             return
         self._apply_service_info(device_name, info)
+
+    def _on_import_update(self, service_name: str, discovered: DiscoveredImport | None) -> None:
+        """Bridge ``DashboardImportDiscovery`` → controller callbacks.
+
+        ``service_name`` is the full mDNS service-instance name
+        (``<device>._esphomelib._tcp.local.``); ``discovered`` is None
+        on removal. We re-key by device name so callers don't have to
+        carry the suffix, drop devices that are already configured
+        locally (since the dashboard knows about them already), and
+        translate the upstream ``DiscoveredImport`` shape into our
+        ``AdoptableDevice`` model with the ``ignored`` flag filled in.
+        """
+        device_name = device_name_from_service(service_name)
+        if discovered is None:
+            if self._on_importable_removed is not None:
+                self._on_importable_removed(device_name)
+            return
+        if self._find_device_by_name(device_name) is not None:
+            # Already configured — surfacing it as importable would
+            # confuse the dashboard.
+            return
+        if self._on_importable_added is not None:
+            self._on_importable_added(
+                AdoptableDevice(
+                    name=discovered.device_name,
+                    friendly_name=discovered.friendly_name or "",
+                    package_import_url=discovered.package_import_url,
+                    project_name=discovered.project_name,
+                    project_version=discovered.project_version,
+                    network=discovered.network,
+                    ignored=self._is_ignored(discovered.device_name),
+                )
+            )
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """Pull IP / version / config_hash off a populated ``AsyncServiceInfo``."""
