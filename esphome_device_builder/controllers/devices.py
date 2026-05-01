@@ -524,8 +524,9 @@ class DevicesController:
         Resolve a device's persisted ``board_id`` and ``ip``.
 
         ``board_id`` priority:
-          1. ``metadata.json`` — set explicitly when the user picks a
-             board through the UI, or backfilled by a previous scan.
+          1. The metadata sidecar — set explicitly when the user
+             picks a board through the UI, or backfilled by a
+             previous scan.
           2. Parse the YAML's ``esphome.platform`` / ``board`` /
              ``variant`` and match by PlatformIO board id
              (``find_by_pio_board``).

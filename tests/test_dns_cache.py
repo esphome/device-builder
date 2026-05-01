@@ -409,7 +409,7 @@ def test_metadata_transaction_serialises_concurrent_writers(tmp_path) -> None:  
     from concurrent.futures import ThreadPoolExecutor
 
     from esphome_device_builder.controllers.config import (
-        _load_metadata,
+        get_board_id,
         set_device_metadata,
     )
 
@@ -421,6 +421,5 @@ def test_metadata_transaction_serialises_concurrent_writers(tmp_path) -> None:  
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(_write, range(writer_count)))
 
-    data = _load_metadata(tmp_path)
     for i in range(writer_count):
-        assert data[f"device-{i}.yaml"]["board_id"] == f"board-{i}"
+        assert get_board_id(tmp_path, f"device-{i}.yaml") == f"board-{i}"

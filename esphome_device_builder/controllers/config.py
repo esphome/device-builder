@@ -133,10 +133,10 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     """
     Atomic read-modify-write context for the metadata sidecar.
 
-    Yields the current metadata dict. Mutate it in place; on exit the
-    changes are persisted atomically. Concurrent transactions are
-    serialised so updates can't clobber each other. Use this for any
-    write to the sidecar.
+    Yields the current metadata dict. Mutate it in place; on a clean
+    exit the changes are persisted atomically. Exceptions raised
+    inside the block discard the pending mutation. Concurrent
+    transactions are serialised so updates can't clobber each other.
     """
     with _METADATA_LOCK:
         data = _load_metadata(config_dir)
