@@ -349,26 +349,30 @@ class DeviceStateMonitor:
         if addresses := info.parsed_addresses(IPVersion.All):
             self.apply_ip(device_name, addresses[0])
         properties = info.properties or {}
-        version_bytes = properties.get(_TXT_RECORD_VERSION)
-        if version_bytes:
-            try:
-                self.apply_version(device_name, version_bytes.decode())
-            except UnicodeDecodeError:
-                _LOGGER.debug(
-                    "Could not decode mDNS version TXT for %s: %r",
-                    device_name,
-                    version_bytes,
-                )
-        config_hash_bytes = properties.get(_TXT_RECORD_CONFIG_HASH)
-        if config_hash_bytes:
-            try:
-                self.apply_config_hash(device_name, config_hash_bytes.decode())
-            except UnicodeDecodeError:
-                _LOGGER.debug(
-                    "Could not decode mDNS config_hash TXT for %s: %r",
-                    device_name,
-                    config_hash_bytes,
-                )
+        self._apply_txt(device_name, properties, _TXT_RECORD_VERSION, "version", self.apply_version)
+        self._apply_txt(
+            device_name,
+            properties,
+            _TXT_RECORD_CONFIG_HASH,
+            "config_hash",
+            self.apply_config_hash,
+        )
+
+    def _apply_txt(
+        self,
+        device_name: str,
+        properties: dict[bytes, bytes | None],
+        key: bytes,
+        label: str,
+        setter: Callable[[str, str], bool],
+    ) -> None:
+        """Decode a TXT record and forward it to *setter*; log + skip on bad UTF-8."""
+        if not (value := properties.get(key)):
+            return
+        try:
+            setter(device_name, value.decode())
+        except UnicodeDecodeError:
+            _LOGGER.debug("Could not decode mDNS %s TXT for %s: %r", label, device_name, value)
 
     async def _ping_loop(self) -> None:
         try:
