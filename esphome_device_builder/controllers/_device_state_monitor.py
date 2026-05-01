@@ -275,10 +275,12 @@ class DeviceStateMonitor:
         def _on_service_state_change(
             zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
         ) -> None:
-            # mDNS reports "<my-device>._esphomelib._tcp.local." — strip
-            # the service suffix and convert hyphens (mDNS) back to
-            # underscores (YAML config naming).
-            device_name = name.split(".", maxsplit=1)[0].replace("-", "_")
+            # mDNS reports "<device-name>._esphomelib._tcp.local."; the
+            # left-hand label is the device's ``esphome.name`` verbatim.
+            # Don't substitute hyphens for underscores — modern configs
+            # use ``friendly_name_slugify``-style names with hyphens, and
+            # the conversion would silently miss every match.
+            device_name = name.split(".", maxsplit=1)[0]
             _LOGGER.debug("mDNS: %s %s (raw: %s)", state_change, device_name, name)
 
             # zeroconf callbacks fire on a different thread — bounce work
