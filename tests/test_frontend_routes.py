@@ -22,9 +22,12 @@ def _make_frontend(tmp_path: Path) -> Path:
     frontend = tmp_path / "frontend"
     frontend.mkdir()
     (frontend / "index.html").write_text("<!doctype html><body></body>")
-    (frontend / "app.abc123.js").write_text("// bundle")
-    (frontend / "vendors.def456.js").write_text("// vendors")
-    (frontend / "vendors.def456.js.LICENSE.txt").write_text("/* license */")
+    # Use 16-char hex hashes to match what rspack actually emits (xxhash64)
+    # so the cache-header regex (``\.[a-f0-9]{8,}\.``) classifies them
+    # as immutable.
+    (frontend / "app.abc123def4567890.js").write_text("// bundle")
+    (frontend / "vendors.def4567890abcdef.js").write_text("// vendors")
+    (frontend / "vendors.def4567890abcdef.js.LICENSE.txt").write_text("/* license */")
 
     assets = frontend / "assets"
     (assets / "logo").mkdir(parents=True)
@@ -45,6 +48,42 @@ async def test_register_frontend_serves_index_at_root(
     resp = await client.get("/")
     assert resp.status == 200
     assert "<!doctype html>" in (await resp.text())
+    # index.html must always be revalidated so a re-deployed wheel
+    # doesn't get masked by a stale browser-cached HTML pointing at
+    # a hashed bundle that no longer exists.
+    assert resp.headers["Cache-Control"] == "no-cache"
+
+
+async def test_register_frontend_hashed_bundle_is_immutable(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Content-addressed bundles get a long ``immutable`` Cache-Control."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/app.abc123def4567890.js")
+    assert resp.status == 200
+    assert resp.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+
+
+async def test_register_frontend_non_hashed_top_level_is_revalidated(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """A top-level file without a content hash falls back to no-cache."""
+    frontend = _make_frontend(tmp_path)
+    (frontend / "robots.txt").write_text("User-agent: *\n")
+    client = await aiohttp_client(_make_app(frontend))
+    resp = await client.get("/robots.txt")
+    assert resp.status == 200
+    assert resp.headers["Cache-Control"] == "no-cache"
+
+
+async def test_register_frontend_spa_fallback_is_no_cache(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """The SPA-fallback ``index.html`` for a deep link is also no-cache."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/device/foo.yaml")
+    assert resp.status == 200
+    assert resp.headers["Cache-Control"] == "no-cache"
 
 
 async def test_register_frontend_serves_top_level_bundles(
@@ -52,8 +91,8 @@ async def test_register_frontend_serves_top_level_bundles(
 ) -> None:
     """Hashed JS bundles next to index.html are reachable."""
     client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
-    app_resp = await client.get("/app.abc123.js")
-    vendors_resp = await client.get("/vendors.def456.js")
+    app_resp = await client.get("/app.abc123def4567890.js")
+    vendors_resp = await client.get("/vendors.def4567890abcdef.js")
     assert (await app_resp.text()) == "// bundle"
     assert (await vendors_resp.text()) == "// vendors"
 
@@ -68,7 +107,7 @@ async def test_register_frontend_serves_top_level_license_sidecar(
     "is not a directory" on this exact filename.
     """
     client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
-    resp = await client.get("/vendors.def456.js.LICENSE.txt")
+    resp = await client.get("/vendors.def4567890abcdef.js.LICENSE.txt")
     assert resp.status == 200
     assert "license" in (await resp.text())
 
@@ -189,7 +228,7 @@ async def test_register_frontend_follows_symlinks_inside_frontend_dir(
     symlink — only ones that would escape the frontend root.
     """
     frontend = _make_frontend(tmp_path)
-    (frontend / "alias.js").symlink_to(frontend / "app.abc123.js")
+    (frontend / "alias.js").symlink_to(frontend / "app.abc123def4567890.js")
 
     client = await aiohttp_client(_make_app(frontend))
     resp = await client.get("/alias.js")
