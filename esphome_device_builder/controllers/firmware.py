@@ -828,19 +828,15 @@ class FirmwareController:
         port: str,
         cache_args: list[str] | None = None,
     ) -> list[str]:
-        """Build the esphome CLI command for a given job type.
-
-        ``cache_args`` are global ``--mdns-address-cache`` /
-        ``--dns-address-cache`` flags. They must come *before* the
-        subcommand because esphome's argparse parses them on the
-        top-level parser, not the per-subcommand one.
-        """
+        """Build the esphome CLI command for a given job type."""
         cmd_map = {
             JobType.COMPILE: "compile",
             JobType.UPLOAD: "upload",
             JobType.INSTALL: "run",
             JobType.CLEAN: "clean",
         }
+        # cache_args go before the subcommand — esphome's argparse parses
+        # them on the top-level parser, not the per-subcommand one.
         cmd = [*self._esphome_cmd, *(cache_args or []), cmd_map[job_type], config_path]
         if job_type == JobType.INSTALL:
             # Without --no-logs the CLI tails logs forever after the
@@ -851,13 +847,9 @@ class FirmwareController:
         return cmd
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
-        """Return ``--mdns/--dns-address-cache`` args to splice into the CLI command.
-
-        Mirrors the gating in ``esphome/dashboard/web_server.py``:
-        only OTA uploads (``port == "OTA"``) where the device has the
-        API integration loaded benefit from a pre-seeded cache. Serial
-        flashes don't talk to the device's network address at all.
-        """
+        """Return ``--mdns/--dns-address-cache`` args for *job*, or empty."""
+        # Only OTA uploads benefit — serial flashes don't talk to the
+        # device's network address at all.
         if job.job_type not in (JobType.UPLOAD, JobType.INSTALL):
             return []
         if job.port != "OTA":

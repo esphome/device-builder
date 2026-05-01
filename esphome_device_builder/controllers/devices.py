@@ -50,51 +50,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None) -> list[str]:
-    """Build ``--mdns-address-cache`` / ``--dns-address-cache`` CLI args.
-
-    Mirrors ``build_cache_arguments`` in
-    ``esphome/dashboard/web_server.py``. We hand the IP we already
-    resolved (via mDNS) to the CLI so it skips its own DNS / zeroconf
-    lookup — that lookup is the slow path on a fresh OTA invocation,
-    especially when zeroconf takes a couple of seconds to find the
-    device on a busy network.
-
-    For ``.local`` addresses we prefer zeroconf's own cache (it can
-    contain multiple IPs — IPv4 + IPv6 — and matches the source the
-    legacy dashboard uses). We fall back to the single IP we tracked
-    via mDNS resolution so the CLI gets *something* even if the
-    zeroconf cache entry expired between resolution and build time.
-    """
-    address = device.address
-    if not address:
-        return []
-
-    # mDNS hostnames are case-insensitive and may carry a trailing dot
-    # (the absolute form). Normalise once for both the suffix check and
-    # the CLI arg so the cache key matches what the CLI expects.
-    normalized = address.rstrip(".").lower()
-    is_local = normalized.endswith(".local")
-
-    addresses: list[str] = []
-    if is_local and monitor is not None:
-        cached = monitor.get_cached_addresses(address)
-        if cached:
-            addresses = list(cached)
-
-    if not addresses and device.ip:
-        addresses = [device.ip]
-
-    if not addresses:
-        return []
-
-    cache_type = "mdns" if is_local else "dns"
-    return [
-        f"--{cache_type}-address-cache",
-        f"{normalized}={','.join(sort_ip_addresses(addresses))}",
-    ]
-
-
 class DevicesController:
     """Manage device configurations, file watching, and CLI operations."""
 
@@ -142,21 +97,18 @@ class DevicesController:
         return self._scanner.devices
 
     def get_address_cache_args(self, configuration: str) -> list[str]:
-        """Return ``--mdns/--dns-address-cache`` CLI args for *configuration*.
+        """
+        Return ``--mdns/--dns-address-cache`` CLI args for *configuration*.
 
-        Empty list when the device is unknown, doesn't have the API
-        integration loaded (so OTA wouldn't talk to it anyway), or we
-        have no cached IP to hand the CLI. Intended for the firmware
-        controller to splice into ``esphome upload`` / ``esphome run``
-        invocations on OTA so the CLI skips its own mDNS / DNS lookup.
+        Empty list when the device is unknown, has no API integration
+        loaded, or has no cached IP available.
         """
         target_name = configuration.removesuffix(".yaml").removesuffix(".yml")
         device = next((d for d in self._scanner.devices if d.name == target_name), None)
         if device is None:
             return []
-        # The CLI's address cache is only consulted when the API client
-        # is in use — for non-API devices the OTA path doesn't go
-        # through the same resolver and the cache args would be inert.
+        # The CLI only consults the address cache through the API client;
+        # non-API devices flash via a different path that wouldn't read it.
         if "api" not in device.loaded_integrations:
             return []
         return _build_address_cache_args(device, self._state_monitor)
@@ -630,24 +582,15 @@ class DevicesController:
         self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     def _on_version_change(self, name: str, version: str) -> None:
-        """Persist a fresh ESPHome version observed via mDNS.
-
-        Mirrors ``DashboardImportDiscovery.update_device_mdns`` in the
-        legacy dashboard: when a device announces a different version
-        than what we last compiled, write it back to ``StorageJSON`` so
-        the dashboard reflects what's *actually* on the device. The
-        in-memory ``Device`` is updated alongside so connected clients
-        see the change without waiting for the next scan.
-        """
+        """Apply a fresh ESPHome version observed via mDNS."""
         device = next((d for d in self._scanner.devices if d.name == name), None)
         if device is None:
             return
         if device.deployed_version == version:
             return
 
-        # Disk write runs off the event loop — StorageJSON.load/save are
-        # blocking. Track it as a background task so any error gets
-        # logged via the loop's exception handler instead of vanishing.
+        # StorageJSON.load/save are blocking — push to a background task
+        # so any error gets surfaced via the loop's exception handler.
         self._db.create_background_task(
             self._persist_storage_version_async(device.configuration, version)
         )
@@ -665,7 +608,7 @@ class DevicesController:
 
     @staticmethod
     def _persist_storage_version(configuration: str, version: str) -> None:
-        """Run the synchronous StorageJSON load/save for the version write-through."""
+        """Write *version* to ``StorageJSON.esphome_version`` if it differs."""
         storage_path = ext_storage_path(configuration)
         storage = StorageJSON.load(storage_path)
         if storage is None:
@@ -792,3 +735,35 @@ class DevicesController:
         await client.send_event(
             message_id, "result", {"success": exit_code == 0, "code": exit_code}
         )
+
+
+def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None) -> list[str]:
+    """Build CLI cache args from the IPs we already have for *device*."""
+    address = device.address
+    if not address:
+        return []
+
+    # mDNS hostnames are case-insensitive and may carry a trailing dot;
+    # normalise once so the CLI cache key matches what it'll look up.
+    normalized = address.rstrip(".").lower()
+    is_local = normalized.endswith(".local")
+
+    addresses: list[str] = []
+    if is_local and monitor is not None:
+        cached = monitor.get_cached_addresses(address)
+        if cached:
+            addresses = list(cached)
+
+    # Fall back to the single IP we tracked via mDNS resolution — covers
+    # the case where the zeroconf cache entry expired between resolves.
+    if not addresses and device.ip:
+        addresses = [device.ip]
+
+    if not addresses:
+        return []
+
+    cache_type = "mdns" if is_local else "dns"
+    return [
+        f"--{cache_type}-address-cache",
+        f"{normalized}={','.join(sort_ip_addresses(addresses))}",
+    ]

@@ -39,17 +39,12 @@ StateChangeCallback = Callable[[str, DeviceState, str], None]
 # Empty string signals the device went offline / was removed from mDNS.
 IPChangeCallback = Callable[[str, str], None]
 
-# Callback fired when mDNS reports a new ESPHome version for a device
-# (i.e. the ``version`` TXT record on the ``_esphomelib._tcp.local.``
-# announcement). Lets the controller refresh ``StorageJSON`` so the
-# stored "deployed" version reflects what's actually running on the
-# device — important when devices were OTA-updated outside this
-# dashboard or flashed from another tool.
+# Callback fired when the mDNS ``version`` TXT record reports a
+# different firmware version than last seen for a device.
 VersionChangeCallback = Callable[[str, str], None]
 
-# TXT record key carrying the ESPHome firmware version on the device.
-# Bytes literal because zeroconf hands us raw bytes from the mDNS
-# packet; we decode at the call site.
+# zeroconf hands us raw bytes for TXT keys; declared once so the
+# call site can decode without re-typing the key.
 _TXT_RECORD_VERSION = b"version"
 
 
@@ -154,12 +149,10 @@ class DeviceStateMonitor:
 
     def apply_version(self, name: str, version: str) -> bool:
         """
-        Record a firmware version observation from mDNS.
+        Record a firmware version observation.
 
-        Same dedup pattern as ``apply_ip``: only forward when the value
-        actually changed. The owning controller is responsible for
-        persisting the new version (e.g. updating ``StorageJSON``) and
-        emitting a UI event.
+        Returns True when the version actually changed and the change
+        was forwarded to the callback.
         """
         if not version or self._on_version_change is None:
             return False
@@ -172,12 +165,11 @@ class DeviceStateMonitor:
         return True
 
     def get_cached_addresses(self, host_name: str) -> list[str] | None:
-        """Return zeroconf-cached IPs for *host_name* without triggering a query.
+        """
+        Return zeroconf-cached IPs for *host_name* without issuing a query.
 
-        Mirrors ``MDNSStatus.get_cached_addresses`` in the legacy dashboard:
-        consult the zeroconf cache only — do not initiate a network resolve.
-        Returns ``None`` when zeroconf isn't running, the cache misses, or
-        the entry has expired.
+        Returns ``None`` when zeroconf isn't running, the cache misses,
+        or the entry has expired.
         """
         if self._zeroconf is None:
             return None
@@ -258,15 +250,7 @@ class DeviceStateMonitor:
     async def _resolve_and_apply(
         self, zeroconf: Any, service_type: str, name: str, device_name: str
     ) -> None:
-        """Mark the device online and pull IP + firmware version from mDNS.
-
-        The ``_esphomelib._tcp.local.`` announcement carries a ``version``
-        TXT record with the firmware version actually running on the
-        device. This is the source of truth for what's deployed —
-        ``StorageJSON.esphome_version`` only knows what the dashboard
-        last compiled, which can disagree with reality after an
-        out-of-band OTA or a reflash from another tool.
-        """
+        """Mark the device online and pull IP + firmware version from mDNS."""
         # State first — even if the resolve fails or times out, we know the device is online.
         self.apply(device_name, DeviceState.ONLINE, "mdns")
 
