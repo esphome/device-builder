@@ -59,11 +59,12 @@ jobs:
         run: python script/check_catalog.py
 
   test:
-    name: Pytest (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Pytest (${{ matrix.os }} / Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.12", "3.13", "3.14"]
     steps:
       - name: Check out code from GitHub
