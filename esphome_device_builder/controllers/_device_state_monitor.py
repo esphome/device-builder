@@ -44,7 +44,14 @@ _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
 # a full minute to see UNKNOWN devices flip OFFLINE on first load.
 _PING_INTERVAL = 60  # seconds between ping sweeps
 _PING_BOOTSTRAP_DELAY = 10  # seconds before the first ping sweep
-_PING_BATCH_SIZE = 10
+# Batch size matches the upstream esphome dashboard's
+# ``GROUP_SIZE = MAX_EXECUTOR_WORKERS / 2 = 24``. Each batch's pings
+# run in parallel via ``asyncio.gather``; the cap exists because
+# icmplib gets unreliable past a few dozen concurrent probes. With a
+# small fleet (≤24 ping candidates) one batch covers everything and
+# the sweep finishes in a single ICMP timeout window instead of
+# stacking N timeouts back-to-back.
+_PING_BATCH_SIZE = 24
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
 
 # Source priority for state observations. A new observation can only
