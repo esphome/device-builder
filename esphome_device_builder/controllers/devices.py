@@ -915,7 +915,11 @@ class DevicesController:
             # is what tells the frontend the cancel succeeded.
             if proc.returncode is None:
                 proc.kill()
-            raise
+            # Honour the cancellation contract — only swallow if no
+            # outstanding cancel requests remain on this task.
+            if (current := asyncio.current_task()) and current.cancelling():
+                raise
+            return
         finally:
             client.unregister_stream(message_id)
             if proc.returncode is None:
