@@ -256,11 +256,17 @@ class DeviceStateMonitor:
         Returns ``None`` when zeroconf isn't running, the cache misses,
         or the entry has expired. mDNS-only — see
         :meth:`get_cached_dns_addresses` for non-``.local`` hostnames.
+
+        IPv4 addresses come first; IPv6 only fills in when no V4 entry
+        exists. This mirrors ``_apply_service_info`` so callers picking
+        ``addresses[0]`` get the same preference everywhere — IPv4 is
+        better for ping (no scope-ID gymnastics, fewer cross-subnet
+        firewall surprises).
         """
         if self._zeroconf is None:
             return None
         try:
-            from zeroconf import AddressResolver, IPVersion
+            from zeroconf import AddressResolver
         except ImportError:
             return None
 
@@ -270,7 +276,9 @@ class DeviceStateMonitor:
         info = AddressResolver(resolver_name)
         if not info.load_from_cache(self._zeroconf.zeroconf):
             return None
-        addresses = info.parsed_scoped_addresses(IPVersion.All)
+        addresses = info.parsed_scoped_addresses(IPVersion.V4Only) or info.parsed_scoped_addresses(
+            IPVersion.V6Only
+        )
         return addresses or None
 
     def get_cached_dns_addresses(self, host_name: str) -> list[str] | None:
@@ -425,7 +433,7 @@ class DeviceStateMonitor:
         _LOGGER.debug(
             "Pinging %d devices: %s",
             len(devices_to_ping),
-            ", ".join(d.name for d in devices_to_ping),
+            ", ".join(f"{d.name} ({d.address})" for d in devices_to_ping),
         )
 
         for i in range(0, len(devices_to_ping), _PING_BATCH_SIZE):
