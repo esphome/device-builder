@@ -285,12 +285,22 @@ async def test_ping_sweep_rescues_local_device_from_zeroconf_cache() -> None:
     assert monitor.priority_for("winefridge") == "mdns"
 
 
-async def test_ping_sweep_pings_hostname_when_resolution_fails(fake_resolver) -> None:
-    """DNS resolution failure → fall back to pinging the hostname."""
+async def test_ping_sweep_marks_offline_directly_on_dns_failure(fake_resolver) -> None:
+    """DNS resolution failure → OFFLINE without calling icmp_ping.
+
+    Handing the bare hostname to ``icmp_ping`` would re-resolve via
+    icmplib's own resolver every sweep — bypassing our DNS cache and
+    hammering the system resolver for nothing. Instead, treat a
+    cache-confirmed lookup failure as the "we tried, can't reach"
+    signal and apply OFFLINE directly.
+    """
+    from esphome_device_builder.models import DeviceState
+
     devices = [_device()]
+    state_changes: list[tuple[str, DeviceState, str]] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,
-        on_state_change=lambda *_: None,
+        on_state_change=lambda n, s, src: state_changes.append((n, s, src)),
         on_ip_change=lambda *_: None,
     )
 
@@ -311,7 +321,10 @@ async def test_ping_sweep_pings_hostname_when_resolution_fails(fake_resolver) ->
     ):
         await monitor._ping_sweep()
 
-    assert pinged == ["esp.example.com"]
+    # Crucially: ``icmp_ping`` was NOT called. The resolution failure
+    # was enough to declare the device offline.
+    assert pinged == []
+    assert state_changes == [("kitchen", DeviceState.OFFLINE, "ping")]
 
 
 async def test_ping_marks_offline_when_icmp_raises(fake_resolver) -> None:
