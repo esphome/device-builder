@@ -157,3 +157,60 @@ async def test_handler_does_not_substitute_hyphens(monkeypatch: pytest.MonkeyPat
     )
 
     on_state.assert_called_once_with("my-device", DeviceState.ONLINE, "mdns")
+
+
+async def test_handler_short_circuits_unknown_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An mDNS announcement for an unconfigured device is ignored cheaply.
+
+    Otherwise we'd construct an ``AsyncServiceInfo`` and hit the
+    cache for every unrelated ESPHome device on the LAN — wasted
+    work that scales with the size of the user's network.
+    """
+    on_state = MagicMock()
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [],  # empty catalog
+        on_state_change=on_state,
+        on_ip_change=MagicMock(),
+        on_version_change=MagicMock(),
+    )
+
+    handler = await _capture_handler(monitor, monkeypatch)
+    handler(
+        MagicMock(),
+        "_esphomelib._tcp.local.",
+        "stranger-on-lan._esphomelib._tcp.local.",
+        ServiceStateChange.Added,
+    )
+
+    on_state.assert_not_called()
+
+
+async def test_mdns_takes_ownership_after_ping_set_online(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An mDNS announcement claims ownership even if ping already set ONLINE.
+
+    Pre-fix, ``apply()``'s "no-op when state is unchanged" early return
+    meant a device that ping had already flipped to ONLINE would stay
+    owned by ``ping`` — letting a future ping-OFFLINE observation
+    override the still-true mDNS view.
+    """
+    devices = [_device("kitchen")]
+    devices[0].state = DeviceState.ONLINE  # ping already saw it
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: devices,
+        on_state_change=MagicMock(),
+        on_ip_change=MagicMock(),
+        on_version_change=MagicMock(),
+    )
+    monitor._state_source["kitchen"] = "ping"
+
+    handler = await _capture_handler(monitor, monkeypatch)
+    handler(
+        MagicMock(),
+        "_esphomelib._tcp.local.",
+        "kitchen._esphomelib._tcp.local.",
+        ServiceStateChange.Added,
+    )
+
+    assert monitor.priority_for("kitchen") == "mdns"
