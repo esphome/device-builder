@@ -167,7 +167,11 @@ def _signal_process_group(pid: int, sig: int) -> bool:
     signal the direct child (the python esphome process), so the
     compiler grandchildren keep running and the build effectively
     ignores the cancel. Pair this with ``start_new_session=True`` at
-    the spawn site so the children share a group with the parent.
+    the spawn site: that makes the spawned process the leader of a
+    new session (and a new process group), and its descendants
+    inherit that group. The dashboard process itself is *not* in the
+    same group — ``killpg(getpgid(spawned_pid), sig)`` therefore
+    targets the build subtree without touching us.
 
     Falls back gracefully:
     * ``ProcessLookupError`` — the process already exited; nothing to do.

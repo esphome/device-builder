@@ -18,6 +18,7 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from unittest.mock import MagicMock
 
 import pytest
@@ -121,34 +122,44 @@ async def test_terminate_kills_grandchild_via_process_group(
     )
     controller._current_process = proc  # type: ignore[attr-defined]
 
-    # Read the two pid lines from stdout so we know what to verify.
-    parent_pid: int | None = None
-    grandchild_pid: int | None = None
-    deadline = time.monotonic() + 5.0
-    assert proc.stdout is not None
-    while time.monotonic() < deadline and (parent_pid is None or grandchild_pid is None):
-        line = await asyncio.wait_for(proc.stdout.readline(), timeout=2.0)
-        if not line:
-            break
-        text = line.decode().strip()
-        if text.startswith("PARENT="):
-            parent_pid = int(text.split("=", 1)[1])
-        elif text.startswith("GRANDCHILD="):
-            grandchild_pid = int(text.split("=", 1)[1])
-    assert parent_pid is not None, "child never reported its pid"
-    assert grandchild_pid is not None, "grandchild never reported its pid"
-    assert _is_alive(parent_pid)
-    assert _is_alive(grandchild_pid)
+    try:
+        # Read the two pid lines from stdout so we know what to verify.
+        parent_pid: int | None = None
+        grandchild_pid: int | None = None
+        deadline = time.monotonic() + 5.0
+        assert proc.stdout is not None
+        while time.monotonic() < deadline and (parent_pid is None or grandchild_pid is None):
+            line = await asyncio.wait_for(proc.stdout.readline(), timeout=2.0)
+            if not line:
+                break
+            text = line.decode().strip()
+            if text.startswith("PARENT="):
+                parent_pid = int(text.split("=", 1)[1])
+            elif text.startswith("GRANDCHILD="):
+                grandchild_pid = int(text.split("=", 1)[1])
+        assert parent_pid is not None, "child never reported its pid"
+        assert grandchild_pid is not None, "grandchild never reported its pid"
+        assert _is_alive(parent_pid)
+        assert _is_alive(grandchild_pid)
 
-    # Hit Stop. Both pids must die — SIGTERM is ignored, so the
-    # controller's grace window expires and SIGKILL escalates to the
-    # whole process group.
-    await controller._terminate_current_process()
-    await proc.wait()
+        # Hit Stop. Both pids must die — SIGTERM is ignored, so the
+        # controller's grace window expires and SIGKILL escalates to
+        # the whole process group.
+        await controller._terminate_current_process()
+        await proc.wait()
 
-    assert await _wait_dead(parent_pid), f"parent pid {parent_pid} still alive after stop"
-    grandchild_alive = not await _wait_dead(grandchild_pid)
-    assert not grandchild_alive, (
-        f"grandchild pid {grandchild_pid} still alive after stop — "
-        "process-group signal didn't reach it"
-    )
+        assert await _wait_dead(parent_pid), f"parent pid {parent_pid} still alive after stop"
+        grandchild_alive = not await _wait_dead(grandchild_pid)
+        assert not grandchild_alive, (
+            f"grandchild pid {grandchild_pid} still alive after stop — "
+            "process-group signal didn't reach it"
+        )
+    finally:
+        # Belt-and-suspenders cleanup: if any assertion above failed
+        # before the SIGKILL chain ran, the SIGTERM-trapped grandchild
+        # would otherwise sleep for 60s and pollute the suite. SIGKILL
+        # the whole group regardless of test outcome;
+        # ``_signal_process_group`` no-ops for already-dead pids.
+        _signal_process_group(proc.pid, signal.SIGKILL)
+        with suppress(asyncio.TimeoutError, ProcessLookupError):
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
