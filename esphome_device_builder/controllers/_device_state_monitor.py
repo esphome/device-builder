@@ -21,8 +21,8 @@ from collections.abc import Callable
 from typing import Any
 
 from esphome.zeroconf import AsyncEsphomeZeroconf
-from zeroconf import IPVersion
-from zeroconf.asyncio import AsyncServiceInfo
+from zeroconf import AddressResolver, IPVersion, ServiceStateChange
+from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 try:
     from icmplib import async_ping as icmp_ping
@@ -265,10 +265,6 @@ class DeviceStateMonitor:
         """
         if self._zeroconf is None:
             return None
-        try:
-            from zeroconf import AddressResolver
-        except ImportError:
-            return None
 
         normalized = normalize_hostname(host_name)
         base_name = normalized.partition(".")[0]
@@ -301,13 +297,6 @@ class DeviceStateMonitor:
         return None
 
     async def _start_mdns_browser(self) -> None:
-        try:
-            from zeroconf import ServiceStateChange
-            from zeroconf.asyncio import AsyncServiceBrowser
-        except ImportError:
-            _LOGGER.warning("zeroconf not available — mDNS device discovery disabled")
-            return
-
         try:
             self._zeroconf = AsyncEsphomeZeroconf()
         except Exception:
@@ -420,12 +409,12 @@ class DeviceStateMonitor:
             # fallback can resolve to an unreachable IP on a different
             # subnet and we'd report a phantom OFFLINE for a device
             # that's actually right there.
-            if is_local_hostname(device.address):
-                cached = self.get_cached_addresses(device.address)
-                if cached:
-                    self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                    self.apply_ip(device.name, cached[0])
-                    continue
+            if is_local_hostname(device.address) and (
+                cached := self.get_cached_addresses(device.address)
+            ):
+                self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
+                self.apply_ip(device.name, cached[0])
+                continue
             devices_to_ping.append(device)
         if not devices_to_ping:
             return
