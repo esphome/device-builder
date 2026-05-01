@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from aiohttp import web
+from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.device_builder import DeviceBuilder
 
@@ -37,7 +38,7 @@ def _make_app(frontend: Path) -> web.Application:
 
 
 async def test_register_frontend_serves_index_at_root(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))  # type: ignore[operator]
     resp = await client.get("/")
@@ -46,7 +47,7 @@ async def test_register_frontend_serves_index_at_root(
 
 
 async def test_register_frontend_serves_top_level_bundles(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """Hashed JS bundles next to index.html are reachable."""
     client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))  # type: ignore[operator]
@@ -57,7 +58,7 @@ async def test_register_frontend_serves_top_level_bundles(
 
 
 async def test_register_frontend_serves_top_level_license_sidecar(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """A top-level *.LICENSE.txt no longer crashes startup or 404s.
 
@@ -72,7 +73,7 @@ async def test_register_frontend_serves_top_level_license_sidecar(
 
 
 async def test_register_frontend_serves_assets_subtree(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))  # type: ignore[operator]
     resp = await client.get("/assets/logo/esphome.svg")
@@ -81,7 +82,7 @@ async def test_register_frontend_serves_assets_subtree(
 
 
 async def test_register_frontend_serves_index_for_spa_deep_links(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """Hard reload of a SPA route returns index.html.
 
@@ -101,7 +102,7 @@ async def test_register_frontend_serves_index_for_spa_deep_links(
 
 
 async def test_register_frontend_does_not_shadow_specific_routes(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """Routes registered before the frontend catch-all still match first.
 
@@ -117,14 +118,14 @@ async def test_register_frontend_does_not_shadow_specific_routes(
     app.router.add_get("/api/ping", api_handler)
     DeviceBuilder._register_frontend(app, _make_frontend(tmp_path))
 
-    client = await aiohttp_client(app)  # type: ignore[operator]
+    client = await aiohttp_client(app)
     resp = await client.get("/api/ping")
     assert resp.status == 200
     assert (await resp.json()) == {"ok": True}
 
 
 async def test_register_frontend_multi_segment_paths_do_not_hit_disk(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """Path-traversal probes can't read files anywhere.
 
@@ -157,7 +158,7 @@ async def test_register_frontend_multi_segment_paths_do_not_hit_disk(
 
 
 async def test_register_frontend_does_not_follow_symlinks_outside(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """A symlink inside the frontend dir pointing outside is not served.
 
@@ -179,7 +180,7 @@ async def test_register_frontend_does_not_follow_symlinks_outside(
 
 
 async def test_register_frontend_follows_symlinks_inside_frontend_dir(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """Symlinks targeting other files within the frontend dir are fine.
 
@@ -196,7 +197,7 @@ async def test_register_frontend_follows_symlinks_inside_frontend_dir(
 
 
 async def test_register_frontend_url_encoded_slash_is_blocked(
-    tmp_path: Path, aiohttp_client: object
+    tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
     """An attacker can't sneak a path separator past the guard via URL encoding."""
     sentinel = tmp_path / "secret.txt"
