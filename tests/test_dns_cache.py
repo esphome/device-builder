@@ -438,6 +438,69 @@ def test_load_device_from_storage_threads_ip_through(monkeypatch, tmp_path) -> N
     assert device.board_id == "esp32-devkit"
 
 
+def test_load_device_from_storage_address_falls_back_to_name_local(  # type: ignore[no-untyped-def]
+    monkeypatch, tmp_path
+) -> None:
+    """Never-compiled devices get ``<name>.local`` so the ping sweep includes them.
+
+    Without this fallback, ``Device.address`` was empty for any
+    device that hadn't been built yet, so the sweep filter
+    (``if not device.address: continue``) excluded them and they
+    stayed UNKNOWN forever — that's what the user reported with
+    ``wr2-test`` and friends.
+    """
+    from esphome_device_builder.helpers import device_yaml
+
+    monkeypatch.setattr(
+        device_yaml,
+        "ext_storage_path",
+        lambda config: tmp_path / f"{config}.json",
+    )
+    monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(lambda _p: None))
+
+    yaml_path = tmp_path / "wr2-test.yaml"
+    yaml_path.write_text("esphome:\n  name: wr2-test\n")
+
+    device = device_yaml.load_device_from_storage(yaml_path)
+    assert device.address == "wr2-test.local"
+
+
+def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore[no-untyped-def]
+    monkeypatch, tmp_path
+) -> None:
+    """A real ``StorageJSON.address`` wins over the ``<name>.local`` fallback."""
+    from esphome_device_builder.helpers import device_yaml
+
+    monkeypatch.setattr(
+        device_yaml,
+        "ext_storage_path",
+        lambda config: tmp_path / f"{config}.json",
+    )
+
+    from typing import ClassVar
+
+    class _FakeStorage:
+        # Only the fields ``load_device_from_storage`` reads — keeps
+        # the test honest about what it's exercising.
+        name = "kitchen"
+        friendly_name = None
+        comment = None
+        address = "kitchen.lan"
+        web_port = None
+        target_platform = ""
+        firmware_bin_path = None
+        esphome_version = ""
+        loaded_integrations: ClassVar[list[str]] = []
+
+    monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(lambda _p: _FakeStorage()))
+
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n")
+
+    device = device_yaml.load_device_from_storage(yaml_path)
+    assert device.address == "kitchen.lan"
+
+
 def test_on_ip_change_persists_non_empty_value(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """``_on_ip_change`` schedules a metadata write for non-empty IPs."""
     from unittest.mock import MagicMock
