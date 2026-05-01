@@ -87,4 +87,14 @@ jobs:
         run: |
           # ``--maxfail=5`` keeps CI snappy when something fundamental
           # is broken; ``-q`` keeps the log readable without ``-vv``.
-          pytest -q --maxfail=5 --durations=10
+          pytest -q --maxfail=5 --durations=10 \
+            --cov=esphome_device_builder \
+            --cov-report=xml \
+            --cov-report=term
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6.0.0
+        with:
+          files: ./coverage.xml
+          flags: py${{ matrix.python-version }}
+          fail_ci_if_error: false

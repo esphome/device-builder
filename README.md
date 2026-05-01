@@ -1,5 +1,7 @@
 # ESPHome Device Builder Dashboard
 
+[![codecov](https://codecov.io/gh/esphome/device-builder/branch/main/graph/badge.svg)](https://codecov.io/gh/esphome/device-builder)
+
 > **Status:** in active development. Roughly alpha, closing on beta. Issues
 > and feedback welcome — please check existing issues / the
 > [project board](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder-dashboard%22)
