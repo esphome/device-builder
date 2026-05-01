@@ -104,21 +104,35 @@ PR with a diff summary when the rebuild produces a change.
 ## CI / Release pipeline
 
 - **`test.yml`** runs lint + the catalog smoke test on every PR, plus pytest
-  across the supported Python matrix.
-- **`release-drafter.yml`** maintains a rolling draft release on every push
-  to main, sectioning merged PRs by their label.
-- **`release.yml`** triggers when the draft is published. Stable vs. beta
-  is driven by the release form's "Set as a pre-release" checkbox; the
-  workflow validates the tag matches (`2026.5.0` for stable, `2026.5.0b1`
-  for beta), stamps `pyproject.toml`, builds + attaches the wheel, and
-  publishes to PyPI when a `PYPI_TOKEN` secret is configured.
+  across the supported Python matrix. Also callable as a preflight from
+  `release.yml`.
+- **`release.yml`** is the publish entrypoint — `workflow_dispatch` from
+  the Actions tab or `workflow_call` from `auto-release.yml`. Inputs:
+  - `version` — `X.Y.Z` for stable, `X.Y.ZbN` for beta.
+  - `channel` — `release` or `prerelease`. Format must match (e.g.
+    `release` rejects a `b`-suffix tag).
+
+  The workflow stamps `pyproject.toml`, builds wheel + sdist, tags +
+  creates the GitHub release with notes drafted from merged-PR labels
+  (config in [.github/release-drafter.yml](../.github/release-drafter.yml)),
+  attaches both artifacts, and publishes to PyPI. The GitHub release is
+  an output of the workflow — don't publish one by hand.
+
+  Tagging + release creation use the `ESPHOME_GITHUB_APP_*` org credentials
+  so the workflow keeps working under branch protection. PyPI publish uses
+  `PYPI_TOKEN` and is currently `continue-on-error: true` — drop that
+  flag once a publish has succeeded.
+- **`auto-release.yml`** runs nightly. If ≥ 2 commits have landed on
+  `main` since the last release, computes the next prerelease version
+  (`X.Y.ZbN` → `X.Y.Zb(N+1)`, or `X.Y.Z` → `X.Y.(Z+1)b1`) and calls
+  `release.yml` with `channel=prerelease`. Stable releases are always
+  manual.
 - **`pr-labels.yaml`** enforces exactly-one-of the changelog labels.
 - **`dependabot.yml`** keeps actions and pip dependencies fresh; `esphome`
   itself is pinned manually so the catalog smoke test stays a meaningful
   guard.
 
-All workflow files are commented end-to-end — start there for the source
-of truth.
+All workflow files are commented — start there for the source of truth.
 
 ## Authentication
 

@@ -15,23 +15,19 @@ managing automations, and pushing firmware updates.
 The dashboard isn't yet wired into the ESPHome container or the Home Assistant
 add-on as an opt-in preview — that's coming soon. In the meantime:
 
-**Install from PyPI:**
+**Install from a [GitHub release](https://github.com/esphome/device-builder/releases):**
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 
-pip install esphome-device-builder           # latest stable
-pip install --pre esphome-device-builder     # latest including pre-releases
+# Replace <version> with a release tag (X.Y.Z stable, X.Y.ZbN beta).
+pip install "https://github.com/esphome/device-builder/releases/download/<version>/esphome_device_builder-<version>-py3-none-any.whl"
 
 esphome-device-builder ~/esphome-configs
 ```
 
-The server starts on `http://localhost:6052`. Run with `--help` for the full
-flag set.
-
-A specific build's wheel is also attached to every
-[GitHub release](https://github.com/esphome/device-builder-dashboard-backend/releases)
-(`pip install <wheel-url>`) for air-gapped or pinned-version setups.
+The server starts on `http://localhost:6052`. Run with `--help` for the
+full flag set. A PyPI release is on the way.
 
 **From source** (requires [uv](https://docs.astral.sh/uv/)):
 

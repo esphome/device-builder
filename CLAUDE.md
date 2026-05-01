@@ -73,16 +73,12 @@ toggle in the official ESPHome container and Home Assistant add-on.
   checks. Failures auto-fix where possible, then the commit needs to
   be re-staged.
 
-## Release / version conventions
+## Workflow conventions
 
-- Stable tags: `2026.5.0` (no `b` suffix). "Set as a pre-release"
-  checkbox **unchecked**.
-- Beta tags: `2026.5.0b1`. **Tick** "Set as a pre-release".
-- The release workflow validates these match. Mismatch fails the
-  job — there's no auto-correction.
 - All GitHub Actions are SHA-pinned with the version as a trailing
   comment (`uses: actions/checkout@<sha>  # v4`) so dependabot can
   bump them while preserving traceability. Org policy.
+- Release flow lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#ci--release-pipeline).
 
 ## Architecture conventions worth knowing
 

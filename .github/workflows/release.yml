@@ -1,70 +1,105 @@
-name: Publish release
+name: Release
 
-# Triggered when a GitHub release is published. The release form's
-# "Set as a pre-release" checkbox is the betaness toggle: when
-# checked, the tag MUST contain ``b`` (e.g. ``2026.5.0b1``); when
-# unchecked, the tag MUST be a final release (e.g. ``2026.5.0``).
-# That mirrors the matter-server / music-assistant convention so
-# downstream tools can detect channel from the tag alone.
+# Cuts a release. Manual via ``workflow_dispatch`` or called by
+# ``auto-release.yml``. The GitHub release is an output — do not
+# publish one by hand.
 #
-# Each run:
-#   1. validates the tag matches the prerelease checkbox
-#   2. rewrites ``pyproject.toml``'s placeholder version with the tag
-#   3. builds an sdist + wheel
-#   4. publishes to PyPI (org-level ``PYPI_TOKEN`` secret)
-#   5. attaches both artifacts to the GitHub release as a fallback
-#      install path
-#
-# Pre-releases land on PyPI with the ``b`` suffix; users opt in via
-# ``pip install --pre esphome-device-builder``.
+# version must match channel: ``release`` → ``X.Y.Z``,
+# ``prerelease`` → ``X.Y.ZbN``.
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number (e.g. 2026.5.0 or 2026.5.0b1)"
+        required: true
+        type: string
+      channel:
+        description: "Release channel"
+        required: true
+        type: choice
+        default: release
+        options:
+          - release
+          - prerelease
+  workflow_call:
+    inputs:
+      version:
+        description: "Version number (e.g. 2026.5.0 or 2026.5.0b1)"
+        required: true
+        type: string
+      channel:
+        description: "Release channel: 'release' or 'prerelease'"
+        required: true
+        type: string
+    secrets:
+      ESPHOME_GITHUB_APP_ID:
+        required: true
+      ESPHOME_GITHUB_APP_PRIVATE_KEY:
+        required: true
+      PYPI_TOKEN:
+        required: false
 
 env:
   PYTHON_VERSION: "3.13"
 
 permissions:
-  contents: write  # to attach wheels to the release
+  contents: read
 
 jobs:
-  build-and-publish:
-    name: Build + publish
+  validate:
+    name: Validate version + channel
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.vars.outputs.tag }}
-      is_prerelease: ${{ github.event.release.prerelease }}
+      is_prerelease: ${{ steps.check.outputs.is_prerelease }}
+    steps:
+      - name: Validate version format against channel
+        id: check
+        run: |
+          set -euo pipefail
+          VERSION='${{ inputs.version }}'
+          CHANNEL='${{ inputs.channel }}'
+          RELEASE_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+          PRERELEASE_RE='^[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$'
+
+          case "$CHANNEL" in
+            release)
+              if ! [[ "$VERSION" =~ $RELEASE_RE ]]; then
+                echo "::error::channel='release' requires version X.Y.Z (got '$VERSION')."
+                exit 1
+              fi
+              echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+              ;;
+            prerelease)
+              if ! [[ "$VERSION" =~ $PRERELEASE_RE ]]; then
+                echo "::error::channel='prerelease' requires version X.Y.ZbN (got '$VERSION')."
+                exit 1
+              fi
+              echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::Unknown channel '$CHANNEL' (expected 'release' or 'prerelease')."
+              exit 1
+              ;;
+          esac
+          echo "✅ version $VERSION is valid for channel $CHANNEL"
+
+  preflight:
+    name: Preflight (lint + tests)
+    needs: validate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ github.ref }}
+
+  build:
+    name: Build sdist + wheel
+    needs: [validate, preflight]
+    runs-on: ubuntu-latest
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Resolve tag
-        id: vars
-        run: echo "tag=${GITHUB_REF#refs/*/}" >> "$GITHUB_OUTPUT"
-
-      - name: Validate tag against prerelease checkbox
-        # PEP 440 betas use a ``b`` separator (``2026.5.0b1``). The
-        # release form's checkbox is the source of truth for "is
-        # this a beta"; fail loudly when the tag and the checkbox
-        # disagree.
-        run: |
-          set -euo pipefail
-          TAG='${{ steps.vars.outputs.tag }}'
-          IS_PRE='${{ github.event.release.prerelease }}'
-          if [[ "$IS_PRE" == "true" ]]; then
-            if [[ "$TAG" != *"b"* ]]; then
-              echo "::error::Pre-release checkbox is set but tag '$TAG' has no 'b' suffix."
-              echo "::error::Tag a beta as e.g. 2026.5.0b1, or uncheck the pre-release box."
-              exit 1
-            fi
-          else
-            if [[ "$TAG" == *"b"* ]]; then
-              echo "::error::Pre-release checkbox is unset but tag '$TAG' contains a 'b' suffix."
-              echo "::error::Drop the b-suffix for a stable release, or check the pre-release box."
-              exit 1
-            fi
-          fi
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
@@ -75,9 +110,7 @@ jobs:
         run: pip install build tomli tomli-w
 
       - name: Stamp pyproject.toml with the release version
-        # ``pyproject.toml`` ships with ``version = "0.0.0"`` as a
-        # placeholder. Rewrite it from the tag so the built wheel
-        # advertises the right version.
+        # ``pyproject.toml`` ships with a ``0.0.0`` placeholder.
         shell: python
         run: |-
           import tomli
@@ -85,25 +118,110 @@ jobs:
 
           with open("pyproject.toml", "rb") as f:
               pyproject = tomli.load(f)
-          pyproject["project"]["version"] = "${{ steps.vars.outputs.tag }}"
+          pyproject["project"]["version"] = "${{ inputs.version }}"
           with open("pyproject.toml", "wb") as f:
               tomli_w.dump(pyproject, f)
 
       - name: Build sdist + wheel
         run: python -m build
 
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: dist
+          path: dist/
+
+  release:
+    name: Tag and create GitHub release
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      release_url: ${{ steps.drafter.outputs.html_url }}
+    steps:
+      - name: Validate GitHub App configuration
+        env:
+          GITHUB_APP_ID: ${{ secrets.ESPHOME_GITHUB_APP_ID || vars.ESPHOME_GITHUB_APP_ID }}
+        run: |
+          if [ -z "$GITHUB_APP_ID" ]; then
+            echo "::error::Missing GitHub App ID."
+            echo "::error::Set Actions secret/variable ESPHOME_GITHUB_APP_ID and ensure it is shared with this repository."
+            exit 1
+          fi
+
+      - name: Mint GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349  # v2.2.2
+        with:
+          app-id: ${{ secrets.ESPHOME_GITHUB_APP_ID || vars.ESPHOME_GITHUB_APP_ID }}
+          private-key: ${{ secrets.ESPHOME_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: read
+
+      - name: Check out code from GitHub
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        run: |
+          git tag -a "${{ inputs.version }}" -m "Release ${{ inputs.version }}"
+          git push origin "${{ inputs.version }}"
+
+      - name: Generate release notes and publish GitHub release
+        id: drafter
+        uses: release-drafter/release-drafter@563bf132657a13ded0b01fcb723c5a58cdd824e2  # v7.2.1
+        with:
+          config-name: release-drafter.yml
+          version: ${{ inputs.version }}
+          tag: ${{ inputs.version }}
+          name: ${{ inputs.version }}
+          publish: true
+          prerelease: ${{ needs.validate.outputs.is_prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
+      - name: Attach artifacts to GitHub release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh release upload "${{ inputs.version }}" dist/*
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: release
+    runs-on: ubuntu-latest
+    # Drop ``continue-on-error`` after the first successful publish.
+    continue-on-error: true
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
         with:
-          user: __token__
-          # Org-level secret, granted to this repo. If the publish
-          # ever 401s, check Settings → Secrets and variables →
-          # Actions to confirm the token is still scoped here.
           password: ${{ secrets.PYPI_TOKEN }}
-
-      - name: Attach artifacts to GitHub release
-        # Fallback install path for users who want a specific build
-        # without going through PyPI (e.g. air-gapped environments).
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ steps.vars.outputs.tag }}" dist/*
+          # Off because we don't grant ``id-token: write``; with it
+          # on the action falls back to OIDC and fails confusingly
+          # when the token is missing.
+          attestations: false
+          skip-existing: true

@@ -1,0 +1,94 @@
+name: Auto Release
+
+# Nightly. Cuts a prerelease via ``release.yml`` when ≥ 2 commits
+# have landed on main since the last release. Stable releases are
+# manual.
+
+on:
+  schedule:
+    # An hour after sync-component-catalog, so its PR (if any) has settled.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-and-compute:
+    name: Check commits and compute next version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      should_release: ${{ steps.commits.outputs.go }}
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Count commits since last release
+        id: commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          LATEST=$(gh release list --exclude-drafts --limit 1 \
+            --json createdAt,tagName --jq '.[0]' 2>/dev/null || echo "")
+
+          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+            echo "No previous release; will cut initial prerelease."
+            echo "go=true" >> "$GITHUB_OUTPUT"
+            echo "last_tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DATE=$(echo "$LATEST" | jq -r '.createdAt')
+          TAG=$(echo "$LATEST" | jq -r '.tagName')
+          COUNT=$(git log --since="$DATE" --oneline | wc -l | tr -d ' ')
+
+          echo "Latest release: $TAG ($DATE)"
+          echo "Commits since: $COUNT"
+          echo "last_tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          if [ "$COUNT" -ge 2 ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "Only $COUNT commit(s) since last release — skipping."
+          fi
+
+      - name: Compute next prerelease version
+        id: next
+        if: steps.commits.outputs.go == 'true'
+        env:
+          LAST_TAG: ${{ steps.commits.outputs.last_tag }}
+        run: |
+          set -euo pipefail
+          # X.Y.ZbN → X.Y.Zb(N+1); X.Y.Z → X.Y.(Z+1)b1; nothing → 0.1.0b1.
+          if [ -z "$LAST_TAG" ]; then
+            NEW="0.1.0b1"
+          elif [[ "$LAST_TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)b([0-9]+)$ ]]; then
+            NEW="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}b$((BASH_REMATCH[4] + 1))"
+          elif [[ "$LAST_TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            NEW="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))b1"
+          else
+            echo "::error::Cannot parse previous tag '$LAST_TAG'."
+            echo "::error::Expected X.Y.Z or X.Y.ZbN."
+            exit 1
+          fi
+
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Next prerelease version: $NEW"
+
+  trigger-release:
+    name: Trigger release workflow
+    needs: check-and-compute
+    if: needs.check-and-compute.outputs.should_release == 'true'
+    permissions:
+      contents: write
+      pull-requests: read
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.check-and-compute.outputs.version }}
+      channel: prerelease
+    secrets: inherit
