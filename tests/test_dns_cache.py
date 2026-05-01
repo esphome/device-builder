@@ -89,6 +89,44 @@ def test_get_cached_hides_failed_resolutions() -> None:
 
 
 # ----------------------------------------------------------------------
+# has_cached_failure
+# ----------------------------------------------------------------------
+
+
+def test_has_cached_failure_false_on_miss() -> None:
+    assert DNSCache().has_cached_failure("esp.example.com") is False
+
+
+def test_has_cached_failure_true_for_fresh_failure() -> None:
+    cache = DNSCache(ttl=60)
+    cache._cache["esp.example.com"] = (time.monotonic() + 60, None)
+    assert cache.has_cached_failure("esp.example.com") is True
+
+
+def test_has_cached_failure_false_after_ttl_expiry() -> None:
+    cache = DNSCache(ttl=60)
+    cache._cache["esp.example.com"] = (time.monotonic() - 1, None)
+    assert cache.has_cached_failure("esp.example.com") is False
+
+
+def test_has_cached_failure_false_for_successful_entry() -> None:
+    cache = DNSCache(ttl=60)
+    cache._cache["esp.example.com"] = (time.monotonic() + 60, ["10.0.0.1"])
+    assert cache.has_cached_failure("esp.example.com") is False
+
+
+def test_has_cached_failure_false_for_literal_ip() -> None:
+    assert DNSCache().has_cached_failure("10.0.0.1") is False
+    assert DNSCache().has_cached_failure("fe80::1") is False
+
+
+def test_has_cached_failure_normalises_hostname() -> None:
+    cache = DNSCache(ttl=60)
+    cache._cache["esp.example.com"] = (time.monotonic() + 60, None)
+    assert cache.has_cached_failure("ESP.example.com.") is True
+
+
+# ----------------------------------------------------------------------
 # async_resolve
 # ----------------------------------------------------------------------
 
@@ -325,6 +363,49 @@ async def test_ping_sweep_marks_offline_directly_on_dns_failure(fake_resolver) -
     # Crucially: ``icmp_ping`` was NOT called. The resolution failure
     # was enough to declare the device offline.
     assert pinged == []
+    assert state_changes == [("kitchen", DeviceState.OFFLINE, "ping")]
+
+
+async def test_ping_sweep_skips_devices_with_cached_dns_failure(fake_resolver) -> None:
+    """Pre-cached DNS failure → no resolver call, no icmp_ping, OFFLINE applied.
+
+    Once a hostname has a cached failure entry from a previous sweep,
+    subsequent sweeps must short-circuit before logging "Pinging N
+    devices" — otherwise the log lists devices we already know we
+    won't reach. The resolver call must also be skipped so we don't
+    re-attempt a known-bad lookup every minute.
+    """
+    from esphome_device_builder.models import DeviceState
+
+    devices = [_device()]
+    state_changes: list[tuple[str, DeviceState, str]] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: devices,
+        on_state_change=lambda n, s, src: state_changes.append((n, s, src)),
+        on_ip_change=lambda *_: None,
+    )
+    # Prime the cache with a fresh failure so the sweep should skip.
+    monitor._dns_cache._cache["esp.example.com"] = (time.monotonic() + 60, None)
+
+    resolver = fake_resolver(["10.0.0.1"])
+    pinged: list[str] = []
+
+    async def fake_ping(target, **_kwargs):  # type: ignore[no-untyped-def]
+        pinged.append(target)
+
+        class _R:
+            is_alive = True
+
+        return _R()
+
+    with (
+        patch.object(dns_cache_mod, "async_resolve", resolver),
+        patch.object(sm, "icmp_ping", fake_ping),
+    ):
+        await monitor._ping_sweep()
+
+    assert pinged == []
+    assert resolver.calls == []
     assert state_changes == [("kitchen", DeviceState.OFFLINE, "ping")]
 
 

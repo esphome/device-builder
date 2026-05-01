@@ -81,6 +81,26 @@ class DNSCache:
             return None
         return list(addresses)
 
+    def has_cached_failure(self, hostname: str) -> bool:
+        """
+        Return ``True`` when *hostname* has a fresh cached failure entry.
+
+        Lets callers (the ping sweep) skip a hostname entirely without
+        even logging an attempt when we already know — within the cache
+        TTL — that resolution will fail. Literal IP addresses always
+        return ``False`` because they don't go through resolution.
+        """
+        normalized = self._normalize(hostname)
+        with suppress(ValueError):
+            ip_address(normalized)
+            return False
+
+        entry = self._cache.get(normalized)
+        if entry is None:
+            return False
+        expires_at, addresses = entry
+        return expires_at > time.monotonic() and not addresses
+
     async def async_resolve(self, hostname: str) -> list[str] | None:
         """
         Resolve *hostname* to a list of IPs, caching the result.

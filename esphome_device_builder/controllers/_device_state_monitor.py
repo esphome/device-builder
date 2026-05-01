@@ -412,35 +412,7 @@ class DeviceStateMonitor:
         if icmp_ping is None:
             return
 
-        # Match the upstream dashboard: only ping devices that aren't
-        # already ONLINE from a higher-priority source. ``OFFLINE`` and
-        # ``UNKNOWN`` devices still get pinged so off-network hosts (no
-        # mDNS reachability) can transition online via DNS + ICMP.
-        devices_to_ping: list[Device] = []
-        for device in self._get_devices():
-            if not device.address or not self._should_ping(device):
-                continue
-            # Zeroconf's cache is authoritative for ``.local`` — if it
-            # has an entry, the device announced via mDNS even when the
-            # ``AsyncServiceBrowser`` ``Added`` callback didn't fire for
-            # us (multicast packet drops, startup race). Claim it as
-            # mDNS-online and skip ping; otherwise the bare-hostname DNS
-            # fallback can resolve to an unreachable IP on a different
-            # subnet and we'd report a phantom OFFLINE for a device
-            # that's actually right there.
-            if is_local_hostname(device.address) and (
-                cached := self.get_cached_addresses(device.address)
-            ):
-                self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                # ``apply_ip`` only carries one IP; prefer V4 so the
-                # device-list display and any ad-hoc ICMP probe both get
-                # the cross-subnet-friendly entry. The CLI cache args
-                # built in ``_build_address_cache_args`` consume every
-                # cached IP separately, so we don't lose V6 reachability
-                # by picking V4 here.
-                self.apply_ip(device.name, _pick_ipv4(cached))
-                continue
-            devices_to_ping.append(device)
+        devices_to_ping = self._select_ping_targets()
         if not devices_to_ping:
             return
 
@@ -487,6 +459,50 @@ class DeviceStateMonitor:
                     *(self._ping_device(device, target) for device, target in ping_targets),
                     return_exceptions=True,
                 )
+
+    def _select_ping_targets(self) -> list[Device]:
+        """
+        Filter the device list down to actual ping candidates.
+
+        Devices already known to be ONLINE via a higher-priority source
+        are skipped. ``.local`` hosts that show up in zeroconf's cache
+        are claimed for mDNS so the bare-hostname DNS fallback can't
+        resolve them to an unreachable IP on a different subnet.
+        Hostnames with a fresh DNS-failure cache entry are flipped
+        OFFLINE without a ping attempt — there's nothing to resolve, so
+        re-trying every minute would just hammer the resolver.
+        """
+        devices_to_ping: list[Device] = []
+        dns_skipped: list[Device] = []
+        for device in self._get_devices():
+            if not device.address or not self._should_ping(device):
+                continue
+            if is_local_hostname(device.address) and (
+                cached := self.get_cached_addresses(device.address)
+            ):
+                self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
+                # Prefer IPv4 for ``apply_ip`` (the per-device single
+                # IP) so the device-list display and any ad-hoc ICMP
+                # probe both pick the cross-subnet-friendly entry. The
+                # OTA cache args built in
+                # ``_build_address_cache_args`` consume every cached
+                # IP separately, so we don't lose V6 reachability by
+                # picking V4 here.
+                self.apply_ip(device.name, _pick_ipv4(cached))
+                continue
+            if self._dns_cache.has_cached_failure(device.address):
+                dns_skipped.append(device)
+                self.apply(device.name, DeviceState.OFFLINE, "ping")
+                continue
+            devices_to_ping.append(device)
+
+        if dns_skipped and _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "Skipping ping for %d device(s) with cached DNS failure: %s",
+                len(dns_skipped),
+                ", ".join(f"{d.name} ({d.address})" for d in dns_skipped),
+            )
+        return devices_to_ping
 
     def _should_ping(self, device: Device) -> bool:
         """
