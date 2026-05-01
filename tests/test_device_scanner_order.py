@@ -9,6 +9,7 @@ interpreter's hash seed. Each restart shuffled the dashboard.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -141,3 +142,32 @@ async def test_order_stable_across_multiple_scans(
     for _ in range(5):
         await scanner.scan()
         assert [d.name for d in scanner.devices] == first
+
+
+async def test_failed_load_does_not_break_rebuild(tmp_path: Path, _stub_load_device: Any) -> None:
+    """A YAML that ``load_device_from_storage`` rejects must not crash the scan.
+
+    Pre-fix, the rebuild comprehension assumed every key in
+    ``path_to_cache_key`` had a corresponding entry in ``_devices``.
+    A failed load (logged + skipped in ``_load_devices``) left the
+    path in ``path_to_cache_key`` only, so the rebuild hit ``KeyError``
+    and aborted — taking subsequent scans down with it.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "good_one")
+    _write_yaml(cfg, "broken")
+    _write_yaml(cfg, "another_good")
+
+    def _load(path: Path, *_args: object, **_kwargs: object) -> Device:
+        if path.stem == "broken":
+            raise ValueError("simulated YAML parse failure")
+        return Device(name=path.stem, friendly_name=path.stem, configuration=path.name)
+
+    _stub_load_device.side_effect = _load
+
+    scanner = _make_scanner(cfg)
+    await scanner.scan()
+
+    names = [d.name for d in scanner.devices]
+    assert names == ["another_good", "good_one"]  # broken silently skipped, rest sorted

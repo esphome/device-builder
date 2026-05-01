@@ -163,10 +163,15 @@ class DeviceScanner:
         # this, ``paths_to_load`` is a set so ``_devices`` ends up in
         # hash-randomised insertion order — visible to the user as a
         # different device list every restart. Cheap (one dict
-        # comprehension), keeps the ``devices`` property O(n).
+        # comprehension), keeps the ``devices`` property O(n). Filter
+        # to paths actually present so a YAML that failed to load
+        # (caught + skipped in ``_load_devices``) doesn't trigger a
+        # ``KeyError`` here.
         if added_paths or removed_paths:
-            self._devices = {p: self._devices[p] for p in path_to_cache_key}
-            self._cache_keys = {p: self._cache_keys[p] for p in path_to_cache_key}
+            self._devices = {p: self._devices[p] for p in path_to_cache_key if p in self._devices}
+            self._cache_keys = {
+                p: self._cache_keys[p] for p in path_to_cache_key if p in self._cache_keys
+            }
 
     def _build_cache_keys(self) -> dict[Path, _CacheKey]:
         """Build ``path → cache_key`` for every YAML file currently on disk."""
