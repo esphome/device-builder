@@ -365,6 +365,21 @@ class DeviceBuilder:
         async def handle_index(request: web.Request) -> web.FileResponse:
             return web.FileResponse(index_html, headers=shell_headers)
 
+        def _resolve_static(candidate: Path) -> Path | None:
+            """Return the candidate if it's a real file inside ``frontend_root``.
+
+            Combined into one helper so the per-request stat / resolve
+            chain runs in a single thread hop instead of three. Refuses
+            to follow symlinks pointing outside the frontend directory
+            — matches ``add_static``'s default safety.
+            """
+            try:
+                if candidate.is_file() and candidate.resolve().is_relative_to(frontend_root):
+                    return candidate
+            except OSError:
+                return None
+            return None
+
         async def handle_spa(request: web.Request) -> web.FileResponse:
             tail = request.match_info["tail"]
             # Only flat names (hashed bundles, license sidecars) get
@@ -372,18 +387,12 @@ class DeviceBuilder:
             # SPA deep link that the client router will resolve.
             if tail and "/" not in tail:
                 candidate = frontend_dir / tail
-                # Refuse to follow symlinks pointing outside the
-                # frontend dir — matches add_static's default.
-                try:
-                    if candidate.is_file() and candidate.resolve().is_relative_to(frontend_root):
-                        headers = (
-                            _IMMUTABLE_HEADERS
-                            if _HASHED_FILENAME_RE.search(tail)
-                            else shell_headers
-                        )
-                        return web.FileResponse(candidate, headers=headers)
-                except OSError:
-                    pass
+                resolved = await asyncio.to_thread(_resolve_static, candidate)
+                if resolved is not None:
+                    headers = (
+                        _IMMUTABLE_HEADERS if _HASHED_FILENAME_RE.search(tail) else shell_headers
+                    )
+                    return web.FileResponse(resolved, headers=headers)
             return web.FileResponse(index_html, headers=shell_headers)
 
         app.router.add_static("/assets", assets_dir)

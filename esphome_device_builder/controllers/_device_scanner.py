@@ -119,7 +119,7 @@ class DeviceScanner:
                 return False
             self._devices[path] = device
             try:
-                stat = path.stat()
+                stat = await loop.run_in_executor(None, path.stat)
                 self._cache_keys[path] = (stat.st_ino, stat.st_dev, stat.st_mtime, stat.st_size)
             except OSError:
                 pass
