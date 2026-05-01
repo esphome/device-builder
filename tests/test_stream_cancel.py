@@ -205,6 +205,69 @@ async def test_stream_logs_command_without_port_omits_device_arg() -> None:
     assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml"]]
 
 
+async def test_stream_logs_command_appends_no_states_when_requested() -> None:
+    """``no_states=True`` → ``--no-states`` is appended after the device arg."""
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.stream_logs(
+        configuration="kitchen.yaml",
+        port="OTA",
+        no_states=True,
+        client=MagicMock(),
+        message_id="m1-ns",
+    )
+
+    assert captured == [
+        ["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA", "--no-states"]
+    ]
+
+
+async def test_stream_logs_command_no_states_without_port() -> None:
+    """``no_states=True`` and no ``port`` → ``--no-states`` lands without ``--device``."""
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.stream_logs(
+        configuration="kitchen.yaml",
+        no_states=True,
+        client=MagicMock(),
+        message_id="m2-ns",
+    )
+
+    assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--no-states"]]
+
+
+async def test_stream_logs_command_omits_no_states_by_default() -> None:
+    """Default ``no_states=False`` → no ``--no-states`` in argv (regression guard)."""
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.stream_logs(
+        configuration="kitchen.yaml",
+        port="OTA",
+        client=MagicMock(),
+        message_id="m3-ns",
+    )
+
+    assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA"]]
+
+
 async def test_validate_config_command_includes_dashboard_flag() -> None:
     """``devices/validate`` invokes ``esphome --dashboard config <yaml>``."""
     ctrl = _make_controller_with_settings(["esphome"])
