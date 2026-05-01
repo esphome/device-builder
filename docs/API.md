@@ -45,6 +45,8 @@ On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/m
 | `invalid_args` | Missing or invalid arguments |
 | `not_found` | Resource not found |
 | `internal_error` | Server error |
+| `not_authenticated` | Connection has not authenticated; only `auth/login` is accepted |
+| `rate_limited` | Too many failed login attempts from this IP |
 
 ### Enums
 
@@ -55,6 +57,35 @@ On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/m
 ---
 
 ## Commands
+
+### Authentication
+
+> Controller: [`AuthController`](../esphome_device_builder/controllers/auth.py)
+
+When the dashboard is started with `--username`/`--password` (or `$USERNAME`/`$PASSWORD` env vars), every WebSocket connection on the public port must authenticate before any other command will be accepted.
+
+The handshake:
+
+1. Server sends `ServerInfoMessage` with `requires_auth: true`.
+2. Client sends `auth/login` (or its alias `auth`) with either `{username, password}` or a previously issued `{token}`.
+3. Server replies with `{token, expires_at}`.
+4. Subsequent commands on the same connection are accepted normally.
+
+Tokens are opaque random strings, persisted to `<config>/.device-builder-sessions.json`, and auto-refresh on each use (sliding 30-day window). Frontends should store the token in `localStorage` and reuse it on reconnect — only fall back to the password form on `not_authenticated`.
+
+Connections that arrive on the trusted ingress site (HA add-on supervisor proxy) get `requires_auth: false` and skip the handshake entirely.
+
+| Command | Args | Response | Description |
+|---------|------|----------|-------------|
+| `auth/login` (alias: `auth`) | `{username, password}` *or* `{token}` | `{token, expires_at}` | Authenticate this connection |
+| `auth/logout` | — | `{logged_out: true}` | Revoke the current token; closes the connection |
+| `auth/refresh` | — | `{token, expires_at}` | Slide the expiry forward without making another API call |
+
+**Bearer header (non-browser clients).** Anything that can set HTTP headers — the HA `esphome-dashboard-api` client, CLI tools, scripts — may pass `Authorization: Bearer <token>` on the WS handshake or on a REST request. The server treats that as equivalent to a successful in-band `auth/login {token}` call.
+
+**Basic auth (REST only).** Legacy REST endpoints also accept `Authorization: Basic <base64(user:pass)>`. WebSocket clients can't use this because browsers don't allow setting headers on `new WebSocket(...)`.
+
+**Rate limiting.** After 10 failed login attempts from one IP within a 5-minute window, that IP is locked out for 5 minutes. A successful login clears the failure history immediately. Token-based logins (replays) are exempt — brute-forcing 256 bits of token entropy is infeasible, and rate-limiting valid replays would lock legitimate clients out after a network blip.
 
 ### Devices
 

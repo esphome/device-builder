@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 
-from .constants import DEFAULT_HOST, DEFAULT_PORT
+from .constants import DEFAULT_HOST, DEFAULT_INGRESS_PORT, DEFAULT_PORT
 from .controllers.config import DashboardSettings
 from .device_builder import DeviceBuilder
 
@@ -56,9 +57,31 @@ def main() -> None:
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="HTTP port to listen on")
     parser.add_argument("--host", default=DEFAULT_HOST, help="Host/IP to bind to")
-    parser.add_argument("--username", default="", help="Dashboard username")
-    parser.add_argument("--password", default="", help="Dashboard password")
+    parser.add_argument(
+        "--username",
+        default="",
+        help="Dashboard username (must be paired with --password; falls back to $USERNAME)",
+    )
+    parser.add_argument(
+        "--password",
+        default="",
+        help="Dashboard password (must be paired with --username; falls back to $PASSWORD)",
+    )
     parser.add_argument("--ha-addon", action="store_true", help="Running as HA add-on")
+    parser.add_argument(
+        "--ingress-port",
+        type=int,
+        default=DEFAULT_INGRESS_PORT,
+        help="Port for the trusted HA Ingress site (only used with --ha-addon)",
+    )
+    parser.add_argument(
+        "--ingress-host",
+        default="",
+        help=(
+            "Bind address for the HA Ingress site (defaults to all interfaces "
+            "inside the addon container)"
+        ),
+    )
     parser.add_argument(
         "--log-level",
         default="info",
@@ -69,13 +92,50 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    _validate_credentials(parser, args)
+
     _setup_logging(args.log_level, args.log_file)
 
     settings = DashboardSettings()
     settings.parse_args(args)
 
+    _warn_if_unprotected(settings)
+
     device_builder = DeviceBuilder(settings)
     device_builder.run()
+
+
+def _validate_credentials(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Reject mismatched --username / --password (or env equivalents)."""
+    has_user = bool(args.username or os.getenv("USERNAME"))
+    has_pass = bool(args.password or os.getenv("PASSWORD"))
+    if has_user != has_pass:
+        parser.error(
+            "--username and --password must both be set (or both unset). "
+            "Use $USERNAME / $PASSWORD env vars as alternatives."
+        )
+
+
+def _warn_if_unprotected(settings: DashboardSettings) -> None:
+    """Print a banner when starting without any authentication boundary."""
+    if settings.using_password:
+        return
+    # HA add-on installs are exempt — the supervisor's ingress proxy
+    # authenticates upstream of the trusted site.
+    if settings.create_ingress_site:
+        return
+    banner = "=" * 70
+    logging.getLogger(_LOGGER_NAME).warning(
+        "\n%s\n"
+        " WARNING: Dashboard is running WITHOUT AUTHENTICATION.\n"
+        " Anyone with network access to %s:%d can manage your devices.\n"
+        " Set --username and --password (or $USERNAME / $PASSWORD) to enable.\n"
+        "%s",
+        banner,
+        settings.host,
+        settings.port,
+        banner,
+    )
 
 
 if __name__ == "__main__":

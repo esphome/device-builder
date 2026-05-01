@@ -70,7 +70,7 @@ def test_parse_mqtt_block_simple() -> None:
         host="192.168.1.10",
         port=1883,
         username="user",
-        password="pass",  # noqa: S106 — fixture credential
+        password="pass",
     )
 
 
@@ -87,7 +87,7 @@ def test_parse_mqtt_block_resolves_secrets() -> None:
     config = parse_mqtt_block(yaml, secrets)
     assert config is not None
     assert config.host == "192.168.1.5"
-    assert config.password == "topsecret"  # noqa: S105 — fixture credential
+    assert config.password == "topsecret"
 
 
 def test_parse_mqtt_block_missing_secret_returns_none() -> None:
@@ -288,7 +288,7 @@ async def test_coordinator_resolves_secrets_from_secrets_yaml(
     await coord.reconcile()
     assert coord.active_brokers == 1
     assert stub_monitor.instances[0].broker.host == "10.0.0.5"
-    assert stub_monitor.instances[0].broker.password == "shh"  # noqa: S105 — fixture credential
+    assert stub_monitor.instances[0].broker.password == "shh"
 
 
 # ---------------------------------------------------------------------------

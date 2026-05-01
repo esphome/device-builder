@@ -16,10 +16,12 @@ from aiohttp import web
 
 from .controllers.config import DashboardSettings
 from .helpers.api import CommandHandler, collect_api_commands
+from .helpers.auth import auth_middleware
 from .helpers.event_bus import EventBus
 from .helpers.json import cors_middleware
 
 if TYPE_CHECKING:
+    from .controllers.auth import AuthController
     from .controllers.automations import AutomationsController
     from .controllers.boards import BoardCatalog
     from .controllers.components import ComponentCatalog
@@ -45,6 +47,7 @@ class DeviceBuilder:
         self.loop: asyncio.AbstractEventLoop | None = None
 
         # Controllers — populated in start()
+        self.auth: AuthController | None = None
         self.boards: BoardCatalog | None = None
         self.components: ComponentCatalog | None = None
         self.config: ConfigController | None = None
@@ -60,8 +63,11 @@ class DeviceBuilder:
         self._background_tasks: set[asyncio.Task] = set()
         self._bg_task: asyncio.Task | None = None
 
+        self._ingress_runner: web.AppRunner | None = None
+
     async def start(self) -> None:
         """Start the application — load catalogs, initialize controllers."""
+        from .controllers.auth import AuthController
         from .controllers.automations import AutomationsController
         from .controllers.boards import BoardCatalog
         from .controllers.components import ComponentCatalog
@@ -73,6 +79,7 @@ class DeviceBuilder:
         self.loop = asyncio.get_running_loop()
 
         # Initialize controllers
+        self.auth = AuthController(self)
         self.boards = BoardCatalog()
         self.boards.load()
         self.components = ComponentCatalog(self)
@@ -88,6 +95,7 @@ class DeviceBuilder:
 
         # Collect command handlers from all controllers
         for controller in (
+            self.auth,
             self.boards,
             self.components,
             self.config,
@@ -101,6 +109,9 @@ class DeviceBuilder:
         # Register built-in commands
         self.command_handlers["ping"] = self._cmd_ping
         self.command_handlers["subscribe_events"] = self._cmd_subscribe_events
+        # `auth` is an alias for `auth/login` so both forms work on the wire.
+        if "auth/login" in self.command_handlers:
+            self.command_handlers["auth"] = self.command_handlers["auth/login"]
 
         # Start background polling
         self._bg_task = asyncio.create_task(self._run_background())
@@ -203,10 +214,22 @@ class DeviceBuilder:
     # Web application
     # ------------------------------------------------------------------
 
-    def create_app(self) -> web.Application:
-        """Create the aiohttp application."""
-        app = web.Application(middlewares=[cors_middleware])
+    def create_app(self, *, trusted: bool = False, with_lifecycle: bool = True) -> web.Application:
+        """
+        Build the aiohttp application.
+
+        ``trusted`` skips the auth middleware (HA Ingress site).
+        ``with_lifecycle`` toggles startup/cleanup hooks; the ingress
+        app reuses the public app's controller singleton and so passes
+        ``False`` to avoid re-initialising them.
+        """
+        middlewares: list[Any] = [cors_middleware]
+        if not trusted:
+            middlewares.append(auth_middleware)
+
+        app = web.Application(middlewares=middlewares)
         app["device_builder"] = self
+        app["trusted_site"] = trusted
 
         # WebSocket API
         from .api.ws import create_ws_routes
@@ -227,14 +250,19 @@ class DeviceBuilder:
         frontend_dir = self._get_frontend_dir()
         if frontend_dir and frontend_dir.is_dir():
             self._register_frontend(app, frontend_dir)
-        else:
+        elif with_lifecycle:
+            # The ingress app is silent here — the public app already logged.
             _LOGGER.info(
                 "Frontend package not installed — running in API-only mode. "
                 "Install esphome-device-builder-frontend for the web UI."
             )
 
-        app.on_startup.append(self._on_startup)
-        app.on_cleanup.append(self._on_cleanup)
+        if with_lifecycle:
+            app.on_startup.append(self._on_startup)
+            if self.settings.create_ingress_site:
+                app.on_startup.append(self._start_ingress_site)
+                app.on_cleanup.append(self._stop_ingress_site)
+            app.on_cleanup.append(self._on_cleanup)
 
         return app
 
@@ -243,6 +271,26 @@ class DeviceBuilder:
 
     async def _on_cleanup(self, app: web.Application) -> None:
         await self.stop()
+
+    async def _start_ingress_site(self, _: web.Application) -> None:
+        """Start the trusted HA Ingress TCP site alongside the public site."""
+        ingress_app = self.create_app(trusted=True, with_lifecycle=False)
+        runner = web.AppRunner(ingress_app)
+        await runner.setup()
+        host = self.settings.ingress_host or "0.0.0.0"
+        site = web.TCPSite(runner, host, self.settings.ingress_port)
+        await site.start()
+        self._ingress_runner = runner
+        _LOGGER.info(
+            "Ingress site listening on %s:%d (trusted, bypasses auth)",
+            host,
+            self.settings.ingress_port,
+        )
+
+    async def _stop_ingress_site(self, _: web.Application) -> None:
+        if self._ingress_runner is not None:
+            await self._ingress_runner.cleanup()
+            self._ingress_runner = None
 
     def run(self) -> None:
         """Start the HTTP server (blocking)."""

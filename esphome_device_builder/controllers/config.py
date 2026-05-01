@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import hmac
 import json
 import logging
@@ -19,8 +18,10 @@ from esphome.helpers import get_bool_env
 from esphome.storage_json import StorageJSON, ext_storage_path
 from esphome.util import get_serial_ports
 
+from ..constants import DEFAULT_INGRESS_PORT
 from ..constants import __version__ as server_version
 from ..helpers.api import api_command
+from ..helpers.auth import hash_password
 from ..models import UserPreferences
 
 if TYPE_CHECKING:
@@ -38,10 +39,6 @@ _PREFS_KEY = "_preferences"
 # ---------------------------------------------------------------------------
 
 
-def _hash_password(password: str) -> bytes:
-    return hashlib.sha256(password.encode("utf-8")).digest()
-
-
 @dataclass
 class DashboardSettings:
     """Application settings parsed from CLI args and environment."""
@@ -52,20 +49,21 @@ class DashboardSettings:
     password_hash: bytes = field(default_factory=bytes)
     using_password: bool = False
     on_ha_addon: bool = False
-    cookie_secret: str | None = None
     log_level: str = "info"
     port: int = 6052
     host: str = "0.0.0.0"
+    ingress_port: int = DEFAULT_INGRESS_PORT
+    ingress_host: str = ""
 
     def parse_args(self, args: Any) -> None:
         """Parse CLI arguments into settings."""
         self.on_ha_addon = getattr(args, "ha_addon", False)
+        username = getattr(args, "username", None) or os.getenv("USERNAME") or ""
         password = getattr(args, "password", None) or os.getenv("PASSWORD") or ""
-        if not self.on_ha_addon:
-            self.username = getattr(args, "username", None) or os.getenv("USERNAME") or ""
-            self.using_password = bool(password)
+        self.username = username
+        self.using_password = bool(username and password)
         if self.using_password:
-            self.password_hash = _hash_password(password)
+            self.password_hash = hash_password(password)
         self.config_dir = Path(args.configuration)
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.absolute_config_dir = self.config_dir.resolve()
@@ -82,6 +80,8 @@ class DashboardSettings:
         self.log_level = getattr(args, "log_level", "info")
         self.port = getattr(args, "port", 6052)
         self.host = getattr(args, "host", "0.0.0.0")
+        self.ingress_port = getattr(args, "ingress_port", DEFAULT_INGRESS_PORT)
+        self.ingress_host = getattr(args, "ingress_host", "") or ""
         CORE.config_path = self.config_dir / _DASHBOARD_SENTINEL_FILE
 
     def rel_path(self, *parts: str) -> Path:
@@ -96,21 +96,25 @@ class DashboardSettings:
         return bool(get_bool_env("ESPHOME_DASHBOARD_USE_MQTT"))
 
     @property
-    def using_ha_addon_auth(self) -> bool:
+    def create_ingress_site(self) -> bool:
+        """Whether to bind the trusted HA Ingress TCP site alongside the public site."""
         if not self.on_ha_addon:
             return False
+        # DISABLE_HA_AUTHENTICATION lets operators force ingress users
+        # through the password-gated public port too.
         return not get_bool_env("DISABLE_HA_AUTHENTICATION")
 
-    @property
-    def using_auth(self) -> bool:
-        return self.using_password or self.using_ha_addon_auth
-
     def check_password(self, username: str, password: str) -> bool:
-        """Verify username and password."""
-        if not self.using_auth:
-            return True
+        """
+        Verify *username* and *password* in constant time.
+
+        Returns ``False`` when no password is configured — check
+        ``using_password`` separately to know whether the gate is active.
+        """
+        if not self.using_password:
+            return False
         username_ok = hmac.compare_digest(username.encode("utf-8"), self.username.encode("utf-8"))
-        password_ok = hmac.compare_digest(self.password_hash, _hash_password(password))
+        password_ok = hmac.compare_digest(self.password_hash, hash_password(password))
         return username_ok and password_ok
 
 
