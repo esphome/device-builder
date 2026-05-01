@@ -1,14 +1,14 @@
 """
 Device connectivity monitor — MQTT discovery for one broker.
 
-Connects to a single MQTT broker, subscribes to ``esphome/discover/#``,
-and pushes online/offline observations into the supplied callbacks.
-Devices announce themselves on the topic when prodded; an absence of
-announcement within ``_OFFLINE_TIMEOUT`` flips the state to offline.
+Wraps paho-mqtt's threaded client in an asyncio-friendly task: the paho
+network loop runs in its own thread, callbacks are bounced onto the
+event loop via :meth:`asyncio.AbstractEventLoop.call_soon_threadsafe`,
+and discovered devices are pushed into the supplied callbacks.
 
-Multi-broker setups are handled one level up by
-:class:`DeviceMqttCoordinator`, which spawns one monitor per unique
-broker referenced by device YAML.
+paho-mqtt is an optional runtime dependency — it ships with the
+``[esphome]`` extra. When it isn't importable the monitor logs once and
+disables itself; mDNS / ping discovery keeps working.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ from dataclasses import dataclass
 from typing import Any
 
 try:
-    import aiomqtt
-except ImportError:  # pragma: no cover — aiomqtt is optional at runtime
-    aiomqtt = None  # type: ignore[assignment]
+    import paho.mqtt.client as paho_mqtt
+except ImportError:  # pragma: no cover — paho-mqtt arrives via the [esphome] extra
+    paho_mqtt = None  # type: ignore[assignment]
 
 from ..models import DeviceState
 
@@ -35,6 +35,7 @@ _DISCOVER_PUBLISH_TOPIC = "esphome/discover"
 _PING_INTERVAL = 2.0  # seconds between discover requests
 _OFFLINE_TIMEOUT = 10.0  # seconds without a response before marking offline
 _RECONNECT_DELAY = 5.0  # delay before reconnecting after broker errors
+_CONNECT_TIMEOUT = 10.0  # seconds to wait for CONNACK before giving up
 _DEFAULT_PORT = 1883
 
 # Callbacks ignore the return value — typed as ``object`` so callers can
@@ -88,8 +89,8 @@ class DeviceMqttMonitor:
 
     @staticmethod
     def is_available() -> bool:
-        """Return True when aiomqtt is importable."""
-        return aiomqtt is not None
+        """Return True when paho-mqtt is importable."""
+        return paho_mqtt is not None
 
     @property
     def running(self) -> bool:
@@ -102,8 +103,8 @@ class DeviceMqttMonitor:
             return
         if not self.is_available():
             _LOGGER.warning(
-                "aiomqtt not installed — MQTT device discovery disabled. "
-                "Install with: pip install aiomqtt"
+                "paho-mqtt not installed — MQTT device discovery disabled. "
+                "Install the [esphome] extra to enable it."
             )
             return
         self._task = asyncio.create_task(self._run())
@@ -134,49 +135,68 @@ class DeviceMqttMonitor:
                 await self._connect_and_listen(client_id)
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
-                if aiomqtt is not None and isinstance(exc, aiomqtt.MqttError):
-                    _LOGGER.warning(
-                        "MQTT broker %s:%s error: %s — reconnecting in %ss",
-                        self._broker.host,
-                        self._broker.port,
-                        exc,
-                        delay,
-                    )
-                else:
-                    _LOGGER.exception(
-                        "Unexpected MQTT error for %s:%s — reconnecting in %ss",
-                        self._broker.host,
-                        self._broker.port,
-                        delay,
-                    )
+            except Exception:
+                _LOGGER.exception(
+                    "MQTT broker %s:%s error — reconnecting in %ss",
+                    self._broker.host,
+                    self._broker.port,
+                    delay,
+                )
                 # Drop last-seen but leave device state alone so a brief
                 # broker blip doesn't trigger an offline storm.
                 self._last_seen.clear()
                 await asyncio.sleep(_RECONNECT_DELAY)
 
     async def _connect_and_listen(self, client_id: str) -> None:
-        assert aiomqtt is not None  # type narrowing — checked in start()
+        assert paho_mqtt is not None  # type narrowing — checked in start()
+        loop = asyncio.get_running_loop()
 
-        async with aiomqtt.Client(
-            hostname=self._broker.host,
-            port=self._broker.port,
-            username=self._broker.username,
-            password=self._broker.password,
-            identifier=client_id,
-        ) as client:
+        message_queue: asyncio.Queue[Any] = asyncio.Queue()
+        connected = asyncio.Event()
+        connect_failed: list[int] = []
+
+        def on_connect(_client: Any, _userdata: Any, _flags: Any, rc: int) -> None:
+            if rc == 0:
+                loop.call_soon_threadsafe(connected.set)
+            else:
+                connect_failed.append(rc)
+                loop.call_soon_threadsafe(connected.set)
+
+        def on_message(_client: Any, _userdata: Any, msg: Any) -> None:
+            loop.call_soon_threadsafe(message_queue.put_nowait, msg)
+
+        client = paho_mqtt.Client(client_id=client_id, clean_session=True)
+        client.on_connect = on_connect
+        client.on_message = on_message
+        if self._broker.username:
+            client.username_pw_set(self._broker.username, self._broker.password or "")
+
+        await loop.run_in_executor(None, client.connect, self._broker.host, self._broker.port)
+        client.loop_start()
+        try:
+            await asyncio.wait_for(connected.wait(), timeout=_CONNECT_TIMEOUT)
+            if connect_failed:
+                msg = f"broker rejected connection (rc={connect_failed[0]})"
+                raise ConnectionError(msg)
+
             _LOGGER.info("MQTT connected to %s:%s", self._broker.host, self._broker.port)
-            await client.subscribe(_DISCOVER_TOPIC)
-            await client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
+            client.subscribe(_DISCOVER_TOPIC)
+            client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
 
             async with asyncio.TaskGroup() as tg:
-                tg.create_task(self._listen(client))
+                tg.create_task(self._listen(message_queue))
                 tg.create_task(self._ping_loop(client))
+        finally:
+            # Synchronous teardown — paho's loop_stop joins its thread,
+            # usually under a second, so no need for run_in_executor here.
+            client.loop_stop()
+            client.disconnect()
 
-    async def _listen(self, client: Any) -> None:
+    async def _listen(self, queue: asyncio.Queue[Any]) -> None:
         """Push discovery responses into the state and IP callbacks."""
         loop = asyncio.get_running_loop()
-        async for message in client.messages:
+        while True:
+            message = await queue.get()
             payload = _decode_payload(message.payload)
             if not payload:
                 continue
@@ -209,7 +229,7 @@ class DeviceMqttMonitor:
             for name in stale:
                 self._on_state_change(name, DeviceState.OFFLINE)
                 self._last_seen.pop(name, None)
-            await client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
+            client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
 
 
 # ---------------------------------------------------------------------------
