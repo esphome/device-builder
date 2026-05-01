@@ -29,6 +29,8 @@ except ImportError:  # pragma: no cover — icmplib is optional
     NameLookupError = Exception  # type: ignore[assignment, misc]
     async_resolve = None  # type: ignore[assignment]
 
+from ..helpers.hostname import normalize_hostname
+
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_TTL_SECONDS = 120
@@ -105,9 +107,7 @@ class DNSCache:
         self._cache[normalized] = (now + self._ttl, addresses)
         return list(addresses) if addresses else None
 
-    @staticmethod
-    def _normalize(hostname: str) -> str:
-        return hostname.rstrip(".").lower()
+    _normalize = staticmethod(normalize_hostname)
 
     async def _resolve(self, hostname: str) -> list[str] | None:
         """Resolve *hostname* with a ``.local`` → bare-hostname fallback."""

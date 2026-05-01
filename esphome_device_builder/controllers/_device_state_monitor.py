@@ -29,6 +29,7 @@ try:
 except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
 
+from ..helpers.hostname import is_local_hostname, normalize_hostname
 from ..models import Device, DeviceState
 from ._dns_cache import DNSCache
 
@@ -263,7 +264,7 @@ class DeviceStateMonitor:
         except ImportError:
             return None
 
-        normalized = host_name.rstrip(".").lower()
+        normalized = normalize_hostname(host_name)
         base_name = normalized.partition(".")[0]
         resolver_name = f"{base_name}.local."
         info = AddressResolver(resolver_name)
@@ -395,20 +396,37 @@ class DeviceStateMonitor:
         if icmp_ping is None:
             return
 
-        # Skip devices already owned by a higher-priority source — pinging
-        # them just to confirm what we already know wastes work and would
-        # be ignored by ``apply()`` anyway.
-        ping_priority = _SOURCE_PRIORITY["ping"]
-        devices_to_ping = [
-            d
-            for d in self._get_devices()
-            if d.address
-            and _SOURCE_PRIORITY.get(self._state_source.get(d.name, "unknown"), 0) <= ping_priority
-        ]
+        # Match the upstream dashboard: only ping devices that aren't
+        # already ONLINE from a higher-priority source. ``OFFLINE`` and
+        # ``UNKNOWN`` devices still get pinged so off-network hosts (no
+        # mDNS reachability) can transition online via DNS + ICMP.
+        devices_to_ping: list[Device] = []
+        for device in self._get_devices():
+            if not device.address or not self._should_ping(device):
+                continue
+            # Zeroconf's cache is authoritative for ``.local`` — if it
+            # has an entry, the device announced via mDNS even when the
+            # ``AsyncServiceBrowser`` ``Added`` callback didn't fire for
+            # us (multicast packet drops, startup race). Claim it as
+            # mDNS-online and skip ping; otherwise the bare-hostname DNS
+            # fallback can resolve to an unreachable IP on a different
+            # subnet and we'd report a phantom OFFLINE for a device
+            # that's actually right there.
+            if is_local_hostname(device.address):
+                cached = self.get_cached_addresses(device.address)
+                if cached:
+                    self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
+                    self.apply_ip(device.name, cached[0])
+                    continue
+            devices_to_ping.append(device)
         if not devices_to_ping:
             return
 
-        _LOGGER.debug("Pinging %d devices", len(devices_to_ping))
+        _LOGGER.debug(
+            "Pinging %d devices: %s",
+            len(devices_to_ping),
+            ", ".join(d.name for d in devices_to_ping),
+        )
 
         for i in range(0, len(devices_to_ping), _PING_BATCH_SIZE):
             batch = devices_to_ping[i : i + _PING_BATCH_SIZE]
@@ -428,13 +446,28 @@ class DeviceStateMonitor:
                     # mDNS owns IP tracking for ``.local`` hosts; only
                     # backfill from DNS for non-mDNS hosts so a stale
                     # DNS result can't clobber the live mDNS value.
-                    if not device.address.rstrip(".").lower().endswith(".local"):
+                    if not is_local_hostname(device.address):
                         self.apply_ip(device.name, target)
                 ping_targets.append((device, target))
             await asyncio.gather(
                 *(self._ping_device(device, target) for device, target in ping_targets),
                 return_exceptions=True,
             )
+
+    def _should_ping(self, device: Device) -> bool:
+        """
+        Decide whether *device* needs an ICMP probe this sweep.
+
+        Mirrors the upstream dashboard's rule: skip the device only when
+        it's already ONLINE *and* a higher-priority source (mDNS / MQTT)
+        owns it. We still ping devices that are OFFLINE or UNKNOWN so an
+        off-network host — one mDNS can't reach because it's on a
+        different subnet — has a path to come online via DNS + ping.
+        """
+        if device.state != DeviceState.ONLINE:
+            return True
+        source = self._state_source.get(device.name, "unknown")
+        return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY["ping"]
 
     async def _ping_device(self, device: Device, target: str) -> None:
         try:

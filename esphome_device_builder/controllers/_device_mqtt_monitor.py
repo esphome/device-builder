@@ -197,6 +197,13 @@ class DeviceMqttMonitor:
         loop = asyncio.get_running_loop()
         while True:
             message = await queue.get()
+            # Retained discover/<name> messages are stale broker cache —
+            # they get delivered immediately on subscribe and would
+            # falsely flip a dead device online until the offline timeout
+            # catches it. Wait for a fresh response to our next discover
+            # publish instead.
+            if getattr(message, "retain", False):
+                continue
             payload = _decode_payload(message.payload)
             if not payload:
                 continue

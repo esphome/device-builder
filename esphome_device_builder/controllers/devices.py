@@ -27,6 +27,7 @@ from ..helpers.device_yaml import (
     generate_device_yaml,
     parse_platform_from_yaml,
 )
+from ..helpers.hostname import is_local_hostname, normalize_hostname
 from ..helpers.subprocess import create_subprocess_exec
 from ..helpers.yaml import merge_component_yaml, rewrite_esphome_name
 from ..models import (
@@ -952,8 +953,8 @@ def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None
 
     # mDNS hostnames are case-insensitive and may carry a trailing dot;
     # normalise once so the CLI cache key matches what it'll look up.
-    normalized = address.rstrip(".").lower()
-    is_local = normalized.endswith(".local")
+    normalized = normalize_hostname(address)
+    is_local = is_local_hostname(address)
 
     # Preferred source per host type:
     #   .local  → zeroconf cache (mDNS-only, freshest while the browser is alive)

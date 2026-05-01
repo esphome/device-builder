@@ -387,3 +387,77 @@ def test_ping_can_rescue_after_mdns_offline() -> None:
     monitor._state_source.pop("alpha", None)
     assert monitor.apply("alpha", DeviceState.ONLINE, "ping") is True
     assert transitions[-1] == ("alpha", DeviceState.ONLINE, "ping")
+
+
+# ---------------------------------------------------------------------------
+# DeviceMqttMonitor._listen — retained-message filtering
+# ---------------------------------------------------------------------------
+
+
+async def test_listen_drops_retained_discover_messages() -> None:
+    """A retained ``esphome/discover/<name>`` must not flip the device online.
+
+    Retained messages get delivered the moment we subscribe — they're a
+    snapshot of the device's *last* publish, not proof that it's reachable
+    now. Treating one as an online observation ghost-onlines a dead
+    device until the offline timeout catches up.
+    """
+    import asyncio
+    import contextlib
+    import json
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: pytest.fail("retained message should be ignored"),
+        on_ip_change=lambda *_: None,
+    )
+
+    class _RetainedMessage:
+        topic = "esphome/discover/stress-esp32"
+        payload = json.dumps({"name": "stress-esp32", "ip": "10.0.0.1"}).encode()
+        retain = True
+
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put(_RetainedMessage())
+
+    listen_task = asyncio.create_task(monitor._listen(queue))
+    # Yield control twice: once for ``queue.get()`` to surface the
+    # message, once for the ``continue`` to loop back to the next get().
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    listen_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await listen_task
+
+
+async def test_listen_processes_fresh_discover_messages() -> None:
+    """A fresh (non-retained) discover message updates state and IP."""
+    import asyncio
+    import contextlib
+    import json
+
+    state_calls: list[tuple[str, DeviceState]] = []
+    ip_calls: list[tuple[str, str]] = []
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda n, s: state_calls.append((n, s)),
+        on_ip_change=lambda n, ip: ip_calls.append((n, ip)),
+    )
+
+    class _FreshMessage:
+        topic = "esphome/discover/kitchen"
+        payload = json.dumps({"name": "kitchen", "ip": "10.0.0.5"}).encode()
+        retain = False
+
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put(_FreshMessage())
+
+    listen_task = asyncio.create_task(monitor._listen(queue))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    listen_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await listen_task
+
+    assert state_calls == [("kitchen", DeviceState.ONLINE)]
+    assert ip_calls == [("kitchen", "10.0.0.5")]

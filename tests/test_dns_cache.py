@@ -8,8 +8,15 @@ from unittest.mock import patch
 
 import pytest
 
-from esphome_device_builder.controllers import _dns_cache as dns_cache_mod
+from esphome_device_builder.controllers import (
+    _device_state_monitor as sm,
+)
+from esphome_device_builder.controllers import (
+    _dns_cache as dns_cache_mod,
+)
+from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.controllers._dns_cache import DNSCache
+from esphome_device_builder.models import Device, DeviceState
 
 
 @pytest.fixture
@@ -163,8 +170,6 @@ async def test_async_resolve_handles_timeout(fake_resolver) -> None:
 
 
 def _device(**overrides):  # type: ignore[no-untyped-def]
-    from esphome_device_builder.models import Device, DeviceState
-
     base = {
         "name": "kitchen",
         "friendly_name": "Kitchen",
@@ -178,9 +183,6 @@ def _device(**overrides):  # type: ignore[no-untyped-def]
 
 async def test_ping_sweep_pre_resolves_via_dns_cache(fake_resolver) -> None:
     """A ping sweep populates the DNS cache and pings the resolved IP."""
-    from esphome_device_builder.controllers import _device_state_monitor as sm
-    from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-
     devices = [_device()]
     state_changes: list[tuple[str, object, str]] = []
     ip_changes: list[tuple[str, str]] = []
@@ -216,9 +218,6 @@ async def test_ping_sweep_pre_resolves_via_dns_cache(fake_resolver) -> None:
 
 async def test_ping_sweep_does_not_apply_ip_for_local_hosts(fake_resolver) -> None:
     """``.local`` devices keep their mDNS-owned IP — DNS doesn't write."""
-    from esphome_device_builder.controllers import _device_state_monitor as sm
-    from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-
     devices = [_device(address="kitchen.local")]
     ip_changes: list[tuple[str, str]] = []
     monitor = DeviceStateMonitor(
@@ -244,11 +243,50 @@ async def test_ping_sweep_does_not_apply_ip_for_local_hosts(fake_resolver) -> No
     assert ip_changes == []
 
 
+async def test_ping_sweep_rescues_local_device_from_zeroconf_cache(fake_resolver) -> None:
+    """A ``.local`` device in zeroconf's cache short-circuits before ping.
+
+    Catches the case where the ``AsyncServiceBrowser`` ``Added``
+    callback didn't fire for us (multicast packet drop or startup race)
+    but zeroconf's underlying cache has the entry from the periodic
+    PTR queries. Without this rescue the ping sweep falls through to
+    the bare-hostname DNS fallback, which can resolve to an
+    unreachable IP on a different subnet and report a phantom OFFLINE
+    for a device that's actually right there.
+    """
+    devices = [_device(address="winefridge.local", name="winefridge")]
+    state_changes: list[tuple[str, object, str]] = []
+    ip_changes: list[tuple[str, str]] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: devices,
+        on_state_change=lambda n, s, src: state_changes.append((n, s, src)),
+        on_ip_change=lambda n, ip: ip_changes.append((n, ip)),
+    )
+
+    pinged: list[str] = []
+
+    async def fake_ping(target, **_kwargs):  # type: ignore[no-untyped-def]
+        pinged.append(target)
+
+        class _R:
+            is_alive = False
+
+        return _R()
+
+    with (
+        patch.object(monitor, "get_cached_addresses", lambda host: ["192.168.213.11"]),
+        patch.object(sm, "icmp_ping", fake_ping),
+    ):
+        await monitor._ping_sweep()
+
+    assert pinged == []
+    assert state_changes == [("winefridge", DeviceState.ONLINE, "mdns")]
+    assert ip_changes == [("winefridge", "192.168.213.11")]
+    assert monitor.priority_for("winefridge") == "mdns"
+
+
 async def test_ping_sweep_pings_hostname_when_resolution_fails(fake_resolver) -> None:
     """DNS resolution failure → fall back to pinging the hostname."""
-    from esphome_device_builder.controllers import _device_state_monitor as sm
-    from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-
     devices = [_device()]
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,
