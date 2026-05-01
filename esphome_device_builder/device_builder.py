@@ -32,6 +32,48 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# URL prefixes owned by the server. The SPA fallback middleware must
+# not return ``index.html`` for these — a misrouted API client should
+# see a 404 instead of unexpectedly receiving HTML.
+_SERVER_URL_PREFIXES = ("/api/", "/ws", "/boards/")
+
+
+@web.middleware
+async def spa_fallback_middleware(request: web.Request, handler: Any) -> web.StreamResponse:
+    """Serve ``index.html`` for unmatched GETs so the SPA router can handle deep links.
+
+    Real assets keep flowing through aiohttp's ``add_static``, which
+    handles traversal rejection (``HTTPForbidden``/``HTTPNotFound``)
+    and absolute-path rejection itself. This middleware only steps
+    in for a non-existent file or an unmatched route. Server-owned
+    prefixes are excluded so misrouted API clients still see real
+    404s instead of getting the SPA shell.
+    """
+    fallback_eligible = request.method == "GET" and not request.path.startswith(
+        _SERVER_URL_PREFIXES
+    )
+    try:
+        response = await handler(request)
+    except web.HTTPException as exc:
+        if exc.status == 404 and fallback_eligible:
+            index_html = request.app.get("frontend_index")
+            if index_html is not None:
+                return web.FileResponse(index_html)
+        raise
+    # aiohttp's StaticResource returns a FileResponse whose 404 is
+    # only assigned during ``prepare()`` — too late for middleware to
+    # observe via ``response.status``. Peek at the path it intends to
+    # serve so we can divert non-existent files to the SPA shell
+    # *before* aiohttp emits the 404. The path was already validated
+    # for traversal by StaticResource.
+    if isinstance(response, web.FileResponse) and fallback_eligible:
+        path = getattr(response, "_path", None)
+        if path is not None and not path.is_file():
+            index_html = request.app.get("frontend_index")
+            if index_html is not None:
+                return web.FileResponse(index_html)
+    return response
+
 
 class DeviceBuilder:
     """Core application singleton.
@@ -223,7 +265,7 @@ class DeviceBuilder:
         app reuses the public app's controller singleton and so passes
         ``False`` to avoid re-initialising them.
         """
-        middlewares: list[Any] = [cors_middleware]
+        middlewares: list[Any] = [cors_middleware, spa_fallback_middleware]
         if not trusted:
             middlewares.append(auth_middleware)
 
@@ -310,41 +352,21 @@ class DeviceBuilder:
 
     @staticmethod
     def _register_frontend(app: web.Application, frontend_dir: Path) -> None:
-        """Register static file routes for the built frontend."""
+        """Register static file routes for the built frontend.
+
+        Real files (``index.html``, hashed JS bundles, license sidecars,
+        the ``assets/`` tree) are served by aiohttp's ``add_static``,
+        which handles sendfile and traversal protection. SPA deep
+        links — anything that doesn't match a real file on disk — are
+        rewritten to ``index.html`` by ``spa_fallback_middleware``.
+        """
         index_html = frontend_dir / "index.html"
-        assets_dir = frontend_dir / "assets"
-        frontend_root = frontend_dir.resolve()
 
         async def handle_index(request: web.Request) -> web.FileResponse:
             return web.FileResponse(index_html)
 
-        async def serve_or_spa(request: web.Request) -> web.FileResponse:
-            """Serve a real file, or fall back to ``index.html``.
-
-            The SPA router handles deep links like
-            ``/device/<name>.yaml`` on hard reload. Server-side
-            prefixes (``api/``, ``ws``, ``boards/``) still raise 404
-            so misrouted API clients don't silently get the SPA shell.
-            """
-            tail = request.match_info["tail"]
-            if tail.startswith(("api/", "ws", "boards/")):
-                raise web.HTTPNotFound()
-            candidate = (frontend_dir / tail).resolve()
-            try:
-                candidate.relative_to(frontend_root)
-            except ValueError:
-                # Path traversal attempt — fall back to SPA shell.
-                return web.FileResponse(index_html)
-            if candidate.is_file():
-                return web.FileResponse(candidate)
-            return web.FileResponse(index_html)
-
-        # /assets/* uses add_static so aiohttp's sendfile path serves
-        # board images and logos efficiently. Everything else routes
-        # through the catch-all, which decides per request whether the
-        # path is a real file or an SPA deep link.
-        app.router.add_static("/assets", assets_dir)
+        app["frontend_index"] = index_html
         app.router.add_get("/", handle_index)
-        app.router.add_get("/{tail:.*}", serve_or_spa)
+        app.router.add_static("/", frontend_dir)
 
         _LOGGER.info("Serving frontend from %s", frontend_dir)
