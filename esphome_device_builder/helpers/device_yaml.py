@@ -15,7 +15,7 @@ import secrets
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from esphome import const
+from esphome import const, yaml_util
 from esphome.storage_json import StorageJSON, ext_storage_path
 
 from ..models import Device, DeviceState
@@ -172,11 +172,14 @@ def detect_platform_from_yaml(path: Path) -> str:
 
 
 def device_uses_mqtt(yaml_content: str) -> bool:
-    """
-    Return True when the device YAML declares a top-level ``mqtt:`` block.
+    """Return True when the raw YAML *literally* declares a top-level ``mqtt:`` block.
 
-    The check is line-based so it handles invalid drafts and partially
-    edited configs gracefully — no full YAML parse required.
+    Cheap line-scan that survives invalid drafts and partially edited
+    configs — no full parse required. Misses configs that pull the
+    block in via ``!include`` or packages, which is why
+    ``Device.uses_mqtt`` is now sourced from
+    :func:`config_has_top_level_block` over the *resolved* config; this
+    helper is kept for the legacy callers that operate on raw text.
     """
     for line in yaml_content.splitlines():
         if not line or line[0].isspace():
@@ -187,6 +190,17 @@ def device_uses_mqtt(yaml_content: str) -> bool:
         if stripped.split(":", 1)[0].strip() == "mqtt":
             return True
     return False
+
+
+def config_has_top_level_block(config: dict | None, key: str) -> bool:
+    """Return True when *config* (a resolved device YAML) defines top-level *key*.
+
+    Catches configs that split the block across ``!include`` / packages,
+    which a raw-text scan misses. Treats the block as "present" when
+    the key exists even with a ``None`` / empty value (e.g. a bare
+    ``api:`` line is still an opt-in to the Native API).
+    """
+    return isinstance(config, dict) and key in config
 
 
 def parse_esphome_meta(  # noqa: PLR0912
@@ -296,6 +310,12 @@ def load_device_from_storage(
     except OSError:
         yaml_content = ""
     yaml_name, yaml_friendly, yaml_comment = parse_esphome_meta(yaml_content)
+    # Full resolved config (``!include`` / packages / ``!secret``
+    # expanded) drives the api-encryption flag — a bare regex on raw
+    # YAML would miss configs that pull the api block in via include
+    # or split it across packages. ``None`` on parse failure is fine;
+    # ``api_encrypted`` falls back to False.
+    resolved_config = load_device_yaml(path)
 
     fallback_name = filename.removesuffix(".yml").removesuffix(".yaml")
     storage_name = storage.name if storage else None
@@ -349,7 +369,16 @@ def load_device_from_storage(
         state=state,
         has_pending_changes=has_pending,
         update_available=update_available,
-        uses_mqtt=device_uses_mqtt(yaml_content),
+        # Prefer the resolved config so `!include` / packages count;
+        # fall back to the raw-text scan when load_yaml failed (invalid
+        # draft, missing secrets, etc.) so the user still gets a usable
+        # signal during editing rather than silently flipping to False.
+        uses_mqtt=(
+            config_has_top_level_block(resolved_config, "mqtt")
+            if resolved_config is not None
+            else device_uses_mqtt(yaml_content)
+        ),
+        api_encrypted=get_api_encryption_block(resolved_config) is not None,
     )
 
 
@@ -407,6 +436,53 @@ def _parse_inline_value(raw: str) -> str:
     ):
         value = value[1:-1]
     return value
+
+
+def load_device_yaml(path: Path) -> dict | None:
+    """Load *path* with ESPHome's YAML loader; return the top-level mapping.
+
+    Resolves ``!secret`` / ``!include`` / etc. like a real compile, and
+    returns ``None`` when the file isn't a mapping or fails to parse.
+    Centralised so callers that need a parsed config — API-key
+    extraction, encryption-status checks, future config inspection —
+    share one entry point with the same error handling.
+    """
+    try:
+        # ``yaml_util.load_yaml`` calls ``.open()`` on its argument, so
+        # pass the ``Path`` directly — handing it a stringified path
+        # raises ``AttributeError`` deep inside the loader.
+        config = yaml_util.load_yaml(path)
+    except Exception:
+        return None
+    return config if isinstance(config, dict) else None
+
+
+def get_api_encryption_block(config: dict | None) -> dict | None:
+    """
+    Return the ``api.encryption`` mapping from a parsed device config.
+
+    ``None`` when the config is missing, has no ``api:`` block, or the
+    ``api:`` block has no ``encryption:`` sub-mapping. Useful for both
+    the "is encrypted?" boolean and the "show me the key" string —
+    they share the same lookup, the only thing that differs is what
+    they pull off the result.
+    """
+    if not isinstance(config, dict):
+        return None
+    api_block = config.get("api")
+    if not isinstance(api_block, dict):
+        return None
+    encryption = api_block.get("encryption")
+    return encryption if isinstance(encryption, dict) else None
+
+
+def get_api_encryption_key(config: dict | None) -> str:
+    """Return the resolved Native API encryption key, or empty string."""
+    encryption = get_api_encryption_block(config)
+    if encryption is None:
+        return ""
+    key = encryption.get("key")
+    return key if isinstance(key, str) else ""
 
 
 def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | None:

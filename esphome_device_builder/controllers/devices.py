@@ -25,6 +25,8 @@ from ..helpers.api import api_command
 from ..helpers.config_hash import compute_yaml_config_hash
 from ..helpers.device_yaml import (
     generate_device_yaml,
+    get_api_encryption_key,
+    load_device_yaml,
     parse_platform_from_yaml,
 )
 from ..helpers.hostname import is_local_hostname, normalize_hostname
@@ -413,6 +415,27 @@ class DevicesController:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, path.write_text, content, "utf-8")
         await self._scanner.scan()
+
+    @api_command("devices/get_api_key")
+    async def get_api_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:
+        """
+        Return the resolved Native API encryption key for *configuration*.
+
+        Uses ESPHome's own YAML loader so ``!secret`` references and
+        substitutions resolve the same way they would at compile time —
+        the regex-on-raw-YAML approach a frontend has access to gives up
+        whenever the user pulls the key from ``secrets.yaml`` or hides
+        it behind a ``${api_key}`` substitution.
+
+        ``{"key": "<base64 32-byte>"}`` on success; ``{"key": ""}`` when
+        the device has no ``api:`` block, no ``encryption`` key, or YAML
+        loading fails. Callers treat the empty value as the "open the
+        editor and check" signal.
+        """
+        path = self._db.settings.rel_path(configuration)
+        loop = asyncio.get_running_loop()
+        config = await loop.run_in_executor(None, load_device_yaml, path)
+        return {"key": get_api_encryption_key(config)}
 
     @api_command("devices/add_component")
     async def add_component(
