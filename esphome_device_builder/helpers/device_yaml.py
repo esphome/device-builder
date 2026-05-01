@@ -171,15 +171,16 @@ def detect_platform_from_yaml(path: Path) -> str:
         return ""
 
 
-def device_uses_mqtt(yaml_content: str) -> bool:
-    """Return True when the raw YAML *literally* declares a top-level ``mqtt:`` block.
+def yaml_has_top_level_block(yaml_content: str, key: str) -> bool:
+    """Return True when the raw YAML literally declares a top-level *key*: block.
 
     Cheap line-scan that survives invalid drafts and partially edited
     configs — no full parse required. Misses configs that pull the
-    block in via ``!include`` or packages, which is why
-    ``Device.uses_mqtt`` is now sourced from
-    :func:`config_has_top_level_block` over the *resolved* config; this
-    helper is kept for the legacy callers that operate on raw text.
+    block in via ``!include`` or packages, which is why scan-time
+    flags prefer :func:`config_has_top_level_block` over the resolved
+    config; this helper is the fallback for when YAML parsing fails
+    (mid-edit drafts, missing secrets) so the indicator doesn't
+    silently flip off while the user is typing.
     """
     for line in yaml_content.splitlines():
         if not line or line[0].isspace():
@@ -187,9 +188,34 @@ def device_uses_mqtt(yaml_content: str) -> bool:
         stripped = line.strip()
         if stripped.startswith("#") or ":" not in stripped:
             continue
-        if stripped.split(":", 1)[0].strip() == "mqtt":
+        if stripped.split(":", 1)[0].strip() == key:
             return True
     return False
+
+
+def device_uses_mqtt(yaml_content: str) -> bool:
+    """Return True when the raw YAML literally declares a top-level ``mqtt:`` block."""
+    return yaml_has_top_level_block(yaml_content, "mqtt")
+
+
+_RAW_API_ENCRYPTION_RE = re.compile(
+    # Matches an ``encryption:`` line that's indented under ``api:``
+    # (any depth ≥ 1 space). Used as a draft-time heuristic — once
+    # ``load_device_yaml`` succeeds, the resolved-config check wins.
+    r"^api:\s*\n(?:[ \t][^\n]*\n|\s*\n)*[ \t]+encryption:(?:\s|$)",
+    re.MULTILINE,
+)
+
+
+def yaml_has_api_encryption(yaml_content: str) -> bool:
+    """Heuristic: True when raw YAML appears to declare ``api: encryption:``.
+
+    Used during mid-edit drafts when the full resolver fails so the
+    encryption-indicator doesn't blink off the moment the user types
+    a syntax error. The resolved-config check is preferred whenever
+    available (catches ``!include`` / packages this regex can't see).
+    """
+    return bool(_RAW_API_ENCRYPTION_RE.search(yaml_content))
 
 
 def config_has_top_level_block(config: dict | None, key: str) -> bool:
@@ -351,6 +377,27 @@ def load_device_from_storage(
     else:
         target_platform = detect_platform_from_yaml(path)
 
+    loaded_integrations = sorted(storage.loaded_integrations) if storage else []
+    # ``api_enabled`` / ``api_encrypted`` get the union of every signal
+    # we have:
+    #   1. Resolved YAML config — catches local ``api:`` blocks pulled
+    #      in via ``!include`` / local packages.
+    #   2. Raw-text scan — keeps the indicator stable mid-edit when
+    #      ``yaml_util.load_yaml`` fails on an invalid draft.
+    #   3. ``StorageJSON.loaded_integrations`` — the compile-time
+    #      ground truth. Required for configs that pull the api block
+    #      in from a remote ``dashboard_import`` package (Apollo, etc.):
+    #      ``yaml_util.load_yaml`` doesn't fetch URLs so the resolved
+    #      config has no ``api:`` at the top level, but the compiled
+    #      device still loads it.
+    api_enabled = (
+        ("api" in loaded_integrations)
+        or config_has_top_level_block(resolved_config, "api")
+        or yaml_has_top_level_block(yaml_content, "api")
+    )
+    api_encrypted = get_api_encryption_block(
+        resolved_config
+    ) is not None or yaml_has_api_encryption(yaml_content)
     return Device(
         name=name,
         friendly_name=friendly_name,
@@ -365,21 +412,21 @@ def load_device_from_storage(
         deployed_version=deployed,
         expected_config_hash=expected_config_hash,
         deployed_config_hash=deployed_config_hash,
-        loaded_integrations=sorted(storage.loaded_integrations) if storage else [],
+        loaded_integrations=loaded_integrations,
         state=state,
         has_pending_changes=has_pending,
         update_available=update_available,
-        # Prefer the resolved config so `!include` / packages count;
-        # fall back to the raw-text scan when load_yaml failed (invalid
-        # draft, missing secrets, etc.) so the user still gets a usable
-        # signal during editing rather than silently flipping to False.
+        # ``uses_mqtt`` keeps its prior shape — the resolved config
+        # wins, raw-text fills in mid-edit, and we don't have a
+        # ``loaded_integrations`` entry that maps cleanly to "uses
+        # mqtt for dashboard discovery" the way ``"api"`` does.
         uses_mqtt=(
             config_has_top_level_block(resolved_config, "mqtt")
             if resolved_config is not None
-            else device_uses_mqtt(yaml_content)
+            else yaml_has_top_level_block(yaml_content, "mqtt")
         ),
-        api_enabled=config_has_top_level_block(resolved_config, "api"),
-        api_encrypted=get_api_encryption_block(resolved_config) is not None,
+        api_enabled=api_enabled,
+        api_encrypted=api_encrypted,
     )
 
 

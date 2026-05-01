@@ -12,12 +12,14 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
     config_has_top_level_block,
     get_api_encryption_block,
     get_api_encryption_key,
     load_device_yaml,
 )
+from esphome_device_builder.models import Device
 
 # ---------------------------------------------------------------------------
 # Pure-helper paths — no disk
@@ -106,3 +108,79 @@ def test_load_device_yaml_resolves_secrets(tmp_path: Path) -> None:
     )
     config = load_device_yaml(yaml_file)
     assert get_api_encryption_key(config) == "AAAA=="
+
+
+# ---------------------------------------------------------------------------
+# Scan-time integration — load_device_from_storage drives the Device flags
+# the frontend reads to render the lock indicator.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Redirect ``ext_storage_path`` into ``tmp_path`` and bypass StorageJSON.
+
+    ``load_device_from_storage`` walks ``CORE.config_path`` for the
+    StorageJSON sidecar, which isn't set in unit tests. Point the helper
+    at the temporary directory and force ``StorageJSON.load`` to return
+    ``None`` so each test exercises the YAML + flag plumbing only.
+    """
+    monkeypatch.setattr(
+        device_yaml,
+        "ext_storage_path",
+        lambda config: tmp_path / f"{config}.json",
+    )
+    monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(lambda _p: None))
+    return tmp_path
+
+
+def _scan(yaml_path: Path, content: str) -> Device:
+    """Write *content* to *yaml_path* and run it through the scanner helper."""
+    yaml_path.write_text(content)
+    return device_yaml.load_device_from_storage(yaml_path)
+
+
+def test_load_device_from_storage_sets_api_encrypted_from_resolved_yaml(
+    isolated_storage: Path,
+) -> None:
+    """Scanner output's ``api_encrypted`` reflects the resolved config."""
+    device = _scan(
+        isolated_storage / "kitchen.yaml",
+        'esphome:\n  name: kitchen\napi:\n  encryption:\n    key: "ZGFzaA=="\n',
+    )
+    assert device.api_enabled is True
+    assert device.api_encrypted is True
+
+
+def test_load_device_from_storage_api_disabled_for_mqtt_only(
+    isolated_storage: Path,
+) -> None:
+    """A device with no ``api:`` block reports neither flag — drives the no-lock case."""
+    device = _scan(
+        isolated_storage / "sensor.yaml",
+        "esphome:\n  name: sensor\nmqtt:\n  broker: 192.168.1.10\n",
+    )
+    assert device.api_enabled is False
+    assert device.api_encrypted is False
+    assert device.uses_mqtt is True
+
+
+def test_load_device_from_storage_falls_back_for_invalid_draft(
+    isolated_storage: Path,
+) -> None:
+    """Mid-edit drafts where ``yaml_util.load_yaml`` fails still get usable flags.
+
+    The lock indicator would otherwise blink off the moment the user
+    typed a syntax error. Raw-text fallback keeps the signal stable.
+    """
+    # Top-level ``api:`` with ``encryption:``, plus a deliberate syntax
+    # error further down so ``yaml_util.load_yaml`` returns ``None`` and
+    # we fall through to the raw-text heuristic.
+    device = _scan(
+        isolated_storage / "broken.yaml",
+        "esphome:\n  name: broken\n"
+        'api:\n  encryption:\n    key: "ZGFzaA=="\n'
+        "sensor:\n  - platform: !\n    bad: [unterminated\n",
+    )
+    assert device.api_enabled is True
+    assert device.api_encrypted is True
