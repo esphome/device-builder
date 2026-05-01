@@ -55,9 +55,17 @@ IPChangeCallback = Callable[[str, str], None]
 # different firmware version than last seen for a device.
 VersionChangeCallback = Callable[[str, str], None]
 
+# Callback fired when the mDNS ``config_hash`` TXT record reports a
+# different running-config hash than last seen for a device. The hash
+# is the 8-char lowercase hex of ``App.get_config_hash()`` and is only
+# broadcast by firmware built from esphome/esphome#16145 onwards;
+# older devices simply never fire this callback.
+ConfigHashChangeCallback = Callable[[str, str], None]
+
 # zeroconf hands us raw bytes for TXT keys; declared once so the
 # call site can decode without re-typing the key.
 _TXT_RECORD_VERSION = b"version"
+_TXT_RECORD_CONFIG_HASH = b"config_hash"
 
 
 class DeviceStateMonitor:
@@ -76,14 +84,17 @@ class DeviceStateMonitor:
         on_state_change: StateChangeCallback,
         on_ip_change: IPChangeCallback,
         on_version_change: VersionChangeCallback | None = None,
+        on_config_hash_change: ConfigHashChangeCallback | None = None,
     ) -> None:
         self._get_devices = get_devices
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
         self._on_version_change = on_version_change
+        self._on_config_hash_change = on_config_hash_change
         self._state_source: dict[str, str] = {}  # device name → "mdns" | "ping"
         self._device_ips: dict[str, str] = {}  # device name → last known IP
         self._device_versions: dict[str, str] = {}  # device name → last reported version
+        self._device_config_hashes: dict[str, str] = {}  # device name → last reported config hash
         self._zeroconf: AsyncEsphomeZeroconf | None = None
         self._mdns_browser: Any = None
         self._ping_task: asyncio.Task | None = None
@@ -180,6 +191,25 @@ class DeviceStateMonitor:
             return False
         self._device_versions[name] = version
         self._on_version_change(name, version)
+        return True
+
+    def apply_config_hash(self, name: str, config_hash: str) -> bool:
+        """
+        Record a running-firmware config hash observation.
+
+        Returns True when the hash actually changed and the change was
+        forwarded to the callback. Empty strings are dropped so devices
+        running pre-#16145 firmware (no ``config_hash`` TXT) don't churn
+        the callback.
+        """
+        if not config_hash or self._on_config_hash_change is None:
+            return False
+        if self._find_device_by_name(name) is None:
+            return False
+        if self._device_config_hashes.get(name) == config_hash:
+            return False
+        self._device_config_hashes[name] = config_hash
+        self._on_config_hash_change(name, config_hash)
         return True
 
     def get_cached_addresses(self, host_name: str) -> list[str] | None:
@@ -299,7 +329,8 @@ class DeviceStateMonitor:
                 # Strip any zone suffix (e.g. "fe80::1%en0") for display purposes.
                 ip = addresses[0].split("%", 1)[0]
                 self.apply_ip(device_name, ip)
-            version_bytes = info.properties.get(_TXT_RECORD_VERSION) if info.properties else None
+            properties = info.properties or {}
+            version_bytes = properties.get(_TXT_RECORD_VERSION)
             if version_bytes:
                 try:
                     self.apply_version(device_name, version_bytes.decode())
@@ -308,6 +339,16 @@ class DeviceStateMonitor:
                         "Could not decode mDNS version TXT for %s: %r",
                         device_name,
                         version_bytes,
+                    )
+            config_hash_bytes = properties.get(_TXT_RECORD_CONFIG_HASH)
+            if config_hash_bytes:
+                try:
+                    self.apply_config_hash(device_name, config_hash_bytes.decode())
+                except UnicodeDecodeError:
+                    _LOGGER.debug(
+                        "Could not decode mDNS config_hash TXT for %s: %r",
+                        device_name,
+                        config_hash_bytes,
                     )
         except Exception:
             _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from esphome import const
 from esphome.storage_json import StorageJSON, ext_storage_path
 
-from ..models import Device
+from ..models import Device, DeviceState
 
 if TYPE_CHECKING:
     from ..models import BoardCatalogEntry
@@ -257,7 +257,14 @@ def parse_esphome_meta(
 # ---------------------------------------------------------------------------
 
 
-def load_device_from_storage(path: Path, board_id: str = "", ip: str = "") -> Device:
+def load_device_from_storage(
+    path: Path,
+    board_id: str = "",
+    ip: str = "",
+    expected_config_hash: str = "",
+    *,
+    previous: Device | None = None,
+) -> Device:
     """
     Build a Device model from a YAML config file and its StorageJSON.
 
@@ -268,6 +275,18 @@ def load_device_from_storage(path: Path, board_id: str = "", ip: str = "") -> De
     *ip* is the last-known resolved address from the device-builder
     metadata sidecar. Loading it back on startup lets the OTA address
     cache hand the CLI a usable IP before the first ping/mDNS sweep.
+
+    *expected_config_hash* is the YAML's last-compiled config hash,
+    typically read back from the metadata sidecar. Pair with the
+    deployed hash from mDNS to tell "device runs the latest compile"
+    apart from "device has older firmware"; empty when the device
+    hasn't been compiled yet, in which case ``has_pending_changes``
+    falls back to the mtime check.
+
+    *previous* is the prior in-memory Device for this path, when one
+    exists. Runtime-only fields populated by monitors (``state``,
+    ``deployed_config_hash``) carry forward from it so a reload
+    doesn't wipe what mDNS / ping has already discovered.
     """
     filename = path.name
     storage = StorageJSON.load(ext_storage_path(filename))
@@ -288,11 +307,20 @@ def load_device_from_storage(path: Path, board_id: str = "", ip: str = "") -> De
     storage_comment = storage.comment if storage else None
     comment = yaml_comment if yaml_comment is not None else storage_comment
 
-    has_pending = True  # default: needs compile until we prove otherwise
+    yaml_mtime = path.stat().st_mtime if path.exists() else None
+    bin_mtime: float | None = None
     if storage and storage.firmware_bin_path and storage.firmware_bin_path.exists():
-        yaml_mtime = path.stat().st_mtime
         bin_mtime = storage.firmware_bin_path.stat().st_mtime
-        has_pending = yaml_mtime > bin_mtime
+
+    deployed_config_hash = previous.deployed_config_hash if previous else ""
+    state = previous.state if previous else DeviceState.UNKNOWN
+
+    has_pending = compute_has_pending_changes(
+        yaml_mtime=yaml_mtime,
+        bin_mtime=bin_mtime,
+        expected_config_hash=expected_config_hash,
+        deployed_config_hash=deployed_config_hash,
+    )
 
     deployed = storage.esphome_version or "" if storage else ""
     update_available = bool(deployed and deployed != const.__version__)
@@ -315,11 +343,49 @@ def load_device_from_storage(path: Path, board_id: str = "", ip: str = "") -> De
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
         deployed_version=deployed,
+        expected_config_hash=expected_config_hash,
+        deployed_config_hash=deployed_config_hash,
         loaded_integrations=sorted(storage.loaded_integrations) if storage else [],
+        state=state,
         has_pending_changes=has_pending,
         update_available=update_available,
         uses_mqtt=device_uses_mqtt(yaml_content),
     )
+
+
+def compute_has_pending_changes(
+    *,
+    yaml_mtime: float | None,
+    bin_mtime: float | None,
+    expected_config_hash: str,
+    deployed_config_hash: str,
+) -> bool:
+    """
+    Decide whether a device's running firmware is out of sync with its YAML.
+
+    Decision order, first match wins:
+
+    1. No firmware binary on disk yet → pending.
+    2. YAML edited after the last compile → pending. The mtime gate
+       runs before any hash comparison so a stale ``expected`` from
+       the prior compile can't accidentally match a deployed hash.
+    3. Both ``expected_config_hash`` and ``deployed_config_hash``
+       known → pending iff they differ. The deployed hash comes from
+       mDNS (esphome/esphome#16145), the expected hash from the YAML's
+       last compile; differing means the device is running older
+       firmware than the latest compile (e.g. failed OTA, flashed
+       elsewhere).
+    4. Either hash missing → not pending. Devices on firmware that
+       predates the ``config_hash`` TXT broadcast fall through here
+       and stay quiet.
+    """
+    if bin_mtime is None:
+        return True
+    if yaml_mtime is not None and yaml_mtime > bin_mtime:
+        return True
+    if expected_config_hash and deployed_config_hash:
+        return expected_config_hash != deployed_config_hash
+    return False
 
 
 # ---------------------------------------------------------------------------

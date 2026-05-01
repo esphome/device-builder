@@ -32,6 +32,7 @@ class DeviceFileMetadata(NamedTuple):
 
     board_id: str
     ip: str
+    expected_config_hash: str = ""
 
 
 class ScanChange(StrEnum):
@@ -88,6 +89,39 @@ class DeviceScanner:
         async with self._lock:
             await self._do_scan()
 
+    async def reload(self, filename: str) -> bool:
+        """
+        Force-reload a single device's state from disk.
+
+        Use when something other than the YAML changed but still
+        affects the device model — most importantly, a successful
+        firmware compile updates the binary's mtime and flips
+        ``has_pending_changes``, but the YAML stat is unchanged so the
+        cache-key check in :meth:`scan` would otherwise skip the
+        reload.
+
+        Returns True when the device exists and was re-read; False if
+        the file isn't tracked. Fires ``ScanChange.UPDATED`` on
+        success.
+        """
+        async with self._lock:
+            path = next((p for p in self._devices if p.name == filename), None)
+            if path is None:
+                return False
+            loop = asyncio.get_running_loop()
+            loaded = await loop.run_in_executor(None, self._load_devices, {path})
+            device = loaded.get(path)
+            if device is None:
+                return False
+            self._devices[path] = device
+            try:
+                stat = path.stat()
+                self._cache_keys[path] = (stat.st_ino, stat.st_dev, stat.st_mtime, stat.st_size)
+            except OSError:
+                pass
+            self._on_change(ScanChange.UPDATED, device)
+            return True
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -138,7 +172,13 @@ class DeviceScanner:
         for path in paths:
             try:
                 metadata = self._get_metadata(self._config_dir, path.name)
-                result[path] = load_device_from_storage(path, metadata.board_id, metadata.ip)
+                result[path] = load_device_from_storage(
+                    path,
+                    metadata.board_id,
+                    metadata.ip,
+                    metadata.expected_config_hash,
+                    previous=self._devices.get(path),
+                )
             except Exception:
                 _LOGGER.warning("Failed to load device from %s", path.name)
         return result

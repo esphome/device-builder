@@ -20,7 +20,9 @@ except ImportError:
     import_config = None  # type: ignore[assignment]
 
 from ..helpers.api import api_command
+from ..helpers.config_hash import compute_yaml_config_hash
 from ..helpers.device_yaml import (
+    compute_has_pending_changes,
     generate_device_yaml,
     parse_platform_from_yaml,
 )
@@ -32,6 +34,8 @@ from ..models import (
     DevicesResponse,
     DeviceState,
     EventType,
+    JobStatus,
+    JobType,
     UpdateDeviceResponse,
     WizardResponse,
 )
@@ -56,6 +60,9 @@ class DevicesController:
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
         self._esphome_cmd: list[str] = []
+        # Unsubscribe handle for the firmware-job-completion listener
+        # wired up in start(); held so stop() can detach cleanly.
+        self._unsub_job_completed: Any = None
 
         # Discovery / import state
         self.import_result: dict[str, Any] = {}
@@ -71,6 +78,7 @@ class DevicesController:
             on_state_change=self._on_state_change,
             on_ip_change=self._on_ip_change,
             on_version_change=self._on_version_change,
+            on_config_hash_change=self._on_config_hash_change,
         )
         # MQTT routes its observations through the same state monitor so
         # source-priority is enforced in one place.
@@ -96,9 +104,15 @@ class DevicesController:
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))
         await self._state_monitor.start()
         await self._mqtt_coordinator.reconcile()
+        self._unsub_job_completed = self._db.bus.add_listener(
+            EventType.JOB_COMPLETED, self._on_firmware_job_completed
+        )
 
     async def stop(self) -> None:
         """Stop background monitors so the process exits cleanly."""
+        if self._unsub_job_completed is not None:
+            self._unsub_job_completed()
+            self._unsub_job_completed = None
         await self._mqtt_coordinator.stop()
         await self._state_monitor.stop()
 
@@ -521,7 +535,7 @@ class DevicesController:
 
     def _resolve_device_metadata(self, config_dir: Path, filename: str) -> DeviceFileMetadata:
         """
-        Resolve a device's persisted ``board_id`` and ``ip``.
+        Resolve a device's persisted ``board_id``, ``ip``, and config hash.
 
         ``board_id`` priority:
           1. The metadata sidecar — set explicitly when the user
@@ -543,13 +557,21 @@ class DevicesController:
 
         ``ip`` is the last-known resolved address from the metadata
         sidecar (``""`` if never seen).
+
+        ``expected_config_hash`` is the YAML's last-compiled
+        ``CORE.config_hash``, written by the firmware controller after
+        each successful compile; ``""`` when the device has never been
+        compiled or the compile predates expected-hash tracking.
         """
         md = get_device_metadata(config_dir, filename)
         ip = str(md.get("ip", ""))
+        expected_config_hash = str(md.get("expected_config_hash", ""))
         board_id = str(md.get("board_id", ""))
         if not board_id:
             board_id = self._derive_board_id_from_yaml(config_dir, filename)
-        return DeviceFileMetadata(board_id=board_id, ip=ip)
+        return DeviceFileMetadata(
+            board_id=board_id, ip=ip, expected_config_hash=expected_config_hash
+        )
 
     def _derive_board_id_from_yaml(self, config_dir: Path, filename: str) -> str:
         """Parse the device YAML and look up a matching catalog board, or ``""``."""
@@ -643,6 +665,119 @@ class DevicesController:
         device.update_available = bool(device.current_version and version != device.current_version)
         _LOGGER.info("Device %s version: %s → %s (via mdns)", name, old_version or "?", version)
         self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+
+    def _on_config_hash_change(self, name: str, config_hash: str) -> None:
+        """
+        Apply a running-firmware config hash observed via mDNS.
+
+        Stores the hash on the in-memory device and re-evaluates
+        ``has_pending_changes`` so the dashboard can tell "device runs
+        the latest compile" apart from "device has older firmware".
+        Devices on firmware that predates the ``config_hash`` TXT
+        broadcast never trigger this callback and stay on the legacy
+        mtime check.
+        """
+        device = next((d for d in self._scanner.devices if d.name == name), None)
+        if device is None:
+            return
+        if device.deployed_config_hash == config_hash:
+            return
+        old_hash = device.deployed_config_hash
+        device.deployed_config_hash = config_hash
+        self._refresh_has_pending_changes(device)
+        _LOGGER.info(
+            "Device %s config_hash: %s → %s (via mdns)", name, old_hash or "?", config_hash
+        )
+        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+
+    def _refresh_has_pending_changes(self, device: Device) -> None:
+        """
+        Re-evaluate ``device.has_pending_changes`` and update it in place.
+
+        Used when an input has changed without going through the disk
+        scanner — e.g. mDNS reported a new ``deployed_config_hash`` for
+        a device the controller already has loaded.
+        """
+        config_path = self._db.settings.rel_path(device.configuration)
+        try:
+            yaml_mtime: float | None = config_path.stat().st_mtime
+        except OSError:
+            yaml_mtime = None
+        bin_mtime: float | None = None
+        try:
+            storage = StorageJSON.load(ext_storage_path(device.configuration))
+        except Exception:
+            storage = None
+        if storage and storage.firmware_bin_path and storage.firmware_bin_path.exists():
+            try:
+                bin_mtime = storage.firmware_bin_path.stat().st_mtime
+            except OSError:
+                bin_mtime = None
+        device.has_pending_changes = compute_has_pending_changes(
+            yaml_mtime=yaml_mtime,
+            bin_mtime=bin_mtime,
+            expected_config_hash=device.expected_config_hash,
+            deployed_config_hash=device.deployed_config_hash,
+        )
+
+    def _on_firmware_job_completed(self, event: Any) -> None:
+        """
+        Refresh a device's cached state after a successful firmware job.
+
+        Without this hook, a freshly-flashed device keeps its stale
+        ``has_pending_changes=True`` — the symptom users see as a
+        still-orange "update pending" dot — because the disk scanner
+        only re-evaluates when the YAML file's stat changes.
+
+        COMPILE and INSTALL also recompute the YAML's
+        ``expected_config_hash`` here so the next mDNS resolve can
+        compare against the firmware's broadcast hash; UPLOAD doesn't
+        recompile, so it reuses whatever the previous compile cached.
+        """
+        job = event.data.get("job")
+        if job is None:
+            return
+        if getattr(job, "status", None) != JobStatus.COMPLETED:
+            return
+        job_type = getattr(job, "job_type", None)
+        if job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL):
+            return
+        configuration = getattr(job, "configuration", "")
+        if not configuration:
+            return
+        recompute_hash = job_type in (JobType.COMPILE, JobType.INSTALL)
+        self._db.create_background_task(
+            self._refresh_after_firmware_job(configuration, recompute_hash=recompute_hash)
+        )
+
+    async def _refresh_after_firmware_job(
+        self, configuration: str, *, recompute_hash: bool
+    ) -> None:
+        """
+        Persist the YAML's freshly-compiled hash and reload the device.
+
+        When *recompute_hash* is True, recomputes the YAML's
+        ``CORE.config_hash`` and writes it to the metadata sidecar so
+        the next mDNS resolve can compare against the firmware's
+        broadcast. The device is always reloaded afterwards — even
+        when hash computation is skipped or fails — so the mtime side
+        of ``has_pending_changes`` still flips after a successful
+        compile.
+        """
+        if recompute_hash:
+            yaml_path = self._db.settings.rel_path(configuration)
+            new_hash = await compute_yaml_config_hash(yaml_path)
+            if new_hash:
+                loop = asyncio.get_running_loop()
+                config_dir = self._db.settings.config_dir
+                await loop.run_in_executor(
+                    None,
+                    lambda: set_device_metadata(
+                        config_dir, configuration, expected_config_hash=new_hash
+                    ),
+                )
+                _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
+        await self._scanner.reload(configuration)
 
     async def _persist_storage_version_async(self, configuration: str, version: str) -> None:
         """Update ``StorageJSON.esphome_version`` on disk if it differs."""

@@ -183,6 +183,7 @@ def set_device_metadata(
     friendly_name: str | None = None,
     comment: str | None = None,
     ip: str | None = None,
+    expected_config_hash: str | None = None,
 ) -> None:
     """
     Set metadata fields for a device.
@@ -191,6 +192,13 @@ def set_device_metadata(
     cache survives backend restarts. Pass an empty string to leave the
     persisted value unchanged (mDNS clears the in-memory IP whenever a
     device drops off the network, but the cache is still useful).
+
+    ``expected_config_hash`` is the 8-char hex FNV-1a-32 hash of the
+    YAML as last successfully compiled — pair it with the mDNS
+    ``config_hash`` TXT record (esphome/esphome#16145) to tell whether
+    the running firmware matches the compiled config. Passing an empty
+    string clears it (e.g. after a YAML edit invalidates the prior
+    compile).
     """
     with metadata_transaction(config_dir) as data:
         entry = data.setdefault(filename, {})
@@ -202,6 +210,11 @@ def set_device_metadata(
             entry["comment"] = comment
         if ip:
             entry["ip"] = ip
+        if expected_config_hash is not None:
+            if expected_config_hash:
+                entry["expected_config_hash"] = expected_config_hash
+            else:
+                entry.pop("expected_config_hash", None)
 
 
 def get_device_metadata(config_dir: Path, filename: str) -> dict[str, Any]:

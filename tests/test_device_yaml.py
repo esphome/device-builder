@@ -6,7 +6,10 @@ hand-rolled text scanning makes regression risk meaningful.
 
 from __future__ import annotations
 
-from esphome_device_builder.helpers.device_yaml import parse_esphome_meta
+from esphome_device_builder.helpers.device_yaml import (
+    compute_has_pending_changes,
+    parse_esphome_meta,
+)
 
 
 def test_parse_meta_plain_values() -> None:
@@ -89,3 +92,88 @@ esphome:
 """
     _, friendly_name, _ = parse_esphome_meta(yaml_content)
     assert friendly_name == "$missing"
+
+
+# ----------------------------------------------------------------------
+# compute_has_pending_changes
+# ----------------------------------------------------------------------
+
+
+def test_pending_when_no_binary_yet() -> None:
+    """Never-compiled device → always pending, regardless of mtime/hash inputs."""
+    assert (
+        compute_has_pending_changes(
+            yaml_mtime=100.0,
+            bin_mtime=None,
+            expected_config_hash="abc",
+            deployed_config_hash="abc",
+        )
+        is True
+    )
+
+
+def test_pending_when_yaml_edited_after_compile() -> None:
+    """YAML newer than binary → pending, even if hashes happen to match."""
+    assert (
+        compute_has_pending_changes(
+            yaml_mtime=200.0,
+            bin_mtime=100.0,
+            # Stale expected hash that happens to equal the deployed
+            # — without the mtime gate this would falsely report "in sync".
+            expected_config_hash="abc",
+            deployed_config_hash="abc",
+        )
+        is True
+    )
+
+
+def test_in_sync_when_hashes_match_and_yaml_unchanged() -> None:
+    """Both hashes known, YAML unchanged since compile → not pending."""
+    assert (
+        compute_has_pending_changes(
+            yaml_mtime=100.0,
+            bin_mtime=200.0,
+            expected_config_hash="abc",
+            deployed_config_hash="abc",
+        )
+        is False
+    )
+
+
+def test_pending_when_hashes_diverge() -> None:
+    """Hashes known and differ → pending (compiled but device runs older firmware)."""
+    assert (
+        compute_has_pending_changes(
+            yaml_mtime=100.0,
+            bin_mtime=200.0,
+            expected_config_hash="abc",
+            deployed_config_hash="def",
+        )
+        is True
+    )
+
+
+def test_in_sync_when_hashes_unknown_and_yaml_unchanged() -> None:
+    """Pre-#16145 firmware path: no hashes, YAML <= binary → not pending."""
+    assert (
+        compute_has_pending_changes(
+            yaml_mtime=100.0,
+            bin_mtime=200.0,
+            expected_config_hash="",
+            deployed_config_hash="",
+        )
+        is False
+    )
+
+
+def test_in_sync_when_only_one_hash_known() -> None:
+    """Half-known hash isn't usable — fall through to the mtime answer."""
+    assert (
+        compute_has_pending_changes(
+            yaml_mtime=100.0,
+            bin_mtime=200.0,
+            expected_config_hash="abc",
+            deployed_config_hash="",
+        )
+        is False
+    )

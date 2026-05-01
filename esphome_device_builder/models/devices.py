@@ -34,6 +34,17 @@ class Device(DataClassORJSONMixin):
     web_port: int | None = None
     current_version: str = ""
     deployed_version: str = ""
+    # 8-char hex hash of the YAML as last successfully compiled.
+    # Persisted in the metadata sidecar; matches what ESPHome's
+    # runtime publishes via ``App.get_config_hash()``.
+    expected_config_hash: str = ""
+    # 8-char hex hash of the running firmware, read from the mDNS
+    # ``config_hash`` TXT record (esphome/esphome#16145). When this
+    # and ``expected_config_hash`` are both known they drive
+    # ``has_pending_changes`` instead of the mtime fallback — that's
+    # how we tell "flashed with the latest compile" apart from
+    # "compile succeeded but device still runs older firmware".
+    deployed_config_hash: str = ""
     loaded_integrations: list[str] = field(default_factory=list)  # from StorageJSON after compile
     state: DeviceState = DeviceState.UNKNOWN
     has_pending_changes: bool = True  # True until successfully compiled + deployed
