@@ -153,3 +153,58 @@ async def test_register_frontend_multi_segment_paths_do_not_hit_disk(
         resp = await client.get(url)
         body = await resp.text()
         assert "DO-NOT-LEAK" not in body, url
+        assert "ALSO-DO-NOT-LEAK" not in body, url
+
+
+async def test_register_frontend_does_not_follow_symlinks_outside(
+    tmp_path: Path, aiohttp_client: object
+) -> None:
+    """A symlink inside the frontend dir pointing outside is not served.
+
+    Matches the default behaviour of aiohttp's ``add_static``: the
+    ``resolve().is_relative_to`` check after ``is_file()`` rejects
+    any symlink whose target lies outside ``frontend_dir``.
+    """
+    sentinel = tmp_path / "secret.txt"
+    sentinel.write_text("DO-NOT-LEAK")
+    frontend = _make_frontend(tmp_path)
+    (frontend / "leak").symlink_to(sentinel)
+
+    client = await aiohttp_client(_make_app(frontend))  # type: ignore[operator]
+    resp = await client.get("/leak")
+    body = await resp.text()
+    assert "DO-NOT-LEAK" not in body
+    # Symlink rejected → caller gets the SPA shell, not the secret.
+    assert "<!doctype html>" in body
+
+
+async def test_register_frontend_follows_symlinks_inside_frontend_dir(
+    tmp_path: Path, aiohttp_client: object
+) -> None:
+    """Symlinks targeting other files within the frontend dir are fine.
+
+    Locks down that we don't accidentally over-broadly reject every
+    symlink — only ones that would escape the frontend root.
+    """
+    frontend = _make_frontend(tmp_path)
+    (frontend / "alias.js").symlink_to(frontend / "app.abc123.js")
+
+    client = await aiohttp_client(_make_app(frontend))  # type: ignore[operator]
+    resp = await client.get("/alias.js")
+    assert resp.status == 200
+    assert (await resp.text()) == "// bundle"
+
+
+async def test_register_frontend_url_encoded_slash_is_blocked(
+    tmp_path: Path, aiohttp_client: object
+) -> None:
+    """An attacker can't sneak a path separator past the guard via URL encoding."""
+    sentinel = tmp_path / "secret.txt"
+    sentinel.write_text("DO-NOT-LEAK")
+    frontend = _make_frontend(tmp_path)
+
+    client = await aiohttp_client(_make_app(frontend))  # type: ignore[operator]
+    for url in ("/..%2Fsecret.txt", "/foo%2F..%2F..%2Fsecret.txt"):
+        resp = await client.get(url)
+        body = await resp.text()
+        assert "DO-NOT-LEAK" not in body, url

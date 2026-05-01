@@ -327,6 +327,8 @@ class DeviceBuilder:
         async def handle_index(request: web.Request) -> web.FileResponse:
             return web.FileResponse(index_html)
 
+        frontend_root = frontend_dir.resolve()
+
         async def handle_spa(request: web.Request) -> web.FileResponse:
             tail = request.match_info["tail"]
             # Only flat names (hashed bundles, license sidecars) get
@@ -334,8 +336,13 @@ class DeviceBuilder:
             # SPA deep link that the client router will resolve.
             if tail and "/" not in tail:
                 candidate = frontend_dir / tail
-                if candidate.is_file():
-                    return web.FileResponse(candidate)
+                # Refuse to follow symlinks pointing outside the
+                # frontend dir — matches add_static's default.
+                try:
+                    if candidate.is_file() and candidate.resolve().is_relative_to(frontend_root):
+                        return web.FileResponse(candidate)
+                except OSError:
+                    pass
             return web.FileResponse(index_html)
 
         app.router.add_static("/assets", assets_dir)
