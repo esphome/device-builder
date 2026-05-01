@@ -976,7 +976,17 @@ class FirmwareController:
         }
         # cache_args go before the subcommand — esphome's argparse parses
         # them on the top-level parser, not the per-subcommand one.
-        cmd = [*self._esphome_cmd, *(cache_args or []), cmd_map[job_type], config_path]
+        # ``--dashboard`` flips ESPHome's log formatter into "escape ANSI
+        # as literal text" mode, which survives the colorama strip when
+        # stdout is piped to us; the frontend's ansi-log component then
+        # un-escapes and renders the colours.
+        cmd = [
+            *self._esphome_cmd,
+            "--dashboard",
+            *(cache_args or []),
+            cmd_map[job_type],
+            config_path,
+        ]
         if job_type == JobType.INSTALL:
             # Without --no-logs the CLI tails logs forever after the
             # upload, never returning — the job would never complete.

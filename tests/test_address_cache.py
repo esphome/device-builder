@@ -198,6 +198,7 @@ def test_command_places_cache_args_before_subcommand() -> None:
 
     assert cmd == [
         "esphome",
+        "--dashboard",
         "--mdns-address-cache",
         "kitchen.local=192.168.1.50",
         "run",
@@ -209,7 +210,7 @@ def test_command_places_cache_args_before_subcommand() -> None:
 
 
 def test_command_without_cache_args_unchanged() -> None:
-    """When there are no cache args, the command is identical to before."""
+    """When there are no cache args, the command keeps the dashboard flag."""
     controller = _firmware_controller_with(None)
     cmd = controller._build_command(JobType.COMPILE, "kitchen.yaml", "")
-    assert cmd == ["esphome", "compile", "kitchen.yaml"]
+    assert cmd == ["esphome", "--dashboard", "compile", "kitchen.yaml"]

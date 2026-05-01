@@ -508,7 +508,7 @@ class DevicesController:
     ) -> None:
         """Validate a device YAML config. Streams output per-connection."""
         config_path = str(self._db.settings.rel_path(configuration))
-        cmd = [*self._esphome_cmd, "config", config_path]
+        cmd = [*self._esphome_cmd, "--dashboard", "config", config_path]
         await self._stream_subprocess(cmd, client, message_id)
 
     @api_command("devices/logs")
@@ -523,7 +523,7 @@ class DevicesController:
     ) -> None:
         """Stream live device logs. Per-connection, not queued."""
         config_path = str(self._db.settings.rel_path(configuration))
-        cmd = [*self._esphome_cmd, "logs", config_path]
+        cmd = [*self._esphome_cmd, "--dashboard", "logs", config_path]
         if port:
             cmd.extend(["--device", port])
         await self._stream_subprocess(cmd, client, message_id)
