@@ -166,6 +166,24 @@ def detect_platform_from_yaml(path: Path) -> str:
         return ""
 
 
+def device_uses_mqtt(yaml_content: str) -> bool:
+    """
+    Return True when the device YAML declares a top-level ``mqtt:`` block.
+
+    The check is line-based so it handles invalid drafts and partially
+    edited configs gracefully — no full YAML parse required.
+    """
+    for line in yaml_content.splitlines():
+        if not line or line[0].isspace():
+            continue
+        stripped = line.strip()
+        if stripped.startswith("#") or ":" not in stripped:
+            continue
+        if stripped.split(":", 1)[0].strip() == "mqtt":
+            return True
+    return False
+
+
 def parse_esphome_meta(
     yaml_content: str,
 ) -> tuple[str | None, str | None, str | None]:
@@ -267,6 +285,7 @@ def load_device_from_storage(path: Path, board_id: str = "") -> Device:
         loaded_integrations=sorted(storage.loaded_integrations) if storage else [],
         has_pending_changes=has_pending,
         update_available=update_available,
+        uses_mqtt=device_uses_mqtt(yaml_content),
     )
 
 

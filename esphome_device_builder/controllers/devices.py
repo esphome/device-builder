@@ -34,6 +34,7 @@ from ..models import (
     UpdateDeviceResponse,
     WizardResponse,
 )
+from ._device_mqtt_monitor import DeviceMqttMonitor
 from ._device_scanner import DeviceScanner, ScanChange
 from ._device_state_monitor import DeviceStateMonitor
 from .config import (
@@ -70,13 +71,20 @@ class DevicesController:
             on_state_change=self._on_state_change,
             on_ip_change=self._on_ip_change,
         )
+        # MQTT routes its observations through the same state monitor so
+        # source-priority is enforced in one place.
+        self._mqtt_monitor = DeviceMqttMonitor(
+            get_devices=self._get_devices,
+            on_state_change=lambda n, s: self._state_monitor.apply(n, s, "mqtt"),
+            on_ip_change=self._state_monitor.apply_ip,
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Initialise — load state, scan files, start mDNS + ping discovery."""
+        """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
         from .firmware import _find_esphome_cmd
 
         self._esphome_cmd = _find_esphome_cmd()
@@ -85,10 +93,17 @@ class DevicesController:
         await self._scanner.scan()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))
         await self._state_monitor.start()
+        await self._reconcile_mqtt_monitor()
+
+    async def stop(self) -> None:
+        """Stop background monitors so the process exits cleanly."""
+        await self._mqtt_monitor.stop()
+        await self._state_monitor.stop()
 
     async def poll(self) -> None:
         """Poll for file changes."""
         await self._scanner.scan()
+        await self._reconcile_mqtt_monitor()
 
     def get_devices(self) -> list[Device]:
         """Snapshot of the currently-loaded devices."""
@@ -484,6 +499,21 @@ class DevicesController:
     def _get_devices(self) -> list[Device]:
         """Bridge for the state monitor (``self._scanner.devices`` is a property)."""
         return self._scanner.devices
+
+    async def _reconcile_mqtt_monitor(self) -> None:
+        """
+        Start or stop the MQTT monitor based on current device YAML.
+
+        The watcher only runs while at least one configured device
+        declares an ``mqtt:`` block; otherwise the broker connection is
+        closed entirely.
+        """
+        wants_mqtt = any(d.uses_mqtt for d in self._scanner.devices)
+        if wants_mqtt and not self._mqtt_monitor.running:
+            await self._mqtt_monitor.start()
+        elif not wants_mqtt and self._mqtt_monitor.running:
+            _LOGGER.info("No devices use MQTT — stopping MQTT discovery monitor")
+            await self._mqtt_monitor.stop()
 
     def _resolve_board_id(self, config_dir: Path, filename: str) -> str:
         """Resolve a device's board_id from metadata, falling back to YAML.

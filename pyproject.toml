@@ -12,6 +12,7 @@ classifiers = [
 ]
 dependencies = [
   "aiohttp>=3.9.0",
+  "aiomqtt>=2.4.0",
   "mashumaro>=3.13",
   "orjson>=3.9.0",
   "pyyaml>=6.0",

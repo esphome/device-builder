@@ -37,6 +37,7 @@ class Device(DataClassORJSONMixin):
     state: DeviceState = DeviceState.UNKNOWN
     has_pending_changes: bool = True  # True until successfully compiled + deployed
     update_available: bool = False  # True if compiled with older ESPHome version
+    uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
 
 
 @dataclass

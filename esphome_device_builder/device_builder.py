@@ -123,6 +123,8 @@ class DeviceBuilder:
             task.cancel()
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        if self.devices is not None:
+            await self.devices.stop()
         if self.editor is not None:
             await self.editor.stop()
 

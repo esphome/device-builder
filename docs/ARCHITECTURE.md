@@ -14,7 +14,7 @@
 
 6. **Persistent firmware jobs.** Compile/upload jobs are queued, run one at a time, survive page refreshes and server restarts.
 
-7. **Device discovery.** mDNS browser for instant online/offline detection, ping sweep every 60s as fallback.
+7. **Device discovery.** mDNS browser for instant online/offline detection, ping sweep every 60s as fallback, optional MQTT discovery for devices that opt in via an `mqtt:` block. Source priority: `mdns > mqtt > ping`.
 
 ## Project Structure
 

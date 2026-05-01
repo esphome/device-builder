@@ -3,9 +3,14 @@ Device connectivity monitor — mDNS browser + ping fallback.
 
 Tracks online/offline state for the configured devices, with mDNS as
 the primary source (event-driven) and ICMP ping as a periodic fallback
-for devices that aren't broadcasting their service. The monitor calls
-back into the owning controller whenever a state actually changes;
-controllers stay free of zeroconf / icmplib details.
+for devices that aren't broadcasting their service. MQTT observations
+are also welcomed via :meth:`apply` for devices that opt into MQTT
+discovery. The monitor calls back into the owning controller whenever
+a state actually changes; controllers stay free of zeroconf / icmplib
+/ aiomqtt details.
+
+Source precedence (highest first): ``mdns`` > ``mqtt`` > ``ping``. A
+lower-priority source can never override the state set by a higher one.
 """
 
 from __future__ import annotations
@@ -29,6 +34,12 @@ _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
 _PING_INTERVAL = 60  # seconds between ping sweeps
 _PING_BATCH_SIZE = 10
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
+
+# Source priority for state observations. A new observation can only
+# override an existing one when its priority is greater than or equal
+# to the current source's. Keep ``unknown`` at zero so any source can
+# claim a device that no source has yet labelled.
+_SOURCE_PRIORITY = {"unknown": 0, "ping": 1, "mqtt": 2, "mdns": 3}
 
 # Callback signature used by DeviceStateMonitor to push state changes
 # back to its owner. The owner decides what to do with the new state
@@ -97,8 +108,9 @@ class DeviceStateMonitor:
         Record a state observation from *source*.
 
         Returns True when the observation actually changed the device's
-        state and the change was forwarded to the callback. mDNS always
-        wins over ping; same-state observations are no-ops.
+        state and the change was forwarded to the callback. Sources
+        below the current source's priority are ignored; same-state
+        observations are no-ops.
         """
         device = self._find_device_by_name(name)
         if device is None:
@@ -108,7 +120,7 @@ class DeviceStateMonitor:
             return False
 
         current_source = self._state_source.get(name, "unknown")
-        if source == "ping" and current_source == "mdns":
+        if _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(current_source, 0):
             return False
         if device.state == state:
             return False
@@ -235,10 +247,15 @@ class DeviceStateMonitor:
         if icmp_ping is None:
             return
 
+        # Skip devices already owned by a higher-priority source — pinging
+        # them just to confirm what we already know wastes work and would
+        # be ignored by ``apply()`` anyway.
+        ping_priority = _SOURCE_PRIORITY["ping"]
         devices_to_ping = [
             d
             for d in self._get_devices()
-            if d.address and self._state_source.get(d.name, "unknown") != "mdns"
+            if d.address
+            and _SOURCE_PRIORITY.get(self._state_source.get(d.name, "unknown"), 0) <= ping_priority
         ]
         if not devices_to_ping:
             return
