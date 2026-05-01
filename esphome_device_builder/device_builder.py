@@ -310,18 +310,59 @@ class DeviceBuilder:
 
     @staticmethod
     def _register_frontend(app: web.Application, frontend_dir: Path) -> None:
-        """Register static file routes for the built frontend."""
+        """Register routes for the built frontend.
+
+        Refuses to start if the installed wheel is missing
+        ``index.html`` or the ``assets/`` tree.
+
+        ``add_static("/assets")`` serves images via aiohttp's vetted
+        static handler (sendfile + traversal protection). Top-level
+        bundles and the SPA fallback share a single catch-all GET
+        registered last, so aiohttp's FIFO route lookup matches every
+        explicit server route first; only paths nothing else claimed
+        reach this handler. Multi-segment paths never touch the
+        filesystem here, which keeps traversal impossible by
+        construction.
+        """
         index_html = frontend_dir / "index.html"
+        assets_dir = frontend_dir / "assets"
+        missing: list[str] = []
+        if not index_html.is_file():
+            missing.append("index.html")
+        if not assets_dir.is_dir():
+            missing.append("assets/")
+        if missing:
+            raise RuntimeError(
+                f"Frontend at {frontend_dir} is missing required entries: "
+                f"{', '.join(missing)}. The installed "
+                "esphome-device-builder-frontend wheel looks broken — "
+                "rebuild it (`npm run build` in the frontend repo) and "
+                "reinstall, or uninstall it to run in API-only mode."
+            )
 
         async def handle_index(request: web.Request) -> web.FileResponse:
             return web.FileResponse(index_html)
 
-        # FIFO route lookup means the explicit "/" handler wins for the
-        # bare root, and the catch-all add_static under "/" picks up
-        # everything else (hashed JS bundles, rspack license sidecars,
-        # the assets/ tree). API routes are registered before this so
-        # they continue to match first.
+        frontend_root = frontend_dir.resolve()
+
+        async def handle_spa(request: web.Request) -> web.FileResponse:
+            tail = request.match_info["tail"]
+            # Only flat names (hashed bundles, license sidecars) get
+            # served from disk. Anything with a path separator is an
+            # SPA deep link that the client router will resolve.
+            if tail and "/" not in tail:
+                candidate = frontend_dir / tail
+                # Refuse to follow symlinks pointing outside the
+                # frontend dir — matches add_static's default.
+                try:
+                    if candidate.is_file() and candidate.resolve().is_relative_to(frontend_root):
+                        return web.FileResponse(candidate)
+                except OSError:
+                    pass
+            return web.FileResponse(index_html)
+
+        app.router.add_static("/assets", assets_dir)
         app.router.add_get("/", handle_index)
-        app.router.add_static("/", frontend_dir)
+        app.router.add_get("/{tail:.*}", handle_spa)
 
         _LOGGER.info("Serving frontend from %s", frontend_dir)
