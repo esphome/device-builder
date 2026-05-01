@@ -16,7 +16,12 @@ from esphome.helpers import sort_ip_addresses
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 
 try:
-    from esphome.config_helpers import import_config
+    # The YAML-generation entrypoint for adopting discovered devices
+    # lives in ``esphome.components.dashboard_import`` — it fetches the
+    # package-import URL, writes a stub YAML, and (when asked) emits a
+    # fresh API encryption key. The previous ``esphome.config_helpers``
+    # path never resolved, so ``devices/import`` always raised.
+    from esphome.components.dashboard_import import import_config
 except ImportError:
     import_config = None  # type: ignore[assignment]
 
