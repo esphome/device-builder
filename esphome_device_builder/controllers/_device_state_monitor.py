@@ -471,11 +471,21 @@ class DeviceStateMonitor:
         return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY["ping"]
 
     async def _ping_device(self, device: Device, target: str) -> None:
+        # Treat any failure mode as "not reachable" → OFFLINE, not as
+        # "still unknown". An exception here means resolution failed
+        # (NameLookupError), the network refused us (NoRouteToHost,
+        # PermissionError, OSError), or icmplib couldn't open a socket.
+        # In every case the user wants the dot to flip red, not stay
+        # grey forever — once mDNS / MQTT / ping have all tried, the
+        # signal is "we couldn't reach this device". A subsequent
+        # successful ping will flip it right back to ONLINE.
         try:
             result = await icmp_ping(target, count=1, timeout=3, privileged=False)
+            is_alive = result.is_alive
         except Exception:
-            return
-        new_state = DeviceState.ONLINE if result.is_alive else DeviceState.OFFLINE
+            _LOGGER.debug("Ping of %s (%s) failed", device.name, target, exc_info=True)
+            is_alive = False
+        new_state = DeviceState.ONLINE if is_alive else DeviceState.OFFLINE
         self.apply(device.name, new_state, "ping")
 
 

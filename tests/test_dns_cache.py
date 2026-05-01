@@ -314,6 +314,42 @@ async def test_ping_sweep_pings_hostname_when_resolution_fails(fake_resolver) ->
     assert pinged == ["esp.example.com"]
 
 
+async def test_ping_marks_offline_when_icmp_raises(fake_resolver) -> None:
+    """A ping that raises (NameLookupError, NoRouteToHost, …) flips the device OFFLINE.
+
+    Previously these exceptions short-circuited ``_ping_device`` and
+    left the device stuck in UNKNOWN forever — even after mDNS / MQTT
+    had also failed to find it. The dashboard's red dot was
+    unreachable. Now the failure mode is treated as "we tried, we
+    couldn't reach it" and the state flips to OFFLINE; a subsequent
+    successful ping flips it right back to ONLINE.
+    """
+    from esphome_device_builder.controllers import _device_state_monitor as sm
+    from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+    from esphome_device_builder.models import DeviceState
+
+    devices = [_device()]
+    state_changes: list[tuple[str, DeviceState, str]] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: devices,
+        on_state_change=lambda n, s, src: state_changes.append((n, s, src)),
+        on_ip_change=lambda *_: None,
+    )
+
+    resolver = fake_resolver(dns_cache_mod.NameLookupError)
+
+    async def raising_ping(_target, **_kwargs):  # type: ignore[no-untyped-def]
+        raise dns_cache_mod.NameLookupError("not resolvable")
+
+    with (
+        patch.object(dns_cache_mod, "async_resolve", resolver),
+        patch.object(sm, "icmp_ping", raising_ping),
+    ):
+        await monitor._ping_sweep()
+
+    assert state_changes == [("kitchen", DeviceState.OFFLINE, "ping")]
+
+
 # ----------------------------------------------------------------------
 # IP persistence
 # ----------------------------------------------------------------------
