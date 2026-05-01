@@ -662,7 +662,15 @@ class DevicesController:
         old_state = device.state
         device.state = state
         _LOGGER.info("Device %s: %s → %s (via %s)", name, old_state, state, source)
-        self._db.bus.fire(EventType.DEVICE_STATE_CHANGED, {"device": device})
+        # Frontend's ``DeviceStateChangedEventData`` is the flat
+        # ``{configuration, state}`` shape — sending the full ``device``
+        # object made the destructure resolve both fields to
+        # ``undefined`` and the table never updated. Match the type
+        # exactly so the row's state cell flips on the next event.
+        self._db.bus.fire(
+            EventType.DEVICE_STATE_CHANGED,
+            {"configuration": device.configuration, "state": state.value},
+        )
 
     def _on_ip_change(self, name: str, ip: str) -> None:
         """
