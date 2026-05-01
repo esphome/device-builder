@@ -414,11 +414,16 @@ def load_device_from_storage(
         # StorageJSON only exists after a successful compile, so a
         # freshly-added (or never-built) device would otherwise carry
         # an empty ``address`` and fall out of the ping sweep — stuck
-        # in UNKNOWN forever. Fall back to ``<name>.local``, which
-        # matches what every ESPHome device's mDNS layer announces as
-        # by default. The scanner refreshes this on the next compile
-        # if the user picks a different ``esphome.address``.
-        address=(storage.address if storage and storage.address else f"{name}.local"),
+        # in UNKNOWN forever. Fall back to ``<filename-stem>.local``
+        # (NOT ``<name>.local``): the filename is canonical and
+        # matches what the user types, while ``name`` is parsed from
+        # YAML and can come back as a friendly_name or a package
+        # import URL when the YAML doesn't carry a slug-shaped
+        # ``esphome.name`` (e.g. configs that get the name from a
+        # remote ``dashboard_import`` package). The scanner refreshes
+        # this on the next compile if the device picks a different
+        # ``esphome.address``.
+        address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
         ip=ip,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,

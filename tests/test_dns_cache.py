@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable
+from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
@@ -438,10 +439,10 @@ def test_load_device_from_storage_threads_ip_through(monkeypatch, tmp_path) -> N
     assert device.board_id == "esp32-devkit"
 
 
-def test_load_device_from_storage_address_falls_back_to_name_local(  # type: ignore[no-untyped-def]
+def test_load_device_from_storage_address_falls_back_to_filename_local(  # type: ignore[no-untyped-def]
     monkeypatch, tmp_path
 ) -> None:
-    """Never-compiled devices get ``<name>.local`` so the ping sweep includes them.
+    """Never-compiled devices get ``<filename-stem>.local`` so the ping sweep includes them.
 
     Without this fallback, ``Device.address`` was empty for any
     device that hadn't been built yet, so the sweep filter
@@ -465,6 +466,39 @@ def test_load_device_from_storage_address_falls_back_to_name_local(  # type: ign
     assert device.address == "wr2-test.local"
 
 
+def test_load_device_from_storage_address_uses_filename_not_parsed_name(  # type: ignore[no-untyped-def]
+    monkeypatch, tmp_path
+) -> None:
+    """Address fallback uses the filename, not the YAML-parsed ``name``.
+
+    Configs that pull the device name from a remote ``dashboard_import``
+    package can leave ``parse_esphome_meta`` returning a stem-shaped
+    package id (like ``ratgdo.esphome``) instead of the actual device
+    name. Using ``<name>.local`` as the fallback would then claim
+    ``ratgdo.esphome.local`` for a device whose YAML is
+    ``largegarage.yaml`` — exactly the bug the user reported. The
+    filename stem is canonical and matches what the user types.
+    """
+    from esphome_device_builder.helpers import device_yaml
+
+    monkeypatch.setattr(
+        device_yaml,
+        "ext_storage_path",
+        lambda config: tmp_path / f"{config}.json",
+    )
+    monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(lambda _p: None))
+
+    # YAML where parse_esphome_meta will resolve the name to whatever
+    # the package provides (here we simulate that by writing the
+    # offending value directly under ``esphome.name``).
+    yaml_path = tmp_path / "largegarage.yaml"
+    yaml_path.write_text("esphome:\n  name: ratgdo.esphome\n")
+
+    device = device_yaml.load_device_from_storage(yaml_path)
+    # Address must come from the filename, not the parsed name.
+    assert device.address == "largegarage.local"
+
+
 def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore[no-untyped-def]
     monkeypatch, tmp_path
 ) -> None:
@@ -476,8 +510,6 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
         "ext_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
-
-    from typing import ClassVar
 
     class _FakeStorage:
         # Only the fields ``load_device_from_storage`` reads — keeps
