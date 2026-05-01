@@ -251,17 +251,16 @@ class DeviceStateMonitor:
 
     def get_cached_addresses(self, host_name: str) -> list[str] | None:
         """
-        Return zeroconf-cached IPs for *host_name* without issuing a query.
+        Return all zeroconf-cached IPs for *host_name* without issuing a query.
+
+        Both IPv4 and IPv6 (scoped) entries are included — the OTA
+        address-cache CLI args need every IP we know so the runtime
+        can try them in turn. Callers that want a single best target
+        for, say, ICMP should pick IPv4 first themselves.
 
         Returns ``None`` when zeroconf isn't running, the cache misses,
         or the entry has expired. mDNS-only — see
         :meth:`get_cached_dns_addresses` for non-``.local`` hostnames.
-
-        IPv4 addresses come first; IPv6 only fills in when no V4 entry
-        exists. This mirrors ``_apply_service_info`` so callers picking
-        ``addresses[0]`` get the same preference everywhere — IPv4 is
-        better for ping (no scope-ID gymnastics, fewer cross-subnet
-        firewall surprises).
         """
         if self._zeroconf is None:
             return None
@@ -272,9 +271,7 @@ class DeviceStateMonitor:
         info = AddressResolver(resolver_name)
         if not info.load_from_cache(self._zeroconf.zeroconf):
             return None
-        addresses = info.parsed_scoped_addresses(IPVersion.V4Only) or info.parsed_scoped_addresses(
-            IPVersion.V6Only
-        )
+        addresses = info.parsed_scoped_addresses(IPVersion.All)
         return addresses or None
 
     def get_cached_dns_addresses(self, host_name: str) -> list[str] | None:
@@ -413,7 +410,13 @@ class DeviceStateMonitor:
                 cached := self.get_cached_addresses(device.address)
             ):
                 self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                self.apply_ip(device.name, cached[0])
+                # ``apply_ip`` only carries one IP; prefer V4 so the
+                # device-list display and any ad-hoc ICMP probe both get
+                # the cross-subnet-friendly entry. The CLI cache args
+                # built in ``_build_address_cache_args`` consume every
+                # cached IP separately, so we don't lose V6 reachability
+                # by picking V4 here.
+                self.apply_ip(device.name, _pick_ipv4(cached))
                 continue
             devices_to_ping.append(device)
         if not devices_to_ping:
@@ -473,3 +476,19 @@ class DeviceStateMonitor:
             return
         new_state = DeviceState.ONLINE if result.is_alive else DeviceState.OFFLINE
         self.apply(device.name, new_state, "ping")
+
+
+def _pick_ipv4(addresses: list[str]) -> str:
+    """
+    Return the first IPv4 address in *addresses*, or the first entry overall.
+
+    ``Device.ip`` only carries one IP, so when a host has both V4 and V6
+    we lock onto the V4 entry — it's friendlier for ICMP across subnets
+    and avoids the IPv6 scope-ID gymnastics that ``apply_ip`` consumers
+    aren't prepared for. Callers that need every address (CLI cache args)
+    should iterate the list themselves rather than going through this.
+    """
+    for address in addresses:
+        if "." in address and ":" not in address:
+            return address
+    return addresses[0]
