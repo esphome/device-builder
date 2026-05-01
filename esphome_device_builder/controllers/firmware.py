@@ -160,15 +160,21 @@ def _parse_progress(line: str) -> int | None:
 def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
     """Sanity-check that ``cmd`` can actually import esphome.
 
-    Runs ``cmd --version`` synchronously with a short timeout. Used at
-    backend startup so misconfigured environments (venv missing
-    esphome, wrong sys.executable, broken shim script) surface as a
-    clear log line rather than a cryptic "No module named esphome"
-    output captured during the user's first compile attempt.
+    Runs ``cmd --dashboard --version`` synchronously with a short
+    timeout. Used at backend startup so misconfigured environments
+    (venv missing esphome, wrong sys.executable, broken shim script)
+    surface as a clear log line rather than a cryptic "No module named
+    esphome" output captured during the user's first compile attempt.
+
+    ``--dashboard`` is included in the probe so we also fail fast on
+    an installed ESPHome that doesn't recognise the flag (very old
+    builds): every real job command now passes ``--dashboard``, so a
+    sanity check without it would let a broken pairing slip through to
+    the user's first compile.
     """
     try:
         proc = subprocess.run(  # noqa: S603 — cmd is built from sys.executable, not user input
-            [*cmd, "--version"],
+            [*cmd, "--dashboard", "--version"],
             capture_output=True,
             text=True,
             timeout=15,

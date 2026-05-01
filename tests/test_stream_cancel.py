@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -147,3 +148,73 @@ async def test_cleanup_kills_running_streams() -> None:
 
     await client.cleanup()
     assert task.cancelled() or task.done()
+
+
+# ---------------------------------------------------------------------------
+# Stream-command construction (the WS handlers route into _stream_subprocess)
+# ---------------------------------------------------------------------------
+
+
+def _make_controller_with_settings(esphome_cmd: list[str]) -> DevicesController:
+    """Stand up a controller far enough to exercise ``stream_logs`` / ``validate_config``."""
+    ctrl = DevicesController.__new__(DevicesController)
+    ctrl._esphome_cmd = esphome_cmd
+    ctrl._db = MagicMock()
+    ctrl._db.settings.rel_path = Path
+    return ctrl
+
+
+async def test_stream_logs_command_includes_dashboard_flag() -> None:
+    """``devices/logs`` invokes esphome with ``--dashboard`` before the subcommand.
+
+    Without the flag ESPHome's ``ESPHomeLogFormatter`` lets ``colorama``
+    strip the ANSI codes when stdout is piped to us — the dashboard log
+    view ends up monochrome. The flag has to land before ``logs``
+    because esphome's argparse only accepts it on the top-level parser.
+    """
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.stream_logs(
+        configuration="kitchen.yaml",
+        port="OTA",
+        client=MagicMock(),
+        message_id="m1",
+    )
+
+    assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA"]]
+
+
+async def test_stream_logs_command_without_port_omits_device_arg() -> None:
+    """No port given → no ``--device`` arg, ``--dashboard`` still present."""
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.stream_logs(configuration="kitchen.yaml", client=MagicMock(), message_id="m2")
+
+    assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml"]]
+
+
+async def test_validate_config_command_includes_dashboard_flag() -> None:
+    """``devices/validate`` invokes ``esphome --dashboard config <yaml>``."""
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.validate_config(configuration="kitchen.yaml", client=MagicMock(), message_id="m3")
+
+    assert captured == [["esphome", "--dashboard", "config", "kitchen.yaml"]]
