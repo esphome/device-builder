@@ -50,10 +50,13 @@ class Device(DataClassORJSONMixin):
     has_pending_changes: bool = True  # True until successfully compiled + deployed
     update_available: bool = False  # True if compiled with older ESPHome version
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
-    # Native API encryption flag — drives the lock-icon indicator in the
-    # device list. ``True`` when the YAML carries an ``api: encryption:``
-    # block; the actual key is fetched on demand via ``devices/get_api_key``
-    # (which does full ``!secret`` resolution).
+    # Native API surface flags — drive the lock-icon indicator in the
+    # device list. ``api_enabled`` is True when the resolved YAML
+    # carries a top-level ``api:`` block; ``api_encrypted`` only adds
+    # the inner ``encryption:`` check. Both come from the resolved
+    # config so ``!include`` / packages are followed; the actual key
+    # is fetched on demand via ``devices/get_api_key``.
+    api_enabled: bool = False
     api_encrypted: bool = False
 
 

@@ -378,6 +378,7 @@ def load_device_from_storage(
             if resolved_config is not None
             else device_uses_mqtt(yaml_content)
         ),
+        api_enabled=config_has_top_level_block(resolved_config, "api"),
         api_encrypted=get_api_encryption_block(resolved_config) is not None,
     )
 
