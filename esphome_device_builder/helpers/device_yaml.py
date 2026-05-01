@@ -29,6 +29,19 @@ _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "
 # matches ``$name`` or ``${name}`` where name is alphanumeric + underscore.
 _SUBSTITUTION_RE = re.compile(r"\$(\{[a-zA-Z0-9_]*\}|[a-zA-Z0-9_]+)")
 
+# ESPHome's ``esphome.name`` accepts lowercase ASCII letters, digits,
+# and hyphens — the same character class an mDNS hostname / API
+# endpoint can carry. A parsed value with anything else (dots, spaces,
+# uppercase, ...) means we picked up the wrong field (a package id, a
+# friendly_name leaked through, etc.) and should be rejected so it
+# doesn't end up as the catalog key.
+_VALID_ESPHOME_NAME_RE = re.compile(r"\A[a-z0-9-]+\Z")
+
+
+def _is_valid_esphome_name(value: str) -> bool:
+    """Return True when *value* matches ESPHome's ``esphome.name`` shape."""
+    return bool(_VALID_ESPHOME_NAME_RE.match(value))
+
 
 # ---------------------------------------------------------------------------
 # YAML generation
@@ -351,7 +364,20 @@ def load_device_from_storage(
 
     fallback_name = filename.removesuffix(".yml").removesuffix(".yaml")
     storage_name = storage.name if storage else None
-    name = yaml_name or storage_name or fallback_name
+    # Pick the first valid ESPHome slug from (yaml_name, storage_name).
+    # Real ESPHome ``esphome.name`` values are ``[a-z0-9-]+`` — a parsed
+    # value with dots / spaces / uppercase is something else (a package
+    # id like ``ratgdo.esphome``, a friendly_name leaked through, etc.).
+    # ``device.name`` is the key the state monitor uses to match mDNS
+    # announcements, so duplicates across multiple YAMLs (which is what
+    # happens when several configs share the same ``dashboard_import``
+    # package) collapse all those devices onto a single Device row.
+    # Falling back to the filename when the parsed name is invalid
+    # keeps the catalog key unique.
+    name = next(
+        (n for n in (yaml_name, storage_name) if n and _is_valid_esphome_name(n)),
+        fallback_name,
+    )
 
     storage_friendly = storage.friendly_name if storage else None
     friendly_name = yaml_friendly if yaml_friendly is not None else (storage_friendly or name)
