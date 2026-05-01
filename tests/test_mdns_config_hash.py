@@ -113,7 +113,7 @@ def test_apply_config_hash_no_callback_silently_drops() -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_config_hash_change_updates_device_and_fires_event(monkeypatch: Any) -> None:
+async def test_on_config_hash_change_updates_device_and_fires_event() -> None:
     """The full pipe: callback updates the in-memory device + fires DEVICE_UPDATED."""
     from esphome_device_builder.controllers.devices import DevicesController
     from esphome_device_builder.models import EventType
@@ -128,9 +128,6 @@ async def test_on_config_hash_change_updates_device_and_fires_event(monkeypatch:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
-    # Skip the heavyweight mtime/StorageJSON probing in the helper —
-    # this test only exercises the deployed-hash mutation + event fan-out.
-    monkeypatch.setattr(controller, "_refresh_has_pending_changes", lambda _device: None)
 
     controller._on_config_hash_change("kitchen", "1a2b3c4d")
 
@@ -173,10 +170,8 @@ async def test_on_config_hash_change_unknown_device_is_noop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_config_hash_change_flips_pending_when_hashes_diverge(
-    monkeypatch: Any,
-) -> None:
-    """Hashes don't match → ``has_pending_changes`` flips True via the recompute helper."""
+async def test_on_config_hash_change_flips_pending_when_hashes_diverge() -> None:
+    """Hashes don't match → ``has_pending_changes`` flips True."""
     from esphome_device_builder.controllers.devices import DevicesController
 
     device = _device(
@@ -191,15 +186,6 @@ async def test_on_config_hash_change_flips_pending_when_hashes_diverge(
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
 
-    # Stand in for the mtime/StorageJSON probe by writing the answer
-    # directly off the (now-mutated) device hashes — this isolates the
-    # _on_config_hash_change flow from filesystem state.
-    def _fake_refresh(d: Any) -> None:
-        if d.expected_config_hash and d.deployed_config_hash:
-            d.has_pending_changes = d.expected_config_hash != d.deployed_config_hash
-
-    monkeypatch.setattr(controller, "_refresh_has_pending_changes", _fake_refresh)
-
     controller._on_config_hash_change("kitchen", "deadbeef")
 
     assert device.deployed_config_hash == "deadbeef"
@@ -207,10 +193,8 @@ async def test_on_config_hash_change_flips_pending_when_hashes_diverge(
 
 
 @pytest.mark.asyncio
-async def test_on_config_hash_change_marks_in_sync_when_hashes_match(
-    monkeypatch: Any,
-) -> None:
-    """Hashes match → ``has_pending_changes`` flips False even if mtime check disagreed."""
+async def test_on_config_hash_change_marks_in_sync_when_hashes_match() -> None:
+    """Hashes match → ``has_pending_changes`` flips False."""
     from esphome_device_builder.controllers.devices import DevicesController
 
     device = _device(
@@ -225,13 +209,32 @@ async def test_on_config_hash_change_marks_in_sync_when_hashes_match(
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
 
-    def _fake_refresh(d: Any) -> None:
-        if d.expected_config_hash and d.deployed_config_hash:
-            d.has_pending_changes = d.expected_config_hash != d.deployed_config_hash
-
-    monkeypatch.setattr(controller, "_refresh_has_pending_changes", _fake_refresh)
-
     controller._on_config_hash_change("kitchen", "abc12345")
 
     assert device.deployed_config_hash == "abc12345"
     assert device.has_pending_changes is False
+
+
+@pytest.mark.asyncio
+async def test_on_config_hash_change_leaves_pending_alone_without_expected_hash() -> None:
+    """No expected hash on file → don't touch has_pending_changes (mtime fallback owns it)."""
+    from esphome_device_builder.controllers.devices import DevicesController
+
+    device = _device(
+        expected_config_hash="",
+        deployed_config_hash="",
+        has_pending_changes=True,
+    )
+
+    db = MagicMock()
+    controller = DevicesController.__new__(DevicesController)
+    controller._db = db
+    controller._scanner = MagicMock()
+    controller._scanner.devices = [device]
+
+    controller._on_config_hash_change("kitchen", "deadbeef")
+
+    assert device.deployed_config_hash == "deadbeef"
+    # Stays as the scanner's last computation; the callback only takes
+    # over when both hashes are known.
+    assert device.has_pending_changes is True

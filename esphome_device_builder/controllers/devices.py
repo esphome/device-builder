@@ -22,7 +22,6 @@ except ImportError:
 from ..helpers.api import api_command
 from ..helpers.config_hash import compute_yaml_config_hash
 from ..helpers.device_yaml import (
-    compute_has_pending_changes,
     generate_device_yaml,
     parse_platform_from_yaml,
 )
@@ -670,12 +669,13 @@ class DevicesController:
         """
         Apply a running-firmware config hash observed via mDNS.
 
-        Stores the hash on the in-memory device and re-evaluates
-        ``has_pending_changes`` so the dashboard can tell "device runs
-        the latest compile" apart from "device has older firmware".
-        Devices on firmware that predates the ``config_hash`` TXT
-        broadcast never trigger this callback and stay on the legacy
-        mtime check.
+        Stores the hash on the in-memory device and, when both
+        expected and deployed hashes are known, flips
+        ``has_pending_changes`` to reflect the comparison so the
+        dashboard can tell "device runs the latest compile" apart
+        from "device has older firmware". Devices on firmware that
+        predates the ``config_hash`` TXT broadcast never trigger this
+        callback and stay on the legacy mtime check.
         """
         device = next((d for d in self._scanner.devices if d.name == name), None)
         if device is None:
@@ -684,41 +684,15 @@ class DevicesController:
             return
         old_hash = device.deployed_config_hash
         device.deployed_config_hash = config_hash
-        self._refresh_has_pending_changes(device)
+        # Mtime side stays with the periodic scanner poll so this
+        # callback can stay off-disk and non-blocking. A YAML edit
+        # between polls (~5s window) self-corrects on the next scan.
+        if device.expected_config_hash:
+            device.has_pending_changes = device.expected_config_hash != config_hash
         _LOGGER.info(
             "Device %s config_hash: %s → %s (via mdns)", name, old_hash or "?", config_hash
         )
         self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
-
-    def _refresh_has_pending_changes(self, device: Device) -> None:
-        """
-        Re-evaluate ``device.has_pending_changes`` and update it in place.
-
-        Used when an input has changed without going through the disk
-        scanner — e.g. mDNS reported a new ``deployed_config_hash`` for
-        a device the controller already has loaded.
-        """
-        config_path = self._db.settings.rel_path(device.configuration)
-        try:
-            yaml_mtime: float | None = config_path.stat().st_mtime
-        except OSError:
-            yaml_mtime = None
-        bin_mtime: float | None = None
-        try:
-            storage = StorageJSON.load(ext_storage_path(device.configuration))
-        except Exception:
-            storage = None
-        if storage and storage.firmware_bin_path and storage.firmware_bin_path.exists():
-            try:
-                bin_mtime = storage.firmware_bin_path.stat().st_mtime
-            except OSError:
-                bin_mtime = None
-        device.has_pending_changes = compute_has_pending_changes(
-            yaml_mtime=yaml_mtime,
-            bin_mtime=bin_mtime,
-            expected_config_hash=device.expected_config_hash,
-            deployed_config_hash=device.deployed_config_hash,
-        )
 
     def _on_firmware_job_completed(self, event: Any) -> None:
         """

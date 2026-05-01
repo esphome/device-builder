@@ -93,7 +93,13 @@ async def compute_yaml_config_hash(yaml_path: Path) -> str | None:
             _HASH_TIMEOUT_SECONDS,
             yaml_path,
         )
-        proc.kill()
+        # Race: the subprocess may have exited between the timeout
+        # firing and ``kill()`` being called — swallow the lookup
+        # error so a recoverable timeout doesn't bubble up.
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
         await proc.wait()
         return None
 
