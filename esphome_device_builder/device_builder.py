@@ -243,7 +243,19 @@ class DeviceBuilder:
         Subscribe a connected WS client to real-time events.
 
         The client receives an initial device list, then ongoing events
-        as devices change. Subscription is active for the connection lifetime.
+        as devices change. Subscription is active for the connection
+        lifetime; the handler parks on a never-resolving event so that
+        when the WS closes (cancelling this task) the
+        ``EventBus.listening`` context manager runs its ``finally`` and
+        unsubscribes every listener.
+
+        The previous shape registered listeners then returned, leaking
+        ~one listener per ``EventType`` per disconnected client. Each
+        leaked listener kept the closed-client closure alive, so
+        ``bus.fire`` would iterate dead listeners forever, fan
+        ``send_event`` calls into a closed WS (raising on every call,
+        caught + logged by ``bus.fire``), and slowly bloat the log
+        with stale-client send errors.
         """
         from .helpers.event_bus import Event
         from .models import EventType
@@ -251,7 +263,10 @@ class DeviceBuilder:
         if client is None:
             return
 
-        # Track pending tasks to prevent garbage collection
+        # Track pending tasks to prevent garbage collection. They run
+        # on the asyncio loop independently of this coroutine; on
+        # cancellation each in-flight ``send_event`` raises against
+        # the closing WS and self-cleans via its done callback.
         pending_tasks: set[asyncio.Task] = set()
 
         def _on_event(event: Event) -> None:
@@ -266,31 +281,37 @@ class DeviceBuilder:
             pending_tasks.add(task)
             task.add_done_callback(pending_tasks.discard)
 
-        # Subscribe to all event types
-        unsubscribers = []
-        for event_type in EventType:
-            unsub = self.bus.add_listener(event_type, _on_event)
-            unsubscribers.append(unsub)
+        with self.bus.listening(list(EventType), _on_event):
+            # Send initial device + importable lists. Importable
+            # devices are populated by the mDNS browser and per-device
+            # events fire only on transitions; without seeding the
+            # snapshot here a fresh page load misses every importable
+            # device the dashboard had already seen by then. Sent
+            # *inside* the with-block (after listeners are attached)
+            # so any event fired between the snapshot and the seed
+            # being delivered queues through the listener — same
+            # snapshot+subscribe atomicity rule ``follow_job`` uses.
+            if self.devices:
+                devices = self.devices.get_devices()
+                importable = self.devices.get_importable_devices()
+                await client.send_event(
+                    message_id,
+                    "initial_state",
+                    {
+                        "devices": [d.to_dict() for d in devices],
+                        "importable": [d.to_dict() for d in importable],
+                    },
+                )
 
-        # Send initial device + importable lists. Importable devices
-        # are populated by the mDNS browser and per-device events
-        # fire only on transitions; without seeding the snapshot here
-        # a fresh page load misses every importable device the dashboard
-        # had already seen by then.
-        if self.devices:
-            devices = self.devices.get_devices()
-            importable = self.devices.get_importable_devices()
-            await client.send_event(
-                message_id,
-                "initial_state",
-                {
-                    "devices": [d.to_dict() for d in devices],
-                    "importable": [d.to_dict() for d in importable],
-                },
-            )
+            # Confirm subscription so the frontend can mark the WS
+            # as live before the first event arrives.
+            await client.send_result(message_id, {"subscribed": True})
 
-        # Confirm subscription
-        await client.send_result(message_id, {"subscribed": True})
+            # Park forever — the connection lifecycle (cancellation
+            # of this coroutine when the WS closes) is what ends the
+            # subscription. The ``finally`` inside ``listening`` runs
+            # on cancellation and unsubscribes every listener.
+            await asyncio.Event().wait()
 
     def create_background_task(self, coro: Any) -> asyncio.Task:
         """Create a tracked background task."""

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 from typing import Any
@@ -45,3 +46,42 @@ class EventBus:
                 listener(event)
             except Exception:
                 _LOGGER.exception("Event listener raised an exception")
+
+    @contextmanager
+    def listening(
+        self,
+        event_types: Iterable[EventType],
+        listener: Callable[[Event], None],
+    ) -> Iterator[None]:
+        """
+        Subscribe *listener* to every event in *event_types* for the block.
+
+        Replaces the four-line ``unsub_X = bus.add_listener(...)`` +
+        ``finally: for u in unsubs: u()`` boilerplate every multi-event
+        subscription site was repeating. Each ``add_listener`` call
+        returns an unsubscribe callable; the context manager runs all
+        of them on exit (success or failure) so a partially-attached
+        subscription doesn't leak listeners on early raise.
+
+        Multiple listeners share the same shape via stacked ``with``:
+
+        .. code-block:: python
+
+            with (
+                bus.listening(LIFECYCLE_EVENTS, _on_lifecycle),
+                bus.listening([EventType.JOB_OUTPUT], _on_output),
+                bus.listening([EventType.JOB_PROGRESS], _on_progress),
+            ):
+                ...
+
+        Synchronous context manager rather than async because both
+        ``add_listener`` and the unsubscribe callable are sync —
+        the only reason to make this async would be to await
+        something during enter/exit, which we don't.
+        """
+        unsubs = [self.add_listener(et, listener) for et in event_types]
+        try:
+            yield
+        finally:
+            for unsub in unsubs:
+                unsub()

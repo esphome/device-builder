@@ -749,26 +749,15 @@ class FirmwareController:
 
         # ATOMIC: snapshot + subscribe in synchronous-adjacent
         # statements. See the docstring for the race this closes.
-        # JOB_CANCELLED has to be wired alongside JOB_COMPLETED /
-        # JOB_FAILED — the runner fires it for both queued cancels
-        # (``cancel()``) and mid-run cancels (``_execute_job``'s
-        # ``cancel_requested`` branch and the ``CancelledError``
-        # handler). Without subscribing here the follower hangs
-        # forever on the queue once the user clicks cancel.
         snapshot = list(job.output)
-        is_terminal = job.status in (
-            JobStatus.COMPLETED,
-            JobStatus.FAILED,
-            JobStatus.CANCELLED,
-        )
+        is_terminal = job.status in _TERMINAL_JOB_STATUSES
         terminal_status = job.status.value if is_terminal else ""
         terminal_exit_code = job.exit_code
-        unsub_output = self._db.bus.add_listener(EventType.JOB_OUTPUT, _on_event)
-        unsub_completed = self._db.bus.add_listener(EventType.JOB_COMPLETED, _on_event)
-        unsub_failed = self._db.bus.add_listener(EventType.JOB_FAILED, _on_event)
-        unsub_cancelled = self._db.bus.add_listener(EventType.JOB_CANCELLED, _on_event)
 
-        try:
+        with self._db.bus.listening(
+            (EventType.JOB_OUTPUT, *_JOB_TERMINAL_EVENTS),
+            _on_event,
+        ):
             # Send history first so live events stay strictly after,
             # in order. Live events that fire during this loop queue
             # up rather than racing the in-order delivery.
@@ -796,11 +785,6 @@ class FirmwareController:
                     break
                 event_name, payload = item
                 await client.send_event(message_id, event_name, payload)
-        finally:
-            unsub_output()
-            unsub_completed()
-            unsub_cancelled()
-            unsub_failed()
 
     @api_command("firmware/follow_jobs")
     async def follow_jobs(
@@ -857,24 +841,22 @@ class FirmwareController:
         def _on_progress(event: Any) -> None:
             _forward("job_progress", event.data)
 
-        unsub: list[Any] = [
-            self._db.bus.add_listener(EventType.JOB_QUEUED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_STARTED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_COMPLETED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_FAILED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_CANCELLED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_OUTPUT, _on_output),
-            self._db.bus.add_listener(EventType.JOB_PROGRESS, _on_progress),
-        ]
-
-        try:
+        with (
+            self._db.bus.listening(
+                (
+                    EventType.JOB_QUEUED,
+                    EventType.JOB_STARTED,
+                    *_JOB_TERMINAL_EVENTS,
+                ),
+                _on_lifecycle,
+            ),
+            self._db.bus.listening([EventType.JOB_OUTPUT], _on_output),
+            self._db.bus.listening([EventType.JOB_PROGRESS], _on_progress),
+        ):
             # Park forever — the connection lifecycle (cancellation
             # of this coroutine when the WS closes) is what ends the
             # subscription.
             await asyncio.Event().wait()
-        finally:
-            for u in unsub:
-                u()
 
     @api_command("firmware/cancel")
     async def cancel(self, *, job_id: str, **kwargs: Any) -> None:
