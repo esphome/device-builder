@@ -18,15 +18,18 @@ Coverage targets:
 * Subprocess teardown on stop() and on timeout.
 
 Subprocess interaction is exercised via a fake ``Process`` that
-plumbs an ``asyncio.StreamReader`` (stdout) and a ``BytesIO``-backed
-``StreamWriter`` (stdin). That keeps the tests free of an actual
-``esphome`` install while still walking the real
+plumbs an ``asyncio.StreamReader`` (stdout) and a small ``_Stdin``
+stub whose ``write`` appends every byte buffer to a capture list
+(so the test can inspect what the controller sent without needing
+a full ``StreamWriter`` or a pipe to drain). That keeps the tests
+free of an actual ``esphome`` install while still walking the real
 ``loads / dumps + readline / write`` codepath.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -225,16 +228,31 @@ async def test_validate_locked_handles_read_file_round_trip(tmp_path: Path) -> N
 
     async def _feed_result_after_response() -> None:
         # Wait for the controller to send its file_response, then
-        # feed the final result line so the loop exits.
-        while len(stdin_capture) < 2:
-            await asyncio.sleep(0)
+        # feed the final result line so the loop exits. Wrapped
+        # in ``asyncio.timeout`` so a regression in
+        # ``_validate_locked`` (e.g. it never writes the
+        # file_response) fails the test fast instead of hanging
+        # CI; ``stdin_capture`` would otherwise stay at length 1
+        # forever.
+        async with asyncio.timeout(1.0):
+            while len(stdin_capture) < 2:
+                await asyncio.sleep(0)
         reader.feed_data(
             dumps({"type": "result", "yaml_errors": [], "validation_errors": []}) + b"\n"
         )
 
     feeder = asyncio.create_task(_feed_result_after_response())
-    result = await controller._validate_locked(session, "kitchen.yaml", "esphome:\n  name: live\n")
-    await feeder
+    try:
+        result = await asyncio.wait_for(
+            controller._validate_locked(session, "kitchen.yaml", "esphome:\n  name: live\n"),
+            timeout=2.0,
+        )
+    finally:
+        # Make sure the feeder doesn't outlive the test even if
+        # _validate_locked raised before consuming the result line.
+        feeder.cancel()
+        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+            await feeder
 
     assert result == {"yaml_errors": [], "validation_errors": []}
     # Second write was the file_response carrying the in-memory buffer.
