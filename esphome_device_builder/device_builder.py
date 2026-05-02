@@ -304,7 +304,13 @@ class DeviceBuilder:
     # Web application
     # ------------------------------------------------------------------
 
-    def create_app(self, *, trusted: bool = False, with_lifecycle: bool = True) -> web.Application:
+    def create_app(
+        self,
+        *,
+        trusted: bool = False,
+        with_lifecycle: bool = True,
+        with_ingress_site: bool = True,
+    ) -> web.Application:
         """
         Build the aiohttp application.
 
@@ -349,7 +355,7 @@ class DeviceBuilder:
 
         if with_lifecycle:
             app.on_startup.append(self._on_startup)
-            if self.settings.create_ingress_site:
+            if with_ingress_site and self.settings.create_ingress_site:
                 app.on_startup.append(self._start_ingress_site)
                 app.on_cleanup.append(self._stop_ingress_site)
             app.on_cleanup.append(self._on_cleanup)
@@ -385,8 +391,53 @@ class DeviceBuilder:
     def run(self) -> None:
         """Start the HTTP server (blocking)."""
         # Logging is already configured by __main__.py
+        settings = self.settings
+        # Fail-secure on the HA add-on path. The legacy dashboard
+        # had a supervisor ``/auth`` fallback that gated the public
+        # port with HA credentials when ``PASSWORD`` wasn't set; we
+        # don't carry that forward (see issue #85). Without the
+        # fallback, binding the public port without
+        # ``USERNAME``/``PASSWORD`` would leave the dashboard
+        # wide-open on the LAN whenever the add-on's ``ports:``
+        # mapping exposed it. So when on-ha-addon and no password
+        # is configured, run ingress-only and tell the operator
+        # loudly how to enable LAN access if they want it.
+        if settings.on_ha_addon and not settings.using_password:
+            if not settings.create_ingress_site:
+                # ``DISABLE_HA_AUTHENTICATION`` forces all traffic
+                # through the public port (no trusted ingress site)
+                # — but we have no credentials to gate it. Refuse
+                # to start rather than expose an unauthenticated
+                # dashboard. The supervisor surfaces this in the
+                # add-on log so the operator sees exactly what to
+                # change.
+                msg = (
+                    "Refusing to start: --ha-addon is set, "
+                    "DISABLE_HA_AUTHENTICATION forces public-port auth, "
+                    "and USERNAME/PASSWORD is not configured. Set "
+                    "USERNAME and PASSWORD via the add-on options, or "
+                    "unset DISABLE_HA_AUTHENTICATION to use ingress-only "
+                    "mode."
+                )
+                raise RuntimeError(msg)
+            _LOGGER.warning(
+                "Public port %d NOT bound: --ha-addon is set but "
+                "USERNAME/PASSWORD is not configured. Running "
+                "ingress-only — the dashboard works through the Home "
+                "Assistant UI. To enable LAN access on port %d, set "
+                "USERNAME and PASSWORD via the add-on options.",
+                settings.port,
+                settings.port,
+            )
+            app = self.create_app(trusted=True, with_ingress_site=False)
+            web.run_app(
+                app,
+                host=settings.ingress_host or "0.0.0.0",
+                port=settings.ingress_port,
+            )
+            return
         app = self.create_app()
-        web.run_app(app, host=self.settings.host, port=self.settings.port)
+        web.run_app(app, host=settings.host, port=settings.port)
 
     @staticmethod
     def _get_frontend_dir() -> Path | None:
