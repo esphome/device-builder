@@ -43,13 +43,30 @@ _ERROR_PATTERNS = [
     "command not found",
 ]
 
-# Progress markers in PlatformIO / esptool output. Both phases emit
-# integer percentages we can latch onto:
-#   - PIO compile:  ``[ 17%] Compiling ...``
-#   - esptool:      ``Writing at 0x... (45 %)\r``
-# We accept either form (with or without the space before ``%``) and
-# pull the first match per line.
-_PROGRESS_PATTERN = re.compile(r"\[?\s*(\d{1,3})\s*%\]?")
+# Progress markers we actually want to surface as job.progress. The
+# original wide-open ``\d{1,3}%`` regex matched anything carrying a
+# percent sign — including PlatformIO's startup "Unpacking [###] 100%"
+# package-extract bar and the post-compile "RAM: 19.3%" / "Flash:
+# 80.0%" memory-usage report. Both pinned the bar to non-monotonic
+# garbage long before the build's actual progress signal arrived.
+# Tightened to a whitelist of three known-real progress shapes:
+#
+#   * PlatformIO Arduino compile:    ``[ 17%] Compiling foo.cpp.o``
+#     The percentage MUST start the line and live inside square
+#     brackets so PIO's ESP-IDF builds (which don't emit a per-file
+#     percent at all) and the package-extract bar (no ``[NN%]`` shape)
+#     never trip it.
+#   * esptool serial flash:          ``Writing at 0x10000... (45 %)``
+#     The percentage lives in parens after a Writing/Erasing prefix.
+#     ``(\s*\d{1,3}\s*%\s*\)`` is enough — no other PIO output uses
+#     parens around a bare percentage.
+#   * ESPHome OTA upload:            ``Uploading: [====] 100% Done...``
+#     Anchored to the ``Uploading:`` prefix.
+_PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^\s*\[\s*(\d{1,3})\s*%\s*\]"),
+    re.compile(r"\(\s*(\d{1,3})\s*%\s*\)"),
+    re.compile(r"^\s*Uploading:.*?\b(\d{1,3})\s*%"),
+)
 
 # How long to wait for a SIGTERM'd subprocess to exit before we
 # escalate to SIGKILL. ESPHome / PlatformIO usually clean up promptly;
@@ -145,16 +162,18 @@ def _find_esphome_cmd() -> list[str]:
 def _parse_progress(line: str) -> int | None:
     """Extract a 0-100 progress percentage from a build/flash output line.
 
-    Returns ``None`` when the line carries no recognisable percentage.
-    Out-of-range values (a stray "999%" in a log message) are
-    discarded so the field stays a clean 0-100.
+    Returns ``None`` when the line doesn't match one of the known
+    progress shapes (see ``_PROGRESS_PATTERNS``). Stray ``%`` signs
+    elsewhere in the build output (Unpacking bars, memory-usage
+    reports) are intentionally ignored.
     """
-    match = _PROGRESS_PATTERN.search(line)
-    if match is None:
-        return None
-    value = int(match.group(1))
-    if 0 <= value <= 100:
-        return value
+    for pattern in _PROGRESS_PATTERNS:
+        match = pattern.search(line)
+        if match is None:
+            continue
+        value = int(match.group(1))
+        if 0 <= value <= 100:
+            return value
     return None
 
 
