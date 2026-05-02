@@ -31,13 +31,13 @@ def _make_db(
     tmp_path: Path,
     on_ha_addon: bool,
     using_password: bool,
-    create_ingress_site: bool,
 ) -> DeviceBuilder:
     """Build a DeviceBuilder with the requested settings shape.
 
-    The settings ``create_ingress_site`` property is overridden via
-    a temporary subclass so the test can drive every combination
-    without faking the ``DISABLE_HA_AUTHENTICATION`` env var.
+    Tests drive ``create_ingress_site`` (the only HA-add-on
+    setting that varies between scenarios) via
+    ``monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", ...)`` —
+    same path the production code reads, no class trickery.
     """
     settings = DashboardSettings()
     settings.config_dir = tmp_path
@@ -51,24 +51,25 @@ def _make_db(
     settings.port = 6052
     settings.ingress_port = 6053
     settings.ingress_host = ""
-
-    class _SettingsOverride(DashboardSettings):
-        @property
-        def create_ingress_site(self) -> bool:  # type: ignore[override]
-            return create_ingress_site
-
-    settings.__class__ = _SettingsOverride
     return DeviceBuilder(settings)
 
 
-def test_ha_addon_no_password_with_ingress_runs_ingress_only(tmp_path: Path) -> None:
-    """Public port suppressed; ingress site bound; loud warning logged."""
-    db = _make_db(
-        tmp_path=tmp_path,
-        on_ha_addon=True,
-        using_password=False,
-        create_ingress_site=True,
-    )
+def test_ha_addon_no_password_with_ingress_runs_ingress_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Public port suppressed; ingress site bound; loud warning logged.
+
+    Drives the ``create_ingress_site`` property via the real
+    ``DISABLE_HA_AUTHENTICATION`` env var (unset = ingress is
+    available) so the property's actual behaviour is exercised.
+    Asserts the operator-facing warning is emitted via ``caplog``
+    so a regression that silently suppresses the public-port bind
+    surfaces immediately.
+    """
+    monkeypatch.delenv("DISABLE_HA_AUTHENTICATION", raising=False)
+    db = _make_db(tmp_path=tmp_path, on_ha_addon=True, using_password=False)
 
     captured: dict[str, object] = {}
 
@@ -78,6 +79,7 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(tmp_path: Path) -> 
         captured["trusted"] = bool(app.get("trusted_site"))
 
     with (
+        caplog.at_level("WARNING", logger="esphome_device_builder.device_builder"),
         patch("esphome_device_builder.device_builder.web.run_app", fake_run_app),
         patch.object(db, "create_app", wraps=db.create_app) as create_app_spy,
     ):
@@ -94,8 +96,27 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(tmp_path: Path) -> 
     kwargs = create_app_spy.call_args.kwargs
     assert kwargs == {"trusted": True, "with_ingress_site": False}
 
+    # The operator-facing safety warning fired. Without this
+    # assertion a regression where the bind is suppressed silently
+    # would still pass the bind-shape checks above — the loud log
+    # is the only signal an operator gets about why their LAN
+    # access doesn't work.
+    warning_messages = [
+        rec.getMessage()
+        for rec in caplog.records
+        if rec.levelname == "WARNING" and "NOT bound" in rec.getMessage()
+    ]
+    assert warning_messages, (
+        "expected the loud 'Public port ... NOT bound' warning describing "
+        "why the public port was suppressed and how to enable it"
+    )
+    assert "USERNAME and PASSWORD" in warning_messages[0]
 
-def test_ha_addon_no_password_no_ingress_refuses_to_start(tmp_path: Path) -> None:
+
+def test_ha_addon_no_password_no_ingress_refuses_to_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``DISABLE_HA_AUTHENTICATION`` + no password = refuse to start.
 
     Without ingress and without credentials there's nothing safe
@@ -103,12 +124,8 @@ def test_ha_addon_no_password_no_ingress_refuses_to_start(tmp_path: Path) -> Non
     — silently doing nothing would look like a working dashboard
     that just isn't reachable.
     """
-    db = _make_db(
-        tmp_path=tmp_path,
-        on_ha_addon=True,
-        using_password=False,
-        create_ingress_site=False,
-    )
+    monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", "true")
+    db = _make_db(tmp_path=tmp_path, on_ha_addon=True, using_password=False)
 
     with (
         patch("esphome_device_builder.device_builder.web.run_app") as run_app_mock,
@@ -120,14 +137,13 @@ def test_ha_addon_no_password_no_ingress_refuses_to_start(tmp_path: Path) -> Non
     run_app_mock.assert_not_called()
 
 
-def test_ha_addon_with_password_binds_public_site_normally(tmp_path: Path) -> None:
+def test_ha_addon_with_password_binds_public_site_normally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Password set → normal public-site bind, ingress as a hook."""
-    db = _make_db(
-        tmp_path=tmp_path,
-        on_ha_addon=True,
-        using_password=True,
-        create_ingress_site=True,
-    )
+    monkeypatch.delenv("DISABLE_HA_AUTHENTICATION", raising=False)
+    db = _make_db(tmp_path=tmp_path, on_ha_addon=True, using_password=True)
 
     captured: dict[str, object] = {}
 
@@ -146,13 +162,13 @@ def test_ha_addon_with_password_binds_public_site_normally(tmp_path: Path) -> No
 
 
 def test_non_ha_addon_binds_public_site_normally(tmp_path: Path) -> None:
-    """Standalone deployment is unaffected by the HA-add-on logic."""
-    db = _make_db(
-        tmp_path=tmp_path,
-        on_ha_addon=False,
-        using_password=False,
-        create_ingress_site=False,
-    )
+    """Standalone deployment is unaffected by the HA-add-on logic.
+
+    Doesn't need ``monkeypatch`` for ``DISABLE_HA_AUTHENTICATION``:
+    when ``on_ha_addon=False`` the property short-circuits and
+    returns ``False`` regardless of the env var.
+    """
+    db = _make_db(tmp_path=tmp_path, on_ha_addon=False, using_password=False)
 
     captured: dict[str, object] = {}
 
@@ -179,12 +195,7 @@ async def test_start_and_stop_ingress_site_lifecycle(tmp_path: Path) -> None:
     port — avoids flakes when 6053 is already in use on the
     runner.
     """
-    db = _make_db(
-        tmp_path=tmp_path,
-        on_ha_addon=True,
-        using_password=True,
-        create_ingress_site=True,
-    )
+    db = _make_db(tmp_path=tmp_path, on_ha_addon=True, using_password=True)
     db.settings.ingress_port = 0  # let OS pick a free port
 
     # _start_ingress_site reads self.settings.ingress_port via
@@ -209,12 +220,7 @@ async def test_on_startup_and_on_cleanup_call_through_to_lifecycle(tmp_path: Pat
     would spin up controllers, which is heavier than this test
     needs.
     """
-    db = _make_db(
-        tmp_path=tmp_path,
-        on_ha_addon=False,
-        using_password=False,
-        create_ingress_site=False,
-    )
+    db = _make_db(tmp_path=tmp_path, on_ha_addon=False, using_password=False)
     fake_app: object = object()
 
     with (
@@ -237,12 +243,7 @@ def test_get_frontend_dir_returns_none_when_package_missing(tmp_path: Path) -> N
     branch returns ``None`` so callers can detect the missing
     package and skip the static-route registration.
     """
-    db = _make_db(
-        tmp_path=tmp_path,
-        on_ha_addon=False,
-        using_password=False,
-        create_ingress_site=False,
-    )
+    db = _make_db(tmp_path=tmp_path, on_ha_addon=False, using_password=False)
 
     # Force an ImportError by clearing the module from sys.modules
     # and patching the import to raise.
@@ -268,12 +269,7 @@ def test_create_app_logs_frontend_missing_message(tmp_path: Path) -> None:
     the dashboard still serves the WS API; the log line tells the
     operator why the UI is missing and how to fix it.
     """
-    db = _make_db(
-        tmp_path=tmp_path,
-        on_ha_addon=False,
-        using_password=False,
-        create_ingress_site=False,
-    )
+    db = _make_db(tmp_path=tmp_path, on_ha_addon=False, using_password=False)
 
     with (
         patch.object(db, "_get_frontend_dir", return_value=None),
