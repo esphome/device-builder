@@ -79,6 +79,37 @@ toggle in the official ESPHome container and Home Assistant add-on.
   comment (`uses: actions/checkout@<sha>  # v4`) so dependabot can
   bump them while preserving traceability. Org policy.
 - Release flow lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#ci--release-pipeline).
+- **Run tests with `uv run pytest`,** not bare `python -m pytest`
+  — the project is `uv`-managed and `uv.lock` is checked in.
+- **CI runs the test matrix on Windows too.** PowerShell is the
+  default shell on `windows-latest` and **does not accept
+  bash-style `\` line continuations** — multi-line `run:` steps
+  break with "Missing expression after unary operator '--'". Keep
+  cross-platform CI commands on a single line, or use PowerShell-
+  compatible backtick continuations.
+
+## Comparison with the legacy esphome dashboard
+
+The legacy Tornado-based dashboard
+(`esphome/dashboard/` in the upstream `esphome` package) has
+years of accreted behaviour we're still catching up to.
+Periodically re-read `compare_legacy.md` (kept at the repo root
+as a working document) and check the open issue list filtered to
+"legacy parity" before declaring a feature complete.
+
+## Lessons learned about the legacy comparison itself
+
+- The legacy code is the **upstream-canonical** behaviour for
+  shared concerns (mDNS source dispatch, build-info hashes,
+  StorageJSON layout, `CORE` lifecycle, `address_cache`
+  semantics). When we diverge, divergence should be an
+  intentional design choice, not an oversight — flag the choice
+  in code comments so future readers know it's deliberate.
+- The new dashboard's *cleaner* shape can hide gaps that the
+  legacy mess was actually solving: Wi-Fi vs Ethernet adoption,
+  WS heartbeat, reverse-proxy origin allowlist, per-device build-
+  dir cleanup on delete. Audit additions against legacy behaviour
+  before assuming the simpler version is sufficient.
 
 ## Architecture conventions worth knowing
 
@@ -130,6 +161,36 @@ toggle in the official ESPHome container and Home Assistant add-on.
   immediately instead of waiting on the rebooted device's mDNS
   announce. If the OTA actually failed silently, the next real
   announce pushes the truth back through the same callback.
+- **The `Device` is the source of truth, not the monitor.**
+  `DeviceStateMonitor.apply_*` (state, ip, version, config_hash,
+  api_encryption) all dedupe by comparing the broadcast value
+  against every matching `Device`'s current field — never against
+  a separate monitor-side cache dict. A monitor cache can drift
+  out of sync with the device when the scanner rebuilds a `Device`
+  with `previous=None` (atomic-save churn, REMOVED+re-ADDED
+  paths) and the cache then short-circuits the next legitimate
+  broadcast, leaving the device with empty fields forever. This
+  is the lesson from PR #75; future apply-* style methods need
+  to follow the same shape.
+- **Scanner keeps a name-keyed index alongside the path-keyed
+  one.** `DeviceScanner._devices_by_name: dict[str, list[Device]]`
+  is maintained in lockstep with `_devices` via `_set_device` /
+  `_pop_device` / `_unindex_name`. Buckets are sorted by
+  `configuration` filename so `bucket[0]` consumers and the apply
+  / dedupe path see a deterministic "first match" — set-derived
+  iteration order would otherwise let the dedupe flip-flop across
+  scans for duplicate-named YAMLs. Lookup via
+  `scanner.get_by_name(name)` returns a fresh list snapshot
+  (mirrors the `devices` property), so callers can iterate freely
+  without poisoning the index.
+- **mDNS-source dedupe must look at every matching device, not
+  just `bucket[0]`.** Two YAMLs sharing an `esphome.name` (a
+  config plus a `foo (1).yaml` copy, `dashboard_import` siblings)
+  share a single mDNS broadcast. If `apply()` checks only the
+  first match's state, a sibling rebuilt with state=UNKNOWN never
+  catches up. `apply()` and `_any_matching_device_differs` both
+  use `all(...)` / `any(...)` over the whole bucket; the
+  per-device callbacks fan out the actual mutation.
 
 ## Things that have bitten us before
 
@@ -190,6 +251,27 @@ When changing the sync script or catalog handling, watch for these:
   tests. `read_build_info_hash` derives the storage path locally
   from `<yaml_dir>/.esphome/storage/<filename>.json` so test
   fixtures don't have to spin up a CORE just to read a JSON file.
+- **Atomic-save editors (vscode-on-macOS et al.) can briefly
+  remove the YAML mid-save.** The scanner sees the file
+  disappear, fires `REMOVED`, then re-`ADDED` on the next sweep
+  with `previous=None` — so any monitor-derived state on the
+  Device (`deployed_config_hash`, `api_encryption_active`,
+  `ip`, `deployed_version`, `state`) gets reset to its default.
+  Don't let dedupe layers cache values keyed only on the device
+  *name*; the rebuilt Device starts fresh and the cache will
+  silently mask the next legitimate broadcast. (See "The
+  `Device` is the source of truth, not the monitor" above for
+  the resolution.)
+- **Test callbacks that drive dedupe must mirror production's
+  state mutation.** The monitor's apply-* methods short-circuit
+  when every matching device's field already equals the broadcast
+  value — and in production, the controller's `_on_*_change`
+  callback writes that value back onto the `Device`. A bare
+  `MagicMock` callback in tests doesn't, so a "second call
+  short-circuits" assertion will (correctly) fail unless the
+  mock has a `side_effect` that flips the device's field. See
+  the `_flip_state` / `_flip` helpers in `tests/test_mdns_*.py`
+  for the pattern.
 
 ## Useful entry points
 
