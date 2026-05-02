@@ -384,6 +384,25 @@ class FirmwareController:
         job = self._create_job(configuration, JobType.INSTALL, port=port)
         return await self._enqueue(job)
 
+    @api_command("firmware/rename")
+    async def rename(self, *, configuration: str, new_name: str, **kwargs: Any) -> FirmwareJob:
+        """Queue a rename: compile + OTA-install the new firmware.
+
+        Atomically swap the YAML on the dashboard once the install
+        succeeds.
+
+        Routed through the same single-job queue so it can't race a
+        compile or install — and so it appears in the firmware-tasks
+        list with live output instead of running silently in the
+        background as it used to. ``esphome rename`` itself is
+        responsible for keeping the old YAML around until the install
+        succeeds; if the install fails the CLI rolls back the
+        new-YAML write and the user can retry against the unchanged
+        old hostname.
+        """
+        job = self._create_job(configuration, JobType.RENAME, new_name=new_name)
+        return await self._enqueue(job)
+
     @api_command("firmware/compile_bulk")
     async def compile_bulk(self, *, configurations: list[str], **kwargs: Any) -> list[FirmwareJob]:
         """Queue compile for multiple devices."""
@@ -760,7 +779,7 @@ class FirmwareController:
 
             config_path = str(self._db.settings.rel_path(job.configuration))
             cache_args = self._build_cache_args(job)
-            cmd = self._build_command(job.job_type, config_path, job.port, cache_args)
+            cmd = self._build_command(job.job_type, config_path, job.port, cache_args, job.new_name)
             _LOGGER.debug("Running: %s", " ".join(cmd))
 
             # Force ANSI color output even though stdout isn't a TTY.
@@ -1100,6 +1119,7 @@ class FirmwareController:
         config_path: str,
         port: str,
         cache_args: list[str] | None = None,
+        new_name: str = "",
     ) -> list[str]:
         """Build the esphome CLI command for a given job type."""
         cmd_map = {
@@ -1107,6 +1127,7 @@ class FirmwareController:
             JobType.UPLOAD: "upload",
             JobType.INSTALL: "run",
             JobType.CLEAN: "clean",
+            JobType.RENAME: "rename",
         }
         # cache_args go before the subcommand — esphome's argparse parses
         # them on the top-level parser, not the per-subcommand one.
@@ -1127,15 +1148,23 @@ class FirmwareController:
             cmd.append("--no-logs")
         if job_type in (JobType.UPLOAD, JobType.INSTALL) and port:
             cmd.extend(["--device", port])
+        if job_type == JobType.RENAME:
+            # ``esphome rename`` takes the new name as a positional
+            # arg. The CLI handles the inner compile + install + old
+            # YAML cleanup itself; we let the queue runner stream its
+            # output the same way it does for any other build.
+            cmd.append(new_name)
         return cmd
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
         """Return ``--mdns/--dns-address-cache`` args for *job*, or empty."""
         # Only OTA uploads benefit — serial flashes don't talk to the
-        # device's network address at all.
-        if job.job_type not in (JobType.UPLOAD, JobType.INSTALL):
+        # device's network address at all. ``rename`` does an internal
+        # OTA install via ``esphome run`` against the *old* address, so
+        # the same cache shortcut applies.
+        if job.job_type not in (JobType.UPLOAD, JobType.INSTALL, JobType.RENAME):
             return []
-        if job.port != "OTA":
+        if job.job_type != JobType.RENAME and job.port != "OTA":
             return []
         if self._db.devices is None:
             return []
@@ -1145,7 +1174,13 @@ class FirmwareController:
     # Internals — job management
     # ------------------------------------------------------------------
 
-    def _create_job(self, configuration: str, job_type: JobType, port: str = "") -> FirmwareJob:
+    def _create_job(
+        self,
+        configuration: str,
+        job_type: JobType,
+        port: str = "",
+        new_name: str = "",
+    ) -> FirmwareJob:
         """Create a new job and add it to the in-memory map."""
         job = FirmwareJob(
             job_id=uuid4().hex[:12],
@@ -1153,6 +1188,7 @@ class FirmwareController:
             job_type=job_type,
             created_at=datetime.now(UTC).isoformat(),
             port=port,
+            new_name=new_name,
         )
         self._jobs[job.job_id] = job
         return job

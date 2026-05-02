@@ -367,10 +367,10 @@ class DevicesController:
         frontend can show a meaningful message.
         """
         config_path = str(self._db.settings.rel_path(configuration))
-        loop = asyncio.get_running_loop()
         new_filename = f"{new_name}.yaml"
 
         if not await self._yaml_validates(config_path):
+            loop = asyncio.get_running_loop()
             try:
                 await loop.run_in_executor(None, self._manual_rename, configuration, new_name)
             except FileExistsError as exc:
@@ -381,32 +381,17 @@ class DevicesController:
                 msg = f"Rename failed: {exc}"
                 raise RuntimeError(msg) from exc
             await self._scanner.scan()
-            return {"configuration": new_filename}
+            return {"configuration": new_filename, "job": None}
 
-        cmd = [*self._esphome_cmd, "--dashboard", "rename", config_path, new_name]
-        proc = await create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate(input=b"y\n")
-        exit_code = proc.returncode
-        output = stdout.decode("utf-8", errors="replace")
-
-        if exit_code != 0:
-            tail = output.strip().splitlines()[-10:]
-            joined = "\n".join(tail)
-            msg = (
-                f"Rename of {configuration} failed (exit {exit_code}). The "
-                f"original config and device name were left untouched so you "
-                f"can retry once the issue is resolved. Last output:\n{joined}"
-            )
-            _LOGGER.warning("%s", msg)
+        # Validated configs route through the firmware queue so the
+        # compile + install (which is what ``esphome rename`` does
+        # internally) shows up alongside other firmware tasks with
+        # live output instead of running silently in the background.
+        if self._db.firmware is None:
+            msg = "Firmware controller is unavailable"
             raise RuntimeError(msg)
-
-        await self._scanner.scan()
-        return {"configuration": new_filename}
+        job = await self._db.firmware.rename(configuration=configuration, new_name=new_name)
+        return {"configuration": new_filename, "job": job.to_dict()}
 
     async def _yaml_validates(self, config_path: str) -> bool:
         """Best-effort ``esphome config`` precheck.
@@ -1048,6 +1033,14 @@ class DevicesController:
         if getattr(job, "status", None) != JobStatus.COMPLETED:
             return
         job_type = getattr(job, "job_type", None)
+        if job_type == JobType.RENAME:
+            # ``esphome rename`` deletes the old YAML and writes a new
+            # one with a different filename — neither path is the
+            # ``configuration`` field on the job. A full scan is the
+            # simplest way to pick up both the disappearance of the
+            # old entry and the appearance of the new one.
+            self._db.create_background_task(self._scanner.scan())
+            return
         if job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL):
             return
         configuration = getattr(job, "configuration", "")
