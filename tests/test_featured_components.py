@@ -166,6 +166,39 @@ async def test_get_components_excludes_featured_by_default(
     assert all(not c.id.startswith("featured.") for c in page.components)
 
 
+async def test_get_components_mixed_category_unions(
+    catalog: ComponentCatalog,
+) -> None:
+    """``category=[featured, sensor]`` returns featured first then matching sensors."""
+    page = await catalog.get_components(
+        board_id="sonoff-basic",
+        category=["featured", "sensor"],
+        limit=2000,
+    )
+    categories_seen = {c.category for c in page.components}
+    assert ComponentCategory.FEATURED in categories_seen
+    assert ComponentCategory.SENSOR in categories_seen
+    first_non_featured = next(
+        (i for i, c in enumerate(page.components) if c.category != ComponentCategory.FEATURED),
+        len(page.components),
+    )
+    assert all(
+        c.category == ComponentCategory.FEATURED for c in page.components[:first_non_featured]
+    )
+
+
+async def test_get_component_featured_ignores_mismatched_board_id(
+    catalog: ComponentCatalog,
+) -> None:
+    """Featured ids resolve their platform from ``record.board_id``, not the caller's."""
+    entry = await catalog.get_component(
+        component_id="featured.sonoff-basic.relay",
+        board_id="apollo-esk-1",
+    )
+    assert entry is not None
+    assert entry.id == "featured.sonoff-basic.relay"
+
+
 async def test_get_categories_surfaces_featured_count(
     catalog: ComponentCatalog,
 ) -> None:
@@ -251,3 +284,18 @@ async def test_apply_presets_default_overridable(catalog: ComponentCatalog) -> N
     assert record is not None
     out: dict[str, Any] = _apply_featured_presets(record, {"variant": "AHT10"})
     assert out["variant"] == "AHT10"
+
+
+async def test_apply_presets_locked_without_value_fails_fast(
+    catalog: ComponentCatalog,
+) -> None:
+    """A malformed manifest (locked=True with no value) fails fast at add time."""
+    from copy import deepcopy
+
+    from esphome_device_builder.models import FieldPreset
+
+    record = deepcopy(catalog.get_featured_record("featured.sonoff-basic.relay"))
+    assert record is not None
+    record.featured.fields["pin"] = FieldPreset(value=None, locked=True)
+    with pytest.raises(ValueError, match="locked=true without a value"):
+        _apply_featured_presets(record, {})

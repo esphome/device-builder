@@ -259,7 +259,7 @@
             },
             "locked": {
               "type": "boolean",
-              "description": "When true, frontend disables the input and the backend rejects deviating user input on add.",
+              "description": "When true, frontend disables the input and the backend rejects deviating user input on add. Requires 'value'.",
               "default": false
             },
             "suggestions": {
@@ -269,7 +269,12 @@
               "items": { "type": ["string", "number", "integer", "boolean"] }
             }
           },
-          "not": { "required": ["locked", "suggestions"] }
+          "not": { "required": ["locked", "suggestions"] },
+          "if": {
+            "required": ["locked"],
+            "properties": { "locked": { "const": true } }
+          },
+          "then": { "required": ["value"] }
         }
       ]
     }

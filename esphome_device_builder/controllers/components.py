@@ -212,7 +212,19 @@ class ComponentCatalog:
             record = self._featured_by_id.get(component_id)
             if record is None:
                 return None
-            target_platform = self._resolve_platform(platform, board_id or record.board_id)
+            # The featured id already encodes the board, so we pin platform
+            # resolution to ``record.board_id``. A caller-supplied ``board_id``
+            # that disagrees is almost certainly a bug — log it but don't
+            # honour it (it'd resolve platform_defaults from the wrong board).
+            if board_id is not None and board_id != record.board_id:
+                _LOGGER.warning(
+                    "Featured component %s requested with mismatched board_id %s; "
+                    "resolving platform from %s",
+                    component_id,
+                    board_id,
+                    record.board_id,
+                )
+            target_platform = self._resolve_platform(platform, record.board_id)
             return _materialise_featured(record, target_platform)
 
         target_platform = self._resolve_platform(platform, board_id)
@@ -258,54 +270,72 @@ class ComponentCatalog:
 
         Featured components are surfaced **only** when ``category``
         explicitly includes ``featured`` and ``board_id`` is set — the
-        regular catalog listing never returns them.
+        regular catalog listing never returns them. Mixed queries
+        (e.g. ``category=["featured", "sensor"]``) return featured
+        entries first followed by the matching regular entries.
         """
         target_platform = self._resolve_platform(platform, board_id)
         include_set = _as_category_set(category) if category else None
         exclude_set = _as_category_set(exclude_category) if exclude_category else None
 
-        # Without a board_id there's no way to pick a subset, so an
-        # explicit ``category=featured`` filter without one returns an
-        # empty page rather than recommendations from unrelated hardware.
-        if include_set is not None and ComponentCategory.FEATURED.value in include_set and board_id:
-            featured_entries = self._featured_components_for_board(board_id, target_platform, query)
-            total = len(featured_entries)
-            page = featured_entries[offset : offset + limit]
-            return PagedComponentsResponse(
-                components=page,
-                total=total,
-                offset=offset,
-                limit=limit,
-                categories=self._categories_for_board(board_id),
+        include_featured = (
+            include_set is not None
+            and ComponentCategory.FEATURED.value in include_set
+            and board_id is not None
+        )
+        featured_entries = (
+            self._featured_components_for_board(board_id, target_platform, query)
+            if include_featured and board_id is not None
+            else []
+        )
+
+        # Featured entries live in their own registry, never in
+        # ``self._components``; strip the synthetic category before applying
+        # the include filter so it doesn't filter out every regular entry.
+        regular_include = (
+            include_set - {ComponentCategory.FEATURED.value} if include_set is not None else None
+        )
+
+        if include_set is not None and not regular_include:
+            results: list[ComponentCatalogEntry] = []
+        else:
+            results = self._components
+            if regular_include:
+                results = [c for c in results if c.category in regular_include]
+            if exclude_set is not None:
+                results = [c for c in results if c.category not in exclude_set]
+            if target_platform:
+                results = [
+                    c
+                    for c in results
+                    if not c.supported_platforms or target_platform in c.supported_platforms
+                ]
+            if query:
+                query_lower = query.lower()
+                results = [
+                    c
+                    for c in results
+                    if query_lower in c.name.lower()
+                    or query_lower in c.description.lower()
+                    or query_lower in c.id.lower()
+                ]
+
+        # Compose the page across both lists. Featured entries (already
+        # materialised) come first; the regular slice is materialised lazily
+        # so a wide query doesn't pay for entries the caller never reads.
+        total_featured = len(featured_entries)
+        total = total_featured + len(results)
+        end = offset + limit
+        page: list[ComponentCatalogEntry] = []
+        if offset < total_featured:
+            page.extend(featured_entries[offset : min(end, total_featured)])
+        regular_start = max(0, offset - total_featured)
+        regular_end = max(0, end - total_featured)
+        if regular_end > regular_start:
+            page.extend(
+                _materialise(c, target_platform) for c in results[regular_start:regular_end]
             )
 
-        results = self._components
-
-        if include_set is not None:
-            results = [c for c in results if c.category in include_set]
-
-        if exclude_set is not None:
-            results = [c for c in results if c.category not in exclude_set]
-
-        if target_platform:
-            results = [
-                c
-                for c in results
-                if not c.supported_platforms or target_platform in c.supported_platforms
-            ]
-
-        if query:
-            query_lower = query.lower()
-            results = [
-                c
-                for c in results
-                if query_lower in c.name.lower()
-                or query_lower in c.description.lower()
-                or query_lower in c.id.lower()
-            ]
-
-        total = len(results)
-        page = [_materialise(c, target_platform) for c in results[offset : offset + limit]]
         return PagedComponentsResponse(
             components=page,
             total=total,

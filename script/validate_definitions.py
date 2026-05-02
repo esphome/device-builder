@@ -168,7 +168,6 @@ def _validate_featured(
 
     # Local id uniqueness within featured_components and featured_bundles.
     seen_fc_ids: set[str] = set()
-    fc_index: dict[str, dict] = {}
     for idx, entry in enumerate(featured):
         if not isinstance(entry, dict):
             continue
@@ -178,7 +177,6 @@ def _validate_featured(
         if fc_id in seen_fc_ids:
             errors.append(f"{board_id}.featured_components[{idx}]: duplicate id '{fc_id}'")
         seen_fc_ids.add(fc_id)
-        fc_index[fc_id] = entry
 
         errors.extend(
             _validate_featured_component(board_id, idx, entry, pins_by_gpio, components_index)
@@ -312,11 +310,12 @@ def _extract_gpio(raw: object) -> int | None:
 def _unpack_field_preset(raw: object) -> tuple[bool, object, list | None]:
     """Return ``(locked, value, suggestions)`` from any of the accepted shapes."""
     if isinstance(raw, dict):
-        return (
-            bool(raw.get("locked", False)),
-            raw.get("value"),
-            list(raw["suggestions"]) if "suggestions" in raw else None,
-        )
+        # Schema validation already rejects non-list ``suggestions`` with a
+        # readable error; this defensive check keeps the validator from
+        # crashing when run without jsonschema installed.
+        raw_suggestions = raw.get("suggestions")
+        suggestions = list(raw_suggestions) if isinstance(raw_suggestions, list) else None
+        return bool(raw.get("locked", False)), raw.get("value"), suggestions
     return False, raw, None
 
 

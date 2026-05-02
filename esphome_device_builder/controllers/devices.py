@@ -1503,6 +1503,15 @@ def _apply_featured_presets(
         user_value = merged.get(key)
         user_supplied = key in merged
         if preset.locked:
+            # Schema validation rejects ``locked: true`` without a value, but
+            # guard the runtime too so a malformed manifest fails fast with a
+            # clear error instead of "locked to None".
+            if preset.value is None:
+                msg = (
+                    f"Featured component {record.full_id} field '{key}' has "
+                    f"locked=true without a value — board manifest is malformed"
+                )
+                raise ValueError(msg)
             if user_supplied and user_value != preset.value:
                 msg = (
                     f"Featured component {record.full_id} field '{key}' is "
@@ -1510,8 +1519,7 @@ def _apply_featured_presets(
                     f"{user_value!r}"
                 )
                 raise ValueError(msg)
-            if preset.value is not None:
-                merged[key] = preset.value
+            merged[key] = preset.value
             continue
         if preset.suggestions is not None:
             if user_supplied:
