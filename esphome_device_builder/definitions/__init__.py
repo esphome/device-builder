@@ -182,7 +182,7 @@ def load_board_catalog() -> BoardCatalogResponse:
 
     for manifest in sorted(_BOARDS_DIR.glob("*/manifest.yaml")):
         try:
-            data = yaml.safe_load(manifest.read_text())
+            data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
             board_dir = manifest.parent
             board_id = board_dir.name
 

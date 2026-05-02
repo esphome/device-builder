@@ -3,30 +3,29 @@
 from __future__ import annotations
 
 import asyncio
-import json
+import contextlib
 import logging
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from esphome import const
+from esphome.components.dashboard_import import import_config
 from esphome.dashboard.util.text import friendly_name_slugify
 from esphome.helpers import sort_ip_addresses
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 
-try:
-    from esphome.config_helpers import import_config
-except ImportError:
-    import_config = None  # type: ignore[assignment]
-
-import contextlib
-
-from ..helpers.api import api_command
-from ..helpers.config_hash import compute_yaml_config_hash
+from ..helpers.api import CommandError, api_command
+from ..helpers.config_hash import compute_yaml_config_hash, read_build_info_hash
 from ..helpers.device_yaml import (
     generate_device_yaml,
+    get_api_encryption_key,
+    load_device_yaml,
     parse_platform_from_yaml,
 )
+from ..helpers.hostname import is_local_hostname, normalize_hostname
+from ..helpers.json import JSONDecodeError, dumps_indent, loads
 from ..helpers.subprocess import create_subprocess_exec
 from ..helpers.yaml import merge_component_yaml, rewrite_esphome_name
 from ..models import (
@@ -35,6 +34,7 @@ from ..models import (
     Device,
     DevicesResponse,
     DeviceState,
+    ErrorCode,
     EventType,
     JobStatus,
     JobType,
@@ -66,9 +66,28 @@ class DevicesController:
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
 
-        # Discovery / import state
-        self.import_result: dict[str, Any] = {}
+        # Discovery / import state. Keyed by ``device.name`` so the
+        # WebSocket layer and ``devices/ignore`` can address entries
+        # without juggling full mDNS service-instance names. Filled by
+        # ``DeviceStateMonitor`` callbacks.
+        self.import_result: dict[str, AdoptableDevice] = {}
         self.ignored_devices: set[str] = set()
+
+        # Background ``--only-generate`` bookkeeping. ``--only-generate``
+        # validates a YAML and writes its ``StorageJSON`` without doing
+        # a real build; we trigger it whenever a YAML is saved or
+        # first-seen with no compile output. Three guards stop us from
+        # spinning:
+        #   * ``_regenerate_pending`` — configurations already in flight
+        #     (scheduled but not yet finished). Skip duplicate schedules.
+        #   * ``_regenerate_failed`` — YAMLs whose last attempt failed.
+        #     Don't retry until the file changes (cleared on
+        #     ``ScanChange.UPDATED``).
+        #   * ``_regenerate_lock`` — serialises the actual subprocess
+        #     so we don't spawn N esphome compiles in parallel.
+        self._regenerate_pending: set[str] = set()
+        self._regenerate_failed: set[str] = set()
+        self._regenerate_lock = asyncio.Lock()
 
         self._scanner = DeviceScanner(
             config_dir=self._db.settings.config_dir,
@@ -77,10 +96,15 @@ class DevicesController:
         )
         self._state_monitor = DeviceStateMonitor(
             get_devices=self._get_devices,
+            get_devices_by_name=self._scanner.get_by_name,
             on_state_change=self._on_state_change,
             on_ip_change=self._on_ip_change,
             on_version_change=self._on_version_change,
             on_config_hash_change=self._on_config_hash_change,
+            on_api_encryption_change=self._on_api_encryption_change,
+            on_importable_added=self._on_importable_added,
+            on_importable_removed=self._on_importable_removed,
+            is_ignored=self.ignored_devices.__contains__,
         )
         # MQTT routes its observations through the same state monitor so
         # source-priority is enforced in one place.
@@ -154,23 +178,11 @@ class DevicesController:
         await self._scanner.scan()
         configured = self._scanner.devices
         configured_names = {d.name for d in configured}
-
-        importable = []
-        for discovered in self.import_result.values():
-            if discovered.device_name in configured_names:
-                continue
-            importable.append(
-                AdoptableDevice(
-                    name=discovered.device_name,
-                    friendly_name=discovered.friendly_name or "",
-                    package_import_url=discovered.package_import_url,
-                    project_name=discovered.project_name,
-                    project_version=discovered.project_version,
-                    network=discovered.network,
-                    ignored=discovered.device_name in self.ignored_devices,
-                )
-            )
-
+        # ``import_result`` is already pre-filtered against configured
+        # devices when the discovery callback fires; this guard catches
+        # the race where a YAML appeared between the callback and this
+        # listing.
+        importable = [d for d in self.import_result.values() if d.name not in configured_names]
         return DevicesResponse(configured=configured, importable=importable)
 
     @api_command("devices/get_states")
@@ -280,6 +292,13 @@ class DevicesController:
                 set_device_metadata(self._db.settings.config_dir, filename, board_id=board_id)
 
         await loop.run_in_executor(None, _init_storage)
+        # ``_scanner.scan`` fires ``_on_scan_change(ADDED)`` for the
+        # new YAML, and that callback already runs ``probe_device`` —
+        # don't double-probe here. ``file_content`` may carry an
+        # ``esphome.name`` that differs from the URL ``name``, in
+        # which case the scan-change handler probes the YAML's name
+        # (the right one) and an explicit second probe here would
+        # target the wrong service.
         await self._scanner.scan()
         return WizardResponse(configuration=filename)
 
@@ -328,44 +347,102 @@ class DevicesController:
         """
         Rename a device configuration.
 
-        Tries the ESPHome CLI first (authoritative for validated
-        configs). Falls back to a file-level rename when the CLI
-        refuses because the config doesn't validate yet — typical for
-        a freshly-created empty config. Returns the new filename.
+        Validity gates which strategy we use, because the two paths
+        have very different rollback semantics on failure and we MUST
+        keep the user able to reach the device under its old name
+        whenever the rename can't complete:
+
+        - **Config doesn't validate** (typical for a freshly-created
+          empty config that the user hasn't filled in yet). The
+          ``esphome rename`` CLI refuses to touch it. Fall back to a
+          pure file-level rename — there's no firmware on the device
+          yet, so there's nothing to roll back from.
+        - **Config validates**. Run ``esphome --dashboard rename`` and
+          let it own the full atomic rename: write the new YAML,
+          re-validate, ``esphome run`` to compile + install + verify,
+          and then drop the old YAML only on install success. If
+          install fails the CLI unlinks its newly-written YAML and
+          returns non-zero — the old file (and the device's old
+          hostname) stay intact so the user can fix things and try
+          again. We DELIBERATELY do not fall back to a file-level
+          rename here: the legacy dashboard had exactly that bug, and
+          a half-flashed device with the YAML already pointing at the
+          new name leaves nothing to mDNS-resolve when the user goes
+          to retry.
+
+        Returns the new filename. Errors propagate verbatim (with the
+        last lines of ``esphome rename``'s output appended) so the
+        frontend can show a meaningful message.
         """
         config_path = str(self._db.settings.rel_path(configuration))
-        cmd = [*self._esphome_cmd, "rename", config_path, new_name]
-
-        proc = await create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate(input=b"y\n")
-        exit_code = proc.returncode
-        output = stdout.decode("utf-8", errors="replace")
-
         new_filename = f"{new_name}.yaml"
-        if exit_code != 0:
-            _LOGGER.info(
-                "esphome rename failed (%s); falling back to manual rename",
-                exit_code,
-            )
+
+        # Reject up-front if the target filename is already in use.
+        # The manual-rename branch already checks ``new_path.exists()``
+        # itself, but the CLI ``esphome rename`` path does *not* — it
+        # blindly ``write_text``s the new YAML and then OTA-installs
+        # it, so a collision would silently overwrite the unrelated
+        # device's config and flash that firmware to the wrong device.
+        if new_filename != configuration:
+            new_path = self._db.settings.rel_path(new_filename)
+            if new_path.exists():
+                msg = f"A device named {new_filename} already exists"
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+        if not await self._yaml_validates(config_path):
             loop = asyncio.get_running_loop()
             try:
                 await loop.run_in_executor(None, self._manual_rename, configuration, new_name)
             except FileExistsError as exc:
                 msg = f"A device named {new_filename} already exists"
-                raise RuntimeError(msg) from exc
+                raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
             except Exception as exc:
                 _LOGGER.warning("Manual rename failed: %s", exc)
-                tail = output.strip()[-500:]
-                msg = f"Rename failed (exit {exit_code}): {tail}"
-                raise RuntimeError(msg) from exc
+                msg = f"Rename failed: {exc}"
+                raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from exc
+            await self._scanner.scan()
+            return {"configuration": new_filename, "job": None}
 
-        await self._scanner.scan()
-        return {"configuration": new_filename}
+        # Validated configs route through the firmware queue so the
+        # compile + install (which is what ``esphome rename`` does
+        # internally) shows up alongside other firmware tasks with
+        # live output instead of running silently in the background.
+        if self._db.firmware is None:
+            msg = "Firmware controller is unavailable"
+            raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
+        job = await self._db.firmware.rename(configuration=configuration, new_name=new_name)
+        return {"configuration": new_filename, "job": job.to_dict()}
+
+    async def _yaml_validates(self, config_path: str) -> bool:
+        """``esphome config`` precheck.
+
+        Decides between the file-level fallback (for empty / broken
+        configs that ``esphome rename`` would refuse) and the full
+        ``esphome rename`` flow (which compiles + installs).
+
+        Treats only a clean non-zero exit as "doesn't validate".
+        Anything that prevents the precheck from running to
+        completion — missing CLI, permission errors, etc. — bubbles
+        up as a ``CommandError(INTERNAL_ERROR)``: silently treating
+        those as "invalid" would route the rename into the file-level
+        fallback even when the YAML *does* validate, recreating the
+        very footgun (rename without a successful flash) we're
+        trying to avoid.
+        """
+        try:
+            proc = await create_subprocess_exec(
+                *self._esphome_cmd,
+                "--dashboard",
+                "config",
+                config_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            return await proc.wait() == 0
+        except Exception as exc:
+            _LOGGER.warning("YAML precheck failed to run for %s: %s", config_path, exc)
+            msg = f"Could not validate {config_path}: {exc}"
+            raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from exc
 
     @api_command("devices/delete")
     async def delete_device(self, *, configuration: str, **kwargs: Any) -> None:
@@ -412,6 +489,118 @@ class DevicesController:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, path.write_text, content, "utf-8")
         await self._scanner.scan()
+        # Refresh ``StorageJSON`` so address / loaded_integrations /
+        # config_hash etc. reflect the new YAML without waiting for a
+        # full compile. Mirrors the upstream dashboard's
+        # ``async_schedule_storage_json_update`` (called from its
+        # ``EditRequestHandler`` after writing the YAML).
+        self._schedule_storage_regenerate(configuration)
+
+    def _schedule_storage_regenerate(self, configuration: str) -> None:
+        """
+        Run ``esphome compile --only-generate <yaml>`` in the background.
+
+        ``--only-generate`` walks ESPHome's full config validation
+        pipeline (resolving ``!secret`` / ``!include`` / packages /
+        ``dashboard_import``) and writes the resulting StorageJSON
+        without doing a real build. That populates ``address``,
+        ``loaded_integrations``, ``target_platform``, etc. for devices
+        that have never been compiled (the typical "wr2-test was just
+        added and shows UNKNOWN forever" path) and refreshes them
+        whenever the YAML changes.
+
+        Three guards keep this from running away:
+        * ``_regenerate_pending`` skips duplicate schedules for a
+          configuration that's already in flight.
+        * ``_regenerate_failed`` skips YAMLs whose last attempt
+          failed; entries are cleared in ``_on_scan_change`` when the
+          file's cache key changes (i.e. the user actually edited it).
+        * ``_regenerate_lock`` serialises the subprocess itself so we
+          never spawn more than one esphome compile at a time.
+
+        Fire-and-forget: a follow-up ``_scanner.reload(configuration)``
+        on success picks up the new storage and re-emits a
+        ``DEVICE_UPDATED`` event so the frontend reflects the new
+        address / integrations.
+        """
+        if not self._esphome_cmd:
+            return  # ``start()`` hasn't run yet — skip the regenerate.
+        if configuration in self._regenerate_pending:
+            return  # already scheduled, don't queue a duplicate.
+        if configuration in self._regenerate_failed:
+            # Last attempt failed and the YAML hasn't changed since;
+            # rerunning would just produce the same error and burn a
+            # subprocess. Wait for an UPDATED scan to clear the marker.
+            return
+
+        async def _run() -> None:
+            self._regenerate_pending.add(configuration)
+            try:
+                async with self._regenerate_lock:
+                    config_path = str(self._db.settings.rel_path(configuration))
+                    cmd = [
+                        *self._esphome_cmd,
+                        "--dashboard",
+                        "compile",
+                        "--only-generate",
+                        config_path,
+                    ]
+                    try:
+                        proc = await create_subprocess_exec(
+                            *cmd,
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.PIPE,
+                        )
+                        _, stderr = await proc.communicate()
+                    except Exception:
+                        _LOGGER.debug(
+                            "Storage regenerate spawn failed for %s",
+                            configuration,
+                            exc_info=True,
+                        )
+                        self._regenerate_failed.add(configuration)
+                        return
+                    if proc.returncode != 0:
+                        _LOGGER.debug(
+                            "Storage regenerate for %s exited %s: %s",
+                            configuration,
+                            proc.returncode,
+                            stderr.decode(errors="replace").strip()[:500],
+                        )
+                        self._regenerate_failed.add(configuration)
+                        return
+                    # ``--only-generate`` writes build_info.json with
+                    # the canonical config_hash before exiting, same as
+                    # a real compile. Persist it to the metadata
+                    # sidecar so the drawer can show "Local: <hash>"
+                    # before the first real flash.
+                    await self._persist_expected_config_hash(configuration)
+                    await self._scanner.reload(configuration)
+            finally:
+                self._regenerate_pending.discard(configuration)
+
+        self._db.create_background_task(_run())
+
+    @api_command("devices/get_api_key")
+    async def get_api_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:
+        """
+        Return the resolved Native API encryption key for *configuration*.
+
+        Uses ESPHome's own YAML loader so ``!secret`` references and
+        substitutions resolve the same way they would at compile time —
+        the regex-on-raw-YAML approach a frontend has access to gives up
+        whenever the user pulls the key from ``secrets.yaml`` or hides
+        it behind a ``${api_key}`` substitution.
+
+        ``{"key": "<base64 32-byte>"}`` on success; ``{"key": ""}`` when
+        the device has no ``api:`` block, no ``encryption`` key, or YAML
+        loading fails. Callers treat the empty value as the "open the
+        editor and check" signal.
+        """
+        path = self._db.settings.rel_path(configuration)
+        loop = asyncio.get_running_loop()
+        config = await loop.run_in_executor(None, load_device_yaml, path)
+        return {"key": get_api_encryption_key(config)}
 
     @api_command("devices/add_component")
     async def add_component(
@@ -462,25 +651,82 @@ class DevicesController:
         **kwargs: Any,
     ) -> dict:
         """Import / adopt a discovered device."""
-        if import_config is None:
-            msg = "import_config not available in this ESPHome version"
-            raise RuntimeError(msg)
-
+        configuration = f"{name}.yaml"
+        path = self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            import_config,
-            self._db.settings.rel_path(f"{name}.yaml"),
-            name,
-            friendly_name,
-            project_name,
-            package_import_url,
-            const.CONF_WIFI,
-            encryption,
-        )
+        try:
+            await loop.run_in_executor(
+                None,
+                import_config,
+                path,
+                name,
+                friendly_name,
+                project_name,
+                package_import_url,
+                const.CONF_WIFI,
+                encryption,
+            )
+        except FileExistsError as exc:
+            # ``import_config`` refuses to overwrite an existing YAML.
+            # Surface this as a user-facing error so the dialog can
+            # show "Configuration <file> already exists" instead of
+            # the WS layer's generic "Command failed".
+            msg = f"Configuration {configuration} already exists"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
 
-        await self._scanner.scan()
-        return {"configuration": f"{name}.yaml"}
+        # Picking up the new YAML is best-effort — if the scanner
+        # hiccups (e.g. a transient stat error on a network mount),
+        # the next periodic scan will catch it. We've already written
+        # the YAML, so failing the whole command here would lie to
+        # the user and trip a follow-up FileExistsError if they retry.
+        try:
+            await self._scanner.scan()
+        except Exception:
+            _LOGGER.exception("Scan after import failed; will pick up on next poll")
+
+        # Drop the discovery banner entry: the device is now configured,
+        # so it shouldn't continue to show up under "Discovered". The
+        # importable cache key is the device's mDNS-advertised name,
+        # which usually matches the user-chosen YAML name but may
+        # differ (e.g. they edited the MAC suffix off). Match by
+        # ``package_import_url`` so we always find the right entry,
+        # and remember the cached name so we can use it for the
+        # zeroconf-cache lookup below — the device is broadcasting
+        # under that name, not the YAML name.
+        cached_names = [
+            n for n, d in self.import_result.items() if d.package_import_url == package_import_url
+        ]
+        for cached_name in cached_names:
+            self._on_importable_removed(cached_name)
+        mdns_name = cached_names[0] if cached_names else name
+
+        # Skip-the-wait state seed. We just adopted a device that was
+        # advertising on mDNS milliseconds ago, so the next ping sweep
+        # would only confirm what zeroconf already knew. Pull the
+        # cached IP out of zeroconf — keyed by the mDNS-advertised
+        # name, not the user's chosen YAML name — and apply both
+        # ONLINE and the address right away so the new card lands
+        # online instead of blinking through OFFLINE for ~10s.
+        self._state_monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
+        cached = self._state_monitor.get_cached_addresses(f"{mdns_name}.local")
+        if cached:
+            self._state_monitor.apply_ip(name, cached[0])
+        # Eagerly probe the esphomelib service so the new card lands
+        # with version / config_hash / api_encryption populated, not
+        # just IP. The device on the network is still broadcasting
+        # under its factory-firmware ``mdns_name`` (the user may have
+        # picked a different YAML name during adoption), so look up
+        # the service under that name but apply the result against
+        # the configured device's chosen name. Cache hit returns
+        # synchronously; otherwise the probe runs as a fire-and-
+        # forget task whose results land via the same
+        # browser-callback path. The ``_on_scan_change`` handler
+        # also probes when the scan picked up the new YAML, but it
+        # uses the YAML name only — for adoption that name has no
+        # mDNS broadcast yet, so this explicit call covers the
+        # rename-during-adopt case.
+        self._state_monitor.probe_device(name, service_name=mdns_name)
+        return {"configuration": configuration}
 
     @api_command("devices/ignore")
     async def toggle_ignore(self, *, name: str, ignore: bool = True, **kwargs: Any) -> None:
@@ -491,6 +737,14 @@ class DevicesController:
             self.ignored_devices.discard(name)
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._save_ignored_devices)
+        # Mirror the new flag onto the cached AdoptableDevice and
+        # re-publish ADDED so subscribed frontends update the badge
+        # without waiting for a full re-discovery cycle.
+        existing = self.import_result.get(name)
+        if existing is not None and existing.ignored != ignore:
+            updated = replace(existing, ignored=ignore)
+            self.import_result[name] = updated
+            self._db.bus.fire(EventType.IMPORTABLE_DEVICE_ADDED, {"device": updated})
 
     # ------------------------------------------------------------------
     # API commands — per-connection streams (validate, logs)
@@ -507,7 +761,7 @@ class DevicesController:
     ) -> None:
         """Validate a device YAML config. Streams output per-connection."""
         config_path = str(self._db.settings.rel_path(configuration))
-        cmd = [*self._esphome_cmd, "config", config_path]
+        cmd = [*self._esphome_cmd, "--dashboard", "config", config_path]
         await self._stream_subprocess(cmd, client, message_id)
 
     @api_command("devices/logs")
@@ -516,15 +770,26 @@ class DevicesController:
         *,
         configuration: str,
         port: str = "",
+        no_states: bool = False,
         client: Any = None,
         message_id: str = "",
         **kwargs: Any,
     ) -> None:
-        """Stream live device logs. Per-connection, not queued."""
+        """
+        Stream live device logs. Per-connection, not queued.
+
+        ``no_states`` passes ``--no-states`` through to ``esphome logs``
+        so component state-publish lines (sensor / binary_sensor /
+        switch / cover / climate ...) are suppressed at the source.
+        Mirrors the legacy dashboard's "Show entity state changes"
+        toggle.
+        """
         config_path = str(self._db.settings.rel_path(configuration))
-        cmd = [*self._esphome_cmd, "logs", config_path]
+        cmd = [*self._esphome_cmd, "--dashboard", "logs", config_path]
         if port:
             cmd.extend(["--device", port])
+        if no_states:
+            cmd.append("--no-states")
         await self._stream_subprocess(cmd, client, message_id)
 
     @api_command("devices/stop_stream")
@@ -580,14 +845,23 @@ class DevicesController:
         ``ip`` is the last-known resolved address from the metadata
         sidecar (``""`` if never seen).
 
-        ``expected_config_hash`` is the YAML's last-compiled
-        ``CORE.config_hash``, written by the firmware controller after
-        each successful compile; ``""`` when the device has never been
-        compiled or the compile predates expected-hash tracking.
+        ``expected_config_hash`` is read from
+        ``<build_path>/build_info.json`` — ESPHome's authoritative
+        post-codegen value. The metadata sidecar is consulted *only*
+        as a fallback for devices whose build directory was wiped
+        (clean) but where we'd previously cached a value. Reading
+        from ``build_info.json`` first keeps the dashboard from
+        getting stuck on a stale sidecar value if a previous run
+        wrote a wrong hash (e.g. the pre-codegen subprocess hash
+        the dashboard used to compute) — the next scan after this
+        change picks up the canonical value automatically.
         """
         md = get_device_metadata(config_dir, filename)
         ip = str(md.get("ip", ""))
-        expected_config_hash = str(md.get("expected_config_hash", ""))
+        # build_info.json wins; sidecar is the post-clean fallback.
+        expected_config_hash = read_build_info_hash(config_dir / filename) or str(
+            md.get("expected_config_hash", "")
+        )
         board_id = str(md.get("board_id", ""))
         if not board_id:
             board_id = self._derive_board_id_from_yaml(config_dir, filename)
@@ -629,16 +903,98 @@ class DevicesController:
             ScanChange.REMOVED: EventType.DEVICE_REMOVED,
         }[kind]
         self._db.bus.fire(event, {"device": device})
+        # Eagerly probe mDNS for newly-added devices. Catches the
+        # YAML-dropped-on-disk case the API entrypoints
+        # (``devices/import``, ``devices/create``) can't see — e.g.
+        # the user copies a config into ``config_dir`` from another
+        # dashboard or git clones their setup. Without this the new
+        # card sits at "Unknown" until the next periodic ping sweep
+        # or mDNS announcement, even when the device is already on
+        # the network. ``probe_device`` short-circuits to the
+        # zeroconf cache when present; otherwise it spawns a
+        # fire-and-forget resolve task.
+        if kind is ScanChange.ADDED:
+            self._state_monitor.probe_device(device.name)
+        # The YAML cache key changed (mtime / size / inode) — clear
+        # any prior failure marker so an edit gets a fresh chance at
+        # ``--only-generate``. Same for REMOVED so re-creating the
+        # file later doesn't inherit the old failure.
+        if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
+            self._regenerate_failed.discard(device.configuration)
+        # First-sight devices that have no compile output yet end up
+        # carrying the ``<filename>.local`` address fallback and an
+        # empty ``loaded_integrations`` list. Schedule a background
+        # ``--only-generate`` so the next scan picks up the real
+        # ``StorageJSON``-derived values without making the user wait
+        # for a real compile. Same upstream pattern used in
+        # ``async_schedule_storage_json_update``.
+        #
+        # Also fire when ``expected_config_hash`` is empty even
+        # though ``loaded_integrations`` is populated. That happens
+        # for devices configured before build_info.json existed (or
+        # imported from an older dashboard) — they have a working
+        # ``StorageJSON`` so the integrations / address / version
+        # all come through, but the build directory either pre-dates
+        # the build_info.json era or was wiped. Without this nudge
+        # the drawer's "Local config hash" shows a permanent em-dash
+        # for those devices because nothing else triggers a
+        # ``--only-generate`` until the user edits the YAML.
+        needs_storage_regen = kind is ScanChange.ADDED and (
+            not device.loaded_integrations or not device.expected_config_hash
+        )
+        if needs_storage_regen:
+            self._schedule_storage_regenerate(device.configuration)
+        # When a configured device is deleted, re-emit cached
+        # discoveries. Upstream's ``DashboardImportDiscovery`` only
+        # fires ``on_update`` on first sight (``is_new`` check), so
+        # without this nudge a device stays silent until it
+        # re-announces — which can be many minutes for a quiet device.
+        # Use the "revisit all" variant rather than matching on
+        # ``device.name``: the user may have adopted with a YAML name
+        # that differs from the discovered hostname (e.g. they edited
+        # the MAC suffix off), in which case a name-keyed lookup
+        # would miss. ``_on_import_update`` already filters configured
+        # + ignored entries so re-emitting the full set is cheap and
+        # only surfaces what should actually appear.
+        if kind is ScanChange.REMOVED:
+            self._state_monitor.revisit_all_importables()
+
+    def _devices_by_name(self, name: str) -> list[Device]:
+        """Every configured device whose ``name`` field matches ``name``.
+
+        Two YAML files can ship the same ``name:`` value (e.g.
+        ``foo.yaml`` and ``foo (1).yaml`` both pointing at
+        ``foo.local``). They share a single mDNS service announcement,
+        so any state / IP / version / config-hash / api-encryption
+        observation needs to fan out to every matching device or the
+        non-canonical copy stays stuck at "Unknown" while its sibling
+        shows online. Reads the scanner's name-keyed index for an
+        O(1) lookup.
+        """
+        return self._scanner.get_by_name(name)
 
     def _on_state_change(self, name: str, state: DeviceState, source: str) -> None:
         """Forward state monitor updates onto the event bus."""
-        device = next((d for d in self._scanner.devices if d.name == name), None)
-        if device is None:
-            return
-        old_state = device.state
-        device.state = state
-        _LOGGER.info("Device %s: %s → %s (via %s)", name, old_state, state, source)
-        self._db.bus.fire(EventType.DEVICE_STATE_CHANGED, {"device": device})
+        for device in self._devices_by_name(name):
+            old_state = device.state
+            device.state = state
+            _LOGGER.info(
+                "Device %s (%s): %s → %s (via %s)",
+                name,
+                device.configuration,
+                old_state,
+                state,
+                source,
+            )
+            # Frontend's ``DeviceStateChangedEventData`` is the flat
+            # ``{configuration, state}`` shape — sending the full ``device``
+            # object made the destructure resolve both fields to
+            # ``undefined`` and the table never updated. Match the type
+            # exactly so the row's state cell flips on the next event.
+            self._db.bus.fire(
+                EventType.DEVICE_STATE_CHANGED,
+                {"configuration": device.configuration, "state": state.value},
+            )
 
     def _on_ip_change(self, name: str, ip: str) -> None:
         """
@@ -649,16 +1005,16 @@ class DevicesController:
         across the device's offline window. The DNS pre-resolve and
         next mDNS resolve will overwrite it on reconnect.
         """
-        device = next((d for d in self._scanner.devices if d.name == name), None)
-        if device is None:
-            return
-        if device.ip == ip:
-            return
-        device.ip = ip
-        _LOGGER.debug("Device %s IP: %s", name, ip or "(cleared)")
-        if ip:
-            self._db.create_background_task(self._persist_device_ip_async(device.configuration, ip))
-        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+        for device in self._devices_by_name(name):
+            if device.ip == ip:
+                continue
+            device.ip = ip
+            _LOGGER.debug("Device %s (%s) IP: %s", name, device.configuration, ip or "(cleared)")
+            if ip:
+                self._db.create_background_task(
+                    self._persist_device_ip_async(device.configuration, ip)
+                )
+            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     async def _persist_device_ip_async(self, configuration: str, ip: str) -> None:
         """Save *ip* to the device-builder metadata sidecar."""
@@ -670,23 +1026,45 @@ class DevicesController:
 
     def _on_version_change(self, name: str, version: str) -> None:
         """Apply a fresh ESPHome version observed via mDNS."""
-        device = next((d for d in self._scanner.devices if d.name == name), None)
-        if device is None:
-            return
-        if device.deployed_version == version:
-            return
+        for device in self._devices_by_name(name):
+            if device.deployed_version == version:
+                continue
 
-        # StorageJSON.load/save are blocking — push to a background task
-        # so any error gets surfaced via the loop's exception handler.
-        self._db.create_background_task(
-            self._persist_storage_version_async(device.configuration, version)
-        )
+            # StorageJSON.load/save are blocking — push to a background task
+            # so any error gets surfaced via the loop's exception handler.
+            self._db.create_background_task(
+                self._persist_storage_version_async(device.configuration, version)
+            )
 
-        old_version = device.deployed_version
-        device.deployed_version = version
-        device.update_available = bool(device.current_version and version != device.current_version)
-        _LOGGER.info("Device %s version: %s → %s (via mdns)", name, old_version or "?", version)
-        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+            old_version = device.deployed_version
+            device.deployed_version = version
+            device.update_available = bool(
+                device.current_version and version != device.current_version
+            )
+            _LOGGER.info(
+                "Device %s (%s) version: %s → %s (via mdns)",
+                name,
+                device.configuration,
+                old_version or "?",
+                version,
+            )
+            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+
+    def _on_api_encryption_change(self, name: str, encryption: str) -> None:
+        """
+        Apply the API-encryption state observed via mDNS.
+
+        Stores the broadcast value (or empty string for "TXT absent —
+        device is plaintext") on the in-memory device. The dashboard's
+        four-state lock indicator reads this together with
+        ``api_encrypted`` to distinguish active / pending-flash /
+        mismatch / plaintext.
+        """
+        for device in self._devices_by_name(name):
+            if device.api_encryption_active == encryption:
+                continue
+            device.api_encryption_active = encryption
+            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     def _on_config_hash_change(self, name: str, config_hash: str) -> None:
         """
@@ -700,22 +1078,50 @@ class DevicesController:
         predates the ``config_hash`` TXT broadcast never trigger this
         callback and stay on the legacy mtime check.
         """
-        device = next((d for d in self._scanner.devices if d.name == name), None)
-        if device is None:
+        for device in self._devices_by_name(name):
+            if device.deployed_config_hash == config_hash:
+                continue
+            old_hash = device.deployed_config_hash
+            device.deployed_config_hash = config_hash
+            # Mtime side stays with the periodic scanner poll so this
+            # callback can stay off-disk and non-blocking. A YAML edit
+            # between polls (~5s window) self-corrects on the next scan.
+            if device.expected_config_hash:
+                device.has_pending_changes = device.expected_config_hash != config_hash
+            _LOGGER.info(
+                "Device %s (%s) config_hash: %s → %s (via mdns)",
+                name,
+                device.configuration,
+                old_hash or "?",
+                config_hash,
+            )
+            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+
+    def _on_importable_added(self, device: AdoptableDevice) -> None:
+        """Stash a newly-discovered importable device and notify subscribers."""
+        # Keyed by device name so ``devices/list`` can dedupe against
+        # configured devices and ``devices/ignore`` can flip the flag
+        # by name without juggling the full mdns service-instance.
+        self.import_result[device.name] = device
+        self._db.bus.fire(EventType.IMPORTABLE_DEVICE_ADDED, {"device": device})
+
+    def _on_importable_removed(self, name: str) -> None:
+        """Forget an importable device that disappeared from mDNS."""
+        if self.import_result.pop(name, None) is None:
             return
-        if device.deployed_config_hash == config_hash:
-            return
-        old_hash = device.deployed_config_hash
-        device.deployed_config_hash = config_hash
-        # Mtime side stays with the periodic scanner poll so this
-        # callback can stay off-disk and non-blocking. A YAML edit
-        # between polls (~5s window) self-corrects on the next scan.
-        if device.expected_config_hash:
-            device.has_pending_changes = device.expected_config_hash != config_hash
-        _LOGGER.info(
-            "Device %s config_hash: %s → %s (via mdns)", name, old_hash or "?", config_hash
-        )
-        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+        self._db.bus.fire(EventType.IMPORTABLE_DEVICE_REMOVED, {"name": name})
+
+    def get_importable_devices(self) -> list[AdoptableDevice]:
+        """
+        Snapshot of the current importable list (used for ``initial_state``).
+
+        Filters against the configured-name set on every call so an
+        adoption that landed without an mDNS Removed (the device kept
+        announcing on its old name) doesn't leak through into the
+        seed a fresh page load gets.
+        """
+        configured_names = {d.name for d in self._scanner.devices}
+        return [d for d in self.import_result.values() if d.name not in configured_names]
 
     def _on_firmware_job_completed(self, event: Any) -> None:
         """
@@ -737,18 +1143,29 @@ class DevicesController:
         if getattr(job, "status", None) != JobStatus.COMPLETED:
             return
         job_type = getattr(job, "job_type", None)
+        if job_type == JobType.RENAME:
+            # ``esphome rename`` deletes the old YAML and writes a new
+            # one with a different filename — neither path is the
+            # ``configuration`` field on the job. A full scan is the
+            # simplest way to pick up both the disappearance of the
+            # old entry and the appearance of the new one.
+            self._db.create_background_task(self._scanner.scan())
+            return
         if job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL):
             return
         configuration = getattr(job, "configuration", "")
         if not configuration:
             return
         recompute_hash = job_type in (JobType.COMPILE, JobType.INSTALL)
+        flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)
         self._db.create_background_task(
-            self._refresh_after_firmware_job(configuration, recompute_hash=recompute_hash)
+            self._refresh_after_firmware_job(
+                configuration, recompute_hash=recompute_hash, flashed=flashed
+            )
         )
 
     async def _refresh_after_firmware_job(
-        self, configuration: str, *, recompute_hash: bool
+        self, configuration: str, *, recompute_hash: bool, flashed: bool
     ) -> None:
         """
         Persist the YAML's freshly-compiled hash and reload the device.
@@ -760,21 +1177,96 @@ class DevicesController:
         when hash computation is skipped or fails — so the mtime side
         of ``has_pending_changes`` still flips after a successful
         compile.
+
+        When *flashed* is True (UPLOAD or INSTALL completed), the
+        firmware on the device was just replaced with the binary that
+        compiled to ``expected_config_hash``. The reloaded device
+        otherwise keeps the *previous* mDNS-cached
+        ``deployed_config_hash`` — usually a now-stale value — so the
+        hash comparison reads ``expected != deployed`` and the dot
+        stays orange until the rebooted device's mDNS announce
+        propagates. That can be many seconds, sometimes longer if the
+        device's network announce gets dropped, and the user sees a
+        successful flash with a still-orange dot. Optimistically pin
+        deployed = expected on the reloaded device and recompute the
+        flag so the dot clears immediately. mDNS still gets to
+        correct the hash later — if the new firmware advertises a
+        different hash (e.g. because the OTA actually failed and the
+        device kept the old image), ``_on_config_hash_change`` will
+        push the real value back in.
         """
         if recompute_hash:
-            yaml_path = self._db.settings.rel_path(configuration)
-            new_hash = await compute_yaml_config_hash(yaml_path)
-            if new_hash:
-                loop = asyncio.get_running_loop()
-                config_dir = self._db.settings.config_dir
-                await loop.run_in_executor(
-                    None,
-                    lambda: set_device_metadata(
-                        config_dir, configuration, expected_config_hash=new_hash
-                    ),
-                )
-                _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
+            await self._persist_expected_config_hash(configuration)
         await self._scanner.reload(configuration)
+        if flashed:
+            self._sync_deployed_hash_after_flash(configuration)
+
+    async def _persist_expected_config_hash(self, configuration: str) -> None:
+        """
+        Read the canonical config_hash from build_info.json and persist it.
+
+        ESPHome's build (and ``--only-generate``) writes the
+        ``config_hash`` to ``build_info.json`` after running the full
+        validate + codegen pipeline. We read that value back rather
+        than recompute it, because reproducing the build's hash
+        in-process is fragile — ``CORE.config_hash`` is sensitive to
+        post-codegen state (id-pinning, default backfill,
+        normalisation) that ``read_config`` alone doesn't apply.
+        Verified against ``acfloatmonitor32.yaml``: pre-codegen yields
+        ``f3e21d5a`` while the firmware bakes in ``5a94a12d``.
+
+        No-op when the hash can't be read. The caller is on the
+        post-build / post-only-generate path, so a missing or
+        malformed ``build_info.json`` here is unexpected — log a
+        warning so an upstream ESPHome shape change doesn't
+        silently leave the sidecar out of date.
+        ``compute_has_pending_changes`` will lean on the bin mtime
+        in that gap, which catches the "user just edited the YAML"
+        case but won't notice firmware that's drifted from the
+        compile (e.g. flashed elsewhere) — the dot can read
+        in-sync when it shouldn't until the next real flash
+        rewrites the sidecar.
+        """
+        yaml_path = self._db.settings.rel_path(configuration)
+        new_hash = await compute_yaml_config_hash(yaml_path)
+        if not new_hash:
+            _LOGGER.warning(
+                "Could not read config_hash from build_info.json for %s — "
+                "the drawer's Local hash may stay stale until the next flash. "
+                "If this persists across compiles, check that ESPHome's "
+                "build_info.json schema hasn't changed.",
+                configuration,
+            )
+            return
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+        await loop.run_in_executor(
+            None,
+            lambda: set_device_metadata(config_dir, configuration, expected_config_hash=new_hash),
+        )
+        _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
+
+    def _sync_deployed_hash_after_flash(self, configuration: str) -> None:
+        """
+        Optimistically align ``deployed_config_hash`` with the just-flashed image.
+
+        See :meth:`_refresh_after_firmware_job` for the rationale.
+        Driving the update through ``apply_config_hash`` lets the
+        existing ``_on_config_hash_change`` callback handle the
+        device-field write + ``DEVICE_UPDATED`` event, so the
+        post-flash sync follows the same code path as a real mDNS
+        announce. ``apply_config_hash`` also seeds the monitor's
+        per-name cache, so when the rebooted device's announce lands
+        with the *same* hash the de-dup short-circuits and we don't
+        fire a redundant event.
+        """
+        device = next(
+            (d for d in self._scanner.devices if d.configuration == configuration),
+            None,
+        )
+        if device is None or not device.expected_config_hash:
+            return
+        self._state_monitor.apply_config_hash(device.name, device.expected_config_hash)
 
     async def _persist_storage_version_async(self, configuration: str, version: str) -> None:
         """Update ``StorageJSON.esphome_version`` on disk if it differs."""
@@ -803,16 +1295,42 @@ class DevicesController:
     def _load_ignored_devices(self) -> None:
         storage_path = ignored_devices_storage_path()
         try:
-            with storage_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-                self.ignored_devices = set(data.get("ignored_devices", []))
+            raw = storage_path.read_bytes()
         except FileNotFoundError:
-            pass
+            return
+        try:
+            data = loads(raw)
+        except JSONDecodeError:
+            # A corrupt file shouldn't tank controller bootstrap —
+            # start with an empty ignored set and let the next
+            # toggle_ignore call rewrite it cleanly.
+            _LOGGER.warning(
+                "Ignored-devices file at %s is corrupt; starting with an empty set",
+                storage_path,
+            )
+            return
+        if not isinstance(data, dict):
+            _LOGGER.warning(
+                "Ignored-devices file at %s isn't a JSON object; starting with an empty set",
+                storage_path,
+            )
+            return
+        ignored = data.get("ignored_devices", [])
+        if not isinstance(ignored, list):
+            _LOGGER.warning(
+                "Ignored-devices file at %s has a non-list ``ignored_devices`` "
+                "field; resetting to an empty set",
+                storage_path,
+            )
+            self.ignored_devices = set()
+            return
+        self.ignored_devices = {name for name in ignored if isinstance(name, str)}
 
     def _save_ignored_devices(self) -> None:
         storage_path = ignored_devices_storage_path()
-        with storage_path.open("w", encoding="utf-8") as f:
-            json.dump({"ignored_devices": sorted(self.ignored_devices)}, f, indent=2)
+        storage_path.write_bytes(
+            dumps_indent({"ignored_devices": sorted(self.ignored_devices)}),
+        )
 
     def _manual_rename(self, configuration: str, new_name: str) -> None:
         """File-level rename. Used when the ESPHome CLI refuses (invalid config)."""
@@ -952,8 +1470,8 @@ def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None
 
     # mDNS hostnames are case-insensitive and may carry a trailing dot;
     # normalise once so the CLI cache key matches what it'll look up.
-    normalized = address.rstrip(".").lower()
-    is_local = normalized.endswith(".local")
+    normalized = normalize_hostname(address)
+    is_local = is_local_hostname(address)
 
     # Preferred source per host type:
     #   .local  → zeroconf cache (mDNS-only, freshest while the browser is alive)

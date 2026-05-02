@@ -50,6 +50,26 @@ class Device(DataClassORJSONMixin):
     has_pending_changes: bool = True  # True until successfully compiled + deployed
     update_available: bool = False  # True if compiled with older ESPHome version
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
+    # Native API surface flags — drive the lock-icon indicator in the
+    # device list. ``api_enabled`` is True when the resolved YAML
+    # carries a top-level ``api:`` block; ``api_encrypted`` only adds
+    # the inner ``encryption:`` check. Both come from the resolved
+    # config so ``!include`` / packages are followed; the actual key
+    # is fetched on demand via ``devices/get_api_key``.
+    api_enabled: bool = False
+    api_encrypted: bool = False
+    # Encryption status as observed from the device's
+    # ``_esphomelib._tcp.local.`` mDNS broadcast.
+    #   None  → mDNS not seen yet. The frontend trusts ``api_encrypted``
+    #           verbatim (assume the YAML matches what's on the device).
+    #   ""    → mDNS seen, ``api_encryption`` TXT absent. The device is
+    #           running plaintext regardless of what the YAML says.
+    #   "..." → mDNS seen, ``api_encryption`` TXT present (e.g.
+    #           ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``). Encryption is
+    #           confirmed live on the device.
+    # Drives the four-state lock indicator on the device card / table:
+    # active, pending-flash, mismatch, plaintext.
+    api_encryption_active: str | None = None
 
 
 @dataclass
@@ -63,6 +83,11 @@ class AdoptableDevice(DataClassORJSONMixin):
     project_version: str
     network: str
     ignored: bool
+    # Pre-built URL to the device's web UI when it advertises a
+    # ``_http._tcp.local.`` mDNS service. Empty string when no web
+    # server was found — the discovered card then hides the
+    # Visit-web-UI affordance.
+    web_url: str = ""
 
 
 @dataclass

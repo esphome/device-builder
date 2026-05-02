@@ -15,7 +15,7 @@ import secrets
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from esphome import const
+from esphome import const, yaml_util
 from esphome.storage_json import StorageJSON, ext_storage_path
 
 from ..models import Device, DeviceState
@@ -28,6 +28,19 @@ _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "
 # Mirrors esphome's substitution regex (`config_validation.VARIABLE_PROG`):
 # matches ``$name`` or ``${name}`` where name is alphanumeric + underscore.
 _SUBSTITUTION_RE = re.compile(r"\$(\{[a-zA-Z0-9_]*\}|[a-zA-Z0-9_]+)")
+
+# ESPHome's ``esphome.name`` accepts lowercase ASCII letters, digits,
+# and hyphens — the same character class an mDNS hostname / API
+# endpoint can carry. A parsed value with anything else (dots, spaces,
+# uppercase, ...) means we picked up the wrong field (a package id, a
+# friendly_name leaked through, etc.) and should be rejected so it
+# doesn't end up as the catalog key.
+_VALID_ESPHOME_NAME_RE = re.compile(r"\A[a-z0-9-]+\Z")
+
+
+def _is_valid_esphome_name(value: str) -> bool:
+    """Return True when *value* matches ESPHome's ``esphome.name`` shape."""
+    return bool(_VALID_ESPHOME_NAME_RE.match(value))
 
 
 # ---------------------------------------------------------------------------
@@ -171,12 +184,16 @@ def detect_platform_from_yaml(path: Path) -> str:
         return ""
 
 
-def device_uses_mqtt(yaml_content: str) -> bool:
-    """
-    Return True when the device YAML declares a top-level ``mqtt:`` block.
+def yaml_has_top_level_block(yaml_content: str, key: str) -> bool:
+    """Return True when the raw YAML literally declares a top-level *key*: block.
 
-    The check is line-based so it handles invalid drafts and partially
-    edited configs gracefully — no full YAML parse required.
+    Cheap line-scan that survives invalid drafts and partially edited
+    configs — no full parse required. Misses configs that pull the
+    block in via ``!include`` or packages, which is why scan-time
+    flags prefer :func:`config_has_top_level_block` over the resolved
+    config; this helper is the fallback for when YAML parsing fails
+    (mid-edit drafts, missing secrets) so the indicator doesn't
+    silently flip off while the user is typing.
     """
     for line in yaml_content.splitlines():
         if not line or line[0].isspace():
@@ -184,9 +201,51 @@ def device_uses_mqtt(yaml_content: str) -> bool:
         stripped = line.strip()
         if stripped.startswith("#") or ":" not in stripped:
             continue
-        if stripped.split(":", 1)[0].strip() == "mqtt":
+        if stripped.split(":", 1)[0].strip() == key:
             return True
     return False
+
+
+def device_uses_mqtt(yaml_content: str) -> bool:
+    """Return True when the raw YAML literally declares a top-level ``mqtt:`` block."""
+    return yaml_has_top_level_block(yaml_content, "mqtt")
+
+
+_RAW_API_ENCRYPTION_RE = re.compile(
+    # Matches an ``encryption:`` line that's indented under ``api:``
+    # (any depth ≥ 1 space). Used as a draft-time heuristic — once
+    # ``load_device_yaml`` succeeds, the resolved-config check wins.
+    #
+    # The two body alternatives are exclusive: ``[ \t][^\n]*\n`` matches
+    # an indented (non-blank) line; ``\n`` alone matches a literal blank
+    # line. No overlap, so the engine can't backtrack between them on a
+    # long run of newlines (the previous ``\s*\n`` alternative could
+    # also consume a bare ``\n``, which CodeQL flagged as exponential).
+    r"^api:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+encryption:(?:\s|$)",
+    re.MULTILINE,
+)
+
+
+def yaml_has_api_encryption(yaml_content: str) -> bool:
+    """Heuristic: True when raw YAML appears to declare ``api: encryption:``.
+
+    Used during mid-edit drafts when the full resolver fails so the
+    encryption-indicator doesn't blink off the moment the user types
+    a syntax error. The resolved-config check is preferred whenever
+    available (catches ``!include`` / packages this regex can't see).
+    """
+    return bool(_RAW_API_ENCRYPTION_RE.search(yaml_content))
+
+
+def config_has_top_level_block(config: dict | None, key: str) -> bool:
+    """Return True when *config* (a resolved device YAML) defines top-level *key*.
+
+    Catches configs that split the block across ``!include`` / packages,
+    which a raw-text scan misses. Treats the block as "present" when
+    the key exists even with a ``None`` / empty value (e.g. a bare
+    ``api:`` line is still an opt-in to the Native API).
+    """
+    return isinstance(config, dict) and key in config
 
 
 def parse_esphome_meta(  # noqa: PLR0912
@@ -296,10 +355,29 @@ def load_device_from_storage(
     except OSError:
         yaml_content = ""
     yaml_name, yaml_friendly, yaml_comment = parse_esphome_meta(yaml_content)
+    # Full resolved config (``!include`` / packages / ``!secret``
+    # expanded) drives the api-encryption flag — a bare regex on raw
+    # YAML would miss configs that pull the api block in via include
+    # or split it across packages. ``None`` on parse failure is fine;
+    # ``api_encrypted`` falls back to False.
+    resolved_config = load_device_yaml(path)
 
     fallback_name = filename.removesuffix(".yml").removesuffix(".yaml")
     storage_name = storage.name if storage else None
-    name = yaml_name or storage_name or fallback_name
+    # Pick the first valid ESPHome slug from (yaml_name, storage_name).
+    # Real ESPHome ``esphome.name`` values are ``[a-z0-9-]+`` — a parsed
+    # value with dots / spaces / uppercase is something else (a package
+    # id like ``ratgdo.esphome``, a friendly_name leaked through, etc.).
+    # ``device.name`` is the key the state monitor uses to match mDNS
+    # announcements, so duplicates across multiple YAMLs (which is what
+    # happens when several configs share the same ``dashboard_import``
+    # package) collapse all those devices onto a single Device row.
+    # Falling back to the filename when the parsed name is invalid
+    # keeps the catalog key unique.
+    name = next(
+        (n for n in (yaml_name, storage_name) if n and _is_valid_esphome_name(n)),
+        fallback_name,
+    )
 
     storage_friendly = storage.friendly_name if storage else None
     friendly_name = yaml_friendly if yaml_friendly is not None else (storage_friendly or name)
@@ -331,6 +409,27 @@ def load_device_from_storage(
     else:
         target_platform = detect_platform_from_yaml(path)
 
+    loaded_integrations = sorted(storage.loaded_integrations) if storage else []
+    # ``api_enabled`` / ``api_encrypted`` get the union of every signal
+    # we have:
+    #   1. Resolved YAML config — catches local ``api:`` blocks pulled
+    #      in via ``!include`` / local packages.
+    #   2. Raw-text scan — keeps the indicator stable mid-edit when
+    #      ``yaml_util.load_yaml`` fails on an invalid draft.
+    #   3. ``StorageJSON.loaded_integrations`` — the compile-time
+    #      ground truth. Required for configs that pull the api block
+    #      in from a remote ``dashboard_import`` package (Apollo, etc.):
+    #      ``yaml_util.load_yaml`` doesn't fetch URLs so the resolved
+    #      config has no ``api:`` at the top level, but the compiled
+    #      device still loads it.
+    api_enabled = (
+        ("api" in loaded_integrations)
+        or config_has_top_level_block(resolved_config, "api")
+        or yaml_has_top_level_block(yaml_content, "api")
+    )
+    api_encrypted = get_api_encryption_block(
+        resolved_config
+    ) is not None or yaml_has_api_encryption(yaml_content)
     return Device(
         name=name,
         friendly_name=friendly_name,
@@ -338,18 +437,40 @@ def load_device_from_storage(
         comment=comment,
         board_id=board_id,
         target_platform=target_platform,
-        address=storage.address or "" if storage else "",
+        # StorageJSON only exists after a successful compile, so a
+        # freshly-added (or never-built) device would otherwise carry
+        # an empty ``address`` and fall out of the ping sweep — stuck
+        # in UNKNOWN forever. Fall back to ``<filename-stem>.local``
+        # (NOT ``<name>.local``): the filename is canonical and
+        # matches what the user types, while ``name`` is parsed from
+        # YAML and can come back as a friendly_name or a package
+        # import URL when the YAML doesn't carry a slug-shaped
+        # ``esphome.name`` (e.g. configs that get the name from a
+        # remote ``dashboard_import`` package). The scanner refreshes
+        # this on the next compile if the device picks a different
+        # ``esphome.address``.
+        address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
         ip=ip,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
         deployed_version=deployed,
         expected_config_hash=expected_config_hash,
         deployed_config_hash=deployed_config_hash,
-        loaded_integrations=sorted(storage.loaded_integrations) if storage else [],
+        loaded_integrations=loaded_integrations,
         state=state,
         has_pending_changes=has_pending,
         update_available=update_available,
-        uses_mqtt=device_uses_mqtt(yaml_content),
+        # ``uses_mqtt`` keeps its prior shape — the resolved config
+        # wins, raw-text fills in mid-edit, and we don't have a
+        # ``loaded_integrations`` entry that maps cleanly to "uses
+        # mqtt for dashboard discovery" the way ``"api"`` does.
+        uses_mqtt=(
+            config_has_top_level_block(resolved_config, "mqtt")
+            if resolved_config is not None
+            else yaml_has_top_level_block(yaml_content, "mqtt")
+        ),
+        api_enabled=api_enabled,
+        api_encrypted=api_encrypted,
     )
 
 
@@ -365,27 +486,38 @@ def compute_has_pending_changes(
 
     Decision order, first match wins:
 
-    1. No firmware binary on disk yet → pending.
-    2. YAML edited after the last compile → pending. The mtime gate
-       runs before any hash comparison so a stale ``expected`` from
-       the prior compile can't accidentally match a deployed hash.
-    3. Both ``expected_config_hash`` and ``deployed_config_hash``
+    1. Both ``expected_config_hash`` and ``deployed_config_hash``
        known → pending iff they differ. The deployed hash comes from
-       mDNS (esphome/esphome#16145), the expected hash from the YAML's
-       last compile; differing means the device is running older
-       firmware than the latest compile (e.g. failed OTA, flashed
-       elsewhere).
-    4. Either hash missing → not pending. Devices on firmware that
-       predates the ``config_hash`` TXT broadcast fall through here
-       and stay quiet.
+       mDNS (esphome/esphome#16145), the expected hash is read from
+       ``build_info.json`` (firmware-canonical, post-codegen). The
+       hash comparison is authoritative for any device on
+       broadcast-capable firmware: if they match, the running
+       firmware is built from the same logical config the YAML now
+       resolves to, even if the YAML's mtime ticked forward
+       (whitespace-only / comment-only edits, ``--only-generate``
+       rewriting StorageJSON, etc.) or the local ``firmware.bin``
+       was wiped (``clean`` job, fresh checkout, ``--only-generate``
+       only). If they differ, the device is running older firmware
+       than the latest compile — failed OTA, flashed elsewhere, etc.
+    2. Hashes aren't both known and there's no firmware binary on
+       disk yet → pending. We don't have a comparable pair of
+       hashes (either the YAML's never been compiled or the device
+       isn't broadcasting), and we don't even have a local artefact
+       to mtime-check against, so we definitionally have unflushed
+       edits.
+    3. YAML edited after the last compile → pending. Mtime is the
+       fallback for devices that pre-date the ``config_hash`` TXT
+       broadcast or for the brief window between an edit and the
+       background ``--only-generate`` updating
+       ``expected_config_hash``.
+    4. Otherwise → not pending. Devices on firmware that predates
+       the broadcast and haven't been edited stay quiet.
     """
-    if bin_mtime is None:
-        return True
-    if yaml_mtime is not None and yaml_mtime > bin_mtime:
-        return True
     if expected_config_hash and deployed_config_hash:
         return expected_config_hash != deployed_config_hash
-    return False
+    if bin_mtime is None:
+        return True
+    return yaml_mtime is not None and yaml_mtime > bin_mtime
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +539,53 @@ def _parse_inline_value(raw: str) -> str:
     ):
         value = value[1:-1]
     return value
+
+
+def load_device_yaml(path: Path) -> dict | None:
+    """Load *path* with ESPHome's YAML loader; return the top-level mapping.
+
+    Resolves ``!secret`` / ``!include`` / etc. like a real compile, and
+    returns ``None`` when the file isn't a mapping or fails to parse.
+    Centralised so callers that need a parsed config — API-key
+    extraction, encryption-status checks, future config inspection —
+    share one entry point with the same error handling.
+    """
+    try:
+        # ``yaml_util.load_yaml`` calls ``.open()`` on its argument, so
+        # pass the ``Path`` directly — handing it a stringified path
+        # raises ``AttributeError`` deep inside the loader.
+        config = yaml_util.load_yaml(path)
+    except Exception:
+        return None
+    return config if isinstance(config, dict) else None
+
+
+def get_api_encryption_block(config: dict | None) -> dict | None:
+    """
+    Return the ``api.encryption`` mapping from a parsed device config.
+
+    ``None`` when the config is missing, has no ``api:`` block, or the
+    ``api:`` block has no ``encryption:`` sub-mapping. Useful for both
+    the "is encrypted?" boolean and the "show me the key" string —
+    they share the same lookup, the only thing that differs is what
+    they pull off the result.
+    """
+    if not isinstance(config, dict):
+        return None
+    api_block = config.get("api")
+    if not isinstance(api_block, dict):
+        return None
+    encryption = api_block.get("encryption")
+    return encryption if isinstance(encryption, dict) else None
+
+
+def get_api_encryption_key(config: dict | None) -> str:
+    """Return the resolved Native API encryption key, or empty string."""
+    encryption = get_api_encryption_block(config)
+    if encryption is None:
+        return ""
+    key = encryption.get("key")
+    return key if isinstance(key, str) else ""
 
 
 def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | None:

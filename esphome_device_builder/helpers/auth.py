@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import json
 import logging
 import os
 import secrets
@@ -16,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import web
+
+from .json import JSONDecodeError, dumps, loads
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,15 +151,15 @@ class SessionStore:
 
     def _load(self) -> None:
         try:
-            raw = self._path.read_text(encoding="utf-8")
+            raw = self._path.read_bytes()
         except FileNotFoundError:
             return
         except OSError as err:
             _LOGGER.warning("Could not read sessions file (%s); starting fresh", err)
             return
         try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
+            data = loads(raw)
+        except JSONDecodeError:
             _LOGGER.warning("Sessions file is corrupt; starting fresh: %s", self._path)
             return
         if not isinstance(data, dict):
@@ -181,7 +182,7 @@ class SessionStore:
     def _persist(self) -> None:
         data = {"sessions": [asdict(s) for s in self._sessions.values()]}
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.write_bytes(dumps(data))
         os.chmod(tmp, 0o600)
         os.replace(tmp, self._path)
 

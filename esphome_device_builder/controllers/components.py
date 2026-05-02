@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..helpers.api import api_command
+from ..helpers.json import loads
 from ..models import (
     ComponentCatalogEntry,
     ComponentCategory,
@@ -49,7 +49,11 @@ class ComponentCatalog:
             )
             return
 
-        data = json.loads(_COMPONENTS_JSON.read_text())
+        # ``loads`` (orjson) decodes UTF-8 bytes directly — faster than
+        # stdlib json on the ~896-component catalog and dodges the
+        # platform-locale-encoding trap that bit Windows on read_text
+        # without an explicit encoding.
+        data = loads(_COMPONENTS_JSON.read_bytes())
         self._components = [_load_component(c) for c in data.get("components", [])]
         self._by_id = {c.id: c for c in self._components}
         _LOGGER.info("Component catalog loaded: %d components", len(self._components))
@@ -77,6 +81,89 @@ class ComponentCatalog:
     async def get_categories(self, **kwargs: Any) -> list[dict[str, str | int]]:
         """Get all component categories with counts."""
         return self.categories
+
+    @api_command("components/get_integration_docs")
+    async def get_integration_docs(self, **kwargs: Any) -> dict[str, str]:
+        """Return ``{integration_name: docs_url}`` for resolvable integrations.
+
+        Returns a map covering every loaded-integration identifier we can
+        resolve to an esphome.io docs page.
+
+        ``loaded_integrations`` on a Device is a flat list of bare names
+        (``api``, ``ledc``, ``ltr390``, ``sensor``) — the storage_json
+        captures whatever ESPHome registered, with no category prefix.
+        The catalog's ids are ``<category>.<stem>`` for category-scoped
+        components and bare names for top-level ones, so we resolve by:
+
+        1. Exact id match (``api`` → catalog id ``api``).
+        2. Stem match (``ltr390`` → catalog id ``sensor.ltr390``); first
+           hit wins when multiple categories share a stem.
+        3. Category match (``sensor`` → ``https://esphome.io/components/sensor``,
+           the parent path of any ``sensor.*`` component's docs URL).
+           Only fills a slot a top-level component hasn't already claimed.
+
+        Names with no catalog hit are simply omitted — the frontend
+        renders them as plain text. The catalog's ``docs_url`` is sourced
+        from the live esphome.io docs index, so a present URL is also a
+        guarantee that the page exists.
+        """
+        # Three sources, applied in priority order:
+        #   1. Top-level component (id without ``.``) — wins outright.
+        #   2. Category landing — synthesised from any ``<cat>.<stem>``
+        #      docs URL's parent path. ``switch`` in loaded_integrations
+        #      means the switch *platform*, not the ``binary_sensor.switch``
+        #      driver, so the category landing must beat the stem.
+        #   3. Stem alias — picks up specific drivers like ``ltr390``
+        #      (catalog id ``sensor.ltr390``) that aren't named anywhere
+        #      else. Only used when every category in which the stem
+        #      appears agrees on the docs URL — otherwise we'd silently
+        #      pick one arbitrary page out of several conflicting ones
+        #      (e.g. ``binary_sensor.gpio`` vs ``switch.gpio``), so the
+        #      stem is dropped and the frontend renders it as plain
+        #      text. "If we have a docs page for it" demands one
+        #      unambiguous answer, not the first one we happen to see.
+        top_level: dict[str, str] = {}
+        category_urls: dict[str, str] = {}
+        stem_candidates: dict[str, set[str]] = {}
+        for comp in self._components:
+            comp_id = comp.id
+            docs = comp.docs_url
+            if not comp_id or not docs:
+                continue
+            if "." not in comp_id:
+                top_level[comp_id] = docs
+                continue
+            category, stem = comp_id.split(".", 1)
+            # ESPHome's docs site serves a real index page at
+            # ``/components/<category>/`` for every category that has
+            # subcomponents. Derive it from the docs URL only when the
+            # URL is genuinely under that path — some multi-platform
+            # components (``switch.at581x`` → ``/components/at581x``)
+            # are catalogued under a category for filtering but
+            # documented at a top-level URL outside any category.
+            marker = f"/components/{category}/"
+            idx = docs.find(marker)
+            if idx != -1:
+                category_urls.setdefault(category, docs[: idx + len(marker) - 1])
+            stem_candidates.setdefault(stem, set()).add(docs)
+
+        # Stems are unambiguous only when every category that owns the
+        # stem agrees on the same docs URL. Multi-platform components
+        # (``at581x``, ``rotary_encoder``) hit this path because they
+        # share a single docs page across categories.
+        stems: dict[str, str] = {
+            stem: next(iter(urls)) for stem, urls in stem_candidates.items() if len(urls) == 1
+        }
+
+        # ``dict.update()`` overwrites existing keys, so later writes
+        # win. Apply lowest priority first (stems), then category, then
+        # top-level — that way a colliding key is overridden by the
+        # more-specific page.
+        result: dict[str, str] = {}
+        result.update(stems)
+        result.update(category_urls)
+        result.update(top_level)
+        return result
 
     @api_command("components/get_component")
     async def get_component(

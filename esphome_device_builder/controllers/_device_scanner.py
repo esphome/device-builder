@@ -10,6 +10,7 @@ mtime, size) are used to avoid re-parsing files that haven't changed.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from enum import StrEnum
@@ -71,6 +72,14 @@ class DeviceScanner:
         self._get_metadata = get_metadata
         self._on_change = on_change
         self._devices: dict[Path, Device] = {}
+        # Name-keyed shadow index; mDNS / ping / MQTT observations
+        # arrive keyed by the device's ``esphome.name`` and need an
+        # O(1) lookup instead of an O(N) linear scan of every
+        # configured YAML on every announcement. The list is by
+        # design — two YAMLs can share a ``name:`` (a config plus a
+        # ``foo (1).yaml`` copy, dashboard_import siblings, etc.)
+        # and a single broadcast must fan out to all of them.
+        self._devices_by_name: dict[str, list[Device]] = {}
         self._cache_keys: dict[Path, _CacheKey] = {}
         self._lock = asyncio.Lock()
 
@@ -87,6 +96,18 @@ class DeviceScanner:
     def by_path(self) -> dict[Path, Device]:
         """Live mapping ``path → Device``. Treat as read-only."""
         return self._devices
+
+    def get_by_name(self, name: str) -> list[Device]:
+        """Every configured device whose ``esphome.name`` equals *name*.
+
+        Returns a fresh list (snapshot) — same shape as the
+        ``devices`` property. Callers can iterate / mutate the
+        return value without corrupting the scanner's internal
+        index, and the bucket order is the lexicographic
+        configuration-filename order maintained by ``_set_device``.
+        """
+        bucket = self._devices_by_name.get(name)
+        return list(bucket) if bucket else []
 
     async def scan(self) -> None:
         """Refresh the device cache from disk, emitting per-file change events."""
@@ -117,9 +138,9 @@ class DeviceScanner:
             device = loaded.get(path)
             if device is None:
                 return False
-            self._devices[path] = device
+            self._set_device(path, device)
             try:
-                stat = path.stat()
+                stat = await loop.run_in_executor(None, path.stat)
                 self._cache_keys[path] = (stat.st_ino, stat.st_dev, stat.st_mtime, stat.st_size)
             except OSError:
                 pass
@@ -148,13 +169,13 @@ class DeviceScanner:
         if paths_to_load:
             loaded = await loop.run_in_executor(None, self._load_devices, paths_to_load)
             for path, device in loaded.items():
-                self._devices[path] = device
+                self._set_device(path, device)
                 self._cache_keys[path] = path_to_cache_key[path]
                 kind = ScanChange.ADDED if path in added_paths else ScanChange.UPDATED
                 self._on_change(kind, device)
 
         for path in removed_paths:
-            removed_device: Device | None = self._devices.pop(path, None)  # type: ignore[arg-type]
+            removed_device = self._pop_device(path)
             self._cache_keys.pop(path, None)  # type: ignore[arg-type]
             if removed_device is not None:
                 self._on_change(ScanChange.REMOVED, removed_device)
@@ -166,12 +187,62 @@ class DeviceScanner:
         # comprehension), keeps the ``devices`` property O(n). Filter
         # to paths actually present so a YAML that failed to load
         # (caught + skipped in ``_load_devices``) doesn't trigger a
-        # ``KeyError`` here.
+        # ``KeyError`` here. ``_devices_by_name`` doesn't need a
+        # parallel re-sort — its values are name-keyed lists whose
+        # iteration order isn't user-visible.
         if added_paths or removed_paths:
             self._devices = {p: self._devices[p] for p in path_to_cache_key if p in self._devices}
             self._cache_keys = {
                 p: self._cache_keys[p] for p in path_to_cache_key if p in self._cache_keys
             }
+
+    def _set_device(self, path: Path, device: Device) -> None:
+        """Insert / update *device* and keep ``_devices_by_name`` in lockstep.
+
+        Buckets are sorted by ``configuration`` filename so
+        ``get_by_name`` (and downstream ``bucket[0]`` consumers like
+        ``_find_device_by_name``) see a deterministic order. Without
+        this, the order depends on ``paths_to_load`` set iteration
+        and can flip between scans, leaking spurious "first match"
+        flips through the apply / dedupe path.
+        """
+        previous = self._devices.get(path)
+        if previous is not None and previous.name != device.name:
+            # Renamed in YAML: drop from old name's bucket before
+            # re-inserting under the new one.
+            self._unindex_name(previous)
+        self._devices[path] = device
+        bucket = self._devices_by_name.setdefault(device.name, [])
+        if previous is not None:
+            with contextlib.suppress(ValueError):
+                bucket.remove(previous)
+        # Insert at the position that keeps the bucket sorted by
+        # configuration filename.
+        insert_at = 0
+        while insert_at < len(bucket) and bucket[insert_at].configuration < device.configuration:
+            insert_at += 1
+        if insert_at < len(bucket) and bucket[insert_at].configuration == device.configuration:
+            bucket[insert_at] = device  # same path, refreshed Device
+        else:
+            bucket.insert(insert_at, device)
+
+    def _pop_device(self, path: Path) -> Device | None:
+        """Drop the *path* entry, mirroring the removal in ``_devices_by_name``."""
+        device = self._devices.pop(path, None)
+        if device is not None:
+            self._unindex_name(device)
+        return device
+
+    def _unindex_name(self, device: Device) -> None:
+        bucket = self._devices_by_name.get(device.name)
+        if bucket is None:
+            return
+        try:
+            bucket.remove(device)
+        except ValueError:
+            return
+        if not bucket:
+            del self._devices_by_name[device.name]
 
     def _build_cache_keys(self) -> dict[Path, _CacheKey]:
         """Build ``path → cache_key`` for every YAML file currently on disk."""

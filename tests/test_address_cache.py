@@ -198,6 +198,7 @@ def test_command_places_cache_args_before_subcommand() -> None:
 
     assert cmd == [
         "esphome",
+        "--dashboard",
         "--mdns-address-cache",
         "kitchen.local=192.168.1.50",
         "run",
@@ -208,8 +209,13 @@ def test_command_places_cache_args_before_subcommand() -> None:
     ]
 
 
-def test_command_without_cache_args_unchanged() -> None:
-    """When there are no cache args, the command is identical to before."""
+def test_command_includes_dashboard_flag_with_no_cache_args() -> None:
+    """Even without cache args every job command carries ``--dashboard``.
+
+    The flag flips ESPHome's ``CORE.dashboard`` log-formatter mode so
+    ANSI colour codes survive the colorama strip when stdout is piped
+    to us — without it the dashboard log view renders monochrome.
+    """
     controller = _firmware_controller_with(None)
     cmd = controller._build_command(JobType.COMPILE, "kitchen.yaml", "")
-    assert cmd == ["esphome", "compile", "kitchen.yaml"]
+    assert cmd == ["esphome", "--dashboard", "compile", "kitchen.yaml"]

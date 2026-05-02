@@ -29,6 +29,8 @@ except ImportError:  # pragma: no cover — icmplib is optional
     NameLookupError = Exception  # type: ignore[assignment, misc]
     async_resolve = None  # type: ignore[assignment]
 
+from ..helpers.hostname import normalize_hostname
+
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_TTL_SECONDS = 120
@@ -79,6 +81,26 @@ class DNSCache:
             return None
         return list(addresses)
 
+    def has_cached_failure(self, hostname: str) -> bool:
+        """
+        Return ``True`` when *hostname* has a fresh cached failure entry.
+
+        Lets callers (the ping sweep) skip a hostname entirely without
+        even logging an attempt when we already know — within the cache
+        TTL — that resolution will fail. Literal IP addresses always
+        return ``False`` because they don't go through resolution.
+        """
+        normalized = self._normalize(hostname)
+        with suppress(ValueError):
+            ip_address(normalized)
+            return False
+
+        entry = self._cache.get(normalized)
+        if entry is None:
+            return False
+        expires_at, addresses = entry
+        return expires_at > time.monotonic() and not addresses
+
     async def async_resolve(self, hostname: str) -> list[str] | None:
         """
         Resolve *hostname* to a list of IPs, caching the result.
@@ -105,9 +127,7 @@ class DNSCache:
         self._cache[normalized] = (now + self._ttl, addresses)
         return list(addresses) if addresses else None
 
-    @staticmethod
-    def _normalize(hostname: str) -> str:
-        return hostname.rstrip(".").lower()
+    _normalize = staticmethod(normalize_hostname)
 
     async def _resolve(self, hostname: str) -> list[str] | None:
         """Resolve *hostname* with a ``.local`` → bare-hostname fallback."""

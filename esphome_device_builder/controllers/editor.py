@@ -8,13 +8,13 @@ schema-driven completion, etc.) will live here too.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..helpers.api import api_command
+from ..helpers.json import JSONDecodeError, dumps, loads
 from ..helpers.subprocess import create_subprocess_exec
 from .firmware import _find_esphome_cmd
 
@@ -99,7 +99,7 @@ class EditorController:
             return
         try:
             if proc.stdin is not None and not proc.stdin.is_closing():
-                proc.stdin.write(json.dumps({"type": "exit"}).encode() + b"\n")
+                proc.stdin.write(dumps({"type": "exit"}) + b"\n")
                 await proc.stdin.drain()
                 proc.stdin.close()
         except Exception:  # pylint: disable=broad-except
@@ -183,7 +183,7 @@ class EditorController:
         assert proc is not None and proc.stdin is not None and proc.stdout is not None
 
         request = {"type": "validate", "file": configuration}
-        proc.stdin.write(json.dumps(request).encode() + b"\n")
+        proc.stdin.write(dumps(request) + b"\n")
         await proc.stdin.drain()
 
         while True:
@@ -191,15 +191,17 @@ class EditorController:
             if not line:
                 raise RuntimeError("esphome vscode subprocess closed stdout")
             try:
-                msg = json.loads(line.decode("utf-8", errors="replace"))
-            except json.JSONDecodeError:
+                # The subprocess emits one UTF-8 JSON object per line;
+                # orjson decodes bytes directly so no .decode() round-trip.
+                msg = loads(line)
+            except JSONDecodeError:
                 continue
 
             msg_type = msg.get("type")
             if msg_type == "read_file":
                 file_content = self._resolve_file(msg.get("path", ""), configuration, content)
                 response = {"type": "file_response", "content": file_content}
-                proc.stdin.write(json.dumps(response).encode() + b"\n")
+                proc.stdin.write(dumps(response) + b"\n")
                 await proc.stdin.drain()
             elif msg_type == "result":
                 return {

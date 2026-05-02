@@ -29,6 +29,12 @@ class JobType(StrEnum):
     # ``platformio_cache/`` — forces the next compile to re-download
     # toolchains and re-fetch external components from scratch.
     RESET_BUILD_ENV = "reset_build_env"
+    # ``esphome rename`` — internally validates, writes a new YAML,
+    # compiles, OTA-installs the new firmware, and only then drops
+    # the old YAML. Routed through the firmware queue so it shows up
+    # in the firmware-tasks list with live output instead of running
+    # silently in the background.
+    RENAME = "rename"
 
 
 @dataclass
@@ -51,6 +57,9 @@ class FirmwareJob(DataClassORJSONMixin):
     output: list[str] = field(default_factory=list)
     error: str | None = None
     port: str = ""  # for upload jobs
+    # New device name for ``rename`` jobs. Plumbed through to the
+    # ``esphome rename`` CLI. Empty for every other job type.
+    new_name: str = ""
     # Coarse progress estimate parsed from PlatformIO/esptool output
     # (0-100, monotonically non-decreasing while the job runs).
     # ``None`` when the underlying tooling hasn't emitted a percentage

@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 from contextlib import suppress
@@ -22,9 +23,9 @@ from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 from esphome.storage_json import StorageJSON, ext_storage_path
 
 from ..controllers.config import _load_metadata, metadata_transaction
-from ..helpers.api import api_command
+from ..helpers.api import CommandError, api_command
 from ..helpers.subprocess import create_subprocess_exec
-from ..models import EventType, FirmwareJob, JobStatus, JobType
+from ..models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -42,13 +43,31 @@ _ERROR_PATTERNS = [
     "command not found",
 ]
 
-# Progress markers in PlatformIO / esptool output. Both phases emit
-# integer percentages we can latch onto:
-#   - PIO compile:  ``[ 17%] Compiling ...``
-#   - esptool:      ``Writing at 0x... (45 %)\r``
-# We accept either form (with or without the space before ``%``) and
-# pull the first match per line.
-_PROGRESS_PATTERN = re.compile(r"\[?\s*(\d{1,3})\s*%\]?")
+# Progress markers we actually want to surface as job.progress. The
+# original wide-open ``\d{1,3}%`` regex matched anything carrying a
+# percent sign — including PlatformIO's startup "Unpacking [###] 100%"
+# package-extract bar and the post-compile "RAM: 19.3%" / "Flash:
+# 80.0%" memory-usage report. Both pinned the bar to non-monotonic
+# garbage long before the build's actual progress signal arrived.
+# Tightened to a whitelist of three known-real progress shapes:
+#
+#   * PlatformIO Arduino compile:    ``[ 17%] Compiling foo.cpp.o``
+#     The percentage MUST start the line and live inside square
+#     brackets so PIO's ESP-IDF builds (which don't emit a per-file
+#     percent at all) and the package-extract bar (no ``[NN%]`` shape)
+#     never trip it.
+#   * esptool serial flash:          ``Writing at 0x10000... (45 %)``
+#     We match a bare parenthesized percentage anywhere in the line:
+#     ``(\s*\d{1,3}\s*%\s*\)``. In practice that is enough for esptool
+#     progress, and no other expected PIO/ESPHome output uses parens
+#     around a bare percentage.
+#   * ESPHome OTA upload:            ``Uploading: [====] 100% Done...``
+#     Anchored to the ``Uploading:`` prefix.
+_PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^\s*\[\s*(\d{1,3})\s*%\s*\]"),
+    re.compile(r"\(\s*(\d{1,3})\s*%\s*\)"),
+    re.compile(r"^\s*Uploading:.*?\b(\d{1,3})\s*%"),
+)
 
 # How long to wait for a SIGTERM'd subprocess to exit before we
 # escalate to SIGKILL. ESPHome / PlatformIO usually clean up promptly;
@@ -114,6 +133,23 @@ def _trim_job_output(job: FirmwareJob) -> None:
     ]
 
 
+def _names_touched_by_job(job: FirmwareJob) -> set[str]:
+    """YAML filenames a job will read or write.
+
+    Used by the rename-lock check to spot collisions between an
+    in-flight rename and any other job. A rename has two: the old
+    YAML it's reading from (``configuration``) and the new YAML it
+    will create on install success (``new_name + ".yaml"``). Every
+    other job type touches just one — its ``configuration``.
+    """
+    names: set[str] = set()
+    if job.configuration:
+        names.add(job.configuration)
+    if job.job_type == JobType.RENAME and job.new_name:
+        names.add(f"{job.new_name}.yaml")
+    return names
+
+
 def _find_esphome_cmd() -> list[str]:
     """Locate the ``esphome`` CLI, preferring the same interpreter as ours.
 
@@ -144,31 +180,122 @@ def _find_esphome_cmd() -> list[str]:
 def _parse_progress(line: str) -> int | None:
     """Extract a 0-100 progress percentage from a build/flash output line.
 
-    Returns ``None`` when the line carries no recognisable percentage.
-    Out-of-range values (a stray "999%" in a log message) are
-    discarded so the field stays a clean 0-100.
+    Returns ``None`` when the line doesn't match one of the known
+    progress shapes (see ``_PROGRESS_PATTERNS``). Stray ``%`` signs
+    elsewhere in the build output (Unpacking bars, memory-usage
+    reports) are intentionally ignored.
     """
-    match = _PROGRESS_PATTERN.search(line)
-    if match is None:
-        return None
-    value = int(match.group(1))
-    if 0 <= value <= 100:
-        return value
+    for pattern in _PROGRESS_PATTERNS:
+        match = pattern.search(line)
+        if match is None:
+            continue
+        value = int(match.group(1))
+        if 0 <= value <= 100:
+            return value
     return None
+
+
+def _signal_process_group(pid: int, sig: int) -> bool:
+    """
+    Send *sig* to the process group of *pid*; return True iff delivered.
+
+    Used to take down the whole esphome → platformio → gcc tree when
+    the user hits Stop. ``proc.terminate()`` / ``proc.kill()`` only
+    signal the direct child (the python esphome process), so the
+    compiler grandchildren keep running and the build effectively
+    ignores the cancel. Pair this with ``start_new_session=True`` at
+    the spawn site: that makes the spawned process the leader of a
+    new session (and a new process group), and its descendants
+    inherit that group. The dashboard process itself is *not* in the
+    same group — ``killpg(getpgid(spawned_pid), sig)`` therefore
+    targets the build subtree without touching us.
+
+    POSIX-only — ``os.getpgid`` / ``os.killpg`` don't exist on Windows.
+    The Windows path goes through ``_terminate_subtree_windows`` instead.
+
+    Falls back gracefully:
+    * ``ProcessLookupError`` — the process already exited; nothing to do.
+    * ``PermissionError`` — we lost the right to signal it; treat as a
+      no-op rather than crashing the controller.
+    """
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        return False
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        _LOGGER.warning("Permission denied signalling pgid %d (sig %s)", pgid, sig)
+        return False
+    return True
+
+
+async def _terminate_subtree_windows(pid: int) -> bool:
+    """
+    Forcibly kill *pid* and its descendants on Windows; return True iff successful.
+
+    Windows has no process groups in the POSIX sense, so we shell out to
+    ``taskkill /F /T /PID`` — ``/T`` walks the parent-child tree from
+    *pid* down, ``/F`` is the forceful equivalent of SIGKILL. There's no
+    useful "polite" stage here: a compile chain (esphome → platformio →
+    gcc / esptool) ignores ``WM_CLOSE`` / ``CTRL_BREAK_EVENT`` anyway,
+    so we go straight to the kill.
+
+    Returns False (and logs a warning) when ``taskkill`` is missing,
+    times out, or exits non-zero (access denied, invalid pid, partial
+    failure). The caller should fall back to ``proc.kill()`` so the
+    parent at least dies even when the tree-walk fails.
+    """
+    try:
+        killer = await create_subprocess_exec(
+            "taskkill",
+            "/F",
+            "/T",
+            "/PID",
+            str(pid),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        _LOGGER.warning("taskkill not found on PATH — can't tree-kill pid %d", pid)
+        return False
+    try:
+        await asyncio.wait_for(killer.wait(), timeout=_TERMINATE_GRACE_SECONDS)
+    except TimeoutError:
+        _LOGGER.warning("taskkill timed out for pid %d", pid)
+        with suppress(ProcessLookupError):
+            killer.kill()
+        return False
+    if killer.returncode != 0:
+        _LOGGER.warning(
+            "taskkill exited %s for pid %d — caller should fall back to proc.kill()",
+            killer.returncode,
+            pid,
+        )
+        return False
+    return True
 
 
 def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
     """Sanity-check that ``cmd`` can actually import esphome.
 
-    Runs ``cmd --version`` synchronously with a short timeout. Used at
-    backend startup so misconfigured environments (venv missing
-    esphome, wrong sys.executable, broken shim script) surface as a
-    clear log line rather than a cryptic "No module named esphome"
-    output captured during the user's first compile attempt.
+    Runs ``cmd --dashboard --version`` synchronously with a short
+    timeout. Used at backend startup so misconfigured environments
+    (venv missing esphome, wrong sys.executable, broken shim script)
+    surface as a clear log line rather than a cryptic "No module named
+    esphome" output captured during the user's first compile attempt.
+
+    ``--dashboard`` is included in the probe so we also fail fast on
+    an installed ESPHome that doesn't recognise the flag (very old
+    builds): every real job command now passes ``--dashboard``, so a
+    sanity check without it would let a broken pairing slip through to
+    the user's first compile.
     """
     try:
         proc = subprocess.run(  # noqa: S603 — cmd is built from sys.executable, not user input
-            [*cmd, "--version"],
+            [*cmd, "--dashboard", "--version"],
             capture_output=True,
             text=True,
             timeout=15,
@@ -274,13 +401,41 @@ class FirmwareController:
         job = self._create_job(configuration, JobType.INSTALL, port=port)
         return await self._enqueue(job)
 
+    @api_command("firmware/rename")
+    async def rename(self, *, configuration: str, new_name: str, **kwargs: Any) -> FirmwareJob:
+        """Queue a rename: compile + OTA-install the new firmware.
+
+        Atomically swap the YAML on the dashboard once the install
+        succeeds.
+
+        Routed through the same single-job queue so it can't race a
+        compile or install — and so it appears in the firmware-tasks
+        list with live output instead of running silently in the
+        background as it used to. ``esphome rename`` itself is
+        responsible for keeping the old YAML around until the install
+        succeeds; if the install fails the CLI rolls back the
+        new-YAML write and the user can retry against the unchanged
+        old hostname.
+        """
+        job = self._create_job(configuration, JobType.RENAME, new_name=new_name)
+        return await self._enqueue(job)
+
     @api_command("firmware/compile_bulk")
     async def compile_bulk(self, *, configurations: list[str], **kwargs: Any) -> list[FirmwareJob]:
-        """Queue compile for multiple devices."""
-        jobs = []
+        """Queue compile for multiple devices.
+
+        Per-device errors (most commonly the rename lock) skip that
+        device and keep going so a single locked configuration in a
+        bulk request doesn't abort the queue for everyone else.
+        """
+        jobs: list[FirmwareJob] = []
         for config in configurations:
-            job = self._create_job(config, JobType.COMPILE)
-            await self._enqueue(job)
+            try:
+                job = self._create_job(config, JobType.COMPILE)
+                await self._enqueue(job)
+            except CommandError as exc:
+                _LOGGER.info("Skipping %s in compile_bulk: %s", config, exc.message)
+                continue
             jobs.append(job)
         return jobs
 
@@ -288,11 +443,20 @@ class FirmwareController:
     async def install_bulk(
         self, *, configurations: list[str], port: str = "OTA", **kwargs: Any
     ) -> list[FirmwareJob]:
-        """Queue update (compile + upload) for multiple devices. Defaults to OTA."""
-        jobs = []
+        """Queue update (compile + upload) for multiple devices. Defaults to OTA.
+
+        Per-device errors (most commonly the rename lock) skip that
+        device and keep going — a rename-in-flight on one of the
+        selected devices shouldn't abort the install for the rest.
+        """
+        jobs: list[FirmwareJob] = []
         for config in configurations:
-            job = self._create_job(config, JobType.INSTALL, port=port)
-            await self._enqueue(job)
+            try:
+                job = self._create_job(config, JobType.INSTALL, port=port)
+                await self._enqueue(job)
+            except CommandError as exc:
+                _LOGGER.info("Skipping %s in install_bulk: %s", config, exc.message)
+                continue
             jobs.append(job)
         return jobs
 
@@ -650,7 +814,7 @@ class FirmwareController:
 
             config_path = str(self._db.settings.rel_path(job.configuration))
             cache_args = self._build_cache_args(job)
-            cmd = self._build_command(job.job_type, config_path, job.port, cache_args)
+            cmd = self._build_command(job.job_type, config_path, job.port, cache_args, job.new_name)
             _LOGGER.debug("Running: %s", " ".join(cmd))
 
             # Force ANSI color output even though stdout isn't a TTY.
@@ -672,6 +836,14 @@ class FirmwareController:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=env,
+                # Put the whole esphome → platformio → gcc tree in its
+                # own process group so ``_terminate_current_process``
+                # can signal the entire chain, not just the python
+                # parent. Without this, killing the parent leaves the
+                # compiler children orphaned and the build keeps
+                # running until they finish on their own — exactly the
+                # "stop compile doesn't work" symptom.
+                start_new_session=True,
             )
             self._current_process = proc
 
@@ -816,18 +988,35 @@ class FirmwareController:
             await self._persist_jobs()
 
     async def _terminate_current_process(self) -> None:
-        """Send SIGTERM to the running subprocess; escalate if it lingers.
+        """Signal the running subprocess (and its children); escalate if it lingers.
 
         The runner loop is the one that actually finalises the
         ``FirmwareJob`` on exit (so we don't double-write status from
         two coroutines). We only nudge the process here.
+
+        ESPHome forks PlatformIO which forks gcc / esptool / etc. The
+        spawn site uses ``start_new_session=True`` (POSIX) so the whole
+        tree shares a process group; we signal the group instead of
+        just the python parent — without that, the compiler children
+        get orphaned and the build keeps going until they finish.
+
+        Windows has no process groups in the POSIX sense; we use
+        ``taskkill /F /T`` to walk the parent-child tree from the
+        kernel's accounting and force-kill the whole subtree in one
+        shot. There's no graceful SIGTERM stage on Windows because the
+        compile chain doesn't honour any of the polite signals.
         """
         proc = self._current_process
         if proc is None or proc.returncode is not None:
             return
-        try:
-            proc.terminate()
-        except ProcessLookupError:
+        if sys.platform == "win32":
+            if not await _terminate_subtree_windows(proc.pid):
+                # taskkill missing or hung — at least put the parent down
+                # so the runner loop can finalise the job.
+                with suppress(ProcessLookupError):
+                    proc.kill()
+            return
+        if not _signal_process_group(proc.pid, signal.SIGTERM):
             return
         try:
             await asyncio.wait_for(proc.wait(), timeout=_TERMINATE_GRACE_SECONDS)
@@ -837,8 +1026,7 @@ class FirmwareController:
                 self._current_job.job_id if self._current_job else "?",
                 _TERMINATE_GRACE_SECONDS,
             )
-            with suppress(ProcessLookupError):
-                proc.kill()
+            _signal_process_group(proc.pid, signal.SIGKILL)
 
     async def _reset_build_env(self, job: FirmwareJob) -> None:
         """
@@ -966,6 +1154,7 @@ class FirmwareController:
         config_path: str,
         port: str,
         cache_args: list[str] | None = None,
+        new_name: str = "",
     ) -> list[str]:
         """Build the esphome CLI command for a given job type."""
         cmd_map = {
@@ -973,25 +1162,44 @@ class FirmwareController:
             JobType.UPLOAD: "upload",
             JobType.INSTALL: "run",
             JobType.CLEAN: "clean",
+            JobType.RENAME: "rename",
         }
         # cache_args go before the subcommand — esphome's argparse parses
         # them on the top-level parser, not the per-subcommand one.
-        cmd = [*self._esphome_cmd, *(cache_args or []), cmd_map[job_type], config_path]
+        # ``--dashboard`` flips ESPHome's log formatter into "escape ANSI
+        # as literal text" mode, which survives the colorama strip when
+        # stdout is piped to us; the frontend's ansi-log component then
+        # un-escapes and renders the colours.
+        cmd = [
+            *self._esphome_cmd,
+            "--dashboard",
+            *(cache_args or []),
+            cmd_map[job_type],
+            config_path,
+        ]
         if job_type == JobType.INSTALL:
             # Without --no-logs the CLI tails logs forever after the
             # upload, never returning — the job would never complete.
             cmd.append("--no-logs")
         if job_type in (JobType.UPLOAD, JobType.INSTALL) and port:
             cmd.extend(["--device", port])
+        if job_type == JobType.RENAME:
+            # ``esphome rename`` takes the new name as a positional
+            # arg. The CLI handles the inner compile + install + old
+            # YAML cleanup itself; we let the queue runner stream its
+            # output the same way it does for any other build.
+            cmd.append(new_name)
         return cmd
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
         """Return ``--mdns/--dns-address-cache`` args for *job*, or empty."""
         # Only OTA uploads benefit — serial flashes don't talk to the
-        # device's network address at all.
-        if job.job_type not in (JobType.UPLOAD, JobType.INSTALL):
+        # device's network address at all. ``rename`` does an internal
+        # OTA install via ``esphome run`` against the *old* address, so
+        # the same cache shortcut applies.
+        if job.job_type not in (JobType.UPLOAD, JobType.INSTALL, JobType.RENAME):
             return []
-        if job.port != "OTA":
+        if job.job_type != JobType.RENAME and job.port != "OTA":
             return []
         if self._db.devices is None:
             return []
@@ -1001,7 +1209,13 @@ class FirmwareController:
     # Internals — job management
     # ------------------------------------------------------------------
 
-    def _create_job(self, configuration: str, job_type: JobType, port: str = "") -> FirmwareJob:
+    def _create_job(
+        self,
+        configuration: str,
+        job_type: JobType,
+        port: str = "",
+        new_name: str = "",
+    ) -> FirmwareJob:
         """Create a new job and add it to the in-memory map."""
         job = FirmwareJob(
             job_id=uuid4().hex[:12],
@@ -1009,6 +1223,7 @@ class FirmwareController:
             job_type=job_type,
             created_at=datetime.now(UTC).isoformat(),
             port=port,
+            new_name=new_name,
         )
         self._jobs[job.job_id] = job
         return job
@@ -1027,13 +1242,58 @@ class FirmwareController:
         drop the old entry silently rather than parking it in the
         "Recent" history. Reset jobs (empty configuration) skip the
         supersede.
+
+        Rejects with ``CommandError(INVALID_ARGS)`` when an in-flight
+        ``RENAME`` job has the new job's configuration locked. Rename
+        rewrites the YAML mid-flight (old YAML still on disk during
+        compile, new YAML only written on install success), so a
+        compile/install/clean/upload — or another rename targeting the
+        same old or new name — would fight for files the rename is
+        actively reading or about to write. Same-old-config rename
+        retries are allowed through so the supersede path can cancel
+        and replace.
         """
+        self._check_rename_lock(job)
         await self._queue.put(job)
         self._db.bus.fire(EventType.JOB_QUEUED, {"job": job})
         if job.configuration:
             await self._supersede_active_jobs(job.configuration, exclude_job_id=job.job_id)
         await self._persist_jobs()
         return job
+
+    def _check_rename_lock(self, job: FirmwareJob) -> None:
+        """Reject jobs that would clash with an in-flight rename.
+
+        A rename touches two YAML filenames: the old one it's reading
+        from and the new one it'll create on install success. Any
+        other job that touches either name would either fight for the
+        same file or land its work on a half-flashed device. The one
+        exception is a fresh ``RENAME`` on the same old configuration
+        — that's an explicit user retry / target-name change and the
+        supersede path is meant to cancel-and-replace.
+        """
+        new_touches = _names_touched_by_job(job)
+        if not new_touches:
+            return
+        for active in self._jobs.values():
+            if active.job_type != JobType.RENAME:
+                continue
+            if active.status not in (JobStatus.QUEUED, JobStatus.RUNNING):
+                continue
+            # Same-old-config rename retry: let supersede do its thing.
+            if job.job_type == JobType.RENAME and job.configuration == active.configuration:
+                continue
+            clash = new_touches & _names_touched_by_job(active)
+            if not clash:
+                continue
+            old = active.configuration
+            new = f"{active.new_name}.yaml" if active.new_name else "(unknown)"
+            msg = (
+                f"Device {old} is being renamed to {new}; wait for the "
+                f"rename to finish before queueing another firmware "
+                f"task on either name."
+            )
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
     async def _supersede_active_jobs(self, configuration: str, *, exclude_job_id: str) -> None:
         """Cancel queued/running jobs for ``configuration``."""

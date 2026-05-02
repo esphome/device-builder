@@ -5,8 +5,26 @@ from __future__ import annotations
 from collections.abc import Callable, Coroutine
 from typing import Any
 
+from ..models import ErrorCode
+
 # Type alias for command handler functions
 CommandHandler = Callable[..., Coroutine[Any, Any, Any]]
+
+
+class CommandError(Exception):
+    """A user-facing error raised by an ``api_command`` handler.
+
+    The WS dispatcher catches these and forwards the carried ``code``
+    + ``message`` verbatim to the client, instead of swallowing them
+    as a generic ``INTERNAL_ERROR``. Use this when the failure has a
+    specific reason the user can act on (file already exists, name
+    invalid, etc.) — not for crashes / bugs.
+    """
+
+    def __init__(self, code: ErrorCode, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 def api_command(command: str) -> Callable[[CommandHandler], CommandHandler]:

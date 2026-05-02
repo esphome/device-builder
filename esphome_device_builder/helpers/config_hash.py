@@ -1,5 +1,5 @@
 """
-Compute the ``config_hash`` of a device YAML.
+Read the ``config_hash`` of a freshly-built device.
 
 ESPHome internally hashes a fully-resolved-and-sorted dump of the
 config (FNV-1a 32-bit) and exposes it as ``CORE.config_hash``. The
@@ -7,115 +7,101 @@ running firmware exposes the same value via ``App.get_config_hash()``,
 which esphome/esphome#16145 also publishes on the
 ``_esphomelib._tcp`` mDNS service as the ``config_hash`` TXT record.
 
-Computing the hash on the dashboard side requires running ESPHome's
-``read_config()`` — that resolves substitutions / packages, validates
-component schemas, and populates ``CORE.config``. It also mutates
-process-global state (``CORE``), which is why we run it in a
-subprocess instead of in-process.
+The hash is sensitive to *post-codegen* state — each component's
+``to_code`` runs after validation and can mutate the config
+(id-pinning, default backfill, normalisation), and ``CORE.config_hash``
+is read in ``writer.get_build_info`` after that pass has run. So a
+naive "rerun ``read_config`` and read the property" produces a value
+that disagrees with the firmware's broadcast — verified empirically
+on real Apollo float-monitor configs (pre-codegen ``f3e21d5a`` vs
+firmware's ``5a94a12d``).
 
-The hash is the 8-char lowercase hex format used by the mDNS TXT
-record. Returns ``None`` when the YAML doesn't validate or the
-subprocess fails for any reason — ``has_pending_changes`` then falls
-back to its mtime check.
+Rather than reproduce the codegen pipeline ourselves (heavyweight,
+fragile across ESPHome upgrades), we read the authoritative value
+out of ``<build_path>/build_info.json``. ESPHome writes that file
+after every successful build with the canonical hash. The
+device-builder sidecar persists the value across cleans, so a wiped
+build directory still has a recent value to fall back to until the
+next compile rewrites it.
+
+Returns the hash as an 8-char lowercase hex string — matching the
+mDNS TXT record shape. ``None`` on miss / parse failure;
+``compute_has_pending_changes`` then falls back to the mtime check.
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
-import re
-import sys
 from pathlib import Path
 
-from .subprocess import create_subprocess_exec
+from esphome.storage_json import StorageJSON
+
+from .json import JSONDecodeError, loads
 
 _LOGGER = logging.getLogger(__name__)
 
-# Inline script run as ``python -c <SCRIPT> <yaml_path>``. Run in a
-# subprocess because ``read_config()`` mutates the process-global
-# ``CORE`` and importing it in our event-loop process would leak that
-# state into every later compile.
-_HASH_SCRIPT = (
-    "import sys\n"
-    "from pathlib import Path\n"
-    "from esphome.__main__ import read_config\n"
-    "from esphome.core import CORE\n"
-    # ESPHome's loader uses ``CORE.config_path`` via ``Path`` ops, so a
-    # bare string raises ``AttributeError`` deep inside ``yaml_util``.
-    "CORE.config_path = Path(sys.argv[1])\n"
-    # ``read_config`` returns the resolved config dict and *sets*
-    # ``CORE.raw_config`` — but it does NOT assign ``CORE.config``.
-    # The CLI's ``run_esphome`` does that step manually after the
-    # call, and the ``config_hash`` property hashes ``CORE.config``
-    # specifically (a ``None`` here yields a meaningless-but-stable
-    # hash for every config). Mirror the CLI's assignment.
-    "config = read_config({})\n"
-    "if config is None:\n"
-    "    sys.exit(1)\n"
-    "CORE.config = config\n"
-    "print(f'{CORE.config_hash:08x}')\n"
-)
-
-# 8 lowercase hex chars — same shape the firmware broadcasts.
-_HASH_RE = re.compile(r"\b([0-9a-f]{8})\b")
-
-# Computing a hash for a "normal" device runs in well under a second on
-# warm caches; the 60s ceiling protects against pathological YAMLs that
-# pull a slow external component or a remote package on a cold cache.
-_HASH_TIMEOUT_SECONDS = 60.0
+_BUILD_INFO_FILENAME = "build_info.json"
 
 
 async def compute_yaml_config_hash(yaml_path: Path) -> str | None:
     """
     Return the 8-char lowercase hex ``config_hash`` for *yaml_path*.
 
-    Returns ``None`` when the YAML can't be validated or the hash
-    can't be computed for any other reason. Callers should treat
-    ``None`` as "fall back to mtime-based change detection" rather
-    than as an error to propagate.
+    Resolves the device's build directory via the ESPHome
+    ``StorageJSON`` sidecar and reads ``build_info.json`` from
+    there. Returns ``None`` when the device has never been built,
+    the build directory was wiped, or the file is corrupt — callers
+    should treat ``None`` as "keep the previously-stored hash"
+    (typically already in our metadata sidecar) rather than an
+    error to propagate.
     """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, read_build_info_hash, yaml_path)
+
+
+def read_build_info_hash(yaml_path: Path) -> str | None:
+    """Read the canonical hash off disk synchronously.
+
+    Public-by-convention so the device-scanner metadata resolver —
+    which runs in a thread executor and needs the hash inline with
+    the per-file board_id / ip lookups — can call it directly without
+    re-entering the asyncio loop just to dispatch back to the same
+    executor. Returns the same value ``compute_yaml_config_hash``
+    awaits to.
+
+    Resolves ``StorageJSON`` from ``<yaml_dir>/.esphome/storage/<name>.json``
+    instead of ``ext_storage_path``. ``ext_storage_path`` is a thin
+    wrapper around ``CORE.data_dir`` that crashes when CORE hasn't
+    been initialised — fine in production (the dashboard sets
+    ``CORE.config_path`` on startup) but a footgun in tests, where
+    leaving the helper coupled to global CORE state would force
+    every test fixture to spin up a CORE just to read a JSON file.
+    """
+    config_dir = yaml_path.parent
+    storage_path = config_dir / ".esphome" / "storage" / f"{yaml_path.name}.json"
+    storage = StorageJSON.load(storage_path)
+    if storage is None or storage.build_path is None:
+        return None
+    build_info_path = Path(storage.build_path) / _BUILD_INFO_FILENAME
     try:
-        proc = await create_subprocess_exec(
-            sys.executable,
-            "-c",
-            _HASH_SCRIPT,
-            str(yaml_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        raw = build_info_path.read_bytes()
+    except FileNotFoundError:
+        # Fresh device or post-clean — nothing to read.
+        return None
     except OSError:
-        _LOGGER.exception("Could not start config_hash subprocess for %s", yaml_path)
+        _LOGGER.warning("Could not read %s", build_info_path, exc_info=True)
         return None
-
     try:
-        stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=_HASH_TIMEOUT_SECONDS)
-    except TimeoutError:
-        _LOGGER.warning(
-            "config_hash computation timed out after %.0fs for %s",
-            _HASH_TIMEOUT_SECONDS,
-            yaml_path,
-        )
-        # Race: the subprocess may have exited between the timeout
-        # firing and ``kill()`` being called — swallow the lookup
-        # error so a recoverable timeout doesn't bubble up.
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        await proc.wait()
+        data = loads(raw)
+    except JSONDecodeError:
+        _LOGGER.warning("build_info.json at %s is corrupt — ignoring", build_info_path)
         return None
-
-    if proc.returncode != 0:
-        _LOGGER.debug(
-            "config_hash subprocess for %s exited %s — falling back to mtime check",
-            yaml_path,
-            proc.returncode,
-        )
+    config_hash = data.get("config_hash") if isinstance(data, dict) else None
+    if not isinstance(config_hash, int):
         return None
-
-    # ``read_config`` itself prints validation warnings to stdout, so we
-    # scan rather than assume the hash is the only line. The script's
-    # final ``print(f'{...:08x}')`` always emits exactly 8 hex chars on
-    # its own line, so the *last* match wins if multiple show up.
-    text = stdout_bytes.decode("utf-8", errors="replace")
-    matches = _HASH_RE.findall(text)
-    return matches[-1] if matches else None
+    # ESPHome stores the hash as a 32-bit unsigned int. Format to the
+    # 8-char lowercase hex shape the mDNS TXT record carries so the
+    # comparison against ``deployed_config_hash`` is a straight
+    # string equality.
+    return f"{config_hash & 0xFFFFFFFF:08x}"

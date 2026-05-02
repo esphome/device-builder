@@ -1,0 +1,96 @@
+"""Smoke test for ``components/get_integration_docs``.
+
+Loads the real shipped catalog so the keys we expect users to see
+linked actually round-trip — this is the same data that drives the
+frontend's loaded-integration tags. A regression in the lookup logic
+(stem stripping, top-level priority) would silently turn a user's
+``api`` chip into plain text, so spot-check the common cases here.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from esphome_device_builder.controllers.components import ComponentCatalog
+
+
+@pytest.fixture
+def catalog() -> ComponentCatalog:
+    cat = ComponentCatalog()
+    cat.load()
+    return cat
+
+
+async def test_top_level_components_resolved(catalog: ComponentCatalog) -> None:
+    """Top-level catalog ids land on esphome.io/components/<id>."""
+    docs = await catalog.get_integration_docs()
+    for name in ("api", "wifi", "ethernet", "mdns", "logger", "web_server"):
+        assert name in docs, f"missing top-level docs for {name}"
+        assert docs[name].startswith("https://esphome.io/components/")
+
+
+async def test_category_landing_pages_resolved(catalog: ComponentCatalog) -> None:
+    """Category names like ``sensor`` / ``ota`` / ``light`` resolve too.
+
+    The URL is synthesized from any subcomponent's docs URL parent path.
+    """
+    docs = await catalog.get_integration_docs()
+    for category in ("sensor", "binary_sensor", "ota", "light", "switch"):
+        assert category in docs, f"missing category landing for {category}"
+        assert docs[category].rstrip("/").endswith(f"/components/{category}")
+
+
+async def test_stem_match_for_category_scoped_components(
+    catalog: ComponentCatalog,
+) -> None:
+    """A bare ``ltr390`` resolves to the sensor.ltr390 docs page."""
+    docs = await catalog.get_integration_docs()
+    assert "ltr390" in docs
+    # Pin the exact path so a regression that silently picks a
+    # different category for the stem fails this assertion instead of
+    # trivially passing on a substring.
+    assert docs["ltr390"].rstrip("/").endswith("/components/sensor/ltr390")
+
+
+async def test_top_level_wins_over_stem(catalog: ComponentCatalog) -> None:
+    """When a top-level id and a stem collide, top-level claims the key.
+
+    ``api`` exists as a top-level component page; the ``api`` key in the
+    map must point at the top-level docs URL, not at any nested page
+    that happens to share the stem.
+    """
+    docs = await catalog.get_integration_docs()
+    assert "api" in docs, "api top-level component must always resolve"
+    assert docs["api"].rstrip("/").endswith("/components/api")
+
+
+async def test_ambiguous_stems_omitted(catalog: ComponentCatalog) -> None:
+    """Stems that resolve to multiple distinct docs URLs are dropped.
+
+    ``gpio`` is the canonical case — ``binary_sensor.gpio``,
+    ``switch.gpio``, ``output.gpio`` etc. each have their own page. We
+    can't pick one without misleading the user, so the bare ``gpio``
+    name must NOT be in the map (frontend then renders it as plain
+    text). The category landing for any of those parent categories
+    still works — this only guards the stem-alias slot.
+    """
+    docs = await catalog.get_integration_docs()
+    # If a future catalog change consolidates gpio docs we may need to
+    # revisit this; today they're distinct URLs across categories.
+    if "gpio" in docs:
+        # Only acceptable when every collision converges on the same URL.
+        # Surface the URL for the failure message so it's easy to
+        # diagnose without re-running locally.
+        msg = (
+            f"gpio resolved to {docs['gpio']!r} — expected omission because "
+            "binary_sensor/switch/output gpio variants have distinct docs URLs"
+        )
+        raise AssertionError(msg)
+
+
+async def test_unknown_integration_omitted(catalog: ComponentCatalog) -> None:
+    """Names without a catalog hit are simply absent from the map."""
+    docs = await catalog.get_integration_docs()
+    # ``runtime_stats``-style helpers don't have a docs page; verify
+    # the contract by picking one that definitely won't exist.
+    assert "definitely_not_a_component_xyzzy" not in docs

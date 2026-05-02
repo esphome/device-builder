@@ -10,6 +10,9 @@ Covers the parts that don't require a live broker:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
 from pathlib import Path
 from typing import ClassVar
 
@@ -387,3 +390,96 @@ def test_ping_can_rescue_after_mdns_offline() -> None:
     monitor._state_source.pop("alpha", None)
     assert monitor.apply("alpha", DeviceState.ONLINE, "ping") is True
     assert transitions[-1] == ("alpha", DeviceState.ONLINE, "ping")
+
+
+# ---------------------------------------------------------------------------
+# DeviceMqttMonitor._listen — retained-message filtering
+# ---------------------------------------------------------------------------
+
+
+async def test_listen_drops_retained_discover_messages() -> None:
+    """A retained ``esphome/discover/<name>`` must not flip the device online.
+
+    Retained messages get delivered the moment we subscribe — they're a
+    snapshot of the device's *last* publish, not proof that it's reachable
+    now. Treating one as an online observation ghost-onlines a dead
+    device until the offline timeout catches up.
+
+    Synchronisation: queue a retained message followed by a fresh one
+    and only assert after the fresh message's callback fires. That
+    proves ``_listen`` actually drained the queue past the retained
+    entry rather than racing the cancel — no ``sleep(0)`` heuristics.
+    """
+    state_calls: list[tuple[str, DeviceState]] = []
+    fresh_seen = asyncio.Event()
+
+    def on_state(name: str, state: DeviceState) -> None:
+        state_calls.append((name, state))
+        fresh_seen.set()
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=on_state,
+        on_ip_change=lambda *_: None,
+    )
+
+    class _RetainedMessage:
+        topic = "esphome/discover/stress-esp32"
+        payload = json.dumps({"name": "stress-esp32", "ip": "10.0.0.1"}).encode()
+        retain = True
+
+    class _FreshMessage:
+        topic = "esphome/discover/kitchen"
+        payload = json.dumps({"name": "kitchen", "ip": "10.0.0.2"}).encode()
+        retain = False
+
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put(_RetainedMessage())
+    await queue.put(_FreshMessage())
+
+    listen_task = asyncio.create_task(monitor._listen(queue))
+    try:
+        await asyncio.wait_for(fresh_seen.wait(), timeout=1.0)
+    finally:
+        listen_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await listen_task
+
+    # Only the fresh message produced a callback — the retained one was dropped.
+    assert state_calls == [("kitchen", DeviceState.ONLINE)]
+
+
+async def test_listen_processes_fresh_discover_messages() -> None:
+    """A fresh (non-retained) discover message updates state and IP."""
+    state_calls: list[tuple[str, DeviceState]] = []
+    ip_calls: list[tuple[str, str]] = []
+    seen = asyncio.Event()
+
+    def on_state(name: str, state: DeviceState) -> None:
+        state_calls.append((name, state))
+        seen.set()
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=on_state,
+        on_ip_change=lambda n, ip: ip_calls.append((n, ip)),
+    )
+
+    class _FreshMessage:
+        topic = "esphome/discover/kitchen"
+        payload = json.dumps({"name": "kitchen", "ip": "10.0.0.5"}).encode()
+        retain = False
+
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put(_FreshMessage())
+
+    listen_task = asyncio.create_task(monitor._listen(queue))
+    try:
+        await asyncio.wait_for(seen.wait(), timeout=1.0)
+    finally:
+        listen_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await listen_task
+
+    assert state_calls == [("kitchen", DeviceState.ONLINE)]
+    assert ip_calls == [("kitchen", "10.0.0.5")]

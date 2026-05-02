@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -114,6 +115,10 @@ async def test_session_store_persists_across_instances(tmp_path: Path) -> None:
     assert fetched.token == session.token
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX file modes don't apply on Windows; ACLs are a different story.",
+)
 async def test_session_store_persists_with_restrictive_permissions(tmp_path: Path) -> None:
     """The persisted file is mode 0600 — readable only by the owner."""
     store = SessionStore(tmp_path)
@@ -606,15 +611,23 @@ def _make_ws_client(
     fake_ws = MagicMock()
     sent: list[dict] = []
 
-    async def _send_str(payload: str) -> None:
-        import orjson
-
-        sent.append(orjson.loads(payload))
+    async def _send_json(data: Any, *, dumps: Any = None) -> None:
+        # Mirror aiohttp's behaviour: the production code always
+        # passes a custom ``dumps`` callable (the orjson wrapper), and
+        # only the serialised string ever lands on the wire. Round-
+        # trip through that callable here so the test catches payloads
+        # that aren't actually JSON-serialisable — without this the
+        # mock silently accepts anything (e.g. a dict with non-string
+        # keys) and the bug would only surface in production.
+        if dumps is not None:
+            sent.append(json.loads(dumps(data)))
+        else:
+            sent.append(data)
 
     async def _close(*_: Any, **__: Any) -> None:
         pass
 
-    fake_ws.send_str = _send_str
+    fake_ws.send_json = _send_json
     fake_ws.close = _close
 
     client = WebSocketClient(fake_ws, db, remote=remote, authenticated=authenticated, token=None)
