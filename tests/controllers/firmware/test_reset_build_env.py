@@ -29,40 +29,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.config import DashboardSettings
-from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware.constants import _RESET_BUILD_ENV_TARGETS
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
-
-
-def _controller(tmp_path: Path) -> FirmwareController:
-    """Build a controller with a real config_dir and stubbed queue / persistence.
-
-    Same shape as ``test_install._controller`` — bypass ``__init__``
-    so we don't have to seed a full ``DeviceBuilder``, then attach
-    the surface ``reset_build_env`` and ``_reset_build_env``
-    actually touch (settings.config_dir for ``.esphome``,
-    ``self._queue`` / ``self._persist_jobs`` /
-    ``self._supersede_active_jobs`` for the enqueue path,
-    ``self._db.bus`` for ``JOB_*`` broadcasts,
-    ``self._cancel_requested`` for the mid-run cancel check).
-    """
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
-
-    controller = FirmwareController.__new__(FirmwareController)
-    controller._jobs = {}
-    controller._queue = AsyncMock()
-    controller._persist_jobs = AsyncMock()
-    controller._supersede_active_jobs = AsyncMock()
-    controller._cancel_requested = set()
-
-    bus = MagicMock()
-    bus.fire = MagicMock()
-    controller._db = type("DB", (), {"settings": settings, "bus": bus})()
-    return controller
-
 
 # ---------------------------------------------------------------------------
 # Handler wiring
@@ -70,7 +38,9 @@ def _controller(tmp_path: Path) -> FirmwareController:
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_returns_queued_job_with_reset_type(tmp_path: Path) -> None:
+async def test_reset_build_env_returns_queued_job_with_reset_type(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """Happy path: the handler returns a ``QUEUED`` job of type ``RESET_BUILD_ENV``.
 
     Pin both ``status`` and ``job_type`` so a future regression
@@ -78,7 +48,7 @@ async def test_reset_build_env_returns_queued_job_with_reset_type(tmp_path: Path
     before the runner picks it up) shows up immediately. The
     frontend's job-table renders the row from these two fields.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     job = await controller.reset_build_env()
 
@@ -87,7 +57,9 @@ async def test_reset_build_env_returns_queued_job_with_reset_type(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_uses_empty_configuration(tmp_path: Path) -> None:
+async def test_reset_build_env_uses_empty_configuration(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """``configuration`` is ``""`` — reset is global, not per-device.
 
     Documented contract in the handler's docstring; pinned here so
@@ -97,7 +69,7 @@ async def test_reset_build_env_uses_empty_configuration(tmp_path: Path) -> None:
     refresh-scheduling logic relies on
     (``test_helpers.test_names_touched_by_job_with_empty_configuration_is_empty``).
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     job = await controller.reset_build_env()
 
@@ -105,9 +77,11 @@ async def test_reset_build_env_uses_empty_configuration(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_registers_job_in_jobs_map(tmp_path: Path) -> None:
+async def test_reset_build_env_registers_job_in_jobs_map(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """The new job lands in ``self._jobs`` so ``cancel`` / ``follow_job`` can find it."""
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     job = await controller.reset_build_env()
 
@@ -115,7 +89,9 @@ async def test_reset_build_env_registers_job_in_jobs_map(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_fires_job_queued_after_enqueue(tmp_path: Path) -> None:
+async def test_reset_build_env_fires_job_queued_after_enqueue(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """``_queue.put`` runs *before* the ``JOB_QUEUED`` broadcast.
 
     Same ordering invariant as ``install`` /
@@ -130,7 +106,7 @@ async def test_reset_build_env_fires_job_queued_after_enqueue(tmp_path: Path) ->
     parent.queue.put = AsyncMock()
     parent.bus.fire = MagicMock()
 
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     controller._queue = parent.queue
     controller._db.bus = parent.bus
 
@@ -145,7 +121,9 @@ async def test_reset_build_env_fires_job_queued_after_enqueue(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_accepts_arbitrary_kwargs(tmp_path: Path) -> None:
+async def test_reset_build_env_accepts_arbitrary_kwargs(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """``reset_build_env`` is declared with ``**kwargs`` and ignores extras.
 
     Every ``firmware/*`` handler accepts ``**kwargs`` so the WS
@@ -155,7 +133,7 @@ async def test_reset_build_env_accepts_arbitrary_kwargs(tmp_path: Path) -> None:
     that tightens the signature would silently break those WS
     calls until they're individually retested.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     job = await controller.reset_build_env(client=object(), message_id="m1", spurious=True)
 
@@ -191,7 +169,9 @@ def _seed_targets(config_dir: Path, *, names: tuple[str, ...] = _RESET_BUILD_ENV
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_runner_removes_each_target(tmp_path: Path) -> None:
+async def test_reset_build_env_runner_removes_each_target(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """Every directory in ``_RESET_BUILD_ENV_TARGETS`` is removed.
 
     Uses the upstream constant so a future addition to the target
@@ -199,7 +179,7 @@ async def test_reset_build_env_runner_removes_each_target(tmp_path: Path) -> Non
     the test passes only if each named directory is gone after
     the runner finishes.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     _seed_targets(tmp_path)
     job = _make_job()
 
@@ -212,7 +192,9 @@ async def test_reset_build_env_runner_removes_each_target(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_runner_marks_job_completed(tmp_path: Path) -> None:
+async def test_reset_build_env_runner_marks_job_completed(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """Successful completion sets ``COMPLETED`` + ``exit_code=0`` + ``progress=100``.
 
     The dashboard's job row uses ``status`` for the badge,
@@ -221,7 +203,7 @@ async def test_reset_build_env_runner_marks_job_completed(tmp_path: Path) -> Non
     ``JOB_COMPLETED`` event so a frontend reading the post-event
     state sees a fully-finished job.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     _seed_targets(tmp_path)
     job = _make_job()
 
@@ -233,7 +215,9 @@ async def test_reset_build_env_runner_marks_job_completed(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_runner_fires_job_completed(tmp_path: Path) -> None:
+async def test_reset_build_env_runner_fires_job_completed(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """``JOB_COMPLETED`` fires with the finished job in its payload.
 
     Pairs with the run-followers panel: without this event the
@@ -241,7 +225,7 @@ async def test_reset_build_env_runner_fires_job_completed(tmp_path: Path) -> Non
     in the all-jobs view, even though the runner's local state
     flipped to COMPLETED.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     _seed_targets(tmp_path)
     job = _make_job()
 
@@ -251,7 +235,9 @@ async def test_reset_build_env_runner_fires_job_completed(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_runner_streams_output_lines(tmp_path: Path) -> None:
+async def test_reset_build_env_runner_streams_output_lines(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """Progress lines hit both ``job.output`` and the bus.
 
     The follower-side ``follow_job`` panel renders lines from
@@ -260,7 +246,7 @@ async def test_reset_build_env_runner_streams_output_lines(tmp_path: Path) -> No
     see the same content; pin a representative line on each side
     so a refactor that drops one of the two writes surfaces here.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     _seed_targets(tmp_path)
     job = _make_job()
 
@@ -286,7 +272,9 @@ async def test_reset_build_env_runner_streams_output_lines(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_runner_skips_missing_targets(tmp_path: Path) -> None:
+async def test_reset_build_env_runner_skips_missing_targets(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """A target that doesn't exist is logged as skipped, not fatal.
 
     Fresh installs don't have ``platformio_cache/`` until the
@@ -295,7 +283,7 @@ async def test_reset_build_env_runner_skips_missing_targets(tmp_path: Path) -> N
     targets and confirming the runner completes (status COMPLETED)
     while still naming the missing ones in the output.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     # Only seed the build dir; external_components and platformio_cache absent.
     _seed_targets(tmp_path, names=("build",))
     job = _make_job()
@@ -312,7 +300,9 @@ async def test_reset_build_env_runner_skips_missing_targets(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_runner_no_op_when_esphome_absent(tmp_path: Path) -> None:
+async def test_reset_build_env_runner_no_op_when_esphome_absent(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """``.esphome/`` not yet created → "Nothing to do" + COMPLETED.
 
     Edge case for never-compiled config dirs: the runner shouldn't
@@ -320,7 +310,7 @@ async def test_reset_build_env_runner_no_op_when_esphome_absent(tmp_path: Path) 
     because the targets don't exist. Pins the early-exit branch
     that checks ``esphome_root.exists()``.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     # Don't call _seed_targets — leave .esphome absent entirely.
     job = _make_job()
 
@@ -333,7 +323,9 @@ async def test_reset_build_env_runner_no_op_when_esphome_absent(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_reset_build_env_runner_honours_cancel_between_targets(tmp_path: Path) -> None:
+async def test_reset_build_env_runner_honours_cancel_between_targets(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """Cancellation requested mid-run stops before the next target.
 
     ``shutil.rmtree`` isn't interruptible from another coroutine,
@@ -349,7 +341,7 @@ async def test_reset_build_env_runner_honours_cancel_between_targets(tmp_path: P
       ``self._cancel_requested``) so a re-queued job with the same
       id wouldn't auto-cancel.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     _seed_targets(tmp_path)
     job = _make_job()
     controller._cancel_requested.add(job.job_id)

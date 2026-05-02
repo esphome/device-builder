@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     ErrorCode,
@@ -29,13 +28,6 @@ from esphome_device_builder.models import (
     JobStatus,
     JobType,
 )
-
-
-def _controller(*active: FirmwareJob) -> FirmwareController:
-    """Build a stub controller with just the bits ``_check_rename_lock`` reads."""
-    controller = FirmwareController.__new__(FirmwareController)
-    controller._jobs = {j.job_id: j for j in active}
-    return controller
 
 
 def _job(
@@ -55,9 +47,9 @@ def _job(
     )
 
 
-def test_install_on_old_name_is_rejected() -> None:
+def test_install_on_old_name_is_rejected(firmware_controller_factory) -> None:
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
-    controller = _controller(rename)
+    controller = firmware_controller_factory(rename, with_settings=False)
     new = _job("inst1", "kitchen.yaml", JobType.INSTALL)
 
     with pytest.raises(CommandError) as excinfo:
@@ -68,42 +60,42 @@ def test_install_on_old_name_is_rejected() -> None:
     assert "livingroom.yaml" in excinfo.value.message
 
 
-def test_install_on_new_name_is_rejected() -> None:
+def test_install_on_new_name_is_rejected(firmware_controller_factory) -> None:
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
-    controller = _controller(rename)
+    controller = firmware_controller_factory(rename, with_settings=False)
     new = _job("inst1", "livingroom.yaml", JobType.INSTALL)
 
     with pytest.raises(CommandError):
         controller._check_rename_lock(new)
 
 
-def test_compile_on_unrelated_config_is_allowed() -> None:
+def test_compile_on_unrelated_config_is_allowed(firmware_controller_factory) -> None:
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
-    controller = _controller(rename)
+    controller = firmware_controller_factory(rename, with_settings=False)
 
     controller._check_rename_lock(_job("c1", "garage.yaml", JobType.COMPILE))
 
 
-def test_rename_targeting_same_new_name_is_rejected() -> None:
+def test_rename_targeting_same_new_name_is_rejected(firmware_controller_factory) -> None:
     """Two renames pointing at the same target name would fight to write it."""
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
-    controller = _controller(rename)
+    controller = firmware_controller_factory(rename, with_settings=False)
     second = _job("rn2", "garage.yaml", JobType.RENAME, new_name="livingroom")
 
     with pytest.raises(CommandError):
         controller._check_rename_lock(second)
 
 
-def test_rename_retry_on_same_old_config_is_allowed() -> None:
+def test_rename_retry_on_same_old_config_is_allowed(firmware_controller_factory) -> None:
     """Fresh rename on the same OLD config goes through so supersede can cancel-and-replace."""
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
-    controller = _controller(rename)
+    controller = firmware_controller_factory(rename, with_settings=False)
     retry = _job("rn2", "kitchen.yaml", JobType.RENAME, new_name="bedroom")
 
     controller._check_rename_lock(retry)
 
 
-def test_lock_lifts_when_rename_terminates() -> None:
+def test_lock_lifts_when_rename_terminates(firmware_controller_factory) -> None:
     """Terminal-status rename no longer holds the lock."""
     rename = _job(
         "rn1",
@@ -112,13 +104,13 @@ def test_lock_lifts_when_rename_terminates() -> None:
         new_name="livingroom",
         status=JobStatus.COMPLETED,
     )
-    controller = _controller(rename)
+    controller = firmware_controller_factory(rename, with_settings=False)
 
     controller._check_rename_lock(_job("inst1", "kitchen.yaml", JobType.INSTALL))
     controller._check_rename_lock(_job("inst2", "livingroom.yaml", JobType.INSTALL))
 
 
-def test_running_rename_blocks_install() -> None:
+def test_running_rename_blocks_install(firmware_controller_factory) -> None:
     """RUNNING jobs hold the lock just like QUEUED ones do."""
     rename = _job(
         "rn1",
@@ -127,14 +119,16 @@ def test_running_rename_blocks_install() -> None:
         new_name="livingroom",
         status=JobStatus.RUNNING,
     )
-    controller = _controller(rename)
+    controller = firmware_controller_factory(rename, with_settings=False)
 
     with pytest.raises(CommandError):
         controller._check_rename_lock(_job("inst1", "kitchen.yaml", JobType.INSTALL))
 
 
 @pytest.mark.asyncio
-async def test_install_bulk_skips_locked_configs_and_queues_the_rest() -> None:
+async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
+    firmware_controller_factory,
+) -> None:
     """A rename-locked device in a bulk request must not abort the others.
 
     Bulk install is the user pattern for "update everything that has
@@ -151,7 +145,7 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest() -> None:
         new_name="livingroom",
         status=JobStatus.RUNNING,
     )
-    controller = _controller(rename)
+    controller = firmware_controller_factory(rename, with_settings=False)
     controller._queue = AsyncMock()
     controller._db = type(
         "DB",

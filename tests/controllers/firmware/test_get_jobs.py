@@ -18,11 +18,8 @@ noticing.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 
-from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
 
 
@@ -43,24 +40,13 @@ def _job(
     )
 
 
-def _controller(*jobs: FirmwareJob) -> FirmwareController:
-    """Bare-bones controller — ``get_jobs`` / ``get_job`` only read ``self._jobs``."""
-    controller = FirmwareController.__new__(FirmwareController)
-    controller._jobs = {j.job_id: j for j in jobs}
-    # Stub the bits ``__init__`` would have set so debug logging /
-    # unrelated paths don't ``AttributeError`` if a future
-    # refactor touches them inside the inspectors.
-    controller._persist_jobs = AsyncMock()
-    return controller
-
-
 # ---------------------------------------------------------------------------
 # get_jobs
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_returns_every_job_when_unfiltered() -> None:
+async def test_get_jobs_returns_every_job_when_unfiltered(firmware_controller_factory) -> None:
     """No filters → every job in the map is returned.
 
     The all-jobs panel calls this on cold-start to populate the
@@ -71,7 +57,7 @@ async def test_get_jobs_returns_every_job_when_unfiltered() -> None:
     a = _job("a")
     b = _job("b")
     c = _job("c")
-    controller = _controller(a, b, c)
+    controller = firmware_controller_factory(a, b, c, with_settings=False)
 
     result = await controller.get_jobs()
 
@@ -79,7 +65,7 @@ async def test_get_jobs_returns_every_job_when_unfiltered() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_sorts_newest_first_by_created_at() -> None:
+async def test_get_jobs_sorts_newest_first_by_created_at(firmware_controller_factory) -> None:
     """Result is sorted by ``created_at`` descending (newest first).
 
     The dashboard renders the list top-down; newest at the top
@@ -92,7 +78,7 @@ async def test_get_jobs_sorts_newest_first_by_created_at() -> None:
     new = _job("new", created_at="2026-01-03T00:00:00+00:00")
     # Insert order intentionally not-sorted so the test catches
     # "returns dict insertion order" as a false positive.
-    controller = _controller(middle, old, new)
+    controller = firmware_controller_factory(middle, old, new, with_settings=False)
 
     result = await controller.get_jobs()
 
@@ -100,7 +86,7 @@ async def test_get_jobs_sorts_newest_first_by_created_at() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_filters_by_status() -> None:
+async def test_get_jobs_filters_by_status(firmware_controller_factory) -> None:
     """``status`` filter keeps only jobs whose status matches.
 
     Frontend uses this to render the "Recently completed" panel
@@ -110,7 +96,7 @@ async def test_get_jobs_filters_by_status() -> None:
     queued = _job("q", status=JobStatus.QUEUED)
     running = _job("r", status=JobStatus.RUNNING)
     completed = _job("c", status=JobStatus.COMPLETED)
-    controller = _controller(queued, running, completed)
+    controller = firmware_controller_factory(queued, running, completed, with_settings=False)
 
     result = await controller.get_jobs(status=JobStatus.COMPLETED)
 
@@ -118,12 +104,12 @@ async def test_get_jobs_filters_by_status() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_filters_by_configuration() -> None:
+async def test_get_jobs_filters_by_configuration(firmware_controller_factory) -> None:
     """``configuration`` filter keeps only jobs for that YAML."""
     kitchen = _job("k", configuration="kitchen.yaml")
     garage = _job("g", configuration="garage.yaml")
     office = _job("o", configuration="office.yaml")
-    controller = _controller(kitchen, garage, office)
+    controller = firmware_controller_factory(kitchen, garage, office, with_settings=False)
 
     result = await controller.get_jobs(configuration="garage.yaml")
 
@@ -131,12 +117,16 @@ async def test_get_jobs_filters_by_configuration() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_combines_status_and_configuration_filters() -> None:
+async def test_get_jobs_combines_status_and_configuration_filters(
+    firmware_controller_factory,
+) -> None:
     """Both filters compose with AND semantics."""
     kitchen_queued = _job("kq", configuration="kitchen.yaml", status=JobStatus.QUEUED)
     kitchen_done = _job("kd", configuration="kitchen.yaml", status=JobStatus.COMPLETED)
     garage_done = _job("gd", configuration="garage.yaml", status=JobStatus.COMPLETED)
-    controller = _controller(kitchen_queued, kitchen_done, garage_done)
+    controller = firmware_controller_factory(
+        kitchen_queued, kitchen_done, garage_done, with_settings=False
+    )
 
     result = await controller.get_jobs(configuration="kitchen.yaml", status=JobStatus.COMPLETED)
 
@@ -144,7 +134,9 @@ async def test_get_jobs_combines_status_and_configuration_filters() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_filter_with_no_matches_returns_empty_list() -> None:
+async def test_get_jobs_filter_with_no_matches_returns_empty_list(
+    firmware_controller_factory,
+) -> None:
     """A filter that matches nothing returns ``[]``, not a raise.
 
     Distinct from ``get_job`` (which returns ``None`` for an
@@ -153,7 +145,9 @@ async def test_get_jobs_filter_with_no_matches_returns_empty_list() -> None:
     "no jobs match"; raising would force every caller to add a
     try/except for a perfectly valid query.
     """
-    controller = _controller(_job("a", status=JobStatus.COMPLETED))
+    controller = firmware_controller_factory(
+        _job("a", status=JobStatus.COMPLETED), with_settings=False
+    )
 
     result = await controller.get_jobs(status=JobStatus.RUNNING)
 
@@ -161,9 +155,9 @@ async def test_get_jobs_filter_with_no_matches_returns_empty_list() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_on_empty_controller_returns_empty_list() -> None:
+async def test_get_jobs_on_empty_controller_returns_empty_list(firmware_controller_factory) -> None:
     """An empty job map → empty list (cold-start contract)."""
-    controller = _controller()
+    controller = firmware_controller_factory(with_settings=False)
 
     assert await controller.get_jobs() == []
 
@@ -174,7 +168,7 @@ async def test_get_jobs_on_empty_controller_returns_empty_list() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_job_returns_the_matching_job_for_known_id() -> None:
+async def test_get_job_returns_the_matching_job_for_known_id(firmware_controller_factory) -> None:
     """Known id → the ``FirmwareJob`` instance, full object including ``output``.
 
     Frontend uses this to fetch the full output buffer when the
@@ -183,7 +177,7 @@ async def test_get_job_returns_the_matching_job_for_known_id() -> None:
     """
     target = _job("target")
     other = _job("other")
-    controller = _controller(target, other)
+    controller = firmware_controller_factory(target, other, with_settings=False)
 
     result = await controller.get_job(job_id="target")
 
@@ -191,7 +185,7 @@ async def test_get_job_returns_the_matching_job_for_known_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_job_returns_none_for_unknown_id() -> None:
+async def test_get_job_returns_none_for_unknown_id(firmware_controller_factory) -> None:
     """Unknown id → ``None``, NOT a raise.
 
     Distinct from ``cancel`` and ``follow_job``, which both
@@ -200,13 +194,13 @@ async def test_get_job_returns_none_for_unknown_id() -> None:
     "is this job still tracked?" without having to handle an
     exception for the negative answer.
     """
-    controller = _controller(_job("present"))
+    controller = firmware_controller_factory(_job("present"), with_settings=False)
 
     assert await controller.get_job(job_id="ghost") is None
 
 
 @pytest.mark.asyncio
-async def test_get_job_does_not_mutate_state() -> None:
+async def test_get_job_does_not_mutate_state(firmware_controller_factory) -> None:
     """Pure read — the call doesn't mutate ``self._jobs`` or persist anything.
 
     Belt-and-braces: a future refactor that, say, lazy-removes
@@ -215,7 +209,7 @@ async def test_get_job_does_not_mutate_state() -> None:
     up here forces a docs / migration discussion.
     """
     target = _job("target")
-    controller = _controller(target)
+    controller = firmware_controller_factory(target, with_settings=False)
     before = dict(controller._jobs)
 
     await controller.get_job(job_id="target")

@@ -22,39 +22,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.config import DashboardSettings
-from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, EventType, JobStatus, JobType
 
 
-def _controller(tmp_path: Path) -> FirmwareController:
-    """Build a controller wired to a real ``DashboardSettings`` for path validation.
-
-    Mirrors ``test_install.py`` / ``test_upload.py``'s helper —
-    the validator inside ``compile`` calls ``rel_path``, which
-    needs a real ``config_dir`` / ``absolute_config_dir``.
-    Everything else (queue, persistence, supersede check, bus)
-    is stubbed.
-    """
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
-
-    controller = FirmwareController.__new__(FirmwareController)
-    controller._jobs = {}
-    controller._queue = AsyncMock()
-    controller._persist_jobs = AsyncMock()
-    controller._supersede_active_jobs = AsyncMock()
-
-    bus = MagicMock()
-    bus.fire = MagicMock()
-    controller._db = type("DB", (), {"settings": settings, "bus": bus})()
-    return controller
-
-
 @pytest.mark.asyncio
-async def test_compile_returns_queued_job_with_compile_type(tmp_path: Path) -> None:
+async def test_compile_returns_queued_job_with_compile_type(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """Happy path: handler returns a ``QUEUED`` ``FirmwareJob`` of type ``COMPILE``.
 
     The frontend's "live tasks" panel keys off ``status`` and
@@ -63,7 +38,7 @@ async def test_compile_returns_queued_job_with_compile_type(tmp_path: Path) -> N
     (``INSTALL`` is the obvious accident since the install
     handler delegates through the same queue).
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.compile(configuration="kitchen.yaml")
@@ -74,7 +49,9 @@ async def test_compile_returns_queued_job_with_compile_type(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_compile_rejects_traversal_configuration(tmp_path: Path) -> None:
+async def test_compile_rejects_traversal_configuration(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """A traversal-shaped configuration trips the boundary validator.
 
     The validator helper itself is fully covered in
@@ -85,7 +62,7 @@ async def test_compile_rejects_traversal_configuration(tmp_path: Path) -> None:
     could path-traverse via ``configuration`` even though every
     other handler stays gated.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     with pytest.raises(CommandError) as exc:
         await controller.compile(configuration="../etc/passwd")
@@ -94,7 +71,9 @@ async def test_compile_rejects_traversal_configuration(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_compile_enqueues_before_firing_job_queued(tmp_path: Path) -> None:
+async def test_compile_enqueues_before_firing_job_queued(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """``_queue.put`` runs *before* the ``JOB_QUEUED`` broadcast.
 
     Same race-prevention contract as ``install`` and ``upload``:
@@ -115,7 +94,7 @@ async def test_compile_enqueues_before_firing_job_queued(tmp_path: Path) -> None
     parent.queue.put = AsyncMock()
     parent.bus.fire = MagicMock()
 
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     controller._queue = parent.queue
     controller._db.bus = parent.bus
     (tmp_path / "kitchen.yaml").write_text("")
@@ -131,7 +110,9 @@ async def test_compile_enqueues_before_firing_job_queued(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_compile_registers_job_in_jobs_map(tmp_path: Path) -> None:
+async def test_compile_registers_job_in_jobs_map(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """The new job lands in ``self._jobs`` keyed by ``job_id``.
 
     Subsequent ``firmware/get_jobs`` / ``firmware/cancel`` /
@@ -139,7 +120,7 @@ async def test_compile_registers_job_in_jobs_map(tmp_path: Path) -> None:
     forgetting to register it here would leave those handlers
     raising ``"Job not found"`` for a job the user just queued.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.compile(configuration="kitchen.yaml")

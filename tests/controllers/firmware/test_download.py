@@ -30,21 +30,7 @@ from typing import Any
 
 import pytest
 
-from esphome_device_builder.controllers.config import DashboardSettings
-from esphome_device_builder.controllers.firmware import FirmwareController
 from tests._storage_fixtures import write_storage_json
-
-
-def _controller(tmp_path: Path) -> FirmwareController:
-    """Stub controller wired to a real ``DashboardSettings.rel_path``."""
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
-
-    controller = FirmwareController.__new__(FirmwareController)
-    controller._jobs = {}
-    controller._db = type("DB", (), {"settings": settings})()
-    return controller
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +63,9 @@ def _make_firmware(build_dir: Path, name: str, payload: bytes) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_download_raises_when_storage_missing(tmp_path: Path) -> None:
+async def test_download_raises_when_storage_missing(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """No StorageJSON sidecar at all → user hasn't compiled this device yet.
 
     The storage sidecar is the only place the dashboard knows where
@@ -85,14 +73,16 @@ async def test_download_raises_when_storage_missing(tmp_path: Path) -> None:
     Surface the actionable error rather than letting an opaque ``None``
     crash deeper in the handler.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     with pytest.raises(FileNotFoundError, match="No firmware binary"):
         await controller.download(configuration="kitchen.yaml", file="firmware.bin")
 
 
 @pytest.mark.asyncio
-async def test_download_raises_when_firmware_bin_path_unset(tmp_path: Path) -> None:
+async def test_download_raises_when_firmware_bin_path_unset(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """Sidecar exists but ``firmware_bin_path`` is None → same actionable error.
 
     Happens when the compile aborted before the link stage (e.g.
@@ -102,14 +92,16 @@ async def test_download_raises_when_firmware_bin_path_unset(tmp_path: Path) -> N
     frontend handles both identically.
     """
     write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=None)
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     with pytest.raises(FileNotFoundError, match="No firmware binary"):
         await controller.download(configuration="kitchen.yaml", file="firmware.bin")
 
 
 @pytest.mark.asyncio
-async def test_download_raises_on_traversal_in_file(tmp_path: Path) -> None:
+async def test_download_raises_on_traversal_in_file(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """A ``file`` value escaping the build dir trips ``Path.relative_to``.
 
     The traversal guard exists because ``file`` reaches the handler
@@ -125,14 +117,16 @@ async def test_download_raises_on_traversal_in_file(tmp_path: Path) -> None:
     write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
     # Drop a file outside build_dir that the traversal would reach.
     (tmp_path / "secret.txt").write_text("nope", encoding="utf-8")
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     with pytest.raises(ValueError):
         await controller.download(configuration="kitchen.yaml", file="../../../secret.txt")
 
 
 @pytest.mark.asyncio
-async def test_download_raises_when_binary_missing(tmp_path: Path) -> None:
+async def test_download_raises_when_binary_missing(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """Sidecar + build dir present but the requested file isn't there.
 
     Distinct from ``firmware_bin_path`` being unset: the compile
@@ -143,7 +137,7 @@ async def test_download_raises_when_binary_missing(tmp_path: Path) -> None:
     build_dir = tmp_path / ".esphome" / "build" / "kitchen"
     fw = _make_firmware(build_dir, "firmware.bin", b"\x00" * 16)
     write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     with pytest.raises(FileNotFoundError, match=r"Binary not found: missing\.bin"):
         await controller.download(configuration="kitchen.yaml", file="missing.bin")
@@ -155,7 +149,9 @@ async def test_download_raises_when_binary_missing(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_download_returns_base64_payload_uncompressed(tmp_path: Path) -> None:
+async def test_download_returns_base64_payload_uncompressed(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """Default path returns ``{filename, data, size, compressed=False}``.
 
     ``filename`` is ``<storage.name>-<file>``; ``data`` is the
@@ -166,7 +162,7 @@ async def test_download_returns_base64_payload_uncompressed(tmp_path: Path) -> N
     build_dir = tmp_path / ".esphome" / "build" / "kitchen"
     fw = _make_firmware(build_dir, "firmware.bin", payload)
     write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     result = await controller.download(configuration="kitchen.yaml", file="firmware.bin")
 
@@ -177,7 +173,9 @@ async def test_download_returns_base64_payload_uncompressed(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_download_validator_runs_before_ext_storage_path(tmp_path: Path) -> None:
+async def test_download_validator_runs_before_ext_storage_path(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """``ext_storage_path`` is unsafe in isolation; the validator gate matters.
 
     Pinning this so a future refactor that drops or re-orders
@@ -211,7 +209,7 @@ async def test_download_validator_runs_before_ext_storage_path(tmp_path: Path) -
 
     controller_module.ext_storage_path = _spy
 
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
     with pytest.raises(CommandError) as excinfo:
         await controller.download(configuration="../../etc/passwd", file="firmware.bin")
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
@@ -221,7 +219,9 @@ async def test_download_validator_runs_before_ext_storage_path(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_download_returns_gzipped_payload_when_compressed(tmp_path: Path) -> None:
+async def test_download_returns_gzipped_payload_when_compressed(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """``compressed=True`` gzips the bytes and tacks ``.gz`` onto the filename.
 
     Web Serial flashing skips this path — it asks for raw bytes and
@@ -233,7 +233,7 @@ async def test_download_returns_gzipped_payload_when_compressed(tmp_path: Path) 
     build_dir = tmp_path / ".esphome" / "build" / "kitchen"
     fw = _make_firmware(build_dir, "firmware.bin", payload)
     write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     result = await controller.download(
         configuration="kitchen.yaml", file="firmware.bin", compressed=True

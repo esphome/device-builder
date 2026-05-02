@@ -30,25 +30,11 @@ from typing import Any
 import pytest
 from esphome.components.esp32 import VARIANTS as _ESP32_VARIANTS
 
-from esphome_device_builder.controllers.config import DashboardSettings
-from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware.controller import (
     _LIBRETINY_TARGET_PLATFORMS,
     _resolve_download_component,
 )
 from tests._storage_fixtures import write_storage_json
-
-
-def _controller(tmp_path: Path) -> FirmwareController:
-    """Stub controller wired to a real ``DashboardSettings.rel_path``."""
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
-
-    controller = FirmwareController.__new__(FirmwareController)
-    controller._jobs = {}
-    controller._db = type("DB", (), {"settings": settings})()
-    return controller
 
 
 @pytest.fixture(autouse=True)
@@ -170,7 +156,9 @@ def test_resolve_download_component_handles_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_binaries_returns_empty_when_storage_missing(tmp_path: Path) -> None:
+async def test_get_binaries_returns_empty_when_storage_missing(
+    tmp_path: Path, firmware_controller_factory
+) -> None:
     """No StorageJSON sidecar → empty list, NOT a raise.
 
     Distinct contract from ``download``: the dashboard's "Web
@@ -180,7 +168,7 @@ async def test_get_binaries_returns_empty_when_storage_missing(tmp_path: Path) -
     whole listing; returning ``[]`` lets the picker show "compile
     first" inline.
     """
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
@@ -189,7 +177,7 @@ async def test_get_binaries_returns_empty_when_storage_missing(tmp_path: Path) -
 
 @pytest.mark.asyncio
 async def test_get_binaries_returns_empty_when_target_platform_missing(
-    tmp_path: Path,
+    tmp_path: Path, firmware_controller_factory
 ) -> None:
     """Sidecar exists but ``target_platform`` is empty → empty list.
 
@@ -200,7 +188,7 @@ async def test_get_binaries_returns_empty_when_target_platform_missing(
     so the listing keeps rendering.
     """
     write_storage_json(tmp_path, "kitchen.yaml", overrides={"esp_platform": ""})
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
@@ -209,7 +197,7 @@ async def test_get_binaries_returns_empty_when_target_platform_missing(
 
 @pytest.mark.asyncio
 async def test_get_binaries_logs_and_returns_empty_on_module_failure(
-    tmp_path: Path, caplog: Any, monkeypatch: Any
+    tmp_path: Path, caplog: Any, monkeypatch: Any, firmware_controller_factory
 ) -> None:
     """A module that raises from ``get_download_types`` → empty list + warning.
 
@@ -230,7 +218,7 @@ async def test_get_binaries_logs_and_returns_empty_on_module_failure(
     monkeypatch.setitem(sys.modules, "esphome.components.esp32", fake)
 
     write_storage_json(tmp_path, "kitchen.yaml", overrides={"esp_platform": "esp32c3"})
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     with caplog.at_level(logging.WARNING):
         result = await controller.get_binaries(configuration="kitchen.yaml")
@@ -249,7 +237,7 @@ async def test_get_binaries_logs_and_returns_empty_on_module_failure(
 
 @pytest.mark.asyncio
 async def test_get_binaries_routes_esp32_variants_through_umbrella_module(
-    tmp_path: Path, monkeypatch: Any
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory
 ) -> None:
     """ESP32 variant in storage → loads the umbrella ``esp32`` component.
 
@@ -271,7 +259,7 @@ async def test_get_binaries_routes_esp32_variants_through_umbrella_module(
         "kitchen.yaml",
         overrides={"esp_platform": "esp32c3"},
     )
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
@@ -284,7 +272,7 @@ async def test_get_binaries_routes_esp32_variants_through_umbrella_module(
 
 @pytest.mark.asyncio
 async def test_get_binaries_routes_libretiny_families_through_umbrella_module(
-    tmp_path: Path, monkeypatch: Any
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory
 ) -> None:
     """A LibreTiny family target loads the ``libretiny`` component, not the chip module.
 
@@ -305,7 +293,7 @@ async def test_get_binaries_routes_libretiny_families_through_umbrella_module(
         "kitchen.yaml",
         overrides={"esp_platform": "bk72xx"},
     )
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
@@ -314,7 +302,9 @@ async def test_get_binaries_routes_libretiny_families_through_umbrella_module(
 
 
 @pytest.mark.asyncio
-async def test_get_binaries_returns_module_list_verbatim(tmp_path: Path, monkeypatch: Any) -> None:
+async def test_get_binaries_returns_module_list_verbatim(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory
+) -> None:
     """The upstream module's list is returned verbatim — no filtering, no re-shaping.
 
     Pin the pass-through so a refactor that adds a "drop entries
@@ -336,7 +326,7 @@ async def test_get_binaries_returns_module_list_verbatim(tmp_path: Path, monkeyp
         "kitchen.yaml",
         overrides={"esp_platform": "esp32"},
     )
-    controller = _controller(tmp_path)
+    controller = firmware_controller_factory()
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
