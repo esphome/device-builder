@@ -139,11 +139,15 @@ jobs:
           pip install -e '.[test]'
 
       - name: Run benchmarks
-        # Mirrors the ``aioesphomeapi`` / ``habluetooth`` /
-        # ``bleak-esphome`` setup — CodSpeed runs the suite under
-        # instrumentation and reports a regression delta on the PR.
+        # No ``token:`` argument — same as esphome/esphome's
+        # ``benchmarks`` job. The CodSpeed GitHub App, once installed
+        # on the repo, gives the action implicit upload credentials
+        # via the workflow's ``GITHUB_TOKEN``, so we don't have to
+        # provision a ``CODSPEED_TOKEN`` repo secret. Make sure the
+        # CodSpeed App is installed on ``esphome/device-builder``
+        # before merging this — without the install, the upload
+        # step fails and the job goes red.
         uses: CodSpeedHQ/action@c381be0bfd20e844fb45594f6aa182ffcd94545c  # v4.15.0
         with:
           mode: instrumentation
-          token: ${{ secrets.CODSPEED_TOKEN }}
           run: pytest tests/benchmarks --codspeed --no-cov
