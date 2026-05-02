@@ -198,3 +198,138 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     handler_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await handler_task
+
+
+async def test_subscribe_events_drops_job_events_silently_on_overflow() -> None:
+    """JOB_* events through subscribe_events use lossy ``push``, not terminate.
+
+    ``subscribe_events`` doesn't reseed jobs in ``initial_state``
+    (only devices + importable). Forcing a disconnect on a JOB_*
+    overflow would tell the client to reconnect, but the reseed
+    can't recover the missed job state — clients that need
+    reliable job tracking use ``follow_jobs`` (which has its own
+    snapshot). So JOB_* events go through lossy ``push`` instead
+    of fail-closed ``push_or_terminate``: the alternative would
+    tear the connection down without buying recovery.
+
+    This test fills the queue past the cap with JOB_OUTPUT events
+    while the drain is parked, then asserts the helper task does
+    NOT raise — the overflow is silently dropped instead.
+    """
+    from esphome_device_builder.helpers.event_bus import (
+        _DEFAULT_STREAM_QUEUE_MAX,
+        StreamBackpressureError,
+    )
+
+    db = _make_db()
+
+    drain_can_run = asyncio.Event()
+    received: list[tuple[str, str, Any]] = []
+
+    class GatedClient:
+        def __init__(self) -> None:
+            self.results: list[tuple[str, Any]] = []
+
+        async def send_event(self, message_id: str, event: str, data: Any) -> None:
+            received.append((message_id, event, data))
+            if len(received) == 1:
+                await drain_can_run.wait()
+
+        async def send_result(self, message_id: str, result: Any) -> None:
+            self.results.append((message_id, result))
+
+    client = GatedClient()
+    handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    await asyncio.sleep(0)
+
+    # Park drain on first event (a JOB_* event so the lossy path
+    # is the one being exercised).
+    db.bus.fire(EventType.JOB_OUTPUT, {"job_id": "a", "line": "first\n"})
+    await asyncio.sleep(0)
+
+    # Fire well past the cap. With lossy push these all silently
+    # drop on QueueFull; no terminate sentinel is enqueued.
+    for i in range(_DEFAULT_STREAM_QUEUE_MAX + 500):
+        db.bus.fire(EventType.JOB_OUTPUT, {"job_id": "a", "line": f"l{i}\n"})
+
+    drain_can_run.set()
+    # Yield generously so the drain processes the backlog. If a
+    # terminate sentinel had snuck into the queue this would
+    # raise; the assertion below catches the regression.
+    for _ in range(_DEFAULT_STREAM_QUEUE_MAX + 100):
+        await asyncio.sleep(0)
+        if len(received) >= 1 + _DEFAULT_STREAM_QUEUE_MAX:
+            break
+
+    handler_task.cancel()
+    try:
+        await handler_task
+    except asyncio.CancelledError:
+        pass
+    except StreamBackpressureError:
+        pytest.fail(
+            "subscribe_events raised StreamBackpressureError on a JOB_* "
+            "overflow — JOB_* events must use lossy push (no reseed path)"
+        )
+
+    # Strict equality: drop-newest delivers exactly cap + 1
+    # (the parked first event). Terminate would surface as the
+    # exception above; an unbounded queue would deliver every
+    # fired item.
+    assert len(received) == 1 + _DEFAULT_STREAM_QUEUE_MAX
+
+
+async def test_subscribe_events_terminates_on_device_event_overflow() -> None:
+    """DEVICE_* events use fail-closed ``push_or_terminate``.
+
+    Mirror of the JOB_* test above for the resync-able half of
+    ``subscribe_events``: device-state changes carry transitions
+    the UI tracks against ``initial_state.devices`` /
+    ``initial_state.importable``. A silent drop here would leave
+    the dashboard permanently stale (still showing a removed
+    device, missing a "device went online"). Forcing the WS to
+    close so the client reconnects and reseeds is the only
+    correct recovery — and the matching dispatch wiring closes
+    the WS via ``schedule_close``.
+    """
+    from esphome_device_builder.helpers.event_bus import (
+        _DEFAULT_STREAM_QUEUE_MAX,
+        StreamBackpressureError,
+    )
+
+    db = _make_db()
+
+    drain_can_run = asyncio.Event()
+    received: list[tuple[str, str, Any]] = []
+
+    class GatedClient:
+        def __init__(self) -> None:
+            self.results: list[tuple[str, Any]] = []
+
+        async def send_event(self, message_id: str, event: str, data: Any) -> None:
+            received.append((message_id, event, data))
+            if len(received) == 1:
+                await drain_can_run.wait()
+
+        async def send_result(self, message_id: str, result: Any) -> None:
+            self.results.append((message_id, result))
+
+    client = GatedClient()
+    handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    await asyncio.sleep(0)
+
+    # Park drain on a DEVICE_UPDATED so the fail-closed path is
+    # the one exercised by the overflow.
+    device_payload = MagicMock(to_dict=lambda: {"id": "x"})
+    db.bus.fire(EventType.DEVICE_UPDATED, {"device": device_payload})
+    await asyncio.sleep(0)
+
+    # Fill past the cap.
+    for _ in range(_DEFAULT_STREAM_QUEUE_MAX + 1):
+        db.bus.fire(EventType.DEVICE_UPDATED, {"device": device_payload})
+
+    drain_can_run.set()
+    # The helper must raise StreamBackpressureError once the
+    # drain reaches the terminate sentinel.
+    with pytest.raises(StreamBackpressureError):
+        await asyncio.wait_for(handler_task, timeout=2.0)

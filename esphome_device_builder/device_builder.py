@@ -21,6 +21,7 @@ from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.event_bus import EventBus
 from .helpers.json import cors_middleware
+from .models import EventType
 
 if TYPE_CHECKING:
     from .controllers.auth import AuthController
@@ -54,6 +55,32 @@ _HASHED_FILENAME_RE = re.compile(r"\.[a-f0-9]{8,}\.")
 # this as a module-level constant so the value is one place to audit
 # and the test suite's pin-down assertion can reference it.
 _EXECUTOR_MAX_WORKERS = 64
+
+# Job-related events fired on the bus. ``subscribe_events`` covers
+# these for legacy/all-in-one clients but the authoritative job
+# stream is ``follow_jobs``, which has its own snapshot for
+# reconnect resync. ``subscribe_events``' ``initial_state`` only
+# carries device + importable lists, so a forced disconnect on a
+# JOB_* overflow doesn't help the client recover its job state —
+# we ``push`` (drop newest) instead, while keeping
+# ``push_or_terminate`` for the device events that ARE
+# resync-able.
+_JOB_EVENT_TYPES: frozenset[EventType] = frozenset(
+    {
+        EventType.JOB_QUEUED,
+        EventType.JOB_STARTED,
+        EventType.JOB_OUTPUT,
+        EventType.JOB_PROGRESS,
+        EventType.JOB_COMPLETED,
+        EventType.JOB_FAILED,
+        EventType.JOB_CANCELLED,
+    }
+)
+
+
+def _is_job_event(event_type: EventType) -> bool:
+    """Return True for ``JOB_*`` events ``follow_jobs`` is the source of truth for."""
+    return event_type in _JOB_EVENT_TYPES
 
 
 class DeviceBuilder:
@@ -267,7 +294,6 @@ class DeviceBuilder:
         and the bounded queue serialises every event after the seed.
         """
         from .helpers.event_bus import Event, StreamControls, stream_events
-        from .models import EventType
 
         if client is None:
             return
@@ -298,15 +324,33 @@ class DeviceBuilder:
             serialized: dict[str, Any] = {}
             for key, value in data.items():
                 serialized[key] = value.to_dict() if hasattr(value, "to_dict") else value
-            # State-tracking stream — every event represents a
-            # transition the UI maps onto its in-memory state. A
-            # silent drop would leave the dashboard permanently
-            # stale (still showing a removed device, missing a
-            # state change) until the user reconnected. Use
-            # ``push_or_terminate`` so backpressure forces a
-            # disconnect; the frontend then reconnects and gets a
-            # fresh ``initial_state`` snapshot to recover from.
-            controls.push_or_terminate(event.event_type.value, serialized)
+            # Per-event-type policy. Two distinct concerns share
+            # this firehose, with different recovery semantics:
+            #
+            # - Device-tracking events (DEVICE_*, IMPORTABLE_*)
+            #   carry state the UI maps onto its in-memory device
+            #   list. ``initial_state`` reseeds both ``devices``
+            #   and ``importable`` on (re)connect, so a forced
+            #   disconnect via ``push_or_terminate`` is fully
+            #   recoverable: the client reconnects and the next
+            #   ``subscribe_events`` rebuilds device state from
+            #   scratch.
+            #
+            # - Job events (JOB_*) don't have a reseed path here:
+            #   ``initial_state`` carries no job snapshot. The
+            #   authoritative stream for job tracking is
+            #   ``follow_jobs``, which has its own snapshot. So
+            #   tearing down ``subscribe_events`` on a JOB_*
+            #   overflow doesn't help — the client would
+            #   reconnect, get a device reseed, and still be
+            #   missing whatever job traffic was in flight.
+            #   ``push`` (drop newest) is no worse than the
+            #   forced disconnect, and dashboards that need
+            #   reliable job state already use ``follow_jobs``.
+            if _is_job_event(event.event_type):
+                controls.push(event.event_type.value, serialized)
+            else:
+                controls.push_or_terminate(event.event_type.value, serialized)
 
         await stream_events(
             client=client,

@@ -186,9 +186,17 @@ class WebSocketClient:
             # is the only correct recovery: the alternatives are silent
             # data loss (UI permanently stale) or unbounded memory
             # growth (OOM).
+            #
+            # ``schedule_close`` MUST run *before* ``send_error`` —
+            # ``send`` only closes the socket when the flag is already
+            # set when a message is being written. Setting it after
+            # the error has been written would leave the connection
+            # open with the handler task already gone, so the frontend
+            # would stop receiving events but never get the forced
+            # reconnect this branch is meant to provoke.
             _LOGGER.warning("Stream backpressure on %s: %s", cmd.command, err)
-            await self.send_error(cmd.message_id, ErrorCode.INTERNAL_ERROR, str(err))
             self.schedule_close()
+            await self.send_error(cmd.message_id, ErrorCode.INTERNAL_ERROR, str(err))
         except Exception:
             _LOGGER.exception("Error handling command %s", cmd.command)
             await self.send_error(
