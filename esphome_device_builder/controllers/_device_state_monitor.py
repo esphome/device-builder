@@ -258,10 +258,11 @@ class DeviceStateMonitor:
         """
         Record a state observation from *source*.
 
-        Returns True when the observation actually changed the device's
-        state and the change was forwarded to the callback. Sources
-        below the current source's priority are ignored; same-state
-        observations are no-ops.
+        Returns True when the observation actually changed at least
+        one matching device's state and the change was forwarded to
+        the callback. Sources below the current source's priority
+        are ignored; observations where every matching device
+        already carries *state* are no-ops.
 
         ``claim=True`` lets *source* take ownership of the device's
         state slot even when the state is unchanged, so that a
@@ -271,8 +272,8 @@ class DeviceStateMonitor:
         priority check still applies — ``claim`` doesn't let a lower-
         priority source override a higher-priority owner.
         """
-        device = self._find_device_by_name(name)
-        if device is None:
+        devices = self._get_devices_by_name(name)
+        if not devices:
             _LOGGER.debug(
                 "Device %s not in catalog — ignoring %s state from %s", name, state, source
             )
@@ -281,7 +282,13 @@ class DeviceStateMonitor:
         current_source = self._state_source.get(name, "unknown")
         if _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(current_source, 0):
             return False
-        if device.state == state:
+        # Dedupe must look at *every* matching device, not just the
+        # first. With duplicate ``esphome.name`` entries (a config
+        # plus a ``foo (1).yaml`` copy, dashboard_import siblings)
+        # one sibling can be in-sync while another was rebuilt with
+        # state=UNKNOWN — the old "first device matches → bail" path
+        # left the stale sibling stuck.
+        if all(d.state == state for d in devices):
             if claim:
                 self._state_source[name] = source
             return False

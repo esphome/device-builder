@@ -10,6 +10,7 @@ mtime, size) are used to avoid re-parsing files that haven't changed.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from enum import StrEnum
@@ -97,8 +98,16 @@ class DeviceScanner:
         return self._devices
 
     def get_by_name(self, name: str) -> list[Device]:
-        """Every configured device whose ``esphome.name`` equals *name*."""
-        return self._devices_by_name.get(name, [])
+        """Every configured device whose ``esphome.name`` equals *name*.
+
+        Returns a fresh list (snapshot) — same shape as the
+        ``devices`` property. Callers can iterate / mutate the
+        return value without corrupting the scanner's internal
+        index, and the bucket order is the lexicographic
+        configuration-filename order maintained by ``_set_device``.
+        """
+        bucket = self._devices_by_name.get(name)
+        return list(bucket) if bucket else []
 
     async def scan(self) -> None:
         """Refresh the device cache from disk, emitting per-file change events."""
@@ -188,18 +197,34 @@ class DeviceScanner:
             }
 
     def _set_device(self, path: Path, device: Device) -> None:
-        """Insert / update *device* and keep ``_devices_by_name`` in lockstep."""
+        """Insert / update *device* and keep ``_devices_by_name`` in lockstep.
+
+        Buckets are sorted by ``configuration`` filename so
+        ``get_by_name`` (and downstream ``bucket[0]`` consumers like
+        ``_find_device_by_name``) see a deterministic order. Without
+        this, the order depends on ``paths_to_load`` set iteration
+        and can flip between scans, leaking spurious "first match"
+        flips through the apply / dedupe path.
+        """
         previous = self._devices.get(path)
         if previous is not None and previous.name != device.name:
             # Renamed in YAML: drop from old name's bucket before
-            # appending under the new one.
+            # re-inserting under the new one.
             self._unindex_name(previous)
         self._devices[path] = device
         bucket = self._devices_by_name.setdefault(device.name, [])
-        if previous is not None and previous in bucket:
-            bucket[bucket.index(previous)] = device
-        elif device not in bucket:
-            bucket.append(device)
+        if previous is not None:
+            with contextlib.suppress(ValueError):
+                bucket.remove(previous)
+        # Insert at the position that keeps the bucket sorted by
+        # configuration filename.
+        insert_at = 0
+        while insert_at < len(bucket) and bucket[insert_at].configuration < device.configuration:
+            insert_at += 1
+        if insert_at < len(bucket) and bucket[insert_at].configuration == device.configuration:
+            bucket[insert_at] = device  # same path, refreshed Device
+        else:
+            bucket.insert(insert_at, device)
 
     def _pop_device(self, path: Path) -> Device | None:
         """Drop the *path* entry, mirroring the removal in ``_devices_by_name``."""

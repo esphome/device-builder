@@ -171,3 +171,167 @@ async def test_failed_load_does_not_break_rebuild(tmp_path: Path, _stub_load_dev
 
     names = [d.name for d in scanner.devices]
     assert names == ["another_good", "good_one"]  # broken silently skipped, rest sorted
+
+
+# ----------------------------------------------------------------------
+# Name-keyed index — used by ``DeviceStateMonitor.apply_*`` for O(1)
+# lookups when an mDNS / ping / MQTT observation arrives. The index
+# has to stay in lockstep with ``_devices`` across add / update /
+# rename / remove or the monitor's dedupe will silently miss devices
+# (or fan out to deleted ones).
+# ----------------------------------------------------------------------
+
+
+async def test_index_returns_added_device(tmp_path: Path) -> None:
+    """A freshly-scanned device is queryable via ``get_by_name``."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    scanner = _make_scanner(cfg)
+    await scanner.scan()
+
+    bucket = scanner.get_by_name("kitchen")
+    assert len(bucket) == 1
+    assert bucket[0].configuration == "kitchen.yaml"
+
+
+async def test_index_drops_removed_device(tmp_path: Path) -> None:
+    """A removed YAML clears its bucket — no zombie entries."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    scanner = _make_scanner(cfg)
+    await scanner.scan()
+    assert scanner.get_by_name("kitchen")
+
+    (cfg / "kitchen.yaml").unlink()
+    await scanner.scan()
+    assert scanner.get_by_name("kitchen") == []
+
+
+async def test_index_handles_yaml_rename(tmp_path: Path, _stub_load_device: Any) -> None:
+    """Editing a YAML's ``esphome.name`` re-buckets it under the new name.
+
+    Without this, mDNS lookups under the new name would miss while
+    the old name's bucket would fan out to a stale Device — the
+    "non-canonical copy stays Unknown" symptom that motivated the
+    fan-out work in the first place.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    yaml_path = _write_yaml(cfg, "device_a")
+
+    # First scan: bucket keyed by the YAML's name.
+    name_box = {"current": "kitchen"}
+
+    def _load(path: Path, *_args: object, **_kwargs: object) -> Device:
+        return Device(
+            name=name_box["current"],
+            friendly_name=name_box["current"],
+            configuration=path.name,
+        )
+
+    _stub_load_device.side_effect = _load
+    scanner = _make_scanner(cfg)
+    await scanner.scan()
+    assert [d.configuration for d in scanner.get_by_name("kitchen")] == ["device_a.yaml"]
+
+    # Simulate the user renaming the device's ``esphome.name`` and
+    # touching the file (cache-key change → UPDATED scan).
+    name_box["current"] = "lounge"
+    yaml_path.write_text(yaml_path.read_text() + "# touch\n", encoding="utf-8")
+    await scanner.scan()
+
+    assert scanner.get_by_name("kitchen") == []
+    assert [d.configuration for d in scanner.get_by_name("lounge")] == ["device_a.yaml"]
+
+
+async def test_index_fans_out_to_duplicate_names(tmp_path: Path, _stub_load_device: Any) -> None:
+    """Two YAMLs sharing an ``esphome.name`` end up in the same bucket.
+
+    ``foo (1).yaml`` copies and ``dashboard_import`` siblings can
+    both broadcast under the same name. mDNS broadcasts must fan
+    out to every match, so the bucket has to carry both Devices.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    _write_yaml(cfg, "kitchen_copy")
+
+    def _load(path: Path, *_args: object, **_kwargs: object) -> Device:
+        # Force both YAMLs to claim the same ``esphome.name``.
+        return Device(name="kitchen", friendly_name="kitchen", configuration=path.name)
+
+    _stub_load_device.side_effect = _load
+    scanner = _make_scanner(cfg)
+    await scanner.scan()
+
+    bucket = scanner.get_by_name("kitchen")
+    assert sorted(d.configuration for d in bucket) == ["kitchen.yaml", "kitchen_copy.yaml"]
+
+    # Removing one YAML must leave the sibling.
+    (cfg / "kitchen.yaml").unlink()
+    await scanner.scan()
+    bucket = scanner.get_by_name("kitchen")
+    assert [d.configuration for d in bucket] == ["kitchen_copy.yaml"]
+
+
+async def test_get_by_name_returns_a_snapshot(tmp_path: Path, _stub_load_device: Any) -> None:
+    """Mutations to the returned list must not corrupt the scanner's index.
+
+    ``devices`` already returns a fresh list per call; ``get_by_name``
+    matches that semantic so a careless caller (a misguided
+    ``.append()`` or ``.sort()``) can't poison the name index and
+    silently break dedupe / fan-out for the next mDNS announcement.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    _stub_load_device.side_effect = lambda path, *_a, **_kw: Device(
+        name="kitchen", friendly_name="kitchen", configuration=path.name
+    )
+    scanner = _make_scanner(cfg)
+    await scanner.scan()
+
+    bucket = scanner.get_by_name("kitchen")
+    bucket.clear()  # caller misbehaves
+    bucket.append(Device(name="kitchen", friendly_name="kitchen", configuration="ghost.yaml"))
+
+    fresh = scanner.get_by_name("kitchen")
+    assert [d.configuration for d in fresh] == ["kitchen.yaml"]
+
+
+async def test_index_bucket_order_is_deterministic(tmp_path: Path, _stub_load_device: Any) -> None:
+    """Buckets with duplicate names must keep a stable ordering across scans.
+
+    ``_find_device_by_name`` returns ``bucket[0]`` and ``apply()``
+    dedupes state against that single device — if the load loop's
+    iteration order is set-derived, "first match" is non-
+    deterministic and dedupe can flip flop between Devices on every
+    scan, leaking spurious state events. Sort by the configuration
+    filename so the bucket order is reproducible.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    # Three siblings, intentionally written in non-alphabetical
+    # creation order so any set-iteration shuffling shows up.
+    for name in ("zebra", "alpha", "mike"):
+        _write_yaml(cfg, name)
+    _stub_load_device.side_effect = lambda path, *_a, **_kw: Device(
+        name="duplicate", friendly_name="duplicate", configuration=path.name
+    )
+
+    scanner = _make_scanner(cfg)
+    await scanner.scan()
+    first = [d.configuration for d in scanner.get_by_name("duplicate")]
+
+    # Touch each YAML in a different order — re-runs of ``_load_devices``
+    # must produce the same bucket order regardless.
+    for name in ("alpha", "zebra", "mike"):
+        path = cfg / f"{name}.yaml"
+        path.write_text(path.read_text() + "# touch\n", encoding="utf-8")
+    await scanner.scan()
+
+    second = [d.configuration for d in scanner.get_by_name("duplicate")]
+    assert first == second
+    assert first == sorted(first)  # specifically: lexicographic by configuration

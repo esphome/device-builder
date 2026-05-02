@@ -499,9 +499,12 @@ def compute_has_pending_changes(
        was wiped (``clean`` job, fresh checkout, ``--only-generate``
        only). If they differ, the device is running older firmware
        than the latest compile — failed OTA, flashed elsewhere, etc.
-    2. No firmware binary on disk yet → pending. Nothing has been
-       compiled and the device hasn't broadcast its hash either, so
-       we definitionally have unflushed edits.
+    2. Hashes aren't both known and there's no firmware binary on
+       disk yet → pending. We don't have a comparable pair of
+       hashes (either the YAML's never been compiled or the device
+       isn't broadcasting), and we don't even have a local artefact
+       to mtime-check against, so we definitionally have unflushed
+       edits.
     3. YAML edited after the last compile → pending. Mtime is the
        fallback for devices that pre-date the ``config_hash`` TXT
        broadcast or for the brief window between an edit and the
