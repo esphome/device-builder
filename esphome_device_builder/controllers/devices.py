@@ -952,7 +952,7 @@ class DevicesController:
         Filters against the configured-name set on every call so an
         adoption that landed without an mDNS Removed (the device kept
         announcing on its old name) doesn't leak through into the
-        seed an a fresh page load gets.
+        seed a fresh page load gets.
         """
         configured_names = {d.name for d in self._scanner.devices}
         return [d for d in self.import_result.values() if d.name not in configured_names]

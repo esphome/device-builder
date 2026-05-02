@@ -106,8 +106,15 @@ def _http_url_from_service_info(device_name: str, info: AsyncServiceInfo) -> str
     (browser callback path) and ``_seed_http_url_from_cache`` (late-binding
     path when the HTTP service was already cached before the importable
     arrived) both call this so the format stays consistent.
+
+    ``info.server`` is trusted only when it's an ``.local`` hostname.
+    Anything else (a routable hostname, a remote SRV target) gets
+    rewritten to ``<device_name>.local`` so a malicious or
+    misconfigured announcement can't surface a clickable link
+    pointing somewhere off-LAN.
     """
-    host = info.server.removesuffix(".") if info.server else f"{device_name}.local"
+    raw_server = info.server.removesuffix(".") if info.server else ""
+    host = raw_server if is_local_hostname(raw_server) else f"{device_name}.local"
     port = info.port or 80
     return f"http://{host}{'' if port == 80 else f':{port}'}"
 
