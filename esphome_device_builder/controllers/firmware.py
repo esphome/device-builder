@@ -98,6 +98,17 @@ _TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
     {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
 )
 
+# Lifecycle events that end a follower's tail. Subscribed alongside
+# ``JOB_OUTPUT`` in ``follow_job`` so the follower's queue receives
+# the terminal sentinel for any of the three terminal states. The
+# runner fires exactly one of these per job, matching the
+# ``_TERMINAL_JOB_STATUSES`` set above — keeping them as separate
+# constants because subscriptions key off ``EventType`` while
+# state checks key off ``JobStatus``.
+_JOB_TERMINAL_EVENTS: frozenset[EventType] = frozenset(
+    {EventType.JOB_COMPLETED, EventType.JOB_FAILED, EventType.JOB_CANCELLED}
+)
+
 # Per-job output cap for retained terminal jobs. Compile output for a
 # successful build runs ~3-10k lines; the head is mostly toolchain
 # noise that's rarely useful once the build finished. Trim
@@ -720,7 +731,7 @@ class FirmwareController:
             if event.event_type == EventType.JOB_OUTPUT:
                 if event.data.get("job_id") == job_id:
                     queue.put_nowait(("output", event.data["line"]))
-            elif event.event_type in (EventType.JOB_COMPLETED, EventType.JOB_FAILED):
+            elif event.event_type in _JOB_TERMINAL_EVENTS:
                 ev_job = event.data.get("job")
                 if ev_job and getattr(ev_job, "job_id", None) == job_id:
                     status = getattr(ev_job, "status", "unknown")
@@ -738,6 +749,12 @@ class FirmwareController:
 
         # ATOMIC: snapshot + subscribe in synchronous-adjacent
         # statements. See the docstring for the race this closes.
+        # JOB_CANCELLED has to be wired alongside JOB_COMPLETED /
+        # JOB_FAILED — the runner fires it for both queued cancels
+        # (``cancel()``) and mid-run cancels (``_execute_job``'s
+        # ``cancel_requested`` branch and the ``CancelledError``
+        # handler). Without subscribing here the follower hangs
+        # forever on the queue once the user clicks cancel.
         snapshot = list(job.output)
         is_terminal = job.status in (
             JobStatus.COMPLETED,
@@ -749,6 +766,7 @@ class FirmwareController:
         unsub_output = self._db.bus.add_listener(EventType.JOB_OUTPUT, _on_event)
         unsub_completed = self._db.bus.add_listener(EventType.JOB_COMPLETED, _on_event)
         unsub_failed = self._db.bus.add_listener(EventType.JOB_FAILED, _on_event)
+        unsub_cancelled = self._db.bus.add_listener(EventType.JOB_CANCELLED, _on_event)
 
         try:
             # Send history first so live events stay strictly after,
@@ -781,6 +799,7 @@ class FirmwareController:
         finally:
             unsub_output()
             unsub_completed()
+            unsub_cancelled()
             unsub_failed()
 
     @api_command("firmware/follow_jobs")

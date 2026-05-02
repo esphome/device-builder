@@ -28,12 +28,25 @@ from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, Job
 
 
 class _FakeClient:
-    """Captures send_event calls in order without an actual WS."""
+    """Captures send_event calls in order without an actual WS.
+
+    ``send_event`` yields control via ``asyncio.sleep(0)`` on every
+    call so the history-send loop interleaves with whatever else
+    the test scheduled — without that yield the entire history
+    snapshot would be drained in a single uninterrupted task slice
+    (``send_event`` is sync work otherwise) and the race-window
+    tests below would never actually observe a mid-history-send
+    state. The yield makes the test loop's "fire JOB_OUTPUT now"
+    scheduling actually land inside the history send rather than
+    after it, which is the critical case the race-fix was added
+    for.
+    """
 
     def __init__(self) -> None:
         self.events: list[tuple[str, Any]] = []
 
     async def send_event(self, _message_id: str, event: str, data: Any) -> None:
+        await asyncio.sleep(0)
         self.events.append((event, data))
 
 

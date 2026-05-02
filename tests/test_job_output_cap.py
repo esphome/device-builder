@@ -35,64 +35,11 @@ def _job(lines: int) -> FirmwareJob:
     )
 
 
-# ----------------------------------------------------------------------
-# Default (post-completion) trim
-# ----------------------------------------------------------------------
-
-
-def test_trim_below_retained_cap_is_noop() -> None:
-    """Buffer at or under the retention cap is left alone."""
-    job = _job(_MAX_OUTPUT_LINES_RETAINED)
-    before = list(job.output)
-
-    _trim_job_output(job)
-
-    assert job.output == before
-
-
-def test_trim_drops_head_and_prepends_elided_notice() -> None:
-    """Above the cap → keep the tail, prepend a "<N> earlier elided" line."""
-    excess = 100
-    job = _job(_MAX_OUTPUT_LINES_RETAINED + excess)
-
-    _trim_job_output(job)
-
-    # +1 for the elided-notice prepended at the head.
-    assert len(job.output) == _MAX_OUTPUT_LINES_RETAINED + 1
-    assert job.output[0].startswith(_OUTPUT_TRIM_NOTICE_PREFIX)
-    assert f"{excess} earlier" in job.output[0]
-    # Tail preserved verbatim.
-    assert job.output[-1] == f"line {_MAX_OUTPUT_LINES_RETAINED + excess - 1}\n"
-
-
-def test_trim_is_idempotent_when_called_again() -> None:
-    """Re-trimming an already-trimmed buffer doesn't bump the elided count."""
-    job = _job(_MAX_OUTPUT_LINES_RETAINED + 100)
-
-    _trim_job_output(job)
-    snapshot = list(job.output)
-    _trim_job_output(job)
-
-    assert job.output == snapshot
-
-
-def test_trim_folds_elided_count_across_repeated_trims() -> None:
-    """Two distinct trim cycles → cumulative elided count, not just the latest.
-
-    Catches a regression where the second trim would report only its
-    own dropped lines and pretend the first trim never happened.
-    """
-    job = _job(_MAX_OUTPUT_LINES_RETAINED + 100)
-    _trim_job_output(job)  # drops 100
-
-    # Append more lines, push past the cap again.
-    job.output.extend(f"more {i}\n" for i in range(200))
-    _trim_job_output(job)  # drops another 200
-
-    assert job.output[0].startswith(_OUTPUT_TRIM_NOTICE_PREFIX)
-    assert "300 earlier" in job.output[0], (
-        f"expected cumulative count of 300, got: {job.output[0]!r}"
-    )
+# Base ``_trim_job_output`` cases (noop under cap, drop+notice over cap,
+# idempotent re-trim, cumulative elided count across calls) live in
+# ``tests/test_firmware_helpers.py`` — keeping helper expectations in
+# one place to avoid drift. The cases below are specifically about the
+# in-flight cap and its interaction with the post-completion trim.
 
 
 # ----------------------------------------------------------------------
