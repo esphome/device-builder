@@ -71,6 +71,11 @@ class AdoptableDevice(DataClassORJSONMixin):
     project_version: str
     network: str
     ignored: bool
+    # Pre-built URL to the device's web UI when it advertises a
+    # ``_http._tcp.local.`` mDNS service. Empty string when no web
+    # server was found — the discovered card then hides the
+    # Visit-web-UI affordance.
+    web_url: str = ""
 
 
 @dataclass

@@ -222,6 +222,93 @@ def test_revisit_importable_noop_when_browser_not_started() -> None:
     monitor.revisit_importable("kitchen")  # must not raise
 
 
+def test_apply_http_service_info_populates_web_url_and_refires() -> None:
+    """An HTTP service announcement decorates the cached importable.
+
+    Sequence: ``_esphomelib._tcp.local.`` arrives first → AdoptableDevice
+    surfaces with ``web_url=""``. Then ``_http._tcp.local.`` arrives;
+    we store the URL and re-fire ADDED so the frontend updates the
+    card's Visit-web-UI link in place.
+    """
+    from esphome.zeroconf import DashboardImportDiscovery
+    from zeroconf.asyncio import AsyncServiceInfo
+
+    added: list[AdoptableDevice] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [],
+        on_state_change=MagicMock(),
+        on_ip_change=MagicMock(),
+        on_importable_added=added.append,
+    )
+    monitor._import_discovery = DashboardImportDiscovery()
+    monitor._import_discovery.import_state = {
+        "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
+    }
+
+    info = AsyncServiceInfo("_http._tcp.local.", "kitchen._http._tcp.local.")
+    info.server = "kitchen.local."
+    info.port = 80
+
+    monitor._apply_http_service_info("kitchen", info)
+
+    assert monitor._http_urls == {"kitchen": "http://kitchen.local"}
+    assert len(added) == 1
+    assert added[0].web_url == "http://kitchen.local"
+
+
+def test_apply_http_service_info_includes_non_default_port() -> None:
+    """Non-port-80 services build URLs with the explicit ``:port`` suffix."""
+    from esphome.zeroconf import DashboardImportDiscovery
+    from zeroconf.asyncio import AsyncServiceInfo
+
+    added: list[AdoptableDevice] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [],
+        on_state_change=MagicMock(),
+        on_ip_change=MagicMock(),
+        on_importable_added=added.append,
+    )
+    monitor._import_discovery = DashboardImportDiscovery()
+    monitor._import_discovery.import_state = {
+        "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
+    }
+
+    info = AsyncServiceInfo("_http._tcp.local.", "kitchen._http._tcp.local.")
+    info.server = "kitchen.local."
+    info.port = 8080
+
+    monitor._apply_http_service_info("kitchen", info)
+    assert added[0].web_url == "http://kitchen.local:8080"
+
+
+def test_apply_http_service_info_skips_when_unchanged() -> None:
+    """Repeat announcements for the same URL don't re-fire ADDED."""
+    from esphome.zeroconf import DashboardImportDiscovery
+    from zeroconf.asyncio import AsyncServiceInfo
+
+    added: list[AdoptableDevice] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [],
+        on_state_change=MagicMock(),
+        on_ip_change=MagicMock(),
+        on_importable_added=added.append,
+    )
+    monitor._import_discovery = DashboardImportDiscovery()
+    monitor._import_discovery.import_state = {
+        "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
+    }
+
+    info = AsyncServiceInfo("_http._tcp.local.", "kitchen._http._tcp.local.")
+    info.server = "kitchen.local."
+    info.port = 80
+
+    monitor._apply_http_service_info("kitchen", info)
+    monitor._apply_http_service_info("kitchen", info)
+
+    # Single fire — duplicate calls are deduped by URL equality.
+    assert len(added) == 1
+
+
 def test_revisit_importable_skips_ignored_devices() -> None:
     """Ignored devices stay hidden after deletion.
 

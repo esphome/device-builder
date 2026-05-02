@@ -73,7 +73,12 @@ class _FakeServiceInfo:
     """
 
     def __init__(self, _service_type: str, _name: str) -> None:
-        pass
+        # ``DashboardImportDiscovery.browser_callback`` (also driven
+        # by the dispatch handler) reads ``info.properties`` looking
+        # for ``package_import_url`` TXT records. Empty dict means
+        # "not an importable device" so it bails out cleanly without
+        # touching real zeroconf state.
+        self.properties: dict[bytes, bytes] = {}
 
     def load_from_cache(self, _zc: Any) -> bool:
         return True
@@ -91,13 +96,21 @@ async def _capture_handler(monitor: DeviceStateMonitor, monkeypatch: pytest.Monk
     captured: dict[str, Any] = {}
 
     class _FakeBrowser:
-        def __init__(self, _zc: Any, _service_type: str, *, handlers: list[Any]) -> None:
+        def __init__(self, _zc: Any, _service_types: Any, *, handlers: list[Any]) -> None:
             captured["handler"] = handlers[0]
 
     fake_zc = MagicMock()
     monkeypatch.setattr(monitor_module, "AsyncEsphomeZeroconf", lambda: fake_zc)
     monkeypatch.setattr(monitor_module, "AsyncServiceInfo", _FakeServiceInfo)
     monkeypatch.setattr(monitor_module, "AsyncServiceBrowser", _FakeBrowser)
+    # Upstream ``DashboardImportDiscovery.browser_callback`` builds
+    # its own ``AsyncServiceInfo`` from the ``esphome.zeroconf``
+    # module — patch that copy too so the dispatch handler can fan
+    # the same event through the upstream callback without touching
+    # real zeroconf.
+    import esphome.zeroconf as esphome_zc
+
+    monkeypatch.setattr(esphome_zc, "AsyncServiceInfo", _FakeServiceInfo)
 
     await monitor._start_mdns_browser()
     return captured["handler"]

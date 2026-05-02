@@ -39,6 +39,12 @@ from ._dns_cache import DNSCache
 
 _LOGGER = logging.getLogger(__name__)
 _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
+# A second mDNS browser watches for HTTP services so we can light up
+# a "Visit web UI" link on discovered devices that are running their
+# factory firmware's built-in web server. The browser only feeds the
+# importable-discovery flow; configured devices already get their
+# web_port from the YAML (``web_server:``).
+_HTTP_SERVICE_TYPE = "_http._tcp.local."
 # Ping fallback runs every 60s after a short bootstrap window.
 # ``_PING_BOOTSTRAP_DELAY`` gives the mDNS browser a head start so the
 # common case (everything announces) doesn't fire a ping sweep that
@@ -148,8 +154,16 @@ class DeviceStateMonitor:
         # browser-callback keeps us in lockstep with whatever the
         # upstream considers an importable device.
         self._import_discovery: DashboardImportDiscovery | None = None
+        # Map of device-name → web-UI URL, populated by the
+        # ``_http._tcp.local.`` browser. Lets the discovered-device
+        # card render a Visit-web-UI link without the frontend having
+        # to know which factory firmwares ship a web server.
+        self._http_urls: dict[str, str] = {}
         self._zeroconf: AsyncEsphomeZeroconf | None = None
-        self._mdns_browser: Any = None
+        # Single browser covers both ``_esphomelib._tcp.local.`` and
+        # ``_http._tcp.local.``; the dispatch handler routes events
+        # by ``service_type`` to the right per-type logic.
+        self._mdns_browser: AsyncServiceBrowser | None = None
         self._ping_task: asyncio.Task | None = None
         # Strong refs for fire-and-forget mDNS resolve tasks so the
         # garbage collector can't reap them mid-await.
@@ -364,6 +378,7 @@ class DeviceStateMonitor:
                     project_version=discovered.project_version,
                     network=discovered.network,
                     ignored=self._is_ignored(discovered.device_name),
+                    web_url=self._http_urls.get(discovered.device_name, ""),
                 )
             )
         return out
@@ -395,7 +410,7 @@ class DeviceStateMonitor:
             self._zeroconf = None
             return
 
-        def _on_service_state_change(
+        def _on_esphomelib_service_state_change(
             zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
         ) -> None:
             # ``AsyncServiceBrowser`` dispatches handlers on the asyncio
@@ -433,18 +448,38 @@ class DeviceStateMonitor:
             task.add_done_callback(self._tasks.discard)
 
         # ``DashboardImportDiscovery`` from upstream esphome owns the
-        # TXT-record parsing for adoptable factory firmwares. Adding
-        # its callback as a second handler on the same browser means
-        # we share zeroconf cache reads with the state-change handler
-        # above instead of running a parallel browser.
+        # TXT-record parsing for adoptable factory firmwares — its
+        # ``browser_callback`` only acts on services that carry the
+        # ``package_import_url`` TXT records, so harmlessly receiving
+        # HTTP events is fine.
         self._import_discovery = DashboardImportDiscovery(self._on_import_update)
+
+        def _dispatch(
+            zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
+        ) -> None:
+            # Single ``AsyncServiceBrowser`` covers both service types;
+            # dispatch by ``service_type`` so each inner handler only
+            # sees the events it cares about. Sharing one browser
+            # halves the zeroconf bookkeeping vs running two separate
+            # browsers and lets the upstream ``DashboardImportDiscovery``
+            # callback piggy-back on the same dispatch path.
+            if service_type == _ESPHOME_SERVICE_TYPE:
+                _on_esphomelib_service_state_change(zeroconf, service_type, name, state_change)
+                self._import_discovery.browser_callback(zeroconf, service_type, name, state_change)
+            elif service_type == _HTTP_SERVICE_TYPE:
+                self._on_http_service_state_change(zeroconf, service_type, name, state_change)
+
         try:
             self._mdns_browser = AsyncServiceBrowser(
                 self._zeroconf.zeroconf,
-                _ESPHOME_SERVICE_TYPE,
-                handlers=[_on_service_state_change, self._import_discovery.browser_callback],
+                [_ESPHOME_SERVICE_TYPE, _HTTP_SERVICE_TYPE],
+                handlers=[_dispatch],
             )
-            _LOGGER.info("mDNS browser started for %s", _ESPHOME_SERVICE_TYPE)
+            _LOGGER.info(
+                "mDNS browser started for %s, %s",
+                _ESPHOME_SERVICE_TYPE,
+                _HTTP_SERVICE_TYPE,
+            )
         except Exception:
             _LOGGER.exception("Could not start mDNS browser — device discovery limited to ping")
 
@@ -459,6 +494,68 @@ class DeviceStateMonitor:
             _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)
             return
         self._apply_service_info(device_name, info)
+
+    def _on_http_service_state_change(
+        self,
+        zeroconf: Any,
+        service_type: str,
+        name: str,
+        state_change: ServiceStateChange,
+    ) -> None:
+        """Track ``_http._tcp.local.`` services so discovered cards can show a Visit-web-UI link.
+
+        The browser fires for every HTTP service on the LAN — we only
+        care about the ones whose left-hand label matches an importable
+        device, so the matching is name-driven. When an HTTP service
+        appears (or disappears) for an existing importable, re-emit
+        the entry so the card's ``web_url`` field stays in sync
+        without waiting for the next esphomelib announcement.
+        """
+        device_name = device_name_from_service(name)
+        if state_change == ServiceStateChange.Removed:
+            if self._http_urls.pop(device_name, None) is None:
+                return
+            self._refire_importable_for(device_name)
+            return
+
+        info = AsyncServiceInfo(service_type, name)
+        if info.load_from_cache(zeroconf):
+            self._apply_http_service_info(device_name, info)
+            return
+        task = asyncio.create_task(self._resolve_and_apply_http(zeroconf, info, device_name))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _resolve_and_apply_http(
+        self, zeroconf: Any, info: AsyncServiceInfo, device_name: str
+    ) -> None:
+        """Resolve a cache-miss HTTP service and store its URL."""
+        try:
+            if not await info.async_request(zeroconf, timeout=_MDNS_RESOLVE_TIMEOUT_MS):
+                return
+        except Exception:
+            _LOGGER.debug("HTTP mDNS resolve failed for %s", device_name, exc_info=True)
+            return
+        self._apply_http_service_info(device_name, info)
+
+    def _apply_http_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
+        """Build the Visit-web-UI URL from a populated HTTP service info."""
+        host = info.server.removesuffix(".") if info.server else f"{device_name}.local"
+        port = info.port or 80
+        url = f"http://{host}{'' if port == 80 else f':{port}'}"
+        if self._http_urls.get(device_name) == url:
+            return
+        self._http_urls[device_name] = url
+        self._refire_importable_for(device_name)
+
+    def _refire_importable_for(self, device_name: str) -> None:
+        """Re-emit ADDED for *device_name* so frontends pick up a web_url change."""
+        if self._import_discovery is None:
+            return
+        for service_name, discovered in self._import_discovery.import_state.items():
+            if discovered.device_name == device_name:
+                self._on_import_update(service_name, discovered)
+                return
 
     def _on_import_update(self, service_name: str, discovered: DiscoveredImport | None) -> None:
         """Bridge ``DashboardImportDiscovery`` → controller callbacks.
@@ -490,6 +587,7 @@ class DeviceStateMonitor:
                     project_version=discovered.project_version,
                     network=discovered.network,
                     ignored=self._is_ignored(discovered.device_name),
+                    web_url=self._http_urls.get(discovered.device_name, ""),
                 )
             )
 
