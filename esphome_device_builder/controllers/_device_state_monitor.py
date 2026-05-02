@@ -352,6 +352,22 @@ class DeviceStateMonitor:
             if discovered.device_name == device_name:
                 self._on_import_update(service_name, discovered)
 
+    def revisit_all_importables(self) -> None:
+        """
+        Re-fire ``on_importable_added`` for every cached importable.
+
+        Used when a configured YAML is deleted but we don't know what
+        mDNS name it came from (the user may have picked a YAML name
+        that differs from the discovered hostname during adoption).
+        ``_on_import_update`` already filters configured + ignored
+        names so re-emitting the full set is safe; only the entries
+        that should appear in the banner do.
+        """
+        if self._import_discovery is None:
+            return
+        for service_name, discovered in self._import_discovery.import_state.items():
+            self._on_import_update(service_name, discovered)
+
     def get_importable_devices(self) -> list[AdoptableDevice]:
         """
         Snapshot of devices currently advertising as importable.
@@ -539,7 +555,17 @@ class DeviceStateMonitor:
         self._apply_http_service_info(device_name, info)
 
     def _apply_http_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
-        """Build the Visit-web-UI URL from a populated HTTP service info."""
+        """Build the Visit-web-UI URL from a populated HTTP service info.
+
+        Only stored when an importable device with the same name is
+        currently advertising. Without this guard ``_http_urls`` grew
+        unbounded from every HTTP service on the LAN (printers, NAS
+        boxes, routers — none of which we have any use for); this
+        keeps the cache scoped to entries that can actually drive a
+        Visit-web-UI link on the discovered card.
+        """
+        if not self._has_importable(device_name):
+            return
         host = info.server.removesuffix(".") if info.server else f"{device_name}.local"
         port = info.port or 80
         url = f"http://{host}{'' if port == 80 else f':{port}'}"
@@ -547,6 +573,14 @@ class DeviceStateMonitor:
             return
         self._http_urls[device_name] = url
         self._refire_importable_for(device_name)
+
+    def _has_importable(self, device_name: str) -> bool:
+        """Return True when an importable currently exists for *device_name*."""
+        if self._import_discovery is None:
+            return False
+        return any(
+            d.device_name == device_name for d in self._import_discovery.import_state.values()
+        )
 
     def _refire_importable_for(self, device_name: str) -> None:
         """Re-emit ADDED for *device_name* so frontends pick up a web_url change."""
@@ -556,6 +590,25 @@ class DeviceStateMonitor:
             if discovered.device_name == device_name:
                 self._on_import_update(service_name, discovered)
                 return
+
+    def _seed_http_url_from_cache(self, device_name: str) -> None:
+        """Pull ``device_name``'s HTTP service URL out of zeroconf's cache.
+
+        Handles the case where the HTTP service arrived first: the
+        browser callback skipped storing the URL because no importable
+        existed for that name yet. Now that one does, look directly at
+        zeroconf's cache (no network round-trip) and stash the URL so
+        the about-to-fire ``on_importable_added`` carries the right
+        ``web_url``.
+        """
+        if self._zeroconf is None or self._http_urls.get(device_name):
+            return
+        info = AsyncServiceInfo(_HTTP_SERVICE_TYPE, f"{device_name}.{_HTTP_SERVICE_TYPE}")
+        if not info.load_from_cache(self._zeroconf.zeroconf):
+            return
+        host = info.server.removesuffix(".") if info.server else f"{device_name}.local"
+        port = info.port or 80
+        self._http_urls[device_name] = f"http://{host}{'' if port == 80 else f':{port}'}"
 
     def _on_import_update(self, service_name: str, discovered: DiscoveredImport | None) -> None:
         """Bridge ``DashboardImportDiscovery`` → controller callbacks.
@@ -577,6 +630,11 @@ class DeviceStateMonitor:
             # Already configured — surfacing it as importable would
             # confuse the dashboard.
             return
+        # Late-binding: if the HTTP service for this device is already
+        # in zeroconf's cache (it arrived before the esphomelib
+        # service), pull its URL now so the AdoptableDevice we emit
+        # here carries it without waiting for the next HTTP re-announce.
+        self._seed_http_url_from_cache(discovered.device_name)
         if self._on_importable_added is not None:
             self._on_importable_added(
                 AdoptableDevice(

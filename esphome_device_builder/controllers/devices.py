@@ -616,20 +616,26 @@ class DevicesController:
         # importable cache key is the device's mDNS-advertised name,
         # which usually matches the user-chosen YAML name but may
         # differ (e.g. they edited the MAC suffix off). Match by
-        # ``package_import_url`` so we always find the right entry.
-        for cached_name in [
+        # ``package_import_url`` so we always find the right entry,
+        # and remember the cached name so we can use it for the
+        # zeroconf-cache lookup below — the device is broadcasting
+        # under that name, not the YAML name.
+        cached_names = [
             n for n, d in self.import_result.items() if d.package_import_url == package_import_url
-        ]:
+        ]
+        for cached_name in cached_names:
             self._on_importable_removed(cached_name)
+        mdns_name = cached_names[0] if cached_names else name
 
         # Skip-the-wait state seed. We just adopted a device that was
         # advertising on mDNS milliseconds ago, so the next ping sweep
         # would only confirm what zeroconf already knew. Pull the
-        # cached IP out of zeroconf and apply both ONLINE and the
-        # address right away so the new card lands online instead of
-        # blinking through OFFLINE for ~10s.
+        # cached IP out of zeroconf — keyed by the mDNS-advertised
+        # name, not the user's chosen YAML name — and apply both
+        # ONLINE and the address right away so the new card lands
+        # online instead of blinking through OFFLINE for ~10s.
         self._state_monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
-        cached = self._state_monitor.get_cached_addresses(f"{name}.local")
+        cached = self._state_monitor.get_cached_addresses(f"{mdns_name}.local")
         if cached:
             self._state_monitor.apply_ip(name, cached[0])
         return {"configuration": configuration}
@@ -815,13 +821,20 @@ class DevicesController:
         # ``async_schedule_storage_json_update``.
         if kind is ScanChange.ADDED and not device.loaded_integrations:
             self._schedule_storage_regenerate(device.configuration)
-        # When a configured device is deleted, re-emit the discovery
-        # entry it was hiding. Upstream's ``DashboardImportDiscovery``
-        # only fires ``on_update`` on first sight (``is_new`` check),
-        # so without this nudge the device stays silent until it
+        # When a configured device is deleted, re-emit cached
+        # discoveries. Upstream's ``DashboardImportDiscovery`` only
+        # fires ``on_update`` on first sight (``is_new`` check), so
+        # without this nudge a device stays silent until it
         # re-announces — which can be many minutes for a quiet device.
+        # Use the "revisit all" variant rather than matching on
+        # ``device.name``: the user may have adopted with a YAML name
+        # that differs from the discovered hostname (e.g. they edited
+        # the MAC suffix off), in which case a name-keyed lookup
+        # would miss. ``_on_import_update`` already filters configured
+        # + ignored entries so re-emitting the full set is cheap and
+        # only surfaces what should actually appear.
         if kind is ScanChange.REMOVED:
-            self._state_monitor.revisit_importable(device.name)
+            self._state_monitor.revisit_all_importables()
 
     def _on_state_change(self, name: str, state: DeviceState, source: str) -> None:
         """Forward state monitor updates onto the event bus."""
