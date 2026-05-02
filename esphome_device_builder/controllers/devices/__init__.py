@@ -16,5 +16,6 @@ resolving after the subpackage split. Submodules:
 from __future__ import annotations
 
 from .controller import DevicesController
+from .helpers import friendly_name_slugify
 
-__all__ = ["DevicesController"]
+__all__ = ["DevicesController", "friendly_name_slugify"]
