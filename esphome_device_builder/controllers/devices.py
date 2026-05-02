@@ -933,8 +933,16 @@ class DevicesController:
         self._db.bus.fire(EventType.IMPORTABLE_DEVICE_REMOVED, {"name": name})
 
     def get_importable_devices(self) -> list[AdoptableDevice]:
-        """Snapshot of the current importable list (used for ``initial_state``)."""
-        return list(self.import_result.values())
+        """
+        Snapshot of the current importable list (used for ``initial_state``).
+
+        Filters against the configured-name set on every call so an
+        adoption that landed without an mDNS Removed (the device kept
+        announcing on its old name) doesn't leak through into the
+        seed an a fresh page load gets.
+        """
+        configured_names = {d.name for d in self._scanner.devices}
+        return [d for d in self.import_result.values() if d.name not in configured_names]
 
     def _on_firmware_job_completed(self, event: Any) -> None:
         """
