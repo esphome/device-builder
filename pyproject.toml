@@ -12,7 +12,7 @@ classifiers = [
   "Topic :: Home Automation",
 ]
 dependencies = [
-  "esphome-device-builder-frontend @ https://github.com/esphome/device-builder-frontend/releases/download/0.1.10/esphome_device_builder_frontend-0.1.10-py3-none-any.whl",
+  "esphome-device-builder-frontend @ https://github.com/esphome/device-builder-frontend/releases/download/0.1.11/esphome_device_builder_frontend-0.1.11-py3-none-any.whl",
   "aiohttp>=3.9.0",
   "mashumaro>=3.13",
   "orjson>=3.9.0",
