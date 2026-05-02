@@ -1408,14 +1408,16 @@ class DevicesController:
     async def _delete_single(self, configuration: str) -> None:
         """Delete a single device and all associated files."""
         config_path = self._db.settings.rel_path(configuration)
-        if not config_path.exists():
-            msg = f"File not found: {configuration}"
-            raise FileNotFoundError(msg)
-
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
 
         def _delete_all() -> None:
+            # Existence check runs in the executor too — ``Path.exists``
+            # stat()s the filesystem and would block the event loop if
+            # called from the async caller.
+            if not config_path.exists():
+                msg = f"File not found: {configuration}"
+                raise FileNotFoundError(msg)
             # Wipe the per-device PlatformIO build tree first so a partial
             # failure later in the cleanup still leaves the user able to
             # retry the delete. ``StorageJSON.build_path`` is the canonical
