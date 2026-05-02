@@ -224,13 +224,10 @@ class DeviceBuilder:
 
     async def _run_background(self) -> None:
         """Background polling loop."""
-        try:
-            while True:
-                await asyncio.sleep(5)
-                if self.devices:
-                    await self.devices.poll()
-        except asyncio.CancelledError:
-            pass
+        while True:
+            await asyncio.sleep(5)
+            if self.devices:
+                await self.devices.poll()
 
     @staticmethod
     async def _cmd_ping(**kwargs: Any) -> dict:

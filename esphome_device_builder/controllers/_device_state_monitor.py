@@ -810,16 +810,13 @@ class DeviceStateMonitor:
         # is about to flip ONLINE for free, but still gets the UNKNOWN
         # → OFFLINE transition in front of the user within ~10s of
         # startup instead of after a full minute.
-        try:
-            await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
+        await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
+        await self._resolve_non_api_mdns_targets()
+        await self._ping_sweep()
+        while True:
+            await asyncio.sleep(_PING_INTERVAL)
             await self._resolve_non_api_mdns_targets()
             await self._ping_sweep()
-            while True:
-                await asyncio.sleep(_PING_INTERVAL)
-                await self._resolve_non_api_mdns_targets()
-                await self._ping_sweep()
-        except asyncio.CancelledError:
-            pass
 
     async def _resolve_non_api_mdns_targets(self) -> None:
         """Actively resolve ``.local`` hostnames for non-API devices.

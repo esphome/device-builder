@@ -652,14 +652,11 @@ class FirmwareController:
 
     async def _run_queue(self) -> None:
         """Background loop: process one job at a time."""
-        try:
-            while True:
-                job = await self._queue.get()
-                if job.status == JobStatus.CANCELLED:
-                    continue
-                await self._execute_job(job)
-        except asyncio.CancelledError:
-            pass
+        while True:
+            job = await self._queue.get()
+            if job.status == JobStatus.CANCELLED:
+                continue
+            await self._execute_job(job)
 
     async def _execute_job(self, job: FirmwareJob) -> None:  # noqa: PLR0912, PLR0915
         """Execute a single firmware job."""
