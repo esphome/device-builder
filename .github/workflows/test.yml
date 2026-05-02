@@ -139,20 +139,18 @@ jobs:
           pip install -e '.[test]'
 
       - name: Run benchmarks
-        # No ``token:`` argument — same as esphome/esphome's
-        # ``benchmarks`` job. The CodSpeed GitHub App, once installed
-        # on the repo, gives the action implicit upload credentials
-        # via the workflow's ``GITHUB_TOKEN``, so we don't have to
-        # provision a ``CODSPEED_TOKEN`` repo secret. Make sure the
-        # CodSpeed App is installed on ``esphome/device-builder``
-        # before merging this — without the install, the upload
-        # step fails and the job goes red.
         # ``simulation`` is the new name for what used to be called
         # ``instrumentation`` — same callgrind-based runner under
         # the hood, just renamed. The action prints a deprecation
         # warning when you ask for ``instrumentation`` explicitly.
-        # Matches esphome/esphome's ``benchmarks`` job.
+        #
+        # Token-based upload: the App-only flow tripped an internal
+        # "Unable to generate the performance report" error from
+        # CodSpeed, so we fall back to the explicit token. Provision
+        # ``CODSPEED_TOKEN`` as a repo secret from the project's
+        # CodSpeed dashboard.
         uses: CodSpeedHQ/action@c381be0bfd20e844fb45594f6aa182ffcd94545c  # v4.15.0
         with:
           mode: simulation
+          token: ${{ secrets.CODSPEED_TOKEN }}
           run: pytest tests/benchmarks --codspeed --no-cov
