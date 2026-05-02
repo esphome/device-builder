@@ -299,11 +299,19 @@ def _validate_port(port: str) -> None:
       contains ``ttyUSB`` / ``ttyACM`` / ``cu.``
     * A valid IPv4 or IPv6 address
     * A hostname (``[a-z0-9-]+`` per label, optional ``.local``
-      suffix) — covers ``device-name.local`` and bare hostnames
+      suffix, optional FQDN trailing dot) — covers
+      ``device-name.local``, ``device.example.com.``, and bare
+      hostnames
 
     Anything else (random punctuation, IPv4 with extra dots, etc.)
     raises ``CommandError(INVALID_ARGS)``. Coordinated frontend
     forms can pre-filter to the same shape.
+
+    Error messages use neutral "device target" wording — this
+    helper is shared across ``firmware/upload``, ``firmware/install``,
+    and ``firmware/install_bulk``, and the message is surfaced
+    verbatim over WS, so naming a single command in the error
+    would mislead callers of the others.
     """
     if not port or port == "OTA":
         return
@@ -329,18 +337,24 @@ def _validate_port(port: str) -> None:
         except ValueError as exc:
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
-                f"Invalid install target {port!r} — looks like an IP but didn't parse: {exc}",
+                f"Invalid device target {port!r} — looks like an IP but didn't parse: {exc}",
             ) from exc
     # Hostnames: a sequence of dot-separated labels, each
-    # ``[a-z0-9](?:[a-z0-9-]*[a-z0-9])?``.
+    # ``[a-z0-9](?:[a-z0-9-]*[a-z0-9])?``. Strip a single trailing
+    # FQDN dot before matching — zeroconf and the system resolver
+    # both produce trailing-dot forms (``kitchen.local.``,
+    # ``device.example.com.``), and rejecting those would force
+    # users to manually clean up addresses pasted from the mDNS
+    # browser.
+    canonical = port.removesuffix(".")
     if re.fullmatch(
         r"(?i)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*",
-        port,
+        canonical,
     ):
         return
     raise CommandError(
         ErrorCode.INVALID_ARGS,
-        f"Invalid install target {port!r} — expected ``OTA``, a serial path, "
+        f"Invalid device target {port!r} — expected ``OTA``, a serial path, "
         f"an IP address, or a hostname",
     )
 

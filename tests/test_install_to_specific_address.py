@@ -66,6 +66,8 @@ def _controller() -> FirmwareController:
         "kitchen",  # bare hostname
         "apollo-plt-1-983300",  # hyphenated mDNS name
         "device.example.com",  # routable DNS hostname
+        "kitchen.local.",  # FQDN trailing-dot from zeroconf
+        "device.example.com.",  # FQDN trailing-dot from system resolver
     ],
 )
 def test_validate_port_accepts_known_shapes(port: str) -> None:
@@ -104,6 +106,12 @@ def test_validate_port_rejects_typos(port: str) -> None:
         _validate_port(port)
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert port in exc.value.message  # offending value is named
+    # The error wording is shared across firmware/upload, install,
+    # and install_bulk — must use neutral "device target" rather
+    # than naming a single command, since the message is surfaced
+    # verbatim over WS to whichever command the user actually ran.
+    assert "device target" in exc.value.message
+    assert "install target" not in exc.value.message
 
 
 # ---------------------------------------------------------------------------

@@ -123,12 +123,12 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
 | `firmware/compile` | `{configuration}` | `FirmwareJob` | Queue compile job |
-| `firmware/upload` | `{configuration, port?}` | `FirmwareJob` | Queue upload of existing binary. `port` accepts `"OTA"`, a serial path (`/dev/ttyUSB0`, `COM3`), or an explicit IP / hostname for "install to a specific address" — the address-cache shortcut is bypassed when a target is named directly. |
-| `firmware/install` | `{configuration, port?: "OTA"}` | `FirmwareJob` | Queue compile + upload. Same `port` semantics as `firmware/upload`. |
+| `firmware/upload` | `{configuration, port?: ""}` | `FirmwareJob` | Queue upload of existing binary. `port` defaults to `""` (no `--device` arg — CLI auto-detects). Also accepts `"OTA"`, a serial path (`/dev/ttyUSB0`, `COM3`), or an explicit IP / hostname for "install to a specific address" — the address-cache shortcut is bypassed when a target is named directly. |
+| `firmware/install` | `{configuration, port?: "OTA" \| serial \| ip \| hostname}` | `FirmwareJob` | Queue compile + upload. `port` defaults to `"OTA"` (let the CLI resolve the configured host). Same `port` semantics as `firmware/upload` for non-default values. |
 | `firmware/clean` | `{configuration}` | `FirmwareJob` | Queue build clean for one device |
 | `firmware/reset_build_env` | — | `FirmwareJob` | Queue full reset of `.esphome/` build dirs and PIO cache |
 | `firmware/compile_bulk` | `{configurations: string[]}` | `[FirmwareJob]` | Queue multiple compiles |
-| `firmware/install_bulk` | `{configurations: string[], port?: "OTA"}` | `[FirmwareJob]` | Queue multiple installs. `port` is shared across every queued job — almost always callers want the per-device default of `"OTA"` rather than a single explicit target. |
+| `firmware/install_bulk` | `{configurations: string[], port?: "OTA" \| serial \| ip \| hostname}` | `[FirmwareJob]` | Queue multiple installs. `port` defaults to `"OTA"` and is shared across every queued job — almost always callers want that default rather than a single explicit target across the fleet. Same `port` validation as `firmware/install`. |
 | `firmware/get_jobs` | `{status?, configuration?}` | `[FirmwareJob]` | List jobs with filters |
 | `firmware/get_job` | `{job_id}` | `FirmwareJob` | Get job with full output |
 | `firmware/follow_job` | `{job_id}` | Streaming | Historical output + live stream for one job |
