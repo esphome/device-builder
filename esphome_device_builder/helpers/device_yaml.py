@@ -486,9 +486,7 @@ def compute_has_pending_changes(
 
     Decision order, first match wins:
 
-    1. No firmware binary on disk yet → pending. Nothing has been
-       compiled, so we definitionally have unflushed edits.
-    2. Both ``expected_config_hash`` and ``deployed_config_hash``
+    1. Both ``expected_config_hash`` and ``deployed_config_hash``
        known → pending iff they differ. The deployed hash comes from
        mDNS (esphome/esphome#16145), the expected hash is read from
        ``build_info.json`` (firmware-canonical, post-codegen). The
@@ -497,9 +495,13 @@ def compute_has_pending_changes(
        firmware is built from the same logical config the YAML now
        resolves to, even if the YAML's mtime ticked forward
        (whitespace-only / comment-only edits, ``--only-generate``
-       rewriting StorageJSON, etc.). If they differ, the device is
-       running older firmware than the latest compile — failed OTA,
-       flashed elsewhere, etc.
+       rewriting StorageJSON, etc.) or the local ``firmware.bin``
+       was wiped (``clean`` job, fresh checkout, ``--only-generate``
+       only). If they differ, the device is running older firmware
+       than the latest compile — failed OTA, flashed elsewhere, etc.
+    2. No firmware binary on disk yet → pending. Nothing has been
+       compiled and the device hasn't broadcast its hash either, so
+       we definitionally have unflushed edits.
     3. YAML edited after the last compile → pending. Mtime is the
        fallback for devices that pre-date the ``config_hash`` TXT
        broadcast or for the brief window between an edit and the
@@ -508,10 +510,10 @@ def compute_has_pending_changes(
     4. Otherwise → not pending. Devices on firmware that predates
        the broadcast and haven't been edited stay quiet.
     """
-    if bin_mtime is None:
-        return True
     if expected_config_hash and deployed_config_hash:
         return expected_config_hash != deployed_config_hash
+    if bin_mtime is None:
+        return True
     return yaml_mtime is not None and yaml_mtime > bin_mtime
 
 

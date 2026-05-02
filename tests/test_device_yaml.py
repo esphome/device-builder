@@ -100,7 +100,29 @@ esphome:
 
 
 def test_pending_when_no_binary_yet() -> None:
-    """Never-compiled device → always pending, regardless of mtime/hash inputs."""
+    """No binary AND no broadcast data → pending (definitionally unflushed)."""
+    assert (
+        compute_has_pending_changes(
+            yaml_mtime=100.0,
+            bin_mtime=None,
+            expected_config_hash="",
+            deployed_config_hash="",
+        )
+        is True
+    )
+
+
+def test_in_sync_when_hashes_match_even_without_local_binary() -> None:
+    """Hash match beats missing ``firmware.bin``.
+
+    ``--only-generate`` writes ``build_info.json`` (so
+    ``expected_config_hash`` is set) without producing
+    ``firmware.bin``; same for a build directory that's been wiped
+    by ``clean`` after a flash. If the device is broadcasting the
+    same hash via mDNS, the running firmware was built from this
+    YAML — that's authoritative, regardless of whether we still
+    have the local artefact.
+    """
     assert (
         compute_has_pending_changes(
             yaml_mtime=100.0,
@@ -108,7 +130,7 @@ def test_pending_when_no_binary_yet() -> None:
             expected_config_hash="abc",
             deployed_config_hash="abc",
         )
-        is True
+        is False
     )
 
 
