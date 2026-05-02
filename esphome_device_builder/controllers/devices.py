@@ -341,21 +341,14 @@ class DevicesController:
     ) -> UpdateDeviceResponse:
         """Update device metadata (sidecar JSON, not the YAML file)."""
         filename = f"{name}.yaml"
-        loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
-
-        await loop.run_in_executor(
-            None,
-            lambda: set_device_metadata(
-                config_dir,
-                filename,
-                board_id=board_id,
-                friendly_name=friendly_name,
-                comment=comment,
-            ),
+        await self._persist_device_metadata_async(
+            filename,
+            board_id=board_id,
+            friendly_name=friendly_name,
+            comment=comment,
         )
 
-        meta = get_device_metadata(config_dir, filename)
+        meta = get_device_metadata(self._db.settings.config_dir, filename)
         return UpdateDeviceResponse(
             name=name,
             friendly_name=meta.get("friendly_name", name),
@@ -1112,10 +1105,30 @@ class DevicesController:
 
     async def _persist_device_ip_async(self, configuration: str, ip: str) -> None:
         """Save *ip* to the device-builder metadata sidecar."""
+        await self._persist_device_metadata_async(configuration, ip=ip)
+
+    async def _persist_device_metadata_async(self, configuration: str, **fields: Any) -> None:
+        """
+        Run a blocking ``set_device_metadata`` write on the default executor.
+
+        Centralises the ``loop.run_in_executor(None, lambda: set_device_metadata(
+        config_dir, configuration, **fields))`` boilerplate that every
+        async-context sidecar write was repeating. Callers pass the
+        same kwargs they'd hand directly to
+        ``controllers.config.set_device_metadata``; the helper takes
+        care of the loop lookup and the ``config_dir`` resolution
+        from the device builder's settings.
+
+        Stays a method (not a free function) because every call site
+        already needs ``self._db`` to reach the loop and config_dir
+        — pulling it out to the module level would make every caller
+        thread the same two values explicitly with no readability
+        win.
+        """
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
         await loop.run_in_executor(
-            None, lambda: set_device_metadata(config_dir, configuration, ip=ip)
+            None, lambda: set_device_metadata(config_dir, configuration, **fields)
         )
 
     def _on_version_change(self, name: str, version: str) -> None:
@@ -1332,12 +1345,7 @@ class DevicesController:
                 configuration,
             )
             return
-        loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
-        await loop.run_in_executor(
-            None,
-            lambda: set_device_metadata(config_dir, configuration, expected_config_hash=new_hash),
-        )
+        await self._persist_device_metadata_async(configuration, expected_config_hash=new_hash)
         _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
 
     def _sync_deployed_hash_after_flash(self, configuration: str) -> None:
