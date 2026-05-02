@@ -522,7 +522,15 @@ def _featured_field_presets(fc: FeaturedComponent) -> dict[str, FieldPreset]:
 def _default_id_from_local(local_id: str) -> str:
     """Slugify a featured-component local id for use as an ESPHome ``id:`` value."""
     slug = re.sub(r"[^a-z0-9]+", "_", local_id.lower()).strip("_")
-    return slug or local_id
+    if not slug:
+        return local_id
+    # ESPHome ids must be valid C-style identifiers — they're emitted
+    # as C++ variable names downstream, so a leading digit produces an
+    # invalid build. Prefix with an underscore when the manifest's
+    # local id starts with one.
+    if slug[0].isdigit():
+        slug = f"_{slug}"
+    return slug
 
 
 def _materialise_entry_with_preset(

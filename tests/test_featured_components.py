@@ -202,6 +202,20 @@ async def test_get_component_explicit_field_preset_wins(catalog: ComponentCatalo
     assert name_field.default_value == "Relay"
 
 
+def test_default_id_from_local_handles_leading_digit() -> None:
+    """Slugified local ids that start with a digit get prefixed with ``_``."""
+    # ESPHome ids become C++ identifiers downstream — a leading digit
+    # produces an invalid build, so the slugifier must guard against
+    # it.
+    from esphome_device_builder.controllers.components import _default_id_from_local
+
+    assert _default_id_from_local("3v3-rail") == "_3v3_rail"
+    assert _default_id_from_local("4-channel-relay") == "_4_channel_relay"
+    # Non-digit-leading ids stay untouched.
+    assert _default_id_from_local("status-led-output") == "status_led_output"
+    assert _default_id_from_local("button") == "button"
+
+
 async def test_get_components_featured_only_with_board_id(
     catalog: ComponentCatalog,
 ) -> None:
