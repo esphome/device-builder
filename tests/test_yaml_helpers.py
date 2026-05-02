@@ -76,14 +76,18 @@ def test_rewrite_esphome_name_swaps_value_under_esphome_block() -> None:
 
 
 def test_rewrite_esphome_name_returns_original_when_no_match() -> None:
-    """No-op when the value doesn't match — caller can detect via identity.
+    """No-op rename: the input string is returned unchanged.
 
-    ``_manual_rename`` relies on this to skip the ``write_text``
-    when nothing changed; without it a rename to the same name
-    would still touch mtime and trigger a scanner sweep.
+    The function's documented contract: returns the original
+    text when nothing matches. Use equality (not identity) here
+    because the docstring only promises content equivalence —
+    pinning identity would over-constrain the implementation
+    against changes that re-allocate the string. ``_manual_rename``'s
+    handling of the no-op case (whether to skip the write or not)
+    is its own concern; this test stays focused on the helper.
     """
     yaml = "esphome:\n  name: kitchen\n"
-    assert rewrite_esphome_name(yaml, "garage", "garage-2") is yaml
+    assert rewrite_esphome_name(yaml, "garage", "garage-2") == yaml
 
 
 def test_rewrite_esphome_name_ignores_lookalike_in_other_block() -> None:
