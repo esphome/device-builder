@@ -14,7 +14,6 @@ disables itself; mDNS / ping discovery keeps working.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import secrets
 from collections.abc import Callable
@@ -28,6 +27,7 @@ except ImportError:  # pragma: no cover — paho-mqtt arrives via the [esphome] 
 
 import contextlib
 
+from ..helpers.json import JSONDecodeError, loads
 from ..models import DeviceState
 
 _LOGGER = logging.getLogger(__name__)
@@ -208,8 +208,8 @@ class DeviceMqttMonitor:
             if not payload:
                 continue
             try:
-                data = json.loads(payload)
-            except json.JSONDecodeError:
+                data = loads(payload)
+            except JSONDecodeError:
                 _LOGGER.debug("Ignoring non-JSON payload on %s", message.topic)
                 continue
 

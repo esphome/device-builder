@@ -14,7 +14,6 @@ HA uses:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import sys
 from typing import Any
@@ -23,6 +22,7 @@ import aiohttp
 from aiohttp import web
 from esphome import yaml_util
 
+from ..helpers.json import loads
 from ..helpers.subprocess import create_subprocess_exec
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ async def _handle_legacy_ws_command(
         if msg.type != aiohttp.WSMsgType.TEXT:
             break
 
-        data = json.loads(msg.data)
+        data = loads(msg.data)
         if data.get("type") != "spawn":
             continue
 
