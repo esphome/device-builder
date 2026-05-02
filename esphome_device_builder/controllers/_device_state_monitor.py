@@ -289,10 +289,7 @@ class DeviceStateMonitor:
         REMOVE+re-ADD scan churn) still gets repopulated by the
         next mDNS announcement.
         """
-        devices = [d for d in self._get_devices() if d.name == name]
-        if not devices:
-            return False
-        if all(d.ip == ip for d in devices):
+        if not self._any_matching_device_differs(name, "ip", ip):
             return False
         self._on_ip_change(name, ip)
         return True
@@ -306,10 +303,7 @@ class DeviceStateMonitor:
         """
         if not version or self._on_version_change is None:
             return False
-        devices = [d for d in self._get_devices() if d.name == name]
-        if not devices:
-            return False
-        if all(d.deployed_version == version for d in devices):
+        if not self._any_matching_device_differs(name, "deployed_version", version):
             return False
         self._on_version_change(name, version)
         return True
@@ -331,10 +325,7 @@ class DeviceStateMonitor:
         """
         if self._on_api_encryption_change is None:
             return False
-        devices = [d for d in self._get_devices() if d.name == name]
-        if not devices:
-            return False
-        if all(d.api_encryption_active == encryption for d in devices):
+        if not self._any_matching_device_differs(name, "api_encryption_active", encryption):
             return False
         self._on_api_encryption_change(name, encryption)
         return True
@@ -350,13 +341,24 @@ class DeviceStateMonitor:
         """
         if not config_hash or self._on_config_hash_change is None:
             return False
-        devices = [d for d in self._get_devices() if d.name == name]
-        if not devices:
-            return False
-        if all(d.deployed_config_hash == config_hash for d in devices):
+        if not self._any_matching_device_differs(name, "deployed_config_hash", config_hash):
             return False
         self._on_config_hash_change(name, config_hash)
         return True
+
+    def _any_matching_device_differs(self, name: str, attr: str, value: Any) -> bool:
+        """Return True iff some configured device named *name* has ``attr != value``.
+
+        Single-pass scan with an early break: short-circuits the
+        moment a stale value is found, so large fleets don't pay
+        for the dedupe check on every mDNS broadcast. Returns False
+        when no device matches *name* (stray announcement) or when
+        every match already carries *value* (steady-state dedupe).
+        """
+        for device in self._get_devices():
+            if device.name == name and getattr(device, attr) != value:
+                return True
+        return False
 
     def get_cached_addresses(self, host_name: str) -> list[str] | None:
         """
