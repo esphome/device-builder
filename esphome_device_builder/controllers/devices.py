@@ -1155,14 +1155,28 @@ class DevicesController:
         Verified against ``acfloatmonitor32.yaml``: pre-codegen yields
         ``f3e21d5a`` while the firmware bakes in ``5a94a12d``.
 
-        Silently no-op when the hash can't be read — the previously
-        stored sidecar value (if any) stays as the most-recent
-        firmware-canonical value, and the mtime side of
-        ``compute_has_pending_changes`` keeps the dot honest.
+        No-op when the hash can't be read. The caller is on the
+        post-build / post-only-generate path, so a missing or
+        malformed ``build_info.json`` here is unexpected — log a
+        warning so an upstream ESPHome shape change doesn't
+        silently leave the sidecar out of date.
+        ``compute_has_pending_changes`` will lean on the bin mtime
+        in that gap, which catches the "user just edited the YAML"
+        case but won't notice firmware that's drifted from the
+        compile (e.g. flashed elsewhere) — the dot can read
+        in-sync when it shouldn't until the next real flash
+        rewrites the sidecar.
         """
         yaml_path = self._db.settings.rel_path(configuration)
         new_hash = await compute_yaml_config_hash(yaml_path)
         if not new_hash:
+            _LOGGER.warning(
+                "Could not read config_hash from build_info.json for %s — "
+                "the drawer's Local hash may stay stale until the next flash. "
+                "If this persists across compiles, check that ESPHome's "
+                "build_info.json schema hasn't changed.",
+                configuration,
+            )
             return
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
