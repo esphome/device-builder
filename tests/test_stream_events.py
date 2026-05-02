@@ -1,0 +1,264 @@
+"""Tests for ``helpers.event_bus.stream_events``.
+
+The helper lives next to ``EventBus`` because it owns three
+correctness properties every WS-streaming command must get right:
+
+1. **Snapshot+subscribe atomicity.** Listeners attach before
+   ``send_initial`` is awaited.
+2. **Bounded memory.** A slow follower can't accumulate every fired
+   event in an unbounded queue.
+3. **Cleanup on cancel.** Cancelling the helper task releases every
+   listener.
+
+Pinning these here means a refactor of the helper itself surfaces
+in a focused test file rather than across every per-command suite
+that uses it.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+import pytest
+
+from esphome_device_builder.helpers.event_bus import (
+    _DEFAULT_STREAM_QUEUE_MAX,
+    Event,
+    EventBus,
+    StreamControls,
+    stream_events,
+)
+from esphome_device_builder.models import EventType
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, Any]] = []
+
+    async def send_event(self, message_id: str, event: str, data: Any) -> None:
+        # Yield so concurrent fires can interleave with the drain.
+        await asyncio.sleep(0)
+        self.events.append((message_id, event, data))
+
+
+async def test_send_initial_runs_inside_listening_block() -> None:
+    """Events fired during ``send_initial`` queue, don't drop.
+
+    Closes the snapshot/live race: the helper must attach listeners
+    *before* awaiting ``send_initial`` so an event firing during
+    the seed-replay queues through the listener and lands strictly
+    after the seed.
+    """
+    bus = EventBus()
+    client = _FakeClient()
+
+    async def _send_initial(_controls: StreamControls) -> None:
+        # Fire a live event during the seed — this MUST queue, not
+        # drop, because listeners are already attached.
+        bus.fire(EventType.DEVICE_UPDATED, {"line": "during-seed"})
+        await client.send_event("m1", "seed", "ok")
+
+    def _handle_event(event: Event, controls: StreamControls) -> None:
+        controls.push(event.event_type.value, event.data)
+        # Once the live event is delivered we have what we need;
+        # ending the stream lets the helper task return cleanly so
+        # we can assert without racing cancellation.
+        controls.end()
+
+    await asyncio.wait_for(
+        stream_events(
+            client=client,
+            message_id="m1",
+            bus=bus,
+            event_types=[EventType.DEVICE_UPDATED],
+            handle_event=_handle_event,
+            send_initial=_send_initial,
+        ),
+        timeout=2.0,
+    )
+
+    # The seed lands first, then the live event — strict ordering
+    # is the contract this test pins.
+    names = [(e, d) for (_m, e, d) in client.events]
+    assert names == [
+        ("seed", "ok"),
+        ("device_updated", {"line": "during-seed"}),
+    ]
+
+
+async def test_cancellation_unsubscribes_every_listener() -> None:
+    """Cancelling the helper task releases all listeners.
+
+    Without this, every WS reconnect would leak ~one listener per
+    subscribed ``EventType``. The closure keeps the closed client
+    alive, so subsequent ``bus.fire`` calls iterate dead listeners
+    forever.
+    """
+    bus = EventBus()
+    client = _FakeClient()
+
+    def _handle_event(_event: Event, _controls: StreamControls) -> None:
+        pass
+
+    task = asyncio.create_task(
+        stream_events(
+            client=client,
+            message_id="m1",
+            bus=bus,
+            event_types=[EventType.DEVICE_UPDATED, EventType.DEVICE_REMOVED],
+            handle_event=_handle_event,
+        )
+    )
+    # Yield so the helper finishes its synchronous setup and parks
+    # on ``queue.get``.
+    await asyncio.sleep(0)
+
+    listener_count_before = sum(len(bus._listeners.get(et, ())) for et in EventType)
+    assert listener_count_before > 0, "no listeners attached"
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    listener_count_after = sum(len(bus._listeners.get(et, ())) for et in EventType)
+    assert listener_count_after == 0
+
+
+async def test_end_breaks_drain_loop() -> None:
+    """``controls.end()`` causes the helper to return cleanly.
+
+    The terminal-job code path in ``follow_job`` relies on this:
+    after the result event is pushed, ``end()`` is called so the
+    helper exits instead of parking forever on ``queue.get``.
+    """
+    bus = EventBus()
+    client = _FakeClient()
+
+    def _handle_event(event: Event, controls: StreamControls) -> None:
+        controls.push(event.event_type.value, event.data)
+        # End the stream after the very first event.
+        controls.end()
+
+    task = asyncio.create_task(
+        stream_events(
+            client=client,
+            message_id="m1",
+            bus=bus,
+            event_types=[EventType.DEVICE_UPDATED],
+            handle_event=_handle_event,
+        )
+    )
+    await asyncio.sleep(0)
+    bus.fire(EventType.DEVICE_UPDATED, {"x": 1})
+
+    await asyncio.wait_for(task, timeout=1.0)
+    assert client.events == [("m1", "device_updated", {"x": 1})]
+
+
+async def test_push_drops_newest_when_queue_full() -> None:
+    """A slow follower's queue is bounded — newest line drops on full.
+
+    Without the bound, an idle/backpressured follower lets the
+    queue grow to the size of every fired event, defeating the
+    point of capping ``job.output``.
+    """
+    bus = EventBus()
+
+    block = asyncio.Event()
+    received: list[tuple[str, Any]] = []
+
+    class BlockingClient:
+        async def send_event(self, _mid: str, event: str, data: Any) -> None:
+            received.append((event, data))
+            await block.wait()
+
+    def _handle_event(event: Event, controls: StreamControls) -> None:
+        controls.push(event.event_type.value, event.data["i"])
+
+    task = asyncio.create_task(
+        stream_events(
+            client=BlockingClient(),
+            message_id="m1",
+            bus=bus,
+            event_types=[EventType.DEVICE_UPDATED],
+            handle_event=_handle_event,
+        )
+    )
+    await asyncio.sleep(0)
+
+    # First fire: drain consumes it, parks in send_event.
+    bus.fire(EventType.DEVICE_UPDATED, {"i": 0})
+    await asyncio.sleep(0)
+    assert received == [("device_updated", 0)]
+
+    # Fire well past the cap. With drain blocked, the queue caps at
+    # maxsize and the excess fires no-op via suppress(QueueFull).
+    burst = _DEFAULT_STREAM_QUEUE_MAX + 500
+    for i in range(1, burst + 1):
+        bus.fire(EventType.DEVICE_UPDATED, {"i": i})
+
+    block.set()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # We delivered at most the queue cap + the first one.
+    assert len(received) <= 1 + _DEFAULT_STREAM_QUEUE_MAX
+
+
+async def test_push_priority_evicts_oldest_when_queue_full() -> None:
+    """``push_priority`` lands even on full queue by evicting oldest.
+
+    The terminal result + sentinel use this — they MUST reach the
+    drain loop or the follower parks on ``queue.get`` forever
+    after the producer is gone.
+    """
+    bus = EventBus()
+
+    block = asyncio.Event()
+    received: list[tuple[str, Any]] = []
+
+    class BlockingClient:
+        async def send_event(self, _mid: str, event: str, data: Any) -> None:
+            received.append((event, data))
+            if event == "fill":
+                await block.wait()
+
+    def _handle_event(event: Event, controls: StreamControls) -> None:
+        if event.data.get("kind") == "priority":
+            controls.push_priority("priority", event.data["i"])
+            controls.end()
+        else:
+            controls.push("fill", event.data["i"])
+
+    task = asyncio.create_task(
+        stream_events(
+            client=BlockingClient(),
+            message_id="m1",
+            bus=bus,
+            event_types=[EventType.DEVICE_UPDATED],
+            handle_event=_handle_event,
+        )
+    )
+    await asyncio.sleep(0)
+
+    # Park drain in send_event with the first fill.
+    bus.fire(EventType.DEVICE_UPDATED, {"kind": "fill", "i": 0})
+    await asyncio.sleep(0)
+
+    # Fill the queue past capacity.
+    for i in range(1, _DEFAULT_STREAM_QUEUE_MAX + 1):
+        bus.fire(EventType.DEVICE_UPDATED, {"kind": "fill", "i": i})
+
+    # Priority push: must evict to make room and land the result +
+    # sentinel so end() unblocks the drain.
+    bus.fire(EventType.DEVICE_UPDATED, {"kind": "priority", "i": 999})
+
+    # Unblock drain so it can finish.
+    block.set()
+
+    await asyncio.wait_for(task, timeout=2.0)
+
+    priority_events = [d for (e, d) in received if e == "priority"]
+    assert priority_events == [999]

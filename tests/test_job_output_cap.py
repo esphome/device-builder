@@ -105,32 +105,70 @@ def test_inflight_hysteresis_amortises_trim_cost() -> None:
     assert len(job.output) <= _MAX_OUTPUT_LINES_INFLIGHT
 
 
-def test_no_module_named_esphome_detection_at_append_time() -> None:
-    r"""``saw_no_esphome_module`` flag survives the in-flight trim.
+def test_is_no_module_named_esphome_matches_exact_quoted_form() -> None:
+    """Production helper distinguishes ``esphome`` from sibling modules.
+
+    Locks the contract by calling the actual production function
+    rather than reimplementing the substring check in the test —
+    a regression that flips the production check (e.g. back to
+    two loose substrings) would surface here.
+
+    The post-exit handler renders the actionable ``"esphome is not
+    importable …"`` message based on this flag, so a false positive
+    on ``esphome_dashboard`` (a sibling that's missing for
+    different reasons) would tell users to reinstall ESPHome
+    itself when the real fix is to install a different dependency.
+    """
+    from esphome_device_builder.controllers.firmware import _is_no_module_named_esphome
+
+    # CPython's exact ModuleNotFoundError emission — the format we
+    # actually need to detect.
+    assert _is_no_module_named_esphome("ModuleNotFoundError: No module named 'esphome'\n")
+    # Sibling modules that share the ``esphome`` prefix must NOT
+    # match — that's the false-positive risk the quoted-form
+    # check exists to close.
+    assert not _is_no_module_named_esphome(
+        "ModuleNotFoundError: No module named 'esphome_dashboard'\n"
+    )
+    assert not _is_no_module_named_esphome(
+        "ModuleNotFoundError: No module named 'esphome_runtime'\n"
+    )
+    # Unrelated content — also no match.
+    assert not _is_no_module_named_esphome("regular log line\n")
+    assert not _is_no_module_named_esphome("compiling esphome/components/wifi.cpp\n")
+
+
+def test_saw_no_esphome_module_flag_survives_inflight_trim() -> None:
+    r"""Flag captured at append time outlives the post-completion trim.
 
     The post-exit handler used to render the actionable
-    ``"esphome is not importable from the dashboard's Python
-    environment …"`` message by re-scanning ``"".join(job.output)``
-    for ``No module named esphome``. After the in-flight cap can
-    elide the head, that line might be gone by exit time and the
-    user gets the generic ``"Process exited 0 but output contains
-    errors"`` message instead of the specific install hint.
+    ``"esphome is not importable …"`` message by re-scanning
+    ``"".join(job.output)`` for ``No module named esphome``. After
+    the in-flight cap can elide the head, that line might be gone
+    by exit time and the user got the generic ``"Process exited 0
+    but output contains errors"`` instead of the specific install
+    hint.
 
-    Cure: set the flag at append time (where ``_check_error``
-    already had the line in hand). This test pins the at-append
-    detection by exercising the same closure shape the runner
-    uses: define a local flag + closure, feed lines through it,
-    and verify the flag stays True after the source line is
-    removed from the buffer.
+    The cure is to capture at append time. This test mirrors the
+    runner's at-append capture (the closure shape lives inside
+    ``_execute_job`` so it can't be imported directly) but routes
+    the per-line check through the production
+    ``_is_no_module_named_esphome`` helper so a regression in the
+    matching predicate surfaces in
+    ``test_is_no_module_named_esphome_matches_exact_quoted_form``
+    above.
     """
-    from esphome_device_builder.controllers.firmware import _ERROR_PATTERNS
+    from esphome_device_builder.controllers.firmware import (
+        _ERROR_PATTERNS,
+        _is_no_module_named_esphome,
+    )
 
     has_error_in_output = False
     saw_no_esphome_module = False
 
     def _check_error(text: str) -> None:
         nonlocal has_error_in_output, saw_no_esphome_module
-        if "No module named 'esphome'" in text:
+        if not saw_no_esphome_module and _is_no_module_named_esphome(text):
             saw_no_esphome_module = True
         if has_error_in_output:
             return
@@ -139,15 +177,7 @@ def test_no_module_named_esphome_detection_at_append_time() -> None:
                 has_error_in_output = True
                 return
 
-    # Line at the start of a long noisy build, in the exact format
-    # CPython emits — with the module name single-quoted. The
-    # post-exit check ``"No module named esphome" in full_output``
-    # never matched this real-world string; capturing at append
-    # time on the quoted form rather than two loose substrings
-    # also avoids false-positive sibling matches like
-    # ``esphome_dashboard``.
     _check_error("ModuleNotFoundError: No module named 'esphome'\n")
-    # Mountains of unrelated noise.
     for i in range(_MAX_OUTPUT_LINES_INFLIGHT * 2):
         _check_error(f"line {i}\n")
 
@@ -155,13 +185,6 @@ def test_no_module_named_esphome_detection_at_append_time() -> None:
     # The captured flag is what the post-exit handler uses to pick
     # the actionable error message — set once, never cleared.
     assert saw_no_esphome_module is True
-
-    # Sibling modules that share the ``esphome`` prefix must not
-    # trigger the flag — that was the false-positive risk the
-    # quoted-form check exists to close.
-    saw_no_esphome_module = False
-    _check_error("ModuleNotFoundError: No module named 'esphome_dashboard'\n")
-    assert saw_no_esphome_module is False
 
 
 def test_inflight_trim_followed_by_default_trim_chains_elided_counts() -> None:

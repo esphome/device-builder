@@ -114,7 +114,7 @@ async def test_subscribe_events_listener_forwards_bus_events() -> None:
     # client via send_event.
     db.bus.fire(EventType.DEVICE_UPDATED, {"device": MagicMock(to_dict=lambda: {"x": 1})})
 
-    # Yield so the listener's create_task gets scheduled and run.
+    # Yield so the helper's drain loop picks up the queued event.
     for _ in range(10):
         await asyncio.sleep(0)
         if client.events:
@@ -123,6 +123,41 @@ async def test_subscribe_events_listener_forwards_bus_events() -> None:
     assert client.events == [("m1", "device_updated", {"device": {"x": 1}})]
 
     # Clean up the parked task so the test finishes.
+    handler_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await handler_task
+
+
+async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
+    """Initial state and ``subscribed`` confirm precede every live event.
+
+    Locks the snapshot/live ordering contract: a
+    ``DEVICE_UPDATED`` fired during the seed must queue through
+    the listener and arrive *after* ``send_result({"subscribed":
+    True})``. Without that ordering a frontend mid-connect could
+    receive a state delta that referenced devices it hadn't been
+    told about yet.
+    """
+    db = _make_db()
+    client = _FakeClient()
+
+    handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    # Yield once so listeners attach and send_initial starts
+    # awaiting send_result.
+    await asyncio.sleep(0)
+
+    # Fire a live event while the seed is in flight.
+    db.bus.fire(EventType.DEVICE_UPDATED, {"device": MagicMock(to_dict=lambda: {"y": 2})})
+
+    # Wait for both subscription confirmation and the live event.
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if client.results and client.events:
+            break
+
+    assert client.results == [("m1", {"subscribed": True})]
+    assert client.events == [("m1", "device_updated", {"device": {"y": 2}})]
+
     handler_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await handler_task

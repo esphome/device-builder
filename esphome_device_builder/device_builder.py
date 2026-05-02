@@ -244,53 +244,40 @@ class DeviceBuilder:
 
         The client receives an initial device list, then ongoing events
         as devices change. Subscription is active for the connection
-        lifetime; the handler parks on a never-resolving event so that
-        when the WS closes (cancelling this task) the
-        ``EventBus.listening`` context manager runs its ``finally`` and
-        unsubscribes every listener.
+        lifetime; ``stream_events`` parks in its drain loop until the
+        WS closes (cancelling this task), at which point the
+        ``EventBus.listening`` context manager inside the helper
+        runs its ``finally`` and unsubscribes every listener.
 
-        The previous shape registered listeners then returned, leaking
-        ~one listener per ``EventType`` per disconnected client. Each
-        leaked listener kept the closed-client closure alive, so
-        ``bus.fire`` would iterate dead listeners forever, fan
-        ``send_event`` calls into a closed WS (raising on every call,
-        caught + logged by ``bus.fire``), and slowly bloat the log
-        with stale-client send errors.
+        Previous shapes had two problems addressed here:
+
+        1. The very first version registered listeners then returned,
+           leaking ~one listener per ``EventType`` per disconnected
+           client. Each leaked listener kept the closed-client
+           closure alive, so ``bus.fire`` iterated dead listeners
+           forever and bloated the logs with stale-send errors.
+        2. The interim shape forwarded events via independent
+           ``asyncio.create_task`` calls, so an event fired during
+           the ``initial_state`` await raced ahead and arrived
+           *before* the snapshot — clients couldn't rely on
+           "initial state first, then live updates" ordering.
+
+        ``stream_events`` closes both: listeners attach inside its
+        ``with bus.listening`` block before the snapshot is awaited,
+        and the bounded queue serialises every event after the seed.
         """
-        from .helpers.event_bus import Event
+        from .helpers.event_bus import Event, StreamControls, stream_events
         from .models import EventType
 
         if client is None:
             return
 
-        # Track pending tasks to prevent garbage collection. They run
-        # on the asyncio loop independently of this coroutine; on
-        # cancellation each in-flight ``send_event`` raises against
-        # the closing WS and self-cleans via its done callback.
-        pending_tasks: set[asyncio.Task] = set()
-
-        def _on_event(event: Event) -> None:
-            """Forward bus event to the WS client."""
-            data = event.data
-            serialized: dict[str, Any] = {}
-            for key, value in data.items():
-                serialized[key] = value.to_dict() if hasattr(value, "to_dict") else value
-            task = asyncio.create_task(
-                client.send_event(message_id, event.event_type.value, serialized)
-            )
-            pending_tasks.add(task)
-            task.add_done_callback(pending_tasks.discard)
-
-        with self.bus.listening(list(EventType), _on_event):
-            # Send initial device + importable lists. Importable
-            # devices are populated by the mDNS browser and per-device
-            # events fire only on transitions; without seeding the
-            # snapshot here a fresh page load misses every importable
-            # device the dashboard had already seen by then. Sent
-            # *inside* the with-block (after listeners are attached)
-            # so any event fired between the snapshot and the seed
-            # being delivered queues through the listener — same
-            # snapshot+subscribe atomicity rule ``follow_job`` uses.
+        async def _send_initial(_controls: StreamControls) -> None:
+            # Importable devices are populated by the mDNS browser
+            # and per-device events fire only on transitions; without
+            # seeding the snapshot here a fresh page load misses
+            # every importable device the dashboard had already seen
+            # by then.
             if self.devices:
                 devices = self.devices.get_devices()
                 importable = self.devices.get_importable_devices()
@@ -302,16 +289,25 @@ class DeviceBuilder:
                         "importable": [d.to_dict() for d in importable],
                     },
                 )
-
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.
             await client.send_result(message_id, {"subscribed": True})
 
-            # Park forever — the connection lifecycle (cancellation
-            # of this coroutine when the WS closes) is what ends the
-            # subscription. The ``finally`` inside ``listening`` runs
-            # on cancellation and unsubscribes every listener.
-            await asyncio.Event().wait()
+        def _handle_event(event: Event, controls: StreamControls) -> None:
+            data = event.data
+            serialized: dict[str, Any] = {}
+            for key, value in data.items():
+                serialized[key] = value.to_dict() if hasattr(value, "to_dict") else value
+            controls.push(event.event_type.value, serialized)
+
+        await stream_events(
+            client=client,
+            message_id=message_id,
+            bus=self.bus,
+            event_types=list(EventType),
+            handle_event=_handle_event,
+            send_initial=_send_initial,
+        )
 
     def create_background_task(self, coro: Any) -> asyncio.Task:
         """Create a tracked background task."""
