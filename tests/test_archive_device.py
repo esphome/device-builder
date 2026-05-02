@@ -278,6 +278,67 @@ async def test_archive_missing_file_raises_file_not_found(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_archive_device_full_flow_calls_scanner(tmp_path: Path) -> None:
+    """End-to-end ``archive_device`` runs the helper and re-scans.
+
+    Covers the public-command success path that helper-level tests
+    skip: the wrapper's ``_archive_single`` call on success and the
+    follow-up ``self._scanner.scan()`` that triggers the
+    ``DEVICE_REMOVED`` event for the dashboard.
+    """
+    controller = _make_controller(tmp_path)
+    yaml_path, _ = _seed_device(tmp_path, "kitchen.yaml")
+
+    await controller.archive_device(configuration="kitchen.yaml")
+
+    assert not yaml_path.exists()
+    assert (tmp_path / "archive" / "kitchen.yaml").exists()
+    controller._scanner.scan.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unarchive_device_full_flow_calls_scanner(tmp_path: Path) -> None:
+    """End-to-end ``unarchive_device`` runs the helper and re-scans.
+
+    Same shape as ``test_archive_device_full_flow_calls_scanner`` —
+    covers the WS-command tail (``_scanner.scan()`` after success).
+    """
+    controller = _make_controller(tmp_path)
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    await controller.unarchive_device(configuration="kitchen.yaml")
+
+    assert not (archive_dir / "kitchen.yaml").exists()
+    assert (tmp_path / "kitchen.yaml").exists()
+    controller._scanner.scan.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_list_archived_full_flow(tmp_path: Path) -> None:
+    """End-to-end ``list_archived`` returns the parsed rows.
+
+    Covers the WS-command body that runs ``_list_archived_sync``
+    in an executor — helper-level tests call the sync version
+    directly and miss the executor wrapping.
+    """
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n",
+        encoding="utf-8",
+    )
+
+    controller = _make_controller(tmp_path)
+    rows = await controller.list_archived()
+
+    assert len(rows) == 1
+    assert rows[0]["configuration"] == "kitchen.yaml"
+    assert rows[0]["friendly_name"] == "Kitchen"
+
+
+@pytest.mark.asyncio
 async def test_archive_device_translates_missing_to_command_error(tmp_path: Path) -> None:
     """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)`` to the client.
 
@@ -404,6 +465,56 @@ async def test_archive_rejects_path_traversal(tmp_path: Path, configuration: str
         with pytest.raises(CommandError) as exc:
             await cmd(configuration=configuration)
         assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+# ---------------------------------------------------------------------------
+# _remove_device_sidecars exception paths
+# ---------------------------------------------------------------------------
+
+
+def test_remove_device_sidecars_logs_oserror_on_storage_unlink(
+    tmp_path: Path, monkeypatch: Any, caplog: Any
+) -> None:
+    """OSError from the storage unlink is logged, not raised.
+
+    Covers the warning branch — a permission-error / read-only fs
+    on the StorageJSON sidecar shouldn't block the rest of the
+    archive / delete flow.
+    """
+    from esphome_device_builder.controllers.devices import (
+        _remove_device_sidecars,
+    )
+
+    storage_dir = tmp_path / ".esphome" / "storage"
+    storage_dir.mkdir(parents=True)
+    (storage_dir / "kitchen.yaml.json").write_text("{}", encoding="utf-8")
+
+    def _raise_oserror(self: Path, missing_ok: bool = False) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "unlink", _raise_oserror)
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        _remove_device_sidecars(tmp_path, "kitchen.yaml")
+    assert any("Could not remove storage file" in rec.message for rec in caplog.records)
+
+
+def test_remove_device_sidecars_logs_exception_on_metadata_remove(
+    tmp_path: Path, monkeypatch: Any, caplog: Any
+) -> None:
+    """Generic Exception from metadata-remove is logged, not raised."""
+    from esphome_device_builder.controllers import devices as devices_module
+
+    def _raise(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(devices_module, "remove_device_metadata", _raise)
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        devices_module._remove_device_sidecars(tmp_path, "kitchen.yaml")
+    assert any("Could not remove metadata" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------
