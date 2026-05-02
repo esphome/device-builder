@@ -31,11 +31,12 @@ import pytest
 
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
 @pytest.mark.asyncio
 async def test_compile_bulk_returns_queued_jobs_for_every_config(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Happy path: one ``COMPILE`` job per configuration, all ``QUEUED``.
 
@@ -58,7 +59,7 @@ async def test_compile_bulk_returns_queued_jobs_for_every_config(
 
 @pytest.mark.asyncio
 async def test_compile_bulk_rejects_whole_batch_on_traversal_entry(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """A traversal payload anywhere in the list rejects the whole batch.
 
@@ -88,7 +89,7 @@ async def test_compile_bulk_rejects_whole_batch_on_traversal_entry(
 
 @pytest.mark.asyncio
 async def test_compile_bulk_rejects_whole_batch_on_empty_entry(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """An empty-string configuration rejects the whole batch.
 
@@ -109,7 +110,7 @@ async def test_compile_bulk_rejects_whole_batch_on_empty_entry(
 
 @pytest.mark.asyncio
 async def test_compile_bulk_skips_entries_with_enqueue_command_error(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """A ``CommandError`` from ``_enqueue`` skips that entry but keeps going.
 
@@ -157,7 +158,7 @@ async def test_compile_bulk_skips_entries_with_enqueue_command_error(
 
 @pytest.mark.asyncio
 async def test_compile_bulk_empty_input_returns_empty_list(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """An empty ``configurations`` list returns ``[]`` without raising.
 
@@ -175,7 +176,7 @@ async def test_compile_bulk_empty_input_returns_empty_list(
 
 @pytest.mark.asyncio
 async def test_compile_bulk_fires_job_queued_per_successful_entry(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``JOB_QUEUED`` fires exactly once per queued job — no double-fire, no skip.
 

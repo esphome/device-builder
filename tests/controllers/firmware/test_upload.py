@@ -30,11 +30,12 @@ import pytest
 
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, EventType, JobStatus, JobType
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
 @pytest.mark.asyncio
 async def test_upload_returns_queued_job_with_upload_type(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Happy path: handler returns a ``QUEUED`` ``FirmwareJob`` of type ``UPLOAD``.
 
@@ -55,7 +56,7 @@ async def test_upload_returns_queued_job_with_upload_type(
 
 @pytest.mark.asyncio
 async def test_upload_defaults_port_to_empty_string(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``port`` defaults to ``""`` — *not* ``"OTA"``.
 
@@ -83,7 +84,7 @@ async def test_upload_defaults_port_to_empty_string(
 )
 @pytest.mark.asyncio
 async def test_upload_forwards_custom_port_to_job(
-    tmp_path: Path, port: str, firmware_controller_factory
+    tmp_path: Path, port: str, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Caller-supplied port shapes (OTA / serial / IP / hostname) round-trip onto the job.
 
@@ -102,7 +103,7 @@ async def test_upload_forwards_custom_port_to_job(
 
 @pytest.mark.asyncio
 async def test_upload_validates_port_before_configuration(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """A typo'd port raises before the configuration validator runs.
 
@@ -132,7 +133,7 @@ async def test_upload_validates_port_before_configuration(
 
 @pytest.mark.asyncio
 async def test_upload_rejects_traversal_configuration(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """A traversal-shaped configuration trips the boundary validator.
 
@@ -153,7 +154,7 @@ async def test_upload_rejects_traversal_configuration(
 
 @pytest.mark.asyncio
 async def test_upload_enqueues_before_firing_job_queued(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``_queue.put`` runs *before* the ``JOB_QUEUED`` broadcast.
 
@@ -191,7 +192,7 @@ async def test_upload_enqueues_before_firing_job_queued(
 
 @pytest.mark.asyncio
 async def test_upload_registers_job_in_jobs_map(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """The new job lands in ``self._jobs`` keyed by ``job_id``.
 

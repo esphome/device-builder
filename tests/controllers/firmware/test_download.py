@@ -31,6 +31,7 @@ from typing import Any
 import pytest
 
 from tests._storage_fixtures import write_storage_json
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
 @pytest.fixture(autouse=True)
@@ -64,7 +65,7 @@ def _make_firmware(build_dir: Path, name: str, payload: bytes) -> Path:
 
 @pytest.mark.asyncio
 async def test_download_raises_when_storage_missing(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """No StorageJSON sidecar at all → user hasn't compiled this device yet.
 
@@ -81,7 +82,7 @@ async def test_download_raises_when_storage_missing(
 
 @pytest.mark.asyncio
 async def test_download_raises_when_firmware_bin_path_unset(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Sidecar exists but ``firmware_bin_path`` is None → same actionable error.
 
@@ -100,7 +101,7 @@ async def test_download_raises_when_firmware_bin_path_unset(
 
 @pytest.mark.asyncio
 async def test_download_raises_on_traversal_in_file(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """A ``file`` value escaping the build dir trips ``Path.relative_to``.
 
@@ -125,7 +126,7 @@ async def test_download_raises_on_traversal_in_file(
 
 @pytest.mark.asyncio
 async def test_download_raises_when_binary_missing(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Sidecar + build dir present but the requested file isn't there.
 
@@ -150,7 +151,7 @@ async def test_download_raises_when_binary_missing(
 
 @pytest.mark.asyncio
 async def test_download_returns_base64_payload_uncompressed(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Default path returns ``{filename, data, size, compressed=False}``.
 
@@ -174,7 +175,7 @@ async def test_download_returns_base64_payload_uncompressed(
 
 @pytest.mark.asyncio
 async def test_download_validator_runs_before_ext_storage_path(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``ext_storage_path`` is unsafe in isolation; the validator gate matters.
 
@@ -220,7 +221,7 @@ async def test_download_validator_runs_before_ext_storage_path(
 
 @pytest.mark.asyncio
 async def test_download_returns_gzipped_payload_when_compressed(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``compressed=True`` gzips the bytes and tacks ``.gz`` onto the filename.
 

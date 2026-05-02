@@ -24,11 +24,12 @@ import pytest
 
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, EventType, JobStatus, JobType
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
 @pytest.mark.asyncio
 async def test_compile_returns_queued_job_with_compile_type(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Happy path: handler returns a ``QUEUED`` ``FirmwareJob`` of type ``COMPILE``.
 
@@ -50,7 +51,7 @@ async def test_compile_returns_queued_job_with_compile_type(
 
 @pytest.mark.asyncio
 async def test_compile_rejects_traversal_configuration(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """A traversal-shaped configuration trips the boundary validator.
 
@@ -72,7 +73,7 @@ async def test_compile_rejects_traversal_configuration(
 
 @pytest.mark.asyncio
 async def test_compile_enqueues_before_firing_job_queued(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``_queue.put`` runs *before* the ``JOB_QUEUED`` broadcast.
 
@@ -111,7 +112,7 @@ async def test_compile_enqueues_before_firing_job_queued(
 
 @pytest.mark.asyncio
 async def test_compile_registers_job_in_jobs_map(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """The new job lands in ``self._jobs`` keyed by ``job_id``.
 

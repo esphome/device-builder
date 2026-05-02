@@ -35,6 +35,7 @@ from esphome_device_builder.controllers.firmware.controller import (
     _resolve_download_component,
 )
 from tests._storage_fixtures import write_storage_json
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
 @pytest.fixture(autouse=True)
@@ -157,7 +158,7 @@ def test_resolve_download_component_handles_none() -> None:
 
 @pytest.mark.asyncio
 async def test_get_binaries_returns_empty_when_storage_missing(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """No StorageJSON sidecar → empty list, NOT a raise.
 
@@ -177,7 +178,7 @@ async def test_get_binaries_returns_empty_when_storage_missing(
 
 @pytest.mark.asyncio
 async def test_get_binaries_returns_empty_when_target_platform_missing(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Sidecar exists but ``target_platform`` is empty → empty list.
 
@@ -197,7 +198,10 @@ async def test_get_binaries_returns_empty_when_target_platform_missing(
 
 @pytest.mark.asyncio
 async def test_get_binaries_logs_and_returns_empty_on_module_failure(
-    tmp_path: Path, caplog: Any, monkeypatch: Any, firmware_controller_factory
+    tmp_path: Path,
+    caplog: Any,
+    monkeypatch: Any,
+    firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """A module that raises from ``get_download_types`` → empty list + warning.
 
@@ -237,7 +241,7 @@ async def test_get_binaries_logs_and_returns_empty_on_module_failure(
 
 @pytest.mark.asyncio
 async def test_get_binaries_routes_esp32_variants_through_umbrella_module(
-    tmp_path: Path, monkeypatch: Any, firmware_controller_factory
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """ESP32 variant in storage → loads the umbrella ``esp32`` component.
 
@@ -272,7 +276,7 @@ async def test_get_binaries_routes_esp32_variants_through_umbrella_module(
 
 @pytest.mark.asyncio
 async def test_get_binaries_routes_libretiny_families_through_umbrella_module(
-    tmp_path: Path, monkeypatch: Any, firmware_controller_factory
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """A LibreTiny family target loads the ``libretiny`` component, not the chip module.
 
@@ -303,7 +307,7 @@ async def test_get_binaries_routes_libretiny_families_through_umbrella_module(
 
 @pytest.mark.asyncio
 async def test_get_binaries_returns_module_list_verbatim(
-    tmp_path: Path, monkeypatch: Any, firmware_controller_factory
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """The upstream module's list is returned verbatim — no filtering, no re-shaping.
 

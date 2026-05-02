@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
 def _job(job_id: str, status: JobStatus, *, job_type: JobType = JobType.COMPILE) -> FirmwareJob:
@@ -44,7 +45,9 @@ def _job(job_id: str, status: JobStatus, *, job_type: JobType = JobType.COMPILE)
 
 
 @pytest.mark.asyncio
-async def test_clear_default_removes_all_terminal_states(firmware_controller_factory) -> None:
+async def test_clear_default_removes_all_terminal_states(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """``clear()`` with no args removes every terminal job (COMPLETED/FAILED/CANCELLED).
 
     Pin all three terminal states in one test so a regression that
@@ -64,7 +67,9 @@ async def test_clear_default_removes_all_terminal_states(firmware_controller_fac
 
 
 @pytest.mark.asyncio
-async def test_clear_default_keeps_queued_and_running_jobs(firmware_controller_factory) -> None:
+async def test_clear_default_keeps_queued_and_running_jobs(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Active jobs (QUEUED / RUNNING) survive the default clear.
 
     The "Clear finished" button must never remove a build the
@@ -85,7 +90,9 @@ async def test_clear_default_keeps_queued_and_running_jobs(firmware_controller_f
 
 
 @pytest.mark.asyncio
-async def test_clear_default_with_no_terminal_jobs_is_noop(firmware_controller_factory) -> None:
+async def test_clear_default_with_no_terminal_jobs_is_noop(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Empty terminal-set → nothing removed, but ``_persist_jobs`` still runs.
 
     Pinned because the default branch's filter list ends up empty
@@ -112,7 +119,7 @@ async def test_clear_default_with_no_terminal_jobs_is_noop(firmware_controller_f
 
 @pytest.mark.asyncio
 async def test_clear_with_specific_status_removes_only_that_status(
-    firmware_controller_factory,
+    firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """``clear(status=COMPLETED)`` leaves FAILED and CANCELLED alone.
 
@@ -134,7 +141,9 @@ async def test_clear_with_specific_status_removes_only_that_status(
 
 
 @pytest.mark.asyncio
-async def test_clear_with_status_string_matches_enum_value(firmware_controller_factory) -> None:
+async def test_clear_with_status_string_matches_enum_value(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """The WS layer passes ``status`` as a bare string; equality must hold.
 
     ``JobStatus`` is a ``StrEnum`` so ``JobStatus.COMPLETED ==
@@ -156,7 +165,9 @@ async def test_clear_with_status_string_matches_enum_value(firmware_controller_f
 
 
 @pytest.mark.asyncio
-async def test_clear_with_status_can_remove_active_jobs(firmware_controller_factory) -> None:
+async def test_clear_with_status_can_remove_active_jobs(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Explicit ``status=RUNNING`` removes that exact state.
 
     The default path protects active jobs, but the explicit-status
@@ -178,7 +189,9 @@ async def test_clear_with_status_can_remove_active_jobs(firmware_controller_fact
 
 
 @pytest.mark.asyncio
-async def test_clear_with_status_no_matches_is_noop(firmware_controller_factory) -> None:
+async def test_clear_with_status_no_matches_is_noop(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """An unmatched status is a no-op (still persists the unchanged map)."""
     controller = firmware_controller_factory(with_settings=False)
     controller._jobs = {
@@ -197,7 +210,9 @@ async def test_clear_with_status_no_matches_is_noop(firmware_controller_factory)
 
 
 @pytest.mark.asyncio
-async def test_clear_persists_after_removal(firmware_controller_factory) -> None:
+async def test_clear_persists_after_removal(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """``_persist_jobs`` is awaited after the in-memory delete.
 
     Without persist, a restart would resurrect cleared jobs from
@@ -226,7 +241,9 @@ async def test_clear_persists_after_removal(firmware_controller_factory) -> None
 
 
 @pytest.mark.asyncio
-async def test_clear_accepts_arbitrary_kwargs(firmware_controller_factory) -> None:
+async def test_clear_accepts_arbitrary_kwargs(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """``**kwargs`` lets the WS dispatcher's keyword spread through unread fields.
 
     Same contract as every other ``firmware/*`` handler. A regression
@@ -243,7 +260,9 @@ async def test_clear_accepts_arbitrary_kwargs(firmware_controller_factory) -> No
 
 
 @pytest.mark.asyncio
-async def test_clear_with_empty_jobs_map_is_noop(firmware_controller_factory) -> None:
+async def test_clear_with_empty_jobs_map_is_noop(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Calling ``clear`` on an already-empty map doesn't crash and still persists."""
     controller = firmware_controller_factory(with_settings=False)
 

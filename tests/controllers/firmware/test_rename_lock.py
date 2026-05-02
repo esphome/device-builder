@@ -28,6 +28,7 @@ from esphome_device_builder.models import (
     JobStatus,
     JobType,
 )
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
 def _job(
@@ -47,7 +48,9 @@ def _job(
     )
 
 
-def test_install_on_old_name_is_rejected(firmware_controller_factory) -> None:
+def test_install_on_old_name_is_rejected(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
     controller = firmware_controller_factory(rename, with_settings=False)
     new = _job("inst1", "kitchen.yaml", JobType.INSTALL)
@@ -60,7 +63,9 @@ def test_install_on_old_name_is_rejected(firmware_controller_factory) -> None:
     assert "livingroom.yaml" in excinfo.value.message
 
 
-def test_install_on_new_name_is_rejected(firmware_controller_factory) -> None:
+def test_install_on_new_name_is_rejected(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
     controller = firmware_controller_factory(rename, with_settings=False)
     new = _job("inst1", "livingroom.yaml", JobType.INSTALL)
@@ -69,14 +74,18 @@ def test_install_on_new_name_is_rejected(firmware_controller_factory) -> None:
         controller._check_rename_lock(new)
 
 
-def test_compile_on_unrelated_config_is_allowed(firmware_controller_factory) -> None:
+def test_compile_on_unrelated_config_is_allowed(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
     controller = firmware_controller_factory(rename, with_settings=False)
 
     controller._check_rename_lock(_job("c1", "garage.yaml", JobType.COMPILE))
 
 
-def test_rename_targeting_same_new_name_is_rejected(firmware_controller_factory) -> None:
+def test_rename_targeting_same_new_name_is_rejected(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Two renames pointing at the same target name would fight to write it."""
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
     controller = firmware_controller_factory(rename, with_settings=False)
@@ -86,7 +95,9 @@ def test_rename_targeting_same_new_name_is_rejected(firmware_controller_factory)
         controller._check_rename_lock(second)
 
 
-def test_rename_retry_on_same_old_config_is_allowed(firmware_controller_factory) -> None:
+def test_rename_retry_on_same_old_config_is_allowed(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Fresh rename on the same OLD config goes through so supersede can cancel-and-replace."""
     rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
     controller = firmware_controller_factory(rename, with_settings=False)
@@ -95,7 +106,9 @@ def test_rename_retry_on_same_old_config_is_allowed(firmware_controller_factory)
     controller._check_rename_lock(retry)
 
 
-def test_lock_lifts_when_rename_terminates(firmware_controller_factory) -> None:
+def test_lock_lifts_when_rename_terminates(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Terminal-status rename no longer holds the lock."""
     rename = _job(
         "rn1",
@@ -110,7 +123,9 @@ def test_lock_lifts_when_rename_terminates(firmware_controller_factory) -> None:
     controller._check_rename_lock(_job("inst2", "livingroom.yaml", JobType.INSTALL))
 
 
-def test_running_rename_blocks_install(firmware_controller_factory) -> None:
+def test_running_rename_blocks_install(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """RUNNING jobs hold the lock just like QUEUED ones do."""
     rename = _job(
         "rn1",
@@ -127,7 +142,7 @@ def test_running_rename_blocks_install(firmware_controller_factory) -> None:
 
 @pytest.mark.asyncio
 async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
-    firmware_controller_factory,
+    firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """A rename-locked device in a bulk request must not abort the others.
 

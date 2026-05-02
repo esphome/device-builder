@@ -19,9 +19,8 @@ preload ``_jobs``, set ``with_settings=False`` to skip the
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -31,10 +30,24 @@ from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.models import FirmwareJob
 
 
+class FirmwareControllerFactory(Protocol):
+    """
+    Type for the ``firmware_controller_factory`` fixture.
+
+    Exported so test files can annotate their fixture parameter
+    without each redeclaring the callable shape — pylance / mypy
+    then know that ``factory(...)`` returns a
+    ``FirmwareController`` and that ``with_settings`` is keyword-
+    only.
+    """
+
+    def __call__(self, *jobs: FirmwareJob, with_settings: bool = ...) -> FirmwareController: ...
+
+
 @pytest.fixture
 def firmware_controller_factory(
     tmp_path: Path,
-) -> Callable[..., FirmwareController]:
+) -> FirmwareControllerFactory:
     """
     Build stub ``FirmwareController`` instances wired to ``tmp_path``.
 

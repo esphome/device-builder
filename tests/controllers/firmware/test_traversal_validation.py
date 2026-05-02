@@ -18,9 +18,12 @@ import pytest
 
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
-def test_sync_validate_rejects_traversal(tmp_path: Path, firmware_controller_factory) -> None:
+def test_sync_validate_rejects_traversal(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
     """The sync core raises ``CommandError(INVALID_ARGS)`` on traversal.
 
     This is the single-source-of-truth helper used by both the async
@@ -34,7 +37,9 @@ def test_sync_validate_rejects_traversal(tmp_path: Path, firmware_controller_fac
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-def test_sync_validate_rejects_empty_string(tmp_path: Path, firmware_controller_factory) -> None:
+def test_sync_validate_rejects_empty_string(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
     """Empty configuration raises — only ``RESET_BUILD_ENV`` legitimately wants it.
 
     ``reset_build_env`` doesn't go through the validator at all; every
@@ -53,7 +58,7 @@ def test_sync_validate_rejects_empty_string(tmp_path: Path, firmware_controller_
 
 @pytest.mark.asyncio
 async def test_validate_configuration_boundary_runs_in_executor(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """The async wrapper runs ``rel_path`` in an executor.
 
@@ -71,7 +76,7 @@ async def test_validate_configuration_boundary_runs_in_executor(
 
 @pytest.mark.asyncio
 async def test_validate_configurations_boundary_raises_on_bad_entry(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """The bulk validator raises on the first invalid entry.
 
@@ -93,7 +98,7 @@ async def test_validate_configurations_boundary_raises_on_bad_entry(
 
 @pytest.mark.asyncio
 async def test_validate_configurations_boundary_all_valid(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """A clean batch validates without raising and returns ``None``."""
     controller = firmware_controller_factory()
@@ -102,7 +107,9 @@ async def test_validate_configurations_boundary_all_valid(
 
 
 @pytest.mark.asyncio
-async def test_get_binaries_rejects_traversal(tmp_path: Path, firmware_controller_factory) -> None:
+async def test_get_binaries_rejects_traversal(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
     """``firmware/get_binaries`` re-validates because it bypasses ``rel_path``.
 
     The handler reads ``ext_storage_path(configuration)`` which lands
@@ -117,7 +124,9 @@ async def test_get_binaries_rejects_traversal(tmp_path: Path, firmware_controlle
 
 
 @pytest.mark.asyncio
-async def test_download_rejects_traversal(tmp_path: Path, firmware_controller_factory) -> None:
+async def test_download_rejects_traversal(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
     """``firmware/download`` re-validates for the same reason."""
     controller = firmware_controller_factory()
 
@@ -128,7 +137,7 @@ async def test_download_rejects_traversal(tmp_path: Path, firmware_controller_fa
 
 @pytest.mark.asyncio
 async def test_rename_rejects_traversal_in_new_name(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``firmware/rename`` validates the derived ``<new_name>.yaml``.
 
@@ -149,7 +158,7 @@ async def test_rename_rejects_traversal_in_new_name(
 
 @pytest.mark.asyncio
 async def test_rename_rejects_collision_with_existing_yaml(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``firmware/rename`` rejects ``new_name`` colliding with another device.
 
@@ -171,7 +180,9 @@ async def test_rename_rejects_collision_with_existing_yaml(
 
 
 @pytest.mark.asyncio
-async def test_rename_rejects_same_name(tmp_path: Path, firmware_controller_factory) -> None:
+async def test_rename_rejects_same_name(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
     """``firmware/rename`` rejects ``new_name`` matching the current stem.
 
     A same-name rename is a no-op at the YAML level but still queues

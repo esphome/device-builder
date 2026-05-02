@@ -21,6 +21,7 @@ from __future__ import annotations
 import pytest
 
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
 def _job(
@@ -46,7 +47,9 @@ def _job(
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_returns_every_job_when_unfiltered(firmware_controller_factory) -> None:
+async def test_get_jobs_returns_every_job_when_unfiltered(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """No filters → every job in the map is returned.
 
     The all-jobs panel calls this on cold-start to populate the
@@ -65,7 +68,9 @@ async def test_get_jobs_returns_every_job_when_unfiltered(firmware_controller_fa
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_sorts_newest_first_by_created_at(firmware_controller_factory) -> None:
+async def test_get_jobs_sorts_newest_first_by_created_at(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Result is sorted by ``created_at`` descending (newest first).
 
     The dashboard renders the list top-down; newest at the top
@@ -86,7 +91,9 @@ async def test_get_jobs_sorts_newest_first_by_created_at(firmware_controller_fac
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_filters_by_status(firmware_controller_factory) -> None:
+async def test_get_jobs_filters_by_status(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """``status`` filter keeps only jobs whose status matches.
 
     Frontend uses this to render the "Recently completed" panel
@@ -104,7 +111,9 @@ async def test_get_jobs_filters_by_status(firmware_controller_factory) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_filters_by_configuration(firmware_controller_factory) -> None:
+async def test_get_jobs_filters_by_configuration(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """``configuration`` filter keeps only jobs for that YAML."""
     kitchen = _job("k", configuration="kitchen.yaml")
     garage = _job("g", configuration="garage.yaml")
@@ -118,7 +127,7 @@ async def test_get_jobs_filters_by_configuration(firmware_controller_factory) ->
 
 @pytest.mark.asyncio
 async def test_get_jobs_combines_status_and_configuration_filters(
-    firmware_controller_factory,
+    firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """Both filters compose with AND semantics."""
     kitchen_queued = _job("kq", configuration="kitchen.yaml", status=JobStatus.QUEUED)
@@ -135,7 +144,7 @@ async def test_get_jobs_combines_status_and_configuration_filters(
 
 @pytest.mark.asyncio
 async def test_get_jobs_filter_with_no_matches_returns_empty_list(
-    firmware_controller_factory,
+    firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """A filter that matches nothing returns ``[]``, not a raise.
 
@@ -155,7 +164,9 @@ async def test_get_jobs_filter_with_no_matches_returns_empty_list(
 
 
 @pytest.mark.asyncio
-async def test_get_jobs_on_empty_controller_returns_empty_list(firmware_controller_factory) -> None:
+async def test_get_jobs_on_empty_controller_returns_empty_list(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """An empty job map → empty list (cold-start contract)."""
     controller = firmware_controller_factory(with_settings=False)
 
@@ -168,7 +179,9 @@ async def test_get_jobs_on_empty_controller_returns_empty_list(firmware_controll
 
 
 @pytest.mark.asyncio
-async def test_get_job_returns_the_matching_job_for_known_id(firmware_controller_factory) -> None:
+async def test_get_job_returns_the_matching_job_for_known_id(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Known id → the ``FirmwareJob`` instance, full object including ``output``.
 
     Frontend uses this to fetch the full output buffer when the
@@ -185,7 +198,9 @@ async def test_get_job_returns_the_matching_job_for_known_id(firmware_controller
 
 
 @pytest.mark.asyncio
-async def test_get_job_returns_none_for_unknown_id(firmware_controller_factory) -> None:
+async def test_get_job_returns_none_for_unknown_id(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Unknown id → ``None``, NOT a raise.
 
     Distinct from ``cancel`` and ``follow_job``, which both
@@ -200,7 +215,9 @@ async def test_get_job_returns_none_for_unknown_id(firmware_controller_factory) 
 
 
 @pytest.mark.asyncio
-async def test_get_job_does_not_mutate_state(firmware_controller_factory) -> None:
+async def test_get_job_does_not_mutate_state(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Pure read — the call doesn't mutate ``self._jobs`` or persist anything.
 
     Belt-and-braces: a future refactor that, say, lazy-removes

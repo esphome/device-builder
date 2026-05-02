@@ -31,6 +31,7 @@ import pytest
 
 from esphome_device_builder.controllers.firmware.constants import _RESET_BUILD_ENV_TARGETS
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
+from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 # ---------------------------------------------------------------------------
 # Handler wiring
@@ -39,7 +40,7 @@ from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, Job
 
 @pytest.mark.asyncio
 async def test_reset_build_env_returns_queued_job_with_reset_type(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Happy path: the handler returns a ``QUEUED`` job of type ``RESET_BUILD_ENV``.
 
@@ -58,7 +59,7 @@ async def test_reset_build_env_returns_queued_job_with_reset_type(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_uses_empty_configuration(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``configuration`` is ``""`` — reset is global, not per-device.
 
@@ -78,7 +79,7 @@ async def test_reset_build_env_uses_empty_configuration(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_registers_job_in_jobs_map(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """The new job lands in ``self._jobs`` so ``cancel`` / ``follow_job`` can find it."""
     controller = firmware_controller_factory()
@@ -90,7 +91,7 @@ async def test_reset_build_env_registers_job_in_jobs_map(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_fires_job_queued_after_enqueue(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``_queue.put`` runs *before* the ``JOB_QUEUED`` broadcast.
 
@@ -122,7 +123,7 @@ async def test_reset_build_env_fires_job_queued_after_enqueue(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_accepts_arbitrary_kwargs(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``reset_build_env`` is declared with ``**kwargs`` and ignores extras.
 
@@ -170,7 +171,7 @@ def _seed_targets(config_dir: Path, *, names: tuple[str, ...] = _RESET_BUILD_ENV
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_removes_each_target(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Every directory in ``_RESET_BUILD_ENV_TARGETS`` is removed.
 
@@ -193,7 +194,7 @@ async def test_reset_build_env_runner_removes_each_target(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_marks_job_completed(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Successful completion sets ``COMPLETED`` + ``exit_code=0`` + ``progress=100``.
 
@@ -216,7 +217,7 @@ async def test_reset_build_env_runner_marks_job_completed(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_fires_job_completed(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``JOB_COMPLETED`` fires with the finished job in its payload.
 
@@ -236,7 +237,7 @@ async def test_reset_build_env_runner_fires_job_completed(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_streams_output_lines(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Progress lines hit both ``job.output`` and the bus.
 
@@ -273,7 +274,7 @@ async def test_reset_build_env_runner_streams_output_lines(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_skips_missing_targets(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """A target that doesn't exist is logged as skipped, not fatal.
 
@@ -301,7 +302,7 @@ async def test_reset_build_env_runner_skips_missing_targets(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_no_op_when_esphome_absent(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """``.esphome/`` not yet created → "Nothing to do" + COMPLETED.
 
@@ -324,7 +325,7 @@ async def test_reset_build_env_runner_no_op_when_esphome_absent(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_honours_cancel_between_targets(
-    tmp_path: Path, firmware_controller_factory
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """Cancellation requested mid-run stops before the next target.
 
