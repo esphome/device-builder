@@ -72,6 +72,40 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def _wipe_device_build_dir(configuration: str) -> None:
+    """Remove the per-device build dir if one exists.
+
+    Reads the canonical ``build_path`` off the StorageJSON sidecar
+    (set during compile) and ``shutil.rmtree``s it. No-op when the
+    sidecar is gone or the device has never been built. Used by
+    archive and delete; both treat compile output as dead weight.
+    """
+    storage_path = ext_storage_path(configuration)
+    storage = StorageJSON.load(storage_path)
+    if storage is not None and storage.build_path:
+        shutil.rmtree(storage.build_path, ignore_errors=True)
+
+
+def _remove_device_sidecars(config_dir: Path, configuration: str) -> None:
+    """Remove the StorageJSON sidecar and device-metadata entry.
+
+    Best-effort — failures are logged but don't propagate, so a
+    partial cleanup (e.g. permission error on one file) doesn't
+    block the rest of the archive / delete flow. Used by archive,
+    delete, and delete_archived; all three want a "leave no
+    trace under this filename" semantic at the end of their flow.
+    """
+    storage_path = ext_storage_path(configuration)
+    try:
+        storage_path.unlink(missing_ok=True)
+    except OSError:
+        _LOGGER.warning("Could not remove storage file for %s", configuration)
+    try:
+        remove_device_metadata(config_dir, configuration)
+    except Exception:
+        _LOGGER.warning("Could not remove metadata for %s", configuration)
+
+
 def _validate_archive_configuration(configuration: str) -> None:
     """Reject anything that isn't a pure basename.
 
@@ -1639,25 +1673,13 @@ class DevicesController:
                     "permanently delete the existing archive first."
                 )
                 raise FileExistsError(msg)
-            # Wipe the per-device build dir — same shape as delete.
-            # Storage sidecar carries the canonical ``build_path``.
-            storage_path = ext_storage_path(configuration)
-            storage = StorageJSON.load(storage_path)
-            if storage is not None and storage.build_path:
-                shutil.rmtree(storage.build_path, ignore_errors=True)
+            # Wipe build dir first (same shape as delete), then
+            # move the YAML, then wipe the sidecars so a future
+            # same-name ``configuration`` starts from a clean
+            # cache. See the docstring for the full rationale.
+            _wipe_device_build_dir(configuration)
             shutil.move(str(config_path), str(target))
-            # Wipe the StorageJSON sidecar and device-metadata
-            # entry too, so a future same-name ``configuration``
-            # starts from a clean cache. See the docstring for the
-            # full rationale.
-            try:
-                storage_path.unlink(missing_ok=True)
-            except OSError:
-                _LOGGER.warning("Could not remove storage file for archived %s", configuration)
-            try:
-                remove_device_metadata(config_dir, configuration)
-            except Exception:
-                _LOGGER.warning("Could not remove metadata for archived %s", configuration)
+            _remove_device_sidecars(config_dir, configuration)
 
         try:
             await loop.run_in_executor(None, _archive_sync)
@@ -1776,15 +1798,7 @@ class DevicesController:
                 # An active config with the same filename owns the
                 # sidecars now — leave them alone.
                 return
-            storage_path = ext_storage_path(configuration)
-            try:
-                storage_path.unlink(missing_ok=True)
-            except OSError:
-                _LOGGER.warning("Could not remove storage file for archived %s", configuration)
-            try:
-                remove_device_metadata(config_dir, configuration)
-            except Exception:
-                _LOGGER.warning("Could not remove metadata for archived %s", configuration)
+            _remove_device_sidecars(config_dir, configuration)
 
         await loop.run_in_executor(None, _delete_all)
 
@@ -1801,26 +1815,13 @@ class DevicesController:
             if not config_path.exists():
                 msg = f"File not found: {configuration}"
                 raise FileNotFoundError(msg)
-            # Wipe the per-device PlatformIO build tree first so a partial
-            # failure later in the cleanup still leaves the user able to
-            # retry the delete. ``StorageJSON.build_path`` is the canonical
-            # location (set during compile) — fall back to a no-op when the
-            # device has never been built or the sidecar is gone.
-            storage_path = ext_storage_path(configuration)
-            storage = StorageJSON.load(storage_path)
-            if storage is not None and storage.build_path:
-                shutil.rmtree(storage.build_path, ignore_errors=True)
+            # Wipe build dir first so a partial failure later still
+            # leaves the user able to retry the delete.
+            _wipe_device_build_dir(configuration)
             config_path.unlink(missing_ok=True)
             (config_dir / ".trash" / configuration).unlink(missing_ok=True)
             (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)
-            try:
-                storage_path.unlink(missing_ok=True)
-            except OSError:
-                _LOGGER.warning("Could not remove storage file for %s", configuration)
-            try:
-                remove_device_metadata(config_dir, configuration)
-            except Exception:
-                _LOGGER.warning("Could not remove metadata for %s", configuration)
+            _remove_device_sidecars(config_dir, configuration)
 
         await loop.run_in_executor(None, _delete_all)
 
