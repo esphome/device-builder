@@ -32,6 +32,15 @@ def _make_controller(tmp_path: Any) -> DevicesController:
     ctrl._db.settings.rel_path = lambda name: tmp_path / name
     ctrl._scanner = MagicMock()
     ctrl._scanner.scan = AsyncMock()
+    # The fast-online seed pulls the cached IP out of the state
+    # monitor and forces ONLINE on success; tests use a Mock so they
+    # can assert the calls without standing up a real zeroconf.
+    ctrl._state_monitor = MagicMock()
+    ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=None)
+    # ``import_result`` must be a real dict so the iteration in
+    # ``import_device`` works; the discovery callback path is
+    # exercised separately in ``test_importable_discovery``.
+    ctrl.import_result = {}
     return ctrl
 
 
@@ -135,3 +144,99 @@ async def test_import_device_returns_even_when_post_scan_fails(
     )
 
     assert result == {"configuration": "kitchen.yaml"}
+
+
+async def test_import_device_seeds_online_state_from_zeroconf_cache(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A freshly-adopted device should land ONLINE without waiting for ping.
+
+    The device was advertising on mDNS milliseconds ago — that's how
+    it ended up on the discovery banner — so we already know it's
+    reachable. ``import_device`` claims ONLINE via the state monitor
+    (``mdns`` priority + ``claim=True`` so a later ping observation
+    can't clobber it) and pulls the cached IP out of zeroconf so the
+    new card has an address right away.
+    """
+    from esphome_device_builder.models import DeviceState
+
+    monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
+    ctrl = _make_controller(tmp_path)
+    ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=["192.168.1.42"])
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x",
+    )
+
+    ctrl._state_monitor.apply.assert_called_once_with(
+        "kitchen", DeviceState.ONLINE, "mdns", claim=True
+    )
+    ctrl._state_monitor.get_cached_addresses.assert_called_once_with("kitchen.local")
+    ctrl._state_monitor.apply_ip.assert_called_once_with("kitchen", "192.168.1.42")
+
+
+async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No cached IP → state still flips ONLINE, just no apply_ip call."""
+    from esphome_device_builder.models import DeviceState
+
+    monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
+    ctrl = _make_controller(tmp_path)
+    ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=None)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x",
+    )
+
+    ctrl._state_monitor.apply.assert_called_once_with(
+        "kitchen", DeviceState.ONLINE, "mdns", claim=True
+    )
+    ctrl._state_monitor.apply_ip.assert_not_called()
+
+
+async def test_import_device_drops_matching_import_result_entry(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The discovery banner entry disappears the moment adoption finishes.
+
+    Before this fix, the discovered card stuck around until the next
+    discovery cycle filtered it out by name. Match the cache entry by
+    ``package_import_url`` (which uniquely identifies the firmware)
+    so we drop the right entry even when the user typed a different
+    YAML name in the dialog.
+    """
+    from esphome_device_builder.models import AdoptableDevice, EventType
+
+    monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
+    ctrl = _make_controller(tmp_path)
+    discovered = AdoptableDevice(
+        name="apollo-plt-1-983300",
+        friendly_name="Apollo PLT-1",
+        package_import_url="github://apollo/plt-1.yaml",
+        project_name="apollo.plt-1",
+        project_version="26.3.2.1",
+        network="wifi",
+        ignored=False,
+    )
+    ctrl.import_result["apollo-plt-1-983300"] = discovered
+
+    await ctrl.import_device(
+        # User typed a shorter name (without the MAC suffix).
+        name="apollo-plt-1",
+        project_name="apollo.plt-1",
+        package_import_url="github://apollo/plt-1.yaml",
+    )
+
+    assert "apollo-plt-1-983300" not in ctrl.import_result
+    # Removal is broadcast so subscribed frontends drop the card.
+    fired = list(ctrl._db.bus.fire.mock_calls)
+    removed_events = [
+        c for c in fired if c.args and c.args[0] == EventType.IMPORTABLE_DEVICE_REMOVED
+    ]
+    assert removed_events, "expected IMPORTABLE_DEVICE_REMOVED to fire"
+    assert removed_events[0].args[1] == {"name": "apollo-plt-1-983300"}

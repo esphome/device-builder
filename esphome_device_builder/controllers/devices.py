@@ -610,6 +610,28 @@ class DevicesController:
             await self._scanner.scan()
         except Exception:
             _LOGGER.exception("Scan after import failed; will pick up on next poll")
+
+        # Drop the discovery banner entry: the device is now configured,
+        # so it shouldn't continue to show up under "Discovered". The
+        # importable cache key is the device's mDNS-advertised name,
+        # which usually matches the user-chosen YAML name but may
+        # differ (e.g. they edited the MAC suffix off). Match by
+        # ``package_import_url`` so we always find the right entry.
+        for cached_name in [
+            n for n, d in self.import_result.items() if d.package_import_url == package_import_url
+        ]:
+            self._on_importable_removed(cached_name)
+
+        # Skip-the-wait state seed. We just adopted a device that was
+        # advertising on mDNS milliseconds ago, so the next ping sweep
+        # would only confirm what zeroconf already knew. Pull the
+        # cached IP out of zeroconf and apply both ONLINE and the
+        # address right away so the new card lands online instead of
+        # blinking through OFFLINE for ~10s.
+        self._state_monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
+        cached = self._state_monitor.get_cached_addresses(f"{name}.local")
+        if cached:
+            self._state_monitor.apply_ip(name, cached[0])
         return {"configuration": configuration}
 
     @api_command("devices/ignore")
