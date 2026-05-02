@@ -94,7 +94,7 @@ def _seed_device(
     return yaml_path, build_path
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def _patch_ext_storage(monkeypatch: Any, tmp_path: Path) -> None:
     """Pin ``ext_storage_path`` to the tmp config dir.
 
@@ -102,6 +102,10 @@ def _patch_ext_storage(monkeypatch: Any, tmp_path: Path) -> None:
     isn't set in the test process; this redirect points it at the
     on-disk sidecar laid down by ``_seed_device`` so the archive
     path reads the canonical ``build_path`` from there.
+
+    Autouse because both ``_archive_single`` and ``_list_archived_sync``
+    reach into ``ext_storage_path`` — keeping the redirect in one
+    place avoids future tests accidentally hitting the real CORE.
     """
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.ext_storage_path",
@@ -115,7 +119,6 @@ def _patch_ext_storage(monkeypatch: Any, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_patch_ext_storage")
 async def test_archive_moves_yaml_to_archive_dir(tmp_path: Path) -> None:
     """The YAML lands in ``<config_dir>/archive/<configuration>``.
 
@@ -138,7 +141,6 @@ async def test_archive_moves_yaml_to_archive_dir(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_patch_ext_storage")
 async def test_archive_wipes_build_directory(tmp_path: Path) -> None:
     """An archived device's compile output is dead weight — wipe it.
 
@@ -158,7 +160,6 @@ async def test_archive_wipes_build_directory(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_patch_ext_storage")
 async def test_archive_succeeds_when_never_compiled(tmp_path: Path) -> None:
     """A device that was never compiled has no build dir — archive still works.
 
@@ -178,14 +179,17 @@ async def test_archive_succeeds_when_never_compiled(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_patch_ext_storage")
-async def test_archive_collision_appends_numeric_suffix(tmp_path: Path) -> None:
-    """Archiving twice with the same name doesn't clobber the earlier copy.
+async def test_archive_collision_raises_invalid_args(tmp_path: Path) -> None:
+    """Archiving twice with the same name refuses rather than silently renaming.
 
-    User flow: create ``kitchen.yaml`` → archive → recreate
-    ``kitchen.yaml`` (different config) → archive again. Both
-    archived copies should be recoverable; the second lands at
-    ``kitchen (2).yaml`` rather than overwriting the first.
+    The StorageJSON sidecar and metadata are keyed on the original
+    filename and stay there across archive. Renaming the second
+    archive copy to ``kitchen (2).yaml`` would orphan the suffixed
+    YAML from its sidecar — a later unarchive would surface without
+    the cached address / version / loaded_integrations. Refuse the
+    operation with ``CommandError(INVALID_ARGS)`` and let the user
+    resolve the collision (unarchive or permanently delete the
+    existing archive copy first).
     """
     controller = _make_controller(tmp_path)
 
@@ -195,13 +199,16 @@ async def test_archive_collision_appends_numeric_suffix(tmp_path: Path) -> None:
     await controller._archive_single("kitchen.yaml")
     assert (tmp_path / "archive" / "kitchen.yaml").read_text() == "first version\n"
 
-    # Recreate + archive again — second copy bumps to (2).
+    # Recreate + archive again — must refuse rather than clobber or rename.
     _seed_device(tmp_path, "kitchen.yaml")
     (tmp_path / "kitchen.yaml").write_text("second version\n", encoding="utf-8")
-    await controller._archive_single("kitchen.yaml")
+    with pytest.raises(CommandError) as exc:
+        await controller._archive_single("kitchen.yaml")
 
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    # First archive copy and the active YAML both survive untouched.
     assert (tmp_path / "archive" / "kitchen.yaml").read_text() == "first version\n"
-    assert (tmp_path / "archive" / "kitchen (2).yaml").read_text() == "second version\n"
+    assert (tmp_path / "kitchen.yaml").read_text() == "second version\n"
 
 
 @pytest.mark.asyncio
@@ -216,6 +223,31 @@ async def test_archive_missing_file_raises_file_not_found(tmp_path: Path) -> Non
     controller = _make_controller(tmp_path)
     with pytest.raises(FileNotFoundError):
         await controller._archive_single("ghost.yaml")
+
+
+@pytest.mark.asyncio
+async def test_archive_device_translates_missing_to_command_error(tmp_path: Path) -> None:
+    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)`` to the client.
+
+    The internal ``_archive_single`` raises ``FileNotFoundError`` so
+    delete / archive symmetry is preserved at the helper level, but
+    the public ``archive_device`` wraps it so a stale dashboard
+    reference shows up as a clean ``not_found`` over the wire
+    instead of a generic ``internal_error``.
+    """
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.archive_device(configuration="ghost.yaml")
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_unarchive_device_translates_missing_to_command_error(tmp_path: Path) -> None:
+    """``unarchive_device`` mirrors ``archive_device`` for not-found mapping."""
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.unarchive_device(configuration="ghost.yaml")
+    assert exc.value.code == ErrorCode.NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -360,3 +392,56 @@ def test_list_archived_falls_back_to_filename_when_meta_unparseable(
     assert rows[0]["configuration"] == "kitchen.yaml"
     assert rows[0]["name"] == "kitchen"
     assert rows[0]["friendly_name"] == "kitchen"
+
+
+def test_list_archived_falls_back_to_storage_json_when_yaml_meta_sparse(
+    tmp_path: Path,
+) -> None:
+    """When the YAML's ``esphome:`` block is missing fields, fill from StorageJSON.
+
+    Friendly name and comment commonly only live in the StorageJSON
+    sidecar (the dashboard's edit-name dialog writes them there
+    rather than mutating the YAML). Without this fallback the
+    archived listing would regress to bare filenames for those
+    devices, hiding the user-visible names they expect.
+    """
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    # YAML carries only `name` — friendly_name + comment live in the sidecar.
+    (archive_dir / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\n",
+        encoding="utf-8",
+    )
+    storage_dir = tmp_path / ".esphome" / "storage"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    (storage_dir / "kitchen.yaml.json").write_text(
+        json.dumps(
+            {
+                "storage_version": 1,
+                "name": "kitchen",
+                "friendly_name": "Kitchen Sensor",
+                "comment": "by the sink",
+                "esphome_version": "2026.5.0-dev",
+                "src_version": 1,
+                "address": "",
+                "web_port": None,
+                "esp_platform": "esp32",
+                "board": "esp32-c3-devkitm-1",
+                "build_path": None,
+                "firmware_bin_path": None,
+                "loaded_integrations": [],
+                "loaded_platforms": [],
+                "no_mdns": False,
+                "framework": "esp-idf",
+                "core_platform": "esp32",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows = _make_controller(tmp_path)._list_archived_sync()
+    assert len(rows) == 1
+    assert rows[0]["configuration"] == "kitchen.yaml"
+    assert rows[0]["name"] == "kitchen"
+    assert rows[0]["friendly_name"] == "Kitchen Sensor"
+    assert rows[0]["comment"] == "by the sink"

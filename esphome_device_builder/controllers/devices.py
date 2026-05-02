@@ -483,7 +483,10 @@ class DevicesController:
         device's last-known IP / expected_config_hash ought to
         find them where they were.
         """
-        await self._archive_single(configuration)
+        try:
+            await self._archive_single(configuration)
+        except FileNotFoundError as exc:
+            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
         await self._scanner.scan()
 
     @api_command("devices/unarchive")
@@ -494,7 +497,10 @@ class DevicesController:
         ``DEVICE_ADDED`` so the dashboard's active list refreshes
         without a manual reload.
         """
-        await self._unarchive_single(configuration)
+        try:
+            await self._unarchive_single(configuration)
+        except FileNotFoundError as exc:
+            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
         await self._scanner.scan()
 
     @api_command("devices/list_archived")
@@ -1552,20 +1558,20 @@ class DevicesController:
             archive_dir.mkdir(parents=True, exist_ok=True)
             target = archive_dir / configuration
             if target.exists():
-                # Same name already archived — bump with a numeric
-                # suffix rather than clobbering. Keeps both copies
-                # recoverable; the user can prune from the archive
-                # view if they want.
-                stem, dot, ext = configuration.rpartition(".")
-                stem = stem or configuration
-                ext = ext if dot else ""
-                counter = 2
-                while True:
-                    candidate = f"{stem} ({counter}).{ext}" if ext else f"{stem} ({counter})"
-                    target = archive_dir / candidate
-                    if not target.exists():
-                        break
-                    counter += 1
+                # Same name already archived. We can't silently rename
+                # to ``<name> (2).yaml`` because the StorageJSON sidecar
+                # and metadata stay keyed on the original filename —
+                # a later unarchive of the suffixed copy would surface
+                # without its sidecar and lose the cached address /
+                # version / loaded_integrations. Refuse the operation
+                # and let the user resolve the collision explicitly
+                # (unarchive the existing copy or delete it).
+                msg = (
+                    f"Cannot archive {configuration}: an archived config "
+                    "with the same name already exists. Unarchive or "
+                    "permanently delete the existing archive first."
+                )
+                raise FileExistsError(msg)
             # Wipe the per-device build dir — same shape as delete.
             # Storage sidecar carries the canonical ``build_path``.
             storage_path = ext_storage_path(configuration)
@@ -1574,7 +1580,10 @@ class DevicesController:
                 shutil.rmtree(storage.build_path, ignore_errors=True)
             shutil.move(str(config_path), str(target))
 
-        await loop.run_in_executor(None, _archive_sync)
+        try:
+            await loop.run_in_executor(None, _archive_sync)
+        except FileExistsError as exc:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
 
     async def _unarchive_single(self, configuration: str) -> None:
         """Move an archived YAML back into the active config_dir.
@@ -1616,6 +1625,13 @@ class DevicesController:
         address each entry. Files that don't parse are skipped
         with a debug log — the archive dir is user-managed and
         a stray non-YAML file shouldn't crash the listing.
+
+        When the YAML's ``esphome:`` block is sparse (e.g. friendly
+        name only ever lived in StorageJSON because the user wrote
+        it via the dashboard's edit dialog rather than the YAML),
+        fall back to the StorageJSON sidecar before degrading to
+        the bare filename. The sidecar is left in place by archive
+        so this fallback works on archives created by this server.
         """
         archive_dir = self._db.settings.config_dir / "archive"
         if not archive_dir.is_dir():
@@ -1630,6 +1646,13 @@ class DevicesController:
                 _LOGGER.debug("Failed to read archived YAML %s", path, exc_info=True)
                 continue
             name, friendly_name, comment = parse_esphome_meta(content)
+            if not name or not friendly_name or comment is None:
+                storage = StorageJSON.load(ext_storage_path(path.name))
+                if storage is not None:
+                    name = name or storage.name
+                    friendly_name = friendly_name or storage.friendly_name
+                    if comment is None:
+                        comment = storage.comment
             results.append(
                 {
                     "configuration": path.name,
