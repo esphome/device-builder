@@ -158,6 +158,14 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest() -> None:
         (),
         {
             "bus": type("Bus", (), {"fire": lambda *a, **kw: None})(),
+            # ``install_bulk`` calls ``_validate_configurations_boundary``
+            # to reject traversal payloads at the WS boundary; pass-
+            # through stub here, the test isn't exercising traversal.
+            "settings": type(
+                "Settings",
+                (),
+                {"rel_path": lambda self, *parts: None},
+            )(),
         },
     )()
     controller._persist_jobs = AsyncMock()

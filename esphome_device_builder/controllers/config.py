@@ -23,10 +23,10 @@ from esphome.util import get_serial_ports
 
 from ..constants import DEFAULT_INGRESS_PORT
 from ..constants import __version__ as server_version
-from ..helpers.api import api_command
+from ..helpers.api import CommandError, api_command
 from ..helpers.auth import hash_password
 from ..helpers.json import JSONDecodeError, dumps_indent, loads
-from ..models import UserPreferences
+from ..models import ErrorCode, UserPreferences
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -136,10 +136,34 @@ class DashboardSettings:
         CORE.config_path = self.config_dir / _DASHBOARD_SENTINEL_FILE
 
     def rel_path(self, *parts: str) -> Path:
-        """Return a path relative to the config dir, validated against path traversal."""
+        """
+        Return a path relative to the config dir, validated against path traversal.
+
+        ``relative_to`` raises ``ValueError`` when ``parts`` resolve outside
+        the config dir; we translate that into a ``CommandError`` so the
+        WS dispatcher surfaces it as ``INVALID_ARGS`` instead of the
+        generic ``INTERNAL_ERROR`` that an unclassified ``ValueError``
+        would produce. Single chokepoint for every handler that builds
+        a configuration path.
+        """
         joined = self.config_dir.joinpath(*parts)
         assert self.absolute_config_dir is not None  # type narrowing
-        joined.resolve().relative_to(self.absolute_config_dir)
+        try:
+            joined.resolve().relative_to(self.absolute_config_dir)
+        except ValueError as err:
+            # ``!r`` quotes + escapes the offending value so embedded
+            # CR/LF/control bytes can't break the error string when
+            # the frontend echoes it back to the user. ``!r`` *first*,
+            # then truncate, so the bound holds even for control-heavy
+            # payloads (a single ``\x00`` repr's to 4 chars, so an
+            # 80-byte raw value can otherwise blow past 200 chars).
+            display = repr("/".join(parts))
+            if len(display) > 100:
+                display = f"{display[:97]}..."
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"Invalid configuration filename: {display}",
+            ) from err
         return joined
 
     @property
@@ -389,11 +413,10 @@ class ConfigController:
             # opens the sidecar from disk — both block the event loop
             # if run inline. Do them together inside the executor so
             # a slow filesystem (NFS-mounted config dir, EBS-backed
-            # Docker volume) can't stall the dashboard.
-            try:
-                self._db.settings.rel_path(configuration)
-            except ValueError:
-                return None
+            # Docker volume) can't stall the dashboard. ``rel_path``
+            # raises ``CommandError`` on traversal; the awaited future
+            # propagates that out to the WS dispatcher unchanged.
+            self._db.settings.rel_path(configuration)
             storage = StorageJSON.load(ext_storage_path(configuration))
             if storage is None:
                 return None

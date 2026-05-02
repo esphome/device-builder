@@ -35,6 +35,7 @@ import pytest
 
 from esphome_device_builder.controllers.config import (
     ConfigController,
+    DashboardSettings,
     _load_metadata,
     _save_metadata,
     get_device_ip,
@@ -45,6 +46,8 @@ from esphome_device_builder.controllers.config import (
     save_preferences,
     set_device_metadata,
 )
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.preferences import UserPreferences
 
 
@@ -350,17 +353,17 @@ async def test_get_secrets_returns_sorted_keys(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_get_info_rejects_path_traversal(tmp_path: Path) -> None:
-    """Traversal-shaped configuration returns ``None`` rather than raising.
+    """Traversal-shaped configuration raises ``CommandError(INVALID_ARGS)``.
 
     Wires the controller to the real ``DashboardSettings.rel_path``
     so we exercise the production traversal-detection logic, not a
-    monkeypatched stub. ``rel_path`` raises ``ValueError`` on
-    traversal (resolved path falls outside ``absolute_config_dir``)
-    and the WS handler catches it. A regression in either side of
-    the boundary breaks the test.
+    monkeypatched stub. ``rel_path`` translates the ``ValueError``
+    raised by ``Path.relative_to`` into a ``CommandError`` so the
+    WS dispatcher surfaces it as ``INVALID_ARGS`` instead of the
+    generic ``INTERNAL_ERROR`` an unclassified ``ValueError`` would
+    yield. A regression in either side of the boundary breaks the
+    test.
     """
-    from esphome_device_builder.controllers.config import DashboardSettings
-
     settings = DashboardSettings()
     settings.config_dir = tmp_path
     settings.absolute_config_dir = tmp_path.resolve()
@@ -369,5 +372,73 @@ async def test_get_info_rejects_path_traversal(tmp_path: Path) -> None:
     controller._db = MagicMock()
     controller._db.settings = settings
 
-    result = await asyncio.wait_for(controller.get_info(configuration="../etc/passwd"), timeout=2.0)
-    assert result is None
+    with pytest.raises(CommandError) as excinfo:
+        await asyncio.wait_for(controller.get_info(configuration="../etc/passwd"), timeout=2.0)
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Invalid configuration filename" in excinfo.value.message
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "../etc/passwd",
+        "../../etc/passwd",
+        "subdir/../../escape.yaml",
+        "/absolute/path/escape.yaml",
+        "..",
+    ],
+)
+def test_rel_path_translates_traversal_to_command_error(tmp_path: Path, payload: str) -> None:
+    """``rel_path`` raises ``CommandError(INVALID_ARGS)`` on every traversal shape.
+
+    This is the chokepoint behind issue #107 — every WS handler that
+    builds a path from a user-supplied ``configuration`` flows
+    through ``rel_path``, so this one parametrised test locks the
+    dispatcher contract for all of them. The error message is
+    truncated + ``!r``-quoted so a pathological payload can't break
+    the JSON error response.
+    """
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+
+    with pytest.raises(CommandError) as excinfo:
+        settings.rel_path(payload)
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Invalid configuration filename" in excinfo.value.message
+
+
+def test_rel_path_truncates_long_payload(tmp_path: Path) -> None:
+    """A multi-KB ``configuration`` payload is truncated in the error message.
+
+    Keeps the JSON error response bounded so a pathological payload
+    can't blow up the WS frame.
+    """
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+
+    payload = "../" + "A" * 5000
+    with pytest.raises(CommandError) as excinfo:
+        settings.rel_path(payload)
+    assert "..." in excinfo.value.message
+    assert len(excinfo.value.message) < 200
+
+
+def test_rel_path_bounds_control_byte_payload(tmp_path: Path) -> None:
+    r"""Control-heavy payloads stay bounded after ``!r`` expansion.
+
+    A single ``\x00`` repr's to 4 chars; a naive "truncate the raw
+    string then ``!r`` it" would let an 80-byte input balloon to
+    320+ chars in the final message and re-introduce the
+    unbounded-error hazard. ``!r`` runs *before* the bound, so a
+    payload of 100 NUL bytes still produces a message ≤ 200 chars.
+    """
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+
+    payload = "../" + "\x00" * 100
+    with pytest.raises(CommandError) as excinfo:
+        settings.rel_path(payload)
+    assert len(excinfo.value.message) < 200
