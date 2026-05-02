@@ -36,6 +36,14 @@ _LOGGER = logging.getLogger(__name__)
 # Commands a client may send before the authenticated flag is set.
 _PRE_AUTH_COMMANDS = frozenset({"auth", "auth/login"})
 
+# Server-side WebSocket ping interval. aiohttp's default is ``None``
+# (no heartbeat) — without one, idle clients behind NAT / Cloudflare
+# / nginx (whose default ``proxy_read_timeout`` is 60s) silently drop
+# without either side noticing, and the dashboard sits showing stale
+# data until the user reloads. 30s matches the legacy Tornado
+# dashboard's ``websocket_ping_interval``.
+_WS_HEARTBEAT_SECONDS = 30.0
+
 
 class WebSocketClient:
     """A single WebSocket client connection."""
@@ -193,7 +201,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         if origin and not _origin_matches_host(origin, request.host):
             return web.Response(status=403, text="Cross-origin connection rejected")
 
-    ws = web.WebSocketResponse()
+    ws = web.WebSocketResponse(heartbeat=_WS_HEARTBEAT_SECONDS)
     await ws.prepare(request)
 
     pre_authenticated = trusted_site or not settings.using_password
