@@ -33,11 +33,6 @@ on:
         required: true
         type: string
     secrets:
-      # ``ESPHOME_GITHUB_APP_ID`` is non-required so callers can
-      # supply it via Actions ``vars`` instead — the runtime check
-      # in the release job catches it when missing from both.
-      ESPHOME_GITHUB_APP_ID:
-        required: false
       ESPHOME_GITHUB_APP_PRIVATE_KEY:
         required: true
       PYPI_TOKEN:
@@ -160,19 +155,19 @@ jobs:
     steps:
       - name: Validate GitHub App configuration
         env:
-          GITHUB_APP_ID: ${{ secrets.ESPHOME_GITHUB_APP_ID || vars.ESPHOME_GITHUB_APP_ID }}
+          GITHUB_APP_CLIENT_ID: ${{ vars.ESPHOME_GITHUB_APP_CLIENT_ID }}
         run: |
-          if [ -z "$GITHUB_APP_ID" ]; then
-            echo "::error::Missing GitHub App ID."
-            echo "::error::Set Actions secret/variable ESPHOME_GITHUB_APP_ID and ensure it is shared with this repository."
+          if [ -z "$GITHUB_APP_CLIENT_ID" ]; then
+            echo "::error::Missing GitHub App Client ID."
+            echo "::error::Set Actions variable ESPHOME_GITHUB_APP_CLIENT_ID and ensure it is shared with this repository."
             exit 1
           fi
 
       - name: Mint GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349  # v2.2.2
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3  # v3.1.1
         with:
-          app-id: ${{ secrets.ESPHOME_GITHUB_APP_ID || vars.ESPHOME_GITHUB_APP_ID }}
+          client-id: ${{ vars.ESPHOME_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.ESPHOME_GITHUB_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
