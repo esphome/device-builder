@@ -1083,7 +1083,12 @@ class FirmwareController:
 
             def _check_error(text: str) -> None:
                 nonlocal has_error_in_output, saw_no_esphome_module
-                if "No module named esphome" in text:
+                # Python's ModuleNotFoundError prints
+                # ``No module named 'esphome'`` (single-quoted name);
+                # ESPHome's own re-thrown wrappers sometimes print
+                # without the quotes. Two-substring check matches
+                # both forms without a regex.
+                if "No module named" in text and "esphome" in text:
                     saw_no_esphome_module = True
                 if has_error_in_output:
                     return
