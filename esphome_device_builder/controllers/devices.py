@@ -17,7 +17,7 @@ from esphome.helpers import sort_ip_addresses
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 
 from ..helpers.api import CommandError, api_command
-from ..helpers.config_hash import compute_yaml_config_hash
+from ..helpers.config_hash import compute_yaml_config_hash, read_build_info_hash
 from ..helpers.device_yaml import (
     generate_device_yaml,
     get_api_encryption_key,
@@ -822,14 +822,23 @@ class DevicesController:
         ``ip`` is the last-known resolved address from the metadata
         sidecar (``""`` if never seen).
 
-        ``expected_config_hash`` is the YAML's last-compiled
-        ``CORE.config_hash``, written by the firmware controller after
-        each successful compile; ``""`` when the device has never been
-        compiled or the compile predates expected-hash tracking.
+        ``expected_config_hash`` is read from
+        ``<build_path>/build_info.json`` — ESPHome's authoritative
+        post-codegen value. The metadata sidecar is consulted *only*
+        as a fallback for devices whose build directory was wiped
+        (clean) but where we'd previously cached a value. Reading
+        from ``build_info.json`` first keeps the dashboard from
+        getting stuck on a stale sidecar value if a previous run
+        wrote a wrong hash (e.g. the pre-codegen subprocess hash
+        the dashboard used to compute) — the next scan after this
+        change picks up the canonical value automatically.
         """
         md = get_device_metadata(config_dir, filename)
         ip = str(md.get("ip", ""))
-        expected_config_hash = str(md.get("expected_config_hash", ""))
+        # build_info.json wins; sidecar is the post-clean fallback.
+        expected_config_hash = read_build_info_hash(config_dir / filename) or str(
+            md.get("expected_config_hash", "")
+        )
         board_id = str(md.get("board_id", ""))
         if not board_id:
             board_id = self._derive_board_id_from_yaml(config_dir, filename)

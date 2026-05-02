@@ -57,11 +57,19 @@ async def compute_yaml_config_hash(yaml_path: Path) -> str | None:
     error to propagate.
     """
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _read_build_info_hash, yaml_path)
+    return await loop.run_in_executor(None, read_build_info_hash, yaml_path)
 
 
-def _read_build_info_hash(yaml_path: Path) -> str | None:
-    """Read the canonical hash off disk; runs in the default executor."""
+def read_build_info_hash(yaml_path: Path) -> str | None:
+    """Read the canonical hash off disk synchronously.
+
+    Public-by-convention so the device-scanner metadata resolver —
+    which runs in a thread executor and needs the hash inline with
+    the per-file board_id / ip lookups — can call it directly without
+    re-entering the asyncio loop just to dispatch back to the same
+    executor. Returns the same value ``compute_yaml_config_hash``
+    awaits to.
+    """
     storage = StorageJSON.load(ext_storage_path(yaml_path.name))
     if storage is None or storage.build_path is None:
         return None
