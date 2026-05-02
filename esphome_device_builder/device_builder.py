@@ -80,6 +80,8 @@ class DeviceBuilder:
 
     async def start(self) -> None:
         """Start the application — load catalogs, initialize controllers."""
+        from concurrent.futures import ThreadPoolExecutor
+
         from .controllers.auth import AuthController
         from .controllers.automations import AutomationsController
         from .controllers.boards import BoardCatalog
@@ -90,6 +92,18 @@ class DeviceBuilder:
         from .controllers.firmware import FirmwareController
 
         self.loop = asyncio.get_running_loop()
+        # Default ThreadPoolExecutor is ``min(32, os.cpu_count() + 4)``
+        # — ~12 threads on a typical 8-core box. With dozens of devices,
+        # the per-sweep DNS resolves (icmplib's ``async_resolve`` and
+        # asyncio's ``getaddrinfo``, both executor-bound) plus scanner
+        # file stats / YAML parses easily saturate the pool, and pages
+        # like the editor stall behind ``devices/list`` while it waits
+        # for a free worker. 64 leaves comfortable headroom on the
+        # mostly-blocked-on-I/O work the executor sees here without
+        # being so large that sweeps fan out to absurd concurrency.
+        self.loop.set_default_executor(
+            ThreadPoolExecutor(max_workers=64, thread_name_prefix="dashboard")
+        )
 
         # Initialize controllers
         self.auth = AuthController(self)
