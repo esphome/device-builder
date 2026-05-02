@@ -100,8 +100,7 @@ class FirmwareController:
             " ".join(self._esphome_cmd),
             sys.executable,
         )
-        loop = asyncio.get_running_loop()
-        ok, detail = await loop.run_in_executor(None, _verify_esphome_importable, self._esphome_cmd)
+        ok, detail = await _verify_esphome_importable(self._esphome_cmd)
         if ok:
             _LOGGER.info("ESPHome CLI sanity check OK — %s", detail)
         else:

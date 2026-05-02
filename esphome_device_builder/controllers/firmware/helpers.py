@@ -14,7 +14,6 @@ import ipaddress
 import logging
 import os
 import re
-import subprocess
 import sys
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -341,32 +340,46 @@ def _validate_port(port: str) -> None:
     )
 
 
-def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
+async def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
     """Sanity-check that ``cmd`` can actually import esphome.
 
-    Runs ``cmd --dashboard --version`` synchronously with a short
-    timeout. Used at backend startup so misconfigured environments
-    (venv missing esphome, wrong sys.executable, broken shim script)
-    surface as a clear log line rather than a cryptic "No module named
-    esphome" output captured during the user's first compile attempt.
+    Runs ``cmd --dashboard --version`` with a short timeout. Used at
+    backend startup so misconfigured environments (venv missing
+    esphome, wrong sys.executable, broken shim script) surface as a
+    clear log line rather than a cryptic "No module named esphome"
+    output captured during the user's first compile attempt.
 
     ``--dashboard`` is included in the probe so we also fail fast on
     an installed ESPHome that doesn't recognise the flag (very old
     builds): every real job command now passes ``--dashboard``, so a
     sanity check without it would let a broken pairing slip through to
     the user's first compile.
+
+    Async + ``create_subprocess_exec`` so the spawn inherits the
+    ``close_fds=False`` choice every other dashboard subprocess uses
+    (see ``helpers/subprocess.py`` — ``close_fds=True`` walks
+    ``/proc/self/fd`` per spawn and is wasted work on memory-pressured
+    systems). ``subprocess.run`` would have spawned with the stdlib
+    default and skipped the optimisation.
     """
     try:
-        proc = subprocess.run(  # noqa: S603 — cmd is built from sys.executable, not user input
-            [*cmd, "--dashboard", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
+        proc = await create_subprocess_exec(
+            *cmd,
+            "--dashboard",
+            "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except OSError as exc:
         return False, f"{type(exc).__name__}: {exc}"
-    output = (proc.stdout + proc.stderr).strip()
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+    except TimeoutError:
+        with suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        return False, "TimeoutExpired: 15s probe didn't return"
+    output = stdout.decode("utf-8", errors="replace").strip()
     if proc.returncode != 0 or "No module named" in output or "ModuleNotFoundError" in output:
         return False, output or f"exit {proc.returncode}"
     return True, output

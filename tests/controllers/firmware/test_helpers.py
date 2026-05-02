@@ -1,4 +1,4 @@
-"""Tests for module-level helpers in ``controllers/firmware.py``.
+"""Tests for module-level helpers in ``controllers/firmware/helpers.py``.
 
 The firmware controller has a few pure helpers at file scope
 that aren't covered elsewhere:
@@ -8,12 +8,16 @@ that aren't covered elsewhere:
 * ``_names_touched_by_job`` — feeds the rename-lock collision
   check; a rename touches two YAMLs (old + new), every other
   job type touches one.
+* ``_verify_esphome_importable`` — startup probe, returns
+  ``(True, version)`` on success and ``(False, reason)`` on
+  exit-code failure / error-pattern detection / OSError /
+  timeout.
 
 The other module-level helpers are already covered by their
 own dedicated test files:
 
 * ``_validate_port`` → ``test_install_to_specific_address.py``
-* ``_parse_progress`` → ``test_firmware_progress.py``
+* ``_parse_progress`` → ``test_progress.py``
 * ``_mark_job_terminal`` → ``test_mark_job_terminal.py``
 
 Per Copilot's review, this PR doesn't re-cover those — keeping
@@ -23,7 +27,10 @@ expectations in one place avoids drift.
 from __future__ import annotations
 
 import re
+import sys
 from typing import Any
+
+import pytest
 
 from esphome_device_builder.controllers.firmware.constants import (
     _MAX_OUTPUT_LINES_RETAINED,
@@ -32,6 +39,7 @@ from esphome_device_builder.controllers.firmware.constants import (
 from esphome_device_builder.controllers.firmware.helpers import (
     _names_touched_by_job,
     _trim_job_output,
+    _verify_esphome_importable,
 )
 from esphome_device_builder.models.firmware import (
     FirmwareJob,
@@ -156,3 +164,60 @@ def test_names_touched_by_job_with_empty_configuration_is_empty() -> None:
     """
     job = _make_job(configuration="", job_type=JobType.RESET_BUILD_ENV)
     assert _names_touched_by_job(job) == set()
+
+
+# ---------------------------------------------------------------------------
+# _verify_esphome_importable
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_verify_esphome_importable_success_with_known_module() -> None:
+    """A trivial Python ``-c`` that prints its version returns ``(True, output)``.
+
+    Exercises the spawn path against a known-importable command —
+    we don't need the real ``esphome`` CLI for this; a one-liner
+    that exits 0 with no error patterns is enough to lock the
+    happy-path tuple shape.
+    """
+    cmd = [sys.executable, "-c", "print('1.2.3')"]
+    ok, detail = await _verify_esphome_importable(cmd)
+    assert ok
+    assert "1.2.3" in detail
+
+
+@pytest.mark.asyncio
+async def test_verify_esphome_importable_returns_false_on_no_module_named() -> None:
+    """Even on a 0 exit, output containing ``No module named`` flips the result.
+
+    Captures the case where a wrapper script exits 0 but its
+    stderr/stdout still complains about a missing module — the
+    historical class of failure that motivated this probe.
+    """
+    cmd = [sys.executable, "-c", "import sys; print(\"No module named 'esphome'\"); sys.exit(0)"]
+    ok, detail = await _verify_esphome_importable(cmd)
+    assert not ok
+    assert "No module named" in detail
+
+
+@pytest.mark.asyncio
+async def test_verify_esphome_importable_returns_false_on_nonzero_exit() -> None:
+    """Non-zero exit → ``(False, output_or_exit_marker)``."""
+    cmd = [sys.executable, "-c", "import sys; sys.exit(3)"]
+    ok, detail = await _verify_esphome_importable(cmd)
+    assert not ok
+    assert "exit 3" in detail
+
+
+@pytest.mark.asyncio
+async def test_verify_esphome_importable_returns_false_on_oserror() -> None:
+    """A missing executable returns ``(False, "FileNotFoundError: ...")``.
+
+    Pre-migration the sync version caught ``OSError`` directly;
+    the async version uses the same except branch around
+    ``create_subprocess_exec``.
+    """
+    cmd = ["/this/path/does/not/exist/no-such-binary"]
+    ok, detail = await _verify_esphome_importable(cmd)
+    assert not ok
+    assert "FileNotFoundError" in detail or "OSError" in detail
