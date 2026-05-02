@@ -45,6 +45,16 @@ _NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 _IMMUTABLE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
 _HASHED_FILENAME_RE = re.compile(r"\.[a-f0-9]{8,}\.")
 
+# Worker-thread budget for the default ``ThreadPoolExecutor``. asyncio's
+# default is ``min(32, os.cpu_count() + 4)`` — too tight for the
+# dashboard's I/O-bound workload (DNS resolves on every ping sweep,
+# scanner stats, YAML parses, MQTT TCP connect) once the device count
+# crosses ~30. 64 leaves comfortable headroom on a saturated sweep
+# without fanning out so wide that the OS thread table balloons. Keep
+# this as a module-level constant so the value is one place to audit
+# and the test suite's pin-down assertion can reference it.
+_EXECUTOR_MAX_WORKERS = 64
+
 
 class DeviceBuilder:
     """Core application singleton.
@@ -55,9 +65,18 @@ class DeviceBuilder:
 
     def __init__(self, settings: DashboardSettings) -> None:
         """Initialize the Device Builder."""
+        from concurrent.futures import ThreadPoolExecutor
+
         self.settings = settings
         self.bus = EventBus()
         self.loop: asyncio.AbstractEventLoop | None = None
+        # Held so ``stop()`` can shut the pool down explicitly. Created
+        # eagerly here (not in start()) so a test or caller that probes
+        # the executor before lifecycle starts still sees the right
+        # one. ``ThreadPoolExecutor`` only spawns threads on demand.
+        self._executor: ThreadPoolExecutor | None = ThreadPoolExecutor(
+            max_workers=_EXECUTOR_MAX_WORKERS, thread_name_prefix="dashboard"
+        )
 
         # Controllers — populated in start()
         self.auth: AuthController | None = None
@@ -80,8 +99,6 @@ class DeviceBuilder:
 
     async def start(self) -> None:
         """Start the application — load catalogs, initialize controllers."""
-        from concurrent.futures import ThreadPoolExecutor
-
         from .controllers.auth import AuthController
         from .controllers.automations import AutomationsController
         from .controllers.boards import BoardCatalog
@@ -92,18 +109,13 @@ class DeviceBuilder:
         from .controllers.firmware import FirmwareController
 
         self.loop = asyncio.get_running_loop()
-        # Default ThreadPoolExecutor is ``min(32, os.cpu_count() + 4)``
-        # — ~12 threads on a typical 8-core box. With dozens of devices,
-        # the per-sweep DNS resolves (icmplib's ``async_resolve`` and
-        # asyncio's ``getaddrinfo``, both executor-bound) plus scanner
-        # file stats / YAML parses easily saturate the pool, and pages
-        # like the editor stall behind ``devices/list`` while it waits
-        # for a free worker. 64 leaves comfortable headroom on the
-        # mostly-blocked-on-I/O work the executor sees here without
-        # being so large that sweeps fan out to absurd concurrency.
-        self.loop.set_default_executor(
-            ThreadPoolExecutor(max_workers=64, thread_name_prefix="dashboard")
-        )
+        # The executor itself was constructed in ``__init__`` (so
+        # callers that probe ``self._executor`` before ``start()`` see
+        # the right value); here we just register it as the loop's
+        # default. See ``_EXECUTOR_MAX_WORKERS`` for the why behind
+        # the pool size.
+        assert self._executor is not None  # type narrowing
+        self.loop.set_default_executor(self._executor)
 
         # Initialize controllers
         self.auth = AuthController(self)
@@ -163,6 +175,15 @@ class DeviceBuilder:
             await self.devices.stop()
         if self.editor is not None:
             await self.editor.stop()
+        # Cleanly drain the executor once nothing else can hand it
+        # work. Without this, a test that exercises start/stop or a
+        # caller that owns the loop separately can leave the worker
+        # threads up — long-lived state monitor / DNS probes block the
+        # loop close. ``shutdown_default_executor`` is the asyncio
+        # idiom; it waits for in-flight tasks and joins the threads.
+        if self.loop is not None and self._executor is not None:
+            await self.loop.shutdown_default_executor()
+            self._executor = None
 
     async def _run_background(self) -> None:
         """Background polling loop."""
