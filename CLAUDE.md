@@ -105,6 +105,31 @@ toggle in the official ESPHome container and Home Assistant add-on.
 - **Frontend handoff** for the catalog is documented inline in
   models (`ConfigEntry`, `ComponentCatalogEntry`). New
   `ConfigEntryType` values need a frontend update — coordinate.
+- **`config_hash` source of truth is `build_info.json`.** ESPHome
+  writes `<storage.build_path>/build_info.json` after every
+  successful compile *and* every `--only-generate` (the relevant
+  `write_cpp(config)` call runs before the `args.only_generate`
+  exit branch). The dashboard reads it back via
+  `helpers.config_hash.read_build_info_hash` rather than
+  recomputing — see "Things that have bitten us" for why.
+  `_resolve_device_metadata` reads `build_info.json` first and
+  only falls back to the `.device-builder.json` sidecar when the
+  build directory has been wiped.
+- **`api_encryption` mDNS TXT is a tri-state, not a boolean.**
+  Truthy value (e.g. `Noise_NNpsk0_25519_ChaChaPoly_SHA256`) →
+  encryption confirmed live. Empty string → TXT seen, key absent
+  → device confirmed plaintext. `None` → no broadcast yet,
+  unknown. The frontend's `getEncryptionState` and the backend's
+  `apply_api_encryption` both lean on the empty-string-means-
+  plaintext distinction; a nullable boolean would lose it.
+- **Optimistic post-flash sync** in
+  `DevicesController._sync_deployed_hash_after_flash` pre-pins
+  `deployed_config_hash = expected_config_hash` after a successful
+  UPLOAD/INSTALL by routing through
+  `DeviceStateMonitor.apply_config_hash`. The dot clears
+  immediately instead of waiting on the rebooted device's mDNS
+  announce. If the OTA actually failed silently, the next real
+  announce pushes the truth back through the same callback.
 
 ## Things that have bitten us before
 
@@ -137,6 +162,34 @@ When changing the sync script or catalog handling, watch for these:
   `## Configuration variables` bullet list in MDX is flat; recursing
   into nested entries leaks descriptions across levels (e.g.
   `esphome.name` -> `esphome.areas[].name`).
+- **`CORE.config_hash` is post-codegen, not post-`read_config`.**
+  Each component's `to_code` runs after validation and can mutate
+  the config (id-pinning, default backfill, normalisation), and
+  the build reads `CORE.config_hash` from `writer.get_build_info`
+  *after* `generate_cpp_contents` has run. A naive subprocess that
+  loads the YAML, calls `read_config`, and reads the property
+  produces a value that disagrees with the firmware's broadcast.
+  Verified empirically against `acfloatmonitor32.yaml`: pre-codegen
+  `f3e21d5a`, post-codegen `5a94a12d` — the latter is what the
+  firmware bakes in. Read `build_info.json` instead of trying to
+  reproduce the codegen pipeline in-process.
+- **`compute_has_pending_changes` checks the hash before the
+  mtime.** When both `expected_config_hash` and
+  `deployed_config_hash` are known, the hash comparison is the
+  authoritative answer — equal hashes mean the running firmware is
+  built from the same logical config the YAML resolves to today,
+  even when the YAML's mtime is newer (whitespace edits,
+  `--only-generate` rewriting `StorageJSON`, comment changes). The
+  mtime check stays as the fallback for pre-#16145 firmware that
+  doesn't broadcast a hash.
+- **`ext_storage_path` requires `CORE.config_path` to be set.** It's
+  a thin wrapper around `CORE.data_dir`, which crashes
+  (`AttributeError: 'NoneType' object has no attribute 'is_dir'`)
+  when CORE hasn't been initialised. Fine in production (the
+  dashboard sets `CORE.config_path` on startup) but a footgun in
+  tests. `read_build_info_hash` derives the storage path locally
+  from `<yaml_dir>/.esphome/storage/<filename>.json` so test
+  fixtures don't have to spin up a CORE just to read a JSON file.
 
 ## Useful entry points
 
