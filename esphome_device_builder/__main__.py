@@ -99,6 +99,25 @@ def main() -> None:
             "is fine in production."
         ),
     )
+    parser.add_argument(
+        "--trusted-domains",
+        default="",
+        help=(
+            "Comma-separated hostnames the WebSocket handshake trusts "
+            "(case-insensitive, port-tolerant). Two effects when password "
+            "auth is on: (1) accept cross-origin connections whose Origin "
+            "header's hostname is in the list — required for reverse-proxy "
+            "deployments where Origin is ``dashboard.example.com`` but the "
+            "upstream Host is ``localhost``; (2) reject any connection "
+            "whose Host header isn't in the list — defense in depth against "
+            "DNS rebinding. Empty (default) preserves the existing strict "
+            "Origin/Host equality behaviour with no Host allowlist. Use "
+            "``*`` as the only entry to opt out of host-restriction while "
+            "keeping cross-origin acceptance permissive. Falls back to "
+            "$ESPHOME_TRUSTED_DOMAINS env var when unset (legacy ESPHome "
+            "dashboard compatibility)."
+        ),
+    )
 
     args = parser.parse_args()
 

@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import logging
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from aiohttp import WSMsgType, web
 from esphome.const import __version__ as esphome_version
@@ -198,8 +199,25 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     # without an Origin header (CLI tools, HA integration) are unaffected.
     if settings.using_password and not trusted_site:
         origin = request.headers.get("Origin")
-        if origin and not _origin_matches_host(origin, request.host):
+        # Cross-origin acceptance gate (closes #80): the Origin must
+        # equal Host OR the Origin's hostname must be in the
+        # operator-supplied trusted-domains allowlist. Without the
+        # allowlist branch, reverse-proxy deployments where Origin is
+        # ``https://dashboard.example.com`` but Host is the upstream
+        # ``localhost:6052`` lose dashboard access entirely.
+        if (
+            origin
+            and not _origin_matches_host(origin, request.host)
+            and not _origin_in_allowlist(origin, settings.trusted_domains)
+        ):
             return web.Response(status=403, text="Cross-origin connection rejected")
+        # Defense-in-depth Host allowlist (closes B-5 from #120).
+        # Empty list = not configured = pass through. When set, the
+        # request's Host must be one of the trusted domains —
+        # mitigates DNS-rebinding on top of the auth + per-IP rate
+        # limit chain.
+        if not _host_in_allowlist(request.host, settings.trusted_domains):
+            return web.Response(status=403, text="Host not in trusted-domains allowlist")
 
     ws = web.WebSocketResponse(heartbeat=_WS_HEARTBEAT_SECONDS)
     await ws.prepare(request)
@@ -272,3 +290,103 @@ def _origin_matches_host(origin: str, request_host: str) -> bool:
     except ValueError:
         return False
     return bool(parsed.netloc) and parsed.netloc == request_host
+
+
+def _origin_in_allowlist(origin: str, allowlist: list[str]) -> bool:
+    """Return True when ``origin``'s hostname is in the allowlist.
+
+    Used by the cross-origin acceptance gate: reverse-proxy
+    deployments where Origin is ``https://dashboard.example.com``
+    but Host is ``localhost:6052`` (proxy upstream) need the
+    operator-supplied ``ESPHOME_TRUSTED_DOMAINS`` allowlist to
+    accept the cross-origin handshake.
+
+    The allowlist match is on the Origin URL's hostname (port and
+    scheme stripped), case-insensitive. A bare hostname entry like
+    ``dashboard.example.com`` matches an Origin of
+    ``https://Dashboard.Example.com`` regardless of port; an entry
+    of ``[::1]`` matches ``http://[::1]:6052``.
+
+    ``"*"`` matches anything (escape hatch for operators who set
+    the env var without a specific host list).
+    """
+    if not allowlist:
+        return False
+    if "*" in allowlist:
+        return True
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        return False
+    return any(_normalize_host(entry) == hostname for entry in allowlist)
+
+
+def _normalize_host(host: str) -> str:
+    """Lower-case ``host`` and strip the port + IPv6 brackets, if any.
+
+    HTTP ``Host`` headers carry IPv6 addresses bracket-wrapped
+    (``[::1]:6052``); naive ``split(":", 1)`` would chop the first
+    segment of the address. ``urlsplit("//" + host).hostname``
+    handles both shapes (IPv4 / hostname:port and ``[ipv6]:port``)
+    and returns the unbracketed lowercase hostname.
+
+    There's one edge case ``urlsplit`` mis-handles: a bare IPv6
+    address typed *without* brackets (operator's allowlist entry
+    of ``fe80::1`` rather than ``[fe80::1]``) — ``urlsplit``
+    parses the leading ``fe80`` as the host and ``:1`` as the
+    port. Short-circuit those via ``ipaddress.ip_address`` before
+    falling through to the URL-parser branch. Bracketed Host
+    headers go straight to ``urlsplit`` which handles them
+    correctly. Falls back to the input verbatim when ``urlsplit``
+    returns nothing usable (malformed Host header).
+    """
+    stripped = host.strip()
+    if not stripped.startswith("["):
+        try:
+            ipaddress.ip_address(stripped)
+        except ValueError:
+            pass
+        else:
+            return stripped.lower()
+    try:
+        hostname = urlsplit(f"//{stripped}").hostname
+    except ValueError:
+        hostname = None
+    if hostname is None:
+        return stripped.lower()
+    return hostname.lower()
+
+
+def _host_in_allowlist(request_host: str, allowlist: list[str]) -> bool:
+    """Return True when ``request_host`` is permitted by ``allowlist``.
+
+    ``allowlist`` is the operator-supplied ``--trusted-hosts`` /
+    ``$TRUSTED_HOSTS`` list — empty means "no allowlist, anything
+    goes" and the caller skips the check entirely.
+
+    The allowlist match is case-insensitive and port-tolerant.
+    ``request_host`` is normalised to its lowercase host (port
+    stripped, IPv6 brackets stripped) before comparison; allowlist
+    entries are pre-normalised at parse time so an entry of
+    ``Dashboard.Local`` matches a Host header of
+    ``dashboard.local:6052`` and an entry of ``[::1]`` matches a
+    Host header of ``[::1]:6052`` (or its un-bracketed equivalent).
+
+    The literal ``"*"`` is an explicit "match anything" escape hatch
+    for operators who want to record the config knob is set without
+    restricting hosts (handy for split-hostname proxy setups where
+    the Host header varies per request and the existing Origin/Host
+    equality + auth chain is doing the work).
+
+    Defense in depth on top of the existing Origin/Host equality
+    check + per-IP-rate-limited ``auth/login``.
+    """
+    if not allowlist:
+        return True
+    if "*" in allowlist:
+        return True
+    normalised = _normalize_host(request_host)
+    return any(_normalize_host(entry) == normalised for entry in allowlist)

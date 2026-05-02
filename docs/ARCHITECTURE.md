@@ -147,6 +147,26 @@ This is the Music Assistant pattern: physically separating the listeners is the 
 
 The legacy `DISABLE_HA_AUTHENTICATION=true` env var skips the ingress site entirely — operators get only the password-gated public port.
 
+### Reverse-proxy / cross-origin deployments
+
+When the dashboard is exposed behind a reverse proxy (nginx, Caddy, Traefik, nginx-proxy-manager, …) under a hostname that doesn't match the upstream bind address, the WS handshake's strict `Origin === Host` check rejects the connection. Operators set `--trusted-domains` (or `$ESPHOME_TRUSTED_DOMAINS`, the legacy ESPHome dashboard env var name) to a comma-separated allowlist of hostnames they want the dashboard to accept:
+
+```bash
+# CLI
+esphome-device-builder /config --username dash --password ... \
+  --trusted-domains dashboard.example.com,proxy.example.com
+
+# Env var (matches the legacy ESPHome dashboard's name)
+ESPHOME_TRUSTED_DOMAINS=dashboard.example.com esphome-device-builder /config ...
+```
+
+The allowlist drives two checks in the WS handshake (both opt-in; empty = strict legacy behaviour):
+
+- **Origin allowlist** — accepts cross-origin connections whose `Origin` header's hostname is in the list. Required for any reverse-proxy deployment where the proxy hostname differs from the upstream Host.
+- **Host allowlist** — rejects any connection whose `Host` header isn't in the list. Defense in depth against DNS rebinding (an attacker domain that resolves to the victim's LAN IP would carry an unfamiliar Host).
+
+Match is case-insensitive and port-tolerant: `dashboard.example.com` accepts `Dashboard.Example.com:8443`. IPv6 may be entered with or without brackets (`::1` and `[::1]` both work). Use `*` as the only entry to opt out of the Host restriction while still permitting cross-origin handshakes (handy when the Host varies per request).
+
 ## Deployment
 
 ### Beta (HA add-on)
