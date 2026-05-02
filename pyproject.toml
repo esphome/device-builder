@@ -14,6 +14,16 @@ classifiers = [
 dependencies = [
   "esphome-device-builder-frontend @ https://github.com/esphome/device-builder-frontend/releases/download/0.1.13/esphome_device_builder_frontend-0.1.13-py3-none-any.whl",
   "aiohttp>=3.9.0",
+  # ``aiohttp-fast-zlib.enable()`` swaps aiohttp's zlib for ``isal``
+  # (or ``zlib_ng``) when available, so ``response.enable_compression()``
+  # on the frontend bundles costs ~10x less CPU than the stdlib path.
+  # Same dependency Home Assistant ships in core for the same reason.
+  "aiohttp-fast-zlib>=0.2.0",
+  # Optional native zlib accelerator. ``aiohttp-fast-zlib`` picks
+  # this up automatically and falls back to ``zlib_ng`` then stdlib
+  # ``zlib`` if it isn't installed — wheels are available for the
+  # platforms we target so it's a hard dep.
+  "isal>=1.6.0",
   "mashumaro>=3.13",
   "orjson>=3.9.0",
   "pyyaml>=6.0",

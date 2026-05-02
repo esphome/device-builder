@@ -14,13 +14,14 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import aiohttp_fast_zlib
 from aiohttp import web
 
 from .controllers.config import DashboardSettings
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.event_bus import EventBus
-from .helpers.json import cors_middleware
+from .helpers.json import compression_middleware, cors_middleware
 
 if TYPE_CHECKING:
     from .controllers.auth import AuthController
@@ -313,8 +314,20 @@ class DeviceBuilder:
         app reuses the public app's controller singleton and so passes
         ``False`` to avoid re-initialising them.
         """
+        # Order matters: ``cors_middleware`` runs outermost so its
+        # headers land even on compressed responses; compression
+        # runs next so the body is encoded before any inner
+        # middleware sees the response; auth runs innermost so an
+        # unauthorized request short-circuits before either does
+        # work.
+        #
+        # Compression is skipped on the trusted ingress site —
+        # the HA supervisor proxy compresses upstream, so doing
+        # it here would re-encode an already-encoded body and
+        # burn CPU twice for the same wire bytes.
         middlewares: list[Any] = [cors_middleware]
         if not trusted:
+            middlewares.append(compression_middleware)
             middlewares.append(auth_middleware)
 
         app = web.Application(middlewares=middlewares)
@@ -385,6 +398,11 @@ class DeviceBuilder:
     def run(self) -> None:
         """Start the HTTP server (blocking)."""
         # Logging is already configured by __main__.py
+        # Swap aiohttp's zlib for the fastest available backend
+        # (``isal_zlib`` -> ``zlib_ng`` -> stdlib) before any
+        # response goes through ``response.enable_compression()``.
+        # Idempotent — safe to call again on re-entry.
+        aiohttp_fast_zlib.enable()
         app = self.create_app()
         web.run_app(app, host=self.settings.host, port=self.settings.port)
 
