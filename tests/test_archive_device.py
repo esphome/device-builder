@@ -160,6 +160,58 @@ async def test_archive_wipes_build_directory(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_archive_wipes_storage_sidecar(tmp_path: Path) -> None:
+    """The StorageJSON sidecar is removed when archiving.
+
+    Per-filename keying means a sidecar that survives archive
+    would leak the archived device's address / hash /
+    loaded_integrations into a future ``configuration`` of the
+    same name. Wipe it on archive so the new device gets a
+    clean cache; the scanner re-fills via mDNS once the device
+    is back online (only a few seconds of "unknown state").
+    """
+    controller = _make_controller(tmp_path)
+    _seed_device(tmp_path, "kitchen.yaml")
+    storage_path = tmp_path / ".esphome" / "storage" / "kitchen.yaml.json"
+    assert storage_path.exists()
+
+    await controller._archive_single("kitchen.yaml")
+
+    assert not storage_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_archive_wipes_device_metadata(tmp_path: Path) -> None:
+    """The device-metadata entry is removed when archiving.
+
+    Same reason as the StorageJSON wipe: a future same-name
+    ``configuration`` would inherit the archived device's
+    cached IP / friendly_name / board_id otherwise.
+    """
+    from esphome_device_builder.controllers.config import (
+        get_device_metadata,
+        set_device_metadata,
+    )
+
+    controller = _make_controller(tmp_path)
+    _seed_device(tmp_path, "kitchen.yaml")
+    set_device_metadata(
+        tmp_path,
+        "kitchen.yaml",
+        board_id="esp32-c3-devkitm-1",
+        friendly_name="Kitchen Sensor",
+        ip="192.168.1.42",
+    )
+    assert get_device_metadata(tmp_path, "kitchen.yaml")  # truthy: dict has fields
+
+    await controller._archive_single("kitchen.yaml")
+
+    # Empty dict means no metadata entry — same as a brand-new
+    # device that's never had metadata written.
+    assert get_device_metadata(tmp_path, "kitchen.yaml") == {}
+
+
+@pytest.mark.asyncio
 async def test_archive_succeeds_when_never_compiled(tmp_path: Path) -> None:
     """A device that was never compiled has no build dir — archive still works.
 
@@ -382,6 +434,38 @@ async def test_delete_archived_removes_yaml_and_sidecars(tmp_path: Path) -> None
 
     assert not (archive_dir / "kitchen.yaml").exists()
     assert not storage_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_archived_preserves_active_sidecars(tmp_path: Path) -> None:
+    """Same-name active config keeps its sidecars when the archive copy is deleted.
+
+    Defense-in-depth: if an active config has been re-created
+    with the same filename since the archive (which shouldn't
+    happen because ``_archive_single`` wipes its sidecars on the
+    way in, but might if the archive predates this PR or was
+    written by the legacy dashboard), the StorageJSON / metadata
+    sidecars belong to the *live* device. Permanent-deleting the
+    archive copy must not wipe the live device's cached state.
+    """
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    # Active config with the same filename — and a sidecar that
+    # belongs to the *active* device, not the archive copy.
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen-active\n", encoding="utf-8")
+    storage_dir = tmp_path / ".esphome" / "storage"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    storage_path = storage_dir / "kitchen.yaml.json"
+    storage_path.write_text('{"name":"active"}', encoding="utf-8")
+
+    controller = _make_controller(tmp_path)
+    await controller._delete_archived_single("kitchen.yaml")
+
+    assert not (archive_dir / "kitchen.yaml").exists()
+    # Active YAML and its sidecars survive untouched.
+    assert (tmp_path / "kitchen.yaml").read_text() == ("esphome:\n  name: kitchen-active\n")
+    assert storage_path.read_text() == '{"name":"active"}'
 
 
 @pytest.mark.asyncio

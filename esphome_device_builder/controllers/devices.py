@@ -513,13 +513,13 @@ class DevicesController:
     async def archive_device(self, *, configuration: str, **kwargs: Any) -> None:
         """Soft-delete a device — keep the YAML, wipe the build dir.
 
-        Moves the YAML to ``<config_dir>/archive/`` so the user can
-        ``unarchive`` later. Mirrors the legacy dashboard's
-        ``ArchiveRequestHandler`` (``esphome/dashboard/web_server.py``).
-        The metadata sidecar and StorageJSON are left in place —
-        they're cheap, and an unarchive that wants to keep the
-        device's last-known IP / expected_config_hash ought to
-        find them where they were.
+        Moves the YAML to ``<config_dir>/archive/`` so the user
+        can ``unarchive`` later. Build dir, StorageJSON sidecar,
+        and device-metadata entry are all wiped so a future
+        ``configuration`` with the same filename starts from a
+        clean cache (per-filename keying would otherwise let the
+        new device inherit the archived one's stale state). See
+        ``_archive_single`` for the full rationale.
         """
         _validate_archive_configuration(configuration)
         try:
@@ -1593,16 +1593,25 @@ class DevicesController:
             _LOGGER.warning("Could not move metadata for %s", new_filename)
 
     async def _archive_single(self, configuration: str) -> None:
-        """Soft-delete: move the YAML into ``<config_dir>/archive/`` and wipe its build.
+        """Soft-delete: move the YAML into ``<config_dir>/archive/`` and wipe build + sidecars.
 
-        Mirrors the legacy dashboard's archive flow. The build dir
-        wipe matches what ``_delete_single`` does — an archived
-        device's compile output is dead weight (the user can
-        recompile after unarchive). The YAML stays on disk so the
-        operation is reversible. Metadata sidecar / StorageJSON
-        stay where they are — they're small, and an unarchive
-        that wants to keep the device's last-known cached state
-        ought to find it where it was.
+        Mirrors the legacy dashboard's archive flow with one
+        deliberate divergence: we also wipe the StorageJSON
+        sidecar and the device-metadata entry. The legacy
+        dashboard preserved them so unarchive could restore the
+        cached IP / version / hash, but the per-filename keying
+        means a future ``configuration`` with the same name would
+        inherit the archived device's stale state (loaded_integrations,
+        deployed_config_hash, address) until it's recompiled or
+        edited. Wiping on archive trades a few seconds of
+        "unknown state" after unarchive (the scanner + monitor
+        refill from the next mDNS broadcast) for full isolation
+        between archive and any future same-name device.
+
+        Build dir wipe matches what ``_delete_single`` does — an
+        archived device's compile output is dead weight (the
+        user can recompile after unarchive). The YAML itself
+        stays on disk so the operation is reversible.
         """
         config_path = self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
@@ -1637,6 +1646,18 @@ class DevicesController:
             if storage is not None and storage.build_path:
                 shutil.rmtree(storage.build_path, ignore_errors=True)
             shutil.move(str(config_path), str(target))
+            # Wipe the StorageJSON sidecar and device-metadata
+            # entry too, so a future same-name ``configuration``
+            # starts from a clean cache. See the docstring for the
+            # full rationale.
+            try:
+                storage_path.unlink(missing_ok=True)
+            except OSError:
+                _LOGGER.warning("Could not remove storage file for archived %s", configuration)
+            try:
+                remove_device_metadata(config_dir, configuration)
+            except Exception:
+                _LOGGER.warning("Could not remove metadata for archived %s", configuration)
 
         try:
             await loop.run_in_executor(None, _archive_sync)
@@ -1729,16 +1750,32 @@ class DevicesController:
         active config_dir. The build dir is already gone (archive
         wipes it), so this only has to remove the YAML, the
         StorageJSON sidecar, and the device-metadata sidecar.
+
+        Defense-in-depth: the StorageJSON / metadata sidecars are
+        keyed on the bare filename, so if an active config of the
+        same name has been re-created since the archive, those
+        sidecars belong to the live device and removing them
+        would wipe its cached IP / hash / loaded_integrations.
+        ``_archive_single`` already wipes its own sidecars on the
+        way in (so this collision shouldn't happen in practice),
+        but we still guard with an existence check on the active
+        path. Callers expect best-effort cleanup of orphan
+        sidecars, not a guarantee of their removal.
         """
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
         archive_path = config_dir / "archive" / configuration
+        active_path = self._db.settings.rel_path(configuration)
 
         def _delete_all() -> None:
             if not archive_path.exists():
                 msg = f"Archived file not found: {configuration}"
                 raise FileNotFoundError(msg)
             archive_path.unlink()
+            if active_path.exists():
+                # An active config with the same filename owns the
+                # sidecars now — leave them alone.
+                return
             storage_path = ext_storage_path(configuration)
             try:
                 storage_path.unlink(missing_ok=True)
