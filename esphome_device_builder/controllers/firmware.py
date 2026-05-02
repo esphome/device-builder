@@ -133,6 +133,28 @@ def _trim_job_output(job: FirmwareJob) -> None:
     ]
 
 
+def _mark_job_terminal(job: FirmwareJob, status: JobStatus) -> None:
+    """
+    Set *job* to a terminal *status* and stamp its completion time.
+
+    The two writes go together at every job-finalisation site
+    (queued cancel, mid-run cancel, normal completion, runner-shutdown
+    cancel, exception, reset-build-env cancel/complete), and forgetting
+    one or the other is a recurring footgun — a status without a
+    ``completed_at`` confuses the dashboard's relative-time tooltip,
+    and a ``completed_at`` without a status leaves the job stuck on
+    ``RUNNING`` even though the subprocess is gone.
+
+    Pulling them into one call keeps the call sites readable and the
+    pair atomic. Doesn't fire the lifecycle event — the call site
+    decides which event to fire and in what order relative to
+    ``_persist_jobs`` / ``_prune_history`` so the existing observable
+    sequencing is preserved.
+    """
+    job.status = status
+    job.completed_at = datetime.now(UTC).isoformat()
+
+
 def _names_touched_by_job(job: FirmwareJob) -> set[str]:
     """YAML filenames a job will read or write.
 
@@ -652,8 +674,7 @@ class FirmwareController:
             raise ValueError(msg)
 
         if job.status == JobStatus.QUEUED:
-            job.status = JobStatus.CANCELLED
-            job.completed_at = datetime.now(UTC).isoformat()
+            _mark_job_terminal(job, JobStatus.CANCELLED)
             self._prune_history()
             await self._persist_jobs()
             self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
@@ -893,19 +914,18 @@ class FirmwareController:
 
             exit_code = await proc.wait()
             job.exit_code = exit_code
-            job.completed_at = datetime.now(UTC).isoformat()
 
             # If the user cancelled this job mid-run, the subprocess
             # exits non-zero (terminated by signal). Honour that
             # intent rather than reporting it as a generic failure.
             if job.job_id in self._cancel_requested:
                 self._cancel_requested.discard(job.job_id)
-                job.status = JobStatus.CANCELLED
+                _mark_job_terminal(job, JobStatus.CANCELLED)
                 self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
                 _LOGGER.info("Job %s cancelled mid-run (exit %s)", job.job_id, exit_code)
             else:
                 success = exit_code == 0 and not has_error_in_output
-                job.status = JobStatus.COMPLETED if success else JobStatus.FAILED
+                _mark_job_terminal(job, JobStatus.COMPLETED if success else JobStatus.FAILED)
                 if has_error_in_output and exit_code == 0:
                     full_output = "".join(job.output)
                     if "No module named esphome" in full_output:
@@ -932,16 +952,14 @@ class FirmwareController:
         except asyncio.CancelledError:
             if self._current_process:
                 self._current_process.terminate()
-            job.status = JobStatus.CANCELLED
-            job.completed_at = datetime.now(UTC).isoformat()
+            _mark_job_terminal(job, JobStatus.CANCELLED)
             self._cancel_requested.discard(job.job_id)
             self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
             _LOGGER.info("Job %s cancelled (runner shutdown)", job.job_id)
             raise
         except Exception as exc:
-            job.status = JobStatus.FAILED
             job.error = str(exc)
-            job.completed_at = datetime.now(UTC).isoformat()
+            _mark_job_terminal(job, JobStatus.FAILED)
             self._db.bus.fire(EventType.JOB_FAILED, {"job": job})
             _LOGGER.exception("Job %s failed: %s", job.job_id, exc)
         finally:
@@ -1028,8 +1046,7 @@ class FirmwareController:
                 if job.job_id in self._cancel_requested:
                     self._cancel_requested.discard(job.job_id)
                     _emit("Reset cancelled by user.")
-                    job.status = JobStatus.CANCELLED
-                    job.completed_at = datetime.now(UTC).isoformat()
+                    _mark_job_terminal(job, JobStatus.CANCELLED)
                     self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
                     return
 
@@ -1046,9 +1063,8 @@ class FirmwareController:
             "toolchains and re-fetch external components."
         )
         job.exit_code = 0
-        job.completed_at = datetime.now(UTC).isoformat()
-        job.status = JobStatus.COMPLETED
         job.progress = 100
+        _mark_job_terminal(job, JobStatus.COMPLETED)
         self._db.bus.fire(EventType.JOB_COMPLETED, {"job": job})
         _LOGGER.info("Job %s reset_build_env completed", job.job_id)
 
