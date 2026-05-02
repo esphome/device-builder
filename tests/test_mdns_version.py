@@ -35,7 +35,17 @@ def _device(**overrides: Any) -> Device:
 
 
 def _monitor(devices: list[Device]) -> tuple[DeviceStateMonitor, MagicMock]:
-    on_version = MagicMock()
+    # Mirror production: the controller's callback writes the value
+    # back onto the device. The monitor's dedupe is keyed off the
+    # device's ``deployed_version`` so without the side-effect every
+    # repeat call would re-fire (the dedupe would never observe the
+    # post-callback state).
+    def _flip(name: str, version: str) -> None:
+        for d in devices:
+            if d.name == name:
+                d.deployed_version = version
+
+    on_version = MagicMock(side_effect=_flip)
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,
         on_state_change=MagicMock(),

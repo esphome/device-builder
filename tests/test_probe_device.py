@@ -143,10 +143,6 @@ async def test_apply_service_info_claims_online() -> None:
     monitor._on_config_hash_change = MagicMock()
     monitor._on_api_encryption_change = MagicMock()
     monitor._state_source = {}
-    monitor._device_ips = {}
-    monitor._device_versions = {}
-    monitor._device_config_hashes = {}
-    monitor._device_api_encryption = {}
     # ``apply()`` validates against the configured-devices catalog.
     from esphome_device_builder.models import Device, DeviceState
 

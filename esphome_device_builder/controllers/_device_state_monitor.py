@@ -176,13 +176,6 @@ class DeviceStateMonitor:
         self._on_importable_removed = on_importable_removed
         self._is_ignored = is_ignored or (lambda _name: False)
         self._state_source: dict[str, str] = {}  # device name → "mdns" | "ping"
-        self._device_ips: dict[str, str] = {}  # device name → last known IP
-        self._device_versions: dict[str, str] = {}  # device name → last reported version
-        self._device_config_hashes: dict[str, str] = {}  # device name → last reported config hash
-        # Tri-state-able dedupe map: missing key = never seen mDNS for
-        # this device (callback never fires); empty string = seen
-        # plaintext; non-empty = seen encryption with that algorithm.
-        self._device_api_encryption: dict[str, str] = {}
         # ``DashboardImportDiscovery`` is the upstream esphome class
         # that watches the same ``_esphomelib._tcp.local.`` browser for
         # ``package_import_url`` TXT records and turns them into
@@ -289,17 +282,18 @@ class DeviceStateMonitor:
         Record an IP observation. Empty string clears the stored IP.
 
         Returns True when the IP actually changed and the change was
-        forwarded to the callback.
+        forwarded to the callback. Dedupe is done against the
+        configured devices' current ``ip`` field rather than a
+        separate monitor cache so a Device that's been rebuilt with
+        ``previous=None`` (e.g. an atomic save's brief
+        REMOVE+re-ADD scan churn) still gets repopulated by the
+        next mDNS announcement.
         """
-        if self._find_device_by_name(name) is None:
+        devices = [d for d in self._get_devices() if d.name == name]
+        if not devices:
             return False
-        prev = self._device_ips.get(name, "")
-        if prev == ip:
+        if all(d.ip == ip for d in devices):
             return False
-        if ip:
-            self._device_ips[name] = ip
-        else:
-            self._device_ips.pop(name, None)
         self._on_ip_change(name, ip)
         return True
 
@@ -312,11 +306,11 @@ class DeviceStateMonitor:
         """
         if not version or self._on_version_change is None:
             return False
-        if self._find_device_by_name(name) is None:
+        devices = [d for d in self._get_devices() if d.name == name]
+        if not devices:
             return False
-        if self._device_versions.get(name) == version:
+        if all(d.deployed_version == version for d in devices):
             return False
-        self._device_versions[name] = version
         self._on_version_change(name, version)
         return True
 
@@ -328,24 +322,20 @@ class DeviceStateMonitor:
         ``api_encryption`` TXT was absent — i.e. the device is
         running plaintext API. A non-empty value (e.g.
         ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``) confirms encryption
-        is active. The "never seen" case is represented by simply not
-        calling this method at all; the device controller treats
-        absence as "trust the YAML".
+        is active. The "never seen" case is represented by the
+        device's ``api_encryption_active`` staying ``None``; the
+        device controller treats that as "trust the YAML".
 
         Returns True when the value actually changed and the change
         was forwarded to the callback.
         """
         if self._on_api_encryption_change is None:
             return False
-        if self._find_device_by_name(name) is None:
+        devices = [d for d in self._get_devices() if d.name == name]
+        if not devices:
             return False
-        # ``""`` is a meaningful state ("seen plaintext") so we have to
-        # distinguish "no entry" from "entry == empty"; ``in`` does
-        # that without confusing it with the truthy-check guard
-        # apply_config_hash uses for its empty-string drop.
-        if name in self._device_api_encryption and self._device_api_encryption[name] == encryption:
+        if all(d.api_encryption_active == encryption for d in devices):
             return False
-        self._device_api_encryption[name] = encryption
         self._on_api_encryption_change(name, encryption)
         return True
 
@@ -360,11 +350,11 @@ class DeviceStateMonitor:
         """
         if not config_hash or self._on_config_hash_change is None:
             return False
-        if self._find_device_by_name(name) is None:
+        devices = [d for d in self._get_devices() if d.name == name]
+        if not devices:
             return False
-        if self._device_config_hashes.get(name) == config_hash:
+        if all(d.deployed_config_hash == config_hash for d in devices):
             return False
-        self._device_config_hashes[name] = config_hash
         self._on_config_hash_change(name, config_hash)
         return True
 

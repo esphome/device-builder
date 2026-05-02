@@ -40,7 +40,17 @@ def _device(**overrides: Any) -> Device:
 
 
 def _monitor(devices: list[Device]) -> tuple[DeviceStateMonitor, MagicMock]:
-    on_enc = MagicMock()
+    # Mirror production: the controller's callback writes the value
+    # back onto the device. The monitor's dedupe is keyed off the
+    # device's ``api_encryption_active`` so without the side-effect
+    # every repeat call would re-fire (and the empty-string
+    # plaintext state in particular would never settle).
+    def _flip(name: str, encryption: str) -> None:
+        for d in devices:
+            if d.name == name:
+                d.api_encryption_active = encryption
+
+    on_enc = MagicMock(side_effect=_flip)
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,
         on_state_change=MagicMock(),

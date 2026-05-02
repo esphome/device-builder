@@ -35,7 +35,16 @@ def _device(**overrides: Any) -> Device:
 
 
 def _monitor(devices: list[Device]) -> tuple[DeviceStateMonitor, MagicMock]:
-    on_config_hash = MagicMock()
+    # Mirror production: the controller's callback writes the value
+    # back onto the device. The monitor's dedupe is keyed off the
+    # device's ``deployed_config_hash`` so without the side-effect
+    # every repeat call would re-fire.
+    def _flip(name: str, config_hash: str) -> None:
+        for d in devices:
+            if d.name == name:
+                d.deployed_config_hash = config_hash
+
+    on_config_hash = MagicMock(side_effect=_flip)
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,
         on_state_change=MagicMock(),
@@ -86,6 +95,40 @@ def test_apply_config_hash_ignores_empty_string() -> None:
     monitor, cb = _monitor([_device()])
     assert monitor.apply_config_hash("kitchen", "") is False
     cb.assert_not_called()
+
+
+def test_apply_config_hash_refires_after_device_rebuild() -> None:
+    """A rebuilt Device with empty hash gets repopulated by the next mDNS event.
+
+    Atomic-write editors (vscode-on-macOS et al.) can briefly remove
+    the YAML file mid-save, causing the scanner to fire REMOVED then
+    re-ADD with ``previous=None`` — the new Device has
+    ``deployed_config_hash=""`` even though zeroconf still has the
+    same TXT cached. With the old monitor-side dedupe dict, the next
+    mDNS announcement short-circuited because the cache still held
+    the value, leaving the drawer's "Deployed" hash stuck on an
+    em-dash forever (until either a re-flash or a hash change).
+    Deduping against the device's actual field instead means the
+    rebuild's empty value is observable, the next announcement fires
+    again, and the device repopulates.
+    """
+    devices = [_device()]
+    monitor, cb = _monitor(devices)
+
+    # First observation: device populated.
+    monitor.apply_config_hash("kitchen", "1a2b3c4d")
+    assert devices[0].deployed_config_hash == "1a2b3c4d"
+
+    # Simulate a scanner rebuild with previous=None: the new Device
+    # carries no monitor-derived state.
+    devices[0] = _device()
+    assert devices[0].deployed_config_hash == ""
+
+    # Same hash arrives again. The monitor must NOT short-circuit on
+    # the prior observation; the rebuilt device needs the value back.
+    monitor.apply_config_hash("kitchen", "1a2b3c4d")
+    assert devices[0].deployed_config_hash == "1a2b3c4d"
+    assert cb.call_count == 2
 
 
 def test_apply_config_hash_ignores_unknown_device() -> None:
