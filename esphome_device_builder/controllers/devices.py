@@ -10,7 +10,7 @@ import re
 import shutil
 from collections.abc import Callable
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 from esphome import const
@@ -70,6 +70,44 @@ if TYPE_CHECKING:
     from .components import _FeaturedRecord
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _validate_archive_configuration(configuration: str) -> None:
+    """Reject anything that isn't a pure basename.
+
+    Defense-in-depth at the public-command boundary for archive /
+    unarchive / delete_archived. Each helper builds paths from the
+    user-supplied filename (``<config_dir>/archive/<configuration>``,
+    ``ext_storage_path(configuration)`` -> ``data_dir/storage/<configuration>.json``)
+    that don't all flow through ``Settings.rel_path`` — a value
+    containing path separators or ``..`` segments could resolve
+    outside the intended directory and be unlinked / overwritten.
+
+    Reject anything where ``Path(value).name != value`` (catches
+    ``../foo``, ``sub/foo``, backslash-separated paths on Windows),
+    the empty string, and the special path components ``.`` / ``..``
+    that pass the ``.name`` round-trip but are still traversal
+    vectors.
+    """
+    if not configuration:
+        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must not be empty")
+    if configuration in (".", ".."):
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            f"configuration must be a plain filename, not {configuration!r}",
+        )
+    if (
+        "/" in configuration
+        or "\\" in configuration
+        or "\x00" in configuration
+        or PurePosixPath(configuration).name != configuration
+        or PureWindowsPath(configuration).name != configuration
+    ):
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            f"configuration must be a plain filename without path separators, "
+            f"got {configuration!r}",
+        )
 
 
 class DevicesController:
@@ -483,6 +521,7 @@ class DevicesController:
         device's last-known IP / expected_config_hash ought to
         find them where they were.
         """
+        _validate_archive_configuration(configuration)
         try:
             await self._archive_single(configuration)
         except FileNotFoundError as exc:
@@ -497,6 +536,7 @@ class DevicesController:
         ``DEVICE_ADDED`` so the dashboard's active list refreshes
         without a manual reload.
         """
+        _validate_archive_configuration(configuration)
         try:
             await self._unarchive_single(configuration)
         except FileNotFoundError as exc:
@@ -516,6 +556,24 @@ class DevicesController:
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._list_archived_sync)
+
+    @api_command("devices/delete_archived")
+    async def delete_archived(self, *, configuration: str, **kwargs: Any) -> None:
+        """Permanently delete an archived device — YAML and sidecars.
+
+        The companion to ``archive`` for the case where the user
+        decided they really don't want this device back. Removes
+        ``<config_dir>/archive/<configuration>`` plus the
+        StorageJSON sidecar and the device-metadata sidecar (the
+        archive flow leaves both in place for unarchive's benefit).
+        Surfaces ``CommandError(NOT_FOUND)`` when the archive entry
+        is gone — matches the symmetry with ``unarchive``.
+        """
+        _validate_archive_configuration(configuration)
+        try:
+            await self._delete_archived_single(configuration)
+        except FileNotFoundError as exc:
+            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
 
     @api_command("devices/delete_bulk")
     async def delete_bulk(
@@ -1662,6 +1720,36 @@ class DevicesController:
                 }
             )
         return results
+
+    async def _delete_archived_single(self, configuration: str) -> None:
+        """Permanently remove an archived YAML and its sidecars.
+
+        Mirrors ``_delete_single`` but operates on
+        ``<config_dir>/archive/<configuration>`` instead of the
+        active config_dir. The build dir is already gone (archive
+        wipes it), so this only has to remove the YAML, the
+        StorageJSON sidecar, and the device-metadata sidecar.
+        """
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+        archive_path = config_dir / "archive" / configuration
+
+        def _delete_all() -> None:
+            if not archive_path.exists():
+                msg = f"Archived file not found: {configuration}"
+                raise FileNotFoundError(msg)
+            archive_path.unlink()
+            storage_path = ext_storage_path(configuration)
+            try:
+                storage_path.unlink(missing_ok=True)
+            except OSError:
+                _LOGGER.warning("Could not remove storage file for archived %s", configuration)
+            try:
+                remove_device_metadata(config_dir, configuration)
+            except Exception:
+                _LOGGER.warning("Could not remove metadata for archived %s", configuration)
+
+        await loop.run_in_executor(None, _delete_all)
 
     async def _delete_single(self, configuration: str) -> None:
         """Delete a single device and all associated files."""

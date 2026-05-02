@@ -310,6 +310,121 @@ async def test_unarchive_missing_archive_file_raises(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# path traversal — defense in depth at the public command boundary
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "configuration",
+    [
+        "../etc/passwd",
+        "../../etc/passwd",
+        "subdir/file.yaml",
+        "..",
+        ".",
+        "",
+        "/etc/passwd",
+        "foo/../bar.yaml",
+        "..\\windows\\system32",
+        "secrets\\password.yaml",
+        "with\x00null.yaml",
+    ],
+)
+@pytest.mark.asyncio
+async def test_archive_rejects_path_traversal(tmp_path: Path, configuration: str) -> None:
+    """All three archive commands reject non-basename ``configuration``.
+
+    The helpers build paths like ``<config_dir>/archive/<configuration>``
+    and ``ext_storage_path(configuration)`` (which resolves to
+    ``<config_dir>/.esphome/storage/<configuration>.json``). Without
+    a top-level filename validator a value containing ``..`` or path
+    separators could resolve outside the intended directory — the
+    archive flow would unlink / overwrite a file outside the archive
+    tree. Reject at the WS boundary so the helpers never see a
+    suspect value.
+    """
+    controller = _make_controller(tmp_path)
+    for cmd in (
+        controller.archive_device,
+        controller.unarchive_device,
+        controller.delete_archived,
+    ):
+        with pytest.raises(CommandError) as exc:
+            await cmd(configuration=configuration)
+        assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+# ---------------------------------------------------------------------------
+# delete_archived
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_archived_removes_yaml_and_sidecars(tmp_path: Path) -> None:
+    """Permanent delete clears the archived YAML and its sidecars.
+
+    The archive flow leaves StorageJSON / device-metadata behind so
+    unarchive can restore the cached state. Once the user explicitly
+    says "this is gone for good", those sidecars are dead weight —
+    leaving them around would surprise a future create-with-same-
+    filename with stale cached state. Mirror ``_delete_single``.
+    """
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    storage_dir = tmp_path / ".esphome" / "storage"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    storage_path = storage_dir / "kitchen.yaml.json"
+    storage_path.write_text("{}", encoding="utf-8")
+
+    controller = _make_controller(tmp_path)
+    await controller._delete_archived_single("kitchen.yaml")
+
+    assert not (archive_dir / "kitchen.yaml").exists()
+    assert not storage_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_archived_succeeds_without_sidecars(tmp_path: Path) -> None:
+    """A bare YAML in the archive (no sidecar) deletes cleanly.
+
+    Same shape as ``_delete_single`` — ``unlink(missing_ok=True)``
+    on the StorageJSON path lets a hand-archived YAML or one whose
+    sidecar was wiped earlier still go away when the user picks
+    Delete-permanently.
+    """
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    controller = _make_controller(tmp_path)
+    await controller._delete_archived_single("kitchen.yaml")
+    assert not (archive_dir / "kitchen.yaml").exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_archived_missing_raises_file_not_found(tmp_path: Path) -> None:
+    """Permanent delete of a non-existent archive entry raises cleanly."""
+    controller = _make_controller(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        await controller._delete_archived_single("ghost.yaml")
+
+
+@pytest.mark.asyncio
+async def test_delete_archived_translates_missing_to_command_error(tmp_path: Path) -> None:
+    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)``.
+
+    Mirrors ``archive_device`` / ``unarchive_device`` — the helper
+    raises ``FileNotFoundError`` so internal callers can catch by
+    type, but the public command translates to a clean WS error.
+    """
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.delete_archived(configuration="ghost.yaml")
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+# ---------------------------------------------------------------------------
 # list_archived
 # ---------------------------------------------------------------------------
 
