@@ -354,6 +354,13 @@ class DeviceBuilder:
         ``with_lifecycle`` toggles startup/cleanup hooks; the ingress
         app reuses the public app's controller singleton and so passes
         ``False`` to avoid re-initialising them.
+        ``with_ingress_site`` controls whether the lifecycle hooks
+        spawn the *separate* trusted ingress site alongside the
+        public site. Defaults to ``True`` for the canonical
+        public+ingress deployment. Pass ``False`` from the
+        ingress-only fail-secure path in ``run`` (where this app
+        IS the ingress) to avoid recursively spawning a second
+        ingress site via ``_start_ingress_site``.
         """
         middlewares: list[Any] = [cors_middleware]
         if not trusted:
