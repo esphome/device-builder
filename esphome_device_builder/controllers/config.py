@@ -338,12 +338,17 @@ class ConfigController:
         """Get compiled device metadata (StorageJSON) for a configuration."""
         loop = asyncio.get_running_loop()
 
-        try:
-            self._db.settings.rel_path(configuration)
-        except ValueError:
-            return None
-
         def _load_info() -> dict | None:
+            # ``rel_path`` calls ``Path.resolve`` (an ``os.path.abspath``
+            # syscall under the hood) and the StorageJSON load below
+            # opens the sidecar from disk — both block the event loop
+            # if run inline. Do them together inside the executor so
+            # a slow filesystem (NFS-mounted config dir, EBS-backed
+            # Docker volume) can't stall the dashboard.
+            try:
+                self._db.settings.rel_path(configuration)
+            except ValueError:
+                return None
             storage = StorageJSON.load(ext_storage_path(configuration))
             if storage is None:
                 return None
