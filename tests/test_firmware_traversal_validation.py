@@ -48,10 +48,21 @@ def test_sync_validate_rejects_traversal(tmp_path: Path) -> None:
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-def test_sync_validate_allows_empty_string(tmp_path: Path) -> None:
-    """Empty string short-circuits — used by ``RESET_BUILD_ENV`` jobs."""
+def test_sync_validate_rejects_empty_string(tmp_path: Path) -> None:
+    """Empty configuration raises — only ``RESET_BUILD_ENV`` legitimately wants it.
+
+    ``reset_build_env`` doesn't go through the validator at all; every
+    other handler does, so accepting ``""`` here would let a client call
+    ``compile`` / ``upload`` / ``clean`` / ``install`` / ``rename`` with
+    an empty ``configuration`` value, get back a queued ``FirmwareJob``,
+    and only fail later when the runner hands the empty string to the
+    CLI.
+    """
     controller = _controller(tmp_path)
-    controller._sync_validate_configuration_boundary("")  # no raise
+    with pytest.raises(CommandError) as excinfo:
+        controller._sync_validate_configuration_boundary("")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "must not be empty" in excinfo.value.message
 
 
 @pytest.mark.asyncio
@@ -71,22 +82,33 @@ async def test_validate_configuration_boundary_runs_in_executor(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_validate_configurations_boundary_one_executor(tmp_path: Path) -> None:
-    """The bulk validator processes the whole batch in a single executor task.
+async def test_validate_configurations_boundary_raises_on_bad_entry(
+    tmp_path: Path,
+) -> None:
+    """The bulk validator raises on the first invalid entry.
 
-    Per-config invalid entries are dropped from the returned list
-    (so ``compile_bulk`` / ``install_bulk`` keep going for the
-    valid ones — same skip-and-continue semantics the rename-lock
-    branch already provides). Empty strings are also dropped. One
-    ``run_in_executor`` call amortises the context-switch cost
-    across the batch instead of paying it per item.
+    Bulk handlers reject the whole batch on bad input rather than
+    silently dropping the offending entry — a typo in one of N
+    configurations is something the caller wants to know about,
+    not have masked by partial success. Rename-lock conflicts in
+    phase 2 stay skip-and-continue (transient state, not bad
+    input).
     """
     controller = _controller(tmp_path)
 
-    valid = await controller._validate_configurations_boundary(
-        ["kitchen.yaml", "../etc/passwd", "garage.yaml", "", "/abs/path"]
-    )
-    assert valid == ["kitchen.yaml", "garage.yaml"]
+    with pytest.raises(CommandError) as excinfo:
+        await controller._validate_configurations_boundary(
+            ["kitchen.yaml", "../etc/passwd", "garage.yaml"]
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+async def test_validate_configurations_boundary_all_valid(tmp_path: Path) -> None:
+    """A clean batch validates without raising and returns ``None``."""
+    controller = _controller(tmp_path)
+
+    await controller._validate_configurations_boundary(["kitchen.yaml", "garage.yaml"])
 
 
 @pytest.mark.asyncio
@@ -111,4 +133,23 @@ async def test_download_rejects_traversal(tmp_path: Path) -> None:
 
     with pytest.raises(CommandError) as excinfo:
         await controller.download(configuration="../etc/passwd", file="firmware.bin")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+async def test_rename_rejects_traversal_in_new_name(tmp_path: Path) -> None:
+    """``firmware/rename`` validates the derived ``<new_name>.yaml``.
+
+    Direct WS clients can bypass ``DevicesController.rename_device``
+    (which already validates) and call ``firmware/rename`` directly.
+    Without a boundary check on ``new_name``, a value like
+    ``../etc/passwd`` would land as the new device YAML path —
+    traversal at flash time. The handler now reuses the same
+    ``_validate_configuration_boundary`` to gate it.
+    """
+    controller = _controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename(configuration="kitchen.yaml", new_name="../etc/passwd")
     assert excinfo.value.code == ErrorCode.INVALID_ARGS

@@ -637,6 +637,15 @@ class FirmwareController:
         old hostname.
         """
         await self._validate_configuration_boundary(configuration)
+        # ``new_name`` becomes ``<new_name>.yaml`` in config_dir; validate
+        # the derived filename via ``rel_path`` at the WS boundary so a
+        # direct ``firmware/rename`` request can't pass a traversal-shaped
+        # name (``../etc/passwd``) and have it surface as a failed job
+        # later. Filename-collision is checked upstream by
+        # ``DevicesController.rename_device``; direct WS callers that
+        # bypass the controller layer are responsible for their own
+        # collision check.
+        await self._validate_configuration_boundary(f"{new_name}.yaml")
         job = self._create_job(configuration, JobType.RENAME, new_name=new_name)
         return await self._enqueue(job)
 
@@ -648,9 +657,9 @@ class FirmwareController:
         device and keep going so a single locked configuration in a
         bulk request doesn't abort the queue for everyone else.
         """
-        valid = await self._validate_configurations_boundary(configurations)
+        await self._validate_configurations_boundary(configurations)
         jobs: list[FirmwareJob] = []
-        for config in valid:
+        for config in configurations:
             try:
                 job = self._create_job(config, JobType.COMPILE)
                 await self._enqueue(job)
@@ -676,9 +685,9 @@ class FirmwareController:
         selected devices shouldn't abort the install for the rest.
         """
         _validate_port(port)
-        valid = await self._validate_configurations_boundary(configurations)
+        await self._validate_configurations_boundary(configurations)
         jobs: list[FirmwareJob] = []
-        for config in valid:
+        for config in configurations:
             try:
                 job = self._create_job(config, JobType.INSTALL, port=port)
                 await self._enqueue(job)
@@ -1466,19 +1475,26 @@ class FirmwareController:
 
     def _sync_validate_configuration_boundary(self, configuration: str) -> None:
         """
-        Run the synchronous ``rel_path`` check; raise ``CommandError`` on traversal.
+        Run the synchronous ``rel_path`` check; raise ``CommandError`` on bad input.
 
         Used by both ``_validate_configuration_boundary`` (the async
         per-call wrapper) and ``_validate_configurations_boundary`` (which
         already runs inside an executor). Centralises the rule so
         future changes to validation logic land in exactly one place.
 
+        Empty strings raise too — ``reset_build_env`` is the only code
+        path that legitimately wants the empty configuration value, and
+        it bypasses this validator entirely. Without this check a
+        client could call ``firmware/compile`` with ``configuration=""``,
+        get a queued job, and only fail later when ``_execute_job`` hands
+        the empty string to the CLI.
+
         Callers must NOT invoke this directly from the event loop —
         ``rel_path`` calls ``Path.resolve``, a blocking
         ``os.path.abspath`` syscall that blockbuster catches on CI.
         """
         if not configuration:
-            return
+            raise CommandError(ErrorCode.INVALID_ARGS, "configuration must not be empty")
         self._db.settings.rel_path(configuration)
 
     async def _validate_configuration_boundary(self, configuration: str) -> None:
@@ -1486,40 +1502,37 @@ class FirmwareController:
         Validate ``configuration`` inside an executor.
 
         Single-config path; ``CommandError(INVALID_ARGS)`` on traversal
-        propagates through the awaited future to the WS dispatcher
-        unchanged. Empty strings (``RESET_BUILD_ENV`` jobs) skip the
-        check.
+        or empty input propagates through the awaited future to the
+        WS dispatcher unchanged.
         """
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._sync_validate_configuration_boundary, configuration)
 
-    async def _validate_configurations_boundary(self, configurations: list[str]) -> list[str]:
+    async def _validate_configurations_boundary(self, configurations: list[str]) -> None:
         """
-        Validate every configuration in a single executor task.
+        Validate every configuration in a single executor task; raise on bad input.
 
         One ``run_in_executor`` for the whole batch instead of N — the
-        per-config rel_path call is cheap, but spinning up an executor
-        task per config adds context-switch overhead that scales
-        badly on a large bulk request. Invalid entries are dropped
-        with an info log so the bulk handler keeps going for the
-        valid ones (matches the legacy "skip locked configs and
-        queue the rest" semantics for rename-lock rejections).
+        per-config ``rel_path`` call is cheap, but spinning up an
+        executor task per config adds context-switch overhead that
+        scales badly on a large bulk request.
+
+        Bad input (traversal, empty) raises ``CommandError(INVALID_ARGS)``
+        for the whole batch rather than silently dropping the entry —
+        a typo in one of N configurations is something the caller wants
+        to know about, not have masked by partial success. Transient
+        state conflicts (rename-lock rejections) are still handled with
+        skip-and-continue inside the bulk handlers' phase-2 loop;
+        validation is the upfront gate, queue contention is the
+        downstream best-effort step.
         """
 
-        def _validate_all() -> list[str]:
-            valid: list[str] = []
+        def _validate_all() -> None:
             for config in configurations:
-                try:
-                    self._sync_validate_configuration_boundary(config)
-                except CommandError as exc:
-                    _LOGGER.info("Skipping %s in bulk: %s", config, exc.message)
-                    continue
-                if config:
-                    valid.append(config)
-            return valid
+                self._sync_validate_configuration_boundary(config)
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _validate_all)
+        await loop.run_in_executor(None, _validate_all)
 
     def _create_job(
         self,
