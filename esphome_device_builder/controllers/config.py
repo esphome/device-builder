@@ -118,8 +118,17 @@ class DashboardSettings:
         # Comma-separated. Lower-cased for the case-insensitive match
         # in the WS handshake. Empty list = both Origin and Host
         # allowlists disabled.
-        raw_trusted = getattr(args, "trusted_domains", None) or os.getenv(
-            "ESPHOME_TRUSTED_DOMAINS", ""
+        #
+        # Precedence: a CLI flag value of ``None`` (argparse default
+        # when ``--trusted-domains`` wasn't passed) means "flag not
+        # set, consult the env var"; any string value, including the
+        # empty string, is an explicit override and wins over the
+        # env var. Lets operators say ``--trusted-domains ""`` to
+        # disable the checks even when ``$ESPHOME_TRUSTED_DOMAINS``
+        # is set in the environment (e.g. inherited from a parent).
+        cli_value = getattr(args, "trusted_domains", None)
+        raw_trusted = (
+            cli_value if cli_value is not None else os.getenv("ESPHOME_TRUSTED_DOMAINS", "")
         )
         self.trusted_domains = [
             host.strip().lower() for host in raw_trusted.split(",") if host.strip()

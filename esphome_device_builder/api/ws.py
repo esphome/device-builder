@@ -363,17 +363,17 @@ def _normalize_host(host: str) -> str:
 def _host_in_allowlist(request_host: str, allowlist: list[str]) -> bool:
     """Return True when ``request_host`` is permitted by ``allowlist``.
 
-    ``allowlist`` is the operator-supplied ``--trusted-hosts`` /
-    ``$TRUSTED_HOSTS`` list — empty means "no allowlist, anything
-    goes" and the caller skips the check entirely.
+    ``allowlist`` is the operator-supplied ``--trusted-domains`` /
+    ``$ESPHOME_TRUSTED_DOMAINS`` list — empty means "no allowlist,
+    anything goes" and the caller skips the check entirely.
 
-    The allowlist match is case-insensitive and port-tolerant.
-    ``request_host`` is normalised to its lowercase host (port
-    stripped, IPv6 brackets stripped) before comparison; allowlist
-    entries are pre-normalised at parse time so an entry of
-    ``Dashboard.Local`` matches a Host header of
-    ``dashboard.local:6052`` and an entry of ``[::1]`` matches a
-    Host header of ``[::1]:6052`` (or its un-bracketed equivalent).
+    Both ``request_host`` and each allowlist entry go through
+    ``_normalize_host`` (lower-case, port stripped, IPv6 brackets
+    stripped). ``DashboardSettings.parse_args`` strips whitespace
+    and lower-cases the entries on load but does NOT canonicalise
+    bracket / port shape, so an entry of ``[::1]`` and a Host
+    header of ``[::1]:6052`` (or an un-bracketed ``::1``) all
+    end up normalised to ``::1`` here and compare equal.
 
     The literal ``"*"`` is an explicit "match anything" escape hatch
     for operators who want to record the config knob is set without

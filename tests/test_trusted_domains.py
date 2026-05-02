@@ -11,19 +11,30 @@ checks in ``api/ws.py``:
   isn't in the allowlist. Defense in depth against DNS rebinding,
   on top of the existing ``auth/login`` gate.
 
-These tests exercise the pure helpers and the parsing on
-``DashboardSettings``. Full WS-handshake integration is covered by
-the existing aiohttp-client tests.
+These tests exercise three layers:
+
+* The pure ``_normalize_host`` / ``_host_in_allowlist`` /
+  ``_origin_in_allowlist`` helpers.
+* ``DashboardSettings.parse_args`` — CLI / env-var precedence,
+  whitespace handling, the ``--trusted-domains ""`` explicit
+  override path.
+* End-to-end ``websocket_handler`` integration via
+  ``aiohttp_client``: confirms the 403 paths fire on the right
+  branches and that a valid Origin / Host pair reaches the WS
+  upgrade.
 """
 
 from __future__ import annotations
 
 import os
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from aiohttp import web
+from pytest_aiohttp.plugin import AiohttpClient
 
+from esphome_device_builder.api import ws as ws_module
 from esphome_device_builder.api.ws import (
     _host_in_allowlist,
     _normalize_host,
@@ -212,7 +223,10 @@ def _ns(configuration: str, **kwargs: object) -> SimpleNamespace:
         "ingress_port": 6053,
         "ingress_host": "",
         "dev": False,
-        "trusted_domains": "",
+        # ``None`` matches the argparse default — the test mirrors
+        # production where ``--trusted-domains`` was not passed and
+        # ``parse_args`` should consult ``$ESPHOME_TRUSTED_DOMAINS``.
+        "trusted_domains": None,
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -288,3 +302,195 @@ def test_settings_empty_when_neither_set(tmp_path: object) -> None:
         os.environ.pop("ESPHOME_TRUSTED_DOMAINS", None)
         settings.parse_args(_ns(configuration=str(tmp_path)))
     assert settings.trusted_domains == []
+
+
+def test_settings_explicit_empty_cli_overrides_env_var(tmp_path: object) -> None:
+    """``--trusted-domains ""`` wins over the env var.
+
+    Argparse default is ``None`` (flag not passed); any string
+    value, including the empty string, is an explicit override.
+    Lets operators disable the checks from the CLI even when
+    ``$ESPHOME_TRUSTED_DOMAINS`` is inherited from the parent
+    process. Without this, the previous ``getattr(...) or
+    os.getenv(...)`` chain treated ``""`` as falsy and silently
+    fell back to the env var.
+    """
+    settings = DashboardSettings()
+    with patch.dict(os.environ, {"ESPHOME_TRUSTED_DOMAINS": "from-env.example.com"}):
+        settings.parse_args(_ns(configuration=str(tmp_path), trusted_domains=""))
+    assert settings.trusted_domains == []
+
+
+# ---------------------------------------------------------------------------
+# websocket_handler integration — exercise the 403 branches end-to-end
+# ---------------------------------------------------------------------------
+
+
+def _password_protected_app(trusted_domains: list[str]) -> web.Application:
+    """Build a minimal aiohttp app wired to ``websocket_handler``.
+
+    Mirrors the pattern in ``test_websocket_heartbeat.py``: stub
+    settings + auth so ``websocket_handler``'s gating branches run
+    without spinning up the real DeviceBuilder. Password is set
+    (``using_password=True``) so the Origin/Host checks actually
+    execute — the gate is skipped on unauthenticated deployments
+    and on the trusted ingress site.
+    """
+    settings = MagicMock()
+    settings.using_password = True
+    settings.trusted_domains = trusted_domains
+    settings.port = 6052
+    settings.on_ha_addon = False
+
+    device_builder = MagicMock()
+    device_builder.settings = settings
+    device_builder.auth = MagicMock()
+    device_builder.auth.session_store = MagicMock()
+
+    app = web.Application()
+    app["device_builder"] = device_builder
+    app["trusted_site"] = False  # public site -> gating runs
+    app.router.add_routes(ws_module.create_ws_routes())
+    return app
+
+
+async def test_handler_rejects_cross_origin_without_allowlist(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Origin doesn't match Host, no allowlist → 403 Cross-origin.
+
+    Pin the existing strict behaviour so a refactor of the
+    Origin gate doesn't silently remove the protection.
+    """
+    client = await aiohttp_client(_password_protected_app([]))
+    resp = await client.get("/ws", headers={"Origin": "https://evil.example.com"})
+    assert resp.status == 403
+    assert "Cross-origin" in await resp.text()
+
+
+async def test_handler_accepts_cross_origin_when_origin_in_allowlist(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Cross-origin with Origin's hostname in trusted_domains → handshake succeeds.
+
+    Reverse-proxy deployments where Origin is the proxy hostname
+    and Host is the upstream bind address. Pinning that the
+    handler reaches the WS upgrade (status 101 / TEXT message)
+    proves the gate let it through.
+    """
+    # Allowlist needs ``127.0.0.1`` too because aiohttp_client
+    # binds the test server there and the Host-allowlist check
+    # runs after the Origin gate; without the IP entry, the test
+    # would pass the Origin gate but trip the Host gate.
+    client = await aiohttp_client(_password_protected_app(["dashboard.example.com", "127.0.0.1"]))
+    async with client.ws_connect("/ws", headers={"Origin": "https://dashboard.example.com"}) as ws:
+        msg = await ws.receive(timeout=2.0)
+        assert msg.type.name in ("TEXT", "BINARY")
+
+
+async def test_handler_rejects_host_not_in_allowlist(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Host header not in allowlist → 403 Host not in trusted-domains.
+
+    DNS-rebinding payload: attacker's hostname resolves to
+    victim's LAN IP, browser sends the attacker's Host header,
+    operator's allowlist (set to the real dashboard hostname)
+    catches it. We pass a matching ``Origin`` so the cross-origin
+    gate doesn't short-circuit before the host-allowlist check.
+    """
+    client = await aiohttp_client(_password_protected_app(["dashboard.example.com"]))
+    resp = await client.get(
+        "/ws",
+        headers={
+            "Host": "evil.example.com",
+            "Origin": "https://evil.example.com",
+        },
+    )
+    assert resp.status == 403
+    assert "Host not in trusted-domains" in await resp.text()
+
+
+async def test_handler_accepts_host_in_allowlist(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Host header in allowlist + same-origin → handshake succeeds."""
+    client = await aiohttp_client(_password_protected_app(["dashboard.example.com"]))
+    async with client.ws_connect(
+        "/ws",
+        headers={
+            "Host": "dashboard.example.com",
+            "Origin": "https://dashboard.example.com",
+        },
+    ) as ws:
+        msg = await ws.receive(timeout=2.0)
+        assert msg.type.name in ("TEXT", "BINARY")
+
+
+async def test_handler_skips_gating_on_trusted_site(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """The trusted ingress site bypasses both checks.
+
+    HA Ingress runs upstream auth + bind-network isolation —
+    enforcing Origin / Host gating there would block legitimate
+    supervisor-routed requests with synthesised headers.
+    """
+    settings = MagicMock()
+    settings.using_password = True
+    settings.trusted_domains = ["dashboard.example.com"]
+    settings.port = 6052
+    settings.on_ha_addon = True
+
+    device_builder = MagicMock()
+    device_builder.settings = settings
+    device_builder.auth = MagicMock()
+    device_builder.auth.session_store = MagicMock()
+
+    app = web.Application()
+    app["device_builder"] = device_builder
+    app["trusted_site"] = True  # ingress site -> gating skipped
+    app.router.add_routes(ws_module.create_ws_routes())
+
+    client = await aiohttp_client(app)
+    async with client.ws_connect(
+        "/ws",
+        headers={
+            "Host": "evil.example.com",
+            "Origin": "https://evil.example.com",
+        },
+    ) as ws:
+        msg = await ws.receive(timeout=2.0)
+        assert msg.type.name in ("TEXT", "BINARY")
+
+
+async def test_handler_accepts_when_no_password(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Unauthenticated public site bypasses gating.
+
+    The Origin / Host checks fire only when ``using_password``.
+    A dashboard running without auth is already in
+    "trust-the-LAN" mode; adding hostname checks would break
+    first-run access from another machine.
+    """
+    settings = MagicMock()
+    settings.using_password = False
+    settings.trusted_domains = []
+    settings.port = 6052
+    settings.on_ha_addon = False
+
+    device_builder = MagicMock()
+    device_builder.settings = settings
+    device_builder.auth = MagicMock()
+    device_builder.auth.session_store = MagicMock()
+
+    app = web.Application()
+    app["device_builder"] = device_builder
+    app["trusted_site"] = False
+    app.router.add_routes(ws_module.create_ws_routes())
+
+    client = await aiohttp_client(app)
+    async with client.ws_connect("/ws", headers={"Origin": "https://evil.example.com"}) as ws:
+        msg = await ws.receive(timeout=2.0)
+        assert msg.type.name in ("TEXT", "BINARY")
