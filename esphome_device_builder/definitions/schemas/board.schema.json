@@ -136,6 +136,36 @@
       "type": "array",
       "description": "Logical groups of featured components added together (hardware addon modules, status-LED setups, ...).",
       "items": { "$ref": "#/$defs/featured_bundle" }
+    },
+    "source": {
+      "type": "object",
+      "description": "Marks the manifest as imported from an external catalog. Hand-curated boards omit this block; the sync script regenerates manifests where it's present and never touches manifests where it's absent.",
+      "required": ["type", "remote_id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Origin marker. Drives which sync script owns this manifest.",
+          "enum": ["esphome-devices"]
+        },
+        "remote_id": {
+          "type": "string",
+          "description": "Upstream identifier (folder name, page slug, ...) used to match this manifest back to its source on subsequent syncs."
+        },
+        "upstream_url": {
+          "type": "string",
+          "description": "Direct link to the source page on the upstream repo or site.",
+          "format": "uri"
+        },
+        "upstream_revision": {
+          "type": "string",
+          "description": "Commit SHA (or version string) the manifest was generated from."
+        },
+        "content_hash": {
+          "type": "string",
+          "description": "SHA-256 of the upstream source content. Lets the sync skip already-up-to-date entries without re-rendering."
+        }
+      }
     }
   },
   "$defs": {

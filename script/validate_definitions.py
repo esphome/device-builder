@@ -122,9 +122,17 @@ def validate_board(manifest: Path, components_index: dict | None = None) -> list
                 seen_gpios.add(gpio)
                 pins_by_gpio[gpio] = pin
 
+    # Imported boards (source.type set) carry only synthesized pin
+    # entries with empty ``features`` — we don't have a per-chip pin-
+    # feature DB to populate them. Skip the per-pin feature
+    # intersection check for these; the rest of featured-component
+    # validation (component_id present, fields key match,
+    # GPIO declared) still runs.
+    is_imported = isinstance(data.get("source"), dict) and bool(data["source"].get("type"))
+
     # Featured components & bundles — cross-catalog validation against
     # the loaded component index when available.
-    errors.extend(_validate_featured(board_id, data, pins_by_gpio, components_index))
+    errors.extend(_validate_featured(board_id, data, pins_by_gpio, components_index, is_imported))
 
     return errors
 
@@ -158,6 +166,7 @@ def _validate_featured(
     data: dict,
     pins_by_gpio: dict[int, dict],
     components_index: dict | None,
+    is_imported: bool = False,
 ) -> list[str]:
     """Validate featured_components / featured_bundles cross-references."""
     errors: list[str] = []
@@ -179,7 +188,9 @@ def _validate_featured(
         seen_fc_ids.add(fc_id)
 
         errors.extend(
-            _validate_featured_component(board_id, idx, entry, pins_by_gpio, components_index)
+            _validate_featured_component(
+                board_id, idx, entry, pins_by_gpio, components_index, is_imported
+            )
         )
 
     seen_bundle_ids: set[str] = set()
@@ -206,6 +217,7 @@ def _validate_featured_component(
     entry: dict,
     pins_by_gpio: dict[int, dict],
     components_index: dict | None,
+    is_imported: bool = False,
 ) -> list[str]:
     """Validate a single featured_components[i] entry against the catalog."""
     errors: list[str] = []
@@ -242,7 +254,7 @@ def _validate_featured_component(
             errors.append(f"{path}.fields.{fkey}: not a config_entry on {component_id}")
             continue
         ce = entries_by_key[fkey]
-        errors.extend(_validate_field_preset(path, fkey, fval, ce, pins_by_gpio))
+        errors.extend(_validate_field_preset(path, fkey, fval, ce, pins_by_gpio, is_imported))
 
     return errors
 
@@ -253,6 +265,7 @@ def _validate_field_preset(
     fval: object,
     ce: dict,
     pins_by_gpio: dict[int, dict],
+    is_imported: bool = False,
 ) -> list[str]:
     """Validate a single field preset against its config-entry constraints."""
     errors: list[str] = []
@@ -276,6 +289,11 @@ def _validate_field_preset(
             pin = pins_by_gpio.get(gpio)
             if pin is None:
                 errors.append(f"{path}.fields.{fkey}: GPIO {gpio} not declared in pins")
+                continue
+            if is_imported:
+                # Imported boards have synthesized pin entries with no
+                # features filled in — skip the intersection check.
+                # Pin-declared check above still runs.
                 continue
             pin_features = set(pin.get("features") or [])
             missing = required_features - pin_features
