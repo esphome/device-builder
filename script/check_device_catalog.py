@@ -94,13 +94,13 @@ _EXPECTED_OK: list[dict[str, Any]] = [
     },
 ]
 
-# Pages we expect the importer to *skip*, with the reason it should
-# report. These have no inline yaml or no local images and should
-# never sneak into the catalog.
-_EXPECTED_SKIP: list[tuple[str, str]] = [
-    ("Adonno-Tagreader", "no parseable inline yaml"),
-    ("Aqara-FP2", "no parseable inline yaml"),
-]
+# Negative fixtures used to assert "should skip" cases would be brittle
+# against a community-maintained upstream — a contributor could later
+# add an inline yaml block to a page we currently expect to skip and
+# break our CI without anything actually regressing in our code.
+# Instead, we rely on the upstream-wide sync run (in CI, the previous
+# step) to surface skip-rate drift via its summary; the smoke test
+# only enforces the positive cases we care about.
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +165,10 @@ def _featured_has(
 
 def main() -> int:
     """Run the smoke test, returning ``0`` on success and ``1`` on any mismatch."""
-    repo = _ensure_devices_repo()
+    # Use the cache the sync step just produced — skipping the pull
+    # keeps us pinned to the same upstream revision that generated the
+    # manifests under review.
+    repo = _ensure_devices_repo(pull=False)
     if repo is None:
         print("ERROR: Could not clone esphome-devices.", file=sys.stderr)
         return 1
@@ -175,9 +178,7 @@ def main() -> int:
     by_remote_id: dict[str, dict[str, Any]] = {}
     skipped_by_remote_id: dict[str, str] = {}
 
-    expected_remote_ids = {s["remote_id"] for s in _EXPECTED_OK} | {
-        rid for rid, _ in _EXPECTED_SKIP
-    }
+    expected_remote_ids = {s["remote_id"] for s in _EXPECTED_OK}
 
     for src in _iter_devices(repo):
         if src.folder_name not in expected_remote_ids:
@@ -200,23 +201,13 @@ def main() -> int:
             continue
         errors.extend(_check_ok(by_remote_id[rid], spec))
 
-    for rid, expected_reason in _EXPECTED_SKIP:
-        if rid in by_remote_id:
-            errors.append(f"{rid}: expected skip but was imported")
-            continue
-        actual_reason = skipped_by_remote_id.get(rid, "<not seen>")
-        if actual_reason != expected_reason:
-            errors.append(f"{rid}: expected skip reason {expected_reason!r}, got {actual_reason!r}")
-
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         print(f"\n{len(errors)} error(s) found", file=sys.stderr)
         return 1
 
-    ok = len(_EXPECTED_OK)
-    skip = len(_EXPECTED_SKIP)
-    print(f"OK: {ok} expected imports, {skip} expected skips, all match")
+    print(f"OK: {len(_EXPECTED_OK)} expected imports, all match")
     return 0
 
 

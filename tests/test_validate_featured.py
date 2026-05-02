@@ -11,6 +11,7 @@ from __future__ import annotations
 from script.validate_definitions import (  # type: ignore[import-not-found]
     _build_components_index,
     _validate_featured,
+    _validate_field_preset,
 )
 
 
@@ -203,3 +204,40 @@ def test_locked_and_suggestions_both_set() -> None:
         _index(),
     )
     assert any("cannot set both 'locked' and 'suggestions'" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# is_imported relaxation
+# ---------------------------------------------------------------------------
+
+
+def _pin_entry_requiring(*features: str) -> dict:
+    """Build a synthetic ``pin``-typed config entry that demands *features*."""
+    return {"key": "pin", "type": "pin", "pin_features": list(features)}
+
+
+def test_field_preset_imported_skips_pin_feature_check() -> None:
+    """Imported boards bypass the pin-feature intersection check."""
+    # Synthesised case: the component requires ``adc`` on its pin but
+    # the board's synthesized pin entry has empty features (the only
+    # shape the importer produces). On a hand-curated board this would
+    # error; with ``is_imported=True`` it must pass.
+    pins = {3: {"gpio": 3, "features": []}}
+    ce = _pin_entry_requiring("adc")
+    preset = {"value": 3, "locked": True}
+
+    curated = _validate_field_preset("demo", "pin", preset, ce, pins, is_imported=False)
+    assert any("missing required pin features ['adc']" in e for e in curated)
+
+    imported = _validate_field_preset("demo", "pin", preset, ce, pins, is_imported=True)
+    assert imported == []
+
+
+def test_field_preset_imported_still_requires_pin_declared() -> None:
+    """The pin-declared check stays in effect for imported boards."""
+    pins = {3: {"gpio": 3, "features": []}}
+    ce = _pin_entry_requiring("adc")
+    preset = {"value": 99, "locked": True}  # GPIO99 absent from pins
+
+    errors = _validate_field_preset("demo", "pin", preset, ce, pins, is_imported=True)
+    assert any("GPIO 99 not declared in pins" in e for e in errors)

@@ -83,40 +83,66 @@ _ESP32_VARIANT_DEFAULT_BOARD: dict[str, str] = {
     "esp32p4": "esp32-p4-function-ev-board",
 }
 
-# Connectivity defaults inferred from the SoC family. ESP32 always has
-# wifi+BT/BLE; everything else is wifi-only out of the box. Imports
-# don't try to cover ethernet / zigbee — those would need explicit
-# evidence we can't reliably mine from upstream.
+# Connectivity defaults inferred from the SoC family / variant. ESP32
+# variants differ on what's built in: classic + S3 + C3 + C5 + C6 +
+# C61 carry both wifi + BLE; S2 has wifi only; H2 has BLE/Thread but
+# no wifi; P4 has neither built in. Imports don't try to cover
+# ethernet / zigbee / matter — those need explicit evidence we can't
+# reliably mine from upstream.
 _SOC_CONNECTIVITY: dict[str, list[str]] = {
-    "esp32": ["wifi", "bluetooth"],
     "esp8266": ["wifi"],
     "bk72xx": ["wifi"],
     "rp2040": ["wifi"],
     "rtl87xx": ["wifi"],
 }
 
+# Per-variant overrides for the esp32 family. ``None`` means "no
+# built-in radio" (esp32p4) — we omit ``hardware.connectivity``
+# entirely so the manifest doesn't claim wifi the chip can't deliver.
+_ESP32_VARIANT_CONNECTIVITY: dict[str, list[str] | None] = {
+    "esp32": ["wifi", "bluetooth"],
+    "esp32s2": ["wifi"],
+    "esp32s3": ["wifi", "bluetooth"],
+    "esp32c2": ["wifi", "bluetooth"],
+    "esp32c3": ["wifi", "bluetooth"],
+    "esp32c5": ["wifi", "bluetooth"],
+    "esp32c6": ["wifi", "bluetooth"],
+    "esp32c61": ["wifi", "bluetooth"],
+    "esp32h2": ["bluetooth"],
+    "esp32p4": None,
+}
+
 # Top-level platform-list keys in ESPHome configs. Each list item
 # carries a ``platform: <stem>`` and we project to ``<domain>.<stem>``
-# in our component catalog.
+# in our component catalog. Mirrors the ``ComponentCategory`` entity
+# domains in the catalog so we don't reject hardware that's actually
+# representable (speakers, microphones, touchscreens, alarm panels).
 _PLATFORM_LIST_DOMAINS: frozenset[str] = frozenset(
     {
+        "alarm_control_panel",
         "binary_sensor",
         "button",
+        "camera",
         "climate",
         "cover",
         "datetime",
         "display",
+        "event",
         "fan",
         "light",
         "lock",
         "media_player",
+        "microphone",
         "number",
         "output",
         "select",
         "sensor",
+        "speaker",
         "switch",
         "text",
         "text_sensor",
+        "touchscreen",
+        "update",
         "valve",
     }
 )
@@ -269,16 +295,22 @@ def _dump_manifest(data: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _ensure_devices_repo() -> Path | None:
+def _ensure_devices_repo(*, pull: bool = True) -> Path | None:
     """
     Clone or update the esphome-devices repo. Returns its path or None.
 
     Mirrors the docs-repo handling in script/sync_components.py:
     shallow clone on first run, ``git pull --ff-only`` afterwards. A
     pull failure is non-fatal — we keep using whatever's on disk.
+
+    Pass ``pull=False`` to skip the pull when the cache already exists,
+    which is what the smoke test does so it inspects the same revision
+    the sync just produced.
     """
     target = _DEVICES_CLONE_DIR
     if (target / ".git").exists():
+        if not pull:
+            return target
         result = subprocess.run(
             ["git", "-C", str(target), "pull", "-q", "--ff-only"],
             check=False,
@@ -687,13 +719,13 @@ def _make_record(  # noqa: PLR0911 — distinct skip reasons each get their own 
     title = fm.get("title")
     if not isinstance(title, str) or not title.strip():
         return None, "no frontmatter title"
-    type_field = fm.get("type")
-    if not isinstance(type_field, str) or not type_field.strip():
-        return None, "no frontmatter type"
     if src.inline_yaml is None:
         return None, "no parseable inline yaml"
     if not src.images:
         return None, "no local images"
+    # ``type:`` is optional — only used downstream for tag inference.
+    # A page without it is still importable.
+    type_field = fm.get("type") if isinstance(fm.get("type"), str) else None
 
     soc, soc_block = _resolve_soc(fm, src.inline_yaml)
     if soc is None:
@@ -713,12 +745,17 @@ def _make_record(  # noqa: PLR0911 — distinct skip reasons each get their own 
         "esphome": _build_esphome_block(soc, board, variant, framework),
     }
 
-    connectivity = _SOC_CONNECTIVITY.get(soc)
+    connectivity = _connectivity_for(soc, variant)
     if connectivity:
         record["hardware"] = {"connectivity": list(connectivity)}
 
     if src.images:
-        record["images"] = list(src.images)
+        # The loader (``_resolve_images``) resolves manifest entries
+        # relative to the board directory; storing them with the
+        # ``images/`` prefix preserves the upstream order. Without
+        # this prefix the explicit references don't resolve and the
+        # loader silently falls back to alphabetic auto-discovery.
+        record["images"] = [f"images/{name}" for name in src.images]
 
     tags = _build_tags(src.folder_name, type_field)
     if tags:
@@ -752,6 +789,15 @@ def _build_esphome_block(
     return out
 
 
+def _connectivity_for(soc: str, variant: str | None) -> list[str] | None:
+    """Return the built-in radio mix for *soc*/*variant*, or ``None`` for none."""
+    if soc == "esp32":
+        # Variants without an explicit override fall through to the
+        # classic esp32 default (wifi + bluetooth).
+        return _ESP32_VARIANT_CONNECTIVITY.get(variant or "esp32", ["wifi", "bluetooth"])
+    return _SOC_CONNECTIVITY.get(soc)
+
+
 def _build_source_block(folder_name: str, revision: str, content_hash: str) -> dict[str, Any]:
     """Compose the manifest's ``source:`` block (origin + drift-detection metadata)."""
     block: dict[str, Any] = {
@@ -771,16 +817,35 @@ def _build_source_block(folder_name: str, revision: str, content_hash: str) -> d
 # ---------------------------------------------------------------------------
 
 
-def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path:
-    """Write boards/<id>/manifest.yaml and copy images. Returns target dir."""
+def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
+    """
+    Write ``boards/<id>/manifest.yaml`` and refresh the images.
+
+    Skips with a warning when *target_dir* already holds a non-imported
+    manifest (slug collision with a hand-curated board). Otherwise
+    cleans the existing ``images/`` subdir before copying so an
+    upstream image-set shrink doesn't leave stale files behind.
+    """
     target_dir = _BOARDS_DIR / record["id"]
+    if not _is_writable_target(target_dir):
+        _LOGGER.warning(
+            "Skipping %s — slug collides with a hand-curated board (no source.type)",
+            record["id"],
+        )
+        return None
     target_dir.mkdir(parents=True, exist_ok=True)
 
     images_dir = target_dir / "images"
-    if record.get("images"):
-        images_dir.mkdir(exist_ok=True)
+    if images_dir.is_dir():
+        # Wipe the directory first so a removed upstream image
+        # disappears from the local copy too. Only the ``images/``
+        # subdir is touched — the manifest itself is overwritten
+        # below in a single write.
+        shutil.rmtree(images_dir)
+    if src.images:
+        images_dir.mkdir()
         device_dir = src.page_path.parent
-        for image_name in record["images"]:
+        for image_name in src.images:
             src_path = device_dir / image_name
             if src_path.is_file():
                 shutil.copy2(src_path, images_dir / image_name)
@@ -788,6 +853,15 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path:
     manifest_path = target_dir / "manifest.yaml"
     manifest_path.write_text(_dump_manifest(record), encoding="utf-8")
     return target_dir
+
+
+def _is_writable_target(target_dir: Path) -> bool:
+    """Return True when the sync owns *target_dir* (or it doesn't exist yet)."""
+    manifest = target_dir / "manifest.yaml"
+    if not manifest.is_file():
+        return True
+    is_imported, _ = _is_imported_manifest(manifest)
+    return is_imported
 
 
 def _is_imported_manifest(manifest_path: Path) -> tuple[bool, str | None]:
@@ -904,9 +978,12 @@ def main() -> int:
             if args.verbose:
                 _LOGGER.debug("skip %s: %s", src.folder_name, skip_reason)
             continue
+        if not args.dry_run and _emit_manifest(record, src) is None:
+            report.skipped.append(
+                _SkippedDevice(src.folder_name, "slug collides with hand-curated board")
+            )
+            continue
         active_remote_ids.add(src.folder_name)
-        if not args.dry_run:
-            _emit_manifest(record, src)
         report.imported.append(record["id"])
         if args.limit is not None and len(report.imported) >= args.limit:
             break
