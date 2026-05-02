@@ -91,8 +91,14 @@ _LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPON
 }
 
 
-def _resolve_download_component(target_platform: str) -> str:
+def _resolve_download_component(target_platform: str | None) -> str:
     """Return the ``esphome.components`` module name for *target_platform*.
+
+    Accepts ``None`` so callers can pass ``StorageJSON.target_platform``
+    (which is itself nullable) without an explicit ``or ""``
+    coercion at the call site. Returns the empty string for empty
+    / missing input — the caller's ``importlib.import_module`` will
+    fail in its ``try/except`` block and log a warning.
 
     See ``_LIBRETINY_TARGET_PLATFORMS`` for the keep-in-sync note.
     """
@@ -616,7 +622,7 @@ class FirmwareController:
             if storage is None:
                 return []
             try:
-                component = _resolve_download_component(storage.target_platform or "")
+                component = _resolve_download_component(storage.target_platform)
                 module = importlib.import_module(f"esphome.components.{component}")
                 return list(module.get_download_types(storage))
             except Exception:

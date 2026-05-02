@@ -5,10 +5,13 @@ for a given storage's ``target_platform`` by importing
 ``esphome.components.<X>`` and calling ``get_download_types``. The
 mapping from ``target_platform`` to ``X`` isn't 1:1:
 
-- ESP32 variants (``ESP32C3``, ``ESP32S3``, ...) all live under the
+- ESP32 variants (``ESP32C3``, ``ESP32S3``, …) all live under the
   umbrella ``esp32`` component.
-- LibreTiny chip families (``rtl87xx``, ``bk72xx``, ``ln882x``)
-  live under the umbrella ``libretiny`` component.
+- LibreTiny chip families (such as ``rtl87xx``, ``bk72xx``,
+  ``ln882x``) live under the umbrella ``libretiny`` component.
+  The exhaustive set is sourced from upstream's
+  ``FAMILY_COMPONENT.values()`` and grows automatically when a
+  new chip family is added there.
 
 Mirrors the inline mapping in
 ``esphome/dashboard/web_server.py``'s ``DownloadListRequestHandler``
@@ -61,15 +64,41 @@ def test_pass_through_for_first_class_platforms() -> None:
     assert _resolve_download_component("host") == "host"
 
 
-def test_empty_platform_returns_empty_string() -> None:
-    """Empty / missing ``target_platform`` doesn't crash.
+def test_uppercase_first_class_platform_lowercased() -> None:
+    """Mixed-case input is normalised to lowercase before lookup.
 
-    The caller wraps the subsequent ``importlib.import_module`` in
-    ``try/except`` and logs; the helper itself just returns the
-    (empty) input lower-cased.
+    ``StorageJSON.target_platform`` historically stored both forms
+    (uppercase ``ESP8266`` from older sidecars, lowercase
+    ``esp8266`` from newer writes). The resolver must produce the
+    lowercase component name in either case.
+    """
+    assert _resolve_download_component("ESP8266") == "esp8266"
+    assert _resolve_download_component("Rp2040") == "rp2040"
+
+
+def test_unknown_platform_passes_through_lowercased() -> None:
+    """Unknown platforms pass through lowercased.
+
+    The resolver doesn't validate the component module exists —
+    it just returns the lowercased input so the caller's
+    ``importlib.import_module`` lookup fails in its own
+    ``try/except`` and a warning is logged. Locks the "best
+    effort" contract.
+    """
+    assert _resolve_download_component("unknownplat") == "unknownplat"
+    assert _resolve_download_component("UnknownPlat") == "unknownplat"
+
+
+def test_empty_platform_returns_empty_string() -> None:
+    """Empty / ``None`` ``target_platform`` doesn't crash.
+
+    ``StorageJSON.target_platform`` is itself nullable, so the
+    resolver accepts ``str | None``. The caller's
+    ``importlib.import_module`` then fails with ``ModuleNotFoundError``
+    inside the controller's ``try/except`` and a warning is logged.
     """
     assert _resolve_download_component("") == ""
-    assert _resolve_download_component(None) == ""  # type: ignore[arg-type]
+    assert _resolve_download_component(None) == ""
 
 
 @pytest.mark.parametrize("family", sorted(_LIBRETINY_TARGET_PLATFORMS))
@@ -92,7 +121,19 @@ def test_libretiny_family_modules_actually_export_get_download_types(family: str
     )
 
 
-def test_esp32_module_actually_exports_get_download_types() -> None:
-    """Same sanity for the ``esp32`` umbrella module."""
-    module = importlib.import_module("esphome.components.esp32")
-    assert callable(getattr(module, "get_download_types", None))
+@pytest.mark.parametrize("component", ["esp32", "esp8266", "rp2040"])
+def test_first_class_component_modules_export_get_download_types(component: str) -> None:
+    """Sanity for the non-LibreTiny modules our resolver returns.
+
+    Mirrors ``test_libretiny_family_modules_actually_export_get_download_types``
+    for the components we route to directly (no umbrella). If
+    upstream drops ``get_download_types`` from any of them, this
+    fails immediately rather than waiting for a user to click
+    Download in the dashboard and hit a runtime warning.
+    """
+    module = importlib.import_module(f"esphome.components.{component}")
+    assert callable(getattr(module, "get_download_types", None)), (
+        f"esphome.components.{component} no longer exposes get_download_types — "
+        f"upstream API changed; the dashboard's download endpoint will fail for "
+        f"{component} configs"
+    )
