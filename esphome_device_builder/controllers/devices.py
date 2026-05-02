@@ -36,6 +36,7 @@ from ..helpers.device_yaml import (
     generate_device_yaml,
     get_api_encryption_key,
     load_device_yaml,
+    parse_esphome_meta,
     parse_platform_from_yaml,
 )
 from ..helpers.hostname import is_local_hostname, normalize_hostname
@@ -469,6 +470,46 @@ class DevicesController:
         """Delete a device and all associated files."""
         await self._delete_single(configuration)
         await self._scanner.scan()
+
+    @api_command("devices/archive")
+    async def archive_device(self, *, configuration: str, **kwargs: Any) -> None:
+        """Soft-delete a device — keep the YAML, wipe the build dir.
+
+        Moves the YAML to ``<config_dir>/archive/`` so the user can
+        ``unarchive`` later. Mirrors the legacy dashboard's
+        ``ArchiveRequestHandler`` (``esphome/dashboard/web_server.py``).
+        The metadata sidecar and StorageJSON are left in place —
+        they're cheap, and an unarchive that wants to keep the
+        device's last-known IP / expected_config_hash ought to
+        find them where they were.
+        """
+        await self._archive_single(configuration)
+        await self._scanner.scan()
+
+    @api_command("devices/unarchive")
+    async def unarchive_device(self, *, configuration: str, **kwargs: Any) -> None:
+        """Restore an archived device's YAML to the configured config_dir.
+
+        The scanner's next sweep picks the file up and fires
+        ``DEVICE_ADDED`` so the dashboard's active list refreshes
+        without a manual reload.
+        """
+        await self._unarchive_single(configuration)
+        await self._scanner.scan()
+
+    @api_command("devices/list_archived")
+    async def list_archived(self, **kwargs: Any) -> list[dict[str, Any]]:
+        """List archived devices with their parsed name / friendly_name / comment.
+
+        Read-only — surfaces the contents of
+        ``<config_dir>/archive/`` for the dashboard's "Show
+        archived devices" toggle. Each entry carries enough info
+        for the UI to render a row + Unarchive / Delete-permanently
+        actions; full YAML / metadata is left on disk and is fetched
+        on demand if the user opens one.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._list_archived_sync)
 
     @api_command("devices/delete_bulk")
     async def delete_bulk(
@@ -1486,6 +1527,118 @@ class DevicesController:
                 remove_device_metadata(config_dir, configuration)
         except Exception:
             _LOGGER.warning("Could not move metadata for %s", new_filename)
+
+    async def _archive_single(self, configuration: str) -> None:
+        """Soft-delete: move the YAML into ``<config_dir>/archive/`` and wipe its build.
+
+        Mirrors the legacy dashboard's archive flow. The build dir
+        wipe matches what ``_delete_single`` does — an archived
+        device's compile output is dead weight (the user can
+        recompile after unarchive). The YAML stays on disk so the
+        operation is reversible. Metadata sidecar / StorageJSON
+        stay where they are — they're small, and an unarchive
+        that wants to keep the device's last-known cached state
+        ought to find it where it was.
+        """
+        config_path = self._db.settings.rel_path(configuration)
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+
+        def _archive_sync() -> None:
+            if not config_path.exists():
+                msg = f"File not found: {configuration}"
+                raise FileNotFoundError(msg)
+            archive_dir = config_dir / "archive"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            target = archive_dir / configuration
+            if target.exists():
+                # Same name already archived — bump with a numeric
+                # suffix rather than clobbering. Keeps both copies
+                # recoverable; the user can prune from the archive
+                # view if they want.
+                stem, dot, ext = configuration.rpartition(".")
+                stem = stem or configuration
+                ext = ext if dot else ""
+                counter = 2
+                while True:
+                    candidate = f"{stem} ({counter}).{ext}" if ext else f"{stem} ({counter})"
+                    target = archive_dir / candidate
+                    if not target.exists():
+                        break
+                    counter += 1
+            # Wipe the per-device build dir — same shape as delete.
+            # Storage sidecar carries the canonical ``build_path``.
+            storage_path = ext_storage_path(configuration)
+            storage = StorageJSON.load(storage_path)
+            if storage is not None and storage.build_path:
+                shutil.rmtree(storage.build_path, ignore_errors=True)
+            shutil.move(str(config_path), str(target))
+
+        await loop.run_in_executor(None, _archive_sync)
+
+    async def _unarchive_single(self, configuration: str) -> None:
+        """Move an archived YAML back into the active config_dir.
+
+        Refuses to clobber an existing active YAML — that case
+        means the user already created a new device under the same
+        filename, and silently overwriting it would surprise them.
+        Surface a ``CommandError`` instead so the dialog can prompt
+        for a different action.
+        """
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+        archive_path = config_dir / "archive" / configuration
+        target = self._db.settings.rel_path(configuration)
+
+        def _unarchive_sync() -> None:
+            if not archive_path.exists():
+                msg = f"Archived file not found: {configuration}"
+                raise FileNotFoundError(msg)
+            if target.exists():
+                msg = (
+                    f"Cannot unarchive {configuration}: an active config "
+                    f"with the same name already exists"
+                )
+                raise FileExistsError(msg)
+            shutil.move(str(archive_path), str(target))
+
+        try:
+            await loop.run_in_executor(None, _unarchive_sync)
+        except FileExistsError as exc:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+
+    def _list_archived_sync(self) -> list[dict[str, Any]]:
+        """Read ``<config_dir>/archive/`` and parse each YAML's meta block.
+
+        Returns one dict per archived YAML with the same name /
+        friendly_name / comment fields the active device list
+        carries, plus ``configuration`` so the dashboard can
+        address each entry. Files that don't parse are skipped
+        with a debug log — the archive dir is user-managed and
+        a stray non-YAML file shouldn't crash the listing.
+        """
+        archive_dir = self._db.settings.config_dir / "archive"
+        if not archive_dir.is_dir():
+            return []
+        results: list[dict[str, Any]] = []
+        for path in sorted(archive_dir.iterdir()):
+            if path.suffix not in (".yaml", ".yml") or path.name.startswith("."):
+                continue
+            try:
+                content = path.read_text(encoding="utf-8")
+            except OSError:
+                _LOGGER.debug("Failed to read archived YAML %s", path, exc_info=True)
+                continue
+            name, friendly_name, comment = parse_esphome_meta(content)
+            results.append(
+                {
+                    "configuration": path.name,
+                    "name": name or path.stem,
+                    "friendly_name": friendly_name or name or path.stem,
+                    "comment": comment,
+                }
+            )
+        return results
 
     async def _delete_single(self, configuration: str) -> None:
         """Delete a single device and all associated files."""
