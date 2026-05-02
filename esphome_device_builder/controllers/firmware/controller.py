@@ -964,14 +964,26 @@ class FirmwareController:
 
         _emit(f"Resetting build environment under {esphome_root}")
 
-        # ``Path.exists()`` calls ``os.stat`` synchronously — fine on a
-        # one-shot user-triggered job in production, but the
-        # blockbuster fixture flags any sync filesystem syscall from
-        # an async context. Push every stat through the same default
-        # executor we already use for ``rmtree`` so the runner stays
-        # non-blocking end-to-end (and the tests exercise the real
-        # production path, not an allowlist exception).
-        if not await loop.run_in_executor(None, esphome_root.exists):
+        # Batch every ``os.stat`` into one executor hop instead of N
+        # separate ``run_in_executor(None, target.exists)`` awaits.
+        # We can't run the whole function in an executor because the
+        # per-step ``_emit`` fires ``bus.fire(JOB_OUTPUT, ...)`` and
+        # listeners call ``asyncio.Queue.put_nowait`` (not thread-safe
+        # off the loop), so live followers would corrupt their queues
+        # if the emit ran from a worker thread. Probing all the stats
+        # up front keeps emit + ``rmtree`` on the loop while still
+        # being fully non-blocking. TOCTOU race against a concurrent
+        # external delete is the same shape the original sequential
+        # stat / rmtree had — ``rmtree`` would raise on a missing
+        # target either way.
+        def _probe() -> tuple[bool, dict[str, bool]]:
+            if not esphome_root.exists():
+                return False, {}
+            return True, {name: (esphome_root / name).exists() for name in _RESET_BUILD_ENV_TARGETS}
+
+        esphome_exists, target_exists = await loop.run_in_executor(None, _probe)
+
+        if not esphome_exists:
             _emit("Nothing to do — .esphome/ does not exist yet.")
         else:
             for name in _RESET_BUILD_ENV_TARGETS:
@@ -984,12 +996,11 @@ class FirmwareController:
                     self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
                     return
 
-                target = esphome_root / name
-                if not await loop.run_in_executor(None, target.exists):
+                if not target_exists[name]:
                     _emit(f"  skipped (not present): {name}/")
                     continue
                 _emit(f"  removing {name}/ ...")
-                await loop.run_in_executor(None, shutil.rmtree, target)
+                await loop.run_in_executor(None, shutil.rmtree, esphome_root / name)
                 _emit(f"  removed {name}/")
 
         _emit(
