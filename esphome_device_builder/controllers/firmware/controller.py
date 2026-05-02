@@ -1,4 +1,12 @@
-"""Firmware controller — build queue, compile, upload, validate, clean, download."""
+"""
+Firmware build queue + WS command surface.
+
+Owns the persistent single-job queue, the subprocess spawn loop,
+mid-flight output capping, progress detection, and the lifecycle
+event broadcasts. Public API is the ``@api_command``-decorated
+methods; everything else is private. Pure data and free helpers
+live in ``constants.py`` and ``helpers.py``.
+"""
 
 from __future__ import annotations
 
@@ -6,497 +14,56 @@ import asyncio
 import base64
 import gzip
 import importlib
-import ipaddress
 import logging
 import os
-import re
 import shutil
 import signal
-import subprocess
 import sys
 from contextlib import suppress
 from datetime import UTC, datetime
 from operator import attrgetter
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 from esphome.storage_json import StorageJSON, ext_storage_path
 
-from ..controllers.config import _load_metadata, metadata_transaction
-from ..helpers.api import CommandError, api_command
-from ..helpers.event_bus import StreamControls, stream_events
-from ..helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
-from ..models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType
+from ...helpers.api import CommandError, api_command
+from ...helpers.event_bus import StreamControls, stream_events
+from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
+from ...models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType
+from ..config import _load_metadata, metadata_transaction
+from .constants import (
+    _ERROR_PATTERNS,
+    _INFLIGHT_TRIM_KEEP,
+    _JOB_TERMINAL_EVENTS,
+    _JOBS_KEY,
+    _MAX_AUX_TERMINAL_JOBS,
+    _MAX_OUTPUT_LINES_INFLIGHT,
+    _MAX_PRIMARY_TERMINAL_JOBS,
+    _PRIMARY_JOB_TYPES,
+    _RESET_BUILD_ENV_TARGETS,
+    _TERMINAL_JOB_STATUSES,
+    _TERMINATE_GRACE_SECONDS,
+)
+from .helpers import (
+    _find_esphome_cmd,
+    _is_no_module_named_esphome,
+    _mark_job_terminal,
+    _names_touched_by_job,
+    _parse_progress,
+    _signal_process_group,
+    _terminate_subtree_windows,
+    _trim_job_output,
+    _validate_port,
+    _verify_esphome_importable,
+)
 
 if TYPE_CHECKING:
-    from ..device_builder import DeviceBuilder
-    from ..helpers.event_bus import Event
+    from ...device_builder import DeviceBuilder
+    from ...helpers.event_bus import Event
 
 _LOGGER = logging.getLogger(__name__)
-_JOBS_KEY = "_firmware_jobs"
-
-# Output patterns that indicate failure even when the subprocess exit
-# code is 0 (Python tracebacks routed through `print()`, etc.).
-_ERROR_PATTERNS = [
-    "ModuleNotFoundError",
-    "ImportError",
-    "No module named",
-    "FileNotFoundError",
-    "command not found",
-]
-
-# CPython's ModuleNotFoundError prints the module name single-quoted.
-# Matching the quoted form (rather than two loose substrings) avoids
-# false-positive sibling matches like ``'esphome_dashboard'`` and
-# ``'esphome_runtime'`` that share the prefix.
-_NO_ESPHOME_MODULE_MARKER = "No module named 'esphome'"
-
-
-def _is_no_module_named_esphome(text: str) -> bool:
-    """Return True if *text* names ``esphome`` itself as missing.
-
-    Module-level helper so the at-append capture in the runner and
-    its regression test both call the same function — without this
-    the test reimplemented the substring check locally and could
-    silently pass against a regressed production closure.
-    """
-    return _NO_ESPHOME_MODULE_MARKER in text
-
-
-# Progress markers we actually want to surface as job.progress. The
-# original wide-open ``\d{1,3}%`` regex matched anything carrying a
-# percent sign — including PlatformIO's startup "Unpacking [###] 100%"
-# package-extract bar and the post-compile "RAM: 19.3%" / "Flash:
-# 80.0%" memory-usage report. Both pinned the bar to non-monotonic
-# garbage long before the build's actual progress signal arrived.
-# Tightened to a whitelist of three known-real progress shapes:
-#
-#   * PlatformIO Arduino compile:    ``[ 17%] Compiling foo.cpp.o``
-#     The percentage MUST start the line and live inside square
-#     brackets so PIO's ESP-IDF builds (which don't emit a per-file
-#     percent at all) and the package-extract bar (no ``[NN%]`` shape)
-#     never trip it.
-#   * esptool serial flash:          ``Writing at 0x10000... (45 %)``
-#     We match a bare parenthesized percentage anywhere in the line:
-#     ``(\s*\d{1,3}\s*%\s*\)``. In practice that is enough for esptool
-#     progress, and no other expected PIO/ESPHome output uses parens
-#     around a bare percentage.
-#   * ESPHome OTA upload:            ``Uploading: [====] 100% Done...``
-#     Anchored to the ``Uploading:`` prefix.
-_PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"^\s*\[\s*(\d{1,3})\s*%\s*\]"),
-    re.compile(r"\(\s*(\d{1,3})\s*%\s*\)"),
-    re.compile(r"^\s*Uploading:.*?\b(\d{1,3})\s*%"),
-)
-
-# How long to wait for a SIGTERM'd subprocess to exit before we
-# escalate to SIGKILL. ESPHome / PlatformIO usually clean up promptly;
-# the longer floor protects against esptool mid-flash where USB I/O
-# can stall the process briefly.
-_TERMINATE_GRACE_SECONDS = 3.0
-
-# History retention. Bulk operations can spawn dozens of jobs at once;
-# we want a useful audit trail without letting the metadata file grow
-# without bound.
-#   - "Primary" = COMPILE / UPLOAD / INSTALL: dedup'd to the most
-#     recent terminal job per device, then capped globally.
-#   - "Aux" = CLEAN / RESET_BUILD_ENV: kept in a separate small pool
-#     so they don't crowd out the device history.
-# Active (queued/running) jobs are exempt from both pools.
-_MAX_PRIMARY_TERMINAL_JOBS = 50
-_MAX_AUX_TERMINAL_JOBS = 5
-_PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
-    {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
-)
-
-# Terminal job states — a job in any of these isn't running and
-# isn't waiting to run. Used by ``_mark_job_terminal`` to validate
-# its argument and by the prune / clear / restore paths to identify
-# completed jobs.
-_TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
-    {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
-)
-
-# Lifecycle events that end a follower's tail. Subscribed alongside
-# ``JOB_OUTPUT`` in ``follow_job`` so the follower's queue receives
-# the terminal sentinel for any of the three terminal states. The
-# runner fires exactly one of these per job, matching the
-# ``_TERMINAL_JOB_STATUSES`` set above — keeping them as separate
-# constants because subscriptions key off ``EventType`` while
-# state checks key off ``JobStatus``.
-_JOB_TERMINAL_EVENTS: frozenset[EventType] = frozenset(
-    {EventType.JOB_COMPLETED, EventType.JOB_FAILED, EventType.JOB_CANCELLED}
-)
-
-# Per-job output cap for retained terminal jobs. Compile output for a
-# successful build runs ~3-10k lines; the head is mostly toolchain
-# noise that's rarely useful once the build finished. Trim
-# aggressively once the job lands in a terminal state.
-_MAX_OUTPUT_LINES_RETAINED = 2000
-# Soft cap on ``job.output`` while a job is *still running*. The
-# post-completion trim only fires in the ``finally`` block, so a
-# misbehaving build that streams gigabytes of stderr (e.g. an
-# external_components fetch in a tight retry loop, an esptool stuck
-# on a chatty error) used to grow ``job.output`` without bound and
-# OOM the dashboard process before the subprocess ever exited. The
-# cap is double the post-completion retention floor so a user
-# tailing a live build sees roughly twice the kept window during
-# the run before old lines start aging off — generous enough for a
-# typical tail-along, tight enough to bound memory at a few MB even
-# under adversarial output.
-#
-# Hysteresis: when the buffer crosses the upper cap we trim down to
-# ``_INFLIGHT_TRIM_KEEP`` (the post-completion retention floor),
-# leaving a ``cap - keep`` line gap before the next trim fires.
-# Trimming exactly to the cap would re-trim on every subsequent
-# appended line — each trim is an O(cap) list slice, so at 1M
-# lines/sec of adversarial output that becomes billions of element
-# copies per second and the runner stalls in the slice instead of
-# OOMing. The gap also keeps the user-visible buffer stable for
-# ``cap - keep`` lines at a time so a tail viewer doesn't see
-# rapid-fire "..." trim notices on every line. Choosing
-# ``keep == _MAX_OUTPUT_LINES_RETAINED`` makes the post-completion
-# trim a no-op for builds that already triggered the in-flight
-# trim — never a second round of context loss.
-_MAX_OUTPUT_LINES_INFLIGHT = _MAX_OUTPUT_LINES_RETAINED * 2
-_INFLIGHT_TRIM_KEEP = _MAX_OUTPUT_LINES_RETAINED
-_OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
-
-# Subdirectories of ``<config_dir>/.esphome/`` that ``RESET_BUILD_ENV``
-# wipes. Order is informational only — each is removed independently.
-_RESET_BUILD_ENV_TARGETS = (
-    "build",
-    "external_components",
-    "platformio_cache",
-)
-
-
-def _trim_job_output(job: FirmwareJob, *, keep: int = _MAX_OUTPUT_LINES_RETAINED) -> None:
-    """
-    Cap ``job.output`` at the last ``keep`` lines.
-
-    Mutates the job in place. Safe to call repeatedly on the same
-    job — already-trimmed output stays stable and the elided count
-    keeps growing as new lines are dropped.
-
-    ``keep`` is the same value (``_MAX_OUTPUT_LINES_RETAINED``) for
-    both the in-flight and post-completion call sites. The two
-    paths differ only in their *trigger*: the in-flight path
-    invokes this from the streaming loop when ``len(job.output)``
-    crosses ``_MAX_OUTPUT_LINES_INFLIGHT`` (=``2 * keep``), so
-    every trim drops back to ``keep`` and leaves a ``keep``-line
-    headroom before the next trim fires. The post-completion call
-    uses the default keep, so a build that finished under the
-    in-flight cap is trimmed once on exit; a build that already
-    triggered the in-flight trim is at ``keep`` lines plus the
-    elided notice and this final call is a no-op for it.
-    """
-    output = job.output
-    extra_elided = 0
-    # Recover and fold in the previous elided count so repeated trims
-    # don't pretend only one line was dropped on each subsequent call.
-    if output and output[0].startswith(_OUTPUT_TRIM_NOTICE_PREFIX):
-        match = re.search(r"(\d+) earlier", output[0])
-        if match:
-            extra_elided = int(match.group(1))
-        output = output[1:]
-    if len(output) <= keep:
-        return
-    new_elided = len(output) - keep
-    total_elided = extra_elided + new_elided
-    job.output = [
-        f"{_OUTPUT_TRIM_NOTICE_PREFIX} {total_elided} earlier line(s) elided]\n",
-        *output[-keep:],
-    ]
-
-
-def _mark_job_terminal(job: FirmwareJob, status: JobStatus) -> None:
-    """
-    Set *job* to a terminal *status* and stamp its completion time.
-
-    The two writes go together at every job-finalisation site
-    (queued cancel, mid-run cancel, normal completion, runner-shutdown
-    cancel, exception, reset-build-env cancel/complete), and forgetting
-    one or the other is a recurring footgun — a status without a
-    ``completed_at`` confuses the dashboard's relative-time tooltip,
-    and a ``completed_at`` without a status leaves the job stuck on
-    ``RUNNING`` even though the subprocess is gone.
-
-    Pulling them into one call keeps the call sites readable and the
-    pair atomic. Doesn't fire the lifecycle event — the call site
-    decides which event to fire and in what order relative to
-    ``_persist_jobs`` / ``_prune_history`` so the existing observable
-    sequencing is preserved.
-
-    Raises ``ValueError`` for any non-terminal *status* so a
-    stray call (e.g. ``_mark_job_terminal(job, JobStatus.RUNNING)``)
-    fails loudly instead of silently stamping ``completed_at`` on a
-    still-running job — that would mis-order the dashboard's
-    relative-time strings and confuse the prune-on-shutdown logic.
-    """
-    if status not in _TERMINAL_JOB_STATUSES:
-        msg = f"_mark_job_terminal called with non-terminal status {status!r}"
-        raise ValueError(msg)
-    job.status = status
-    job.completed_at = datetime.now(UTC).isoformat()
-
-
-def _names_touched_by_job(job: FirmwareJob) -> set[str]:
-    """YAML filenames a job will read or write.
-
-    Used by the rename-lock check to spot collisions between an
-    in-flight rename and any other job. A rename has two: the old
-    YAML it's reading from (``configuration``) and the new YAML it
-    will create on install success (``new_name + ".yaml"``). Every
-    other job type touches just one — its ``configuration``.
-    """
-    names: set[str] = set()
-    if job.configuration:
-        names.add(job.configuration)
-    if job.job_type == JobType.RENAME and job.new_name:
-        names.add(f"{job.new_name}.yaml")
-    return names
-
-
-def _find_esphome_cmd() -> list[str]:
-    """Locate the ``esphome`` CLI, preferring the same interpreter as ours.
-
-    The backend's own interpreter (``sys.executable``) is the
-    authoritative source: if it can import ``esphome`` to start the
-    server, it can run ``python -m esphome`` for compile jobs. We
-    don't try to substitute a sibling ``python`` next to
-    ``sys.executable`` — that's an easy way to silently jump to a
-    different interpreter (e.g. a system Python without esphome
-    installed) and produce confusing "No module named esphome"
-    errors at compile time.
-
-    A standalone ``esphome`` script in the *same* bin directory as
-    our interpreter is preferred when present (slightly cheaper than
-    ``python -m esphome`` and surfaces a friendlier traceback when
-    something goes wrong inside esphome).
-    """
-    python = sys.executable
-    bin_dir = Path(python).parent
-
-    sibling_esphome = bin_dir / ("esphome.exe" if os.name == "nt" else "esphome")
-    if sibling_esphome.exists():
-        return [str(sibling_esphome)]
-
-    return [python, "-m", "esphome"]
-
-
-def _parse_progress(line: str) -> int | None:
-    """Extract a 0-100 progress percentage from a build/flash output line.
-
-    Returns ``None`` when the line doesn't match one of the known
-    progress shapes (see ``_PROGRESS_PATTERNS``). Stray ``%`` signs
-    elsewhere in the build output (Unpacking bars, memory-usage
-    reports) are intentionally ignored.
-    """
-    for pattern in _PROGRESS_PATTERNS:
-        match = pattern.search(line)
-        if match is None:
-            continue
-        value = int(match.group(1))
-        if 0 <= value <= 100:
-            return value
-    return None
-
-
-def _signal_process_group(pid: int, sig: int) -> bool:
-    """
-    Send *sig* to the process group of *pid*; return True iff delivered.
-
-    Used to take down the whole esphome → platformio → gcc tree when
-    the user hits Stop. ``proc.terminate()`` / ``proc.kill()`` only
-    signal the direct child (the python esphome process), so the
-    compiler grandchildren keep running and the build effectively
-    ignores the cancel. Pair this with ``start_new_session=True`` at
-    the spawn site: that makes the spawned process the leader of a
-    new session (and a new process group), and its descendants
-    inherit that group. The dashboard process itself is *not* in the
-    same group — ``killpg(getpgid(spawned_pid), sig)`` therefore
-    targets the build subtree without touching us.
-
-    POSIX-only — ``os.getpgid`` / ``os.killpg`` don't exist on Windows.
-    The Windows path goes through ``_terminate_subtree_windows`` instead.
-
-    Falls back gracefully:
-    * ``ProcessLookupError`` — the process already exited; nothing to do.
-    * ``PermissionError`` — we lost the right to signal it; treat as a
-      no-op rather than crashing the controller.
-    """
-    try:
-        pgid = os.getpgid(pid)
-    except ProcessLookupError:
-        return False
-    try:
-        os.killpg(pgid, sig)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        _LOGGER.warning("Permission denied signalling pgid %d (sig %s)", pgid, sig)
-        return False
-    return True
-
-
-async def _terminate_subtree_windows(pid: int) -> bool:
-    """
-    Forcibly kill *pid* and its descendants on Windows; return True iff successful.
-
-    Windows has no process groups in the POSIX sense, so we shell out to
-    ``taskkill /F /T /PID`` — ``/T`` walks the parent-child tree from
-    *pid* down, ``/F`` is the forceful equivalent of SIGKILL. There's no
-    useful "polite" stage here: a compile chain (esphome → platformio →
-    gcc / esptool) ignores ``WM_CLOSE`` / ``CTRL_BREAK_EVENT`` anyway,
-    so we go straight to the kill.
-
-    Returns False (and logs a warning) when ``taskkill`` is missing,
-    times out, or exits non-zero (access denied, invalid pid, partial
-    failure). The caller should fall back to ``proc.kill()`` so the
-    parent at least dies even when the tree-walk fails.
-    """
-    try:
-        killer = await create_subprocess_exec(
-            "taskkill",
-            "/F",
-            "/T",
-            "/PID",
-            str(pid),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-    except FileNotFoundError:
-        _LOGGER.warning("taskkill not found on PATH — can't tree-kill pid %d", pid)
-        return False
-    try:
-        await asyncio.wait_for(killer.wait(), timeout=_TERMINATE_GRACE_SECONDS)
-    except TimeoutError:
-        _LOGGER.warning("taskkill timed out for pid %d", pid)
-        with suppress(ProcessLookupError):
-            killer.kill()
-        return False
-    if killer.returncode != 0:
-        _LOGGER.warning(
-            "taskkill exited %s for pid %d — caller should fall back to proc.kill()",
-            killer.returncode,
-            pid,
-        )
-        return False
-    return True
-
-
-def _validate_port(port: str) -> None:
-    """Sanity-check the user-supplied ``--device`` value.
-
-    The esphome CLI accepts arbitrary strings for ``--device`` and
-    treats them as one of: the literal ``"OTA"`` (let the CLI
-    resolve the configured host), a serial path, or a network host
-    (IPv4 / IPv6 / ``.local`` hostname). Without an upfront check
-    a typo'd IP would queue, run a compile, and only fail at the
-    flash step with a CLI error buried in the job output. Validate
-    early so the WS layer can return a clean ``INVALID_ARGS``.
-
-    The check is deliberately permissive — any of these shapes is
-    accepted:
-
-    * Empty string (``upload`` default — CLI auto-detects)
-    * The literal ``"OTA"``
-    * A serial path: starts with ``/``, ``COM`` (Windows), or
-      contains ``ttyUSB`` / ``ttyACM`` / ``cu.``
-    * A valid IPv4 or IPv6 address
-    * A hostname (``[a-z0-9-]+`` per label, optional ``.local``
-      suffix, optional FQDN trailing dot) — covers
-      ``device-name.local``, ``device.example.com.``, and bare
-      hostnames
-
-    Anything else (random punctuation, IPv4 with extra dots, etc.)
-    raises ``CommandError(INVALID_ARGS)``. Coordinated frontend
-    forms can pre-filter to the same shape.
-
-    Error messages use neutral "device target" wording — this
-    helper is shared across ``firmware/upload``, ``firmware/install``,
-    and ``firmware/install_bulk``, and the message is surfaced
-    verbatim over WS, so naming a single command in the error
-    would mislead callers of the others.
-    """
-    if not port or port == "OTA":
-        return
-    # Serial paths.
-    if (
-        port.startswith("/")
-        or port.startswith("COM")
-        or any(marker in port for marker in ("ttyUSB", "ttyACM", "cu.", "tty."))
-    ):
-        return
-    # IP-shaped input must parse as a valid IP. Doing this check
-    # *before* the hostname check rejects truncated / malformed
-    # IPv4 strings (``192.168.1``, ``256.256.256.256``) that would
-    # otherwise pass the permissive hostname rules — RFC 1123
-    # technically allows numeric hostnames, but a user typing
-    # ``192.168.1`` meant an IP and we should fail loudly rather
-    # than route it as ``--device 192.168.1`` to the CLI's DNS path.
-    looks_ip = ":" in port or (port.replace(".", "").isdigit() and "." in port)
-    if looks_ip:
-        try:
-            ipaddress.ip_address(port)
-            return
-        except ValueError as exc:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"Invalid device target {port!r} — looks like an IP but didn't parse: {exc}",
-            ) from exc
-    # Hostnames: a sequence of dot-separated labels, each
-    # ``[a-z0-9](?:[a-z0-9-]*[a-z0-9])?``. Strip a single trailing
-    # FQDN dot before matching — zeroconf and the system resolver
-    # both produce trailing-dot forms (``kitchen.local.``,
-    # ``device.example.com.``), and rejecting those would force
-    # users to manually clean up addresses pasted from the mDNS
-    # browser.
-    canonical = port.removesuffix(".")
-    if re.fullmatch(
-        r"(?i)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*",
-        canonical,
-    ):
-        return
-    raise CommandError(
-        ErrorCode.INVALID_ARGS,
-        f"Invalid device target {port!r} — expected ``OTA``, a serial path, "
-        f"an IP address, or a hostname",
-    )
-
-
-def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
-    """Sanity-check that ``cmd`` can actually import esphome.
-
-    Runs ``cmd --dashboard --version`` synchronously with a short
-    timeout. Used at backend startup so misconfigured environments
-    (venv missing esphome, wrong sys.executable, broken shim script)
-    surface as a clear log line rather than a cryptic "No module named
-    esphome" output captured during the user's first compile attempt.
-
-    ``--dashboard`` is included in the probe so we also fail fast on
-    an installed ESPHome that doesn't recognise the flag (very old
-    builds): every real job command now passes ``--dashboard``, so a
-    sanity check without it would let a broken pairing slip through to
-    the user's first compile.
-    """
-    try:
-        proc = subprocess.run(  # noqa: S603 — cmd is built from sys.executable, not user input
-            [*cmd, "--dashboard", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, f"{type(exc).__name__}: {exc}"
-    output = (proc.stdout + proc.stderr).strip()
-    if proc.returncode != 0 or "No module named" in output or "ModuleNotFoundError" in output:
-        return False, output or f"exit {proc.returncode}"
-    return True, output
 
 
 class FirmwareController:

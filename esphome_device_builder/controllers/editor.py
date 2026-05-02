@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from ..helpers.api import api_command
 from ..helpers.json import JSONDecodeError, dumps, loads
 from ..helpers.subprocess import create_subprocess_exec
-from .firmware import _find_esphome_cmd
+from .firmware.helpers import _find_esphome_cmd
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder

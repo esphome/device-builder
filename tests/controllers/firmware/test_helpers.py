@@ -25,9 +25,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from esphome_device_builder.controllers.firmware import (
+from esphome_device_builder.controllers.firmware.constants import (
     _MAX_OUTPUT_LINES_RETAINED,
     _OUTPUT_TRIM_NOTICE_PREFIX,
+)
+from esphome_device_builder.controllers.firmware.helpers import (
     _names_touched_by_job,
     _trim_job_output,
 )

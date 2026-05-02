@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import _parse_progress
+from esphome_device_builder.controllers.firmware.helpers import _parse_progress
 
 
 class TestRealProgressLines:

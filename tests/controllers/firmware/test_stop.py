@@ -23,10 +23,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import (
-    FirmwareController,
-    _signal_process_group,
-)
+from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware.helpers import _signal_process_group
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
 
 # Process groups, ``os.fork``, and ``SIGKILL`` are POSIX-only. The

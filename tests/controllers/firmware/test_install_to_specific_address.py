@@ -22,10 +22,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import (
-    FirmwareController,
-    _validate_port,
-)
+from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware.helpers import _validate_port
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, FirmwareJob, JobType
 

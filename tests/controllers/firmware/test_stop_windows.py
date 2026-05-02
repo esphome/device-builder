@@ -15,11 +15,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers import firmware as firmware_module
-from esphome_device_builder.controllers.firmware import (
-    FirmwareController,
-    _terminate_subtree_windows,
-)
+from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware import helpers as firmware_module
+from esphome_device_builder.controllers.firmware.helpers import _terminate_subtree_windows
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
 
 pytestmark = pytest.mark.skipif(

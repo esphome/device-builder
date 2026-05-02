@@ -210,7 +210,7 @@ class DevicesController:
 
     async def start(self) -> None:
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
-        from .firmware import _find_esphome_cmd
+        from .firmware.helpers import _find_esphome_cmd
 
         self._esphome_cmd = _find_esphome_cmd()
         loop = asyncio.get_running_loop()

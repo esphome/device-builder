@@ -14,7 +14,7 @@ from datetime import datetime
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import _mark_job_terminal
+from esphome_device_builder.controllers.firmware.helpers import _mark_job_terminal
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
 
 

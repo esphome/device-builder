@@ -235,7 +235,7 @@ async def test_slow_follower_drops_lines_above_queue_cap() -> None:
     hold; the producer stays unblocked because ``put_nowait``
     drops on full instead of awaiting drain capacity.
     """
-    from esphome_device_builder.controllers.firmware import _MAX_OUTPUT_LINES_INFLIGHT
+    from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LINES_INFLIGHT
 
     job = FirmwareJob(
         job_id="abc",
@@ -304,7 +304,7 @@ async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full() -> No
     output, reach cap, then a JOB_COMPLETED would silently
     no-op and the follower would hang.
     """
-    from esphome_device_builder.controllers.firmware import _MAX_OUTPUT_LINES_INFLIGHT
+    from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LINES_INFLIGHT
 
     job = FirmwareJob(
         job_id="abc",
