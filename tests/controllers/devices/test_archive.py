@@ -16,14 +16,26 @@ Mirrors the legacy dashboard's ``ArchiveRequestHandler`` /
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers.config import (
+    _load_metadata,
+    get_device_metadata,
+    set_device_metadata,
+)
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import helpers as devices_helpers
+from esphome_device_builder.controllers.devices.helpers import (
+    _archive_clear_device_sidecars,
+    _remove_device_sidecars,
+)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -200,13 +212,6 @@ async def test_archive_clears_volatile_metadata_keeps_identity(tmp_path: Path) -
     losing it on every archive cycle forced an unnecessary
     re-derive on unarchive.
     """
-    import asyncio
-
-    from esphome_device_builder.controllers.config import (
-        get_device_metadata,
-        set_device_metadata,
-    )
-
     controller = _make_controller(tmp_path)
     _seed_device(tmp_path, "kitchen.yaml")
     # ``set_device_metadata`` writes through ``metadata_transaction``
@@ -253,14 +258,6 @@ async def test_archive_drops_metadata_entry_when_only_volatile_fields(tmp_path: 
     leave an empty dict. Drop the entry entirely so the metadata
     file doesn't accumulate dead keys.
     """
-    import asyncio
-
-    from esphome_device_builder.controllers.config import (
-        _load_metadata,
-        get_device_metadata,
-        set_device_metadata,
-    )
-
     controller = _make_controller(tmp_path)
     _seed_device(tmp_path, "kitchen.yaml")
     await asyncio.to_thread(
@@ -549,10 +546,6 @@ def test_remove_device_sidecars_logs_oserror_on_storage_unlink(
     on the StorageJSON sidecar shouldn't block the rest of the
     archive / delete flow.
     """
-    from esphome_device_builder.controllers.devices.helpers import (
-        _remove_device_sidecars,
-    )
-
     storage_dir = tmp_path / ".esphome" / "storage"
     storage_dir.mkdir(parents=True)
     (storage_dir / "kitchen.yaml.json").write_text("{}", encoding="utf-8")
@@ -561,7 +554,6 @@ def test_remove_device_sidecars_logs_oserror_on_storage_unlink(
         raise OSError("permission denied")
 
     monkeypatch.setattr(Path, "unlink", _raise_oserror)
-    import logging
 
     with caplog.at_level(logging.WARNING):
         _remove_device_sidecars(tmp_path, "kitchen.yaml")
@@ -572,13 +564,11 @@ def test_remove_device_sidecars_logs_exception_on_metadata_remove(
     tmp_path: Path, monkeypatch: Any, caplog: Any
 ) -> None:
     """Generic Exception from metadata-remove is logged, not raised."""
-    from esphome_device_builder.controllers.devices import helpers as devices_helpers
 
     def _raise(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(devices_helpers, "remove_device_metadata", _raise)
-    import logging
 
     with caplog.at_level(logging.WARNING):
         devices_helpers._remove_device_sidecars(tmp_path, "kitchen.yaml")
@@ -595,10 +585,6 @@ def test_archive_clear_device_sidecars_logs_oserror_on_storage_unlink(
     after the storage unlink fails — a permission error on one
     file mustn't block the volatile-fields wipe on the other.
     """
-    from esphome_device_builder.controllers.devices.helpers import (
-        _archive_clear_device_sidecars,
-    )
-
     storage_dir = tmp_path / ".esphome" / "storage"
     storage_dir.mkdir(parents=True)
     (storage_dir / "kitchen.yaml.json").write_text("{}", encoding="utf-8")
@@ -607,7 +593,6 @@ def test_archive_clear_device_sidecars_logs_oserror_on_storage_unlink(
         raise OSError("permission denied")
 
     monkeypatch.setattr(Path, "unlink", _raise_oserror)
-    import logging
 
     with caplog.at_level(logging.WARNING):
         _archive_clear_device_sidecars(tmp_path, "kitchen.yaml")
@@ -624,13 +609,11 @@ def test_archive_clear_device_sidecars_logs_exception_on_metadata_clear(
     by the time this helper runs, so raising would surface a
     half-completed archive operation to the caller.
     """
-    from esphome_device_builder.controllers.devices import helpers as devices_helpers
 
     def _raise(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(devices_helpers, "clear_volatile_device_metadata", _raise)
-    import logging
 
     with caplog.at_level(logging.WARNING):
         devices_helpers._archive_clear_device_sidecars(tmp_path, "kitchen.yaml")
