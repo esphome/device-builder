@@ -16,6 +16,7 @@ returns regardless of what aiohttp does at runtime.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -88,16 +89,18 @@ async def test_websocket_response_constructed_with_heartbeat(
 
 
 @pytest.mark.parametrize("heartbeat_kwarg", ["heartbeat"])
-def test_construction_site_uses_keyword_argument(heartbeat_kwarg: str) -> None:
-    """Belt-and-braces: the source carries an explicit keyword.
+def test_construction_site_uses_named_constant(heartbeat_kwarg: str) -> None:
+    """Belt-and-braces: the construction site references the constant by name.
 
-    A future refactor that turns the kwarg into a positional could
-    pass linting and coverage but break the contract with aiohttp
-    (which only honours ``heartbeat=`` by name). Read the source
-    file once and assert the construction site spells the kwarg
-    out.
+    aiohttp 3.9+ makes ``WebSocketResponse.__init__`` keyword-only,
+    so a positional refactor would raise ``TypeError`` at runtime —
+    the runtime test above catches that. The risk this guards
+    against is the kwarg being *removed* (or renamed by a careless
+    rebase) and the named constant being inlined as a magic
+    number. Reading the source verifies both stay tied together so
+    a future grep for ``_WS_HEARTBEAT_SECONDS`` finds the actual
+    use site, and the rationale comment above the constant doesn't
+    drift from a hard-coded value somewhere else.
     """
-    import inspect
-
     source = inspect.getsource(ws_module.websocket_handler)
     assert f"{heartbeat_kwarg}=_WS_HEARTBEAT_SECONDS" in source
