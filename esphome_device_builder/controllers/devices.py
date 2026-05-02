@@ -222,15 +222,18 @@ class DevicesController:
         """
         name = name.strip()
         if not name:
-            msg = "name is required"
-            raise ValueError(msg)
+            raise CommandError(ErrorCode.INVALID_ARGS, "name is required")
 
         filename = f"{name}.yaml"
         config_path = self._db.settings.rel_path(filename)
 
+        # Surface user-correctable failures (name collision, unknown
+        # board) as typed ``INVALID_ARGS`` so the wizard can show a
+        # specific message instead of the WS layer's generic
+        # "Command failed" fallback. Mirrors ``import_device`` below.
         if config_path.exists():
-            msg = "File already exists"
-            raise FileExistsError(msg)
+            msg = f"Configuration {filename} already exists"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
         board = None
         if board_id:
@@ -238,7 +241,7 @@ class DevicesController:
                 board = await self._db.boards.get_board(board_id=board_id)
             if board is None:
                 msg = f"Unknown board: {board_id}"
-                raise ValueError(msg)
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
         friendly = friendly_name_slugify(name)
         if file_content:
