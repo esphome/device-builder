@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers import devices as devices_module
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
@@ -78,3 +79,26 @@ async def test_create_device_rejects_unknown_board_id(tmp_path: Any) -> None:
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "bogus-board" in excinfo.value.message
     ctrl._scanner.scan.assert_not_called()
+
+
+async def test_create_device_writes_stub_yaml_and_scans(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Happy path with no board / no file_content: stub YAML lands on disk and scan fires."""
+    storage_path = tmp_path / "storage.json"
+    monkeypatch.setattr(devices_module, "ext_storage_path", lambda _filename: storage_path)
+    monkeypatch.setattr(devices_module, "set_device_metadata", lambda *args, **kwargs: None)
+    ctrl = _make_controller(tmp_path)
+    # Catalog lookups must return ``None`` so the derive-from-yaml
+    # branch leaves ``board`` unset; otherwise ``StorageJSON``'s
+    # ``target_platform`` would receive a ``MagicMock``.
+    ctrl._db.boards.find_by_pio_board = MagicMock(return_value=None)
+    ctrl._db.boards.find_by_platform_variant = MagicMock(return_value=None)
+
+    result = await ctrl.create_device(name="kitchen")
+
+    assert result.configuration == "kitchen.yaml"
+    yaml_path = tmp_path / "kitchen.yaml"
+    assert yaml_path.read_text("utf-8").startswith("esphome:\n  name: kitchen\n")
+    assert storage_path.exists()
+    ctrl._scanner.scan.assert_awaited_once()
