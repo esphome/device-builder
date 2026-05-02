@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import base64
 import gzip
-import json
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +32,7 @@ import pytest
 
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
+from tests._storage_fixtures import write_storage_json
 
 
 def _controller(tmp_path: Path) -> FirmwareController:
@@ -45,43 +45,6 @@ def _controller(tmp_path: Path) -> FirmwareController:
     controller._jobs = {}
     controller._db = type("DB", (), {"settings": settings})()
     return controller
-
-
-def _seed_storage(
-    tmp_path: Path,
-    configuration: str,
-    *,
-    firmware_bin_path: Path | None,
-) -> Path:
-    """Lay out a StorageJSON sidecar pointing at *firmware_bin_path*.
-
-    Returns the sidecar path so the test can wipe it for the
-    "missing sidecar" case. Uses ``ext_storage_path``-style layout
-    so the monkeypatched redirect lands on the right file.
-    """
-    storage_dir = tmp_path / ".esphome" / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    sidecar = storage_dir / f"{configuration}.json"
-    payload: dict[str, Any] = {
-        "storage_version": 1,
-        "name": Path(configuration).stem,
-        "comment": None,
-        "esphome_version": "2026.5.0-dev",
-        "src_version": 1,
-        "address": "",
-        "web_port": None,
-        "esp_platform": "esp32",
-        "board": "esp32-c3-devkitm-1",
-        "build_path": str(tmp_path / ".esphome" / "build" / Path(configuration).stem),
-        "firmware_bin_path": str(firmware_bin_path) if firmware_bin_path else None,
-        "loaded_integrations": [],
-        "loaded_platforms": [],
-        "no_mdns": False,
-        "framework": "esp-idf",
-        "core_platform": "esp32",
-    }
-    sidecar.write_text(json.dumps(payload), encoding="utf-8")
-    return sidecar
 
 
 @pytest.fixture(autouse=True)
@@ -138,7 +101,7 @@ async def test_download_raises_when_firmware_bin_path_unset(tmp_path: Path) -> N
     landed. Same error message as the missing-sidecar case so the
     frontend handles both identically.
     """
-    _seed_storage(tmp_path, "kitchen.yaml", firmware_bin_path=None)
+    write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=None)
     controller = _controller(tmp_path)
 
     with pytest.raises(FileNotFoundError, match="No firmware binary"):
@@ -159,7 +122,7 @@ async def test_download_raises_on_traversal_in_file(tmp_path: Path) -> None:
     """
     build_dir = tmp_path / ".esphome" / "build" / "kitchen"
     fw = _make_firmware(build_dir, "firmware.bin", b"\x00" * 16)
-    _seed_storage(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
+    write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
     # Drop a file outside build_dir that the traversal would reach.
     (tmp_path / "secret.txt").write_text("nope", encoding="utf-8")
     controller = _controller(tmp_path)
@@ -179,7 +142,7 @@ async def test_download_raises_when_binary_missing(tmp_path: Path) -> None:
     """
     build_dir = tmp_path / ".esphome" / "build" / "kitchen"
     fw = _make_firmware(build_dir, "firmware.bin", b"\x00" * 16)
-    _seed_storage(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
+    write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
     controller = _controller(tmp_path)
 
     with pytest.raises(FileNotFoundError, match=r"Binary not found: missing\.bin"):
@@ -202,7 +165,7 @@ async def test_download_returns_base64_payload_uncompressed(tmp_path: Path) -> N
     payload = b"firmware bytes \x01\x02\x03\x04"
     build_dir = tmp_path / ".esphome" / "build" / "kitchen"
     fw = _make_firmware(build_dir, "firmware.bin", payload)
-    _seed_storage(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
+    write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
     controller = _controller(tmp_path)
 
     result = await controller.download(configuration="kitchen.yaml", file="firmware.bin")
@@ -269,7 +232,7 @@ async def test_download_returns_gzipped_payload_when_compressed(tmp_path: Path) 
     payload = b"larger payload to compress: " + (b"abc" * 200)
     build_dir = tmp_path / ".esphome" / "build" / "kitchen"
     fw = _make_firmware(build_dir, "firmware.bin", payload)
-    _seed_storage(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
+    write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=fw)
     controller = _controller(tmp_path)
 
     result = await controller.download(
