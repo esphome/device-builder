@@ -99,6 +99,19 @@ ImportableAddedCallback = Callable[[AdoptableDevice], None]
 ImportableRemovedCallback = Callable[[str], None]
 
 
+def _http_url_from_service_info(device_name: str, info: AsyncServiceInfo) -> str:
+    """Build ``http://<host>[:port]`` from a populated HTTP service info.
+
+    Single source of truth for the URL shape — ``_apply_http_service_info``
+    (browser callback path) and ``_seed_http_url_from_cache`` (late-binding
+    path when the HTTP service was already cached before the importable
+    arrived) both call this so the format stays consistent.
+    """
+    host = info.server.removesuffix(".") if info.server else f"{device_name}.local"
+    port = info.port or 80
+    return f"http://{host}{'' if port == 80 else f':{port}'}"
+
+
 def device_name_from_service(service_name: str) -> str:
     """Extract the device name from an mDNS service-instance name.
 
@@ -385,18 +398,7 @@ class DeviceStateMonitor:
         for discovered in self._import_discovery.import_state.values():
             if discovered.device_name in configured_names:
                 continue
-            out.append(
-                AdoptableDevice(
-                    name=discovered.device_name,
-                    friendly_name=discovered.friendly_name or "",
-                    package_import_url=discovered.package_import_url,
-                    project_name=discovered.project_name,
-                    project_version=discovered.project_version,
-                    network=discovered.network,
-                    ignored=self._is_ignored(discovered.device_name),
-                    web_url=self._http_urls.get(discovered.device_name, ""),
-                )
-            )
+            out.append(self._build_adoptable(discovered))
         return out
 
     def get_cached_dns_addresses(self, host_name: str) -> list[str] | None:
@@ -502,14 +504,30 @@ class DeviceStateMonitor:
     async def _resolve_and_apply(
         self, zeroconf: Any, info: AsyncServiceInfo, device_name: str
     ) -> None:
-        """Resolve a cache-miss mDNS service and propagate its details."""
+        """Resolve a cache-miss esphomelib mDNS service and propagate its details."""
+        await self._resolve_then(zeroconf, info, device_name, self._apply_service_info)
+
+    async def _resolve_then(
+        self,
+        zeroconf: Any,
+        info: AsyncServiceInfo,
+        device_name: str,
+        apply: Callable[[str, AsyncServiceInfo], None],
+    ) -> None:
+        """Resolve a cache-miss service and hand the result to *apply*.
+
+        The esphomelib and HTTP browsers share the same fire-and-forget
+        shape: spawn a task on cache miss, ``async_request`` the
+        record, swallow exceptions to a debug log, then dispatch to
+        the per-type applier when resolution succeeds.
+        """
         try:
             if not await info.async_request(zeroconf, timeout=_MDNS_RESOLVE_TIMEOUT_MS):
                 return
         except Exception:
             _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)
             return
-        self._apply_service_info(device_name, info)
+        apply(device_name, info)
 
     def _on_http_service_state_change(
         self,
@@ -546,13 +564,7 @@ class DeviceStateMonitor:
         self, zeroconf: Any, info: AsyncServiceInfo, device_name: str
     ) -> None:
         """Resolve a cache-miss HTTP service and store its URL."""
-        try:
-            if not await info.async_request(zeroconf, timeout=_MDNS_RESOLVE_TIMEOUT_MS):
-                return
-        except Exception:
-            _LOGGER.debug("HTTP mDNS resolve failed for %s", device_name, exc_info=True)
-            return
-        self._apply_http_service_info(device_name, info)
+        await self._resolve_then(zeroconf, info, device_name, self._apply_http_service_info)
 
     def _apply_http_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """Build the Visit-web-UI URL from a populated HTTP service info.
@@ -566,9 +578,7 @@ class DeviceStateMonitor:
         """
         if not self._has_importable(device_name):
             return
-        host = info.server.removesuffix(".") if info.server else f"{device_name}.local"
-        port = info.port or 80
-        url = f"http://{host}{'' if port == 80 else f':{port}'}"
+        url = _http_url_from_service_info(device_name, info)
         if self._http_urls.get(device_name) == url:
             return
         self._http_urls[device_name] = url
@@ -606,9 +616,7 @@ class DeviceStateMonitor:
         info = AsyncServiceInfo(_HTTP_SERVICE_TYPE, f"{device_name}.{_HTTP_SERVICE_TYPE}")
         if not info.load_from_cache(self._zeroconf.zeroconf):
             return
-        host = info.server.removesuffix(".") if info.server else f"{device_name}.local"
-        port = info.port or 80
-        self._http_urls[device_name] = f"http://{host}{'' if port == 80 else f':{port}'}"
+        self._http_urls[device_name] = _http_url_from_service_info(device_name, info)
 
     def _on_import_update(self, service_name: str, discovered: DiscoveredImport | None) -> None:
         """Bridge ``DashboardImportDiscovery`` → controller callbacks.
@@ -636,18 +644,27 @@ class DeviceStateMonitor:
         # here carries it without waiting for the next HTTP re-announce.
         self._seed_http_url_from_cache(discovered.device_name)
         if self._on_importable_added is not None:
-            self._on_importable_added(
-                AdoptableDevice(
-                    name=discovered.device_name,
-                    friendly_name=discovered.friendly_name or "",
-                    package_import_url=discovered.package_import_url,
-                    project_name=discovered.project_name,
-                    project_version=discovered.project_version,
-                    network=discovered.network,
-                    ignored=self._is_ignored(discovered.device_name),
-                    web_url=self._http_urls.get(discovered.device_name, ""),
-                )
-            )
+            self._on_importable_added(self._build_adoptable(discovered))
+
+    def _build_adoptable(self, discovered: DiscoveredImport) -> AdoptableDevice:
+        """Translate an upstream ``DiscoveredImport`` into our ``AdoptableDevice``.
+
+        Single construction site for the cross-type mapping plus the
+        two locally-known fields (``ignored`` from the persisted set,
+        ``web_url`` from the HTTP-service cache). Used by both the
+        live ADD path (``_on_import_update``) and the snapshot path
+        (``get_importable_devices``) so the two views stay identical.
+        """
+        return AdoptableDevice(
+            name=discovered.device_name,
+            friendly_name=discovered.friendly_name or "",
+            package_import_url=discovered.package_import_url,
+            project_name=discovered.project_name,
+            project_version=discovered.project_version,
+            network=discovered.network,
+            ignored=self._is_ignored(discovered.device_name),
+            web_url=self._http_urls.get(discovered.device_name, ""),
+        )
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """Pull IP / version / config_hash off a populated ``AsyncServiceInfo``."""
