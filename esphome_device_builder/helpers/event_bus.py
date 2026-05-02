@@ -79,8 +79,15 @@ class EventBus:
         the only reason to make this async would be to await
         something during enter/exit, which we don't.
         """
-        unsubs = [self.add_listener(et, listener) for et in event_types]
+        # Append per-iteration rather than via list comprehension so a
+        # mid-loop ``add_listener`` raise leaves the earlier
+        # subscriptions in ``unsubs`` for the ``finally`` to release.
+        # A comprehension would discard the partial list on raise and
+        # leak the listeners attached before the exception.
+        unsubs: list[Callable[[], None]] = []
         try:
+            for event_type in event_types:
+                unsubs.append(self.add_listener(event_type, listener))  # noqa: PERF401
             yield
         finally:
             for unsub in unsubs:

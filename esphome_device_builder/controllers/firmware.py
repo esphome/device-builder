@@ -725,18 +725,57 @@ class FirmwareController:
 
         # ``None`` is the sentinel pushed when the job hits a terminal
         # status; the drain loop breaks on it.
-        queue: asyncio.Queue[tuple[str, Any] | None] = asyncio.Queue()
+        #
+        # Bound the queue so a slow follower can't accumulate every
+        # streamed line in memory until the build finishes — without
+        # this, a runaway compile + a backpressured client adds up to
+        # the same OOM the in-flight ``job.output`` cap was added to
+        # prevent, just on a different list. Cap matched to the
+        # in-flight retained buffer: if the follower is more than
+        # ``_MAX_OUTPUT_LINES_INFLIGHT`` lines behind the producer,
+        # newest lines are dropped at the listener (caught below) so
+        # the producer (the streaming runner) keeps making progress.
+        # The build itself continues unaffected; the follower sees a
+        # tail with gaps but doesn't OOM the dashboard.
+        queue: asyncio.Queue[tuple[str, Any] | None] = asyncio.Queue(
+            maxsize=_MAX_OUTPUT_LINES_INFLIGHT,
+        )
+
+        def _put_evicting(item: tuple[str, Any] | None) -> None:
+            """Push *item*, dropping oldest if the queue is full.
+
+            Used for the terminal result + sentinel — those MUST land
+            so the drain loop can break, even when a slow follower
+            has filled the queue with output lines.
+            """
+            while True:
+                try:
+                    queue.put_nowait(item)
+                    return
+                except asyncio.QueueFull:
+                    try:
+                        queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        # Defensive: shouldn't happen given the
+                        # synchronous listener path, but bail rather
+                        # than spin if it does.
+                        return
 
         def _on_event(event: Any) -> None:
             if event.event_type == EventType.JOB_OUTPUT:
+                # Slow follower — drop the newest line on QueueFull so
+                # the synchronous bus.fire returns immediately and the
+                # runner keeps making progress. The follower sees a
+                # non-contiguous tail; the alternative was an OOM.
                 if event.data.get("job_id") == job_id:
-                    queue.put_nowait(("output", event.data["line"]))
+                    with suppress(asyncio.QueueFull):
+                        queue.put_nowait(("output", event.data["line"]))
             elif event.event_type in _JOB_TERMINAL_EVENTS:
                 ev_job = event.data.get("job")
                 if ev_job and getattr(ev_job, "job_id", None) == job_id:
                     status = getattr(ev_job, "status", "unknown")
                     status_val = status.value if hasattr(status, "value") else str(status)
-                    queue.put_nowait(
+                    _put_evicting(
                         (
                             "result",
                             {
@@ -745,7 +784,7 @@ class FirmwareController:
                             },
                         )
                     )
-                    queue.put_nowait(None)
+                    _put_evicting(None)
 
         # ATOMIC: snapshot + subscribe in synchronous-adjacent
         # statements. See the docstring for the race this closes.
@@ -1086,10 +1125,10 @@ class FirmwareController:
                 nonlocal has_error_in_output, saw_no_esphome_module
                 # Python's ModuleNotFoundError prints
                 # ``No module named 'esphome'`` (single-quoted name);
-                # ESPHome's own re-thrown wrappers sometimes print
-                # without the quotes. Two-substring check matches
-                # both forms without a regex.
-                if "No module named" in text and "esphome" in text:
+                # we look for the exact quoted form so we don't
+                # false-match siblings like ``esphome_dashboard``,
+                # ``esphome_runtime``, etc. that share the prefix.
+                if "No module named 'esphome'" in text:
                     saw_no_esphome_module = True
                 if has_error_in_output:
                     return

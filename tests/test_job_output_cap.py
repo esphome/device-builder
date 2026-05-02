@@ -130,7 +130,7 @@ def test_no_module_named_esphome_detection_at_append_time() -> None:
 
     def _check_error(text: str) -> None:
         nonlocal has_error_in_output, saw_no_esphome_module
-        if "No module named" in text and "esphome" in text:
+        if "No module named 'esphome'" in text:
             saw_no_esphome_module = True
         if has_error_in_output:
             return
@@ -140,11 +140,12 @@ def test_no_module_named_esphome_detection_at_append_time() -> None:
                 return
 
     # Line at the start of a long noisy build, in the exact format
-    # CPython emits — with the module name single-quoted. The old
+    # CPython emits — with the module name single-quoted. The
     # post-exit check ``"No module named esphome" in full_output``
-    # never matched this real-world string; the at-append capture
-    # here uses two substrings so both quoted and unquoted forms
-    # trigger.
+    # never matched this real-world string; capturing at append
+    # time on the quoted form rather than two loose substrings
+    # also avoids false-positive sibling matches like
+    # ``esphome_dashboard``.
     _check_error("ModuleNotFoundError: No module named 'esphome'\n")
     # Mountains of unrelated noise.
     for i in range(_MAX_OUTPUT_LINES_INFLIGHT * 2):
@@ -154,6 +155,13 @@ def test_no_module_named_esphome_detection_at_append_time() -> None:
     # The captured flag is what the post-exit handler uses to pick
     # the actionable error message — set once, never cleared.
     assert saw_no_esphome_module is True
+
+    # Sibling modules that share the ``esphome`` prefix must not
+    # trigger the flag — that was the false-positive risk the
+    # quoted-form check exists to close.
+    saw_no_esphome_module = False
+    _check_error("ModuleNotFoundError: No module named 'esphome_dashboard'\n")
+    assert saw_no_esphome_module is False
 
 
 def test_inflight_trim_followed_by_default_trim_chains_elided_counts() -> None:

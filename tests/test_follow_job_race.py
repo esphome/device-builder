@@ -221,3 +221,177 @@ async def test_streaming_loop_cannot_append_between_snapshot_and_subscribe() -> 
     # Exactly one of each — no duplication of pre-snapshot, no
     # missing post-snapshot.
     assert output_lines == ["pre-snapshot\n", "post-snapshot\n"]
+
+
+async def test_slow_follower_drops_lines_above_queue_cap() -> None:
+    """Bounded queue caps memory: lines past the cap are dropped.
+
+    Without this bound, a follower that stops draining (closed WS,
+    backpressured client) would let the listener accumulate every
+    fired line in memory forever — the in-flight ``job.output``
+    cap on the build itself bounds one buffer, but each follower
+    held a second unbounded one. Test parks the follower in
+    ``send_event`` and fires a burst larger than the queue can
+    hold; the producer stays unblocked because ``put_nowait``
+    drops on full instead of awaiting drain capacity.
+    """
+    from esphome_device_builder.controllers.firmware import _MAX_OUTPUT_LINES_INFLIGHT
+
+    job = FirmwareJob(
+        job_id="abc",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        output=[],
+    )
+    controller = _make_controller_with_job(job)
+    bus = controller._db.bus
+
+    # Park send_event so the drain stays blocked on the very first
+    # delivered line. With the drain parked, the queue can fill all
+    # the way to its cap and start dropping.
+    block = asyncio.Event()
+    received: list[tuple[str, Any]] = []
+
+    class BlockingClient:
+        async def send_event(self, _mid: str, event: str, data: Any) -> None:
+            received.append((event, data))
+            await block.wait()
+
+    follow_task = asyncio.create_task(
+        controller.follow_job(job_id="abc", client=BlockingClient(), message_id="m1")
+    )
+    await asyncio.sleep(0)
+
+    # Fire one line so the drain task picks it up and parks in
+    # send_event. After this point all subsequent fires accumulate
+    # in the queue.
+    bus.fire(EventType.JOB_OUTPUT, {"job_id": "abc", "line": "first\n"})
+    await asyncio.sleep(0)
+    assert received == [("output", "first\n")]
+
+    # Fire well past the cap. Without the bound this would grow the
+    # queue unboundedly; with it the queue caps at maxsize and the
+    # excess fires no-op at put_nowait.
+    burst_size = _MAX_OUTPUT_LINES_INFLIGHT + 500
+    for i in range(burst_size):
+        bus.fire(EventType.JOB_OUTPUT, {"job_id": "abc", "line": f"l{i}\n"})
+
+    # Unblock the drain so we can shut down cleanly.
+    block.set()
+    job.status = JobStatus.COMPLETED
+    job.exit_code = 0
+    bus.fire(EventType.JOB_COMPLETED, {"job": job})
+
+    await asyncio.wait_for(follow_task, timeout=2.0)
+
+    output_count = sum(1 for (e, _) in received if e == "output")
+    # The follower must have lost some lines — the bound was the
+    # whole point. The first line + at most the queue cap delivered.
+    assert output_count <= 1 + _MAX_OUTPUT_LINES_INFLIGHT
+    # And a result still arrives even with output dropped.
+    result_events = [d for (e, d) in received if e == "result"]
+    assert len(result_events) == 1
+
+
+async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full() -> None:
+    """Terminal result + sentinel still land when the queue is full.
+
+    The output put_nowait drops on full, but the result + sentinel
+    use ``_put_evicting`` — they MUST reach the drain loop or the
+    follower parks on ``queue.get`` forever after the build
+    finishes. Without eviction a slow follower could pile up
+    output, reach cap, then a JOB_COMPLETED would silently
+    no-op and the follower would hang.
+    """
+    from esphome_device_builder.controllers.firmware import _MAX_OUTPUT_LINES_INFLIGHT
+
+    job = FirmwareJob(
+        job_id="abc",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        output=[],
+    )
+    controller = _make_controller_with_job(job)
+    bus = controller._db.bus
+
+    block = asyncio.Event()
+    received: list[tuple[str, Any]] = []
+
+    class BlockingClient:
+        async def send_event(self, _mid: str, event: str, data: Any) -> None:
+            received.append((event, data))
+            # Only block on output; let result/sentinel through so
+            # the test can observe completion.
+            if event == "output":
+                await block.wait()
+
+    follow_task = asyncio.create_task(
+        controller.follow_job(job_id="abc", client=BlockingClient(), message_id="m1")
+    )
+    await asyncio.sleep(0)
+
+    # Park the drain in send_event with a single line.
+    bus.fire(EventType.JOB_OUTPUT, {"job_id": "abc", "line": "first\n"})
+    await asyncio.sleep(0)
+
+    # Fill the queue to capacity.
+    for i in range(_MAX_OUTPUT_LINES_INFLIGHT):
+        bus.fire(EventType.JOB_OUTPUT, {"job_id": "abc", "line": f"l{i}\n"})
+
+    # Now mark the job complete. The terminal handler uses
+    # ``_put_evicting`` to push (result, ...) and the sentinel —
+    # both must displace older items rather than no-op, so the
+    # drain eventually breaks.
+    job.status = JobStatus.COMPLETED
+    job.exit_code = 0
+    bus.fire(EventType.JOB_COMPLETED, {"job": job})
+
+    # Unblock the drain so it can finish processing.
+    block.set()
+
+    await asyncio.wait_for(follow_task, timeout=2.0)
+
+    result_events = [d for (e, d) in received if e == "result"]
+    assert len(result_events) == 1
+    assert result_events[0]["status"] == "completed"
+
+
+async def test_cancelled_terminal_event_returns_with_status() -> None:
+    """``JOB_CANCELLED`` ends the follow with a ``cancelled`` result.
+
+    Mirrors the completed/failed paths but exercises the third
+    entry in ``_JOB_TERMINAL_EVENTS``. Without coverage here a
+    listener change that drops ``JOB_CANCELLED`` from the
+    subscribed set would silently leave followers parked on the
+    queue forever — the build's own runner has stopped firing
+    output, so the drain loop never sees a sentinel.
+    """
+    job = FirmwareJob(
+        job_id="abc",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        output=["pre-cancel\n"],
+    )
+    controller = _make_controller_with_job(job)
+    client = _FakeClient()
+    bus = controller._db.bus
+
+    async def follower() -> None:
+        await controller.follow_job(job_id="abc", client=client, message_id="m1")
+
+    follow_task = asyncio.create_task(follower())
+    await asyncio.sleep(0)
+
+    job.status = JobStatus.CANCELLED
+    bus.fire(EventType.JOB_CANCELLED, {"job": job})
+
+    await asyncio.wait_for(follow_task, timeout=2.0)
+
+    output_lines = [d for (e, d) in client.events if e == "output"]
+    result_events = [d for (e, d) in client.events if e == "result"]
+    assert output_lines == ["pre-cancel\n"]
+    assert len(result_events) == 1
+    assert result_events[0]["status"] == "cancelled"
