@@ -76,25 +76,24 @@ _MIXED_PAYLOAD = b"".join(
 
 
 @pytest.mark.parametrize(
-    "label,payload,expected_count",
+    "payload,expected_count",
     [
         # Pure \n: compile-output baseline (most of a successful compile
         # is plain newline-terminated lines).
-        ("newline_1k", _NEWLINE_PAYLOAD, 1000),
+        pytest.param(_NEWLINE_PAYLOAD, 1000, id="newline_1k"),
         # Pure \r: esptool's progress writes during the flash phase.
         # Exercises the bare-CR-vs-CRLF lookahead on every byte.
-        ("cr_progress_1k", _CR_PROGRESS_PAYLOAD, 1000),
+        pytest.param(_CR_PROGRESS_PAYLOAD, 1000, id="cr_progress_1k"),
         # CRLF: Windows / PlatformIO output. Exercises the
         # CRLF-coalesce path; on Windows the kernel hands us this
         # shape because text-mode stdout translates \n → \r\n.
-        ("crlf_1k", _CRLF_PAYLOAD, 1000),
+        pytest.param(_CRLF_PAYLOAD, 1000, id="crlf_1k"),
         # Mixed: closest to the production shape during a real flash.
-        ("mixed_1k", _MIXED_PAYLOAD, 1000),
+        pytest.param(_MIXED_PAYLOAD, 1000, id="mixed_1k"),
     ],
 )
 def test_iter_lines_with_progress_summary(
     benchmark: BenchmarkFixture,
-    label: str,
     payload: bytes,
     expected_count: int,
 ) -> None:
