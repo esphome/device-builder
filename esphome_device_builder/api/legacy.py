@@ -22,6 +22,7 @@ import aiohttp
 from aiohttp import web
 from esphome import yaml_util
 
+from ..helpers.api import CommandError
 from ..helpers.json import JSONDecodeError, dumps_str, json_response, loads
 from ..helpers.subprocess import create_subprocess_exec
 
@@ -106,7 +107,7 @@ def create_legacy_routes() -> web.RouteTableDef:
         db = request.app["device_builder"]
         try:
             config_path = db.settings.rel_path(configuration)
-        except ValueError:
+        except CommandError:
             return json_response({"error": "Forbidden"}, status=403)
 
         loop = asyncio.get_running_loop()
