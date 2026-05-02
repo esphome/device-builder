@@ -35,6 +35,7 @@ from esphome_device_builder.controllers._device_scanner import (
     DeviceScanner,
     ScanChange,
 )
+from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
     Device,
@@ -116,20 +117,19 @@ async def test_reload_unknown_filename_is_noop(tmp_path: Path) -> None:
 # ----------------------------------------------------------------------
 
 
-def _make_controller() -> tuple[Any, list[tuple[str, bool]]]:
+def _make_controller() -> tuple[Any, list[tuple[str, bool, bool]]]:
     """Build a partially-initialised controller and a capture list.
 
     ``_refresh_after_firmware_job`` is patched with a sync stub that
-    records ``(configuration, recompute_hash)`` at call time and
-    returns a no-op coroutine. The handler is sync; capturing eagerly
-    sidesteps the question of whether the test runs the coroutine.
+    records ``(configuration, recompute_hash, flashed)`` at call time
+    and returns a no-op coroutine. The handler is sync; capturing
+    eagerly sidesteps the question of whether the test runs the
+    coroutine.
     """
-    from esphome_device_builder.controllers.devices import DevicesController
+    captured: list[tuple[str, bool, bool]] = []
 
-    captured: list[tuple[str, bool]] = []
-
-    def _capturing_refresh(configuration: str, *, recompute_hash: bool) -> Any:
-        captured.append((configuration, recompute_hash))
+    def _capturing_refresh(configuration: str, *, recompute_hash: bool, flashed: bool) -> Any:
+        captured.append((configuration, recompute_hash, flashed))
 
         async def _noop() -> None:
             return None
@@ -162,7 +162,10 @@ def test_completed_install_recomputes_hash_and_reloads() -> None:
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
-    assert captured == [("kitchen.yaml", True)]
+    # ``flashed=True`` so the post-reload sync pins
+    # ``deployed_config_hash`` and the orange "modified" dot clears
+    # without waiting on the rebooted device's mDNS announce.
+    assert captured == [("kitchen.yaml", True, True)]
 
 
 def test_completed_compile_recomputes_hash_and_reloads() -> None:
@@ -172,7 +175,10 @@ def test_completed_compile_recomputes_hash_and_reloads() -> None:
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
-    assert captured == [("kitchen.yaml", True)]
+    # COMPILE-only didn't push firmware, so ``flashed=False`` — the
+    # device on the network still runs the old image and its
+    # broadcast hash is still authoritative.
+    assert captured == [("kitchen.yaml", True, False)]
 
 
 def test_completed_upload_reloads_without_recomputing_hash() -> None:
@@ -182,7 +188,10 @@ def test_completed_upload_reloads_without_recomputing_hash() -> None:
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
-    assert captured == [("kitchen.yaml", False)]
+    # UPLOAD pushes the previously-compiled binary, so the device's
+    # firmware is now what ``expected_config_hash`` describes —
+    # ``flashed=True``.
+    assert captured == [("kitchen.yaml", False, True)]
 
 
 def test_failed_job_does_not_schedule_refresh() -> None:
@@ -234,8 +243,6 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     """Successful compile → hash computed + persisted, then device reloaded."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n")
 
@@ -265,7 +272,7 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
     controller._scanner = MagicMock()
     controller._scanner.reload = AsyncMock(return_value=True)
 
-    await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True)
+    await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
     assert persisted == [{"filename": "kitchen.yaml", "expected_config_hash": "1a2b3c4d"}]
     controller._scanner.reload.assert_awaited_once_with("kitchen.yaml")
@@ -276,8 +283,6 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     """If hash computation fails, fall back to mtime check — don't write empty hash."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     persisted: list[dict[str, Any]] = []
 
     def _fake_set_metadata(_config_dir: Path, filename: str, **kwargs: Any) -> None:
@@ -304,7 +309,7 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
     controller._scanner = MagicMock()
     controller._scanner.reload = AsyncMock(return_value=True)
 
-    await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True)
+    await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
     assert persisted == []  # don't overwrite with garbage
     controller._scanner.reload.assert_awaited_once_with("kitchen.yaml")  # reload still happens
@@ -313,8 +318,6 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
 @pytest.mark.asyncio
 async def test_refresh_after_upload_skips_hash_compute(tmp_path: Path, monkeypatch: Any) -> None:
     """UPLOAD-only doesn't recompile — skip the heavy hash subprocess entirely."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     compute_calls: list[Path] = []
 
     async def _fake_compute(path: Path) -> str | None:
@@ -335,7 +338,124 @@ async def test_refresh_after_upload_skips_hash_compute(tmp_path: Path, monkeypat
     controller._scanner = MagicMock()
     controller._scanner.reload = AsyncMock(return_value=True)
 
-    await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=False)
+    await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=False, flashed=True)
 
     assert compute_calls == []
     controller._scanner.reload.assert_awaited_once_with("kitchen.yaml")
+
+
+# ----------------------------------------------------------------------
+# DevicesController._sync_deployed_hash_after_flash
+#
+# Drives the orange-dot-clears-after-OTA fix. The reloaded device
+# inherits ``deployed_config_hash`` from the previous in-memory
+# snapshot — typically the now-stale pre-flash mDNS value — so without
+# this sync ``has_pending_changes`` reads ``expected != deployed`` and
+# the user sees a still-orange dot until the rebooted device's mDNS
+# announce propagates (seconds at best, "never" if the rebroadcast
+# gets dropped on the wire).
+# ----------------------------------------------------------------------
+
+
+def _flush_controller(device: Device) -> tuple[Any, list[Any]]:
+    """Build a controller seeded with *device* and a fired-events list."""
+    fired: list[Any] = []
+
+    db = MagicMock()
+    db.bus.fire.side_effect = lambda event_type, payload: fired.append((event_type, payload))
+
+    scanner = MagicMock()
+    scanner.devices = [device]
+
+    state_monitor = MagicMock()
+    # Drive the same de-dup behaviour real ``apply_config_hash`` has —
+    # if the scan device's name matches and the hash differs from the
+    # cached value, fire the controller's ``_on_config_hash_change``
+    # callback so the assertion can verify the device fields flipped.
+    cache: dict[str, str] = {}
+
+    def _apply(name: str, config_hash: str) -> bool:
+        if not config_hash:
+            return False
+        if cache.get(name) == config_hash:
+            return False
+        cache[name] = config_hash
+        # Mirror what ``DeviceStateMonitor`` does — fire the callback
+        # the controller registered when wiring up the monitor.
+        controller._on_config_hash_change(name, config_hash)
+        return True
+
+    state_monitor.apply_config_hash.side_effect = _apply
+
+    controller = DevicesController.__new__(DevicesController)
+    controller._db = db
+    controller._scanner = scanner
+    controller._state_monitor = state_monitor
+    return controller, fired
+
+
+def test_sync_after_flash_pins_deployed_hash_and_clears_pending() -> None:
+    """Post-flash sync flips deployed → expected and emits ``DEVICE_UPDATED``."""
+    device = _device(
+        expected_config_hash="aaaa1111",
+        deployed_config_hash="bbbb2222",  # stale pre-flash mDNS value
+        has_pending_changes=True,
+    )
+    controller, fired = _flush_controller(device)
+
+    controller._sync_deployed_hash_after_flash("kitchen.yaml")
+
+    assert device.deployed_config_hash == "aaaa1111"
+    assert device.has_pending_changes is False
+    # Exactly one DEVICE_UPDATED — the optimistic apply_config_hash
+    # path fires it via the existing _on_config_hash_change callback,
+    # not in addition to a separate fire from the sync helper.
+    assert [t for t, _p in fired] == [EventType.DEVICE_UPDATED]
+
+
+def test_sync_after_flash_no_expected_hash_is_noop() -> None:
+    """Without ``expected_config_hash`` we have nothing to pin — fall back to mtime."""
+    device = _device(
+        expected_config_hash="",
+        deployed_config_hash="bbbb2222",
+    )
+    controller, fired = _flush_controller(device)
+
+    controller._sync_deployed_hash_after_flash("kitchen.yaml")
+
+    # deployed_config_hash isn't touched — the mtime side of
+    # compute_has_pending_changes will catch the post-flash state on
+    # the next scanner reload.
+    assert device.deployed_config_hash == "bbbb2222"
+    assert fired == []
+
+
+def test_sync_after_flash_already_in_sync_is_noop() -> None:
+    """Already-matching hashes skip both the cache write and the event."""
+    device = _device(
+        expected_config_hash="aaaa1111",
+        deployed_config_hash="aaaa1111",
+        has_pending_changes=False,
+    )
+    controller, fired = _flush_controller(device)
+
+    controller._sync_deployed_hash_after_flash("kitchen.yaml")
+
+    # apply_config_hash is still called (it's the integration point),
+    # but its de-dup short-circuits — no callback, no event, no churn.
+    assert fired == []
+
+
+def test_sync_after_flash_unknown_configuration_is_noop() -> None:
+    """Configuration not in the scanner's device list — silently skip."""
+    device = _device(
+        configuration="livingroom.yaml",
+        expected_config_hash="aaaa1111",
+        deployed_config_hash="bbbb2222",
+    )
+    controller, fired = _flush_controller(device)
+
+    controller._sync_deployed_hash_after_flash("kitchen.yaml")
+
+    assert device.deployed_config_hash == "bbbb2222"  # unchanged
+    assert fired == []

@@ -1068,12 +1068,15 @@ class DevicesController:
         if not configuration:
             return
         recompute_hash = job_type in (JobType.COMPILE, JobType.INSTALL)
+        flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)
         self._db.create_background_task(
-            self._refresh_after_firmware_job(configuration, recompute_hash=recompute_hash)
+            self._refresh_after_firmware_job(
+                configuration, recompute_hash=recompute_hash, flashed=flashed
+            )
         )
 
     async def _refresh_after_firmware_job(
-        self, configuration: str, *, recompute_hash: bool
+        self, configuration: str, *, recompute_hash: bool, flashed: bool
     ) -> None:
         """
         Persist the YAML's freshly-compiled hash and reload the device.
@@ -1085,6 +1088,23 @@ class DevicesController:
         when hash computation is skipped or fails — so the mtime side
         of ``has_pending_changes`` still flips after a successful
         compile.
+
+        When *flashed* is True (UPLOAD or INSTALL completed), the
+        firmware on the device was just replaced with the binary that
+        compiled to ``expected_config_hash``. The reloaded device
+        otherwise keeps the *previous* mDNS-cached
+        ``deployed_config_hash`` — usually a now-stale value — so the
+        hash comparison reads ``expected != deployed`` and the dot
+        stays orange until the rebooted device's mDNS announce
+        propagates. That can be many seconds, sometimes longer if the
+        device's network announce gets dropped, and the user sees a
+        successful flash with a still-orange dot. Optimistically pin
+        deployed = expected on the reloaded device and recompute the
+        flag so the dot clears immediately. mDNS still gets to
+        correct the hash later — if the new firmware advertises a
+        different hash (e.g. because the OTA actually failed and the
+        device kept the old image), ``_on_config_hash_change`` will
+        push the real value back in.
         """
         if recompute_hash:
             yaml_path = self._db.settings.rel_path(configuration)
@@ -1100,6 +1120,30 @@ class DevicesController:
                 )
                 _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
         await self._scanner.reload(configuration)
+        if flashed:
+            self._sync_deployed_hash_after_flash(configuration)
+
+    def _sync_deployed_hash_after_flash(self, configuration: str) -> None:
+        """
+        Optimistically align ``deployed_config_hash`` with the just-flashed image.
+
+        See :meth:`_refresh_after_firmware_job` for the rationale.
+        Driving the update through ``apply_config_hash`` lets the
+        existing ``_on_config_hash_change`` callback handle the
+        device-field write + ``DEVICE_UPDATED`` event, so the
+        post-flash sync follows the same code path as a real mDNS
+        announce. ``apply_config_hash`` also seeds the monitor's
+        per-name cache, so when the rebooted device's announce lands
+        with the *same* hash the de-dup short-circuits and we don't
+        fire a redundant event.
+        """
+        device = next(
+            (d for d in self._scanner.devices if d.configuration == configuration),
+            None,
+        )
+        if device is None or not device.expected_config_hash:
+            return
+        self._state_monitor.apply_config_hash(device.name, device.expected_config_hash)
 
     async def _persist_storage_version_async(self, configuration: str, version: str) -> None:
         """Update ``StorageJSON.esphome_version`` on disk if it differs."""
