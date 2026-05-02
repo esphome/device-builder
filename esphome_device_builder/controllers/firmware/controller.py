@@ -556,11 +556,19 @@ class FirmwareController:
 
         Either path fires ``JOB_CANCELLED`` on the bus so frontends
         following all-jobs streams stay consistent.
+
+        User-facing rejections (unknown ``job_id``, already-terminal
+        job) raise ``CommandError`` so the WS dispatcher surfaces
+        the message verbatim. A bare ``ValueError`` would be wrapped
+        as ``"Command failed: firmware/cancel"`` and the operator
+        would lose the offending id / status. The state-out-of-sync
+        case stays as ``RuntimeError`` — it's a server bug, not user
+        input, and ``INTERNAL_ERROR`` is the right code.
         """
         job = self._jobs.get(job_id)
         if not job:
             msg = f"Job not found: {job_id}"
-            raise ValueError(msg)
+            raise CommandError(ErrorCode.NOT_FOUND, msg)
 
         if job.status == JobStatus.QUEUED:
             _mark_job_terminal(job, JobStatus.CANCELLED)
@@ -578,7 +586,7 @@ class FirmwareController:
             return
 
         msg = f"Cannot cancel a {job.status.value} job"
-        raise ValueError(msg)
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
     @api_command("firmware/clear")
     async def clear(self, *, status: JobStatus | str | None = None, **kwargs: Any) -> None:
