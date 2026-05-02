@@ -144,7 +144,7 @@ def _build_components_index() -> dict | None:
             file=sys.stderr,
         )
         return None
-    raw = json.loads(COMPONENTS_JSON.read_text())
+    raw = json.loads(COMPONENTS_JSON.read_text(encoding="utf-8"))
     by_id: dict[str, dict] = {}
     for comp in raw.get("components", []):
         cid = comp.get("id")
@@ -191,12 +191,12 @@ def _validate_featured(
             if b_id in seen_bundle_ids:
                 errors.append(f"{board_id}.featured_bundles[{idx}]: duplicate id '{b_id}'")
             seen_bundle_ids.add(b_id)
-        for cid in bundle.get("component_ids", []) or []:
-            if cid not in seen_fc_ids:
-                errors.append(
-                    f"{board_id}.featured_bundles[{idx}].component_ids: "
-                    f"'{cid}' does not match any featured_components[].id"
-                )
+        errors.extend(
+            f"{board_id}.featured_bundles[{idx}].component_ids: "
+            f"'{cid}' does not match any featured_components[].id"
+            for cid in bundle.get("component_ids", []) or []
+            if cid not in seen_fc_ids
+        )
     return errors
 
 
