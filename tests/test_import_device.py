@@ -133,6 +133,65 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
     assert captured["args"][5] == "ethernet"
 
 
+async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Multiple identical products on the LAN don't get the wrong network.
+
+    Factory firmware broadcasts each device with a MAC suffix
+    (``apollo-plt-1-983300``, ``apollo-plt-1-aabbcc``), so the
+    ``import_result`` key is unique per physical device even when
+    several share the same ``package_import_url``. The frontend
+    pre-fills the adoption dialog with the discovery row's broadcast
+    name, so we look up by ``name`` first — that's unambiguous.
+
+    Pre-fix the lookup walked the dict and returned whichever
+    matching ``package_import_url`` row landed first; for two
+    Apollo PLT-1s on different networks (one Wi-Fi reflashed for
+    Ethernet, one stock) that meant a coin-flip on which network
+    the imported YAML got.
+    """
+    from esphome_device_builder.models import AdoptableDevice
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
+    )
+
+    ctrl = _make_controller(tmp_path)
+    # Two Apollo PLT-1s — same firmware, different network types.
+    # The import dict's insertion order would otherwise pick whichever
+    # arrived first; the direct-name lookup ignores order.
+    ctrl.import_result["apollo-plt-1-aabbcc"] = AdoptableDevice(
+        name="apollo-plt-1-aabbcc",
+        friendly_name="Apollo PLT-1 (Wi-Fi)",
+        package_import_url="github://apollo/plt-1.yaml",
+        project_name="apollo.plt-1",
+        project_version="1.0.0",
+        network="wifi",
+        ignored=False,
+    )
+    ctrl.import_result["apollo-plt-1-ddeeff"] = AdoptableDevice(
+        name="apollo-plt-1-ddeeff",
+        friendly_name="Apollo PLT-1 (Ethernet)",
+        package_import_url="github://apollo/plt-1.yaml",
+        project_name="apollo.plt-1",
+        project_version="1.0.0",
+        network="ethernet",
+        ignored=False,
+    )
+
+    # User adopts the second one — frontend passes its broadcast name.
+    await ctrl.import_device(
+        name="apollo-plt-1-ddeeff",
+        project_name="apollo.plt-1",
+        package_import_url="github://apollo/plt-1.yaml",
+    )
+
+    # Got the Ethernet entry, not whichever came first.
+    assert captured["args"][5] == "ethernet"
+
+
 async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
