@@ -1,11 +1,13 @@
 """Tests that firmware WS handlers reject traversal payloads at the boundary.
 
-The ``_create_job`` chokepoint and the ``ext_storage_path`` openers
-in ``firmware/get_binaries`` / ``firmware/download`` both call
-``settings.rel_path`` so a traversal-shaped ``configuration`` value
-surfaces synchronously as ``CommandError(INVALID_ARGS)`` from the
-WS dispatcher — instead of being accepted, queued, then materialising
-later as a failed job. This test pins that contract.
+Every public handler that takes ``configuration`` flows through
+``_validate_configuration_boundary`` (single-call) or
+``_validate_configurations_boundary`` (batched) before reaching code
+that builds paths. ``CommandError(INVALID_ARGS)`` propagates back
+to the WS dispatcher synchronously — instead of being accepted,
+queued, and materialising later as a failed job. The validation
+runs inside an executor so blockbuster's blocking-syscall guard
+on CI doesn't fault the request.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import pytest
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import ErrorCode, JobType
+from esphome_device_builder.models import ErrorCode
 
 
 def _controller(tmp_path: Path) -> FirmwareController:
@@ -32,37 +34,59 @@ def _controller(tmp_path: Path) -> FirmwareController:
     return controller
 
 
-@pytest.mark.parametrize(
-    "job_type",
-    [JobType.COMPILE, JobType.UPLOAD, JobType.CLEAN, JobType.INSTALL, JobType.RENAME],
-)
-def test_create_job_rejects_traversal(tmp_path: Path, job_type: JobType) -> None:
-    """Every queue-creating job type validates ``configuration`` at the boundary.
+def test_sync_validate_rejects_traversal(tmp_path: Path) -> None:
+    """The sync core raises ``CommandError(INVALID_ARGS)`` on traversal.
 
-    Without this, ``compile`` / ``upload`` / ``clean`` / ``install`` /
-    ``rename`` would each accept a traversal payload, queue a job for
-    it, and only fail later inside ``_execute_job`` where the runner's
-    generic ``except Exception`` records it as a failed job — so the
-    WS reply would be a ``FirmwareJob`` instead of ``INVALID_ARGS``.
+    This is the single-source-of-truth helper used by both the async
+    wrapper and the bulk validator — so a future change to validation
+    logic only needs one update site.
     """
     controller = _controller(tmp_path)
 
     with pytest.raises(CommandError) as excinfo:
-        controller._create_job("../etc/passwd", job_type)
+        controller._sync_validate_configuration_boundary("../etc/passwd")
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-def test_create_job_allows_empty_for_reset_build_env(tmp_path: Path) -> None:
-    """``RESET_BUILD_ENV`` jobs use the empty string and skip the check.
+def test_sync_validate_allows_empty_string(tmp_path: Path) -> None:
+    """Empty string short-circuits — used by ``RESET_BUILD_ENV`` jobs."""
+    controller = _controller(tmp_path)
+    controller._sync_validate_configuration_boundary("")  # no raise
 
-    ``rel_path("")`` would resolve to the config dir itself — fine,
-    but the ``if configuration`` guard documents the intent and
-    avoids ever syscalling on the wipe path.
+
+@pytest.mark.asyncio
+async def test_validate_configuration_boundary_runs_in_executor(tmp_path: Path) -> None:
+    """The async wrapper runs ``rel_path`` in an executor.
+
+    ``Path.resolve`` is a blocking syscall; running it on the event
+    loop would fault under blockbuster on CI. The wrapper hands the
+    sync core off to ``run_in_executor`` so the WS dispatcher stays
+    non-blocking.
     """
     controller = _controller(tmp_path)
 
-    job = controller._create_job("", JobType.RESET_BUILD_ENV)
-    assert job.configuration == ""
+    with pytest.raises(CommandError) as excinfo:
+        await controller._validate_configuration_boundary("../etc/passwd")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+async def test_validate_configurations_boundary_one_executor(tmp_path: Path) -> None:
+    """The bulk validator processes the whole batch in a single executor task.
+
+    Per-config invalid entries are dropped from the returned list
+    (so ``compile_bulk`` / ``install_bulk`` keep going for the
+    valid ones — same skip-and-continue semantics the rename-lock
+    branch already provides). Empty strings are also dropped. One
+    ``run_in_executor`` call amortises the context-switch cost
+    across the batch instead of paying it per item.
+    """
+    controller = _controller(tmp_path)
+
+    valid = await controller._validate_configurations_boundary(
+        ["kitchen.yaml", "../etc/passwd", "garage.yaml", "", "/abs/path"]
+    )
+    assert valid == ["kitchen.yaml", "garage.yaml"]
 
 
 @pytest.mark.asyncio
@@ -71,7 +95,7 @@ async def test_get_binaries_rejects_traversal(tmp_path: Path) -> None:
 
     The handler reads ``ext_storage_path(configuration)`` which lands
     in ``<data_dir>/storage/<configuration>.json`` — outside the
-    config dir — so ``rel_path`` is the only gate.
+    config dir — so the boundary validator is the only gate.
     """
     controller = _controller(tmp_path)
 

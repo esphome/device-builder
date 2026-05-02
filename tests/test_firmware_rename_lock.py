@@ -158,9 +158,9 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest() -> None:
         (),
         {
             "bus": type("Bus", (), {"fire": lambda *a, **kw: None})(),
-            # ``_create_job`` calls ``settings.rel_path`` to validate
-            # the configuration at the queue boundary; pass-through
-            # stub here, the test isn't exercising traversal.
+            # ``install_bulk`` calls ``_validate_configurations_boundary``
+            # to reject traversal payloads at the WS boundary; pass-
+            # through stub here, the test isn't exercising traversal.
             "settings": type(
                 "Settings",
                 (),

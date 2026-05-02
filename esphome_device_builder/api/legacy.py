@@ -56,8 +56,12 @@ async def _handle_legacy_ws_command(
 
         configuration = data.get("configuration", "")
         settings = request.app["device_builder"].settings
+        loop = asyncio.get_running_loop()
         try:
-            config_path = str(settings.rel_path(configuration))
+            # ``rel_path`` calls ``Path.resolve``, a blocking syscall —
+            # off-loop so blockbuster doesn't fault the request on CI.
+            resolved = await loop.run_in_executor(None, settings.rel_path, configuration)
+            config_path = str(resolved)
         except CommandError:
             # Send a controlled exit frame instead of letting the
             # ``CommandError`` tear the WebSocket down — the legacy
@@ -114,12 +118,15 @@ def create_legacy_routes() -> web.RouteTableDef:
         """Legacy GET /json-config — parsed YAML config as JSON."""
         configuration = request.query.get("configuration", "")
         db = request.app["device_builder"]
+        loop = asyncio.get_running_loop()
         try:
-            config_path = db.settings.rel_path(configuration)
+            # ``rel_path`` calls ``Path.resolve``, a blocking syscall —
+            # run it in the executor so blockbuster doesn't fault the
+            # request on CI.
+            config_path = await loop.run_in_executor(None, db.settings.rel_path, configuration)
         except CommandError:
             return json_response({"error": "Forbidden"}, status=403)
 
-        loop = asyncio.get_running_loop()
         try:
             config = await loop.run_in_executor(None, yaml_util.load_yaml, str(config_path))
         except Exception as exc:
