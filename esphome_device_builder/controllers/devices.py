@@ -787,13 +787,27 @@ class DevicesController:
         self,
         *,
         configuration: str,
+        show_secrets: bool = False,
         client: Any = None,
         message_id: str = "",
         **kwargs: Any,
     ) -> None:
-        """Validate a device YAML config. Streams output per-connection."""
+        """
+        Validate a device YAML config. Streams output per-connection.
+
+        ``show_secrets`` passes ``--show-secrets`` to ``esphome config``
+        so resolved ``!secret`` values appear in the output instead of
+        the default ``<removed>`` redaction. Default is ``False`` —
+        secrets only appear when the user actively asks for them.
+        Mirrors the legacy dashboard's ``streamer_mode`` semantics
+        but as a per-call opt-in rather than a global setting, so one
+        user wanting to see secrets in a multi-user deployment doesn't
+        change the default for everyone else.
+        """
         config_path = str(self._db.settings.rel_path(configuration))
         cmd = [*self._esphome_cmd, "--dashboard", "config", config_path]
+        if show_secrets:
+            cmd.append("--show-secrets")
         await self._stream_subprocess(cmd, client, message_id)
 
     @api_command("devices/logs")

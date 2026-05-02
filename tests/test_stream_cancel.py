@@ -334,3 +334,55 @@ async def test_validate_config_command_includes_dashboard_flag() -> None:
     await ctrl.validate_config(configuration="kitchen.yaml", client=MagicMock(), message_id="m3")
 
     assert captured == [["esphome", "--dashboard", "config", "kitchen.yaml"]]
+
+
+async def test_validate_config_omits_show_secrets_by_default() -> None:
+    """``--show-secrets`` is not appended unless the caller explicitly opts in.
+
+    Resolved secrets are sensitive — the legacy dashboard surfaced
+    them in screenshots / live streams when ``streamer_mode`` was
+    off. The new dashboard inverts the default so they only appear
+    when the user actively asks for them.
+    """
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    # show_secrets=False explicitly, mirroring the WS default.
+    await ctrl.validate_config(
+        configuration="kitchen.yaml",
+        show_secrets=False,
+        client=MagicMock(),
+        message_id="m4",
+    )
+
+    assert captured == [["esphome", "--dashboard", "config", "kitchen.yaml"]]
+
+
+async def test_validate_config_passes_show_secrets_flag_when_enabled() -> None:
+    """``show_secrets=True`` appends ``--show-secrets`` to the esphome command."""
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.validate_config(
+        configuration="kitchen.yaml",
+        show_secrets=True,
+        client=MagicMock(),
+        message_id="m5",
+    )
+
+    # ``--show-secrets`` lands at the end of the argv — esphome's
+    # subcommand parser accepts it on the ``config`` subparser, so
+    # placement after the YAML is correct.
+    assert captured == [
+        ["esphome", "--dashboard", "config", "kitchen.yaml", "--show-secrets"],
+    ]
