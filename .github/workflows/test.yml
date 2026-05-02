@@ -147,7 +147,10 @@ jobs:
         # CodSpeed App is installed on ``esphome/device-builder``
         # before merging this — without the install, the upload
         # step fails and the job goes red.
+        # ``mode: simulation`` matches esphome/esphome's job;
+        # CodSpeed deprecated ``instrumentation`` for v4.15+ and
+        # ``simulation`` is the recommended runner for new setups.
         uses: CodSpeedHQ/action@c381be0bfd20e844fb45594f6aa182ffcd94545c  # v4.15.0
         with:
-          mode: instrumentation
+          mode: simulation
           run: pytest tests/benchmarks --codspeed --no-cov

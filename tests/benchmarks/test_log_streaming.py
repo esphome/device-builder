@@ -8,9 +8,21 @@ the splitter shows up as visible UI lag during a flash — esptool
 emits hundreds of ``\r``-terminated progress lines per second on
 a fast LAN, and every one of them goes through this loop.
 
-CodSpeed runs these under instrumentation in CI so a benchmark
-delta against ``main`` flags performance regressions before they
-land. Mirrors the ``aioesphomeapi`` / ``habluetooth`` pattern.
+CodSpeed runs these in CI so a benchmark delta against ``main``
+flags performance regressions before they land. Mirrors the
+``aioesphomeapi`` / ``habluetooth`` pattern.
+
+Two benchmarks total:
+
+- ``test_iter_lines_with_progress_summary`` — parametrised across
+  the four streaming shapes the splitter has to handle (pure
+  ``\n``, pure ``\r``, ``\r\n``, mixed). One row per shape in the
+  CodSpeed report, easy to read which input pattern regressed.
+- ``test_iter_lines_with_progress_split_across_reads`` — feeds
+  the stream in 64-byte chunks so lines (and CRLF terminators in
+  particular) straddle read boundaries. Exercises the partial-
+  buffer + CRLF-deferral path that's hard to trigger from the
+  one-shot ``feed_data`` benchmarks above.
 """
 
 from __future__ import annotations
@@ -63,76 +75,62 @@ _MIXED_PAYLOAD = b"".join(
 )
 
 
-def test_iter_lines_with_progress_newline_only(benchmark: BenchmarkFixture) -> None:
-    r"""Pure ``\n``-delimited stream — the compile-output baseline.
+@pytest.mark.parametrize(
+    "label,payload,expected_count",
+    [
+        # Pure \n: compile-output baseline (most of a successful compile
+        # is plain newline-terminated lines).
+        ("newline_1k", _NEWLINE_PAYLOAD, 1000),
+        # Pure \r: esptool's progress writes during the flash phase.
+        # Exercises the bare-CR-vs-CRLF lookahead on every byte.
+        ("cr_progress_1k", _CR_PROGRESS_PAYLOAD, 1000),
+        # CRLF: Windows / PlatformIO output. Exercises the
+        # CRLF-coalesce path; on Windows the kernel hands us this
+        # shape because text-mode stdout translates \n → \r\n.
+        ("crlf_1k", _CRLF_PAYLOAD, 1000),
+        # Mixed: closest to the production shape during a real flash.
+        ("mixed_1k", _MIXED_PAYLOAD, 1000),
+    ],
+)
+def test_iter_lines_with_progress_summary(
+    benchmark: BenchmarkFixture,
+    label: str,
+    payload: bytes,
+    expected_count: int,
+) -> None:
+    """Run the splitter against each of the four streaming shapes.
 
-    Most of a successful compile is plain newline-terminated lines;
-    this is the steady-state shape the splitter has to handle
-    without overhead from the `\r` lookahead path.
+    One CodSpeed row per shape so a regression report shows which
+    input pattern moved without scattering the signal across
+    separately-named benchmarks.
     """
 
     @benchmark
     def run() -> None:
-        chunks = _drive(_NEWLINE_PAYLOAD)
-        assert chunks == 1000
-
-
-def test_iter_lines_with_progress_carriage_return(benchmark: BenchmarkFixture) -> None:
-    r"""Pure ``\r`` progress stream — esptool writing flash blocks.
-
-    esptool emits progress in this shape during the upload phase;
-    each chunk surfaces as its own log event so the user sees a
-    live percentage. The splitter's `\r`-lookahead path has to
-    decide bare-CR vs CRLF on every byte the kernel hands us.
-    """
-
-    @benchmark
-    def run() -> None:
-        chunks = _drive(_CR_PROGRESS_PAYLOAD)
-        assert chunks == 1000
-
-
-def test_iter_lines_with_progress_crlf(benchmark: BenchmarkFixture) -> None:
-    r"""Pure ``\r\n``-terminated stream — Windows / PlatformIO output.
-
-    ``\r\n`` coalesces into a single chunk per logical line. The
-    coalesce path is hot on Windows where Python's text-mode stdout
-    translates ``\n`` into ``\r\n`` on the wire.
-    """
-
-    @benchmark
-    def run() -> None:
-        chunks = _drive(_CRLF_PAYLOAD)
-        assert chunks == 1000
-
-
-def test_iter_lines_with_progress_mixed(benchmark: BenchmarkFixture) -> None:
-    r"""Realistic mid-flash mix of compile lines and progress chunks.
-
-    Closest to the production shape — ``esphome run`` writes
-    PlatformIO compile output (newline-terminated) mixed with
-    esptool's progress lines (``\r``-terminated) once it's
-    flashing. Tracks the all-up cost.
-    """
-
-    @benchmark
-    def run() -> None:
-        chunks = _drive(_MIXED_PAYLOAD)
-        assert chunks == 1000
+        chunks = _drive(payload)
+        assert chunks == expected_count
 
 
 def test_iter_lines_with_progress_split_across_reads(
     benchmark: BenchmarkFixture,
 ) -> None:
-    """Lines straddling read-buffer boundaries — the partial-buffer path.
+    r"""Lines straddling read-buffer boundaries — the partial-buffer + CRLF-deferral path.
 
-    The kernel hands us 4 KB chunks; lines longer than that arrive
-    as multiple reads that the splitter has to buffer until a
-    terminator shows up. CRLF straddling the boundary additionally
-    exercises the deferral logic. This benchmark feeds the stream
-    in 64-byte chunks to guarantee plenty of partial-buffer hits.
+    The kernel hands us 4 KB chunks; lines longer than that
+    arrive as multiple reads that the splitter has to buffer
+    until a terminator shows up. ``\r\n`` straddling the boundary
+    additionally exercises the CRLF-deferral logic — when ``\r``
+    lands at the end of a chunk we have to wait for the next read
+    to decide whether it's bare-CR or part of CRLF, otherwise the
+    pair would split into two events.
+
+    Use the CRLF payload (not pure ``\n``) so the deferral path
+    actually runs; feed the stream in 64-byte chunks to guarantee
+    plenty of partial-buffer hits — at 1000 ``\r\n``-terminated
+    lines averaging ~25 bytes each, every CRLF has a non-trivial
+    chance of landing on a chunk boundary.
     """
-    payload = _NEWLINE_PAYLOAD  # 1000 newline-terminated lines
+    payload = _CRLF_PAYLOAD
 
     async def _consume_split() -> int:
         reader = asyncio.StreamReader()
@@ -148,32 +146,3 @@ def test_iter_lines_with_progress_split_across_reads(
     def run() -> None:
         chunks = asyncio.run(_consume_split())
         assert chunks == 1000
-
-
-@pytest.mark.parametrize(
-    "label,payload,expected_count",
-    [
-        ("newline_1k", _NEWLINE_PAYLOAD, 1000),
-        ("cr_progress_1k", _CR_PROGRESS_PAYLOAD, 1000),
-        ("crlf_1k", _CRLF_PAYLOAD, 1000),
-        ("mixed_1k", _MIXED_PAYLOAD, 1000),
-    ],
-)
-def test_iter_lines_with_progress_summary(
-    benchmark: BenchmarkFixture,
-    label: str,
-    payload: bytes,
-    expected_count: int,
-) -> None:
-    """Parametrised summary across all four streaming shapes.
-
-    Gives CodSpeed a single comparable line per shape so the
-    instrumentation report shows which input pattern regressed (if
-    any) rather than burying the signal in four separately-named
-    benchmarks.
-    """
-
-    @benchmark
-    def run() -> None:
-        chunks = _drive(payload)
-        assert chunks == expected_count
