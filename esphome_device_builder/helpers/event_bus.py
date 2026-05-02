@@ -215,12 +215,10 @@ async def stream_events(
         with suppress(asyncio.QueueFull):
             queue.put_nowait((name, payload))
 
-    def _push_priority(name: str, payload: Any) -> None:
-        _push_priority_item((name, payload))
-
-    def _push_priority_item(item: _StreamItem | None) -> None:
+    def _force_enqueue(item: _StreamItem | None) -> None:
         # Evict oldest to make room — used for items that MUST land
-        # (terminal result, sentinel) so the drain loop always breaks.
+        # (terminal result, sentinel, terminate marker) so the drain
+        # loop always breaks.
         while True:
             try:
                 queue.put_nowait(item)
@@ -239,19 +237,14 @@ async def stream_events(
             queue.put_nowait((name, payload))
         except asyncio.QueueFull:
             # Backpressure exceeded — signal the drain to raise so
-            # the WS handler closes the connection. Terminate via
-            # ``_push_priority_item`` so the sentinel always lands
-            # even when the queue is saturated.
-            _push_priority_item(_TERMINATE_SENTINEL)
-
-    def _end() -> None:
-        _push_priority_item(None)
+            # the WS handler closes the connection.
+            _force_enqueue(_TERMINATE_SENTINEL)
 
     controls = StreamControls(
         push=_push,
-        push_priority=_push_priority,
+        push_priority=lambda name, payload: _force_enqueue((name, payload)),
         push_or_terminate=_push_or_terminate,
-        end=_end,
+        end=lambda: _force_enqueue(None),
     )
 
     def _on_event(event: Event) -> None:
