@@ -47,6 +47,11 @@ _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
     # at app construction so a broken frontend wheel surfaces a clear
     # RuntimeError instead of mysterious 404s. Runs once at startup.
     ("device_builder.py", "_register_frontend"),
+    # ``_start_ingress_site`` calls ``create_app`` (which stat-checks
+    # the boards-images directory) and binds a TCP socket. Both run
+    # once at HA-add-on startup as an aiohttp ``on_startup`` hook —
+    # the cost is paid once, not on the request path.
+    ("device_builder.py", "_start_ingress_site"),
 )
 
 
