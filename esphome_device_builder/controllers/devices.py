@@ -13,7 +13,18 @@ from typing import TYPE_CHECKING, Any
 
 from esphome import const
 from esphome.components.dashboard_import import import_config
-from esphome.dashboard.util.text import friendly_name_slugify
+
+try:
+    # ``friendly_name_slugify`` lives in ``esphome.helpers`` from
+    # esphome/esphome#16206 onwards so it survives the legacy
+    # dashboard's eventual removal. Older esphome releases still
+    # expose it from ``esphome.dashboard.util.text``; fall through
+    # only for that back-compat case so we don't carry a hard
+    # dependency on the dashboard package once it's gone.
+    from esphome.helpers import friendly_name_slugify
+except ImportError:  # pragma: no cover — covered by the import below
+    from esphome.dashboard.util.text import friendly_name_slugify
+
 from esphome.helpers import sort_ip_addresses
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 
