@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
+
 from esphome_device_builder.controllers.firmware import _mark_job_terminal
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
 
@@ -68,3 +70,21 @@ def test_mark_job_terminal_overwrites_existing_completed_at() -> None:
 
     assert job.completed_at != "2020-01-01T00:00:00+00:00"
     assert job.status is JobStatus.FAILED
+
+
+def test_mark_job_terminal_rejects_non_terminal_status() -> None:
+    """Calling with QUEUED or RUNNING raises rather than silently stamping.
+
+    Stamping ``completed_at`` on a still-running job mis-orders the
+    dashboard's relative-time strings (the UI thinks the job
+    finished N seconds ago when it's still actively producing
+    output) and confuses the prune-on-shutdown path. Fail loudly on
+    the misuse instead.
+    """
+    for status in (JobStatus.QUEUED, JobStatus.RUNNING):
+        job = _job()
+        with pytest.raises(ValueError, match="non-terminal"):
+            _mark_job_terminal(job, status)
+        # Job state is left untouched — neither field gets written.
+        assert job.completed_at is None
+        assert job.status is JobStatus.RUNNING  # the seed value

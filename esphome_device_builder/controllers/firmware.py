@@ -89,6 +89,14 @@ _PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
 )
 
+# Terminal job states — a job in any of these isn't running and
+# isn't waiting to run. Used by ``_mark_job_terminal`` to validate
+# its argument and by the prune / clear / restore paths to identify
+# completed jobs.
+_TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
+    {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
+)
+
 # Per-job output cap for retained terminal jobs. Compile output for a
 # successful build runs ~3-10k lines; the head is mostly toolchain
 # noise that's rarely useful once the build finished. Live job output
@@ -150,7 +158,16 @@ def _mark_job_terminal(job: FirmwareJob, status: JobStatus) -> None:
     decides which event to fire and in what order relative to
     ``_persist_jobs`` / ``_prune_history`` so the existing observable
     sequencing is preserved.
+
+    Raises ``ValueError`` for any non-terminal *status* so a
+    stray call (e.g. ``_mark_job_terminal(job, JobStatus.RUNNING)``)
+    fails loudly instead of silently stamping ``completed_at`` on a
+    still-running job — that would mis-order the dashboard's
+    relative-time strings and confuse the prune-on-shutdown logic.
     """
+    if status not in _TERMINAL_JOB_STATUSES:
+        msg = f"_mark_job_terminal called with non-terminal status {status!r}"
+        raise ValueError(msg)
     job.status = status
     job.completed_at = datetime.now(UTC).isoformat()
 
@@ -699,7 +716,7 @@ class FirmwareController:
         If ``status`` is given, only remove jobs with that status.
         Otherwise removes completed, failed, and cancelled jobs.
         """
-        terminal = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
+        terminal = _TERMINAL_JOB_STATUSES
         to_remove = [
             jid
             for jid, job in self._jobs.items()
@@ -1307,7 +1324,7 @@ class FirmwareController:
         kept in a separate pool capped at ``_MAX_AUX_TERMINAL_JOBS``.
         Caller persists the result.
         """
-        terminal_states = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
+        terminal_states = _TERMINAL_JOB_STATUSES
 
         active: list[FirmwareJob] = []
         primary: list[FirmwareJob] = []
