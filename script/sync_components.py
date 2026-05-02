@@ -669,7 +669,15 @@ def build_catalog(
     # users still on the pre-platform YAML form. Runs after MDX
     # backfill so the umbrellas live alongside fully-populated
     # platform entries.
-    _inject_umbrella_entries(out)
+    #
+    # Skipped under ``--limit-component`` because the umbrella
+    # description enumerates every platform in *out* — on a filtered
+    # catalog that list would only reflect the surviving subset and
+    # mislead the reader. ``--limit-component`` is documented as a
+    # local-debugging knob, so debugging individual platform entries
+    # doesn't need the umbrellas anyway.
+    if not limit:
+        _inject_umbrella_entries(out)
 
     return out
 
