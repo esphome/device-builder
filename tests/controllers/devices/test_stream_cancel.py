@@ -400,7 +400,7 @@ async def test_validate_config_off_attaches_redactor_transform() -> None:
     strips those wrapped runs so the secret never leaves the
     server.
     """
-    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+    from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
 
     ctrl = _make_controller_with_settings(["esphome"])
     captured: dict[str, Any] = {}
@@ -450,7 +450,7 @@ def test_redact_concealed_secrets_replaces_wrapped_runs() -> None:
     recording the network tab, even if the visible glyphs were
     hidden by a hypothetical conceal-aware renderer.
     """
-    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+    from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
 
     raw = "  password: \x1b[8mhunter2\x1b[28m"
     assert _redact_concealed_secrets(raw) == "  password: <removed>"
@@ -469,7 +469,7 @@ def test_redact_concealed_secrets_handles_dashboard_literal_escape() -> None:
     ``ssid: \\033[8mrocketiot\\033[28m`` in the dialog instead
     of ``ssid: <removed>``.
     """
-    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+    from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
 
     # Build the literal four-character form by hand to avoid Python
     # interpreting ``\033`` as the octal escape for ESC.
@@ -480,7 +480,7 @@ def test_redact_concealed_secrets_handles_dashboard_literal_escape() -> None:
 
 def test_redact_concealed_secrets_handles_multiple_runs_per_line() -> None:
     """Multiple wrapped runs in one line all get redacted (non-greedy)."""
-    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+    from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
 
     raw = "ssid: \x1b[8mwifi-name\x1b[28m psk: \x1b[8msuper-secret\x1b[28m"
     assert _redact_concealed_secrets(raw) == "ssid: <removed> psk: <removed>"
@@ -494,7 +494,7 @@ def test_redact_concealed_secrets_leaves_unwrapped_lines_alone() -> None:
     every line. The pattern is anchored on ``\\x1b[8m...\\x1b[28m``
     so unrelated SGR runs (colours, bold, dim) pass through.
     """
-    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+    from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
 
     raw = "INFO Reading configuration kitchen.yaml..."
     assert _redact_concealed_secrets(raw) == raw

@@ -22,10 +22,8 @@ import pytest
 
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
-from esphome_device_builder.controllers.devices import (
-    DevicesController,
-    _apply_featured_presets,
-)
+from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices.helpers import _apply_featured_presets
 from esphome_device_builder.definitions import (
     _coerce_field_preset,
     _load_featured_bundle,

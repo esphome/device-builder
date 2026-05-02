@@ -129,11 +129,11 @@ def _patch_storage(monkeypatch: Any, tmp_path: Any, storage: Any) -> None:
     at ``tmp_path`` keeps the call inert for the test's duration.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.StorageJSON.load",
+        "esphome_device_builder.controllers.devices.controller.StorageJSON.load",
         lambda _path: storage,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.ext_storage_path",
+        "esphome_device_builder.controllers.devices.controller.ext_storage_path",
         lambda config: tmp_path / f"{config}.json",
     )
 

@@ -225,7 +225,7 @@ async def test_yaml_validates_returns_false_on_clean_nonzero_exit(
         return fake_proc
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
         fake_create,
     )
 
@@ -253,7 +253,7 @@ async def test_yaml_validates_propagates_unexpected_exception(
         raise FileNotFoundError("esphome")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.create_subprocess_exec",
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
         fake_create,
     )
 

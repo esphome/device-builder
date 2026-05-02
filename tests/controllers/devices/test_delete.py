@@ -92,10 +92,11 @@ def _patch_ext_storage(monkeypatch: Any, tmp_path: Path) -> None:
     on-disk sidecar laid down by ``_seed_device`` is the one the
     delete path reads.
     """
+    fake = lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json"  # noqa: E731
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.ext_storage_path",
-        lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json",
+        "esphome_device_builder.controllers.devices.controller.ext_storage_path", fake
     )
+    monkeypatch.setattr("esphome_device_builder.controllers.devices.helpers.ext_storage_path", fake)
 
 
 @pytest.mark.asyncio

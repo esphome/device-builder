@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers import devices as devices_module
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import controller as devices_module
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 

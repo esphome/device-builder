@@ -41,7 +41,7 @@ def _make_controller(monkeypatch: Any, board_id: str = "esp32-c3-devkitm-1") -> 
 def _stub_get_metadata(monkeypatch: Any, payload: dict[str, Any]) -> None:
     """Make ``get_device_metadata`` return *payload* — no JSON IO."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.get_device_metadata",
+        "esphome_device_builder.controllers.devices.controller.get_device_metadata",
         lambda _config_dir, _filename: payload,
     )
 
