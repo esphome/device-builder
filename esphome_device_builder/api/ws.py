@@ -17,6 +17,7 @@ from esphome.const import __version__ as esphome_version
 
 from ..constants import __version__
 from ..controllers.auth import AuthError
+from ..helpers.api import CommandError
 from ..helpers.auth import extract_bearer_token
 from ..models import (
     CommandMessage,
@@ -162,6 +163,11 @@ class WebSocketClient:
             result = await handler(client=self, message_id=cmd.message_id, **cmd.args)
             await self.send_result(cmd.message_id, result)
         except AuthError as err:
+            await self.send_error(cmd.message_id, err.code, err.message)
+        except CommandError as err:
+            # Deliberate user-facing failure raised by a handler; pass
+            # the code + message through verbatim so the client can
+            # show something actionable instead of "Command failed".
             await self.send_error(cmd.message_id, err.code, err.message)
         except Exception:
             _LOGGER.exception("Error handling command %s", cmd.command)

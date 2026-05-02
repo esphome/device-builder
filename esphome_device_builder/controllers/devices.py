@@ -17,7 +17,7 @@ from esphome.dashboard.util.text import friendly_name_slugify
 from esphome.helpers import sort_ip_addresses
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 
-from ..helpers.api import api_command
+from ..helpers.api import CommandError, api_command
 from ..helpers.config_hash import compute_yaml_config_hash
 from ..helpers.device_yaml import (
     generate_device_yaml,
@@ -34,6 +34,7 @@ from ..models import (
     Device,
     DevicesResponse,
     DeviceState,
+    ErrorCode,
     EventType,
     JobStatus,
     JobType,
@@ -577,21 +578,39 @@ class DevicesController:
         **kwargs: Any,
     ) -> dict:
         """Import / adopt a discovered device."""
+        configuration = f"{name}.yaml"
+        path = self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            import_config,
-            self._db.settings.rel_path(f"{name}.yaml"),
-            name,
-            friendly_name,
-            project_name,
-            package_import_url,
-            const.CONF_WIFI,
-            encryption,
-        )
+        try:
+            await loop.run_in_executor(
+                None,
+                import_config,
+                path,
+                name,
+                friendly_name,
+                project_name,
+                package_import_url,
+                const.CONF_WIFI,
+                encryption,
+            )
+        except FileExistsError as exc:
+            # ``import_config`` refuses to overwrite an existing YAML.
+            # Surface this as a user-facing error so the dialog can
+            # show "Configuration <file> already exists" instead of
+            # the WS layer's generic "Command failed".
+            msg = f"Configuration {configuration} already exists"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
 
-        await self._scanner.scan()
-        return {"configuration": f"{name}.yaml"}
+        # Picking up the new YAML is best-effort — if the scanner
+        # hiccups (e.g. a transient stat error on a network mount),
+        # the next periodic scan will catch it. We've already written
+        # the YAML, so failing the whole command here would lie to
+        # the user and trip a follow-up FileExistsError if they retry.
+        try:
+            await self._scanner.scan()
+        except Exception:
+            _LOGGER.exception("Scan after import failed; will pick up on next poll")
+        return {"configuration": configuration}
 
     @api_command("devices/ignore")
     async def toggle_ignore(self, *, name: str, ignore: bool = True, **kwargs: Any) -> None:
