@@ -100,21 +100,36 @@ _TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
 
 # Per-job output cap for retained terminal jobs. Compile output for a
 # successful build runs ~3-10k lines; the head is mostly toolchain
-# noise that's rarely useful once the build finished. Trim aggressively
-# once the job lands in a terminal state.
+# noise that's rarely useful once the build finished. Trim
+# aggressively once the job lands in a terminal state.
 _MAX_OUTPUT_LINES_RETAINED = 2000
 # Soft cap on ``job.output`` while a job is *still running*. The
 # post-completion trim only fires in the ``finally`` block, so a
 # misbehaving build that streams gigabytes of stderr (e.g. an
 # external_components fetch in a tight retry loop, an esptool stuck
 # on a chatty error) used to grow ``job.output`` without bound and
-# OOM the dashboard process before the subprocess ever exited. 50k
-# lines is comfortably above the worst-case successful build (~10k
-# lines) and a failing-compile-with-verbose-errors (~30k lines), but
-# bounds memory at ~5-10MB of strings even on the most adversarial
-# output. The post-completion trim still pulls the kept slice down
-# to ``_MAX_OUTPUT_LINES_RETAINED``.
-_MAX_OUTPUT_LINES_INFLIGHT = 50_000
+# OOM the dashboard process before the subprocess ever exited. The
+# cap is double the post-completion retention floor so a user
+# tailing a live build sees roughly twice the kept window during
+# the run before old lines start aging off — generous enough for a
+# typical tail-along, tight enough to bound memory at a few MB even
+# under adversarial output.
+#
+# Hysteresis: when the buffer crosses the upper cap we trim down to
+# ``_INFLIGHT_TRIM_KEEP`` (the post-completion retention floor),
+# leaving a ``cap - keep`` line gap before the next trim fires.
+# Trimming exactly to the cap would re-trim on every subsequent
+# appended line — each trim is an O(cap) list slice, so at 1M
+# lines/sec of adversarial output that becomes billions of element
+# copies per second and the runner stalls in the slice instead of
+# OOMing. The gap also keeps the user-visible buffer stable for
+# ``cap - keep`` lines at a time so a tail viewer doesn't see
+# rapid-fire "..." trim notices on every line. Choosing
+# ``keep == _MAX_OUTPUT_LINES_RETAINED`` makes the post-completion
+# trim a no-op for builds that already triggered the in-flight
+# trim — never a second round of context loss.
+_MAX_OUTPUT_LINES_INFLIGHT = _MAX_OUTPUT_LINES_RETAINED * 2
+_INFLIGHT_TRIM_KEEP = _MAX_OUTPUT_LINES_RETAINED
 _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
 
 # Subdirectories of ``<config_dir>/.esphome/`` that ``RESET_BUILD_ENV``
@@ -1056,11 +1071,11 @@ class FirmwareController:
                 # repeating error) holds every line in memory until
                 # the subprocess exits — only the post-completion
                 # ``_trim_job_output`` in the ``finally`` block ever
-                # ran. Trimming here keeps the buffer bounded while
-                # still leaving plenty of recent lines for a user
-                # tailing the build.
+                # ran. Trim down to a smaller keep size than the
+                # trigger so the next 10k appends don't each pay an
+                # O(cap) slice copy.
                 if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
-                    _trim_job_output(job, keep=_MAX_OUTPUT_LINES_INFLIGHT)
+                    _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
                 self._db.bus.fire(
                     EventType.JOB_OUTPUT,
                     {"job_id": job.job_id, "line": line},

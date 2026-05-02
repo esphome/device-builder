@@ -16,6 +16,7 @@ process OOMs first.
 from __future__ import annotations
 
 from esphome_device_builder.controllers.firmware import (
+    _INFLIGHT_TRIM_KEEP,
     _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_OUTPUT_LINES_RETAINED,
     _OUTPUT_TRIM_NOTICE_PREFIX,
@@ -99,47 +100,83 @@ def test_trim_folds_elided_count_across_repeated_trims() -> None:
 # ----------------------------------------------------------------------
 
 
-def test_inflight_cap_is_higher_than_retention_cap() -> None:
-    """Sanity: in-flight cap leaves headroom over the retention floor.
+def test_inflight_cap_invariants() -> None:
+    """Sanity: cap > keep >= retention.
 
-    A user tailing a live build wouldn't appreciate the buffer
-    snapping back to 2000 lines every few seconds, so the in-flight
-    cap is intentionally larger. Lock the relationship in place so a
-    future tweak doesn't accidentally invert it.
+    Two rules locked in one block so a future tweak inverting either
+    surfaces immediately:
+
+    - ``_MAX_OUTPUT_LINES_INFLIGHT`` > ``_INFLIGHT_TRIM_KEEP`` is the
+      hysteresis gap. Equality means every line above the cap pays
+      an O(cap) slice copy.
+    - ``_INFLIGHT_TRIM_KEEP`` >= ``_MAX_OUTPUT_LINES_RETAINED`` so the
+      post-completion trim is at most a no-op for builds that
+      already triggered the in-flight trim — never a second round of
+      context loss. Equality is fine; ``keep`` smaller than
+      ``retained`` is the regression we're guarding against.
     """
-    assert _MAX_OUTPUT_LINES_INFLIGHT > _MAX_OUTPUT_LINES_RETAINED
+    assert _MAX_OUTPUT_LINES_INFLIGHT > _INFLIGHT_TRIM_KEEP
+    assert _INFLIGHT_TRIM_KEEP >= _MAX_OUTPUT_LINES_RETAINED
 
 
-def test_trim_with_keep_inflight_preserves_more_lines() -> None:
-    """Passing ``keep=_MAX_OUTPUT_LINES_INFLIGHT`` keeps the tail at that size."""
+def test_trim_with_keep_inflight_preserves_keep_window() -> None:
+    """Trimming with ``keep=_INFLIGHT_TRIM_KEEP`` lands on the keep size."""
     excess = 1000
     job = _job(_MAX_OUTPUT_LINES_INFLIGHT + excess)
 
-    _trim_job_output(job, keep=_MAX_OUTPUT_LINES_INFLIGHT)
+    _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
 
-    assert len(job.output) == _MAX_OUTPUT_LINES_INFLIGHT + 1
-    assert f"{excess} earlier" in job.output[0]
+    # +1 for the elided-notice prepended at the head.
+    assert len(job.output) == _INFLIGHT_TRIM_KEEP + 1
+    # Dropped count = original size - keep window.
+    expected_dropped = _MAX_OUTPUT_LINES_INFLIGHT + excess - _INFLIGHT_TRIM_KEEP
+    assert f"{expected_dropped} earlier" in job.output[0]
     # Last line of the original buffer survives.
     assert job.output[-1] == f"line {_MAX_OUTPUT_LINES_INFLIGHT + excess - 1}\n"
+
+
+def test_inflight_hysteresis_amortises_trim_cost() -> None:
+    """Trimming below the cap creates a gap before the next trim fires.
+
+    Catches a regression where the streaming loop trims down to the
+    cap itself — every subsequent appended line crosses the
+    threshold again and pays an O(cap) slice copy. With the
+    hysteresis gap, the next ``cap - keep`` lines append without
+    triggering a trim.
+    """
+    job = _job(_MAX_OUTPUT_LINES_INFLIGHT + 1)
+    _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
+    # Buffer is now at keep + 1 (the elided notice). Need to add
+    # ``cap - keep`` lines before the next len > cap check trips.
+    headroom = _MAX_OUTPUT_LINES_INFLIGHT - _INFLIGHT_TRIM_KEEP
+    assert headroom > 0, "no hysteresis gap — every line will re-trim"
+    # Simulate the streaming loop's check explicitly: appending
+    # ``headroom - 1`` more lines stays under the cap; ``headroom``
+    # crosses it.
+    for i in range(headroom - 1):
+        job.output.append(f"new {i}\n")
+    assert len(job.output) <= _MAX_OUTPUT_LINES_INFLIGHT
 
 
 def test_inflight_trim_followed_by_default_trim_chains_elided_counts() -> None:
     """Mid-run trim → terminal trim: both contributions counted.
 
     Mirrors the production flow: streaming loop trims the buffer
-    when it crosses the in-flight cap, then ``_trim_job_output`` is
-    called again in the ``finally`` block with the default
-    (smaller) retention cap.
+    when it crosses the in-flight cap (down to ``_INFLIGHT_TRIM_KEEP``),
+    then ``_trim_job_output`` is called again in the ``finally``
+    block with the default (smaller) retention cap.
     """
     job = _job(_MAX_OUTPUT_LINES_INFLIGHT + 100)
 
-    # Mid-run trim: drops 100 lines (above the in-flight cap).
-    _trim_job_output(job, keep=_MAX_OUTPUT_LINES_INFLIGHT)
-    # Post-completion trim: drops the difference between in-flight
-    # and retention caps.
+    # Mid-run trim: drops down to keep window.
+    _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
+    # Post-completion trim: drops the difference between keep and
+    # retention caps.
     _trim_job_output(job)
 
     assert len(job.output) == _MAX_OUTPUT_LINES_RETAINED + 1
     assert job.output[0].startswith(_OUTPUT_TRIM_NOTICE_PREFIX)
-    expected_total = 100 + (_MAX_OUTPUT_LINES_INFLIGHT - _MAX_OUTPUT_LINES_RETAINED)
+    expected_total = (_MAX_OUTPUT_LINES_INFLIGHT + 100 - _INFLIGHT_TRIM_KEEP) + (
+        _INFLIGHT_TRIM_KEEP - _MAX_OUTPUT_LINES_RETAINED
+    )
     assert f"{expected_total} earlier" in job.output[0]
