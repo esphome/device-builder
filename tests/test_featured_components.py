@@ -16,17 +16,22 @@ Covers four layers:
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
-from esphome_device_builder.controllers.devices import _apply_featured_presets
+from esphome_device_builder.controllers.devices import (
+    DevicesController,
+    _apply_featured_presets,
+)
 from esphome_device_builder.definitions import (
     _coerce_field_preset,
     _load_featured_bundle,
     _load_featured_component,
 )
+from esphome_device_builder.helpers.yaml import generate_component_yaml
 from esphome_device_builder.models import ComponentCategory
 
 # ---------------------------------------------------------------------------
@@ -289,6 +294,47 @@ async def test_apply_presets_suggestion_rejects_off_list(
         _apply_featured_presets(record, {"pin": 99})
 
 
+async def test_apply_presets_suggestion_accepts_rich_pin_form(
+    catalog: ComponentCatalog,
+) -> None:
+    """
+    Frontend submits pin fields as the rich ``{number, mode, ...}`` shape.
+
+    The suggestion check must compare on the GPIO number so a
+    manifest's ``suggestions: [4, 5]`` accepts ``{"number": 5, ...}``
+    too — and the rich dict rides through to the merger unchanged so
+    the YAML keeps its full pin block.
+    """
+    record = catalog.get_featured_record("featured.apollo-esk-1.pir-motion")
+    assert record is not None
+    rich_pin = {"number": 5, "mode": {"input": True}}
+    out = _apply_featured_presets(record, {"pin": rich_pin})
+    assert out["pin"] == rich_pin
+
+
+async def test_apply_presets_suggestion_rejects_rich_pin_off_list(
+    catalog: ComponentCatalog,
+) -> None:
+    """Rich pin form whose ``number`` is off-list still raises."""
+    record = catalog.get_featured_record("featured.apollo-esk-1.pir-motion")
+    assert record is not None
+    with pytest.raises(ValueError, match="must be one of"):
+        _apply_featured_presets(record, {"pin": {"number": 99, "mode": {"input": True}}})
+
+
+async def test_apply_presets_locked_accepts_rich_pin_form(
+    catalog: ComponentCatalog,
+) -> None:
+    """A bare-int locked pin must also accept the rich-form echo from the frontend."""
+    record = catalog.get_featured_record("featured.sonoff-basic.relay")
+    assert record is not None
+    rich_pin = {"number": 12, "mode": {"output": True}}
+    out = _apply_featured_presets(record, {"pin": rich_pin})
+    # Locked wins — the merged value is the manifest's bare GPIO, not the
+    # frontend's rich echo (the locked branch always replaces the value).
+    assert out["pin"] == 12
+
+
 async def test_apply_presets_suggestion_falls_back_to_value(
     catalog: ComponentCatalog,
 ) -> None:
@@ -320,3 +366,166 @@ async def test_apply_presets_locked_without_value_fails_fast(
     record.featured.fields["pin"] = FieldPreset(value=None, locked=True)
     with pytest.raises(ValueError, match="locked=true without a value"):
         _apply_featured_presets(record, {})
+
+
+# ---------------------------------------------------------------------------
+# YAML generation: top-level id auto-gen + nested entity sub-block autofill
+# ---------------------------------------------------------------------------
+
+
+async def test_generate_yaml_drops_dashed_id_via_empty_marker(
+    catalog: ComponentCatalog,
+) -> None:
+    """An ``id: ""`` marker triggers the standard ``_generate_id`` auto-fill.
+
+    ``add_component`` uses this for featured components so the frontend's
+    dashed catalog-derived suggestion is replaced by a clean
+    ``<unqualified>[_<name_slug>]``.
+    """
+    component = await catalog.get_component(component_id="switch.gpio")
+    assert component is not None
+    yaml = generate_component_yaml(component, {"pin": 12, "name": "Relay", "id": ""})
+    assert "id: gpio_relay" in yaml
+    assert "-" not in yaml.split("id: ")[1].splitlines()[0]
+
+
+async def test_generate_yaml_autofills_subentity_name_and_id(
+    catalog: ComponentCatalog,
+) -> None:
+    """Multi-sensor parents get ``name`` + ``id`` filled in on each reading.
+
+    HLW8012-style components tag each reading with ``platform_type``; an
+    empty ``current: {device_class: current}`` block must come back with
+    a name and id or the sub-sensor won't surface in HA.
+    """
+    component = await catalog.get_component(component_id="sensor.hlw8012")
+    assert component is not None
+    yaml = generate_component_yaml(
+        component,
+        {
+            "cf_pin": 3,
+            "cf1_pin": 4,
+            "sel_pin": 5,
+            "model": "BL0937",
+            "id": "",
+            "current": {"device_class": "current", "unit_of_measurement": "A"},
+            "energy": {"device_class": "energy"},
+        },
+    )
+    # Top-level id auto-generated from the bare component stem.
+    assert "id: hlw8012" in yaml
+    # Sub-entities get a default ``name`` (from the entry label) and a
+    # ``<parent_id>_<key>`` id, prepended ahead of user-supplied keys.
+    assert "name: Current" in yaml
+    assert "id: hlw8012_current" in yaml
+    assert "name: Energy" in yaml
+    assert "id: hlw8012_energy" in yaml
+
+
+async def test_generate_yaml_preserves_user_supplied_subentity_name(
+    catalog: ComponentCatalog,
+) -> None:
+    """The autofill only fills gaps — it never overwrites user input."""
+    component = await catalog.get_component(component_id="sensor.hlw8012")
+    assert component is not None
+    yaml = generate_component_yaml(
+        component,
+        {
+            "cf_pin": 3,
+            "id": "plug",
+            "current": {"name": "Plug Current", "id": "plug_amps"},
+        },
+    )
+    assert "name: Plug Current" in yaml
+    assert "id: plug_amps" in yaml
+    # And the auto-id prefix tracks the user's chosen parent id.
+    assert "id: plug" in yaml
+
+
+async def test_generate_yaml_skips_autofill_for_non_entity_subblocks(
+    catalog: ComponentCatalog,
+) -> None:
+    """Plain scalars / non-entity nested groups pass through untouched.
+
+    Only entries with ``platform_type`` get the name/id autofill — a
+    bare ``model: BL0937`` scalar must never grow a synthetic name.
+    """
+    component = await catalog.get_component(component_id="sensor.hlw8012")
+    assert component is not None
+    # A nested entry without platform_type should still emit verbatim.
+    yaml = generate_component_yaml(
+        component,
+        {"cf_pin": 3, "id": "", "model": "BL0937"},
+    )
+    # ``model`` is a plain scalar — no name/id should attach to it.
+    assert "name: Model" not in yaml
+    assert "id: hlw8012_model" not in yaml
+
+
+# ---------------------------------------------------------------------------
+# add_component integration: featured-id reset + end-to-end YAML
+# ---------------------------------------------------------------------------
+
+
+def _make_controller(catalog: ComponentCatalog, tmp_path: Any) -> DevicesController:
+    """Build a DevicesController with just enough plumbing for ``add_component``."""
+    ctrl = DevicesController.__new__(DevicesController)
+    ctrl._db = MagicMock()
+    ctrl._db.settings.rel_path = lambda name: tmp_path / name
+    ctrl._db.components = catalog
+    ctrl._scanner = MagicMock()
+    ctrl._scanner.scan = AsyncMock()
+    return ctrl
+
+
+async def test_add_component_featured_resets_dashed_id(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """Frontend's dashed featured suggestion gets replaced by the standard auto-id."""
+    (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\n", "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="plug.yaml",
+        component_id="featured.athom-smart-plug-v3.power-monitor",
+        fields={
+            "id": "featured_athom-smart-plug-v3_power-monitor_1",
+            "current": {"device_class": "current"},
+        },
+    )
+
+    assert "id: hlw8012" in response.yaml
+    assert "featured_athom-smart-plug-v3" not in response.yaml
+    # Sub-entity autofill rides through the merge step.
+    assert "name: Current" in response.yaml
+    assert "id: hlw8012_current" in response.yaml
+
+
+async def test_add_component_featured_keeps_user_typed_id(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """A clean user-typed id (no dashes) survives the featured id-reset."""
+    (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\n", "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="plug.yaml",
+        component_id="featured.sonoff-basic.relay",
+        fields={"pin": 12, "name": "Relay", "id": "main_relay"},
+    )
+
+    assert "id: main_relay" in response.yaml
+
+
+async def test_add_component_featured_unknown_id_raises(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """An unknown ``featured.*`` id surfaces as a clear ValueError."""
+    ctrl = _make_controller(catalog, tmp_path)
+
+    with pytest.raises(ValueError, match="Unknown featured component"):
+        await ctrl.add_component(
+            configuration="plug.yaml",
+            component_id="featured.no-such-board.x",
+            fields={},
+        )

@@ -119,6 +119,38 @@ _PLATFORM_DOMAINS: frozenset[str] = frozenset(
 # ``core`` is the indexing-only metadata block in esphome.json.
 _HIDDEN_TOP_LEVEL: frozenset[str] = frozenset({"core"})
 
+# Synthetic umbrella entries for legacy bare-key domains. Both ``ota:``
+# and ``time:`` accept a legacy bare-mapping form that predates the
+# platform-based shape — bare ``ota:`` implicitly uses the ``esphome``
+# OTA platform, bare ``time:`` implicitly uses ``homeassistant``. The
+# catalog only ships qualified ``<domain>.<platform>`` entries, so a
+# ``get_component("ota")`` lookup or an ``ota`` value in
+# ``loaded_integrations`` previously had no exact-id hit. The
+# umbrella entries fill that gap with a description that names the
+# implicit default platform and lists the platforms available today.
+#
+# The injector iterates the freshly-built catalog at sync time so
+# the platform list in the description stays accurate as platforms
+# come and go upstream.
+_UMBRELLA_ENTRIES: tuple[dict[str, str], ...] = (
+    {
+        "id": "ota",
+        "name": "OTA Updates",
+        "category": "ota",
+        "default_platform": "esphome",
+        "summary": "Over-the-Air firmware updates",
+        "docs_url": "https://esphome.io/components/ota/",
+    },
+    {
+        "id": "time",
+        "name": "Time Source",
+        "category": "time",
+        "default_platform": "homeassistant",
+        "summary": "Time source / real-time clock for the device",
+        "docs_url": "https://esphome.io/components/time/",
+    },
+)
+
 # Map prebuilt-schema ``type`` strings to our ConfigEntryType enum.
 # Things not in this table fall through to STRING.
 _TYPE_MAP: dict[str, str] = {
@@ -632,6 +664,21 @@ def build_catalog(
     # ``ota.http_request``).
     _backfill_descriptions_from_mdx(out)
 
+    # Synthesise umbrella entries for legacy bare-key domains so that
+    # ``get_component("ota")`` / ``get_component("time")`` resolve for
+    # users still on the pre-platform YAML form. Runs after MDX
+    # backfill so the umbrellas live alongside fully-populated
+    # platform entries.
+    #
+    # Skipped under ``--limit-component`` because the umbrella
+    # description enumerates every platform in *out* — on a filtered
+    # catalog that list would only reflect the surviving subset and
+    # mislead the reader. ``--limit-component`` is documented as a
+    # local-debugging knob, so debugging individual platform entries
+    # doesn't need the umbrellas anyway.
+    if not limit:
+        _inject_umbrella_entries(out)
+
     return out
 
 
@@ -702,6 +749,63 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
             backfilled_names,
             backfilled_components,
             backfilled_fields,
+        )
+
+
+def _inject_umbrella_entries(entries: list[dict]) -> None:
+    """
+    Add synthetic catalog entries for legacy bare-key domains.
+
+    See ``_UMBRELLA_ENTRIES`` for the configured domains and their
+    implicit default platforms. The description for each umbrella
+    lists every platform present in *entries* under that domain so
+    the text stays in sync with the schema as platforms are added or
+    removed. Image URL is borrowed from the default platform's entry
+    when available so the umbrella renders with the same icon.
+
+    Skips an umbrella whose domain id already exists (defensive) or
+    whose configured default platform is missing from the catalog —
+    the latter would leave the description claiming a default that
+    can't actually be selected.
+    """
+    by_id: dict[str, dict] = {e["id"]: e for e in entries}
+    for spec in _UMBRELLA_ENTRIES:
+        domain = spec["id"]
+        if domain in by_id:
+            continue
+        default_qualified = f"{domain}.{spec['default_platform']}"
+        default_entry = by_id.get(default_qualified)
+        if default_entry is None:
+            _LOGGER.warning(
+                "Skipping %s umbrella entry: default platform %s not in catalog",
+                domain,
+                default_qualified,
+            )
+            continue
+        platforms = sorted(cid.split(".", 1)[1] for cid in by_id if cid.startswith(f"{domain}."))
+        platforms_csv = ", ".join(f"`{p}`" for p in platforms)
+        description = (
+            f"{spec['summary']}. When `{domain}:` is configured as a bare "
+            f"mapping (no `- platform:` list — the legacy form), ESPHome "
+            f"implicitly uses the `{spec['default_platform']}` platform. "
+            f"Modern configs select a platform explicitly: available "
+            f"platforms are {platforms_csv}."
+        )
+        umbrella: dict[str, Any] = {
+            "id": domain,
+            "name": spec["name"],
+            "description": description,
+            "category": spec["category"],
+            "docs_url": spec["docs_url"],
+        }
+        if default_entry.get("image_url"):
+            umbrella["image_url"] = default_entry["image_url"]
+        entries.append(umbrella)
+        _LOGGER.info(
+            "Added umbrella entry %s (default: %s, platforms: %d)",
+            domain,
+            spec["default_platform"],
+            len(platforms),
         )
 
 

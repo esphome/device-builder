@@ -121,6 +121,11 @@ class EditorController:
         Returns the in-memory `content` for the file currently being edited
         and falls back to reading from disk for any other path the subprocess
         asks about (e.g. files pulled in via `!include`).
+
+        Synchronous on purpose — performs ``Path.resolve`` (realpath
+        syscall) and a blocking ``read_text`` for ``!include`` files.
+        Always invoke via ``asyncio.to_thread`` from the event loop;
+        the in-line call site in ``_validate_locked`` does that.
         """
         cfg_dir = Path(self._db.settings.config_dir).resolve()
         try:
@@ -199,7 +204,13 @@ class EditorController:
 
             msg_type = msg.get("type")
             if msg_type == "read_file":
-                file_content = self._resolve_file(msg.get("path", ""), configuration, content)
+                # ``_resolve_file`` does ``Path.resolve`` (realpath
+                # syscall) and a blocking ``read_text`` for
+                # ``!include`` files. Push to a worker thread so a
+                # slow / large include doesn't stall the event loop.
+                file_content = await asyncio.to_thread(
+                    self._resolve_file, msg.get("path", ""), configuration, content
+                )
                 response = {"type": "file_response", "content": file_content}
                 proc.stdin.write(dumps(response) + b"\n")
                 await proc.stdin.drain()

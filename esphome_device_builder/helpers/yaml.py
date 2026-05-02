@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -104,60 +103,6 @@ def rewrite_esphome_name(yaml: str, old_name: str, new_name: str) -> str:
     return "".join(lines) if changed else yaml
 
 
-def append_yaml_block(yaml_path: Path, block: str) -> str:
-    """Append *block* to the YAML file at *yaml_path* and return the full new content."""
-    current = yaml_path.read_text(encoding="utf-8") if yaml_path.exists() else ""
-    separator = "\n" if current and not current.endswith("\n\n") else ""
-    new_content = current + separator + block
-    yaml_path.write_text(new_content, encoding="utf-8")
-    return new_content
-
-
-def build_component_yaml(template: str, fields: dict[str, Any]) -> str:
-    """Fill a component template and return the rendered YAML block (legacy)."""
-    return _fill_template(template, fields)
-
-
-def build_automation_yaml(
-    yaml_path: Path,
-    target_component_name: str,
-    trigger: str,
-    actions: list[dict[str, Any]],
-) -> str:
-    """Append an automation block to the named component and return full YAML."""
-    current = yaml_path.read_text(encoding="utf-8") if yaml_path.exists() else ""
-
-    action_lines = []
-    for call in actions:
-        action_id = call["action"]
-        action_fields = call.get("fields", {})
-        action_lines.append(f"        - {action_id}:")
-        for k, v in action_fields.items():
-            action_lines.append(f"            {k}: {v}")
-
-    trigger_block = f"    {trigger}:\n" + "\n".join(action_lines) + "\n"
-
-    name_pattern = re.compile(
-        r"^(\s+name:\s+" + re.escape(target_component_name) + r"\s*)$",
-        re.MULTILINE,
-    )
-    match = None
-    for m in name_pattern.finditer(current):
-        match = m
-
-    if match:
-        insert_pos = match.end()
-        new_content = current[:insert_pos] + "\n" + trigger_block + current[insert_pos:]
-    else:
-        separator = "\n" if current and not current.endswith("\n\n") else ""
-        new_content = (
-            current + separator + f"# Automation for {target_component_name}\n" + trigger_block
-        )
-
-    yaml_path.write_text(new_content, encoding="utf-8")
-    return new_content
-
-
 def merge_component_yaml(
     existing: str,
     component: ComponentCatalogEntry,
@@ -197,8 +142,19 @@ def generate_component_yaml(
     Nested values in ``fields`` (dicts as values) are emitted as
     indented YAML mappings — frontend submits the full structure as a
     single ``fields`` argument, no separate sub-entries dict needed.
+
+    Two kinds of identifier auto-fill happen here:
+
+    - Top-level ``id`` when the caller explicitly passed ``id: ""``
+      (a marker that says "give me the default"). Result is
+      ``<unqualified>[_<name_slug>]``.
+    - Nested entity sub-blocks (entries marked with ``platform_type``,
+      e.g. HLW8012's ``current`` / ``energy`` / ``power`` / ``voltage``)
+      get a default ``name`` and ``id`` when the caller didn't set
+      one — without these the sub-sensor either won't surface in HA
+      (no name) or can't be referenced from automations (no id).
     """
-    lines: list[str] = []
+    fields = dict(fields)
     category = component.category
     comp_id = component.id
 
@@ -210,19 +166,51 @@ def generate_component_yaml(
         # share a stem across categories. ESPHome YAML expects the bare
         # platform stem under ``platform:``, so strip the qualifier.
         unqualified = comp_id.split(".", 1)[1] if "." in comp_id else comp_id
+    else:
+        unqualified = comp_id
+
+    # Resolve the top-level id once. We only emit it when the caller
+    # explicitly opted in by including ``id`` in fields; when they
+    # did but left it empty, fill in the auto-generated value here so
+    # nested entity sub-blocks can prefix their own ids consistently.
+    if "id" in fields and not fields["id"]:
+        fields["id"] = _generate_id(unqualified, fields.get("name"))
+    parent_id = fields.get("id") or _generate_id(unqualified, fields.get("name"))
+
+    # Auto-fill name + id on nested entity sub-blocks the caller left
+    # empty. ESPHome multi-sensor parents (HLW8012, BME280, ...)
+    # expose their readings as ``platform_type``-tagged ConfigEntry
+    # blocks; an unnamed sub-sensor won't surface in HA, and one
+    # without an id can't be referenced from automations.
+    for entry in component.config_entries:
+        if not entry.platform_type or not entry.config_entries:
+            continue
+        sub = fields.get(entry.key)
+        if not isinstance(sub, dict):
+            continue
+        if sub.get("name") and sub.get("id"):
+            continue
+        # Build a fresh dict with name/id at the front so the emitted
+        # YAML reads naturally (humans put name/id first).
+        autofill: dict[str, Any] = {}
+        if not sub.get("name"):
+            autofill["name"] = entry.label or entry.key.replace("_", " ").title()
+        if not sub.get("id"):
+            autofill["id"] = f"{parent_id}_{entry.key}"
+        autofill.update(sub)
+        fields[entry.key] = autofill
+
+    lines: list[str] = []
+    if is_platform:
         lines.append(f"{category}:")
         lines.append(f"  - platform: {unqualified}")
         indent = "    "
     else:
-        unqualified = comp_id
         lines.append(f"{comp_id}:")
         indent = "  "
 
     for key, value in fields.items():
-        emit_value = (
-            _generate_id(unqualified, fields.get("name")) if key == "id" and not value else value
-        )
-        lines.extend(_emit_field(key, emit_value, indent))
+        lines.extend(_emit_field(key, value, indent))
 
     return "\n".join(lines)
 
@@ -288,19 +276,6 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
         before += "\n"
     insertion = "\n".join(inner_lines) + "\n"
     return before + insertion + after
-
-
-def _fill_template(template: str, fields: dict[str, Any]) -> str:
-    """Replace ``{key}`` placeholders in a YAML template with field values."""
-    result = template
-    for key, value in fields.items():
-        result = result.replace(f"{{{key}}}", str(value))
-    lines = []
-    for line in result.splitlines(keepends=True):
-        if re.search(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}", line):
-            continue
-        lines.append(line)
-    return "".join(lines)
 
 
 def _format_yaml_value(value: Any) -> str:

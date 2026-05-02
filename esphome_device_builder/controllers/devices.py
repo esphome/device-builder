@@ -6,9 +6,11 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import shutil
+from collections.abc import Callable
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 from esphome import const
@@ -34,6 +36,7 @@ from ..helpers.device_yaml import (
     generate_device_yaml,
     get_api_encryption_key,
     load_device_yaml,
+    parse_esphome_meta,
     parse_platform_from_yaml,
 )
 from ..helpers.hostname import is_local_hostname, normalize_hostname
@@ -43,6 +46,7 @@ from ..helpers.yaml import merge_component_yaml, rewrite_esphome_name
 from ..models import (
     AddComponentResponse,
     AdoptableDevice,
+    ConfigEntryType,
     Device,
     DevicesResponse,
     DeviceState,
@@ -67,6 +71,78 @@ if TYPE_CHECKING:
     from .components import _FeaturedRecord
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _wipe_device_build_dir(configuration: str) -> None:
+    """Remove the per-device build dir if one exists.
+
+    Reads the canonical ``build_path`` off the StorageJSON sidecar
+    (set during compile) and ``shutil.rmtree``s it. No-op when the
+    sidecar is gone or the device has never been built. Used by
+    archive and delete; both treat compile output as dead weight.
+    """
+    storage_path = ext_storage_path(configuration)
+    storage = StorageJSON.load(storage_path)
+    if storage is not None and storage.build_path:
+        shutil.rmtree(storage.build_path, ignore_errors=True)
+
+
+def _remove_device_sidecars(config_dir: Path, configuration: str) -> None:
+    """Remove the StorageJSON sidecar and device-metadata entry.
+
+    Best-effort — failures are logged but don't propagate, so a
+    partial cleanup (e.g. permission error on one file) doesn't
+    block the rest of the archive / delete flow. Used by archive,
+    delete, and delete_archived; all three want a "leave no
+    trace under this filename" semantic at the end of their flow.
+    """
+    storage_path = ext_storage_path(configuration)
+    try:
+        storage_path.unlink(missing_ok=True)
+    except OSError:
+        _LOGGER.warning("Could not remove storage file for %s", configuration)
+    try:
+        remove_device_metadata(config_dir, configuration)
+    except Exception:
+        _LOGGER.warning("Could not remove metadata for %s", configuration)
+
+
+def _validate_archive_configuration(configuration: str) -> None:
+    """Reject anything that isn't a pure basename.
+
+    Defense-in-depth at the public-command boundary for archive /
+    unarchive / delete_archived. Each helper builds paths from the
+    user-supplied filename (``<config_dir>/archive/<configuration>``,
+    ``ext_storage_path(configuration)`` -> ``data_dir/storage/<configuration>.json``)
+    that don't all flow through ``Settings.rel_path`` — a value
+    containing path separators or ``..`` segments could resolve
+    outside the intended directory and be unlinked / overwritten.
+
+    Reject anything where ``Path(value).name != value`` (catches
+    ``../foo``, ``sub/foo``, backslash-separated paths on Windows),
+    the empty string, and the special path components ``.`` / ``..``
+    that pass the ``.name`` round-trip but are still traversal
+    vectors.
+    """
+    if not configuration:
+        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must not be empty")
+    if configuration in (".", ".."):
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            f"configuration must be a plain filename, not {configuration!r}",
+        )
+    if (
+        "/" in configuration
+        or "\\" in configuration
+        or "\x00" in configuration
+        or PurePosixPath(configuration).name != configuration
+        or PureWindowsPath(configuration).name != configuration
+    ):
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            f"configuration must be a plain filename without path separators, "
+            f"got {configuration!r}",
+        )
 
 
 class DevicesController:
@@ -168,16 +244,24 @@ class DevicesController:
         """
         Return ``--mdns/--dns-address-cache`` CLI args for *configuration*.
 
-        Empty list when the device is unknown, has no API integration
-        loaded, or has no cached IP available.
+        Empty list when the device is unknown, has no OTA-capable
+        integration loaded, or has no cached IP available.
         """
         target_name = configuration.removesuffix(".yaml").removesuffix(".yml")
         device = next((d for d in self._scanner.devices if d.name == target_name), None)
         if device is None:
             return []
-        # The CLI only consults the address cache through the API client;
-        # non-API devices flash via a different path that wouldn't read it.
-        if "api" not in device.loaded_integrations:
+        # The CLI only consults the address cache from upload paths
+        # that resolve via ``CORE.address_cache``. That used to be just
+        # the Native API OTA client (``espota2``), but esphome/esphome#16207
+        # added an HTTP OTA path through the ``web_server`` component
+        # that goes through the same resolver. Either integration is
+        # enough for the cache to be useful — passing the args to a
+        # build that doesn't read them is harmless. Devices loading
+        # neither (e.g. MQTT-only configs) flash via paths that don't
+        # take a host/port at all, so the cache args are noise there.
+        loaded = device.loaded_integrations
+        if "api" not in loaded and "web_server" not in loaded:
             return []
         return _build_address_cache_args(device, self._state_monitor)
 
@@ -339,21 +423,14 @@ class DevicesController:
     ) -> UpdateDeviceResponse:
         """Update device metadata (sidecar JSON, not the YAML file)."""
         filename = f"{name}.yaml"
-        loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
-
-        await loop.run_in_executor(
-            None,
-            lambda: set_device_metadata(
-                config_dir,
-                filename,
-                board_id=board_id,
-                friendly_name=friendly_name,
-                comment=comment,
-            ),
+        await self._persist_device_metadata_async(
+            filename,
+            board_id=board_id,
+            friendly_name=friendly_name,
+            comment=comment,
         )
 
-        meta = get_device_metadata(config_dir, filename)
+        meta = get_device_metadata(self._db.settings.config_dir, filename)
         return UpdateDeviceResponse(
             name=name,
             friendly_name=meta.get("friendly_name", name),
@@ -474,6 +551,76 @@ class DevicesController:
         """Delete a device and all associated files."""
         await self._delete_single(configuration)
         await self._scanner.scan()
+
+    @api_command("devices/archive")
+    async def archive_device(self, *, configuration: str, **kwargs: Any) -> None:
+        """Soft-delete a device — keep the YAML, wipe the build dir.
+
+        Moves the YAML to ``<config_dir>/archive/`` so the user
+        can ``unarchive`` later. Build dir, StorageJSON sidecar,
+        and device-metadata entry are all wiped so a future
+        ``configuration`` with the same filename starts from a
+        clean cache (per-filename keying would otherwise let the
+        new device inherit the archived one's stale state). See
+        ``_archive_single`` for the full rationale.
+        """
+        _validate_archive_configuration(configuration)
+        try:
+            await self._archive_single(configuration)
+        except FileNotFoundError as exc:
+            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._scanner.scan()
+
+    @api_command("devices/unarchive")
+    async def unarchive_device(self, *, configuration: str, **kwargs: Any) -> None:
+        """Restore an archived device's YAML to the configured config_dir.
+
+        The scanner's next sweep picks the file up and fires
+        ``DEVICE_ADDED`` so the dashboard's active list refreshes
+        without a manual reload.
+        """
+        _validate_archive_configuration(configuration)
+        try:
+            await self._unarchive_single(configuration)
+        except FileNotFoundError as exc:
+            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._scanner.scan()
+
+    @api_command("devices/list_archived")
+    async def list_archived(self, **kwargs: Any) -> list[dict[str, Any]]:
+        """List archived devices with their parsed name / friendly_name / comment.
+
+        Read-only — surfaces the contents of
+        ``<config_dir>/archive/`` for the dashboard's "Show
+        archived devices" toggle. Each entry carries enough info
+        for the UI to render a row + Unarchive / Delete-permanently
+        actions; full YAML / metadata is left on disk and is fetched
+        on demand if the user opens one.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._list_archived_sync)
+
+    @api_command("devices/delete_archived")
+    async def delete_archived(self, *, configuration: str, **kwargs: Any) -> None:
+        """Permanently delete an archived device's YAML.
+
+        The companion to ``archive`` for the case where the user
+        decided they really don't want this device back. Removes
+        ``<config_dir>/archive/<configuration>``. The StorageJSON
+        sidecar and device-metadata entry are usually already gone
+        (``archive`` wipes them on the way in); this command also
+        cleans up any orphan sidecars left over from legacy /
+        pre-existing archives, but skips that cleanup if an active
+        config of the same filename exists (its sidecars belong to
+        the live device). Surfaces ``CommandError(NOT_FOUND)``
+        when the archive entry is gone — symmetric with
+        ``unarchive``.
+        """
+        _validate_archive_configuration(configuration)
+        try:
+            await self._delete_archived_single(configuration)
+        except FileNotFoundError as exc:
+            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
 
     @api_command("devices/delete_bulk")
     async def delete_bulk(
@@ -662,6 +809,16 @@ class DevicesController:
                 raise ValueError(msg)
             underlying_component_id = record.underlying_id
             fields = _apply_featured_presets(record, fields)
+            # The frontend's catalog-derived id suggestion for featured
+            # components is the dashed ``featured_<board>_<local>``
+            # form (e.g. ``featured_athom-smart-plug-v3_power-monitor_1``),
+            # which ESPHome rejects. Reset to empty when the supplied
+            # id contains a dash so ``generate_component_yaml`` produces
+            # a valid auto-id from the underlying component + name —
+            # a user-typed custom id without dashes passes through.
+            user_id = fields.get("id")
+            if isinstance(user_id, str) and "-" in user_id:
+                fields["id"] = ""
 
         component = await self._db.components.get_component(component_id=underlying_component_id)
         if component is None:
@@ -696,6 +853,32 @@ class DevicesController:
         """Import / adopt a discovered device."""
         configuration = f"{name}.yaml"
         path = self._db.settings.rel_path(configuration)
+        # Honour the network type the discovery TXT advertised — an
+        # ESP32-PoE / Olimex / etc. broadcasts ``network=ethernet``
+        # and the imported template needs to start from
+        # ``ethernet:`` rather than the Wi-Fi default.
+        #
+        # Prefer the direct ``name`` → ``import_result`` lookup since
+        # factory firmware broadcasts with a MAC suffix
+        # (``apollo-plt-1-983300``), which keeps each entry unique
+        # per physical device even when multiple identical products
+        # share the same ``package_import_url``. The frontend
+        # pre-fills the adoption dialog with the discovery row's
+        # broadcast name, so this matches in the common path.
+        # Fall back to a ``package_import_url`` match only when the
+        # user edited the name during adoption — at that point the
+        # ``import_result`` key no longer matches. The fallback is
+        # technically ambiguous between identical-product devices,
+        # but those share the same ``network`` value so picking
+        # whichever lands first is correct in practice.
+        # Final fallback to Wi-Fi when no row matches at all (older
+        # factory firmware that didn't advertise the field, or a
+        # discovery row that was already purged).
+        adoptable = self.import_result.get(name) or next(
+            (d for d in self.import_result.values() if d.package_import_url == package_import_url),
+            None,
+        )
+        network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
         loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(
@@ -706,7 +889,7 @@ class DevicesController:
                 friendly_name,
                 project_name,
                 package_import_url,
-                const.CONF_WIFI,
+                network,
                 encryption,
             )
         except FileExistsError as exc:
@@ -798,14 +981,37 @@ class DevicesController:
         self,
         *,
         configuration: str,
+        show_secrets: bool = False,
         client: Any = None,
         message_id: str = "",
         **kwargs: Any,
     ) -> None:
-        """Validate a device YAML config. Streams output per-connection."""
+        """
+        Validate a device YAML config. Streams output per-connection.
+
+        ``show_secrets`` passes ``--show-secrets`` to ``esphome config``
+        so resolved ``!secret`` values appear in the output instead of
+        the default ``<removed>`` redaction. Default is ``False`` —
+        secrets only appear when the user actively asks for them.
+        Mirrors the legacy dashboard's ``streamer_mode`` semantics
+        but as a per-call opt-in rather than a global setting, so one
+        user wanting to see secrets in a multi-user deployment doesn't
+        change the default for everyone else.
+        """
         config_path = str(self._db.settings.rel_path(configuration))
         cmd = [*self._esphome_cmd, "--dashboard", "config", config_path]
-        await self._stream_subprocess(cmd, client, message_id)
+        line_transform: Callable[[str], str] | None = None
+        if show_secrets:
+            cmd.append("--show-secrets")
+        else:
+            # ``esphome config`` without ``--show-secrets`` doesn't
+            # redact — it wraps each ``password|key|psk|ssid`` value
+            # in the ANSI conceal SGR (8/28). Browsers don't honour
+            # that escape, so the resolved secret bytes were leaking
+            # plain into the validate dialog. Strip the wrapped runs
+            # before the line leaves the WS handler.
+            line_transform = _redact_concealed_secrets
+        await self._stream_subprocess(cmd, client, message_id, line_transform=line_transform)
 
     @api_command("devices/logs")
     async def stream_logs(
@@ -1061,10 +1267,30 @@ class DevicesController:
 
     async def _persist_device_ip_async(self, configuration: str, ip: str) -> None:
         """Save *ip* to the device-builder metadata sidecar."""
+        await self._persist_device_metadata_async(configuration, ip=ip)
+
+    async def _persist_device_metadata_async(self, configuration: str, **fields: Any) -> None:
+        """
+        Run a blocking ``set_device_metadata`` write on the default executor.
+
+        Centralises the ``loop.run_in_executor(None, lambda: set_device_metadata(
+        config_dir, configuration, **fields))`` boilerplate that every
+        async-context sidecar write was repeating. Callers pass the
+        same kwargs they'd hand directly to
+        ``controllers.config.set_device_metadata``; the helper takes
+        care of the loop lookup and the ``config_dir`` resolution
+        from the device builder's settings.
+
+        Stays a method (not a free function) because every call site
+        already needs ``self._db`` to reach the loop and config_dir
+        — pulling it out to the module level would make every caller
+        thread the same two values explicitly with no readability
+        win.
+        """
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
         await loop.run_in_executor(
-            None, lambda: set_device_metadata(config_dir, configuration, ip=ip)
+            None, lambda: set_device_metadata(config_dir, configuration, **fields)
         )
 
     def _on_version_change(self, name: str, version: str) -> None:
@@ -1281,12 +1507,7 @@ class DevicesController:
                 configuration,
             )
             return
-        loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
-        await loop.run_in_executor(
-            None,
-            lambda: set_device_metadata(config_dir, configuration, expected_config_hash=new_hash),
-        )
+        await self._persist_device_metadata_async(configuration, expected_config_hash=new_hash)
         _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
 
     def _sync_deployed_hash_after_flash(self, configuration: str) -> None:
@@ -1428,6 +1649,186 @@ class DevicesController:
         except Exception:
             _LOGGER.warning("Could not move metadata for %s", new_filename)
 
+    async def _archive_single(self, configuration: str) -> None:
+        """Soft-delete: move the YAML into ``<config_dir>/archive/`` and wipe build + sidecars.
+
+        Mirrors the legacy dashboard's archive flow with one
+        deliberate divergence: we also wipe the StorageJSON
+        sidecar and the device-metadata entry. The legacy
+        dashboard preserved them so unarchive could restore the
+        cached IP / version / hash, but the per-filename keying
+        means a future ``configuration`` with the same name would
+        inherit the archived device's stale state (loaded_integrations,
+        deployed_config_hash, address) until it's recompiled or
+        edited. Wiping on archive trades a few seconds of
+        "unknown state" after unarchive (the scanner + monitor
+        refill from the next mDNS broadcast) for full isolation
+        between archive and any future same-name device.
+
+        Build dir wipe matches what ``_delete_single`` does — an
+        archived device's compile output is dead weight (the
+        user can recompile after unarchive). The YAML itself
+        stays on disk so the operation is reversible.
+        """
+        config_path = self._db.settings.rel_path(configuration)
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+
+        def _archive_sync() -> None:
+            if not config_path.exists():
+                msg = f"File not found: {configuration}"
+                raise FileNotFoundError(msg)
+            archive_dir = config_dir / "archive"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            target = archive_dir / configuration
+            if target.exists():
+                # Same name already archived. We can't silently rename
+                # to ``<name> (2).yaml`` because the StorageJSON sidecar
+                # and metadata stay keyed on the original filename —
+                # a later unarchive of the suffixed copy would surface
+                # without its sidecar and lose the cached address /
+                # version / loaded_integrations. Refuse the operation
+                # and let the user resolve the collision explicitly
+                # (unarchive the existing copy or delete it).
+                msg = (
+                    f"Cannot archive {configuration}: an archived config "
+                    "with the same name already exists. Unarchive or "
+                    "permanently delete the existing archive first."
+                )
+                raise FileExistsError(msg)
+            # Wipe build dir first (same shape as delete), then
+            # move the YAML, then wipe the sidecars so a future
+            # same-name ``configuration`` starts from a clean
+            # cache. See the docstring for the full rationale.
+            _wipe_device_build_dir(configuration)
+            shutil.move(str(config_path), str(target))
+            _remove_device_sidecars(config_dir, configuration)
+
+        try:
+            await loop.run_in_executor(None, _archive_sync)
+        except FileExistsError as exc:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+
+    async def _unarchive_single(self, configuration: str) -> None:
+        """Move an archived YAML back into the active config_dir.
+
+        Refuses to clobber an existing active YAML — that case
+        means the user already created a new device under the same
+        filename, and silently overwriting it would surprise them.
+        Surface a ``CommandError`` instead so the dialog can prompt
+        for a different action.
+        """
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+        archive_path = config_dir / "archive" / configuration
+        target = self._db.settings.rel_path(configuration)
+
+        def _unarchive_sync() -> None:
+            if not archive_path.exists():
+                msg = f"Archived file not found: {configuration}"
+                raise FileNotFoundError(msg)
+            if target.exists():
+                msg = (
+                    f"Cannot unarchive {configuration}: an active config "
+                    f"with the same name already exists"
+                )
+                raise FileExistsError(msg)
+            shutil.move(str(archive_path), str(target))
+
+        try:
+            await loop.run_in_executor(None, _unarchive_sync)
+        except FileExistsError as exc:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+
+    def _list_archived_sync(self) -> list[dict[str, Any]]:
+        """Read ``<config_dir>/archive/`` and parse each YAML's meta block.
+
+        Returns one dict per archived YAML with the same name /
+        friendly_name / comment fields the active device list
+        carries, plus ``configuration`` so the dashboard can
+        address each entry. Files that don't parse are skipped
+        with a debug log — the archive dir is user-managed and
+        a stray non-YAML file shouldn't crash the listing.
+
+        When the YAML's ``esphome:`` block is sparse (e.g. friendly
+        name only ever lived in StorageJSON because the user wrote
+        it via the dashboard's edit dialog rather than the YAML),
+        fall back to the StorageJSON sidecar before degrading to
+        the bare filename. ``_archive_single`` wipes its own
+        sidecars on archive, so the fallback only matters for
+        legacy archives (created by the upstream ESPHome dashboard
+        or by an earlier version of this server before the sidecar
+        wipe landed) and for entries dropped into the archive dir
+        externally.
+        """
+        archive_dir = self._db.settings.config_dir / "archive"
+        if not archive_dir.is_dir():
+            return []
+        results: list[dict[str, Any]] = []
+        for path in sorted(archive_dir.iterdir()):
+            if path.suffix not in (".yaml", ".yml") or path.name.startswith("."):
+                continue
+            try:
+                content = path.read_text(encoding="utf-8")
+            except OSError:
+                _LOGGER.debug("Failed to read archived YAML %s", path, exc_info=True)
+                continue
+            name, friendly_name, comment = parse_esphome_meta(content)
+            if not name or not friendly_name or comment is None:
+                storage = StorageJSON.load(ext_storage_path(path.name))
+                if storage is not None:
+                    name = name or storage.name
+                    friendly_name = friendly_name or storage.friendly_name
+                    if comment is None:
+                        comment = storage.comment
+            results.append(
+                {
+                    "configuration": path.name,
+                    "name": name or path.stem,
+                    "friendly_name": friendly_name or name or path.stem,
+                    "comment": comment,
+                }
+            )
+        return results
+
+    async def _delete_archived_single(self, configuration: str) -> None:
+        """Permanently remove an archived YAML and its sidecars.
+
+        Mirrors ``_delete_single`` but operates on
+        ``<config_dir>/archive/<configuration>`` instead of the
+        active config_dir. The build dir is already gone (archive
+        wipes it), so this only has to remove the YAML, the
+        StorageJSON sidecar, and the device-metadata sidecar.
+
+        Defense-in-depth: the StorageJSON / metadata sidecars are
+        keyed on the bare filename, so if an active config of the
+        same name has been re-created since the archive, those
+        sidecars belong to the live device and removing them
+        would wipe its cached IP / hash / loaded_integrations.
+        ``_archive_single`` already wipes its own sidecars on the
+        way in (so this collision shouldn't happen in practice),
+        but we still guard with an existence check on the active
+        path. Callers expect best-effort cleanup of orphan
+        sidecars, not a guarantee of their removal.
+        """
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+        archive_path = config_dir / "archive" / configuration
+        active_path = self._db.settings.rel_path(configuration)
+
+        def _delete_all() -> None:
+            if not archive_path.exists():
+                msg = f"Archived file not found: {configuration}"
+                raise FileNotFoundError(msg)
+            archive_path.unlink()
+            if active_path.exists():
+                # An active config with the same filename owns the
+                # sidecars now — leave them alone.
+                return
+            _remove_device_sidecars(config_dir, configuration)
+
+        await loop.run_in_executor(None, _delete_all)
+
     async def _delete_single(self, configuration: str) -> None:
         """Delete a single device and all associated files."""
         config_path = self._db.settings.rel_path(configuration)
@@ -1441,35 +1842,36 @@ class DevicesController:
             if not config_path.exists():
                 msg = f"File not found: {configuration}"
                 raise FileNotFoundError(msg)
-            # Wipe the per-device PlatformIO build tree first so a partial
-            # failure later in the cleanup still leaves the user able to
-            # retry the delete. ``StorageJSON.build_path`` is the canonical
-            # location (set during compile) — fall back to a no-op when the
-            # device has never been built or the sidecar is gone.
-            storage_path = ext_storage_path(configuration)
-            storage = StorageJSON.load(storage_path)
-            if storage is not None and storage.build_path:
-                shutil.rmtree(storage.build_path, ignore_errors=True)
+            # Wipe build dir first so a partial failure later still
+            # leaves the user able to retry the delete.
+            _wipe_device_build_dir(configuration)
             config_path.unlink(missing_ok=True)
             (config_dir / ".trash" / configuration).unlink(missing_ok=True)
             (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)
-            try:
-                storage_path.unlink(missing_ok=True)
-            except OSError:
-                _LOGGER.warning("Could not remove storage file for %s", configuration)
-            try:
-                remove_device_metadata(config_dir, configuration)
-            except Exception:
-                _LOGGER.warning("Could not remove metadata for %s", configuration)
+            _remove_device_sidecars(config_dir, configuration)
 
         await loop.run_in_executor(None, _delete_all)
 
-    async def _stream_subprocess(self, cmd: list[str], client: Any, message_id: str) -> None:
+    async def _stream_subprocess(
+        self,
+        cmd: list[str],
+        client: Any,
+        message_id: str,
+        *,
+        line_transform: Callable[[str], str] | None = None,
+    ) -> None:
         """Run a CLI subprocess and stream its merged stdout/stderr to a single client.
 
         Registers the running task with the client so a peer ``devices/stop_stream``
         command (or a WS disconnect) can cancel it; cancellation kills the
         subprocess so it doesn't keep running detached.
+
+        ``line_transform``, if given, is applied to every output line
+        before it leaves the WS handler. Used by ``validate_config``
+        to scrub the resolved ``!secret`` values out of the stream
+        when ``show_secrets`` is off (``esphome config`` doesn't
+        actually redact in that mode — it wraps values with the ANSI
+        conceal SGR, which browsers don't honour).
         """
         # Register before the first await so an early ``stop_stream`` (during
         # subprocess spawn) still finds and cancels this task.
@@ -1495,7 +1897,10 @@ class DevicesController:
             # job-output path which preserves terminators for in-place
             # overwrites.
             async for line in iter_lines_with_progress(proc.stdout):
-                await client.send_event(message_id, "output", line.rstrip("\n\r"))
+                payload = line.rstrip("\n\r")
+                if line_transform is not None:
+                    payload = line_transform(payload)
+                await client.send_event(message_id, "output", payload)
             exit_code = await proc.wait()
         except asyncio.CancelledError:
             # Synchronous kill only — no awaits in the cancel path. The
@@ -1522,6 +1927,37 @@ class DevicesController:
         )
 
 
+# Match an ANSI conceal-wrapped run. ESPHome's ``command_config``
+# emits this around every ``password|key|psk|ssid`` value when
+# ``--show-secrets`` is off, on the assumption that the terminal
+# will hide it via the Concealed SGR (8) and reveal it again with
+# 28. Browsers don't honour those codes, so the resolved secret
+# bytes render plainly in our HTML ansi-log.
+#
+# Two byte representations to handle:
+#
+# - ``\x1b[8m...\x1b[28m`` — raw ESC byte. What you get reading
+#   ``esphome config`` directly without ``--dashboard``.
+# - ``\033[8m...\033[28m`` — the literal four-character escape
+#   sequence. ``--dashboard`` mode replaces every real ANSI escape
+#   with this so the dashboard can re-decode them on render. We
+#   pass ``--dashboard`` on every validate, so this is the form we
+#   actually see on the wire.
+#
+# Match both so a future ESPHome change to either side stays
+# scrubbed. Replace the whole wrapped run including the escape
+# codes — leaving the literal ``\033[8m`` bytes in the output
+# would still expose the secret to anyone screen-recording the
+# network tab even if a hypothetical conceal-aware renderer hid
+# the visible glyphs.
+_CONCEALED_SECRET_RE = re.compile(r"(?:\x1b|\\033)\[8m.*?(?:\x1b|\\033)\[28m")
+
+
+def _redact_concealed_secrets(line: str) -> str:
+    """Replace ANSI-conceal-wrapped secret runs with ``<removed>``."""
+    return _CONCEALED_SECRET_RE.sub("<removed>", line)
+
+
 def _apply_featured_presets(
     record: _FeaturedRecord,
     user_fields: dict[str, Any],
@@ -1538,11 +1974,22 @@ def _apply_featured_presets(
     - Suggestions: user-supplied value must be one of the listed values;
       omission falls back to the preset's ``value`` (when set).
     - Plain default: filled in only when the user didn't supply one.
+
+    Pin-typed fields can arrive in two ESPHome shapes — bare GPIO
+    (``pin: 12``) or rich mapping (``pin: {number: 12, mode: ..., inverted: ...}``).
+    Equality / membership checks compare on the bare GPIO so a manifest's
+    ``suggestions: [4, 5]`` accepts whichever shape the frontend submits.
     """
+    entries_by_key = {ce.key: ce for ce in record.underlying.config_entries}
     merged: dict[str, Any] = dict(user_fields)
     for key, preset in record.featured.fields.items():
         user_value = merged.get(key)
         user_supplied = key in merged
+        is_pin = entries_by_key.get(key) is not None and (
+            entries_by_key[key].type == ConfigEntryType.PIN
+        )
+        compare_user = _normalize_pin_value(user_value) if is_pin else user_value
+        compare_preset = _normalize_pin_value(preset.value) if is_pin else preset.value
         if preset.locked:
             # Schema validation rejects ``locked: true`` without a value, but
             # guard the runtime too so a malformed manifest fails fast with a
@@ -1553,7 +2000,7 @@ def _apply_featured_presets(
                     f"locked=true without a value — board manifest is malformed"
                 )
                 raise ValueError(msg)
-            if user_supplied and user_value != preset.value:
+            if user_supplied and compare_user != compare_preset:
                 msg = (
                     f"Featured component {record.full_id} field '{key}' is "
                     f"locked to {preset.value!r}; cannot override with "
@@ -1564,7 +2011,7 @@ def _apply_featured_presets(
             continue
         if preset.suggestions is not None:
             if user_supplied:
-                if user_value not in preset.suggestions:
+                if compare_user not in preset.suggestions:
                     msg = (
                         f"Featured component {record.full_id} field '{key}' "
                         f"must be one of {preset.suggestions}; got "
@@ -1577,6 +2024,26 @@ def _apply_featured_presets(
         if not user_supplied and preset.value is not None:
             merged[key] = preset.value
     return merged
+
+
+def _normalize_pin_value(value: Any) -> Any:
+    """
+    Reduce a rich pin mapping to its bare GPIO for comparison.
+
+    ESPHome accepts pins as either a bare integer / string label or as
+    a ``{number, mode, inverted, ...}`` mapping. Featured-component
+    presets express ``suggestions`` and bare-int ``value``s as scalars;
+    the frontend submits the mapping form. Returning the inner
+    ``number`` (when present) lets the locked / suggestion checks
+    treat both shapes equivalently.
+
+    ``bool`` is excluded explicitly since it's an ``int`` subclass.
+    """
+    if isinstance(value, dict):
+        number = value.get("number")
+        if isinstance(number, (int, str)) and not isinstance(number, bool):
+            return number
+    return value
 
 
 def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None) -> list[str]:

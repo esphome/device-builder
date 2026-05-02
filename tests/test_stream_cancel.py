@@ -228,7 +228,7 @@ async def test_stream_logs_command_includes_dashboard_flag() -> None:
     ctrl = _make_controller_with_settings(["esphome"])
     captured: list[list[str]] = []
 
-    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
         captured.append(cmd)
 
     ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
@@ -248,7 +248,7 @@ async def test_stream_logs_command_without_port_omits_device_arg() -> None:
     ctrl = _make_controller_with_settings(["esphome"])
     captured: list[list[str]] = []
 
-    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
         captured.append(cmd)
 
     ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
@@ -263,7 +263,7 @@ async def test_stream_logs_command_appends_no_states_when_requested() -> None:
     ctrl = _make_controller_with_settings(["esphome"])
     captured: list[list[str]] = []
 
-    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
         captured.append(cmd)
 
     ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
@@ -286,7 +286,7 @@ async def test_stream_logs_command_no_states_without_port() -> None:
     ctrl = _make_controller_with_settings(["esphome"])
     captured: list[list[str]] = []
 
-    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
         captured.append(cmd)
 
     ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
@@ -306,7 +306,7 @@ async def test_stream_logs_command_omits_no_states_by_default() -> None:
     ctrl = _make_controller_with_settings(["esphome"])
     captured: list[list[str]] = []
 
-    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
         captured.append(cmd)
 
     ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
@@ -326,7 +326,7 @@ async def test_validate_config_command_includes_dashboard_flag() -> None:
     ctrl = _make_controller_with_settings(["esphome"])
     captured: list[list[str]] = []
 
-    async def fake_stream(cmd: list[str], _client: Any, _mid: str) -> None:
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
         captured.append(cmd)
 
     ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
@@ -334,3 +334,170 @@ async def test_validate_config_command_includes_dashboard_flag() -> None:
     await ctrl.validate_config(configuration="kitchen.yaml", client=MagicMock(), message_id="m3")
 
     assert captured == [["esphome", "--dashboard", "config", "kitchen.yaml"]]
+
+
+async def test_validate_config_omits_show_secrets_by_default() -> None:
+    """``--show-secrets`` is not appended unless the caller explicitly opts in.
+
+    Resolved secrets are sensitive — the legacy dashboard surfaced
+    them in screenshots / live streams when ``streamer_mode`` was
+    off. The new dashboard inverts the default so they only appear
+    when the user actively asks for them.
+    """
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    # show_secrets=False explicitly, mirroring the WS default.
+    await ctrl.validate_config(
+        configuration="kitchen.yaml",
+        show_secrets=False,
+        client=MagicMock(),
+        message_id="m4",
+    )
+
+    assert captured == [["esphome", "--dashboard", "config", "kitchen.yaml"]]
+
+
+async def test_validate_config_passes_show_secrets_flag_when_enabled() -> None:
+    """``show_secrets=True`` appends ``--show-secrets`` to the esphome command."""
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: list[list[str]] = []
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
+        captured.append(cmd)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.validate_config(
+        configuration="kitchen.yaml",
+        show_secrets=True,
+        client=MagicMock(),
+        message_id="m5",
+    )
+
+    # ``--show-secrets`` lands at the end of the argv — esphome's
+    # subcommand parser accepts it on the ``config`` subparser, so
+    # placement after the YAML is correct.
+    assert captured == [
+        ["esphome", "--dashboard", "config", "kitchen.yaml", "--show-secrets"],
+    ]
+
+
+async def test_validate_config_off_attaches_redactor_transform() -> None:
+    r"""``show_secrets=False`` wires the line transform that scrubs concealed runs.
+
+    ``esphome config`` without ``--show-secrets`` doesn't redact —
+    it wraps every ``password|key|psk|ssid`` value in the ANSI
+    Concealed SGR (``\\x1b[8m...\\x1b[28m``). The escape codes pass
+    through to the browser unchanged because ansi-log doesn't honour
+    Concealed, so the resolved secret bytes were rendering plain in
+    the validate dialog. Hand ``_stream_subprocess`` a callable that
+    strips those wrapped runs so the secret never leaves the
+    server.
+    """
+    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: dict[str, Any] = {}
+
+    async def fake_stream(
+        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None
+    ) -> None:
+        captured["line_transform"] = line_transform
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.validate_config(configuration="kitchen.yaml", client=MagicMock(), message_id="m-off")
+
+    assert captured["line_transform"] is _redact_concealed_secrets
+
+
+async def test_validate_config_on_passes_no_line_transform() -> None:
+    """``show_secrets=True`` ships raw output — no redactor wired."""
+    ctrl = _make_controller_with_settings(["esphome"])
+    captured: dict[str, Any] = {}
+
+    async def fake_stream(
+        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None
+    ) -> None:
+        captured["line_transform"] = line_transform
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+
+    await ctrl.validate_config(
+        configuration="kitchen.yaml",
+        show_secrets=True,
+        client=MagicMock(),
+        message_id="m-on",
+    )
+
+    assert captured["line_transform"] is None
+
+
+def test_redact_concealed_secrets_replaces_wrapped_runs() -> None:
+    r"""ESPHome's ``\\x1b[8m...\\x1b[28m`` wrapper resolves to ``<removed>``.
+
+    Spec mirrored from ``esphome.__main__.command_config``: every
+    ``(password|key|psk|ssid): VALUE`` line gets the value wrapped
+    with the Concealed and Reveal SGR codes. Strip the entire
+    wrapped run including the escapes — leaving the literal escape
+    bytes in the output would still expose them to anyone screen-
+    recording the network tab, even if the visible glyphs were
+    hidden by a hypothetical conceal-aware renderer.
+    """
+    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+
+    raw = "  password: \x1b[8mhunter2\x1b[28m"
+    assert _redact_concealed_secrets(raw) == "  password: <removed>"
+
+
+def test_redact_concealed_secrets_handles_dashboard_literal_escape() -> None:
+    r"""``--dashboard`` mode emits literal ``\\033`` not the raw ESC byte.
+
+    ESPHome's ``--dashboard`` flag re-encodes every real ANSI
+    escape as the four-character sequence ``\\033`` so the
+    dashboard renderer can re-decode them safely. Validate runs
+    always pass ``--dashboard``, so the bytes that hit our handler
+    are the literal form, not the raw ESC. The first cut of the
+    redactor only matched the raw form and the secret bytes were
+    leaking through verbatim — the user saw
+    ``ssid: \\033[8mrocketiot\\033[28m`` in the dialog instead
+    of ``ssid: <removed>``.
+    """
+    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+
+    # Build the literal four-character form by hand to avoid Python
+    # interpreting ``\033`` as the octal escape for ESC.
+    backslash = "\\"
+    literal = f"    - ssid: {backslash}033[8mrocketiot{backslash}033[28m"
+    assert _redact_concealed_secrets(literal) == "    - ssid: <removed>"
+
+
+def test_redact_concealed_secrets_handles_multiple_runs_per_line() -> None:
+    """Multiple wrapped runs in one line all get redacted (non-greedy)."""
+    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+
+    raw = "ssid: \x1b[8mwifi-name\x1b[28m psk: \x1b[8msuper-secret\x1b[28m"
+    assert _redact_concealed_secrets(raw) == "ssid: <removed> psk: <removed>"
+
+
+def test_redact_concealed_secrets_leaves_unwrapped_lines_alone() -> None:
+    r"""No Concealed wrapper → line is forwarded verbatim.
+
+    Validate output is mostly schema dumps and ANSI colour codes
+    that aren't conceal — a too-aggressive replacer would garble
+    every line. The pattern is anchored on ``\\x1b[8m...\\x1b[28m``
+    so unrelated SGR runs (colours, bold, dim) pass through.
+    """
+    from esphome_device_builder.controllers.devices import _redact_concealed_secrets
+
+    raw = "INFO Reading configuration kitchen.yaml..."
+    assert _redact_concealed_secrets(raw) == raw
+
+    coloured = "\x1b[32mINFO\x1b[0m starting up"
+    assert _redact_concealed_secrets(coloured) == coloured

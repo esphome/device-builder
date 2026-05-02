@@ -102,6 +102,10 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | `devices/rename` | `{configuration, new_name}` | — | Rename device via ESPHome CLI |
 | `devices/delete` | `{configuration}` | — | Delete device and associated files |
 | `devices/delete_bulk` | `{configurations: string[]}` | `[{configuration, success, error?}]` | Delete multiple devices |
+| `devices/archive` | `{configuration}` | — | Soft-delete: move YAML to `<config_dir>/archive/`, wipe build dir, wipe StorageJSON + device-metadata sidecars. Reversible via `devices/unarchive` (cached IP/version/hash refill from the next mDNS broadcast). |
+| `devices/unarchive` | `{configuration}` | — | Move an archived YAML back into the active config directory. Errors with `INVALID_ARGS` if an active config with the same filename already exists. |
+| `devices/list_archived` | — | `[{configuration, name, friendly_name, comment}]` | List archived devices for the dashboard's archived-devices dialog. |
+| `devices/delete_archived` | `{configuration}` | — | Permanently delete an archived YAML and its sidecars. The companion to `unarchive` for "I really don't want this back". |
 | `devices/get_config` | `{configuration}` | `string` | Read device YAML config |
 | `devices/update_config` | `{configuration, content}` | — | Write device YAML config |
 | `devices/add_component` | `{configuration, component_id, fields?, sub_entities?}` | `AddComponentResponse` | Add component to device config |
@@ -123,12 +127,12 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
 | `firmware/compile` | `{configuration}` | `FirmwareJob` | Queue compile job |
-| `firmware/upload` | `{configuration, port?}` | `FirmwareJob` | Queue upload of existing binary |
-| `firmware/install` | `{configuration, port?: "OTA"}` | `FirmwareJob` | Queue compile + upload |
+| `firmware/upload` | `{configuration, port?: ""}` | `FirmwareJob` | Queue upload of existing binary. `port` defaults to `""` (no `--device` arg — CLI auto-detects). Also accepts `"OTA"`, a serial path (`/dev/ttyUSB0`, `COM3`), or an explicit IP / hostname for "install to a specific address" — the address-cache shortcut is bypassed when a target is named directly. |
+| `firmware/install` | `{configuration, port?: "OTA" \| serial \| ip \| hostname}` | `FirmwareJob` | Queue compile + upload. `port` defaults to `"OTA"` (let the CLI resolve the configured host). Same `port` semantics as `firmware/upload` for non-default values. |
 | `firmware/clean` | `{configuration}` | `FirmwareJob` | Queue build clean for one device |
 | `firmware/reset_build_env` | — | `FirmwareJob` | Queue full reset of `.esphome/` build dirs and PIO cache |
 | `firmware/compile_bulk` | `{configurations: string[]}` | `[FirmwareJob]` | Queue multiple compiles |
-| `firmware/install_bulk` | `{configurations: string[], port?: "OTA"}` | `[FirmwareJob]` | Queue multiple installs |
+| `firmware/install_bulk` | `{configurations: string[], port?: "OTA" \| serial \| ip \| hostname}` | `[FirmwareJob]` | Queue multiple installs. `port` defaults to `"OTA"` and is shared across every queued job — almost always callers want that default rather than a single explicit target across the fleet. Same `port` validation as `firmware/install`. |
 | `firmware/get_jobs` | `{status?, configuration?}` | `[FirmwareJob]` | List jobs with filters |
 | `firmware/get_job` | `{job_id}` | `FirmwareJob` | Get job with full output |
 | `firmware/follow_job` | `{job_id}` | Streaming | Historical output + live stream for one job |

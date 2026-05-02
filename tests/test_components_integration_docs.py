@@ -94,3 +94,29 @@ async def test_unknown_integration_omitted(catalog: ComponentCatalog) -> None:
     # ``runtime_stats``-style helpers don't have a docs page; verify
     # the contract by picking one that definitely won't exist.
     assert "definitely_not_a_component_xyzzy" not in docs
+
+
+async def test_umbrella_entries_for_legacy_bare_keys(
+    catalog: ComponentCatalog,
+) -> None:
+    """``ota`` and ``time`` resolve to umbrella entries, not just docs URLs.
+
+    Both blocks accept a legacy bare-mapping form (no ``- platform:`` list)
+    that predates platform-based OTA / time. Sync-time umbrella injection
+    gives ``get_component`` an exact-id hit for the bare key with a
+    description that names the implicit default platform — without it,
+    users on the legacy form get ``None`` from the catalog lookup.
+    """
+    for domain, default_platform in (("ota", "esphome"), ("time", "homeassistant")):
+        umbrella = await catalog.get_component(component_id=domain)
+        assert umbrella is not None, f"{domain} umbrella missing from catalog"
+        # The description must name the implicit default platform so the
+        # frontend can surface "esphome is the default OTA provider" to
+        # users still on the bare form.
+        assert f"`{default_platform}`" in umbrella.description, (
+            f"{domain} umbrella description should name `{default_platform}` as default"
+        )
+        # The umbrella shouldn't replace the platform entry — both must
+        # exist independently so explicit-platform configs still resolve.
+        platform_entry = await catalog.get_component(component_id=f"{domain}.{default_platform}")
+        assert platform_entry is not None, f"{domain}.{default_platform} platform entry must remain"

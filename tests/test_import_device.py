@@ -87,8 +87,147 @@ async def test_import_device_invokes_import_config_and_returns_path(
     assert args[2] == "Kitchen"
     assert args[3] == "acme.kitchen"
     assert args[4] == "github://acme/firmware.yaml@main"
+    # No matching importable cache entry → fall back to wifi (legacy behaviour).
+    assert args[5] == "wifi"
     assert args[6] == "true"  # encryption flag forwarded
     ctrl._scanner.scan.assert_awaited_once()
+
+
+async def test_import_device_passes_ethernet_network_through_to_import_config(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An ESP32-PoE / Olimex broadcasts ``network=ethernet`` — preserve it.
+
+    Hard-coding ``CONF_WIFI`` produced a YAML with a Wi-Fi template
+    that the user had to fix by hand on every Ethernet adoption.
+    Look up the discovered ``AdoptableDevice`` by the
+    ``package_import_url`` the dialog passes and forward its
+    ``network`` field to ``import_config``.
+    """
+    from esphome_device_builder.models import AdoptableDevice
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
+    )
+
+    ctrl = _make_controller(tmp_path)
+    ctrl.import_result["olimex-poe-aabbcc"] = AdoptableDevice(
+        name="olimex-poe-aabbcc",
+        friendly_name="Olimex PoE",
+        package_import_url="github://olimex/esp32-poe.yaml",
+        project_name="olimex.esp32-poe",
+        project_version="1.0.0",
+        network="ethernet",
+        ignored=False,
+    )
+
+    await ctrl.import_device(
+        # User picked a shorter name in the dialog — discovery key
+        # still matches because we look up by URL.
+        name="garage",
+        project_name="olimex.esp32-poe",
+        package_import_url="github://olimex/esp32-poe.yaml",
+    )
+
+    assert captured["args"][5] == "ethernet"
+
+
+async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Multiple identical products on the LAN don't get the wrong network.
+
+    Factory firmware broadcasts each device with a MAC suffix
+    (``apollo-plt-1-983300``, ``apollo-plt-1-aabbcc``), so the
+    ``import_result`` key is unique per physical device even when
+    several share the same ``package_import_url``. The frontend
+    pre-fills the adoption dialog with the discovery row's broadcast
+    name, so we look up by ``name`` first — that's unambiguous.
+
+    Pre-fix the lookup walked the dict and returned whichever
+    matching ``package_import_url`` row landed first; for two
+    Apollo PLT-1s on different networks (one Wi-Fi reflashed for
+    Ethernet, one stock) that meant a coin-flip on which network
+    the imported YAML got.
+    """
+    from esphome_device_builder.models import AdoptableDevice
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
+    )
+
+    ctrl = _make_controller(tmp_path)
+    # Two Apollo PLT-1s — same firmware, different network types.
+    # The import dict's insertion order would otherwise pick whichever
+    # arrived first; the direct-name lookup ignores order.
+    ctrl.import_result["apollo-plt-1-aabbcc"] = AdoptableDevice(
+        name="apollo-plt-1-aabbcc",
+        friendly_name="Apollo PLT-1 (Wi-Fi)",
+        package_import_url="github://apollo/plt-1.yaml",
+        project_name="apollo.plt-1",
+        project_version="1.0.0",
+        network="wifi",
+        ignored=False,
+    )
+    ctrl.import_result["apollo-plt-1-ddeeff"] = AdoptableDevice(
+        name="apollo-plt-1-ddeeff",
+        friendly_name="Apollo PLT-1 (Ethernet)",
+        package_import_url="github://apollo/plt-1.yaml",
+        project_name="apollo.plt-1",
+        project_version="1.0.0",
+        network="ethernet",
+        ignored=False,
+    )
+
+    # User adopts the second one — frontend passes its broadcast name.
+    await ctrl.import_device(
+        name="apollo-plt-1-ddeeff",
+        project_name="apollo.plt-1",
+        package_import_url="github://apollo/plt-1.yaml",
+    )
+
+    # Got the Ethernet entry, not whichever came first.
+    assert captured["args"][5] == "ethernet"
+
+
+async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Older factory firmwares didn't advertise ``network=`` — fall back to wifi.
+
+    The TXT field ``network`` only became part of the dashboard_import
+    discovery contract recently. A device whose mDNS broadcast omits
+    it (``AdoptableDevice.network == ""``) shouldn't fail adoption —
+    Wi-Fi is the historical default and matches what the legacy
+    dashboard wrote.
+    """
+    from esphome_device_builder.models import AdoptableDevice
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
+    )
+
+    ctrl = _make_controller(tmp_path)
+    ctrl.import_result["legacy-bulb-001122"] = AdoptableDevice(
+        name="legacy-bulb-001122",
+        friendly_name="Legacy Bulb",
+        package_import_url="github://vendor/old.yaml",
+        project_name="vendor.old",
+        project_version="0.1.0",
+        network="",  # field absent / empty in TXT
+        ignored=False,
+    )
+
+    await ctrl.import_device(
+        name="legacy-bulb",
+        project_name="vendor.old",
+        package_import_url="github://vendor/old.yaml",
+    )
+
+    assert captured["args"][5] == "wifi"
 
 
 async def test_import_device_translates_file_exists_to_command_error(
