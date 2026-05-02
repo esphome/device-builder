@@ -90,6 +90,16 @@ VersionChangeCallback = Callable[[str, str], None]
 # older devices simply never fire this callback.
 ConfigHashChangeCallback = Callable[[str, str], None]
 
+# Callback fired when the mDNS ``api_encryption`` TXT record reports a
+# different value than last seen. Empty string means the device's
+# service announcement was seen but the TXT was absent — i.e. the
+# device is broadcasting plaintext API. A non-empty value (e.g.
+# ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``) confirms encryption is
+# live on the device. The "no mDNS seen yet" case never fires this
+# callback at all, so the device controller can keep that state as
+# ``None`` to mean "trust whatever the YAML says".
+ApiEncryptionChangeCallback = Callable[[str, str], None]
+
 # Callback fired when zeroconf turns up a previously-unseen device that
 # advertises ``package_import_url`` / ``project_name`` /
 # ``project_version`` TXT records — the signal that this is a factory
@@ -151,6 +161,7 @@ class DeviceStateMonitor:
         on_ip_change: IPChangeCallback,
         on_version_change: VersionChangeCallback | None = None,
         on_config_hash_change: ConfigHashChangeCallback | None = None,
+        on_api_encryption_change: ApiEncryptionChangeCallback | None = None,
         on_importable_added: ImportableAddedCallback | None = None,
         on_importable_removed: ImportableRemovedCallback | None = None,
         is_ignored: Callable[[str], bool] | None = None,
@@ -160,6 +171,7 @@ class DeviceStateMonitor:
         self._on_ip_change = on_ip_change
         self._on_version_change = on_version_change
         self._on_config_hash_change = on_config_hash_change
+        self._on_api_encryption_change = on_api_encryption_change
         self._on_importable_added = on_importable_added
         self._on_importable_removed = on_importable_removed
         self._is_ignored = is_ignored or (lambda _name: False)
@@ -167,6 +179,10 @@ class DeviceStateMonitor:
         self._device_ips: dict[str, str] = {}  # device name → last known IP
         self._device_versions: dict[str, str] = {}  # device name → last reported version
         self._device_config_hashes: dict[str, str] = {}  # device name → last reported config hash
+        # Tri-state-able dedupe map: missing key = never seen mDNS for
+        # this device (callback never fires); empty string = seen
+        # plaintext; non-empty = seen encryption with that algorithm.
+        self._device_api_encryption: dict[str, str] = {}
         # ``DashboardImportDiscovery`` is the upstream esphome class
         # that watches the same ``_esphomelib._tcp.local.`` browser for
         # ``package_import_url`` TXT records and turns them into
@@ -302,6 +318,35 @@ class DeviceStateMonitor:
             return False
         self._device_versions[name] = version
         self._on_version_change(name, version)
+        return True
+
+    def apply_api_encryption(self, name: str, encryption: str) -> bool:
+        """
+        Record the device's broadcast API encryption status.
+
+        Empty string means the mDNS service was seen but the
+        ``api_encryption`` TXT was absent — i.e. the device is
+        running plaintext API. A non-empty value (e.g.
+        ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``) confirms encryption
+        is active. The "never seen" case is represented by simply not
+        calling this method at all; the device controller treats
+        absence as "trust the YAML".
+
+        Returns True when the value actually changed and the change
+        was forwarded to the callback.
+        """
+        if self._on_api_encryption_change is None:
+            return False
+        if self._find_device_by_name(name) is None:
+            return False
+        # ``""`` is a meaningful state ("seen plaintext") so we have to
+        # distinguish "no entry" from "entry == empty"; ``in`` does
+        # that without confusing it with the truthy-check guard
+        # apply_config_hash uses for its empty-string drop.
+        if name in self._device_api_encryption and self._device_api_encryption[name] == encryption:
+            return False
+        self._device_api_encryption[name] = encryption
+        self._on_api_encryption_change(name, encryption)
         return True
 
     def apply_config_hash(self, name: str, config_hash: str) -> bool:
@@ -690,6 +735,10 @@ class DeviceStateMonitor:
             self.apply_version(device_name, version)
         if config_hash := props.get("config_hash"):
             self.apply_config_hash(device_name, config_hash)
+        # Always apply api_encryption — empty / missing TXT is itself
+        # a meaningful signal (device is broadcasting plaintext) and
+        # apply_api_encryption distinguishes it from "never seen".
+        self.apply_api_encryption(device_name, props.get("api_encryption") or "")
 
     async def _ping_loop(self) -> None:
         # First sweep after the short bootstrap window — gives mDNS a

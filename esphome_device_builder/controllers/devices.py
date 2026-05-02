@@ -100,6 +100,7 @@ class DevicesController:
             on_ip_change=self._on_ip_change,
             on_version_change=self._on_version_change,
             on_config_hash_change=self._on_config_hash_change,
+            on_api_encryption_change=self._on_api_encryption_change,
             on_importable_added=self._on_importable_added,
             on_importable_removed=self._on_importable_removed,
             is_ignored=self.ignored_devices.__contains__,
@@ -900,6 +901,24 @@ class DevicesController:
         device.deployed_version = version
         device.update_available = bool(device.current_version and version != device.current_version)
         _LOGGER.info("Device %s version: %s → %s (via mdns)", name, old_version or "?", version)
+        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+
+    def _on_api_encryption_change(self, name: str, encryption: str) -> None:
+        """
+        Apply the API-encryption state observed via mDNS.
+
+        Stores the broadcast value (or empty string for "TXT absent —
+        device is plaintext") on the in-memory device. The dashboard's
+        four-state lock indicator reads this together with
+        ``api_encrypted`` to distinguish active / pending-flash /
+        mismatch / plaintext.
+        """
+        device = next((d for d in self._scanner.devices if d.name == name), None)
+        if device is None:
+            return
+        if device.api_encryption_active == encryption:
+            return
+        device.api_encryption_active = encryption
         self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     def _on_config_hash_change(self, name: str, config_hash: str) -> None:

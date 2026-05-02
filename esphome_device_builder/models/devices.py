@@ -58,6 +58,18 @@ class Device(DataClassORJSONMixin):
     # is fetched on demand via ``devices/get_api_key``.
     api_enabled: bool = False
     api_encrypted: bool = False
+    # Encryption status as observed from the device's
+    # ``_esphomelib._tcp.local.`` mDNS broadcast.
+    #   None  → mDNS not seen yet. The frontend trusts ``api_encrypted``
+    #           verbatim (assume the YAML matches what's on the device).
+    #   ""    → mDNS seen, ``api_encryption`` TXT absent. The device is
+    #           running plaintext regardless of what the YAML says.
+    #   "..." → mDNS seen, ``api_encryption`` TXT present (e.g.
+    #           ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``). Encryption is
+    #           confirmed live on the device.
+    # Drives the four-state lock indicator on the device card / table:
+    # active, pending-flash, mismatch, plaintext.
+    api_encryption_active: str | None = None
 
 
 @dataclass
