@@ -698,6 +698,32 @@ class DevicesController:
         """Import / adopt a discovered device."""
         configuration = f"{name}.yaml"
         path = self._db.settings.rel_path(configuration)
+        # Honour the network type the discovery TXT advertised — an
+        # ESP32-PoE / Olimex / etc. broadcasts ``network=ethernet``
+        # and the imported template needs to start from
+        # ``ethernet:`` rather than the Wi-Fi default.
+        #
+        # Prefer the direct ``name`` → ``import_result`` lookup since
+        # factory firmware broadcasts with a MAC suffix
+        # (``apollo-plt-1-983300``), which keeps each entry unique
+        # per physical device even when multiple identical products
+        # share the same ``package_import_url``. The frontend
+        # pre-fills the adoption dialog with the discovery row's
+        # broadcast name, so this matches in the common path.
+        # Fall back to a ``package_import_url`` match only when the
+        # user edited the name during adoption — at that point the
+        # ``import_result`` key no longer matches. The fallback is
+        # technically ambiguous between identical-product devices,
+        # but those share the same ``network`` value so picking
+        # whichever lands first is correct in practice.
+        # Final fallback to Wi-Fi when no row matches at all (older
+        # factory firmware that didn't advertise the field, or a
+        # discovery row that was already purged).
+        adoptable = self.import_result.get(name) or next(
+            (d for d in self.import_result.values() if d.package_import_url == package_import_url),
+            None,
+        )
+        network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
         loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(
@@ -708,7 +734,7 @@ class DevicesController:
                 friendly_name,
                 project_name,
                 package_import_url,
-                const.CONF_WIFI,
+                network,
                 encryption,
             )
         except FileExistsError as exc:
