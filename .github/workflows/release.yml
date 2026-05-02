@@ -40,8 +40,6 @@ on:
         required: false
       ESPHOME_GITHUB_APP_PRIVATE_KEY:
         required: true
-      PYPI_TOKEN:
-        required: false
 
 env:
   PYTHON_VERSION: "3.13"
