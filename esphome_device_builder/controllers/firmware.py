@@ -956,6 +956,10 @@ class FirmwareController:
         Returns ``[{title, file}]`` — the file names can be passed to
         ``firmware/download`` to retrieve the binary content.
         """
+        # ``ext_storage_path`` resolves to ``<data_dir>/storage/...``
+        # outside the config dir, so ``rel_path`` is the gate that
+        # rejects traversal payloads at the WS boundary.
+        self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
 
         def _get_types() -> list[dict]:
@@ -994,6 +998,9 @@ class FirmwareController:
         base64-encoded bytes. For Web Serial flashing the frontend
         decodes the base64 itself.
         """
+        # See ``get_binaries`` — ``ext_storage_path`` skips the config
+        # dir entirely, so we re-validate at the WS boundary.
+        self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
 
         def _read_binary() -> dict:
@@ -1457,7 +1464,18 @@ class FirmwareController:
         port: str = "",
         new_name: str = "",
     ) -> FirmwareJob:
-        """Create a new job and add it to the in-memory map."""
+        """Create a new job and add it to the in-memory map.
+
+        Validates ``configuration`` at the queue boundary so a
+        traversal payload surfaces synchronously as
+        ``CommandError(INVALID_ARGS)`` from the WS handler — without
+        this, the path-resolve happens later inside ``_execute_job``
+        where the runner's generic ``except Exception`` would record
+        it as a failed job instead. ``RESET_BUILD_ENV`` jobs pass the
+        empty string and skip the check.
+        """
+        if configuration:
+            self._db.settings.rel_path(configuration)
         job = FirmwareJob(
             job_id=uuid4().hex[:12],
             configuration=configuration,

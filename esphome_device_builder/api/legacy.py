@@ -56,7 +56,16 @@ async def _handle_legacy_ws_command(
 
         configuration = data.get("configuration", "")
         settings = request.app["device_builder"].settings
-        config_path = str(settings.rel_path(configuration))
+        try:
+            config_path = str(settings.rel_path(configuration))
+        except CommandError:
+            # Send a controlled exit frame instead of letting the
+            # ``CommandError`` tear the WebSocket down — the legacy
+            # spawn protocol uses ``{event: "exit", code}`` as its
+            # only signalling channel, so this is what HA's
+            # esphome-dashboard-api expects to see on rejection.
+            await ws.send_json({"event": "exit", "code": 1}, dumps=dumps_str)
+            break
         cmd = [*_ESPHOME_CMD, command, config_path]
         if extra_args_fn:
             cmd.extend(extra_args_fn(data))

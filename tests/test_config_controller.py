@@ -423,3 +423,22 @@ def test_rel_path_truncates_long_payload(tmp_path: Path) -> None:
         settings.rel_path(payload)
     assert "..." in excinfo.value.message
     assert len(excinfo.value.message) < 200
+
+
+def test_rel_path_bounds_control_byte_payload(tmp_path: Path) -> None:
+    r"""Control-heavy payloads stay bounded after ``!r`` expansion.
+
+    A single ``\x00`` repr's to 4 chars; a naive "truncate the raw
+    string then ``!r`` it" would let an 80-byte input balloon to
+    320+ chars in the final message and re-introduce the
+    unbounded-error hazard. ``!r`` runs *before* the bound, so a
+    payload of 100 NUL bytes still produces a message ≤ 200 chars.
+    """
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+
+    payload = "../" + "\x00" * 100
+    with pytest.raises(CommandError) as excinfo:
+        settings.rel_path(payload)
+    assert len(excinfo.value.message) < 200

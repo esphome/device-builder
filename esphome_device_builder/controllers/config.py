@@ -153,15 +153,16 @@ class DashboardSettings:
         except ValueError as err:
             # ``!r`` quotes + escapes the offending value so embedded
             # CR/LF/control bytes can't break the error string when
-            # the frontend echoes it back to the user. Truncate so a
-            # pathological payload (multi-MB ``configuration`` arg)
-            # doesn't blow up the error response.
-            display = "/".join(parts)
-            if len(display) > 80:
-                display = f"{display[:77]}..."
+            # the frontend echoes it back to the user. ``!r`` *first*,
+            # then truncate, so the bound holds even for control-heavy
+            # payloads (a single ``\x00`` repr's to 4 chars, so an
+            # 80-byte raw value can otherwise blow past 200 chars).
+            display = repr("/".join(parts))
+            if len(display) > 100:
+                display = f"{display[:97]}..."
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
-                f"Invalid configuration filename: {display!r}",
+                f"Invalid configuration filename: {display}",
             ) from err
         return joined
 
