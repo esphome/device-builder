@@ -486,27 +486,33 @@ def compute_has_pending_changes(
 
     Decision order, first match wins:
 
-    1. No firmware binary on disk yet → pending.
-    2. YAML edited after the last compile → pending. The mtime gate
-       runs before any hash comparison so a stale ``expected`` from
-       the prior compile can't accidentally match a deployed hash.
-    3. Both ``expected_config_hash`` and ``deployed_config_hash``
+    1. No firmware binary on disk yet → pending. Nothing has been
+       compiled, so we definitionally have unflushed edits.
+    2. Both ``expected_config_hash`` and ``deployed_config_hash``
        known → pending iff they differ. The deployed hash comes from
-       mDNS (esphome/esphome#16145), the expected hash from the YAML's
-       last compile; differing means the device is running older
-       firmware than the latest compile (e.g. failed OTA, flashed
-       elsewhere).
-    4. Either hash missing → not pending. Devices on firmware that
-       predates the ``config_hash`` TXT broadcast fall through here
-       and stay quiet.
+       mDNS (esphome/esphome#16145), the expected hash is read from
+       ``build_info.json`` (firmware-canonical, post-codegen). The
+       hash comparison is authoritative for any device on
+       broadcast-capable firmware: if they match, the running
+       firmware is built from the same logical config the YAML now
+       resolves to, even if the YAML's mtime ticked forward
+       (whitespace-only / comment-only edits, ``--only-generate``
+       rewriting StorageJSON, etc.). If they differ, the device is
+       running older firmware than the latest compile — failed OTA,
+       flashed elsewhere, etc.
+    3. YAML edited after the last compile → pending. Mtime is the
+       fallback for devices that pre-date the ``config_hash`` TXT
+       broadcast or for the brief window between an edit and the
+       background ``--only-generate`` updating
+       ``expected_config_hash``.
+    4. Otherwise → not pending. Devices on firmware that predates
+       the broadcast and haven't been edited stay quiet.
     """
     if bin_mtime is None:
         return True
-    if yaml_mtime is not None and yaml_mtime > bin_mtime:
-        return True
     if expected_config_hash and deployed_config_hash:
         return expected_config_hash != deployed_config_hash
-    return False
+    return yaml_mtime is not None and yaml_mtime > bin_mtime
 
 
 # ---------------------------------------------------------------------------

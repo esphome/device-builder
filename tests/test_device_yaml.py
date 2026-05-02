@@ -112,16 +112,62 @@ def test_pending_when_no_binary_yet() -> None:
     )
 
 
-def test_pending_when_yaml_edited_after_compile() -> None:
-    """YAML newer than binary → pending, even if hashes happen to match."""
+def test_pending_when_yaml_edited_after_compile_and_hashes_unknown() -> None:
+    """YAML newer than binary with no hash signal → pending via mtime fallback.
+
+    Pre-#16145 firmware path: the device doesn't broadcast a config
+    hash, so we have nothing to compare against and the mtime
+    "YAML edited since the last compile" check is the only signal
+    we have.
+    """
     assert (
         compute_has_pending_changes(
             yaml_mtime=200.0,
             bin_mtime=100.0,
-            # Stale expected hash that happens to equal the deployed
-            # — without the mtime gate this would falsely report "in sync".
-            expected_config_hash="abc",
-            deployed_config_hash="abc",
+            expected_config_hash="",
+            deployed_config_hash="",
+        )
+        is True
+    )
+
+
+def test_in_sync_when_hashes_match_even_if_yaml_edited() -> None:
+    """Matching hashes win over newer YAML mtime.
+
+    Real-world case from the field (Apollo R_PRO-1): the user edits
+    the YAML in a way that doesn't change the resolved config —
+    whitespace, comment changes, ``--only-generate`` rewriting
+    ``StorageJSON`` and bumping the YAML stat — and the
+    firmware-canonical hashes still match. The device is genuinely
+    in sync; the previous mtime-first ordering reported "Modified"
+    in the drawer even with hashes equal, which the user reasonably
+    flagged as wrong.
+    """
+    assert (
+        compute_has_pending_changes(
+            yaml_mtime=200.0,
+            bin_mtime=100.0,
+            expected_config_hash="039818dc",
+            deployed_config_hash="039818dc",
+        )
+        is False
+    )
+
+
+def test_pending_when_hashes_diverge_even_if_yaml_unchanged() -> None:
+    """Diverging hashes win over an unchanged YAML mtime.
+
+    Mirror image of the case above: ``--only-generate`` updated
+    ``expected_config_hash`` after a YAML edit but the device still
+    runs the old firmware, so deployed != expected. Hashes are
+    authoritative, the mtime side is irrelevant.
+    """
+    assert (
+        compute_has_pending_changes(
+            yaml_mtime=100.0,
+            bin_mtime=200.0,
+            expected_config_hash="aaaa1111",
+            deployed_config_hash="bbbb2222",
         )
         is True
     )
