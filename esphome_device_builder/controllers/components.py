@@ -111,10 +111,16 @@ class ComponentCatalog:
         #      driver, so the category landing must beat the stem.
         #   3. Stem alias — picks up specific drivers like ``ltr390``
         #      (catalog id ``sensor.ltr390``) that aren't named anywhere
-        #      else. First-hit wins when stems collide.
+        #      else. Only used when every category in which the stem
+        #      appears agrees on the docs URL — otherwise we'd silently
+        #      pick one arbitrary page out of several conflicting ones
+        #      (e.g. ``binary_sensor.gpio`` vs ``switch.gpio``), so the
+        #      stem is dropped and the frontend renders it as plain
+        #      text. "If we have a docs page for it" demands one
+        #      unambiguous answer, not the first one we happen to see.
         top_level: dict[str, str] = {}
         category_urls: dict[str, str] = {}
-        stems: dict[str, str] = {}
+        stem_candidates: dict[str, set[str]] = {}
         for comp in self._components:
             comp_id = comp.id
             docs = comp.docs_url
@@ -135,11 +141,21 @@ class ComponentCatalog:
             idx = docs.find(marker)
             if idx != -1:
                 category_urls.setdefault(category, docs[: idx + len(marker) - 1])
-            stems.setdefault(stem, docs)
+            stem_candidates.setdefault(stem, set()).add(docs)
 
+        # Stems are unambiguous only when every category that owns the
+        # stem agrees on the same docs URL. Multi-platform components
+        # (``at581x``, ``rotary_encoder``) hit this path because they
+        # share a single docs page across categories.
+        stems: dict[str, str] = {
+            stem: next(iter(urls)) for stem, urls in stem_candidates.items() if len(urls) == 1
+        }
+
+        # ``dict.update()`` overwrites existing keys, so later writes
+        # win. Apply lowest priority first (stems), then category, then
+        # top-level — that way a colliding key is overridden by the
+        # more-specific page.
         result: dict[str, str] = {}
-        # Layer in reverse priority order so later writes don't overrule
-        # higher-priority earlier ones.
         result.update(stems)
         result.update(category_urls)
         result.update(top_level)

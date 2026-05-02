@@ -46,21 +46,46 @@ async def test_stem_match_for_category_scoped_components(
     """A bare ``ltr390`` resolves to the sensor.ltr390 docs page."""
     docs = await catalog.get_integration_docs()
     assert "ltr390" in docs
-    assert "sensor/ltr390" in docs["ltr390"] or "ltr390" in docs["ltr390"]
+    # Pin the exact path so a regression that silently picks a
+    # different category for the stem fails this assertion instead of
+    # trivially passing on a substring.
+    assert docs["ltr390"].rstrip("/").endswith("/components/sensor/ltr390")
 
 
 async def test_top_level_wins_over_stem(catalog: ComponentCatalog) -> None:
     """When a top-level id and a stem collide, top-level claims the key.
 
-    ``api``, ``light``, ``switch`` exist as both top-level component pages
-    and as category-scoped components (e.g. ``light.binary``). The
-    top-level docs URL is the one users mean when they write ``api`` in
-    YAML, so it must win.
+    ``api`` exists as a top-level component page; the ``api`` key in the
+    map must point at the top-level docs URL, not at any nested page
+    that happens to share the stem.
     """
     docs = await catalog.get_integration_docs()
-    # api top-level page lives at /components/api (no nested category).
-    if "api" in docs:
-        assert docs["api"].rstrip("/").endswith("/components/api")
+    assert "api" in docs, "api top-level component must always resolve"
+    assert docs["api"].rstrip("/").endswith("/components/api")
+
+
+async def test_ambiguous_stems_omitted(catalog: ComponentCatalog) -> None:
+    """Stems that resolve to multiple distinct docs URLs are dropped.
+
+    ``gpio`` is the canonical case — ``binary_sensor.gpio``,
+    ``switch.gpio``, ``output.gpio`` etc. each have their own page. We
+    can't pick one without misleading the user, so the bare ``gpio``
+    name must NOT be in the map (frontend then renders it as plain
+    text). The category landing for any of those parent categories
+    still works — this only guards the stem-alias slot.
+    """
+    docs = await catalog.get_integration_docs()
+    # If a future catalog change consolidates gpio docs we may need to
+    # revisit this; today they're distinct URLs across categories.
+    if "gpio" in docs:
+        # Only acceptable when every collision converges on the same URL.
+        # Surface the URL for the failure message so it's easy to
+        # diagnose without re-running locally.
+        msg = (
+            f"gpio resolved to {docs['gpio']!r} — expected omission because "
+            "binary_sensor/switch/output gpio variants have distinct docs URLs"
+        )
+        raise AssertionError(msg)
 
 
 async def test_unknown_integration_omitted(catalog: ComponentCatalog) -> None:
