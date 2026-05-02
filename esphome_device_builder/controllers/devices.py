@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import os
 from dataclasses import replace
@@ -26,6 +25,7 @@ from ..helpers.device_yaml import (
     parse_platform_from_yaml,
 )
 from ..helpers.hostname import is_local_hostname, normalize_hostname
+from ..helpers.json import JSONDecodeError, dumps_indent, loads
 from ..helpers.subprocess import create_subprocess_exec
 from ..helpers.yaml import merge_component_yaml, rewrite_esphome_name
 from ..models import (
@@ -1043,16 +1043,42 @@ class DevicesController:
     def _load_ignored_devices(self) -> None:
         storage_path = ignored_devices_storage_path()
         try:
-            with storage_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-                self.ignored_devices = set(data.get("ignored_devices", []))
+            raw = storage_path.read_bytes()
         except FileNotFoundError:
-            pass
+            return
+        try:
+            data = loads(raw)
+        except JSONDecodeError:
+            # A corrupt file shouldn't tank controller bootstrap —
+            # start with an empty ignored set and let the next
+            # toggle_ignore call rewrite it cleanly.
+            _LOGGER.warning(
+                "Ignored-devices file at %s is corrupt; starting with an empty set",
+                storage_path,
+            )
+            return
+        if not isinstance(data, dict):
+            _LOGGER.warning(
+                "Ignored-devices file at %s isn't a JSON object; starting with an empty set",
+                storage_path,
+            )
+            return
+        ignored = data.get("ignored_devices", [])
+        if not isinstance(ignored, list):
+            _LOGGER.warning(
+                "Ignored-devices file at %s has a non-list ``ignored_devices`` "
+                "field; resetting to an empty set",
+                storage_path,
+            )
+            self.ignored_devices = set()
+            return
+        self.ignored_devices = {name for name in ignored if isinstance(name, str)}
 
     def _save_ignored_devices(self) -> None:
         storage_path = ignored_devices_storage_path()
-        with storage_path.open("w", encoding="utf-8") as f:
-            json.dump({"ignored_devices": sorted(self.ignored_devices)}, f, indent=2)
+        storage_path.write_bytes(
+            dumps_indent({"ignored_devices": sorted(self.ignored_devices)}),
+        )
 
     def _manual_rename(self, configuration: str, new_name: str) -> None:
         """File-level rename. Used when the ESPHome CLI refuses (invalid config)."""

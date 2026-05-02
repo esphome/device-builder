@@ -11,7 +11,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-import orjson
 from aiohttp import WSMsgType, web
 from esphome.const import __version__ as esphome_version
 
@@ -19,6 +18,7 @@ from ..constants import __version__
 from ..controllers.auth import AuthError
 from ..helpers.api import CommandError
 from ..helpers.auth import extract_bearer_token
+from ..helpers.json import dumps_str, loads
 from ..models import (
     CommandMessage,
     ErrorCode,
@@ -78,7 +78,7 @@ class WebSocketClient:
     async def send(self, data: dict[str, Any]) -> None:
         """Send a JSON message."""
         with contextlib.suppress(ConnectionResetError):
-            await self._ws.send_str(orjson.dumps(data).decode())
+            await self._ws.send_json(data, dumps=dumps_str)
         if self._close_after_send:
             await self._ws.close()
 
@@ -232,7 +232,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         async for msg in ws:
             if msg.type in (WSMsgType.TEXT, WSMsgType.BINARY):
                 try:
-                    raw = orjson.loads(msg.data)
+                    raw = loads(msg.data)
                 except Exception:
                     await client.send_error("", ErrorCode.INVALID_MESSAGE, "Invalid JSON")
                     continue

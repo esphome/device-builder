@@ -14,7 +14,6 @@ HA uses:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import sys
 from typing import Any
@@ -23,6 +22,7 @@ import aiohttp
 from aiohttp import web
 from esphome import yaml_util
 
+from ..helpers.json import JSONDecodeError, dumps_str, json_response, loads
 from ..helpers.subprocess import create_subprocess_exec
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,8 +41,16 @@ async def _handle_legacy_ws_command(
         if msg.type != aiohttp.WSMsgType.TEXT:
             break
 
-        data = json.loads(msg.data)
-        if data.get("type") != "spawn":
+        try:
+            data = loads(msg.data)
+        except JSONDecodeError:
+            # Legacy clients shouldn't send non-JSON, but if one does
+            # we'd rather skip the frame than tear down the whole
+            # spawn handler with the next iteration losing its
+            # subprocess output.
+            _LOGGER.debug("Ignoring non-JSON frame on %s", request.path)
+            continue
+        if not isinstance(data, dict) or data.get("type") != "spawn":
             continue
 
         configuration = data.get("configuration", "")
@@ -59,9 +67,12 @@ async def _handle_legacy_ws_command(
         )
         assert proc.stdout is not None  # type narrowing
         async for line in proc.stdout:
-            await ws.send_json({"event": "line", "data": line.decode("utf-8", errors="replace")})
+            await ws.send_json(
+                {"event": "line", "data": line.decode("utf-8", errors="replace")},
+                dumps=dumps_str,
+            )
         exit_code = await proc.wait()
-        await ws.send_json({"event": "exit", "code": exit_code})
+        await ws.send_json({"event": "exit", "code": exit_code}, dumps=dumps_str)
         break
 
     return ws
@@ -86,7 +97,7 @@ def create_legacy_routes() -> web.RouteTableDef:
             if name not in devices_ctrl.ignored_devices
         ]
 
-        return web.json_response({"configured": configured, "importable": importable})
+        return json_response({"configured": configured, "importable": importable})
 
     @routes.get("/json-config")
     async def legacy_json_config(request: web.Request) -> web.Response:
@@ -96,15 +107,15 @@ def create_legacy_routes() -> web.RouteTableDef:
         try:
             config_path = db.settings.rel_path(configuration)
         except ValueError:
-            return web.json_response({"error": "Forbidden"}, status=403)
+            return json_response({"error": "Forbidden"}, status=403)
 
         loop = asyncio.get_running_loop()
         try:
             config = await loop.run_in_executor(None, yaml_util.load_yaml, str(config_path))
         except Exception as exc:
-            return web.json_response({"error": str(exc)}, status=500)
+            return json_response({"error": str(exc)}, status=500)
 
-        return web.json_response(config)
+        return json_response(config)
 
     @routes.get("/compile")
     async def legacy_compile(request: web.Request) -> web.WebSocketResponse:

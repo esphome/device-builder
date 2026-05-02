@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..helpers.api import api_command
+from ..helpers.json import loads
 from ..models import (
     ComponentCatalogEntry,
     ComponentCategory,
@@ -49,12 +49,11 @@ class ComponentCatalog:
             )
             return
 
-        # ``encoding="utf-8"`` is explicit because the catalog carries
-        # non-ASCII characters (em-dashes, mu, etc.) and Path.read_text
-        # defaults to the platform's locale encoding — Windows' cp1252
-        # then dies on the first multi-byte sequence (UnicodeDecodeError
-        # at the catalog load).
-        data = json.loads(_COMPONENTS_JSON.read_text(encoding="utf-8"))
+        # ``loads`` (orjson) decodes UTF-8 bytes directly — faster than
+        # stdlib json on the ~896-component catalog and dodges the
+        # platform-locale-encoding trap that bit Windows on read_text
+        # without an explicit encoding.
+        data = loads(_COMPONENTS_JSON.read_bytes())
         self._components = [_load_component(c) for c in data.get("components", [])]
         self._by_id = {c.id: c for c in self._components}
         _LOGGER.info("Component catalog loaded: %d components", len(self._components))

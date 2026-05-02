@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import json
 import logging
 import os
 import tempfile
@@ -26,6 +25,7 @@ from ..constants import DEFAULT_INGRESS_PORT
 from ..constants import __version__ as server_version
 from ..helpers.api import api_command
 from ..helpers.auth import hash_password
+from ..helpers.json import JSONDecodeError, dumps_indent, loads
 from ..models import UserPreferences
 
 if TYPE_CHECKING:
@@ -158,9 +158,11 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
 def _load_metadata(config_dir: Path) -> dict[str, Any]:
     path = config_dir / _METADATA_FILE
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        # orjson decodes bytes directly, so skip the read_text → encode
+        # round-trip. JSONDecodeError is a subclass of ValueError.
+        data = loads(path.read_bytes())
         return data if isinstance(data, dict) else {}
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, JSONDecodeError):
         return {}
 
 
@@ -170,8 +172,10 @@ def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
     fd, tmp_name = tempfile.mkstemp(prefix=f"{_METADATA_FILE}.", suffix=".tmp", dir=str(config_dir))
     tmp_path = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2)
+        # ``dumps_indent`` yields bytes, so open the temp file in
+        # binary mode. The on-disk file stays readable / diffable.
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(dumps_indent(data))
         os.replace(tmp_path, path)
     except Exception:
         with suppress(OSError):

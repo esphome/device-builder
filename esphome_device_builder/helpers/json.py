@@ -1,4 +1,12 @@
-"""JSON response helpers and CORS middleware."""
+"""JSON helpers — orjson wrappers, response builders, CORS middleware.
+
+Centralises the orjson dependency so call sites import ``loads`` /
+``dumps`` from here instead of pulling the C library directly. Two
+benefits: the import surface stays consistent (no mix of stdlib
+``json`` and ``orjson`` across the package, which silently slowed the
+hottest paths), and swapping the underlying serialiser is a one-file
+change.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +18,36 @@ from aiohttp import web
 
 _LOGGER = logging.getLogger(__name__)
 
+# Re-export so callers can ``except JSONDecodeError`` without importing
+# orjson themselves. orjson's exception is a subclass of ValueError.
+JSONDecodeError = orjson.JSONDecodeError
+
+
+def loads(data: bytes | bytearray | memoryview | str) -> Any:
+    """Parse JSON via orjson; raises ``JSONDecodeError`` on bad input."""
+    return orjson.loads(data)
+
+
+def dumps(obj: Any) -> bytes:
+    """Serialise *obj* to a compact JSON ``bytes`` blob."""
+    return orjson.dumps(obj)
+
+
+def dumps_str(obj: Any) -> str:
+    """Serialise *obj* to a compact JSON ``str``.
+
+    Adapter for aiohttp APIs that take a ``dumps`` callable returning
+    ``str`` — ``WebSocketResponse.send_json(dumps=...)`` and
+    ``web.json_response(dumps=...)``. Lets call sites use the standard
+    aiohttp shape instead of building a raw frame manually.
+    """
+    return orjson.dumps(obj).decode()
+
+
+def dumps_indent(obj: Any) -> bytes:
+    """Serialise *obj* with two-space indentation — for human-readable files."""
+    return orjson.dumps(obj, option=orjson.OPT_INDENT_2)
+
 
 def json_response(data: Any, status: int = 200) -> web.Response:
     """Return a JSON response, serialising dataclasses via mashumaro."""
@@ -17,7 +55,7 @@ def json_response(data: Any, status: int = 200) -> web.Response:
     return web.Response(
         status=status,
         content_type="application/json",
-        body=orjson.dumps(body),
+        body=dumps(body),
     )
 
 
