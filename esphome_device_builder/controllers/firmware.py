@@ -641,11 +641,30 @@ class FirmwareController:
         # the derived filename via ``rel_path`` at the WS boundary so a
         # direct ``firmware/rename`` request can't pass a traversal-shaped
         # name (``../etc/passwd``) and have it surface as a failed job
-        # later. Filename-collision is checked upstream by
-        # ``DevicesController.rename_device``; direct WS callers that
-        # bypass the controller layer are responsible for their own
-        # collision check.
-        await self._validate_configuration_boundary(f"{new_name}.yaml")
+        # later.
+        new_filename = f"{new_name}.yaml"
+        await self._validate_configuration_boundary(new_filename)
+        # Reject up-front if the target filename is already in use.
+        # ``DevicesController.rename_device`` checks the same thing
+        # before forwarding to this handler — but a direct WS client
+        # can bypass that layer, and ``esphome rename`` itself does
+        # not check collisions: it blindly ``write_text``s the new
+        # YAML and OTA-installs it, silently overwriting the unrelated
+        # device's config and flashing that firmware to the wrong
+        # device. Same error-message shape as the controller-layer
+        # check so the frontend handles both identically.
+        if new_filename != configuration:
+            # ``new_filename`` already passed ``rel_path`` validation
+            # above, so we can build the path directly and stat it in
+            # one executor hop instead of paying a second ``rel_path``
+            # round-trip just to get back the same result.
+            new_path = self._db.settings.config_dir / new_filename
+            loop = asyncio.get_running_loop()
+            if await loop.run_in_executor(None, new_path.exists):
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS,
+                    f"A device named {new_filename} already exists",
+                )
         job = self._create_job(configuration, JobType.RENAME, new_name=new_name)
         return await self._enqueue(job)
 

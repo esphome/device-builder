@@ -153,3 +153,46 @@ async def test_rename_rejects_traversal_in_new_name(tmp_path: Path) -> None:
     with pytest.raises(CommandError) as excinfo:
         await controller.rename(configuration="kitchen.yaml", new_name="../etc/passwd")
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+async def test_rename_rejects_collision_with_existing_yaml(tmp_path: Path) -> None:
+    """``firmware/rename`` rejects ``new_name`` colliding with another device.
+
+    ``esphome rename`` does not check collisions itself — it blindly
+    ``write_text``s the new YAML and OTA-installs it, silently
+    overwriting the unrelated device's config and flashing that
+    firmware to the wrong device. ``DevicesController.rename_device``
+    checks before forwarding, but a direct WS client can bypass it;
+    the firmware-layer check closes that gap.
+    """
+    controller = _controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("")
+    (tmp_path / "livingroom.yaml").write_text("")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "livingroom.yaml already exists" in excinfo.value.message
+
+
+@pytest.mark.asyncio
+async def test_rename_allows_renaming_to_same_name(tmp_path: Path) -> None:
+    """Renaming to the same filename skips the collision check.
+
+    A no-op rename (``new_name`` matches the existing stem) is the
+    pattern users hit when re-flashing without changing the device
+    identity — the file is "already there" by definition, not a
+    collision with an unrelated device. Mirrors the
+    ``new_filename != configuration`` guard in
+    ``DevicesController.rename_device``.
+    """
+    from unittest.mock import AsyncMock
+
+    controller = _controller(tmp_path)
+    controller._enqueue = AsyncMock(side_effect=lambda job: job)
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.rename(configuration="kitchen.yaml", new_name="kitchen")
+    assert job.configuration == "kitchen.yaml"
+    assert job.new_name == "kitchen"
