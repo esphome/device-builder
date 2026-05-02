@@ -49,7 +49,12 @@ class ComponentCatalog:
             )
             return
 
-        data = json.loads(_COMPONENTS_JSON.read_text())
+        # ``encoding="utf-8"`` is explicit because the catalog carries
+        # non-ASCII characters (em-dashes, mu, etc.) and Path.read_text
+        # defaults to the platform's locale encoding — Windows' cp1252
+        # then dies on the first multi-byte sequence (UnicodeDecodeError
+        # at the catalog load).
+        data = json.loads(_COMPONENTS_JSON.read_text(encoding="utf-8"))
         self._components = [_load_component(c) for c in data.get("components", [])]
         self._by_id = {c.id: c for c in self._components}
         _LOGGER.info("Component catalog loaded: %d components", len(self._components))
