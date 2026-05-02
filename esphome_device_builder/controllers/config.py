@@ -311,6 +311,69 @@ def remove_device_metadata(config_dir: Path, filename: str) -> None:
         data.pop(filename, None)
 
 
+# Fields on a device-metadata entry whose meaning is tied to the
+# *running* firmware / network state, not to the YAML's identity.
+# Used by ``clear_volatile_device_metadata`` (and its caller in
+# the archive flow) to scrub these on archive while preserving
+# the stable identity fields. New volatile fields added here
+# must also be added to ``set_device_metadata`` (and any
+# accessors) so the cleared / un-cleared shapes stay aligned.
+_VOLATILE_DEVICE_METADATA_FIELDS: frozenset[str] = frozenset(
+    {
+        # Last resolved IP — meaningless once the device is no
+        # longer on the network.
+        "ip",
+        # Last successfully-compiled config hash. Pairs with the
+        # mDNS ``config_hash`` TXT record to detect "running
+        # firmware out of sync with YAML"; on archive the build
+        # dir is wiped so the hash no longer corresponds to any
+        # available artifact and would be misleading on the next
+        # compile.
+        "expected_config_hash",
+    }
+)
+
+
+def clear_volatile_device_metadata(config_dir: Path, filename: str) -> None:
+    """Drop runtime / observed state fields, keep stable identity fields.
+
+    On archive the dashboard removes the YAML's compile output
+    and the StorageJSON sidecar (both are build artifacts), but
+    the device-metadata entry carries a mix of:
+
+    - Stable identity fields (``board_id``, ``friendly_name``,
+      ``comment``) — set by the user or derived from the YAML
+      itself, still meaningful on unarchive.
+    - Volatile fields (``ip``, ``expected_config_hash``) —
+      describe the firmware / network state at archive time and
+      go stale immediately.
+
+    The earlier shape removed the entire entry on archive, which
+    closed the "future same-name device inherits stale state"
+    risk but also lost the identity fields. The catalog → YAML
+    match key is ``board_id``; losing it on every archive →
+    unarchive cycle forced a re-derive (or a re-pick by the
+    user) that wasn't necessary. This helper preserves identity
+    + clears volatile so unarchive restores the user-visible
+    state unchanged. Same-name new-device leakage of identity
+    fields is acceptable: the new device's create flow either
+    derives or supplies its own ``board_id``, and friendly_name
+    / comment are user labels the new device's editor can
+    overwrite if desired.
+    """
+    with metadata_transaction(config_dir) as data:
+        entry = data.get(filename)
+        if not isinstance(entry, dict):
+            return
+        for field_name in _VOLATILE_DEVICE_METADATA_FIELDS:
+            entry.pop(field_name, None)
+        # If the entry is now empty (no identity fields ever
+        # set) drop it entirely so we don't leave dead keys
+        # behind in the metadata file.
+        if not entry:
+            data.pop(filename, None)
+
+
 def load_preferences(config_dir: Path) -> UserPreferences:
     """Load user preferences, returning defaults for missing fields."""
     raw = _load_metadata(config_dir).get(_PREFS_KEY, {})

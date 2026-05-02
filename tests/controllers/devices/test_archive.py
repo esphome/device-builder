@@ -188,12 +188,17 @@ async def test_archive_wipes_storage_sidecar(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_archive_wipes_device_metadata(tmp_path: Path) -> None:
-    """The device-metadata entry is removed when archiving.
+async def test_archive_clears_volatile_metadata_keeps_identity(tmp_path: Path) -> None:
+    """Archive scrubs runtime state but keeps stable identity fields.
 
-    Same reason as the StorageJSON wipe: a future same-name
-    ``configuration`` would inherit the archived device's
-    cached IP / friendly_name / board_id otherwise.
+    Volatile fields (``ip``, ``expected_config_hash``) describe
+    the firmware / network state at archive time and go stale
+    immediately — clear them. Identity fields (``board_id``,
+    ``friendly_name``, ``comment``) survive so an unarchive of
+    the same YAML restores user-visible state unchanged.
+    ``board_id`` in particular is the catalog → YAML match key;
+    losing it on every archive cycle forced an unnecessary
+    re-derive on unarchive.
     """
     import asyncio
 
@@ -215,17 +220,63 @@ async def test_archive_wipes_device_metadata(tmp_path: Path) -> None:
         "kitchen.yaml",
         board_id="esp32-c3-devkitm-1",
         friendly_name="Kitchen Sensor",
+        comment="By the toaster",
         ip="192.168.1.42",
+        expected_config_hash="deadbeef",
     )
-    assert await asyncio.to_thread(
-        get_device_metadata, tmp_path, "kitchen.yaml"
-    )  # truthy: dict has fields
+    pre = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    # Sanity that the seeding above wrote everything we expect.
+    assert pre["board_id"] == "esp32-c3-devkitm-1"
+    assert pre["ip"] == "192.168.1.42"
+    assert pre["expected_config_hash"] == "deadbeef"
 
     await controller._archive_single("kitchen.yaml")
 
-    # Empty dict means no metadata entry — same as a brand-new
-    # device that's never had metadata written.
+    post = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    # Identity fields survive — that's the whole point of this
+    # behaviour. A future regression that wipes the entire entry
+    # (the previous shape) fails here.
+    assert post == {
+        "board_id": "esp32-c3-devkitm-1",
+        "friendly_name": "Kitchen Sensor",
+        "comment": "By the toaster",
+    }
+
+
+@pytest.mark.asyncio
+async def test_archive_drops_metadata_entry_when_only_volatile_fields(tmp_path: Path) -> None:
+    """An entry with only volatile fields is removed entirely on archive.
+
+    Edge case: if a device has metadata that consists *only* of
+    runtime/observed fields (no ``board_id`` / ``friendly_name``
+    / ``comment`` ever set), clearing the volatile fields would
+    leave an empty dict. Drop the entry entirely so the metadata
+    file doesn't accumulate dead keys.
+    """
+    import asyncio
+
+    from esphome_device_builder.controllers.config import (
+        _load_metadata,
+        get_device_metadata,
+        set_device_metadata,
+    )
+
+    controller = _make_controller(tmp_path)
+    _seed_device(tmp_path, "kitchen.yaml")
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        ip="192.168.1.42",
+        expected_config_hash="cafebabe",
+    )
+
+    await controller._archive_single("kitchen.yaml")
+
+    # No entry left at all — not just an empty dict.
     assert await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml") == {}
+    raw = await asyncio.to_thread(_load_metadata, tmp_path)
+    assert "kitchen.yaml" not in raw
 
 
 @pytest.mark.asyncio

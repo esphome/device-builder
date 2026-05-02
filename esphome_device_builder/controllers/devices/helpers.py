@@ -32,7 +32,7 @@ from esphome.storage_json import StorageJSON, ext_storage_path
 from ...helpers.api import CommandError
 from ...helpers.hostname import is_local_hostname, normalize_hostname
 from ...models import ConfigEntryType, Device, ErrorCode
-from ..config import remove_device_metadata
+from ..config import clear_volatile_device_metadata, remove_device_metadata
 from .constants import _CONCEALED_SECRET_RE
 
 if TYPE_CHECKING:
@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "_apply_featured_presets",
+    "_archive_clear_device_sidecars",
     "_build_address_cache_args",
     "_normalize_pin_value",
     "_redact_concealed_secrets",
@@ -72,9 +73,14 @@ def _remove_device_sidecars(config_dir: Path, configuration: str) -> None:
 
     Best-effort — failures are logged but don't propagate, so a
     partial cleanup (e.g. permission error on one file) doesn't
-    block the rest of the archive / delete flow. Used by archive,
-    delete, and delete_archived; all three want a "leave no
-    trace under this filename" semantic at the end of their flow.
+    block the rest of the delete flow. Used by ``delete`` and
+    ``delete_archived``; both want a "leave no trace under this
+    filename" semantic at the end of their flow.
+
+    For ``archive`` see ``_archive_clear_device_sidecars`` —
+    archive needs to preserve identity fields (``board_id``,
+    ``friendly_name``, ``comment``) so an unarchive of the same
+    YAML restores the user-visible state unchanged.
     """
     storage_path = ext_storage_path(configuration)
     try:
@@ -85,6 +91,37 @@ def _remove_device_sidecars(config_dir: Path, configuration: str) -> None:
         remove_device_metadata(config_dir, configuration)
     except Exception:
         _LOGGER.warning("Could not remove metadata for %s", configuration)
+
+
+def _archive_clear_device_sidecars(config_dir: Path, configuration: str) -> None:
+    """Wipe build artifacts but keep stable identity metadata.
+
+    Variant of ``_remove_device_sidecars`` for the archive flow.
+    The StorageJSON sidecar is a build artifact (carries the
+    last compile's ``firmware_bin_path`` / ``loaded_integrations``
+    / target_platform) and goes stale immediately on archive —
+    same wipe behaviour as ``_remove_device_sidecars``. The
+    device-metadata sidecar is mixed: identity fields
+    (``board_id``, ``friendly_name``, ``comment``) survive an
+    archive → unarchive cycle by design, so we only clear the
+    volatile fields. ``board_id`` in particular is the catalog
+    → YAML match key; losing it on every archive cycle forced a
+    re-derive (or a re-pick by the user) on unarchive that wasn't
+    necessary.
+
+    Best-effort with the same failure semantics as
+    ``_remove_device_sidecars`` — a partial wipe doesn't block
+    the YAML move that already happened upstream of this call.
+    """
+    storage_path = ext_storage_path(configuration)
+    try:
+        storage_path.unlink(missing_ok=True)
+    except OSError:
+        _LOGGER.warning("Could not remove storage file for %s", configuration)
+    try:
+        clear_volatile_device_metadata(config_dir, configuration)
+    except Exception:
+        _LOGGER.warning("Could not clear volatile metadata for %s", configuration)
 
 
 def _validate_archive_configuration(configuration: str) -> None:
