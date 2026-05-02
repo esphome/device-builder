@@ -16,6 +16,7 @@ import subprocess
 import sys
 from contextlib import suppress
 from datetime import UTC, datetime
+from operator import attrgetter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -698,7 +699,7 @@ class FirmwareController:
             jobs = [j for j in jobs if j.status == status]
         if configuration:
             jobs = [j for j in jobs if j.configuration == configuration]
-        return sorted(jobs, key=lambda j: j.created_at, reverse=True)
+        return sorted(jobs, key=attrgetter("created_at"), reverse=True)
 
     @api_command("firmware/get_job")
     async def get_job(self, *, job_id: str, **kwargs: Any) -> FirmwareJob | None:
@@ -832,11 +833,26 @@ class FirmwareController:
         if client is None:
             return
 
-        snapshot_jobs = sorted(self._jobs.values(), key=lambda j: j.created_at) if snapshot else []
+        # Serialize the snapshot to dicts synchronously *before*
+        # ``stream_events`` attaches listeners. Capturing the
+        # ``FirmwareJob`` objects and calling ``to_dict()`` later
+        # (inside ``send_initial``) is racy: between listener
+        # attach and each ``to_dict()`` the runner can append to a
+        # running job's ``output`` or transition its status — that
+        # mutation is folded into the snapshot dict AND delivered
+        # again via the listener, so the client sees the same line
+        # twice. Dict-freeze here makes the snapshot atomic against
+        # the producer (no awaits between freeze and listener
+        # attach) and de-duplicates the handoff.
+        snapshot_payloads = (
+            [job.to_dict() for job in sorted(self._jobs.values(), key=attrgetter("created_at"))]
+            if snapshot
+            else []
+        )
 
         async def _send_initial(_controls: StreamControls) -> None:
-            for job in snapshot_jobs:
-                await client.send_event(message_id, "snapshot", job.to_dict())
+            for payload in snapshot_payloads:
+                await client.send_event(message_id, "snapshot", payload)
 
         def _handle_event(event: Event, controls: StreamControls) -> None:
             if event.event_type == EventType.JOB_OUTPUT:
@@ -845,13 +861,18 @@ class FirmwareController:
                 controls.push("job_progress", event.data)
             else:
                 # Lifecycle event (queued/started/completed/failed/
-                # cancelled). Serialize the ``job`` payload the same
-                # way the earlier _on_lifecycle did.
+                # cancelled). Use ``push_priority`` so a backlog of
+                # ``job_output`` lines can't drop a status
+                # transition — a missed ``job_completed`` would
+                # leave the all-jobs panel stuck on the old status
+                # forever (no resync after the initial snapshot).
+                # Output/progress are tolerable to lose; status
+                # transitions are not.
                 job = event.data.get("job")
                 if job is None:
                     return
                 payload = job.to_dict() if hasattr(job, "to_dict") else job
-                controls.push(event.event_type.value, payload)
+                controls.push_priority(event.event_type.value, payload)
 
         await stream_events(
             client=client,
@@ -1557,7 +1578,7 @@ class FirmwareController:
 
         # Sort newest-first so dedup keeps the most recent entry per
         # device and the cap retains the most recent N overall.
-        primary.sort(key=lambda j: j.created_at, reverse=True)
+        primary.sort(key=attrgetter("created_at"), reverse=True)
         seen_configs: set[str] = set()
         deduped_primary: list[FirmwareJob] = []
         for job in primary:
@@ -1568,7 +1589,7 @@ class FirmwareController:
             deduped_primary.append(job)
         deduped_primary = deduped_primary[:_MAX_PRIMARY_TERMINAL_JOBS]
 
-        aux.sort(key=lambda j: j.created_at, reverse=True)
+        aux.sort(key=attrgetter("created_at"), reverse=True)
         aux = aux[:_MAX_AUX_TERMINAL_JOBS]
 
         self._jobs = {j.job_id: j for j in (*active, *deduped_primary, *aux)}

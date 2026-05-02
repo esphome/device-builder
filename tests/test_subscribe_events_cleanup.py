@@ -129,34 +129,71 @@ async def test_subscribe_events_listener_forwards_bus_events() -> None:
 
 
 async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
-    """Initial state and ``subscribed`` confirm precede every live event.
+    """Initial state and ``subscribed`` confirm precede a live event fired mid-seed.
 
-    Locks the snapshot/live ordering contract: a
-    ``DEVICE_UPDATED`` fired during the seed must queue through
-    the listener and arrive *after* ``send_result({"subscribed":
-    True})``. Without that ordering a frontend mid-connect could
-    receive a state delta that referenced devices it hadn't been
-    told about yet.
+    Locks the snapshot/live ordering contract. Without an actual
+    in-flight await during ``send_initial``, the listener has
+    nowhere to interleave and the test passes against a regressed
+    implementation that never serialised the snapshot ahead of the
+    live event. The setup here gives ``_send_initial`` a real
+    ``initial_state`` payload to send and a fake ``send_event`` /
+    ``send_result`` that yield via ``asyncio.sleep(0)`` — so a
+    fired event has at least one yield window during which it
+    must be queued, then drained strictly after the seed.
     """
-    db = _make_db()
-    client = _FakeClient()
+    db = DeviceBuilder.__new__(DeviceBuilder)
+    db.bus = EventBus()
 
+    devices_mock = MagicMock()
+    devices_mock.get_devices.return_value = []
+    devices_mock.get_importable_devices.return_value = []
+    db.devices = devices_mock
+
+    class YieldingClient:
+        """``send_event`` / ``send_result`` actually yield the loop.
+
+        The default ``_FakeClient`` returns synchronously, so the
+        handler's ``send_initial`` would never yield and a fired
+        event would arrive *after* parking — turning this from an
+        ordering test into a "drain delivers what was fired"
+        test that doesn't pin the seed-vs-live race at all.
+        """
+
+        def __init__(self) -> None:
+            self.events: list[tuple[str, str, Any]] = []
+            self.results: list[tuple[str, Any]] = []
+
+        async def send_event(self, message_id: str, event: str, data: Any) -> None:
+            await asyncio.sleep(0)
+            self.events.append((message_id, event, data))
+
+        async def send_result(self, message_id: str, result: Any) -> None:
+            await asyncio.sleep(0)
+            self.results.append((message_id, result))
+
+    client = YieldingClient()
     handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
     # Yield once so listeners attach and send_initial starts
-    # awaiting send_result.
+    # awaiting send_event for ``initial_state``.
     await asyncio.sleep(0)
 
-    # Fire a live event while the seed is in flight.
+    # Fire a live event while the seed is still in flight (the
+    # ``initial_state`` send_event has not yet appended). The
+    # listener must queue this; the helper's drain must deliver it
+    # only after both ``initial_state`` and ``subscribed`` land.
     db.bus.fire(EventType.DEVICE_UPDATED, {"device": MagicMock(to_dict=lambda: {"y": 2})})
 
-    # Wait for both subscription confirmation and the live event.
     for _ in range(50):
         await asyncio.sleep(0)
-        if client.results and client.events:
+        if client.results and any(e == "device_updated" for (_m, e, _d) in client.events):
             break
 
+    # Strict ordering: the seed's initial_state event arrives
+    # first, then the subscribed confirm via send_result, then
+    # the live device_updated event via the drain loop.
+    assert client.events[0][1] == "initial_state"
     assert client.results == [("m1", {"subscribed": True})]
-    assert client.events == [("m1", "device_updated", {"device": {"y": 2}})]
+    assert client.events[-1] == ("m1", "device_updated", {"device": {"y": 2}})
 
     handler_task.cancel()
     with pytest.raises(asyncio.CancelledError):

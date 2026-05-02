@@ -159,26 +159,45 @@ async def test_end_breaks_drain_loop() -> None:
 async def test_push_drops_newest_when_queue_full() -> None:
     """A slow follower's queue is bounded — newest line drops on full.
 
-    Without the bound, an idle/backpressured follower lets the
-    queue grow to the size of every fired event, defeating the
-    point of capping ``job.output``.
+    Asserts strict equality on the delivered count: ``1`` (the
+    parked first item the drain picked up before the gate
+    closed) + ``_DEFAULT_STREAM_QUEUE_MAX`` (everything that fit
+    in the bounded queue while the drain was blocked). With an
+    unbounded queue the count would equal the full burst, so the
+    strict equality below distinguishes bounded from unbounded
+    cleanly.
+
+    The earlier shape of this test cancelled the helper task
+    immediately after releasing the drain gate, so cancellation
+    raced ahead of the drain processing the backlog and the
+    assertion ``len(received) <= 1 + cap`` passed even against
+    an unbounded queue (because ``received`` never grew past
+    the seed). Releasing the gate, yielding generously, and only
+    *then* cancelling fixes that — the drain has time to flush
+    every queued item before cancellation lands, so the
+    delivered count actually reflects what the queue held.
     """
     bus = EventBus()
 
-    block = asyncio.Event()
+    drain_can_run = asyncio.Event()
     received: list[tuple[str, Any]] = []
 
-    class BlockingClient:
+    class GatedClient:
         async def send_event(self, _mid: str, event: str, data: Any) -> None:
+            # First call (the seed item the drain picked up before
+            # the backlog) parks until the test releases the gate;
+            # subsequent calls run freely so the drain can consume
+            # the backlog after the gate opens.
             received.append((event, data))
-            await block.wait()
+            if len(received) == 1:
+                await drain_can_run.wait()
 
     def _handle_event(event: Event, controls: StreamControls) -> None:
         controls.push(event.event_type.value, event.data["i"])
 
     task = asyncio.create_task(
         stream_events(
-            client=BlockingClient(),
+            client=GatedClient(),
             message_id="m1",
             bus=bus,
             event_types=[EventType.DEVICE_UPDATED],
@@ -193,18 +212,27 @@ async def test_push_drops_newest_when_queue_full() -> None:
     assert received == [("device_updated", 0)]
 
     # Fire well past the cap. With drain blocked, the queue caps at
-    # maxsize and the excess fires no-op via suppress(QueueFull).
+    # maxsize and excess fires no-op via suppress(QueueFull).
     burst = _DEFAULT_STREAM_QUEUE_MAX + 500
     for i in range(1, burst + 1):
         bus.fire(EventType.DEVICE_UPDATED, {"i": i})
 
-    block.set()
+    # Release the gate and yield generously so the drain flushes
+    # every queued item *before* cancellation. The yield budget
+    # is larger than the burst so an unbounded queue would have
+    # delivered all ``burst + 1`` items by the time cancel hits —
+    # making the strict equality below fail in that regression.
+    drain_can_run.set()
+    for _ in range(burst + 100):
+        await asyncio.sleep(0)
+        if len(received) >= 1 + _DEFAULT_STREAM_QUEUE_MAX:
+            break
+
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    # We delivered at most the queue cap + the first one.
-    assert len(received) <= 1 + _DEFAULT_STREAM_QUEUE_MAX
+    assert len(received) == 1 + _DEFAULT_STREAM_QUEUE_MAX
 
 
 async def test_push_priority_evicts_oldest_when_queue_full() -> None:
