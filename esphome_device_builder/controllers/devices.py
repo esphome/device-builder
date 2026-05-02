@@ -895,23 +895,41 @@ class DevicesController:
         if kind is ScanChange.REMOVED:
             self._state_monitor.revisit_all_importables()
 
+    def _devices_by_name(self, name: str) -> list[Device]:
+        """Every configured device whose ``name`` field matches ``name``.
+
+        Two YAML files can ship the same ``name:`` value (e.g.
+        ``foo.yaml`` and ``foo (1).yaml`` both pointing at
+        ``foo.local``). They share a single mDNS service announcement,
+        so any state / IP / version / config-hash / api-encryption
+        observation needs to fan out to every matching device or the
+        non-canonical copy stays stuck at "Unknown" while its sibling
+        shows online.
+        """
+        return [d for d in self._scanner.devices if d.name == name]
+
     def _on_state_change(self, name: str, state: DeviceState, source: str) -> None:
         """Forward state monitor updates onto the event bus."""
-        device = next((d for d in self._scanner.devices if d.name == name), None)
-        if device is None:
-            return
-        old_state = device.state
-        device.state = state
-        _LOGGER.info("Device %s: %s → %s (via %s)", name, old_state, state, source)
-        # Frontend's ``DeviceStateChangedEventData`` is the flat
-        # ``{configuration, state}`` shape — sending the full ``device``
-        # object made the destructure resolve both fields to
-        # ``undefined`` and the table never updated. Match the type
-        # exactly so the row's state cell flips on the next event.
-        self._db.bus.fire(
-            EventType.DEVICE_STATE_CHANGED,
-            {"configuration": device.configuration, "state": state.value},
-        )
+        for device in self._devices_by_name(name):
+            old_state = device.state
+            device.state = state
+            _LOGGER.info(
+                "Device %s (%s): %s → %s (via %s)",
+                name,
+                device.configuration,
+                old_state,
+                state,
+                source,
+            )
+            # Frontend's ``DeviceStateChangedEventData`` is the flat
+            # ``{configuration, state}`` shape — sending the full ``device``
+            # object made the destructure resolve both fields to
+            # ``undefined`` and the table never updated. Match the type
+            # exactly so the row's state cell flips on the next event.
+            self._db.bus.fire(
+                EventType.DEVICE_STATE_CHANGED,
+                {"configuration": device.configuration, "state": state.value},
+            )
 
     def _on_ip_change(self, name: str, ip: str) -> None:
         """
@@ -922,16 +940,16 @@ class DevicesController:
         across the device's offline window. The DNS pre-resolve and
         next mDNS resolve will overwrite it on reconnect.
         """
-        device = next((d for d in self._scanner.devices if d.name == name), None)
-        if device is None:
-            return
-        if device.ip == ip:
-            return
-        device.ip = ip
-        _LOGGER.debug("Device %s IP: %s", name, ip or "(cleared)")
-        if ip:
-            self._db.create_background_task(self._persist_device_ip_async(device.configuration, ip))
-        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+        for device in self._devices_by_name(name):
+            if device.ip == ip:
+                continue
+            device.ip = ip
+            _LOGGER.debug("Device %s (%s) IP: %s", name, device.configuration, ip or "(cleared)")
+            if ip:
+                self._db.create_background_task(
+                    self._persist_device_ip_async(device.configuration, ip)
+                )
+            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     async def _persist_device_ip_async(self, configuration: str, ip: str) -> None:
         """Save *ip* to the device-builder metadata sidecar."""
@@ -943,23 +961,29 @@ class DevicesController:
 
     def _on_version_change(self, name: str, version: str) -> None:
         """Apply a fresh ESPHome version observed via mDNS."""
-        device = next((d for d in self._scanner.devices if d.name == name), None)
-        if device is None:
-            return
-        if device.deployed_version == version:
-            return
+        for device in self._devices_by_name(name):
+            if device.deployed_version == version:
+                continue
 
-        # StorageJSON.load/save are blocking — push to a background task
-        # so any error gets surfaced via the loop's exception handler.
-        self._db.create_background_task(
-            self._persist_storage_version_async(device.configuration, version)
-        )
+            # StorageJSON.load/save are blocking — push to a background task
+            # so any error gets surfaced via the loop's exception handler.
+            self._db.create_background_task(
+                self._persist_storage_version_async(device.configuration, version)
+            )
 
-        old_version = device.deployed_version
-        device.deployed_version = version
-        device.update_available = bool(device.current_version and version != device.current_version)
-        _LOGGER.info("Device %s version: %s → %s (via mdns)", name, old_version or "?", version)
-        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+            old_version = device.deployed_version
+            device.deployed_version = version
+            device.update_available = bool(
+                device.current_version and version != device.current_version
+            )
+            _LOGGER.info(
+                "Device %s (%s) version: %s → %s (via mdns)",
+                name,
+                device.configuration,
+                old_version or "?",
+                version,
+            )
+            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     def _on_api_encryption_change(self, name: str, encryption: str) -> None:
         """
@@ -971,13 +995,11 @@ class DevicesController:
         ``api_encrypted`` to distinguish active / pending-flash /
         mismatch / plaintext.
         """
-        device = next((d for d in self._scanner.devices if d.name == name), None)
-        if device is None:
-            return
-        if device.api_encryption_active == encryption:
-            return
-        device.api_encryption_active = encryption
-        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+        for device in self._devices_by_name(name):
+            if device.api_encryption_active == encryption:
+                continue
+            device.api_encryption_active = encryption
+            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     def _on_config_hash_change(self, name: str, config_hash: str) -> None:
         """
@@ -991,22 +1013,24 @@ class DevicesController:
         predates the ``config_hash`` TXT broadcast never trigger this
         callback and stay on the legacy mtime check.
         """
-        device = next((d for d in self._scanner.devices if d.name == name), None)
-        if device is None:
-            return
-        if device.deployed_config_hash == config_hash:
-            return
-        old_hash = device.deployed_config_hash
-        device.deployed_config_hash = config_hash
-        # Mtime side stays with the periodic scanner poll so this
-        # callback can stay off-disk and non-blocking. A YAML edit
-        # between polls (~5s window) self-corrects on the next scan.
-        if device.expected_config_hash:
-            device.has_pending_changes = device.expected_config_hash != config_hash
-        _LOGGER.info(
-            "Device %s config_hash: %s → %s (via mdns)", name, old_hash or "?", config_hash
-        )
-        self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+        for device in self._devices_by_name(name):
+            if device.deployed_config_hash == config_hash:
+                continue
+            old_hash = device.deployed_config_hash
+            device.deployed_config_hash = config_hash
+            # Mtime side stays with the periodic scanner poll so this
+            # callback can stay off-disk and non-blocking. A YAML edit
+            # between polls (~5s window) self-corrects on the next scan.
+            if device.expected_config_hash:
+                device.has_pending_changes = device.expected_config_hash != config_hash
+            _LOGGER.info(
+                "Device %s (%s) config_hash: %s → %s (via mdns)",
+                name,
+                device.configuration,
+                old_hash or "?",
+                config_hash,
+            )
+            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     def _on_importable_added(self, device: AdoptableDevice) -> None:
         """Stash a newly-discovered importable device and notify subscribers."""
