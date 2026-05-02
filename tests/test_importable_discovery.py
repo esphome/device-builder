@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from esphome.zeroconf import DiscoveredImport
+from esphome.zeroconf import DashboardImportDiscovery, DiscoveredImport
+from zeroconf.asyncio import AsyncServiceInfo
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.models import AdoptableDevice, Device, DeviceState
@@ -141,7 +142,6 @@ def test_get_importable_devices_filters_configured() -> None:
     )
     # Stand in for a started DashboardImportDiscovery — populate its
     # ``import_state`` directly so we don't have to spin up zeroconf.
-    from esphome.zeroconf import DashboardImportDiscovery
 
     monitor._import_discovery = DashboardImportDiscovery()
     monitor._import_discovery.import_state = {
@@ -173,8 +173,6 @@ def test_revisit_importable_refires_added_when_cached() -> None:
     was hiding a discovered entry gets removed, no fresh announcement
     fires; we have to nudge the cache ourselves.
     """
-    from esphome.zeroconf import DashboardImportDiscovery
-
     added: list[AdoptableDevice] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: [],  # device just got deleted
@@ -195,8 +193,6 @@ def test_revisit_importable_refires_added_when_cached() -> None:
 
 def test_revisit_importable_noop_for_unknown_name() -> None:
     """No cached entry → no callback fires (and no crash)."""
-    from esphome.zeroconf import DashboardImportDiscovery
-
     added: list[AdoptableDevice] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: [],
@@ -230,9 +226,6 @@ def test_apply_http_service_info_populates_web_url_and_refires() -> None:
     we store the URL and re-fire ADDED so the frontend updates the
     card's Visit-web-UI link in place.
     """
-    from esphome.zeroconf import DashboardImportDiscovery
-    from zeroconf.asyncio import AsyncServiceInfo
-
     added: list[AdoptableDevice] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: [],
@@ -258,9 +251,6 @@ def test_apply_http_service_info_populates_web_url_and_refires() -> None:
 
 def test_apply_http_service_info_includes_non_default_port() -> None:
     """Non-port-80 services build URLs with the explicit ``:port`` suffix."""
-    from esphome.zeroconf import DashboardImportDiscovery
-    from zeroconf.asyncio import AsyncServiceInfo
-
     added: list[AdoptableDevice] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: [],
@@ -283,9 +273,6 @@ def test_apply_http_service_info_includes_non_default_port() -> None:
 
 def test_apply_http_service_info_skips_when_unchanged() -> None:
     """Repeat announcements for the same URL don't re-fire ADDED."""
-    from esphome.zeroconf import DashboardImportDiscovery
-    from zeroconf.asyncio import AsyncServiceInfo
-
     added: list[AdoptableDevice] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: [],
@@ -316,8 +303,6 @@ def test_revisit_importable_skips_ignored_devices() -> None:
     shouldn't unilaterally bring it back into the banner. They can
     unignore through the menu if they change their mind.
     """
-    from esphome.zeroconf import DashboardImportDiscovery
-
     added: list[AdoptableDevice] = []
     ignored = {"kitchen-1a2b3c"}
     monitor = DeviceStateMonitor(

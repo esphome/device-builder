@@ -15,6 +15,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from esphome import zeroconf as esphome_zc
 from zeroconf import ServiceStateChange
 
 from esphome_device_builder.controllers import _device_state_monitor as monitor_module
@@ -108,8 +109,6 @@ async def _capture_handler(monitor: DeviceStateMonitor, monkeypatch: pytest.Monk
     # module — patch that copy too so the dispatch handler can fan
     # the same event through the upstream callback without touching
     # real zeroconf.
-    import esphome.zeroconf as esphome_zc
-
     monkeypatch.setattr(esphome_zc, "AsyncServiceInfo", _FakeServiceInfo)
 
     await monitor._start_mdns_browser()
