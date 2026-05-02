@@ -197,8 +197,19 @@ def generate_component_yaml(
     Nested values in ``fields`` (dicts as values) are emitted as
     indented YAML mappings — frontend submits the full structure as a
     single ``fields`` argument, no separate sub-entries dict needed.
+
+    Two kinds of identifier auto-fill happen here:
+
+    - Top-level ``id`` when the caller explicitly passed ``id: ""``
+      (a marker that says "give me the default"). Result is
+      ``<unqualified>[_<name_slug>]``.
+    - Nested entity sub-blocks (entries marked with ``platform_type``,
+      e.g. HLW8012's ``current`` / ``energy`` / ``power`` / ``voltage``)
+      get a default ``name`` and ``id`` when the caller didn't set
+      one — without these the sub-sensor either won't surface in HA
+      (no name) or can't be referenced from automations (no id).
     """
-    lines: list[str] = []
+    fields = dict(fields)
     category = component.category
     comp_id = component.id
 
@@ -210,19 +221,51 @@ def generate_component_yaml(
         # share a stem across categories. ESPHome YAML expects the bare
         # platform stem under ``platform:``, so strip the qualifier.
         unqualified = comp_id.split(".", 1)[1] if "." in comp_id else comp_id
+    else:
+        unqualified = comp_id
+
+    # Resolve the top-level id once. We only emit it when the caller
+    # explicitly opted in by including ``id`` in fields; when they
+    # did but left it empty, fill in the auto-generated value here so
+    # nested entity sub-blocks can prefix their own ids consistently.
+    if "id" in fields and not fields["id"]:
+        fields["id"] = _generate_id(unqualified, fields.get("name"))
+    parent_id = fields.get("id") or _generate_id(unqualified, fields.get("name"))
+
+    # Auto-fill name + id on nested entity sub-blocks the caller left
+    # empty. ESPHome multi-sensor parents (HLW8012, BME280, ...)
+    # expose their readings as ``platform_type``-tagged ConfigEntry
+    # blocks; an unnamed sub-sensor won't surface in HA, and one
+    # without an id can't be referenced from automations.
+    for entry in component.config_entries:
+        if not entry.platform_type or not entry.config_entries:
+            continue
+        sub = fields.get(entry.key)
+        if not isinstance(sub, dict):
+            continue
+        if sub.get("name") and sub.get("id"):
+            continue
+        # Build a fresh dict with name/id at the front so the emitted
+        # YAML reads naturally (humans put name/id first).
+        autofill: dict[str, Any] = {}
+        if not sub.get("name"):
+            autofill["name"] = entry.label or entry.key.replace("_", " ").title()
+        if not sub.get("id"):
+            autofill["id"] = f"{parent_id}_{entry.key}"
+        autofill.update(sub)
+        fields[entry.key] = autofill
+
+    lines: list[str] = []
+    if is_platform:
         lines.append(f"{category}:")
         lines.append(f"  - platform: {unqualified}")
         indent = "    "
     else:
-        unqualified = comp_id
         lines.append(f"{comp_id}:")
         indent = "  "
 
     for key, value in fields.items():
-        emit_value = (
-            _generate_id(unqualified, fields.get("name")) if key == "id" and not value else value
-        )
-        lines.extend(_emit_field(key, emit_value, indent))
+        lines.extend(_emit_field(key, value, indent))
 
     return "\n".join(lines)
 

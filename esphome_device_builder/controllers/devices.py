@@ -32,6 +32,7 @@ from ..helpers.yaml import merge_component_yaml, rewrite_esphome_name
 from ..models import (
     AddComponentResponse,
     AdoptableDevice,
+    ConfigEntryType,
     Device,
     DevicesResponse,
     DeviceState,
@@ -651,6 +652,13 @@ class DevicesController:
                 raise ValueError(msg)
             underlying_component_id = record.underlying_id
             fields = _apply_featured_presets(record, fields)
+            # The frontend's catalog-derived id suggestion for featured
+            # components is the dashed ``featured_<board>_<local>``
+            # form (e.g. ``featured_athom-smart-plug-v3_power-monitor_1``),
+            # which ESPHome rejects. Reset to empty so
+            # ``generate_component_yaml`` produces a valid auto-id from
+            # the underlying component + name.
+            fields["id"] = ""
 
         component = await self._db.components.get_component(component_id=underlying_component_id)
         if component is None:
@@ -1521,11 +1529,22 @@ def _apply_featured_presets(
     - Suggestions: user-supplied value must be one of the listed values;
       omission falls back to the preset's ``value`` (when set).
     - Plain default: filled in only when the user didn't supply one.
+
+    Pin-typed fields can arrive in two ESPHome shapes — bare GPIO
+    (``pin: 12``) or rich mapping (``pin: {number: 12, mode: ..., inverted: ...}``).
+    Equality / membership checks compare on the bare GPIO so a manifest's
+    ``suggestions: [4, 5]`` accepts whichever shape the frontend submits.
     """
+    entries_by_key = {ce.key: ce for ce in record.underlying.config_entries}
     merged: dict[str, Any] = dict(user_fields)
     for key, preset in record.featured.fields.items():
         user_value = merged.get(key)
         user_supplied = key in merged
+        is_pin = entries_by_key.get(key) is not None and (
+            entries_by_key[key].type == ConfigEntryType.PIN
+        )
+        compare_user = _normalize_pin_value(user_value) if is_pin else user_value
+        compare_preset = _normalize_pin_value(preset.value) if is_pin else preset.value
         if preset.locked:
             # Schema validation rejects ``locked: true`` without a value, but
             # guard the runtime too so a malformed manifest fails fast with a
@@ -1536,7 +1555,7 @@ def _apply_featured_presets(
                     f"locked=true without a value — board manifest is malformed"
                 )
                 raise ValueError(msg)
-            if user_supplied and user_value != preset.value:
+            if user_supplied and compare_user != compare_preset:
                 msg = (
                     f"Featured component {record.full_id} field '{key}' is "
                     f"locked to {preset.value!r}; cannot override with "
@@ -1547,7 +1566,7 @@ def _apply_featured_presets(
             continue
         if preset.suggestions is not None:
             if user_supplied:
-                if user_value not in preset.suggestions:
+                if compare_user not in preset.suggestions:
                     msg = (
                         f"Featured component {record.full_id} field '{key}' "
                         f"must be one of {preset.suggestions}; got "
@@ -1560,6 +1579,26 @@ def _apply_featured_presets(
         if not user_supplied and preset.value is not None:
             merged[key] = preset.value
     return merged
+
+
+def _normalize_pin_value(value: Any) -> Any:
+    """
+    Reduce a rich pin mapping to its bare GPIO for comparison.
+
+    ESPHome accepts pins as either a bare integer / string label or as
+    a ``{number, mode, inverted, ...}`` mapping. Featured-component
+    presets express ``suggestions`` and bare-int ``value``s as scalars;
+    the frontend submits the mapping form. Returning the inner
+    ``number`` (when present) lets the locked / suggestion checks
+    treat both shapes equivalently.
+
+    ``bool`` is excluded explicitly since it's an ``int`` subclass.
+    """
+    if isinstance(value, dict):
+        number = value.get("number")
+        if isinstance(number, (int, str)) and not isinstance(number, bool):
+            return number
+    return value
 
 
 def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None) -> list[str]:
