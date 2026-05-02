@@ -6,7 +6,9 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import shutil
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -817,9 +819,18 @@ class DevicesController:
         """
         config_path = str(self._db.settings.rel_path(configuration))
         cmd = [*self._esphome_cmd, "--dashboard", "config", config_path]
+        line_transform: Callable[[str], str] | None = None
         if show_secrets:
             cmd.append("--show-secrets")
-        await self._stream_subprocess(cmd, client, message_id)
+        else:
+            # ``esphome config`` without ``--show-secrets`` doesn't
+            # redact — it wraps each ``password|key|psk|ssid`` value
+            # in the ANSI conceal SGR (8/28). Browsers don't honour
+            # that escape, so the resolved secret bytes were leaking
+            # plain into the validate dialog. Strip the wrapped runs
+            # before the line leaves the WS handler.
+            line_transform = _redact_concealed_secrets
+        await self._stream_subprocess(cmd, client, message_id, line_transform=line_transform)
 
     @api_command("devices/logs")
     async def stream_logs(
@@ -1478,12 +1489,26 @@ class DevicesController:
 
         await loop.run_in_executor(None, _delete_all)
 
-    async def _stream_subprocess(self, cmd: list[str], client: Any, message_id: str) -> None:
+    async def _stream_subprocess(
+        self,
+        cmd: list[str],
+        client: Any,
+        message_id: str,
+        *,
+        line_transform: Callable[[str], str] | None = None,
+    ) -> None:
         """Run a CLI subprocess and stream its merged stdout/stderr to a single client.
 
         Registers the running task with the client so a peer ``devices/stop_stream``
         command (or a WS disconnect) can cancel it; cancellation kills the
         subprocess so it doesn't keep running detached.
+
+        ``line_transform``, if given, is applied to every output line
+        before it leaves the WS handler. Used by ``validate_config``
+        to scrub the resolved ``!secret`` values out of the stream
+        when ``show_secrets`` is off (``esphome config`` doesn't
+        actually redact in that mode — it wraps values with the ANSI
+        conceal SGR, which browsers don't honour).
         """
         # Register before the first await so an early ``stop_stream`` (during
         # subprocess spawn) still finds and cancels this task.
@@ -1509,7 +1534,10 @@ class DevicesController:
             # job-output path which preserves terminators for in-place
             # overwrites.
             async for line in iter_lines_with_progress(proc.stdout):
-                await client.send_event(message_id, "output", line.rstrip("\n\r"))
+                payload = line.rstrip("\n\r")
+                if line_transform is not None:
+                    payload = line_transform(payload)
+                await client.send_event(message_id, "output", payload)
             exit_code = await proc.wait()
         except asyncio.CancelledError:
             # Synchronous kill only — no awaits in the cancel path. The
@@ -1534,6 +1562,22 @@ class DevicesController:
         await client.send_event(
             message_id, "result", {"success": exit_code == 0, "code": exit_code}
         )
+
+
+# Match an ANSI conceal-wrapped run: ``\x1b[8m...\x1b[28m``. ESPHome's
+# ``command_config`` emits this for every line containing
+# ``password``, ``key``, ``psk`` or ``ssid`` when ``--show-secrets``
+# is off. The wrapper assumes the terminal will hide the run via the
+# Concealed SGR — but browsers don't, so the resolved secret bytes
+# render plainly. Replace the entire wrapped run (including the
+# escape codes) with the same ``<removed>`` placeholder the legacy
+# dashboard's ``streamer_mode`` produced.
+_CONCEALED_SECRET_RE = re.compile(r"\x1b\[8m.*?\x1b\[28m")
+
+
+def _redact_concealed_secrets(line: str) -> str:
+    """Replace ANSI-conceal-wrapped secret runs with ``<removed>``."""
+    return _CONCEALED_SECRET_RE.sub("<removed>", line)
 
 
 def _apply_featured_presets(
