@@ -363,7 +363,15 @@ def clear_volatile_device_metadata(config_dir: Path, filename: str) -> None:
     """
     with metadata_transaction(config_dir) as data:
         entry = data.get(filename)
+        if entry is None:
+            return
         if not isinstance(entry, dict):
+            # Treat a non-dict value as corrupt — leaving it in place
+            # would later break ``set_device_metadata`` (which assumes
+            # the existing entry is a dict and item-assigns into it).
+            # Drop the bad value so the next write starts from a
+            # clean shape.
+            data.pop(filename, None)
             return
         for field_name in _VOLATILE_DEVICE_METADATA_FIELDS:
             entry.pop(field_name, None)

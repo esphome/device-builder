@@ -599,6 +599,39 @@ def test_archive_clear_device_sidecars_logs_oserror_on_storage_unlink(
     assert any("Could not remove storage file" in rec.message for rec in caplog.records)
 
 
+def test_clear_volatile_device_metadata_drops_corrupt_non_dict_entry(
+    tmp_path: Path,
+) -> None:
+    """A non-dict value at the entry is treated as corrupt and dropped.
+
+    ``set_device_metadata`` later assumes the existing entry is
+    a dict and item-assigns into it; leaving a non-dict in place
+    would crash that path. Drop the bad value so the next write
+    starts from a clean shape.
+    """
+    from esphome_device_builder.controllers.config import (
+        _save_metadata,
+        clear_volatile_device_metadata,
+        get_device_metadata,
+    )
+
+    # Seed a corrupt entry (string instead of dict) directly via
+    # the persistence helper — ``set_device_metadata`` won't let
+    # us write a non-dict value through its public surface.
+    _save_metadata(tmp_path, {"kitchen.yaml": "not-a-dict"})
+
+    clear_volatile_device_metadata(tmp_path, "kitchen.yaml")
+
+    # ``get_device_metadata`` returns ``{}`` when the value is
+    # not a dict — but here the entry should be gone entirely.
+    # Read the raw file to distinguish.
+    from esphome_device_builder.controllers.config import _load_metadata
+
+    raw = _load_metadata(tmp_path)
+    assert "kitchen.yaml" not in raw
+    assert get_device_metadata(tmp_path, "kitchen.yaml") == {}
+
+
 def test_archive_clear_device_sidecars_logs_exception_on_metadata_clear(
     tmp_path: Path, monkeypatch: Any, caplog: Any
 ) -> None:

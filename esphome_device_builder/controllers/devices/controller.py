@@ -218,7 +218,7 @@ class DevicesController:
     # ------------------------------------------------------------------
 
     @api_command("devices/create")
-    async def create_device(
+    async def create_device(  # noqa: PLR0915
         self,
         *,
         name: str,
@@ -323,6 +323,19 @@ class DevicesController:
             storage_path.parent.mkdir(parents=True, exist_ok=True)
             storage.save(storage_path)
 
+            # Clear any residual metadata entry under this filename
+            # before we write the new one. Archive preserves
+            # identity fields (``board_id`` / ``friendly_name`` /
+            # ``comment``) so an unarchive of the same YAML restores
+            # state, but a *new* device created at the same filename
+            # must start fresh — otherwise an archived device's
+            # ``board_id`` would silently mis-bind the new device's
+            # YAML to the wrong catalog entry, and the persisted
+            # ``friendly_name`` would override the new YAML's. The
+            # stub create path (no ``board_id`` provided, no derive
+            # match) wouldn't otherwise overwrite the entry, so the
+            # explicit wipe runs unconditionally.
+            remove_device_metadata(self._db.settings.config_dir, filename)
             if board_id:
                 set_device_metadata(self._db.settings.config_dir, filename, board_id=board_id)
 
