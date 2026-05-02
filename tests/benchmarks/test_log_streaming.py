@@ -76,7 +76,7 @@ _MIXED_PAYLOAD = b"".join(
 
 
 @pytest.mark.parametrize(
-    "payload,expected_count",
+    ("payload", "expected_count"),
     [
         # Pure \n: compile-output baseline (most of a successful compile
         # is plain newline-terminated lines).
