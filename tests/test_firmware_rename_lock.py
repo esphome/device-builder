@@ -131,3 +131,44 @@ def test_running_rename_blocks_install() -> None:
 
     with pytest.raises(CommandError):
         controller._check_rename_lock(_job("inst1", "kitchen.yaml", JobType.INSTALL))
+
+
+@pytest.mark.asyncio
+async def test_install_bulk_skips_locked_configs_and_queues_the_rest() -> None:
+    """A rename-locked device in a bulk request must not abort the others.
+
+    Bulk install is the user pattern for "update everything that has
+    pending changes" — if a single device is mid-rename, queueing
+    should still go ahead for every other selected device. This is
+    the regression guard for that.
+    """
+    from unittest.mock import AsyncMock
+
+    rename = _job(
+        "rn1",
+        "kitchen.yaml",
+        JobType.RENAME,
+        new_name="livingroom",
+        status=JobStatus.RUNNING,
+    )
+    controller = _controller(rename)
+    controller._queue = AsyncMock()
+    controller._db = type(
+        "DB",
+        (),
+        {
+            "bus": type("Bus", (), {"fire": lambda *a, **kw: None})(),
+        },
+    )()
+    controller._persist_jobs = AsyncMock()
+    controller._supersede_active_jobs = AsyncMock()
+
+    queued = await controller.install_bulk(
+        configurations=["kitchen.yaml", "garage.yaml", "livingroom.yaml", "office.yaml"]
+    )
+
+    # ``kitchen.yaml`` (rename source) and ``livingroom.yaml`` (rename
+    # target) both clash with the in-flight rename and skip; the
+    # other two queue normally.
+    queued_configs = sorted(j.configuration for j in queued)
+    assert queued_configs == ["garage.yaml", "office.yaml"]

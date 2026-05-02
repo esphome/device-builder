@@ -422,11 +422,20 @@ class FirmwareController:
 
     @api_command("firmware/compile_bulk")
     async def compile_bulk(self, *, configurations: list[str], **kwargs: Any) -> list[FirmwareJob]:
-        """Queue compile for multiple devices."""
-        jobs = []
+        """Queue compile for multiple devices.
+
+        Per-device errors (most commonly the rename lock) skip that
+        device and keep going so a single locked configuration in a
+        bulk request doesn't abort the queue for everyone else.
+        """
+        jobs: list[FirmwareJob] = []
         for config in configurations:
-            job = self._create_job(config, JobType.COMPILE)
-            await self._enqueue(job)
+            try:
+                job = self._create_job(config, JobType.COMPILE)
+                await self._enqueue(job)
+            except CommandError as exc:
+                _LOGGER.info("Skipping %s in compile_bulk: %s", config, exc.message)
+                continue
             jobs.append(job)
         return jobs
 
@@ -434,11 +443,20 @@ class FirmwareController:
     async def install_bulk(
         self, *, configurations: list[str], port: str = "OTA", **kwargs: Any
     ) -> list[FirmwareJob]:
-        """Queue update (compile + upload) for multiple devices. Defaults to OTA."""
-        jobs = []
+        """Queue update (compile + upload) for multiple devices. Defaults to OTA.
+
+        Per-device errors (most commonly the rename lock) skip that
+        device and keep going — a rename-in-flight on one of the
+        selected devices shouldn't abort the install for the rest.
+        """
+        jobs: list[FirmwareJob] = []
         for config in configurations:
-            job = self._create_job(config, JobType.INSTALL, port=port)
-            await self._enqueue(job)
+            try:
+                job = self._create_job(config, JobType.INSTALL, port=port)
+                await self._enqueue(job)
+            except CommandError as exc:
+                _LOGGER.info("Skipping %s in install_bulk: %s", config, exc.message)
+                continue
             jobs.append(job)
         return jobs
 
