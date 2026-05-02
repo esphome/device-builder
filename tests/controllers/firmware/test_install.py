@@ -125,16 +125,21 @@ async def test_install_validates_port_before_configuration(tmp_path: Path) -> No
     cheap-to-detect failure first — and the offending value named
     in the error message identifies the *port*, not the
     configuration.
+
+    Pin the order with a configuration the boundary validator
+    would actually reject (a traversal payload). A swap of the
+    two checks would surface the configuration error
+    ("Invalid configuration filename …") instead of the
+    port-shape error, and this assertion catches it.
     """
     controller = _controller(tmp_path)
-    # No YAML on disk → configuration validation would also fail
-    # if the port check didn't short-circuit.
 
     with pytest.raises(CommandError) as exc:
-        await controller.install(configuration="ghost.yaml", port="not a port")
+        await controller.install(configuration="../etc/passwd", port="not a port")
 
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert "not a port" in exc.value.message
+    assert "Invalid configuration filename" not in exc.value.message
 
 
 @pytest.mark.asyncio
@@ -156,24 +161,47 @@ async def test_install_rejects_traversal_configuration(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_install_fires_job_queued_event(tmp_path: Path) -> None:
-    """``JOB_QUEUED`` fires with the new job after ``_enqueue``.
+async def test_install_enqueues_before_firing_job_queued(tmp_path: Path) -> None:
+    """``_queue.put`` runs *before* the ``JOB_QUEUED`` broadcast.
 
     The all-jobs panel keys off ``JOB_QUEUED`` to add a row when a
     new job lands; without this event the panel goes silent until
     the first ``JOB_OUTPUT`` line arrives (sometimes a few seconds
-    later for cold-start compiles). Pin the event so a refactor
-    that drops it surfaces in CI.
+    later for cold-start compiles).
+
+    Ordering matters: ``_enqueue`` calls ``await self._queue.put``
+    *before* firing the bus event. A frontend that receives
+    ``JOB_QUEUED`` and immediately calls ``firmware/follow_job``
+    races the runner — if the event broadcast preceded the queue
+    insert, the follower could attach to a queue that hasn't seen
+    the job yet, producing a dropped first line. Verify both
+    halves: the event fires with the right payload, *and* the
+    queue had already received the job by the time the event
+    fired.
+
+    Implementation: capture a single shared call log via a
+    ``MagicMock`` whose ``method_calls`` is updated in put-then-
+    fire order. The ``_queue`` and ``bus`` mocks installed in the
+    fixture are wired as attribute children of this parent so
+    every call (sync or async) lands on the parent's call log.
     """
+    parent = MagicMock()
+    parent.queue.put = AsyncMock()
+    parent.bus.fire = MagicMock()
+
     controller = _controller(tmp_path)
+    controller._queue = parent.queue
+    controller._db.bus = parent.bus
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.install(configuration="kitchen.yaml")
 
-    fired = controller._db.bus.fire.call_args_list
-    assert any(
-        call.args[0] == EventType.JOB_QUEUED and call.args[1] == {"job": job} for call in fired
-    )
+    method_names = [name for name, _, _ in parent.method_calls]
+    queued_idx = method_names.index("queue.put")
+    fired_idx = method_names.index("bus.fire")
+    assert queued_idx < fired_idx
+
+    parent.bus.fire.assert_any_call(EventType.JOB_QUEUED, {"job": job})
 
 
 @pytest.mark.asyncio
