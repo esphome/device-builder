@@ -375,11 +375,11 @@ class DevicesController:
                 await loop.run_in_executor(None, self._manual_rename, configuration, new_name)
             except FileExistsError as exc:
                 msg = f"A device named {new_filename} already exists"
-                raise RuntimeError(msg) from exc
+                raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
             except Exception as exc:
                 _LOGGER.warning("Manual rename failed: %s", exc)
                 msg = f"Rename failed: {exc}"
-                raise RuntimeError(msg) from exc
+                raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from exc
             await self._scanner.scan()
             return {"configuration": new_filename, "job": None}
 
@@ -389,18 +389,25 @@ class DevicesController:
         # live output instead of running silently in the background.
         if self._db.firmware is None:
             msg = "Firmware controller is unavailable"
-            raise RuntimeError(msg)
+            raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
         job = await self._db.firmware.rename(configuration=configuration, new_name=new_name)
         return {"configuration": new_filename, "job": job.to_dict()}
 
     async def _yaml_validates(self, config_path: str) -> bool:
-        """Best-effort ``esphome config`` precheck.
+        """``esphome config`` precheck.
 
-        Used to decide between the file-level fallback (for empty /
-        broken configs) and the full ``esphome rename`` flow (which
-        will compile + install). Errors during the check fall
-        through as "doesn't validate" so we err on the side of the
-        safer file-level path.
+        Decides between the file-level fallback (for empty / broken
+        configs that ``esphome rename`` would refuse) and the full
+        ``esphome rename`` flow (which compiles + installs).
+
+        Treats only a clean non-zero exit as "doesn't validate".
+        Anything that prevents the precheck from running to
+        completion — missing CLI, permission errors, etc. — bubbles
+        up as a ``CommandError(INTERNAL_ERROR)``: silently treating
+        those as "invalid" would route the rename into the file-level
+        fallback even when the YAML *does* validate, recreating the
+        very footgun (rename without a successful flash) we're
+        trying to avoid.
         """
         try:
             proc = await create_subprocess_exec(
@@ -412,8 +419,10 @@ class DevicesController:
                 stderr=asyncio.subprocess.DEVNULL,
             )
             return await proc.wait() == 0
-        except Exception:
-            return False
+        except Exception as exc:
+            _LOGGER.warning("YAML precheck failed to run for %s: %s", config_path, exc)
+            msg = f"Could not validate {config_path}: {exc}"
+            raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from exc
 
     @api_command("devices/delete")
     async def delete_device(self, *, configuration: str, **kwargs: Any) -> None:
