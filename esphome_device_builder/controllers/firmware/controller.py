@@ -964,7 +964,14 @@ class FirmwareController:
 
         _emit(f"Resetting build environment under {esphome_root}")
 
-        if not esphome_root.exists():
+        # ``Path.exists()`` calls ``os.stat`` synchronously — fine on a
+        # one-shot user-triggered job in production, but the
+        # blockbuster fixture flags any sync filesystem syscall from
+        # an async context. Push every stat through the same default
+        # executor we already use for ``rmtree`` so the runner stays
+        # non-blocking end-to-end (and the tests exercise the real
+        # production path, not an allowlist exception).
+        if not await loop.run_in_executor(None, esphome_root.exists):
             _emit("Nothing to do — .esphome/ does not exist yet.")
         else:
             for name in _RESET_BUILD_ENV_TARGETS:
@@ -978,7 +985,7 @@ class FirmwareController:
                     return
 
                 target = esphome_root / name
-                if not target.exists():
+                if not await loop.run_in_executor(None, target.exists):
                     _emit(f"  skipped (not present): {name}/")
                     continue
                 _emit(f"  removing {name}/ ...")
