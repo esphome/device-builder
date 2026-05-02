@@ -26,6 +26,9 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
+from esphome.components.libretiny.const import (
+    FAMILY_COMPONENT as _LIBRETINY_FAMILY_COMPONENT,
+)
 from esphome.storage_json import StorageJSON, ext_storage_path
 
 from ...helpers.api import CommandError, api_command
@@ -64,6 +67,41 @@ if TYPE_CHECKING:
     from ...helpers.event_bus import Event
 
 _LOGGER = logging.getLogger(__name__)
+
+# Platforms whose ``target_platform`` value isn't the component
+# module name. The dashboard download endpoint needs the
+# ``esphome.components.<X>`` module that exposes
+# ``get_download_types(storage)`` — for ESP32 variants that's the
+# umbrella ``esp32`` component, and for LibreTiny chip families it's
+# the ``libretiny`` component.
+#
+# The LibreTiny set is derived from upstream's
+# ``FAMILY_COMPONENT.values()`` (auto-generated from
+# ``generate_components.py``) so when LibreTiny adds a new chip
+# family / component our mapping picks it up on the next
+# ``esphome`` dependency bump — no edit here. The literal
+# ``"libretiny"`` covers configs that report the umbrella name as
+# ``target_platform`` directly.
+#
+# Mirrors ``esphome/dashboard/web_server.py``'s
+# ``DownloadListRequestHandler`` — same shape, but driven by an
+# upstream-sourced set rather than an inline literal.
+_LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPONENT.values()) | {
+    "libretiny"
+}
+
+
+def _resolve_download_component(target_platform: str) -> str:
+    """Return the ``esphome.components`` module name for *target_platform*.
+
+    See ``_LIBRETINY_TARGET_PLATFORMS`` for the keep-in-sync note.
+    """
+    platform = (target_platform or "").lower()
+    if platform.upper() in ESP32_VARIANTS:
+        return "esp32"
+    if platform in _LIBRETINY_TARGET_PLATFORMS:
+        return "libretiny"
+    return platform
 
 
 class FirmwareController:
@@ -577,15 +615,9 @@ class FirmwareController:
             storage = StorageJSON.load(ext_storage_path(configuration))
             if storage is None:
                 return []
-            platform = (storage.target_platform or "").lower()
             try:
-                if platform.upper() in ESP32_VARIANTS:
-                    platform_ = "esp32"
-                elif platform in ("rtl87xx", "bk72xx", "ln882x", "libretiny"):
-                    platform_ = "libretiny"
-                else:
-                    platform_ = platform
-                module = importlib.import_module(f"esphome.components.{platform_}")
+                component = _resolve_download_component(storage.target_platform or "")
+                module = importlib.import_module(f"esphome.components.{component}")
                 return list(module.get_download_types(storage))
             except Exception:
                 _LOGGER.warning("Could not determine download types for %s", configuration)
