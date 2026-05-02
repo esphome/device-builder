@@ -159,6 +159,36 @@ as a working document) and check the open issue list filtered to
   immediately instead of waiting on the rebooted device's mDNS
   announce. If the OTA actually failed silently, the next real
   announce pushes the truth back through the same callback.
+- **Two mDNS paths with different OFFLINE semantics.** The
+  monitor has two distinct mDNS data sources, and they trust
+  the protocol differently:
+
+  - **Browser callback** (`_on_service_state_change`) —
+    passively subscribed to `_esphomelib._tcp.local.`.
+    Trust mDNS in **both directions**: the
+    `AsyncServiceBrowser` delivers a `Removed` event when a
+    cached record's TTL expires without renewal, which is the
+    canonical "device gone" signal. ONLINE → mdns, OFFLINE →
+    mdns, no ICMP needed.
+
+  - **One-off active resolve** (`_resolve_non_api_mdns_targets`,
+    used for non-API devices that don't broadcast on
+    `_esphomelib._tcp.local.`). Trust mDNS for **ONLINE only**.
+    A hit claims ONLINE under `mdns` (priority 3, locks out
+    ICMP) — once mDNS has answered, repeat-pinging is just
+    redundant noise we want to avoid on broadcast-capable
+    fleets. A miss is **deliberately silent**: a single active
+    query that didn't reply in time conflates "device gone",
+    "device slow", and "transient packet loss" — there's no
+    subscription delivering TTL-expiry events here, so we can't
+    tell them apart. Wait for the ICMP sweep that follows in
+    the same loop to decide OFFLINE.
+
+  Don't add an OFFLINE branch to the active-resolve path
+  without re-reading this. The asymmetry isn't an oversight —
+  it's the only way to get aggressive ONLINE detection without
+  flipping the indicator red on every quiet device or dropped
+  reply.
 - **The `Device` is the source of truth, not the monitor.**
   `DeviceStateMonitor.apply_*` (state, ip, version, config_hash,
   api_encryption) all dedupe by comparing the broadcast value
