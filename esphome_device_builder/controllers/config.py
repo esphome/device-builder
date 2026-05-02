@@ -326,7 +326,12 @@ class ConfigController:
             if not secrets_path.exists():
                 return []
             try:
-                data = yaml_util.load_yaml(str(secrets_path))
+                # ``yaml_util.load_yaml`` expects a ``Path``, not a
+                # ``str`` — passing a string raises ``AttributeError``
+                # at ``fname.open(...)`` and the bare except below
+                # would silently swallow it, leaving the secrets
+                # dropdown permanently empty.
+                data = yaml_util.load_yaml(secrets_path)
                 return sorted(data.keys()) if isinstance(data, dict) else []
             except Exception:
                 return []
