@@ -100,10 +100,21 @@ _TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
 
 # Per-job output cap for retained terminal jobs. Compile output for a
 # successful build runs ~3-10k lines; the head is mostly toolchain
-# noise that's rarely useful once the build finished. Live job output
-# is unbounded — the cap kicks in only when the job lands in a
-# terminal state.
+# noise that's rarely useful once the build finished. Trim aggressively
+# once the job lands in a terminal state.
 _MAX_OUTPUT_LINES_RETAINED = 2000
+# Soft cap on ``job.output`` while a job is *still running*. The
+# post-completion trim only fires in the ``finally`` block, so a
+# misbehaving build that streams gigabytes of stderr (e.g. an
+# external_components fetch in a tight retry loop, an esptool stuck
+# on a chatty error) used to grow ``job.output`` without bound and
+# OOM the dashboard process before the subprocess ever exited. 50k
+# lines is comfortably above the worst-case successful build (~10k
+# lines) and a failing-compile-with-verbose-errors (~30k lines), but
+# bounds memory at ~5-10MB of strings even on the most adversarial
+# output. The post-completion trim still pulls the kept slice down
+# to ``_MAX_OUTPUT_LINES_RETAINED``.
+_MAX_OUTPUT_LINES_INFLIGHT = 50_000
 _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
 
 # Subdirectories of ``<config_dir>/.esphome/`` that ``RESET_BUILD_ENV``
@@ -115,13 +126,18 @@ _RESET_BUILD_ENV_TARGETS = (
 )
 
 
-def _trim_job_output(job: FirmwareJob) -> None:
+def _trim_job_output(job: FirmwareJob, *, keep: int = _MAX_OUTPUT_LINES_RETAINED) -> None:
     """
-    Cap ``job.output`` at the last ``_MAX_OUTPUT_LINES_RETAINED`` lines.
+    Cap ``job.output`` at the last ``keep`` lines.
 
     Mutates the job in place. Safe to call repeatedly on the same
     job — already-trimmed output stays stable and the elided count
     keeps growing as new lines are dropped.
+
+    ``keep`` defaults to the post-completion retention cap; the
+    in-flight path overrides it to a larger ``_MAX_OUTPUT_LINES_INFLIGHT``
+    so users tailing a live build don't lose the last several
+    thousand lines mid-stream.
     """
     output = job.output
     extra_elided = 0
@@ -132,13 +148,13 @@ def _trim_job_output(job: FirmwareJob) -> None:
         if match:
             extra_elided = int(match.group(1))
         output = output[1:]
-    if len(output) <= _MAX_OUTPUT_LINES_RETAINED:
+    if len(output) <= keep:
         return
-    new_elided = len(output) - _MAX_OUTPUT_LINES_RETAINED
+    new_elided = len(output) - keep
     total_elided = extra_elided + new_elided
     job.output = [
         f"{_OUTPUT_TRIM_NOTICE_PREFIX} {total_elided} earlier line(s) elided]\n",
-        *output[-_MAX_OUTPUT_LINES_RETAINED:],
+        *output[-keep:],
     ]
 
 
@@ -1034,6 +1050,17 @@ class FirmwareController:
             # or overwrite the last one.
             async for line in iter_lines_with_progress(proc.stdout):
                 job.output.append(line)
+                # Bound mid-run memory growth. Without this, a build
+                # that streams gigabytes of stderr (chatty
+                # external_components fetch loop, esptool stuck on a
+                # repeating error) holds every line in memory until
+                # the subprocess exits — only the post-completion
+                # ``_trim_job_output`` in the ``finally`` block ever
+                # ran. Trimming here keeps the buffer bounded while
+                # still leaving plenty of recent lines for a user
+                # tailing the build.
+                if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
+                    _trim_job_output(job, keep=_MAX_OUTPUT_LINES_INFLIGHT)
                 self._db.bus.fire(
                     EventType.JOB_OUTPUT,
                     {"job_id": job.job_id, "line": line},
