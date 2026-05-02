@@ -55,6 +55,7 @@ from ..config import (
     remove_device_metadata,
     set_device_metadata,
 )
+from ..firmware.helpers import _find_esphome_cmd
 from .helpers import (
     _apply_featured_presets,
     _build_address_cache_args,
@@ -136,8 +137,6 @@ class DevicesController:
 
     async def start(self) -> None:
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
-        from .firmware.helpers import _find_esphome_cmd
-
         self._esphome_cmd = _find_esphome_cmd()
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._load_ignored_devices)
