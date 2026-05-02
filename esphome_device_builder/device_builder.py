@@ -104,9 +104,17 @@ class DeviceBuilder:
         path the production ``start()`` flow uses, instead of
         re-implementing ``loop.set_default_executor(self._executor)``
         and trivially passing even when ``start()`` stopped doing it.
+        Raises explicitly (rather than ``assert``) because asserts are
+        stripped under ``python -O`` and a missing loop / closed pool
+        here is a real bug we'd rather surface as ``RuntimeError``
+        than as a downstream ``AttributeError`` in the loop's guts.
         """
-        assert self.loop is not None  # type narrowing — set in start()
-        assert self._executor is not None  # type narrowing — set in __init__
+        if self.loop is None:
+            msg = "DeviceBuilder.loop is not set; call start() first"
+            raise RuntimeError(msg)
+        if self._executor is None:
+            msg = "DeviceBuilder._executor was already shut down"
+            raise RuntimeError(msg)
         self.loop.set_default_executor(self._executor)
 
     async def start(self) -> None:
@@ -186,18 +194,32 @@ class DeviceBuilder:
         if self.editor is not None:
             await self.editor.stop()
         # Cleanly drain the pool once nothing else can hand it work.
-        # ``loop.shutdown_default_executor`` is the asyncio idiom: it's
-        # specifically engineered to NOT route through the executor
-        # being shut down (which would deadlock — ``asyncio.to_thread``
-        # would try to schedule ``shutdown(wait=True)`` on the same
-        # pool we're closing), waits for in-flight work, and joins
-        # the worker threads. Defensively re-pin our pool as the
-        # loop's default first so a third party that swapped the
-        # default after ``start()`` can't redirect this shutdown.
-        if self._executor is not None and self.loop is not None:
-            self.loop.set_default_executor(self._executor)
-            await self.loop.shutdown_default_executor()
+        # Two paths because the pool is created eagerly in ``__init__``
+        # — calling ``stop()`` on an instance that never ran
+        # ``start()`` (and so never bound a loop) still has a live
+        # pool to clean up.
+        if self._executor is not None:
+            executor = self._executor
             self._executor = None
+            if self.loop is not None:
+                # ``loop.shutdown_default_executor`` is the asyncio
+                # idiom: it's specifically engineered to NOT route
+                # through the executor being shut down (which would
+                # deadlock — ``asyncio.to_thread`` would try to
+                # schedule ``shutdown(wait=True)`` on the same pool
+                # we're closing), waits for in-flight work, and
+                # joins the worker threads. Defensively re-pin our
+                # pool as the loop's default first so a third party
+                # that swapped the default after ``start()`` can't
+                # redirect this shutdown.
+                self.loop.set_default_executor(executor)
+                await self.loop.shutdown_default_executor()
+            else:
+                # No loop ever bound this pool — nothing has been
+                # scheduled on it, so a non-blocking shutdown is
+                # safe and avoids the "what loop runs to_thread"
+                # question entirely.
+                executor.shutdown(wait=False)
 
     async def _run_background(self) -> None:
         """Background polling loop."""

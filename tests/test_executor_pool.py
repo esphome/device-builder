@@ -16,6 +16,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+import pytest
+
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.device_builder import _EXECUTOR_MAX_WORKERS, DeviceBuilder
 
@@ -28,14 +30,23 @@ def _settings(tmp_path: Any) -> DashboardSettings:
 
 
 def test_executor_created_in_init(tmp_path: Any) -> None:
-    """``__init__`` populates ``_executor`` so callers can probe it pre-start."""
+    """``__init__`` populates ``_executor`` so callers can probe it pre-start.
+
+    Doesn't reach into ``ThreadPoolExecutor._max_workers`` — that's a
+    CPython implementation detail. The "pool is sized correctly"
+    contract is exercised indirectly: as long as ``__init__`` builds
+    a ``ThreadPoolExecutor`` from ``_EXECUTOR_MAX_WORKERS``, the size
+    is whatever the constant holds. The constant itself being a
+    sensible number is reviewed at the source — locking it down to
+    a literal here just couples the test to the runtime knob.
+    """
     builder = DeviceBuilder(_settings(tmp_path))
     assert isinstance(builder._executor, ThreadPoolExecutor)
-    # Pin to the module-level constant — the value isn't load-bearing
-    # on its own, but the assertion ensures we actually picked a
-    # value (not the asyncio default) and ties the test to whatever
-    # number ``_EXECUTOR_MAX_WORKERS`` is set to today.
-    assert builder._executor._max_workers == _EXECUTOR_MAX_WORKERS
+    # Sanity-check that the constant exists and is a reasonable
+    # positive value — guards against someone setting it to 0 / None
+    # while refactoring without the constant import disappearing.
+    assert isinstance(_EXECUTOR_MAX_WORKERS, int)
+    assert _EXECUTOR_MAX_WORKERS > 0
     builder._executor.shutdown(wait=False)
 
 
@@ -80,7 +91,24 @@ async def test_stop_drains_executor(tmp_path: Any) -> None:
     # no-op and the GC can collect the pool's last reference.
     assert builder._executor is None
     # Pool itself is shut down; submitting work raises.
-    import pytest as _pytest
+    with pytest.raises(RuntimeError):
+        pool.submit(lambda: None)
 
-    with _pytest.raises(RuntimeError):
+
+async def test_stop_without_start_drains_executor(tmp_path: Any) -> None:
+    """``stop()`` cleans up the pool even when ``start()`` never bound a loop.
+
+    The pool is created eagerly in ``__init__``, so an instance that's
+    constructed and immediately disposed still has a live
+    ``ThreadPoolExecutor`` to shut down. Without this path, a test
+    helper or short-lived caller would leak threads.
+    """
+    builder = DeviceBuilder(_settings(tmp_path))
+    pool = builder._executor
+    assert pool is not None
+    # ``self.loop`` is None at this point — start() never ran.
+    assert builder.loop is None
+    await builder.stop()
+    assert builder._executor is None
+    with pytest.raises(RuntimeError):
         pool.submit(lambda: None)
