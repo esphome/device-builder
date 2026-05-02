@@ -7,6 +7,9 @@ name: Test
 # smoke test (``script/check_catalog.py``) runs alongside lint so a
 # bad sync result fails CI even when no one ran the full sync.
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
