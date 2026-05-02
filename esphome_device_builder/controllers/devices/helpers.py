@@ -1,12 +1,11 @@
 """
 Pure helpers for the devices controller.
 
-Free functions only — no controller state. ``_remove_device_sidecars``,
-``_apply_featured_presets``, and ``_build_address_cache_args`` are
-imported by tests; the rest are private to the controller. The
-``friendly_name_slugify`` re-export keeps a single import path for
-the rest of the codebase regardless of where esphome upstream
-decides to keep it.
+Free functions only — no controller state. A small subset of helpers
+is imported outside ``controller.py``, including by tests, and
+``friendly_name_slugify`` is re-exported here to keep a single import
+path for the rest of the codebase regardless of where esphome
+upstream decides to keep it.
 """
 
 from __future__ import annotations
