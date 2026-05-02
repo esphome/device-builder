@@ -17,7 +17,9 @@ legacy code accreted that the rewrite has yet to fully reabsorb.
   visible to users today: `delete` doesn't wipe the per-device build
   directory, the WebSocket has no server-side heartbeat or trusted-
   domain origin allowlist, and there's no equivalent to the legacy
-  `streamer_mode` (logs/validate always show secrets).
+  `streamer_mode` toggle — `devices/validate` unconditionally
+  redacts `!secret` values to `<removed>` with no opt-in to reveal
+  them.
 - mDNS coverage in the new dashboard is broader (HTTP service browser,
   TXT-driven config_hash and api_encryption signals) but the legacy
   dashboard's `no_mdns`/HTTP-only-poll path for `web_server`-only
@@ -29,9 +31,14 @@ legacy code accreted that the rewrite has yet to fully reabsorb.
   porting question — the new dashboard stops pretty bluntly on
   Windows-only edge cases.
 - Auth/session handling is far more thorough than legacy
-  cookie+Basic. The two surviving gaps: legacy supports HA Supervisor
-  password authentication via `/auth` POST (still used by some HA
-  add-on flows); the new backend only delegates auth to ingress.
+  cookie+Basic — the new backend ships a session store, rate
+  limiter, atomic JSON persistence, and Bearer/Basic on the public
+  site. The surviving gap: legacy supports HA Supervisor password
+  authentication via a `/auth` POST (still used by some HA add-on
+  flows for the password-gated public port); the new backend's
+  HA add-on path is ingress-only and has no Supervisor-backed
+  fallback for the public-port + password combination. (See
+  issue #85 — likely a deliberate decline.)
 
 ---
 

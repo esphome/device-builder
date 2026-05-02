@@ -79,8 +79,6 @@ toggle in the official ESPHome container and Home Assistant add-on.
   comment (`uses: actions/checkout@<sha>  # v4`) so dependabot can
   bump them while preserving traceability. Org policy.
 - Release flow lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#ci--release-pipeline).
-- **Run tests with `uv run pytest`,** not bare `python -m pytest`
-  — the project is `uv`-managed and `uv.lock` is checked in.
 - **CI runs the test matrix on Windows too.** PowerShell is the
   default shell on `windows-latest` and **does not accept
   bash-style `\` line continuations** — multi-line `run:` steps
