@@ -20,8 +20,11 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.models import Device, DeviceState, EventType
 
 
 def _device(**overrides: Any) -> Device:
@@ -101,3 +104,82 @@ def test_apply_api_encryption_dedupes_repeated_empty() -> None:
     monitor.apply_api_encryption("kitchen", "")
     monitor.apply_api_encryption("kitchen", "")
     cb.assert_called_once()
+
+
+# ----------------------------------------------------------------------
+# DevicesController._on_api_encryption_change
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_on_api_encryption_change_updates_device_and_fires_event() -> None:
+    """Callback writes the value onto the in-memory device + fires DEVICE_UPDATED."""
+    device = _device(api_encryption_active=None)
+
+    db = MagicMock()
+    fired_events: list[tuple[EventType, dict]] = []
+    db.bus.fire.side_effect = lambda event_type, data: fired_events.append((event_type, data))
+
+    controller = DevicesController.__new__(DevicesController)
+    controller._db = db
+    controller._scanner = MagicMock()
+    controller._scanner.devices = [device]
+
+    controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
+
+    assert device.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    assert any(et == EventType.DEVICE_UPDATED for et, _ in fired_events)
+
+
+@pytest.mark.asyncio
+async def test_on_api_encryption_change_records_empty_string() -> None:
+    """Empty string flips ``None`` → ``""`` and fires the event.
+
+    The transition from "never seen" to "seen plaintext" is itself a
+    meaningful state change and the dashboard's lock indicator depends
+    on observing it (None → "" makes the four-state classifier flip
+    from ``active`` to ``mismatch``/``pending`` when paired with a
+    plaintext device).
+    """
+    device = _device(api_encryption_active=None)
+
+    db = MagicMock()
+    controller = DevicesController.__new__(DevicesController)
+    controller._db = db
+    controller._scanner = MagicMock()
+    controller._scanner.devices = [device]
+
+    controller._on_api_encryption_change("kitchen", "")
+
+    assert device.api_encryption_active == ""
+    db.bus.fire.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_on_api_encryption_change_skips_when_same() -> None:
+    """No-op when the in-memory device already has the announced value."""
+    device = _device(api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256")
+
+    db = MagicMock()
+    controller = DevicesController.__new__(DevicesController)
+    controller._db = db
+    controller._scanner = MagicMock()
+    controller._scanner.devices = [device]
+
+    controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
+
+    db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_on_api_encryption_change_unknown_device_is_noop() -> None:
+    """A stray callback for a name we don't track must not raise or fire."""
+    db = MagicMock()
+    controller = DevicesController.__new__(DevicesController)
+    controller._db = db
+    controller._scanner = MagicMock()
+    controller._scanner.devices = []
+
+    controller._on_api_encryption_change("ghost", "anything")
+
+    db.bus.fire.assert_not_called()
