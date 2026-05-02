@@ -106,11 +106,18 @@ def _patch_ext_storage(monkeypatch: Any, tmp_path: Path) -> None:
     Autouse because both ``_archive_single`` and ``_list_archived_sync``
     reach into ``ext_storage_path`` — keeping the redirect in one
     place avoids future tests accidentally hitting the real CORE.
+
+    Patches both the controller and helpers modules: ``_archive_single``
+    sits in ``controller.py`` but it delegates to ``_wipe_device_build_dir``
+    and ``_remove_device_sidecars`` over in ``helpers.py``. Both files
+    import ``ext_storage_path`` independently; rebinding only one
+    leaves the other path running against the real CORE.
     """
+    fake = lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json"  # noqa: E731
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.ext_storage_path",
-        lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json",
+        "esphome_device_builder.controllers.devices.controller.ext_storage_path", fake
     )
+    monkeypatch.setattr("esphome_device_builder.controllers.devices.helpers.ext_storage_path", fake)
 
 
 # ---------------------------------------------------------------------------
@@ -491,7 +498,7 @@ def test_remove_device_sidecars_logs_oserror_on_storage_unlink(
     on the StorageJSON sidecar shouldn't block the rest of the
     archive / delete flow.
     """
-    from esphome_device_builder.controllers.devices import (
+    from esphome_device_builder.controllers.devices.helpers import (
         _remove_device_sidecars,
     )
 
@@ -514,16 +521,16 @@ def test_remove_device_sidecars_logs_exception_on_metadata_remove(
     tmp_path: Path, monkeypatch: Any, caplog: Any
 ) -> None:
     """Generic Exception from metadata-remove is logged, not raised."""
-    from esphome_device_builder.controllers import devices as devices_module
+    from esphome_device_builder.controllers.devices import helpers as devices_helpers
 
     def _raise(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(devices_module, "remove_device_metadata", _raise)
+    monkeypatch.setattr(devices_helpers, "remove_device_metadata", _raise)
     import logging
 
     with caplog.at_level(logging.WARNING):
-        devices_module._remove_device_sidecars(tmp_path, "kitchen.yaml")
+        devices_helpers._remove_device_sidecars(tmp_path, "kitchen.yaml")
     assert any("Could not remove metadata" in rec.message for rec in caplog.records)
 
 

@@ -11,7 +11,7 @@ silent drift between the two locations can't sneak past CI.
 
 from __future__ import annotations
 
-from esphome_device_builder.controllers.devices import friendly_name_slugify
+from esphome_device_builder.controllers.devices.helpers import friendly_name_slugify
 
 
 def test_friendly_name_slugify_resolves_via_helpers_or_dashboard_shim() -> None:

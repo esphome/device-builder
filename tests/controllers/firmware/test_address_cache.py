@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from esphome_device_builder.controllers.devices import _build_address_cache_args
+from esphome_device_builder.controllers.devices.helpers import _build_address_cache_args
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.models import Device, FirmwareJob, JobType
 
