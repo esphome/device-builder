@@ -97,6 +97,18 @@ class DeviceBuilder:
 
         self._ingress_runner: web.AppRunner | None = None
 
+    def _install_default_executor(self) -> None:
+        """Register the dashboard's executor as the loop's default.
+
+        Extracted so the unit test can drive the same registration
+        path the production ``start()`` flow uses, instead of
+        re-implementing ``loop.set_default_executor(self._executor)``
+        and trivially passing even when ``start()`` stopped doing it.
+        """
+        assert self.loop is not None  # type narrowing — set in start()
+        assert self._executor is not None  # type narrowing — set in __init__
+        self.loop.set_default_executor(self._executor)
+
     async def start(self) -> None:
         """Start the application — load catalogs, initialize controllers."""
         from .controllers.auth import AuthController
@@ -109,13 +121,11 @@ class DeviceBuilder:
         from .controllers.firmware import FirmwareController
 
         self.loop = asyncio.get_running_loop()
-        # The executor itself was constructed in ``__init__`` (so
-        # callers that probe ``self._executor`` before ``start()`` see
-        # the right value); here we just register it as the loop's
-        # default. See ``_EXECUTOR_MAX_WORKERS`` for the why behind
-        # the pool size.
-        assert self._executor is not None  # type narrowing
-        self.loop.set_default_executor(self._executor)
+        # Pool itself was constructed in ``__init__`` (so callers
+        # probing ``self._executor`` pre-start see the right value);
+        # here we just register it as the loop's default. See
+        # ``_EXECUTOR_MAX_WORKERS`` for the why behind the pool size.
+        self._install_default_executor()
 
         # Initialize controllers
         self.auth = AuthController(self)
@@ -175,13 +185,17 @@ class DeviceBuilder:
             await self.devices.stop()
         if self.editor is not None:
             await self.editor.stop()
-        # Cleanly drain the executor once nothing else can hand it
-        # work. Without this, a test that exercises start/stop or a
-        # caller that owns the loop separately can leave the worker
-        # threads up — long-lived state monitor / DNS probes block the
-        # loop close. ``shutdown_default_executor`` is the asyncio
-        # idiom; it waits for in-flight tasks and joins the threads.
-        if self.loop is not None and self._executor is not None:
+        # Cleanly drain the pool once nothing else can hand it work.
+        # ``loop.shutdown_default_executor`` is the asyncio idiom: it's
+        # specifically engineered to NOT route through the executor
+        # being shut down (which would deadlock — ``asyncio.to_thread``
+        # would try to schedule ``shutdown(wait=True)`` on the same
+        # pool we're closing), waits for in-flight work, and joins
+        # the worker threads. Defensively re-pin our pool as the
+        # loop's default first so a third party that swapped the
+        # default after ``start()`` can't redirect this shutdown.
+        if self._executor is not None and self.loop is not None:
+            self.loop.set_default_executor(self._executor)
             await self.loop.shutdown_default_executor()
             self._executor = None
 

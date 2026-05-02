@@ -40,20 +40,19 @@ def test_executor_created_in_init(tmp_path: Any) -> None:
 
 
 async def test_run_in_executor_uses_dashboard_pool(tmp_path: Any) -> None:
-    """``run_in_executor`` should land on the dashboard's named pool, not asyncio's default.
+    """``run_in_executor`` lands on the dashboard's named pool, not asyncio's default.
 
-    ``DeviceBuilder.start()`` does a lot more than register the
-    executor (it spins up controllers, opens mDNS, etc.) — too much
-    to set up in a unit test. Instead, mirror the one bit of
-    ``start`` we care about: call ``set_default_executor`` with the
-    builder's own pool, then assert the running thread name carries
-    the prefix.
+    Drives the same ``_install_default_executor`` helper that
+    production ``start()`` calls, instead of re-implementing
+    ``loop.set_default_executor(...)`` here. That way a regression
+    where ``start()`` stops registering the pool fails this test —
+    the helper would have to disappear from ``start()`` for the
+    binding to be skipped.
     """
     builder = DeviceBuilder(_settings(tmp_path))
-    loop = asyncio.get_running_loop()
-    assert builder._executor is not None  # type narrowing
-    loop.set_default_executor(builder._executor)
+    builder.loop = asyncio.get_running_loop()
     try:
+        builder._install_default_executor()
         thread_name = await asyncio.to_thread(lambda: threading.current_thread().name)
         assert thread_name.startswith("dashboard"), (
             f"to_thread landed on {thread_name!r} instead of the dashboard pool — "
@@ -62,16 +61,26 @@ async def test_run_in_executor_uses_dashboard_pool(tmp_path: Any) -> None:
     finally:
         # Drain workers so the pool doesn't outlive the test and trip
         # blockbuster on the next test's event loop.
-        await loop.shutdown_default_executor()
+        await builder.stop()
 
 
 async def test_stop_drains_executor(tmp_path: Any) -> None:
-    """``stop()`` clears ``_executor`` after shutting it down."""
+    """``stop()`` shuts down our pool and clears ``_executor``.
+
+    Drives ``_install_default_executor`` rather than poking the loop
+    directly so the test exercises the production registration path.
+    """
     builder = DeviceBuilder(_settings(tmp_path))
     builder.loop = asyncio.get_running_loop()
-    assert builder._executor is not None
-    builder.loop.set_default_executor(builder._executor)
+    builder._install_default_executor()
+    pool = builder._executor
+    assert pool is not None
     await builder.stop()
     # ``_executor`` is None after a clean stop so a second stop is a
     # no-op and the GC can collect the pool's last reference.
     assert builder._executor is None
+    # Pool itself is shut down; submitting work raises.
+    import pytest as _pytest
+
+    with _pytest.raises(RuntimeError):
+        pool.submit(lambda: None)
