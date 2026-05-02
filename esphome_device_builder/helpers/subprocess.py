@@ -16,9 +16,12 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
-# 4 KB matches the typical pipe buffer on Linux/macOS/Windows.
-# Larger reads don't help (the kernel rounds down anyway) and
-# smaller reads spend more time in the syscall.
+# 4 KB is a reasonable chunk size — large enough to amortise the
+# syscall overhead on a busy pipe, small enough that latency-
+# sensitive consumers (live progress bars) see updates quickly.
+# The actual pipe buffer is platform-dependent (Linux defaults to
+# 64 KB, macOS to 16 KB, Windows varies); we don't need to match
+# it because the StreamReader will keep filling on demand.
 _STREAM_READ_SIZE = 4096
 
 
@@ -49,6 +52,12 @@ async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterato
     when the operation finishes, so the user sees a long pause and
     then a wall of progress lines instead of a live indicator.
 
+    ``\r\n`` is treated as a *single* logical terminator (one
+    chunk ending in ``\r\n``) rather than two — the alternative
+    would emit a spurious empty event for every CRLF line on
+    Windows where Python's stdout text-mode write translates
+    ``\n`` into ``\r\n``.
+
     Each emitted chunk **keeps its trailing terminator** so the
     consumer can decide whether to append a new line or overwrite
     the last one (frontend ansi-log component leans on the
@@ -69,12 +78,18 @@ async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterato
             cr = buf.find(b"\r")
             if nl == -1 and cr == -1:
                 break  # need more bytes before we can split
-            if nl == -1:
-                idx = cr
-            elif cr == -1:
-                idx = nl
+
+            # Pick the earliest terminator. ``\r\n`` coalesces;
+            # a ``\r`` at the very end of the read might be the
+            # start of a CRLF whose ``\n`` arrives in the next
+            # chunk, so defer until we have more bytes.
+            if cr != -1 and (nl == -1 or cr < nl):
+                if cr + 1 == len(buf):
+                    break  # might be \r\n — wait for the next read
+                # ``\r\n`` coalesces; bare ``\r`` is an esptool overwrite.
+                end = cr + 2 if buf[cr + 1 : cr + 2] == b"\n" else cr + 1
             else:
-                idx = min(nl, cr)
-            chunk = buf[: idx + 1]
-            buf = buf[idx + 1 :]
+                end = nl + 1
+            chunk = buf[:end]
+            buf = buf[end:]
             yield chunk.decode("utf-8", errors="replace")

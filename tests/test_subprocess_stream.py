@@ -60,18 +60,52 @@ async def test_splits_on_carriage_return() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mixed_terminators_emit_separately() -> None:
-    r"""`\\r\\n` is two events: the `\\r` chunk and the `\\n` chunk.
+async def test_crlf_coalesces_to_single_chunk() -> None:
+    r"""`\r\n` is one logical line ending, not two events.
 
-    The split takes the *earliest* terminator each pass, so the
-    `\\r` is consumed first (yielding ``"foo\\r"``) and the
-    leftover ``\\n`` is consumed on the next pass (yielding
-    ``"\\n"``). This matches what the firmware job path has been
-    emitting since #16145 — preserving it means the frontend's
-    overwrite logic doesn't need to learn a new tokenisation.
+    Python's text-mode stdout on Windows translates ``\n`` into
+    ``\r\n`` on write — splitting CRLF into ``"foo\r"`` and
+    ``"\n"`` would emit a spurious empty event for every
+    Windows-emitted line once a downstream consumer strips the
+    terminator. Coalescing to one ``"foo\r\n"`` chunk keeps the
+    event count matching the *logical* line count regardless of
+    platform.
     """
     chunks = await _collect(_stream(b"foo\r\nbar\n"))
-    assert chunks == ["foo\r", "\n", "bar\n"]
+    assert chunks == ["foo\r\n", "bar\n"]
+
+
+@pytest.mark.asyncio
+async def test_bare_cr_followed_by_data_is_overwrite() -> None:
+    r"""A bare ``\r`` (no ``\n``) is the esptool-style overwrite case.
+
+    Distinct from CRLF: ``"5%\r10%\r"`` should produce two
+    progress chunks (``"5%\r"``, ``"10%\r"``), not get coalesced
+    into a single one. The lookahead for ``\n`` only triggers
+    when ``\n`` actually follows.
+    """
+    chunks = await _collect(_stream(b"5%\r10%\r"))
+    assert chunks == ["5%\r", "10%\r"]
+
+
+@pytest.mark.asyncio
+async def test_cr_at_end_of_read_defers_until_next_chunk() -> None:
+    r"""A ``\r`` at the read boundary waits for the next byte.
+
+    Without the lookahead deferral, a ``\r`` that turns out to be
+    the start of ``\r\n`` (when the ``\n`` arrives in a later
+    read) would surface as a bare-``\r`` overwrite chunk plus a
+    standalone ``\n`` chunk — the exact split we're trying to
+    avoid. Deferring keeps CRLF coalescing correct even when the
+    pipe boundary cuts a line ending in half.
+    """
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"foo\r")  # ends mid-CRLF
+    reader.feed_data(b"\nbar\n")
+    reader.feed_eof()
+
+    chunks = await _collect(reader)
+    assert chunks == ["foo\r\n", "bar\n"]
 
 
 @pytest.mark.asyncio

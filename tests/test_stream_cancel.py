@@ -148,16 +148,22 @@ async def test_stream_subprocess_emits_carriage_return_progress_lines() -> None:
     # then a normal ``\n``-terminated completion line. Without the
     # ``\r`` splitter all four would arrive as one event after the
     # subprocess finished.
+    #
+    # Write through ``sys.stdout.buffer`` (binary mode) so Windows'
+    # text-mode CRLF translation doesn't turn the trailing ``\n``
+    # into ``\r\n`` — the helper coalesces CRLF correctly, but
+    # binary-mode writes keep the test asserting on exactly the
+    # bytes we mean to assert on regardless of platform.
     script = (
         "import sys\n"
-        "sys.stdout.write('5%\\r')\n"
-        "sys.stdout.flush()\n"
-        "sys.stdout.write('50%\\r')\n"
-        "sys.stdout.flush()\n"
-        "sys.stdout.write('100%\\r')\n"
-        "sys.stdout.flush()\n"
-        "sys.stdout.write('done\\n')\n"
-        "sys.stdout.flush()\n"
+        "sys.stdout.buffer.write(b'5%\\r')\n"
+        "sys.stdout.buffer.flush()\n"
+        "sys.stdout.buffer.write(b'50%\\r')\n"
+        "sys.stdout.buffer.flush()\n"
+        "sys.stdout.buffer.write(b'100%\\r')\n"
+        "sys.stdout.buffer.flush()\n"
+        "sys.stdout.buffer.write(b'done\\n')\n"
+        "sys.stdout.buffer.flush()\n"
     )
     cmd = [sys.executable, "-c", script]
     await ctrl._stream_subprocess(cmd, client, "stream-cr")
