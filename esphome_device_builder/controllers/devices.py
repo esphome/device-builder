@@ -815,6 +815,13 @@ class DevicesController:
         # ``async_schedule_storage_json_update``.
         if kind is ScanChange.ADDED and not device.loaded_integrations:
             self._schedule_storage_regenerate(device.configuration)
+        # When a configured device is deleted, re-emit the discovery
+        # entry it was hiding. Upstream's ``DashboardImportDiscovery``
+        # only fires ``on_update`` on first sight (``is_new`` check),
+        # so without this nudge the device stays silent until it
+        # re-announces — which can be many minutes for a quiet device.
+        if kind is ScanChange.REMOVED:
+            self._state_monitor.revisit_importable(device.name)
 
     def _on_state_change(self, name: str, state: DeviceState, source: str) -> None:
         """Forward state monitor updates onto the event bus."""

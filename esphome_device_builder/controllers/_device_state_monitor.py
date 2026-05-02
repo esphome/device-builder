@@ -314,6 +314,30 @@ class DeviceStateMonitor:
         addresses = info.parsed_scoped_addresses(IPVersion.All)
         return addresses or None
 
+    def revisit_importable(self, device_name: str) -> None:
+        """
+        Re-fire ``on_importable_added`` for *device_name* if upstream still has it cached.
+
+        Used after a configured device is deleted: the device's mDNS
+        announcement was being suppressed by the ``configured-name``
+        filter in ``_on_import_update``, but upstream's
+        ``DashboardImportDiscovery.import_state`` already has the
+        ``DiscoveredImport`` entry from the original announcement.
+        Without this nudge the discovery banner stays silent until the
+        device re-announces (which can be minutes for a quiet device).
+
+        Ignored devices are skipped — the user already said "don't
+        show me this", so a deletion shouldn't unilaterally bring it
+        back. They can unignore through the menu if they change their
+        mind, and an unsolicited mDNS re-announce will surface it
+        through the normal callback path either way.
+        """
+        if self._import_discovery is None or self._is_ignored(device_name):
+            return
+        for service_name, discovered in self._import_discovery.import_state.items():
+            if discovered.device_name == device_name:
+                self._on_import_update(service_name, discovered)
+
     def get_importable_devices(self) -> list[AdoptableDevice]:
         """
         Snapshot of devices currently advertising as importable.

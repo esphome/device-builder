@@ -163,3 +163,88 @@ def test_get_importable_devices_returns_empty_before_browser_start() -> None:
         on_ip_change=MagicMock(),
     )
     assert monitor.get_importable_devices() == []
+
+
+def test_revisit_importable_refires_added_when_cached() -> None:
+    """``revisit_importable`` re-emits the callback for cached entries.
+
+    Upstream's ``DashboardImportDiscovery`` only calls ``on_update``
+    on first sight (``is_new`` check). When a configured device that
+    was hiding a discovered entry gets removed, no fresh announcement
+    fires; we have to nudge the cache ourselves.
+    """
+    from esphome.zeroconf import DashboardImportDiscovery
+
+    added: list[AdoptableDevice] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [],  # device just got deleted
+        on_state_change=MagicMock(),
+        on_ip_change=MagicMock(),
+        on_importable_added=added.append,
+    )
+    monitor._import_discovery = DashboardImportDiscovery()
+    monitor._import_discovery.import_state = {
+        "kitchen-1a2b3c._esphomelib._tcp.local.": _discovered("kitchen-1a2b3c"),
+    }
+
+    monitor.revisit_importable("kitchen-1a2b3c")
+
+    assert len(added) == 1
+    assert added[0].name == "kitchen-1a2b3c"
+
+
+def test_revisit_importable_noop_for_unknown_name() -> None:
+    """No cached entry → no callback fires (and no crash)."""
+    from esphome.zeroconf import DashboardImportDiscovery
+
+    added: list[AdoptableDevice] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [],
+        on_state_change=MagicMock(),
+        on_ip_change=MagicMock(),
+        on_importable_added=added.append,
+    )
+    monitor._import_discovery = DashboardImportDiscovery()
+    monitor._import_discovery.import_state = {}
+
+    monitor.revisit_importable("unknown")
+
+    assert added == []
+
+
+def test_revisit_importable_noop_when_browser_not_started() -> None:
+    """No browser → silent skip (no crash on the optional attr)."""
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [],
+        on_state_change=MagicMock(),
+        on_ip_change=MagicMock(),
+    )
+    monitor.revisit_importable("kitchen")  # must not raise
+
+
+def test_revisit_importable_skips_ignored_devices() -> None:
+    """Ignored devices stay hidden after deletion.
+
+    The user already said "don't show me this"; a YAML deletion
+    shouldn't unilaterally bring it back into the banner. They can
+    unignore through the menu if they change their mind.
+    """
+    from esphome.zeroconf import DashboardImportDiscovery
+
+    added: list[AdoptableDevice] = []
+    ignored = {"kitchen-1a2b3c"}
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [],
+        on_state_change=MagicMock(),
+        on_ip_change=MagicMock(),
+        on_importable_added=added.append,
+        is_ignored=ignored.__contains__,
+    )
+    monitor._import_discovery = DashboardImportDiscovery()
+    monitor._import_discovery.import_state = {
+        "kitchen-1a2b3c._esphomelib._tcp.local.": _discovered("kitchen-1a2b3c"),
+    }
+
+    monitor.revisit_importable("kitchen-1a2b3c")
+
+    assert added == []
