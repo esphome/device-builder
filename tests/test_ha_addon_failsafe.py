@@ -18,7 +18,7 @@ These tests pin the three branches of the fail-secure logic:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -167,3 +167,119 @@ def test_non_ha_addon_binds_public_site_normally(tmp_path: Path) -> None:
     # default of "no auth required, user opts in via PASSWORD".
     assert captured["port"] == 6052
     assert captured["host"] == "0.0.0.0"
+
+
+async def test_start_and_stop_ingress_site_lifecycle(tmp_path: Path) -> None:
+    """``_start_ingress_site`` / ``_stop_ingress_site`` actually bind+release.
+
+    Drives the lifecycle hooks directly (rather than running the
+    full ``web.run_app``) so the ingress-only path's child app
+    construction, runner setup, port bind, and clean cleanup are
+    all exercised. Uses port=0 so the OS picks a free ephemeral
+    port — avoids flakes when 6053 is already in use on the
+    runner.
+    """
+    db = _make_db(
+        tmp_path=tmp_path,
+        on_ha_addon=True,
+        using_password=True,
+        create_ingress_site=True,
+    )
+    db.settings.ingress_port = 0  # let OS pick a free port
+
+    # _start_ingress_site reads self.settings.ingress_port via
+    # web.TCPSite — a real socket bind. The hook also calls
+    # self.create_app(trusted=True, with_lifecycle=False) to build
+    # the inner app; that path is what we're trying to cover.
+    fake_app: object = object()
+    await db._start_ingress_site(fake_app)  # type: ignore[arg-type]
+    assert db._ingress_runner is not None
+
+    # And shutting it down releases the bind.
+    await db._stop_ingress_site(fake_app)  # type: ignore[arg-type]
+    assert db._ingress_runner is None
+
+
+async def test_on_startup_and_on_cleanup_call_through_to_lifecycle(tmp_path: Path) -> None:
+    """The aiohttp lifecycle hooks delegate to start()/stop() correctly.
+
+    Exercises the trivial ``_on_startup`` / ``_on_cleanup``
+    one-liners by patching ``DeviceBuilder.start`` / ``stop`` and
+    asserting they're awaited. Without the patch a full ``start()``
+    would spin up controllers, which is heavier than this test
+    needs.
+    """
+    db = _make_db(
+        tmp_path=tmp_path,
+        on_ha_addon=False,
+        using_password=False,
+        create_ingress_site=False,
+    )
+    fake_app: object = object()
+
+    with (
+        patch.object(db, "start", new=AsyncMock()) as start_mock,
+        patch.object(db, "stop", new=AsyncMock()) as stop_mock,
+    ):
+        await db._on_startup(fake_app)  # type: ignore[arg-type]
+        await db._on_cleanup(fake_app)  # type: ignore[arg-type]
+
+    start_mock.assert_awaited_once()
+    stop_mock.assert_awaited_once()
+
+
+def test_get_frontend_dir_returns_none_when_package_missing(tmp_path: Path) -> None:
+    """Covers the ``ImportError`` fallback in ``_get_frontend_dir``.
+
+    The frontend ships as a separate wheel
+    (``esphome-device-builder-frontend``) that's optional —
+    without it the dashboard runs in API-only mode. The fallback
+    branch returns ``None`` so callers can detect the missing
+    package and skip the static-route registration.
+    """
+    db = _make_db(
+        tmp_path=tmp_path,
+        on_ha_addon=False,
+        using_password=False,
+        create_ingress_site=False,
+    )
+
+    # Force an ImportError by clearing the module from sys.modules
+    # and patching the import to raise.
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "esphome_device_builder_frontend":
+            msg = "fake missing"
+            raise ImportError(msg)
+        return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+    with patch.object(builtins, "__import__", fake_import):
+        assert db._get_frontend_dir() is None
+
+
+def test_create_app_logs_frontend_missing_message(tmp_path: Path) -> None:
+    """``create_app`` logs a friendly hint when the frontend package isn't installed.
+
+    Covers the ``elif with_lifecycle:`` branch that runs when
+    ``_get_frontend_dir`` returned ``None``. Without the package
+    the dashboard still serves the WS API; the log line tells the
+    operator why the UI is missing and how to fix it.
+    """
+    db = _make_db(
+        tmp_path=tmp_path,
+        on_ha_addon=False,
+        using_password=False,
+        create_ingress_site=False,
+    )
+
+    with (
+        patch.object(db, "_get_frontend_dir", return_value=None),
+        patch("esphome_device_builder.device_builder._LOGGER") as logger_mock,
+    ):
+        db.create_app(with_lifecycle=True)
+
+    info_calls = [c for c in logger_mock.info.call_args_list if "Frontend package" in str(c)]
+    assert info_calls, "expected the 'Frontend package not installed' log line"
