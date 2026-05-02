@@ -35,6 +35,7 @@ import pytest
 
 from esphome_device_builder.controllers.config import (
     ConfigController,
+    DashboardSettings,
     _load_metadata,
     _save_metadata,
     get_device_ip,
@@ -45,6 +46,8 @@ from esphome_device_builder.controllers.config import (
     save_preferences,
     set_device_metadata,
 )
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.preferences import UserPreferences
 
 
@@ -361,10 +364,6 @@ async def test_get_info_rejects_path_traversal(tmp_path: Path) -> None:
     yield. A regression in either side of the boundary breaks the
     test.
     """
-    from esphome_device_builder.controllers.config import DashboardSettings
-    from esphome_device_builder.helpers.api import CommandError
-    from esphome_device_builder.models import ErrorCode
-
     settings = DashboardSettings()
     settings.config_dir = tmp_path
     settings.absolute_config_dir = tmp_path.resolve()
@@ -399,10 +398,6 @@ def test_rel_path_translates_traversal_to_command_error(tmp_path: Path, payload:
     truncated + ``!r``-quoted so a pathological payload can't break
     the JSON error response.
     """
-    from esphome_device_builder.controllers.config import DashboardSettings
-    from esphome_device_builder.helpers.api import CommandError
-    from esphome_device_builder.models import ErrorCode
-
     settings = DashboardSettings()
     settings.config_dir = tmp_path
     settings.absolute_config_dir = tmp_path.resolve()
@@ -419,9 +414,6 @@ def test_rel_path_truncates_long_payload(tmp_path: Path) -> None:
     Keeps the JSON error response bounded so a pathological payload
     can't blow up the WS frame.
     """
-    from esphome_device_builder.controllers.config import DashboardSettings
-    from esphome_device_builder.helpers.api import CommandError
-
     settings = DashboardSettings()
     settings.config_dir = tmp_path
     settings.absolute_config_dir = tmp_path.resolve()
