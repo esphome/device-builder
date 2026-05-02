@@ -10,8 +10,12 @@ configuration-traversal branch is already covered in
   (no sidecar / unknown platform / esp32 variants /
   libretiny families / general failure).
 - The platform-resolution table inside
-  ``_resolve_download_component`` so a future LibreTiny family
-  addition (or ESP32 variant rename) shows up as a test failure.
+  ``_resolve_download_component``. The parametrisation pulls
+  directly from ``esphome.components.esp32.VARIANTS`` and
+  ``_LIBRETINY_TARGET_PLATFORMS`` (which is itself sourced from
+  upstream's ``FAMILY_COMPONENT.values()``), so a new ESP32
+  variant or LibreTiny family in upstream auto-shows up as a
+  parametrised case here without an inline list edit.
 - The result-list pass-through is honest — whatever the upstream
   module returns is what the WS client sees.
 """
@@ -24,10 +28,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from esphome.components.esp32 import VARIANTS as _ESP32_VARIANTS
 
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware.controller import (
+    _LIBRETINY_TARGET_PLATFORMS,
     _resolve_download_component,
 )
 from tests._storage_fixtures import write_storage_json
@@ -66,10 +72,18 @@ def _install_fake_component(
 
     Returns the captured-call list so the test can assert
     ``get_download_types`` was actually invoked with the loaded
-    storage. The fake is wiped from ``sys.modules`` on teardown so
-    the next test's import lookup goes through the real esphome
-    package (or another fake) cleanly.
+    storage.
+
+    Patches *both* the ``sys.modules`` entry and the parent-package
+    attribute on ``esphome.components``. The import system caches
+    submodules on the parent package alongside the ``sys.modules``
+    map; teardown only restoring ``sys.modules`` would leave the
+    fake module visible as ``esphome.components.<module_name>``
+    attribute access in later tests, which can break a downstream
+    ``from esphome.components import esp32`` lookup.
     """
+    import esphome.components as parent
+
     captured: list[Any] = []
 
     def _get_download_types(storage: Any) -> list[dict]:
@@ -79,6 +93,11 @@ def _install_fake_component(
     fake = types.ModuleType(f"esphome.components.{module_name}")
     fake.get_download_types = _get_download_types  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, f"esphome.components.{module_name}", fake)
+    # The parent package may or may not have the submodule loaded
+    # already; ``raising=False`` makes setattr work in either case
+    # and ``monkeypatch`` will undo the assignment (or delete the
+    # attribute if it didn't exist before) on teardown.
+    monkeypatch.setattr(parent, module_name, fake, raising=False)
     return captured
 
 
@@ -87,41 +106,49 @@ def _install_fake_component(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("target_platform", "expected"),
-    [
-        # ESP32 variants — all collapse to the umbrella "esp32" component
-        # so the dashboard doesn't have to track per-variant download
-        # types separately.
-        ("ESP32", "esp32"),
-        ("ESP32C3", "esp32"),
-        ("ESP32S3", "esp32"),
-        # Lower-case variants (StorageJSON sometimes lower-cases the
-        # value) round-trip through the same branch.
-        ("esp32c3", "esp32"),
-        # LibreTiny chip families share one component module.
-        ("bk72xx", "libretiny"),
-        ("rtl87xx", "libretiny"),
-        ("ln882x", "libretiny"),
-        # The umbrella name itself is also accepted.
-        ("libretiny", "libretiny"),
-        # Non-mapped platforms pass through verbatim — caller's
-        # ``importlib.import_module`` then resolves
-        # ``esphome.components.<platform>`` directly.
-        ("rp2040", "rp2040"),
-        ("host", "host"),
-    ],
-)
-def test_resolve_download_component_table(target_platform: str, expected: str) -> None:
-    """Pin the platform → component-module mapping.
+@pytest.mark.parametrize("variant", sorted(_ESP32_VARIANTS))
+def test_resolve_download_component_routes_every_esp32_variant_to_umbrella(
+    variant: str,
+) -> None:
+    """Every ESP32 variant in upstream's ``VARIANTS`` collapses to ``"esp32"``.
 
-    The LibreTiny side is sourced from upstream's
-    ``FAMILY_COMPONENT.values()`` (auto-generated from
-    ``generate_components.py``) so this test catches the case
-    where upstream adds a new chip family but ``device-builder``'s
-    bundled mapping hasn't been re-generated yet.
+    Drives the parametrization off ``esphome.components.esp32.VARIANTS``
+    directly so an upstream variant addition (next ESP32 chip ESPHome
+    supports) is automatically covered — no manual list update here.
+    Both the canonical upper-case form and a lower-case round-trip
+    are checked since ``StorageJSON`` sometimes stores the
+    lower-cased value.
     """
-    assert _resolve_download_component(target_platform) == expected
+    assert _resolve_download_component(variant) == "esp32"
+    assert _resolve_download_component(variant.lower()) == "esp32"
+
+
+@pytest.mark.parametrize("family", sorted(_LIBRETINY_TARGET_PLATFORMS))
+def test_resolve_download_component_routes_every_libretiny_family_to_umbrella(
+    family: str,
+) -> None:
+    """Every LibreTiny family in ``_LIBRETINY_TARGET_PLATFORMS`` routes to ``"libretiny"``.
+
+    The set is built from upstream's ``FAMILY_COMPONENT.values()``
+    plus the umbrella ``"libretiny"`` name — driving the test off
+    that same set means a new LibreTiny chip family appearing in
+    upstream's auto-generated mapping is automatically covered.
+    """
+    assert _resolve_download_component(family) == "libretiny"
+
+
+@pytest.mark.parametrize("platform", ["rp2040", "host", "rtl8710b-unknown-vendor"])
+def test_resolve_download_component_passes_unmapped_platforms_through(
+    platform: str,
+) -> None:
+    """Non-mapped platforms pass through verbatim.
+
+    The caller's ``importlib.import_module`` then resolves
+    ``esphome.components.<platform>`` directly — covers the long
+    tail of single-component platforms (``rp2040``, ``host``,
+    future additions) that don't share a module with siblings.
+    """
+    assert _resolve_download_component(platform) == platform
 
 
 def test_resolve_download_component_handles_none() -> None:
