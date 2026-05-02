@@ -16,12 +16,16 @@ Covers four layers:
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
-from esphome_device_builder.controllers.devices import _apply_featured_presets
+from esphome_device_builder.controllers.devices import (
+    DevicesController,
+    _apply_featured_presets,
+)
 from esphome_device_builder.definitions import (
     _coerce_field_preset,
     _load_featured_bundle,
@@ -456,3 +460,72 @@ async def test_generate_yaml_skips_autofill_for_non_entity_subblocks(
     # ``model`` is a plain scalar — no name/id should attach to it.
     assert "name: Model" not in yaml
     assert "id: hlw8012_model" not in yaml
+
+
+# ---------------------------------------------------------------------------
+# add_component integration: featured-id reset + end-to-end YAML
+# ---------------------------------------------------------------------------
+
+
+def _make_controller(catalog: ComponentCatalog, tmp_path: Any) -> DevicesController:
+    """Build a DevicesController with just enough plumbing for ``add_component``."""
+    ctrl = DevicesController.__new__(DevicesController)
+    ctrl._db = MagicMock()
+    ctrl._db.settings.rel_path = lambda name: tmp_path / name
+    ctrl._db.components = catalog
+    ctrl._scanner = MagicMock()
+    ctrl._scanner.scan = AsyncMock()
+    return ctrl
+
+
+async def test_add_component_featured_resets_dashed_id(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """Frontend's dashed featured suggestion gets replaced by the standard auto-id."""
+    (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\n", "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="plug.yaml",
+        component_id="featured.athom-smart-plug-v3.power-monitor",
+        fields={
+            "id": "featured_athom-smart-plug-v3_power-monitor_1",
+            "current": {"device_class": "current"},
+        },
+    )
+
+    assert "id: hlw8012" in response.yaml
+    assert "featured_athom-smart-plug-v3" not in response.yaml
+    # Sub-entity autofill rides through the merge step.
+    assert "name: Current" in response.yaml
+    assert "id: hlw8012_current" in response.yaml
+
+
+async def test_add_component_featured_keeps_user_typed_id(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """A clean user-typed id (no dashes) survives the featured id-reset."""
+    (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\n", "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="plug.yaml",
+        component_id="featured.sonoff-basic.relay",
+        fields={"pin": 12, "name": "Relay", "id": "main_relay"},
+    )
+
+    assert "id: main_relay" in response.yaml
+
+
+async def test_add_component_featured_unknown_id_raises(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """An unknown ``featured.*`` id surfaces as a clear ValueError."""
+    ctrl = _make_controller(catalog, tmp_path)
+
+    with pytest.raises(ValueError, match="Unknown featured component"):
+        await ctrl.add_component(
+            configuration="plug.yaml",
+            component_id="featured.no-such-board.x",
+            fields={},
+        )
