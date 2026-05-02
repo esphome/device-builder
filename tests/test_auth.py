@@ -289,7 +289,11 @@ def test_rate_limiter_prunes_stale_entries() -> None:
     assert len(rl._attempts) == 2
 
     # Force the prune interval to trigger on the next record_failure call.
-    rl._last_prune = 0.0
+    # Use a deeply-negative sentinel rather than 0.0 — ``time.monotonic()``
+    # is not anchored to wall time, and on a freshly booted CI runner it
+    # commonly reads at ~60s, which is *inside* the 60s prune interval
+    # relative to 0.0 and would silently skip the prune.
+    rl._last_prune = -1e9
     time.sleep(0.06)
     rl.record_failure("8.8.8.3")
 
