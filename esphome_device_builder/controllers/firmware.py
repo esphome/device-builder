@@ -57,9 +57,10 @@ _ERROR_PATTERNS = [
 #     percent at all) and the package-extract bar (no ``[NN%]`` shape)
 #     never trip it.
 #   * esptool serial flash:          ``Writing at 0x10000... (45 %)``
-#     The percentage lives in parens after a Writing/Erasing prefix.
-#     ``(\s*\d{1,3}\s*%\s*\)`` is enough — no other PIO output uses
-#     parens around a bare percentage.
+#     We match a bare parenthesized percentage anywhere in the line:
+#     ``(\s*\d{1,3}\s*%\s*\)``. In practice that is enough for esptool
+#     progress, and no other expected PIO/ESPHome output uses parens
+#     around a bare percentage.
 #   * ESPHome OTA upload:            ``Uploading: [====] 100% Done...``
 #     Anchored to the ``Uploading:`` prefix.
 _PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
