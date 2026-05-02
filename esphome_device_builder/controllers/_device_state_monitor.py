@@ -873,15 +873,19 @@ class DeviceStateMonitor:
                 # devices that respond to it.
                 self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
                 self.apply_ip(device.name, _pick_ipv4(addresses))
-            # No OFFLINE branch — by design. A miss in isolation is
-            # not enough signal to flip the indicator red, and
-            # claiming OFFLINE under ``mdns`` would lock out the
-            # ICMP fallback for devices on networks where mDNS is
-            # flaky. The next sweep's resolve will pick the device
-            # back up if it returns; if mDNS stays silent for an
-            # extended period, ICMP (still allowed by the
-            # source-priority guard until mDNS first claims) is the
-            # path that decides OFFLINE.
+            # No OFFLINE branch — deliberate. The browser path can
+            # trust mDNS in both directions because the
+            # ServiceBrowser delivers a ``Removed`` event when a
+            # cached record's TTL expires without renewal; that's
+            # the canonical "I'm gone" signal. The one-off active
+            # resolve we run here has no such subscription — a
+            # miss is just "this single query didn't get a reply
+            # in time", which conflates "device gone", "device
+            # slow", and "transient packet loss". Falling back to
+            # ICMP for the OFFLINE decision in this path is the
+            # right shape: an mDNS hit upgrades to mDNS-owned
+            # ONLINE; a miss leaves the source slot at whatever
+            # ping last claimed (or unknown), and ping decides.
 
     async def _ping_sweep(self) -> None:
         if icmp_ping is None:
