@@ -696,6 +696,22 @@ class DevicesController:
         """Import / adopt a discovered device."""
         configuration = f"{name}.yaml"
         path = self._db.settings.rel_path(configuration)
+        # Honour the network type the discovery TXT advertised — an
+        # ESP32-PoE / Olimex / etc. broadcasts ``network=ethernet``
+        # and the imported template needs to start from
+        # ``ethernet:`` rather than the Wi-Fi default. Match against
+        # ``package_import_url`` so a user-edited YAML name (the
+        # mDNS-advertised name and the YAML name can diverge — see
+        # the "Drop the discovery banner entry" block below) doesn't
+        # mask the lookup. Fall back to Wi-Fi when the importable
+        # cache has no entry (older factory firmware that didn't
+        # advertise the field, or a discovery row that was already
+        # purged) — that matches the legacy dashboard's behaviour.
+        adoptable = next(
+            (d for d in self.import_result.values() if d.package_import_url == package_import_url),
+            None,
+        )
+        network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
         loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(
@@ -706,7 +722,7 @@ class DevicesController:
                 friendly_name,
                 project_name,
                 package_import_url,
-                const.CONF_WIFI,
+                network,
                 encryption,
             )
         except FileExistsError as exc:

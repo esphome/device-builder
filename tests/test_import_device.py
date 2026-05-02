@@ -87,8 +87,88 @@ async def test_import_device_invokes_import_config_and_returns_path(
     assert args[2] == "Kitchen"
     assert args[3] == "acme.kitchen"
     assert args[4] == "github://acme/firmware.yaml@main"
+    # No matching importable cache entry → fall back to wifi (legacy behaviour).
+    assert args[5] == "wifi"
     assert args[6] == "true"  # encryption flag forwarded
     ctrl._scanner.scan.assert_awaited_once()
+
+
+async def test_import_device_passes_ethernet_network_through_to_import_config(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An ESP32-PoE / Olimex broadcasts ``network=ethernet`` — preserve it.
+
+    Hard-coding ``CONF_WIFI`` produced a YAML with a Wi-Fi template
+    that the user had to fix by hand on every Ethernet adoption.
+    Look up the discovered ``AdoptableDevice`` by the
+    ``package_import_url`` the dialog passes and forward its
+    ``network`` field to ``import_config``.
+    """
+    from esphome_device_builder.models import AdoptableDevice
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
+    )
+
+    ctrl = _make_controller(tmp_path)
+    ctrl.import_result["olimex-poe-aabbcc"] = AdoptableDevice(
+        name="olimex-poe-aabbcc",
+        friendly_name="Olimex PoE",
+        package_import_url="github://olimex/esp32-poe.yaml",
+        project_name="olimex.esp32-poe",
+        project_version="1.0.0",
+        network="ethernet",
+        ignored=False,
+    )
+
+    await ctrl.import_device(
+        # User picked a shorter name in the dialog — discovery key
+        # still matches because we look up by URL.
+        name="garage",
+        project_name="olimex.esp32-poe",
+        package_import_url="github://olimex/esp32-poe.yaml",
+    )
+
+    assert captured["args"][5] == "ethernet"
+
+
+async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Older factory firmwares didn't advertise ``network=`` — fall back to wifi.
+
+    The TXT field ``network`` only became part of the dashboard_import
+    discovery contract recently. A device whose mDNS broadcast omits
+    it (``AdoptableDevice.network == ""``) shouldn't fail adoption —
+    Wi-Fi is the historical default and matches what the legacy
+    dashboard wrote.
+    """
+    from esphome_device_builder.models import AdoptableDevice
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
+    )
+
+    ctrl = _make_controller(tmp_path)
+    ctrl.import_result["legacy-bulb-001122"] = AdoptableDevice(
+        name="legacy-bulb-001122",
+        friendly_name="Legacy Bulb",
+        package_import_url="github://vendor/old.yaml",
+        project_name="vendor.old",
+        project_version="0.1.0",
+        network="",  # field absent / empty in TXT
+        ignored=False,
+    )
+
+    await ctrl.import_device(
+        name="legacy-bulb",
+        project_name="vendor.old",
+        package_import_url="github://vendor/old.yaml",
+    )
+
+    assert captured["args"][5] == "wifi"
 
 
 async def test_import_device_translates_file_exists_to_command_error(
