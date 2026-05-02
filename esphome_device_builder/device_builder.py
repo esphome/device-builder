@@ -21,6 +21,7 @@ from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.event_bus import EventBus
 from .helpers.json import cors_middleware
+from .models import EventType
 
 if TYPE_CHECKING:
     from .controllers.auth import AuthController
@@ -243,54 +244,89 @@ class DeviceBuilder:
         Subscribe a connected WS client to real-time events.
 
         The client receives an initial device list, then ongoing events
-        as devices change. Subscription is active for the connection lifetime.
+        as devices change. Subscription is active for the connection
+        lifetime; ``stream_events`` parks in its drain loop until the
+        WS closes (cancelling this task), at which point the
+        ``EventBus.listening`` context manager inside the helper
+        runs its ``finally`` and unsubscribes every listener.
+
+        Previous shapes had two problems addressed here:
+
+        1. The very first version registered listeners then returned,
+           leaking ~one listener per ``EventType`` per disconnected
+           client. Each leaked listener kept the closed-client
+           closure alive, so ``bus.fire`` iterated dead listeners
+           forever and bloated the logs with stale-send errors.
+        2. The interim shape forwarded events via independent
+           ``asyncio.create_task`` calls, so an event fired during
+           the ``initial_state`` await raced ahead and arrived
+           *before* the snapshot — clients couldn't rely on
+           "initial state first, then live updates" ordering.
+
+        ``stream_events`` closes both: listeners attach inside its
+        ``with bus.listening`` block before the snapshot is awaited,
+        and the bounded queue serialises every event after the seed.
+
+        Backpressure: a queue overflow forces the WS to close
+        (``push_or_terminate`` for every event type). A client
+        that's fallen 4000+ events behind is already in a broken
+        state — its UI is showing wildly stale data — so the
+        cleanest recovery is to drop the connection and let the
+        client reconnect. ``initial_state`` reseeds device state
+        on the new connection; for authoritative job state
+        clients use ``follow_jobs`` (which has its own snapshot).
+        Selectively keeping log lines or lifecycle events through
+        an overflow doesn't actually leave the UI in a usable
+        state — the connection is fucked either way.
         """
-        from .helpers.event_bus import Event
-        from .models import EventType
+        from .helpers.event_bus import Event, StreamControls, stream_events
 
         if client is None:
             return
 
-        # Track pending tasks to prevent garbage collection
-        pending_tasks: set[asyncio.Task] = set()
+        async def _send_initial(_controls: StreamControls) -> None:
+            # Importable devices are populated by the mDNS browser
+            # and per-device events fire only on transitions; without
+            # seeding the snapshot here a fresh page load misses
+            # every importable device the dashboard had already seen
+            # by then.
+            if self.devices:
+                devices = self.devices.get_devices()
+                importable = self.devices.get_importable_devices()
+                await client.send_event(
+                    message_id,
+                    "initial_state",
+                    {
+                        "devices": [d.to_dict() for d in devices],
+                        "importable": [d.to_dict() for d in importable],
+                    },
+                )
+            # Confirm subscription so the frontend can mark the WS
+            # as live before the first event arrives.
+            await client.send_result(message_id, {"subscribed": True})
 
-        def _on_event(event: Event) -> None:
-            """Forward bus event to the WS client."""
+        def _handle_event(event: Event, controls: StreamControls) -> None:
             data = event.data
             serialized: dict[str, Any] = {}
             for key, value in data.items():
                 serialized[key] = value.to_dict() if hasattr(value, "to_dict") else value
-            task = asyncio.create_task(
-                client.send_event(message_id, event.event_type.value, serialized)
-            )
-            pending_tasks.add(task)
-            task.add_done_callback(pending_tasks.discard)
+            # Fail-closed for every event type. If the queue
+            # overflows, the client is 4000+ events behind and the
+            # connection is already broken; a forced disconnect +
+            # reconnect (which reseeds device state from
+            # ``initial_state``) is cleaner than leaving the WS
+            # open with selectively-delivered events behind a
+            # massive backlog.
+            controls.push_or_terminate(event.event_type.value, serialized)
 
-        # Subscribe to all event types
-        unsubscribers = []
-        for event_type in EventType:
-            unsub = self.bus.add_listener(event_type, _on_event)
-            unsubscribers.append(unsub)
-
-        # Send initial device + importable lists. Importable devices
-        # are populated by the mDNS browser and per-device events
-        # fire only on transitions; without seeding the snapshot here
-        # a fresh page load misses every importable device the dashboard
-        # had already seen by then.
-        if self.devices:
-            devices = self.devices.get_devices()
-            importable = self.devices.get_importable_devices()
-            await client.send_event(
-                message_id,
-                "initial_state",
-                {
-                    "devices": [d.to_dict() for d in devices],
-                    "importable": [d.to_dict() for d in importable],
-                },
-            )
-
-        # Confirm subscription
-        await client.send_result(message_id, {"subscribed": True})
+        await stream_events(
+            client=client,
+            message_id=message_id,
+            bus=self.bus,
+            event_types=list(EventType),
+            handle_event=_handle_event,
+            send_initial=_send_initial,
+        )
 
     def create_background_task(self, coro: Any) -> asyncio.Task:
         """Create a tracked background task."""

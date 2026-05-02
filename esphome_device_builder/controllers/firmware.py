@@ -16,6 +16,7 @@ import subprocess
 import sys
 from contextlib import suppress
 from datetime import UTC, datetime
+from operator import attrgetter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -25,11 +26,13 @@ from esphome.storage_json import StorageJSON, ext_storage_path
 
 from ..controllers.config import _load_metadata, metadata_transaction
 from ..helpers.api import CommandError, api_command
+from ..helpers.event_bus import StreamControls, stream_events
 from ..helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ..models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
+    from ..helpers.event_bus import Event
 
 _LOGGER = logging.getLogger(__name__)
 _JOBS_KEY = "_firmware_jobs"
@@ -43,6 +46,24 @@ _ERROR_PATTERNS = [
     "FileNotFoundError",
     "command not found",
 ]
+
+# CPython's ModuleNotFoundError prints the module name single-quoted.
+# Matching the quoted form (rather than two loose substrings) avoids
+# false-positive sibling matches like ``'esphome_dashboard'`` and
+# ``'esphome_runtime'`` that share the prefix.
+_NO_ESPHOME_MODULE_MARKER = "No module named 'esphome'"
+
+
+def _is_no_module_named_esphome(text: str) -> bool:
+    """Return True if *text* names ``esphome`` itself as missing.
+
+    Module-level helper so the at-append capture in the runner and
+    its regression test both call the same function — without this
+    the test reimplemented the substring check locally and could
+    silently pass against a regressed production closure.
+    """
+    return _NO_ESPHOME_MODULE_MARKER in text
+
 
 # Progress markers we actually want to surface as job.progress. The
 # original wide-open ``\d{1,3}%`` regex matched anything carrying a
@@ -98,12 +119,49 @@ _TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
     {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
 )
 
+# Lifecycle events that end a follower's tail. Subscribed alongside
+# ``JOB_OUTPUT`` in ``follow_job`` so the follower's queue receives
+# the terminal sentinel for any of the three terminal states. The
+# runner fires exactly one of these per job, matching the
+# ``_TERMINAL_JOB_STATUSES`` set above — keeping them as separate
+# constants because subscriptions key off ``EventType`` while
+# state checks key off ``JobStatus``.
+_JOB_TERMINAL_EVENTS: frozenset[EventType] = frozenset(
+    {EventType.JOB_COMPLETED, EventType.JOB_FAILED, EventType.JOB_CANCELLED}
+)
+
 # Per-job output cap for retained terminal jobs. Compile output for a
 # successful build runs ~3-10k lines; the head is mostly toolchain
-# noise that's rarely useful once the build finished. Live job output
-# is unbounded — the cap kicks in only when the job lands in a
-# terminal state.
+# noise that's rarely useful once the build finished. Trim
+# aggressively once the job lands in a terminal state.
 _MAX_OUTPUT_LINES_RETAINED = 2000
+# Soft cap on ``job.output`` while a job is *still running*. The
+# post-completion trim only fires in the ``finally`` block, so a
+# misbehaving build that streams gigabytes of stderr (e.g. an
+# external_components fetch in a tight retry loop, an esptool stuck
+# on a chatty error) used to grow ``job.output`` without bound and
+# OOM the dashboard process before the subprocess ever exited. The
+# cap is double the post-completion retention floor so a user
+# tailing a live build sees roughly twice the kept window during
+# the run before old lines start aging off — generous enough for a
+# typical tail-along, tight enough to bound memory at a few MB even
+# under adversarial output.
+#
+# Hysteresis: when the buffer crosses the upper cap we trim down to
+# ``_INFLIGHT_TRIM_KEEP`` (the post-completion retention floor),
+# leaving a ``cap - keep`` line gap before the next trim fires.
+# Trimming exactly to the cap would re-trim on every subsequent
+# appended line — each trim is an O(cap) list slice, so at 1M
+# lines/sec of adversarial output that becomes billions of element
+# copies per second and the runner stalls in the slice instead of
+# OOMing. The gap also keeps the user-visible buffer stable for
+# ``cap - keep`` lines at a time so a tail viewer doesn't see
+# rapid-fire "..." trim notices on every line. Choosing
+# ``keep == _MAX_OUTPUT_LINES_RETAINED`` makes the post-completion
+# trim a no-op for builds that already triggered the in-flight
+# trim — never a second round of context loss.
+_MAX_OUTPUT_LINES_INFLIGHT = _MAX_OUTPUT_LINES_RETAINED * 2
+_INFLIGHT_TRIM_KEEP = _MAX_OUTPUT_LINES_RETAINED
 _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
 
 # Subdirectories of ``<config_dir>/.esphome/`` that ``RESET_BUILD_ENV``
@@ -115,13 +173,25 @@ _RESET_BUILD_ENV_TARGETS = (
 )
 
 
-def _trim_job_output(job: FirmwareJob) -> None:
+def _trim_job_output(job: FirmwareJob, *, keep: int = _MAX_OUTPUT_LINES_RETAINED) -> None:
     """
-    Cap ``job.output`` at the last ``_MAX_OUTPUT_LINES_RETAINED`` lines.
+    Cap ``job.output`` at the last ``keep`` lines.
 
     Mutates the job in place. Safe to call repeatedly on the same
     job — already-trimmed output stays stable and the elided count
     keeps growing as new lines are dropped.
+
+    ``keep`` is the same value (``_MAX_OUTPUT_LINES_RETAINED``) for
+    both the in-flight and post-completion call sites. The two
+    paths differ only in their *trigger*: the in-flight path
+    invokes this from the streaming loop when ``len(job.output)``
+    crosses ``_MAX_OUTPUT_LINES_INFLIGHT`` (=``2 * keep``), so
+    every trim drops back to ``keep`` and leaves a ``keep``-line
+    headroom before the next trim fires. The post-completion call
+    uses the default keep, so a build that finished under the
+    in-flight cap is trimmed once on exit; a build that already
+    triggered the in-flight trim is at ``keep`` lines plus the
+    elided notice and this final call is a no-op for it.
     """
     output = job.output
     extra_elided = 0
@@ -132,13 +202,13 @@ def _trim_job_output(job: FirmwareJob) -> None:
         if match:
             extra_elided = int(match.group(1))
         output = output[1:]
-    if len(output) <= _MAX_OUTPUT_LINES_RETAINED:
+    if len(output) <= keep:
         return
-    new_elided = len(output) - _MAX_OUTPUT_LINES_RETAINED
+    new_elided = len(output) - keep
     total_elided = extra_elided + new_elided
     job.output = [
         f"{_OUTPUT_TRIM_NOTICE_PREFIX} {total_elided} earlier line(s) elided]\n",
-        *output[-_MAX_OUTPUT_LINES_RETAINED:],
+        *output[-keep:],
     ]
 
 
@@ -629,7 +699,7 @@ class FirmwareController:
             jobs = [j for j in jobs if j.status == status]
         if configuration:
             jobs = [j for j in jobs if j.configuration == configuration]
-        return sorted(jobs, key=lambda j: j.created_at, reverse=True)
+        return sorted(jobs, key=attrgetter("created_at"), reverse=True)
 
     @api_command("firmware/get_job")
     async def get_job(self, *, job_id: str, **kwargs: Any) -> FirmwareJob | None:
@@ -645,69 +715,84 @@ class FirmwareController:
 
         Behaves like ``tail -f`` with history. If the job is already
         finished, sends all output and a final result event.
+
+        Race-free against the streaming loop: ``stream_events``
+        subscribes to ``JOB_OUTPUT`` *before* the snapshot is sent,
+        so the streaming loop cannot append between the snapshot
+        capture and the subscription. Without that ordering, the
+        previous shape iterated ``job.output`` directly and only
+        subscribed afterwards, which had two failure modes:
+
+        1. Lines appended to ``job.output`` during the history send
+           (each ``send_event`` await yields the loop) fired a
+           ``JOB_OUTPUT`` event with no subscriber attached and were
+           dropped for this follower.
+        2. The in-flight cap's ``_trim_job_output`` reassigns
+           ``job.output`` to a new list, so an iteration over the
+           old list reference stops seeing post-trim appends — making
+           the gap above strictly bigger after every cap-crossing.
+
+        Both failure modes are closed by snapshotting *before*
+        ``stream_events`` runs and replaying inside ``send_initial``
+        — every line fired after that point queues through the
+        listener and lands strictly after history.
         """
         job = self._jobs.get(job_id)
         if not job:
             msg = f"Job not found: {job_id}"
             raise ValueError(msg)
 
-        # Send historical output
-        for line in job.output:
-            await client.send_event(message_id, "output", line)
+        # Capture snapshot before stream_events attaches listeners.
+        # The listener (attached inside stream_events) catches every
+        # line fired after this point; nothing fires between the
+        # snapshot and the subscribe because both happen in
+        # synchronous-adjacent statements (stream_events' setup is
+        # sync up to the first ``await`` inside ``send_initial``).
+        snapshot = list(job.output)
+        is_terminal = job.status in _TERMINAL_JOB_STATUSES
+        terminal_status = job.status.value if is_terminal else ""
+        terminal_exit_code = job.exit_code
 
-        # If already finished, send final status and return
-        if job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
-            await client.send_event(
-                message_id,
-                "result",
-                {
-                    "status": job.status.value,
-                    "exit_code": job.exit_code,
-                },
-            )
-            return
+        async def _send_initial(controls: StreamControls) -> None:
+            for line in snapshot:
+                await client.send_event(message_id, "output", line)
+            if is_terminal:
+                await client.send_event(
+                    message_id,
+                    "result",
+                    {"status": terminal_status, "exit_code": terminal_exit_code},
+                )
+                # No live drain — already-terminal job has nothing
+                # more to deliver; end the stream so the helper
+                # returns instead of parking on ``queue.get``.
+                controls.end()
 
-        # Subscribe to new output for this specific job
-        done = asyncio.Event()
-        pending_tasks: set[asyncio.Task] = set()
-
-        def _on_event(event: Any) -> None:
+        def _handle_event(event: Event, controls: StreamControls) -> None:
             if event.event_type == EventType.JOB_OUTPUT:
                 if event.data.get("job_id") == job_id:
-                    task = asyncio.create_task(
-                        client.send_event(message_id, "output", event.data["line"])
-                    )
-                    pending_tasks.add(task)
-                    task.add_done_callback(pending_tasks.discard)
-            elif event.event_type in (EventType.JOB_COMPLETED, EventType.JOB_FAILED):
+                    controls.push("output", event.data["line"])
+            elif event.event_type in _JOB_TERMINAL_EVENTS:
                 ev_job = event.data.get("job")
                 if ev_job and getattr(ev_job, "job_id", None) == job_id:
                     status = getattr(ev_job, "status", "unknown")
                     status_val = status.value if hasattr(status, "value") else str(status)
-                    task = asyncio.create_task(
-                        client.send_event(
-                            message_id,
-                            "result",
-                            {
-                                "status": status_val,
-                                "exit_code": getattr(ev_job, "exit_code", None),
-                            },
-                        )
+                    controls.push_priority(
+                        "result",
+                        {
+                            "status": status_val,
+                            "exit_code": getattr(ev_job, "exit_code", None),
+                        },
                     )
-                    pending_tasks.add(task)
-                    task.add_done_callback(pending_tasks.discard)
-                    done.set()
+                    controls.end()
 
-        unsub_output = self._db.bus.add_listener(EventType.JOB_OUTPUT, _on_event)
-        unsub_completed = self._db.bus.add_listener(EventType.JOB_COMPLETED, _on_event)
-        unsub_failed = self._db.bus.add_listener(EventType.JOB_FAILED, _on_event)
-
-        try:
-            await done.wait()
-        finally:
-            unsub_output()
-            unsub_completed()
-            unsub_failed()
+        await stream_events(
+            client=client,
+            message_id=message_id,
+            bus=self._db.bus,
+            event_types=(EventType.JOB_OUTPUT, *_JOB_TERMINAL_EVENTS),
+            handle_event=_handle_event,
+            send_initial=_send_initial,
+        )
 
     @api_command("firmware/follow_jobs")
     async def follow_jobs(
@@ -736,52 +821,73 @@ class FirmwareController:
 
         Runs until the client disconnects (which surfaces here as a
         ``CancelledError`` from ``send_event``).
+
+        Race-free against concurrent jobs the same way ``follow_job``
+        is: ``stream_events`` attaches listeners *before* the
+        snapshot replay is awaited, so a ``JOB_*`` event firing
+        during the snapshot loop queues through the listener
+        instead of being lost. The earlier shape sent the snapshot
+        first and only attached listeners afterwards, so a job
+        completing mid-replay silently disappeared from the stream.
         """
         if client is None:
             return
 
-        if snapshot:
-            for job in sorted(self._jobs.values(), key=lambda j: j.created_at):
-                await client.send_event(message_id, "snapshot", job.to_dict())
+        # Serialize the snapshot to dicts synchronously *before*
+        # ``stream_events`` attaches listeners. Capturing the
+        # ``FirmwareJob`` objects and calling ``to_dict()`` later
+        # (inside ``send_initial``) is racy: between listener
+        # attach and each ``to_dict()`` the runner can append to a
+        # running job's ``output`` or transition its status — that
+        # mutation is folded into the snapshot dict AND delivered
+        # again via the listener, so the client sees the same line
+        # twice. Dict-freeze here makes the snapshot atomic against
+        # the producer (no awaits between freeze and listener
+        # attach) and de-duplicates the handoff.
+        snapshot_payloads = (
+            [job.to_dict() for job in sorted(self._jobs.values(), key=attrgetter("created_at"))]
+            if snapshot
+            else []
+        )
 
-        pending_tasks: set[asyncio.Task] = set()
+        async def _send_initial(_controls: StreamControls) -> None:
+            for payload in snapshot_payloads:
+                await client.send_event(message_id, "snapshot", payload)
 
-        def _forward(event_name: str, payload: Any) -> None:
-            task = asyncio.create_task(client.send_event(message_id, event_name, payload))
-            pending_tasks.add(task)
-            task.add_done_callback(pending_tasks.discard)
+        def _handle_event(event: Event, controls: StreamControls) -> None:
+            if event.event_type == EventType.JOB_OUTPUT:
+                controls.push("job_output", event.data)
+            elif event.event_type == EventType.JOB_PROGRESS:
+                controls.push("job_progress", event.data)
+            else:
+                # Lifecycle event (queued/started/completed/failed/
+                # cancelled). Use ``push_priority`` so a backlog of
+                # ``job_output`` lines can't drop a status
+                # transition — a missed ``job_completed`` would
+                # leave the all-jobs panel stuck on the old status
+                # forever (no resync after the initial snapshot).
+                # Output/progress are tolerable to lose; status
+                # transitions are not.
+                job = event.data.get("job")
+                if job is None:
+                    return
+                payload = job.to_dict() if hasattr(job, "to_dict") else job
+                controls.push_priority(event.event_type.value, payload)
 
-        def _on_lifecycle(event: Any) -> None:
-            job = event.data.get("job")
-            if job is None:
-                return
-            payload = job.to_dict() if hasattr(job, "to_dict") else job
-            _forward(event.event_type.value, payload)
-
-        def _on_output(event: Any) -> None:
-            _forward("job_output", event.data)
-
-        def _on_progress(event: Any) -> None:
-            _forward("job_progress", event.data)
-
-        unsub: list[Any] = [
-            self._db.bus.add_listener(EventType.JOB_QUEUED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_STARTED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_COMPLETED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_FAILED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_CANCELLED, _on_lifecycle),
-            self._db.bus.add_listener(EventType.JOB_OUTPUT, _on_output),
-            self._db.bus.add_listener(EventType.JOB_PROGRESS, _on_progress),
-        ]
-
-        try:
-            # Park forever — the connection lifecycle (cancellation
-            # of this coroutine when the WS closes) is what ends the
-            # subscription.
-            await asyncio.Event().wait()
-        finally:
-            for u in unsub:
-                u()
+        await stream_events(
+            client=client,
+            message_id=message_id,
+            bus=self._db.bus,
+            event_types=(
+                EventType.JOB_QUEUED,
+                EventType.JOB_STARTED,
+                *_JOB_TERMINAL_EVENTS,
+                EventType.JOB_OUTPUT,
+                EventType.JOB_PROGRESS,
+            ),
+            handle_event=_handle_event,
+            send_initial=_send_initial,
+        )
 
     @api_command("firmware/cancel")
     async def cancel(self, *, job_id: str, **kwargs: Any) -> None:
@@ -998,10 +1104,19 @@ class FirmwareController:
             self._current_process = proc
 
             has_error_in_output = False
+            # Captured at append time because the in-flight trim can
+            # elide the offending line before the post-exit handler
+            # runs. ``_check_error`` already had the line in hand
+            # there; persisting the verdict here lets the post-exit
+            # handler render a specific actionable message even
+            # after a long noisy build trims the head.
+            saw_no_esphome_module = False
             assert proc.stdout is not None  # type narrowing
 
             def _check_error(text: str) -> None:
-                nonlocal has_error_in_output
+                nonlocal has_error_in_output, saw_no_esphome_module
+                if not saw_no_esphome_module and _is_no_module_named_esphome(text):
+                    saw_no_esphome_module = True
                 if has_error_in_output:
                     return
                 for pattern in _ERROR_PATTERNS:
@@ -1034,6 +1149,19 @@ class FirmwareController:
             # or overwrite the last one.
             async for line in iter_lines_with_progress(proc.stdout):
                 job.output.append(line)
+                # Bound mid-run memory growth. Without this, a build
+                # that streams gigabytes of stderr (chatty
+                # external_components fetch loop, esptool stuck on a
+                # repeating error) holds every line in memory until
+                # the subprocess exits — only the post-completion
+                # ``_trim_job_output`` in the ``finally`` block ever
+                # ran. Trim down to a smaller keep size than the
+                # trigger so the next ``cap - keep`` appends don't
+                # each pay an O(cap) slice copy. Concretely with the
+                # current constants: cap=4000, keep=2000, so 2000
+                # lines fit between trims.
+                if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
+                    _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
                 self._db.bus.fire(
                     EventType.JOB_OUTPUT,
                     {"job_id": job.job_id, "line": line},
@@ -1056,8 +1184,7 @@ class FirmwareController:
                 success = exit_code == 0 and not has_error_in_output
                 _mark_job_terminal(job, JobStatus.COMPLETED if success else JobStatus.FAILED)
                 if has_error_in_output and exit_code == 0:
-                    full_output = "".join(job.output)
-                    if "No module named esphome" in full_output:
+                    if saw_no_esphome_module:
                         job.error = (
                             "esphome is not importable from the dashboard's Python "
                             f"environment ({sys.executable}). Install it with "
@@ -1451,7 +1578,7 @@ class FirmwareController:
 
         # Sort newest-first so dedup keeps the most recent entry per
         # device and the cap retains the most recent N overall.
-        primary.sort(key=lambda j: j.created_at, reverse=True)
+        primary.sort(key=attrgetter("created_at"), reverse=True)
         seen_configs: set[str] = set()
         deduped_primary: list[FirmwareJob] = []
         for job in primary:
@@ -1462,7 +1589,7 @@ class FirmwareController:
             deduped_primary.append(job)
         deduped_primary = deduped_primary[:_MAX_PRIMARY_TERMINAL_JOBS]
 
-        aux.sort(key=lambda j: j.created_at, reverse=True)
+        aux.sort(key=attrgetter("created_at"), reverse=True)
         aux = aux[:_MAX_AUX_TERMINAL_JOBS]
 
         self._jobs = {j.job_id: j for j in (*active, *deduped_primary, *aux)}

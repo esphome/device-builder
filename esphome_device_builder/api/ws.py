@@ -19,6 +19,7 @@ from ..constants import __version__
 from ..controllers.auth import AuthError
 from ..helpers.api import CommandError
 from ..helpers.auth import extract_bearer_token
+from ..helpers.event_bus import StreamBackpressureError
 from ..helpers.json import dumps_str, loads
 from ..models import (
     CommandMessage,
@@ -178,6 +179,25 @@ class WebSocketClient:
             # the code + message through verbatim so the client can
             # show something actionable instead of "Command failed".
             await self.send_error(cmd.message_id, err.code, err.message)
+        except StreamBackpressureError as err:
+            # State-tracking stream exhausted its bounded queue. Send
+            # the error so the client knows why and schedule the WS
+            # close — the client reconnects, calls ``subscribe_events``
+            # again, and gets a fresh ``initial_state`` snapshot. This
+            # is the only correct recovery: the alternatives are silent
+            # data loss (UI permanently stale) or unbounded memory
+            # growth (OOM).
+            #
+            # ``schedule_close`` MUST run *before* ``send_error`` —
+            # ``send`` only closes the socket when the flag is already
+            # set when a message is being written. Setting it after
+            # the error has been written would leave the connection
+            # open with the handler task already gone, so the frontend
+            # would stop receiving events but never get the forced
+            # reconnect this branch is meant to provoke.
+            _LOGGER.warning("Stream backpressure on %s: %s", cmd.command, err)
+            self.schedule_close()
+            await self.send_error(cmd.message_id, ErrorCode.INTERNAL_ERROR, str(err))
         except Exception:
             _LOGGER.exception("Error handling command %s", cmd.command)
             await self.send_error(
