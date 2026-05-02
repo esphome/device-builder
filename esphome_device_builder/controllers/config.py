@@ -326,7 +326,12 @@ class ConfigController:
             if not secrets_path.exists():
                 return []
             try:
-                data = yaml_util.load_yaml(str(secrets_path))
+                # ``yaml_util.load_yaml`` expects a ``Path``, not a
+                # ``str`` — passing a string raises ``AttributeError``
+                # at ``fname.open(...)`` and the bare except below
+                # would silently swallow it, leaving the secrets
+                # dropdown permanently empty.
+                data = yaml_util.load_yaml(secrets_path)
                 return sorted(data.keys()) if isinstance(data, dict) else []
             except Exception:
                 return []
@@ -338,12 +343,17 @@ class ConfigController:
         """Get compiled device metadata (StorageJSON) for a configuration."""
         loop = asyncio.get_running_loop()
 
-        try:
-            self._db.settings.rel_path(configuration)
-        except ValueError:
-            return None
-
         def _load_info() -> dict | None:
+            # ``rel_path`` calls ``Path.resolve`` (an ``os.path.abspath``
+            # syscall under the hood) and the StorageJSON load below
+            # opens the sidecar from disk — both block the event loop
+            # if run inline. Do them together inside the executor so
+            # a slow filesystem (NFS-mounted config dir, EBS-backed
+            # Docker volume) can't stall the dashboard.
+            try:
+                self._db.settings.rel_path(configuration)
+            except ValueError:
+                return None
             storage = StorageJSON.load(ext_storage_path(configuration))
             if storage is None:
                 return None
