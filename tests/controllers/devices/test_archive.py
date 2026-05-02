@@ -585,6 +585,58 @@ def test_remove_device_sidecars_logs_exception_on_metadata_remove(
     assert any("Could not remove metadata" in rec.message for rec in caplog.records)
 
 
+def test_archive_clear_device_sidecars_logs_oserror_on_storage_unlink(
+    tmp_path: Path, monkeypatch: Any, caplog: Any
+) -> None:
+    """OSError from the storage unlink is logged, not raised.
+
+    Mirrors the ``_remove_device_sidecars`` exception-path test
+    for the archive variant. The metadata clear should still run
+    after the storage unlink fails — a permission error on one
+    file mustn't block the volatile-fields wipe on the other.
+    """
+    from esphome_device_builder.controllers.devices.helpers import (
+        _archive_clear_device_sidecars,
+    )
+
+    storage_dir = tmp_path / ".esphome" / "storage"
+    storage_dir.mkdir(parents=True)
+    (storage_dir / "kitchen.yaml.json").write_text("{}", encoding="utf-8")
+
+    def _raise_oserror(self: Path, missing_ok: bool = False) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "unlink", _raise_oserror)
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        _archive_clear_device_sidecars(tmp_path, "kitchen.yaml")
+    assert any("Could not remove storage file" in rec.message for rec in caplog.records)
+
+
+def test_archive_clear_device_sidecars_logs_exception_on_metadata_clear(
+    tmp_path: Path, monkeypatch: Any, caplog: Any
+) -> None:
+    """Generic Exception from clear-volatile is logged, not raised.
+
+    A failure scrubbing the volatile metadata fields shouldn't
+    propagate — the YAML has already been moved to the archive
+    by the time this helper runs, so raising would surface a
+    half-completed archive operation to the caller.
+    """
+    from esphome_device_builder.controllers.devices import helpers as devices_helpers
+
+    def _raise(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(devices_helpers, "clear_volatile_device_metadata", _raise)
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        devices_helpers._archive_clear_device_sidecars(tmp_path, "kitchen.yaml")
+    assert any("Could not clear volatile metadata" in rec.message for rec in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # delete_archived
 # ---------------------------------------------------------------------------
