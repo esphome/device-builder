@@ -1,0 +1,241 @@
+name: Sync device catalog
+
+# Re-runs ``script/sync_esphome_devices.py`` against the
+# devices.esphome.io upstream and opens a pull request when imported
+# manifests under ``definitions/boards/`` change.
+#
+# Triggers
+# --------
+# - schedule : weekly Monday at 04:00 UTC. The upstream repo gets
+#              ~1-2 PRs/week, so weekly is enough to keep up. The
+#              script is fully cached when nothing has changed
+#              (content_hash short-circuit), so no-op runs are cheap.
+# - manual   : ``workflow_dispatch`` for ad-hoc rebuilds.
+#
+# Output
+# ------
+# Pushes to a stable branch named ``catalog/sync-devices`` so each
+# run keeps updating the same in-flight PR rather than spawning a
+# new one. ``peter-evans/create-pull-request`` deletes the branch
+# automatically when no diff remains.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-device-catalog
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          # The device sync only needs the base package (pyyaml +
+          # components.json reader). No esphome introspection here.
+          pip install -e '.[test]'
+
+      - name: Run sync_esphome_devices
+        run: python script/sync_esphome_devices.py
+
+      - name: Smoke-test imported boards
+        # Catches regressions in the extractor (broken board id
+        # resolution, missing featured components on known devices).
+        # Runs BEFORE the diff check so a broken catalog never gets
+        # proposed for merge.
+        run: python script/check_device_catalog.py
+
+      - name: Validate definitions
+        # Re-validates every board (curated + imported) against the
+        # JSON Schema and the components.json cross-references.
+        run: python script/validate_definitions.py
+
+      - name: Detect device-catalog changes + summarise diff
+        id: diff
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- esphome_device_builder/definitions/boards/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+          # Build a human-friendly delta summary the PR body embeds.
+          # We compare the freshly-synced imported manifests against
+          # what's currently on main so the reviewer sees added /
+          # removed devices and per-platform counts at a glance.
+          python <<'PY' > /tmp/devices-diff.md
+          import subprocess
+          from collections import Counter
+          from pathlib import Path
+
+          import yaml
+
+          BOARDS = Path("esphome_device_builder/definitions/boards")
+
+          def load_imported_now() -> dict[str, dict]:
+              out: dict[str, dict] = {}
+              for child in sorted(BOARDS.iterdir()):
+                  if not child.is_dir():
+                      continue
+                  manifest = child / "manifest.yaml"
+                  if not manifest.is_file():
+                      continue
+                  data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+                  if not isinstance(data, dict):
+                      continue
+                  source = data.get("source")
+                  if not isinstance(source, dict) or source.get("type") != "esphome-devices":
+                      continue
+                  out[child.name] = data
+              return out
+
+          def load_imported_main() -> dict[str, dict]:
+              # Walk the current main snapshot via ``git ls-tree`` +
+              # ``git show`` so we avoid checking out a second copy.
+              try:
+                  blob = subprocess.check_output(
+                      ["git", "ls-tree", "-r", "--name-only", "HEAD",
+                       "esphome_device_builder/definitions/boards/"],
+                      text=True,
+                  )
+              except subprocess.CalledProcessError:
+                  return {}
+              out: dict[str, dict] = {}
+              for line in blob.splitlines():
+                  if not line.endswith("/manifest.yaml"):
+                      continue
+                  try:
+                      content = subprocess.check_output(
+                          ["git", "show", f"HEAD:{line}"], text=True,
+                      )
+                  except subprocess.CalledProcessError:
+                      continue
+                  data = yaml.safe_load(content)
+                  if not isinstance(data, dict):
+                      continue
+                  source = data.get("source")
+                  if not isinstance(source, dict) or source.get("type") != "esphome-devices":
+                      continue
+                  # The folder name is the second-to-last segment.
+                  folder = Path(line).parent.name
+                  out[folder] = data
+              return out
+
+          new = load_imported_now()
+          old = load_imported_main()
+
+          new_ids = set(new)
+          old_ids = set(old)
+          added = sorted(new_ids - old_ids)
+          removed = sorted(old_ids - new_ids)
+
+          def family_counts(snapshot: dict[str, dict]) -> Counter:
+              counter: Counter[str] = Counter()
+              for board in snapshot.values():
+                  esphome = board.get("esphome") or {}
+                  platform = esphome.get("platform") or "?"
+                  counter[platform] += 1
+              return counter
+
+          old_fam = family_counts(old)
+          new_fam = family_counts(new)
+          all_fam = sorted(set(old_fam) | set(new_fam))
+
+          lines = [
+              f"**Imported boards**: {len(old)} → {len(new)} ({len(new) - len(old):+d})  ",
+              f"**Added**: {len(added)} · **Removed**: {len(removed)}",
+              "",
+          ]
+
+          if added or removed:
+              lines.append("<details><summary>Device churn</summary>")
+              lines.append("")
+              if added:
+                  lines.append(f"**Added ({len(added)}):** " + ", ".join(f"`{i}`" for i in added[:30]))
+                  if len(added) > 30:
+                      lines.append(f" _…and {len(added) - 30} more_")
+              if removed:
+                  lines.append(f"**Removed ({len(removed)}):** " + ", ".join(f"`{i}`" for i in removed[:30]))
+                  if len(removed) > 30:
+                      lines.append(f" _…and {len(removed) - 30} more_")
+              lines.append("")
+              lines.append("</details>")
+              lines.append("")
+
+          lines.append("<details><summary>Per-SoC family counts</summary>")
+          lines.append("")
+          lines.append("| Platform | Old | New | Δ |")
+          lines.append("|------|----:|----:|---:|")
+          for fam in all_fam:
+              o = old_fam.get(fam, 0)
+              n = new_fam.get(fam, 0)
+              if o == n and o == 0:
+                  continue
+              lines.append(f"| `{fam}` | {o} | {n} | {n - o:+d} |")
+          lines.append("")
+          lines.append("</details>")
+
+          print("\n".join(lines))
+          PY
+
+          {
+            echo "summary<<DIFF_EOF"
+            cat /tmp/devices-diff.md
+            echo "DIFF_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open / update pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
+        with:
+          branch: catalog/sync-devices
+          base: main
+          commit-message: |
+            Sync device catalog from devices.esphome.io
+
+            Auto-generated by .github/workflows/sync-device-catalog.yml.
+          title: "Sync device catalog from devices.esphome.io"
+          body: |
+            Automated catalog refresh from [`esphome/esphome-devices`](https://github.com/esphome/esphome-devices).
+
+            Triggered by: **${{ github.event_name == 'schedule' && 'weekly schedule' || format('manual dispatch by @{0}', github.actor) }}**.
+
+            ${{ steps.diff.outputs.summary }}
+
+            **Smoke test:** ✅ passes [`script/check_device_catalog.py`](../blob/main/script/check_device_catalog.py) — known well-formed pages still extract with the expected board, variant, and featured-component shape.
+
+            ---
+
+            Review checklist:
+            - Skim the **Added** / **Removed** lists above for anything unexpected. A removed device usually means the upstream page was deleted or renamed.
+            - Hand-curated boards (no `source:` block) are never touched — only manifests with `source.type: esphome-devices` are owned by this sync.
+            - If the diff looks weird, run `script/sync_esphome_devices.py --device <name>` locally to inspect a single device.
+            - Merge to ship the new device catalog.
+          labels: |
+            catalog
+            automated
+          delete-branch: true
+
+      - name: No-op summary
+        if: steps.diff.outputs.changed == 'false'
+        run: |
+          echo "::notice::Device catalog is already up to date - no PR opened."

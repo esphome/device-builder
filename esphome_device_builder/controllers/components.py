@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -480,6 +481,7 @@ def _materialise_featured(
     """
     underlying = record.underlying
     fc = record.featured
+    presets = _featured_field_presets(fc)
     return ComponentCatalogEntry(
         id=record.full_id,
         name=fc.name or underlying.name,
@@ -491,10 +493,44 @@ def _materialise_featured(
         multi_conf=underlying.multi_conf,
         supported_platforms=list(underlying.supported_platforms),
         config_entries=[
-            _materialise_entry_with_preset(entry, target_platform, fc.fields.get(entry.key))
+            _materialise_entry_with_preset(entry, target_platform, presets.get(entry.key))
             for entry in underlying.config_entries
         ],
     )
+
+
+def _featured_field_presets(fc: FeaturedComponent) -> dict[str, FieldPreset]:
+    """
+    Return *fc*'s field presets with sensible ``id`` / ``name`` defaults.
+
+    The board manifest's explicit ``fields`` entries are preserved as-is.
+    For ``id`` and ``name`` the manifest is rarely explicit, so we derive
+    a default from the featured component's local id and display name —
+    without this the frontend pre-fills the ``id`` input with the
+    catalog id verbatim (``featured.<board>.<local>``) and the merge
+    logic falls back to the bare platform stem (``id: gpio``) because
+    there's no ``name`` to slug from.
+    """
+    presets = dict(fc.fields)
+    if "id" not in presets:
+        presets["id"] = FieldPreset(value=_default_id_from_local(fc.id))
+    if "name" not in presets and fc.name:
+        presets["name"] = FieldPreset(value=fc.name)
+    return presets
+
+
+def _default_id_from_local(local_id: str) -> str:
+    """Slugify a featured-component local id for use as an ESPHome ``id:`` value."""
+    slug = re.sub(r"[^a-z0-9]+", "_", local_id.lower()).strip("_")
+    if not slug:
+        return local_id
+    # ESPHome ids must be valid C-style identifiers — they're emitted
+    # as C++ variable names downstream, so a leading digit produces an
+    # invalid build. Prefix with an underscore when the manifest's
+    # local id starts with one.
+    if slug[0].isdigit():
+        slug = f"_{slug}"
+    return slug
 
 
 def _materialise_entry_with_preset(

@@ -1447,20 +1447,29 @@ def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
         return {}
     file_name = parts[0]
     schema_name = ".".join(parts[1:])
-    path = schema_dir / f"{file_name}.json"
-    if not path.exists():
-        return {}
-    raw = json.loads(path.read_text())
 
-    # The schema may live under ``raw[file_name]`` (our usual case) or
-    # at deeper qualified keys. Search both layers.
+    # ``<file_name>.json`` is the obvious lookup, but a few shared
+    # scopes are housed in ``esphome.json`` under a top-level key
+    # matching their ref prefix — most importantly ``core``, which
+    # holds ``ENTITY_BASE_SCHEMA`` (the inheritance source for the
+    # entity-level ``name`` / ``icon`` / ``internal`` /
+    # ``disabled_by_default`` / ``entity_category`` fields). Without
+    # the esphome.json fallback those fields silently disappear from
+    # every entity-platform component (binary_sensor.gpio,
+    # output.gpio, sensor.aht10, ...).
     candidates: list[dict] = []
-    for top_value in raw.values():
-        if not isinstance(top_value, dict):
+    for path in (schema_dir / f"{file_name}.json", schema_dir / "esphome.json"):
+        if not path.exists():
             continue
-        schemas = top_value.get("schemas") or {}
-        if schema_name in schemas:
-            candidates.append(schemas[schema_name])
+        raw = json.loads(path.read_text())
+        for top_value in raw.values():
+            if not isinstance(top_value, dict):
+                continue
+            schemas = top_value.get("schemas") or {}
+            if schema_name in schemas:
+                candidates.append(schemas[schema_name])
+        if candidates:
+            break
 
     if not candidates:
         return {}
