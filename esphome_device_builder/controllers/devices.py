@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1415,11 +1416,20 @@ class DevicesController:
         config_dir = self._db.settings.config_dir
 
         def _delete_all() -> None:
+            # Wipe the per-device PlatformIO build tree first so a partial
+            # failure later in the cleanup still leaves the user able to
+            # retry the delete. ``StorageJSON.build_path`` is the canonical
+            # location (set during compile) — fall back to a no-op when the
+            # device has never been built or the sidecar is gone.
+            storage_path = ext_storage_path(configuration)
+            storage = StorageJSON.load(storage_path)
+            if storage is not None and storage.build_path:
+                shutil.rmtree(storage.build_path, ignore_errors=True)
             config_path.unlink(missing_ok=True)
             (config_dir / ".trash" / configuration).unlink(missing_ok=True)
             (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)
             try:
-                ext_storage_path(configuration).unlink(missing_ok=True)
+                storage_path.unlink(missing_ok=True)
             except OSError:
                 _LOGGER.warning("Could not remove storage file for %s", configuration)
             try:
