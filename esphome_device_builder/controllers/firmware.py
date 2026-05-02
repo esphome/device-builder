@@ -6,6 +6,7 @@ import asyncio
 import base64
 import gzip
 import importlib
+import ipaddress
 import logging
 import os
 import re
@@ -278,6 +279,72 @@ async def _terminate_subtree_windows(pid: int) -> bool:
     return True
 
 
+def _validate_port(port: str) -> None:
+    """Sanity-check the user-supplied ``--device`` value.
+
+    The esphome CLI accepts arbitrary strings for ``--device`` and
+    treats them as one of: the literal ``"OTA"`` (let the CLI
+    resolve the configured host), a serial path, or a network host
+    (IPv4 / IPv6 / ``.local`` hostname). Without an upfront check
+    a typo'd IP would queue, run a compile, and only fail at the
+    flash step with a CLI error buried in the job output. Validate
+    early so the WS layer can return a clean ``INVALID_ARGS``.
+
+    The check is deliberately permissive — any of these shapes is
+    accepted:
+
+    * Empty string (``upload`` default — CLI auto-detects)
+    * The literal ``"OTA"``
+    * A serial path: starts with ``/``, ``COM`` (Windows), or
+      contains ``ttyUSB`` / ``ttyACM`` / ``cu.``
+    * A valid IPv4 or IPv6 address
+    * A hostname (``[a-z0-9-]+`` per label, optional ``.local``
+      suffix) — covers ``device-name.local`` and bare hostnames
+
+    Anything else (random punctuation, IPv4 with extra dots, etc.)
+    raises ``CommandError(INVALID_ARGS)``. Coordinated frontend
+    forms can pre-filter to the same shape.
+    """
+    if not port or port == "OTA":
+        return
+    # Serial paths.
+    if (
+        port.startswith("/")
+        or port.startswith("COM")
+        or any(marker in port for marker in ("ttyUSB", "ttyACM", "cu.", "tty."))
+    ):
+        return
+    # IP-shaped input must parse as a valid IP. Doing this check
+    # *before* the hostname check rejects truncated / malformed
+    # IPv4 strings (``192.168.1``, ``256.256.256.256``) that would
+    # otherwise pass the permissive hostname rules — RFC 1123
+    # technically allows numeric hostnames, but a user typing
+    # ``192.168.1`` meant an IP and we should fail loudly rather
+    # than route it as ``--device 192.168.1`` to the CLI's DNS path.
+    looks_ip = ":" in port or (port.replace(".", "").isdigit() and "." in port)
+    if looks_ip:
+        try:
+            ipaddress.ip_address(port)
+            return
+        except ValueError as exc:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"Invalid install target {port!r} — looks like an IP but didn't parse: {exc}",
+            ) from exc
+    # Hostnames: a sequence of dot-separated labels, each
+    # ``[a-z0-9](?:[a-z0-9-]*[a-z0-9])?``.
+    if re.fullmatch(
+        r"(?i)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*",
+        port,
+    ):
+        return
+    raise CommandError(
+        ErrorCode.INVALID_ARGS,
+        f"Invalid install target {port!r} — expected ``OTA``, a serial path, "
+        f"an IP address, or a hostname",
+    )
+
+
 def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
     """Sanity-check that ``cmd`` can actually import esphome.
 
@@ -370,7 +437,22 @@ class FirmwareController:
 
     @api_command("firmware/upload")
     async def upload(self, *, configuration: str, port: str = "", **kwargs: Any) -> FirmwareJob:
-        """Queue an upload job."""
+        """Queue an upload job.
+
+        ``port`` is forwarded to the esphome CLI via ``--device``.
+        Accepts:
+
+        * ``"OTA"`` — let the CLI resolve the configured device's
+          address from the YAML's ``esphome.address``.
+        * A serial path (``/dev/ttyUSB0``, ``COM3``) — wired flash.
+        * An IPv4 / IPv6 address or ``.local`` hostname — explicit
+          OTA target. Useful for "install to a specific address"
+          flows (re-flashing a device whose address has drifted, or
+          flashing a known-good IP when mDNS is broken). The address
+          cache is bypassed since the user has named the target
+          explicitly.
+        """
+        _validate_port(port)
         job = self._create_job(configuration, JobType.UPLOAD, port=port)
         return await self._enqueue(job)
 
@@ -397,7 +479,17 @@ class FirmwareController:
 
     @api_command("firmware/install")
     async def install(self, *, configuration: str, port: str = "OTA", **kwargs: Any) -> FirmwareJob:
-        """Queue a device update (compile + upload). Defaults to OTA."""
+        """Queue a device update (compile + upload).
+
+        ``port`` defaults to ``"OTA"`` — the CLI resolves the
+        configured device's address from the YAML's
+        ``esphome.address``. Accepts the same values as
+        :meth:`upload`: a serial path for wired flashing, or an
+        explicit IP / hostname for "install to a specific address"
+        — the address cache is bypassed when the user names the
+        target directly.
+        """
+        _validate_port(port)
         job = self._create_job(configuration, JobType.INSTALL, port=port)
         return await self._enqueue(job)
 
@@ -445,10 +537,16 @@ class FirmwareController:
     ) -> list[FirmwareJob]:
         """Queue update (compile + upload) for multiple devices. Defaults to OTA.
 
+        ``port`` is shared across every queued job; pass an explicit
+        IP only when you really want every device installed against
+        the same target (rare — almost always callers want the
+        per-device default of ``"OTA"``).
+
         Per-device errors (most commonly the rename lock) skip that
         device and keep going — a rename-in-flight on one of the
         selected devices shouldn't abort the install for the rest.
         """
+        _validate_port(port)
         jobs: list[FirmwareJob] = []
         for config in configurations:
             try:
