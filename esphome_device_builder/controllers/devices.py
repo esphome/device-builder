@@ -593,15 +593,19 @@ class DevicesController:
 
     @api_command("devices/delete_archived")
     async def delete_archived(self, *, configuration: str, **kwargs: Any) -> None:
-        """Permanently delete an archived device — YAML and sidecars.
+        """Permanently delete an archived device's YAML.
 
         The companion to ``archive`` for the case where the user
         decided they really don't want this device back. Removes
-        ``<config_dir>/archive/<configuration>`` plus the
-        StorageJSON sidecar and the device-metadata sidecar (the
-        archive flow leaves both in place for unarchive's benefit).
-        Surfaces ``CommandError(NOT_FOUND)`` when the archive entry
-        is gone — matches the symmetry with ``unarchive``.
+        ``<config_dir>/archive/<configuration>``. The StorageJSON
+        sidecar and device-metadata entry are usually already gone
+        (``archive`` wipes them on the way in); this command also
+        cleans up any orphan sidecars left over from legacy /
+        pre-existing archives, but skips that cleanup if an active
+        config of the same filename exists (its sidecars belong to
+        the live device). Surfaces ``CommandError(NOT_FOUND)``
+        when the archive entry is gone — symmetric with
+        ``unarchive``.
         """
         _validate_archive_configuration(configuration)
         try:
@@ -1731,8 +1735,12 @@ class DevicesController:
         name only ever lived in StorageJSON because the user wrote
         it via the dashboard's edit dialog rather than the YAML),
         fall back to the StorageJSON sidecar before degrading to
-        the bare filename. The sidecar is left in place by archive
-        so this fallback works on archives created by this server.
+        the bare filename. ``_archive_single`` wipes its own
+        sidecars on archive, so the fallback only matters for
+        legacy archives (created by the upstream ESPHome dashboard
+        or by an earlier version of this server before the sidecar
+        wipe landed) and for entries dropped into the archive dir
+        externally.
         """
         archive_dir = self._db.settings.config_dir / "archive"
         if not archive_dir.is_dir():

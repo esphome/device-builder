@@ -102,9 +102,9 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | `devices/rename` | `{configuration, new_name}` | — | Rename device via ESPHome CLI |
 | `devices/delete` | `{configuration}` | — | Delete device and associated files |
 | `devices/delete_bulk` | `{configurations: string[]}` | `[{configuration, success, error?}]` | Delete multiple devices |
-| `devices/archive` | `{configuration}` | — | Soft-delete: move YAML to `<config_dir>/archive/` and wipe build dir. Reversible via `devices/unarchive`. |
+| `devices/archive` | `{configuration}` | — | Soft-delete: move YAML to `<config_dir>/archive/`, wipe build dir, wipe StorageJSON + device-metadata sidecars. Reversible via `devices/unarchive` (cached IP/version/hash refill from the next mDNS broadcast). |
 | `devices/unarchive` | `{configuration}` | — | Move an archived YAML back into the active config directory. Errors with `INVALID_ARGS` if an active config with the same filename already exists. |
-| `devices/list_archived` | — | `[{configuration, name, friendly_name, comment}]` | List archived devices for the dashboard's "Show archived devices" toggle. |
+| `devices/list_archived` | — | `[{configuration, name, friendly_name, comment}]` | List archived devices for the dashboard's archived-devices dialog. |
 | `devices/delete_archived` | `{configuration}` | — | Permanently delete an archived YAML and its sidecars. The companion to `unarchive` for "I really don't want this back". |
 | `devices/get_config` | `{configuration}` | `string` | Read device YAML config |
 | `devices/update_config` | `{configuration, content}` | — | Write device YAML config |
