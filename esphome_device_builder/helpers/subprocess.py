@@ -13,7 +13,13 @@ the same pattern in ``esphome.dashboard.util.subprocess``.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
+
+# 4 KB matches the typical pipe buffer on Linux/macOS/Windows.
+# Larger reads don't help (the kernel rounds down anyway) and
+# smaller reads spend more time in the syscall.
+_STREAM_READ_SIZE = 4096
 
 
 async def create_subprocess_exec(
@@ -31,3 +37,44 @@ async def create_subprocess_exec(
     """
     kwargs["close_fds"] = False
     return await asyncio.create_subprocess_exec(*args, **kwargs)
+
+
+async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterator[str]:
+    r"""Yield decoded chunks from *stream*, splitting on ``\n`` *or* ``\r``.
+
+    ``StreamReader``'s default ``async for`` iteration only splits
+    on ``\n``, which buffers carriage-return-based progress
+    output (esptool's ``Writing at 0x... (5%)\r``, PlatformIO's
+    progress bars) until the next newline arrives — typically only
+    when the operation finishes, so the user sees a long pause and
+    then a wall of progress lines instead of a live indicator.
+
+    Each emitted chunk **keeps its trailing terminator** so the
+    consumer can decide whether to append a new line or overwrite
+    the last one (frontend ansi-log component leans on the
+    distinction). Decoding is utf-8 with ``errors="replace"`` so a
+    stray byte sequence doesn't kill the stream. Buffer is flushed
+    on EOF so a final chunk without a terminator still surfaces.
+    """
+    buf = b""
+    while True:
+        data = await stream.read(_STREAM_READ_SIZE)
+        if not data:
+            if buf:
+                yield buf.decode("utf-8", errors="replace")
+            return
+        buf += data
+        while buf:
+            nl = buf.find(b"\n")
+            cr = buf.find(b"\r")
+            if nl == -1 and cr == -1:
+                break  # need more bytes before we can split
+            if nl == -1:
+                idx = cr
+            elif cr == -1:
+                idx = nl
+            else:
+                idx = min(nl, cr)
+            chunk = buf[: idx + 1]
+            buf = buf[idx + 1 :]
+            yield chunk.decode("utf-8", errors="replace")

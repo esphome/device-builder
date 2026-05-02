@@ -24,7 +24,7 @@ from esphome.storage_json import StorageJSON, ext_storage_path
 
 from ..controllers.config import _load_metadata, metadata_transaction
 from ..helpers.api import CommandError, api_command
-from ..helpers.subprocess import create_subprocess_exec
+from ..helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ..models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType
 
 if TYPE_CHECKING:
@@ -875,52 +875,21 @@ class FirmwareController:
                         {"job_id": job.job_id, "progress": progress},
                     )
 
-            # Stream stdout in chunks delimited by `\n` _or_ `\r` so
+            # ``iter_lines_with_progress`` splits on `\n` _or_ `\r` so
             # carriage-return-based in-place updates (esptool's
             # `Writing at 0x... (5%)\r`, PlatformIO's progress bars)
             # survive the pipe instead of getting buffered until the
-            # next newline. Each emitted chunk keeps its trailing
-            # terminator so the frontend can decide whether to append
-            # a new line or overwrite the last one.
-            buf = b""
-            while True:
-                data = await proc.stdout.read(4096)
-                if not data:
-                    # EOF — flush any trailing bytes that didn't end
-                    # with a terminator (rare but possible).
-                    if buf:
-                        line = buf.decode("utf-8", errors="replace")
-                        job.output.append(line)
-                        self._db.bus.fire(
-                            EventType.JOB_OUTPUT,
-                            {"job_id": job.job_id, "line": line},
-                        )
-                        _check_error(line)
-                        _check_progress(line)
-                        buf = b""
-                    break
-                buf += data
-                while buf:
-                    nl = buf.find(b"\n")
-                    cr = buf.find(b"\r")
-                    if nl == -1 and cr == -1:
-                        break  # need more bytes before we can split
-                    if nl == -1:
-                        idx = cr
-                    elif cr == -1:
-                        idx = nl
-                    else:
-                        idx = min(nl, cr)
-                    chunk = buf[: idx + 1]
-                    buf = buf[idx + 1 :]
-                    line = chunk.decode("utf-8", errors="replace")
-                    job.output.append(line)
-                    self._db.bus.fire(
-                        EventType.JOB_OUTPUT,
-                        {"job_id": job.job_id, "line": line},
-                    )
-                    _check_error(line)
-                    _check_progress(line)
+            # next newline. Each chunk keeps its trailing terminator
+            # so the frontend can decide whether to append a new line
+            # or overwrite the last one.
+            async for line in iter_lines_with_progress(proc.stdout):
+                job.output.append(line)
+                self._db.bus.fire(
+                    EventType.JOB_OUTPUT,
+                    {"job_id": job.job_id, "line": line},
+                )
+                _check_error(line)
+                _check_progress(line)
 
             exit_code = await proc.wait()
             job.exit_code = exit_code

@@ -106,7 +106,7 @@ async def test_stream_subprocess_kills_proc_on_cancel(tmp_path: Any) -> None:
 
 
 async def test_stream_subprocess_normal_completion_emits_success(tmp_path: Any) -> None:
-    """A subprocess that exits 0 sends a non-cancelled, success=True result."""
+    r"""A subprocess that exits 0 sends a non-cancelled, success=True result."""
     ctrl = _make_controller()
     client = _make_client()
     sent_events: list[tuple[str, Any]] = []
@@ -121,6 +121,53 @@ async def test_stream_subprocess_normal_completion_emits_success(tmp_path: Any) 
 
     result_events = [data for ev, data in sent_events if ev == "result"]
     assert result_events == [{"code": 0, "success": True}]
+
+
+async def test_stream_subprocess_emits_carriage_return_progress_lines() -> None:
+    r"""`\r` progress lines reach the client as separate events.
+
+    Pre-fix the consumer used the ``StreamReader`` default
+    ``async for``, which only splits on ``\n``. esptool's
+    ``Writing at 0x... (5%)\r`` lines piled up in the buffer
+    until the next newline arrived — usually only when the
+    operation finished — so the user saw a long pause then a wall
+    of progress lines. With the shared ``iter_lines_with_progress``
+    splitter, each ``\r``-terminated chunk surfaces as its own
+    ``output`` event live.
+    """
+    ctrl = _make_controller()
+    client = _make_client()
+    sent_events: list[tuple[str, Any]] = []
+
+    async def capture(_mid: str, event: str, data: Any = None) -> None:
+        sent_events.append((event, data))
+
+    client.send_event = capture  # type: ignore[method-assign]
+
+    # Subprocess prints three progress chunks separated by ``\r``,
+    # then a normal ``\n``-terminated completion line. Without the
+    # ``\r`` splitter all four would arrive as one event after the
+    # subprocess finished.
+    script = (
+        "import sys\n"
+        "sys.stdout.write('5%\\r')\n"
+        "sys.stdout.flush()\n"
+        "sys.stdout.write('50%\\r')\n"
+        "sys.stdout.flush()\n"
+        "sys.stdout.write('100%\\r')\n"
+        "sys.stdout.flush()\n"
+        "sys.stdout.write('done\\n')\n"
+        "sys.stdout.flush()\n"
+    )
+    cmd = [sys.executable, "-c", script]
+    await ctrl._stream_subprocess(cmd, client, "stream-cr")
+
+    output_lines = [data for ev, data in sent_events if ev == "output"]
+    # Terminators are stripped at the device-logs layer (the frontend
+    # logs view appends each event as a new line; preserving ``\r``
+    # would surface as visible Cs). The point is that all four lines
+    # arrive as separate events, not concatenated into one.
+    assert output_lines == ["5%", "50%", "100%", "done"]
 
 
 async def test_cleanup_kills_running_streams() -> None:

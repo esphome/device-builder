@@ -26,7 +26,7 @@ from ..helpers.device_yaml import (
 )
 from ..helpers.hostname import is_local_hostname, normalize_hostname
 from ..helpers.json import JSONDecodeError, dumps_indent, loads
-from ..helpers.subprocess import create_subprocess_exec
+from ..helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ..helpers.yaml import merge_component_yaml, rewrite_esphome_name
 from ..models import (
     AddComponentResponse,
@@ -1433,9 +1433,15 @@ class DevicesController:
                 env=env,
             )
             assert proc.stdout is not None
-            async for line_bytes in proc.stdout:
-                line = line_bytes.decode("utf-8", errors="replace").rstrip("\n\r")
-                await client.send_event(message_id, "output", line)
+            # Use the shared `\n`/`\r` splitter so esptool / PlatformIO
+            # carriage-return progress lines surface live instead of
+            # buffering until the next newline. Strip the terminator
+            # from each event payload — the frontend's logs view
+            # appends every event as a new line, unlike the firmware
+            # job-output path which preserves terminators for in-place
+            # overwrites.
+            async for line in iter_lines_with_progress(proc.stdout):
+                await client.send_event(message_id, "output", line.rstrip("\n\r"))
             exit_code = await proc.wait()
         except asyncio.CancelledError:
             # Synchronous kill only — no awaits in the cancel path. The
