@@ -308,7 +308,8 @@ def test_rate_limiter_prune_keeps_locked_out_ips() -> None:
     rl.record_failure("9.9.9.1")
     rl.record_failure("9.9.9.1")  # triggers lockout
 
-    rl._last_prune = 0.0
+    # See ``test_rate_limiter_prunes_stale_entries`` for why we don't use 0.0.
+    rl._last_prune = -1e9
     time.sleep(0.06)
     rl.record_failure("9.9.9.2")
 
