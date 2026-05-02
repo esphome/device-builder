@@ -644,6 +644,16 @@ class FirmwareController:
         # later.
         new_filename = f"{new_name}.yaml"
         await self._validate_configuration_boundary(new_filename)
+        # Reject same-name renames up-front: the operation is a no-op
+        # at the YAML level but still queues a real ``esphome rename``
+        # job that re-compiles and OTA-flashes the device, so the
+        # waste is real. Force the caller to use ``firmware/install``
+        # instead — that's what they actually want.
+        if new_filename == configuration:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                "new_name must differ from the current device name",
+            )
         # Reject up-front if the target filename is already in use.
         # ``DevicesController.rename_device`` checks the same thing
         # before forwarding to this handler — but a direct WS client
@@ -653,18 +663,17 @@ class FirmwareController:
         # device's config and flashing that firmware to the wrong
         # device. Same error-message shape as the controller-layer
         # check so the frontend handles both identically.
-        if new_filename != configuration:
-            # ``new_filename`` already passed ``rel_path`` validation
-            # above, so we can build the path directly and stat it in
-            # one executor hop instead of paying a second ``rel_path``
-            # round-trip just to get back the same result.
-            new_path = self._db.settings.config_dir / new_filename
-            loop = asyncio.get_running_loop()
-            if await loop.run_in_executor(None, new_path.exists):
-                raise CommandError(
-                    ErrorCode.INVALID_ARGS,
-                    f"A device named {new_filename} already exists",
-                )
+        # ``new_filename`` already passed ``rel_path`` validation
+        # above, so we can build the path directly and stat it in
+        # one executor hop instead of paying a second ``rel_path``
+        # round-trip just to get back the same result.
+        new_path = self._db.settings.config_dir / new_filename
+        loop = asyncio.get_running_loop()
+        if await loop.run_in_executor(None, new_path.exists):
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"A device named {new_filename} already exists",
+            )
         job = self._create_job(configuration, JobType.RENAME, new_name=new_name)
         return await self._enqueue(job)
 

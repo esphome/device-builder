@@ -93,6 +93,26 @@ async def test_rename_target_filename_collision_raises(monkeypatch: Any) -> None
 
 
 @pytest.mark.asyncio
+async def test_rename_same_name_raises() -> None:
+    """Renaming a device to its current name rejects up-front.
+
+    A same-name rename is a no-op at the YAML level but every
+    downstream branch (manual rewrite, CLI ``esphome rename``)
+    would still rewrite the file and (for the CLI path) re-flash.
+    Wasted work the caller almost certainly didn't intend —
+    ``firmware/install`` is the right command for "flash without
+    renaming."
+    """
+    controller = _make_controller()
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename_device(configuration="kitchen.yaml", new_name="kitchen")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "must differ" in excinfo.value.message
+
+
+@pytest.mark.asyncio
 async def test_rename_invalid_yaml_uses_manual_path(monkeypatch: Any) -> None:
     """Invalid config → inline ``_manual_rename`` and ``job: None`` response."""
     controller = _make_controller()

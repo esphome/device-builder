@@ -177,22 +177,19 @@ async def test_rename_rejects_collision_with_existing_yaml(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_rename_allows_renaming_to_same_name(tmp_path: Path) -> None:
-    """Renaming to the same filename skips the collision check.
+async def test_rename_rejects_same_name(tmp_path: Path) -> None:
+    """``firmware/rename`` rejects ``new_name`` matching the current stem.
 
-    A no-op rename (``new_name`` matches the existing stem) is the
-    pattern users hit when re-flashing without changing the device
-    identity — the file is "already there" by definition, not a
-    collision with an unrelated device. Mirrors the
-    ``new_filename != configuration`` guard in
-    ``DevicesController.rename_device``.
+    A same-name rename is a no-op at the YAML level but still queues
+    a real ``esphome rename`` job that re-compiles and OTA-flashes
+    the device — wasted work the caller almost certainly didn't
+    intend. ``firmware/install`` is the correct command for "flash
+    without renaming".
     """
-    from unittest.mock import AsyncMock
-
     controller = _controller(tmp_path)
-    controller._enqueue = AsyncMock(side_effect=lambda job: job)
     (tmp_path / "kitchen.yaml").write_text("")
 
-    job = await controller.rename(configuration="kitchen.yaml", new_name="kitchen")
-    assert job.configuration == "kitchen.yaml"
-    assert job.new_name == "kitchen"
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename(configuration="kitchen.yaml", new_name="kitchen")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "must differ" in excinfo.value.message

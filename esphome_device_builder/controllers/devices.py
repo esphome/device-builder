@@ -479,17 +479,26 @@ class DevicesController:
         config_path = str(self._db.settings.rel_path(configuration))
         new_filename = f"{new_name}.yaml"
 
+        # Reject same-name renames up-front. Both downstream branches
+        # (manual rewrite, ``esphome rename``) would treat this as a
+        # no-op rewrite + redundant flash — wasted work the caller
+        # almost certainly didn't intend. Frontend should call
+        # ``firmware/install`` for "flash without renaming".
+        if new_filename == configuration:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                "new_name must differ from the current device name",
+            )
         # Reject up-front if the target filename is already in use.
         # The manual-rename branch already checks ``new_path.exists()``
         # itself, but the CLI ``esphome rename`` path does *not* — it
         # blindly ``write_text``s the new YAML and then OTA-installs
         # it, so a collision would silently overwrite the unrelated
         # device's config and flash that firmware to the wrong device.
-        if new_filename != configuration:
-            new_path = self._db.settings.rel_path(new_filename)
-            if new_path.exists():
-                msg = f"A device named {new_filename} already exists"
-                raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        new_path = self._db.settings.rel_path(new_filename)
+        if new_path.exists():
+            msg = f"A device named {new_filename} already exists"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
         if not await self._yaml_validates(config_path):
             loop = asyncio.get_running_loop()
