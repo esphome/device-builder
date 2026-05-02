@@ -199,6 +199,27 @@ async def test_get_component_featured_ignores_mismatched_board_id(
     assert entry.id == "featured.sonoff-basic.relay"
 
 
+async def test_get_component_unknown_featured_id(catalog: ComponentCatalog) -> None:
+    """Unknown ``featured.*`` ids return ``None`` instead of raising."""
+    assert await catalog.get_component(component_id="featured.no-such-board.x") is None
+
+
+async def test_get_components_featured_with_query_filter(
+    catalog: ComponentCatalog,
+) -> None:
+    """``query`` narrows the featured listing on name / description / id."""
+    page = await catalog.get_components(
+        board_id="apollo-esk-1",
+        category="featured",
+        query="pir",
+    )
+    assert any("pir" in c.id.lower() for c in page.components)
+    assert all(
+        "pir" in c.name.lower() or "pir" in c.description.lower() or "pir" in c.id.lower()
+        for c in page.components
+    )
+
+
 async def test_get_categories_surfaces_featured_count(
     catalog: ComponentCatalog,
 ) -> None:
