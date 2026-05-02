@@ -64,10 +64,11 @@ _PING_BOOTSTRAP_DELAY = 10  # seconds before the first ping sweep
 _PING_BATCH_SIZE = 24
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
 # Timeout for the per-sweep mDNS hostname resolves we issue for
-# non-API devices. 2s is enough on a working LAN and keeps the
-# whole resolve pass under the ping interval even if every target
-# misses the cache and has to round-trip on the network.
-_MDNS_HOSTNAME_RESOLVE_TIMEOUT = 2.0
+# non-API devices. 3s is enough on a working LAN even when the
+# device is briefly slow to respond, and keeps the whole resolve
+# pass under the ping interval even if every target misses the
+# cache and has to round-trip on the network.
+_MDNS_HOSTNAME_RESOLVE_TIMEOUT = 3.0
 
 # Source priority for state observations. A new observation can only
 # override an existing one when its priority is greater than or equal
@@ -862,18 +863,25 @@ class DeviceStateMonitor:
         )
         for device, addresses in zip(candidates, results, strict=True):
             if isinstance(addresses, list) and addresses:
-                # mDNS owns the slot once we've heard from the
-                # device. ``claim=True`` so a later ping observation
-                # can't downgrade the source if the addresses
-                # subsequently disappear from cache.
+                # Trust mDNS for ONLINE — the active A-record query
+                # answered, so the device is live on this LAN. Claim
+                # under the ``mdns`` source (priority 3) so the
+                # subsequent ICMP sweep skips this device entirely.
+                # Keeping ping / DNS traffic to a minimum for
+                # fleets that broadcast is a deliberate trade-off:
+                # we want mDNS to be the single source of truth for
+                # devices that respond to it.
                 self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
                 self.apply_ip(device.name, _pick_ipv4(addresses))
-            # No OFFLINE branch — let the ICMP sweep below decide.
-            # An mDNS resolve miss in isolation isn't enough signal:
-            # the device might just not be advertising right this
-            # moment. ``apply(OFFLINE, "ping")`` will still fire if
-            # ICMP also fails, and the source-priority guard means
-            # an mDNS hit later in the run can still upgrade it.
+            # No OFFLINE branch — by design. A miss in isolation is
+            # not enough signal to flip the indicator red, and
+            # claiming OFFLINE under ``mdns`` would lock out the
+            # ICMP fallback for devices on networks where mDNS is
+            # flaky. The next sweep's resolve will pick the device
+            # back up if it returns; if mDNS stays silent for an
+            # extended period, ICMP (still allowed by the
+            # source-priority guard until mDNS first claims) is the
+            # path that decides OFFLINE.
 
     async def _ping_sweep(self) -> None:
         if icmp_ping is None:

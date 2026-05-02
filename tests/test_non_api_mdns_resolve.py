@@ -48,11 +48,13 @@ def _make_monitor(
     """Build a monitor with a mocked ``AsyncEsphomeZeroconf``.
 
     ``resolved`` maps a hostname to either a list of IPs (resolve
-    succeeded), an empty list / ``None`` (resolve failed), or a
-    callable returning one of those. The mock's
-    ``async_resolve_host`` is wired to look up the host and return
-    the result, mirroring how the real esphome helper hits the
-    cache and falls through to an active query.
+    succeeded), an empty list / ``None`` (resolve failed). The
+    mock's ``async_resolve_host`` looks up the host in the dict
+    and returns the value verbatim. Tests that need exception
+    behaviour or per-call dynamics replace the mock's
+    ``side_effect`` directly (see
+    ``test_resolve_exception_does_not_propagate`` /
+    ``test_multiple_devices_resolve_in_parallel``).
     """
     captured_state: list[tuple[str, DeviceState, str]] = []
     captured_ip: list[tuple[str, str]] = []
@@ -151,14 +153,18 @@ async def test_non_local_hostname_skipped() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_miss_does_not_apply_offline() -> None:
-    """A miss is silent — let the ICMP sweep decide OFFLINE.
+async def test_resolve_miss_is_silent_no_offline_branch_by_design() -> None:
+    """A miss is silent — ONLY trust mDNS for ONLINE, never for OFFLINE.
 
-    An mDNS resolve miss in isolation isn't conclusive (the device
-    might not be advertising right this moment, or there's been a
-    transient zeroconf hiccup). Applying OFFLINE eagerly here would
-    flip the indicator red on every brief mDNS pause, even when
-    the device is still pingable.
+    Deliberate asymmetry: a successful active mDNS resolve is
+    strong evidence the device is live, but a miss isn't strong
+    evidence it's gone (could be a transient broadcast pause, a
+    flaky network, or just a slow device responding past the
+    timeout). Claiming OFFLINE on miss would lock out the ICMP
+    fallback for the device under ``mdns`` priority and leave
+    devices on flaky networks stuck red. Stay silent and let
+    ICMP — which is unblocked while no source has claimed the
+    slot — decide.
     """
     devices = [_device(loaded_integrations=["web_server"])]
     monitor, _resolver = _make_monitor(devices, resolved={"kitchen.local": None})
@@ -167,6 +173,9 @@ async def test_resolve_miss_does_not_apply_offline() -> None:
 
     assert devices[0].state == DeviceState.UNKNOWN  # not OFFLINE
     assert devices[0].ip == ""
+    # Source slot stays empty so ping (priority 1) can claim
+    # later — the resolve hasn't earned ownership yet.
+    assert monitor.priority_for("kitchen") == "unknown"
 
 
 @pytest.mark.asyncio
@@ -231,6 +240,29 @@ async def test_already_online_via_higher_priority_skipped() -> None:
     await monitor._resolve_non_api_mdns_targets()
 
     resolver.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_hit_locks_out_ping() -> None:
+    """A resolve hit claims ``mdns`` priority and ICMP stops.
+
+    Pings cost network / DNS traffic. Once mDNS has answered, we
+    treat that as the source of truth — locking ICMP out via the
+    ``mdns`` priority claim avoids the redundant probe on every
+    subsequent sweep. The trade-off is that a device going offline
+    after mDNS first claimed it stays ONLINE until either the
+    fleet operator restarts the dashboard or another (higher-
+    priority) source contradicts the claim; that's deliberate
+    given how often quiet devices skip a single mDNS broadcast.
+    """
+    devices = [_device(loaded_integrations=["web_server"])]
+    monitor, _ = _make_monitor(devices, resolved={"kitchen.local": ["192.168.1.42"]})
+
+    await monitor._resolve_non_api_mdns_targets()
+
+    assert devices[0].state == DeviceState.ONLINE
+    assert monitor.priority_for("kitchen") == "mdns"
+    assert monitor._should_ping(devices[0]) is False
 
 
 @pytest.mark.asyncio

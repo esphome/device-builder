@@ -159,6 +159,25 @@ as a working document) and check the open issue list filtered to
   immediately instead of waiting on the rebooted device's mDNS
   announce. If the OTA actually failed silently, the next real
   announce pushes the truth back through the same callback.
+- **Trust mDNS for ONLINE; never claim OFFLINE from a resolve
+  miss.** The non-API resolve fallback
+  (`_resolve_non_api_mdns_targets`) issues an active mDNS
+  A-record query each sweep for devices whose
+  `loaded_integrations` lacks `api`. A hit claims ONLINE under
+  the `mdns` source (priority 3, locks out ICMP) — we want to
+  keep ping / DNS traffic to a minimum on fleets that broadcast,
+  and once mDNS has answered, ICMP is just redundant noise. A
+  miss is **silent on purpose**: it isn't strong enough evidence
+  to flip the indicator red (transient broadcast pauses, slow
+  devices, flaky networks), and claiming OFFLINE under `mdns`
+  would lock out the ICMP fallback forever for any device that
+  ever went quiet. So: hit upgrades, miss does nothing, ICMP
+  decides OFFLINE. The corollary trade-off is that a device
+  which *does* go permanently offline after mDNS first claimed
+  it stays ONLINE in the dashboard until something else
+  contradicts the claim — that's deliberate; the alternative
+  (downgrading on miss) was rejected because quiet-device
+  flapping is far more common than permanent silent disappearance.
 - **The `Device` is the source of truth, not the monitor.**
   `DeviceStateMonitor.apply_*` (state, ip, version, config_hash,
   api_encryption) all dedupe by comparing the broadcast value
