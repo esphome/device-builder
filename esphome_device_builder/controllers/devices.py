@@ -1065,6 +1065,12 @@ class DevicesController:
             return
         ignored = data.get("ignored_devices", [])
         if not isinstance(ignored, list):
+            _LOGGER.warning(
+                "Ignored-devices file at %s has a non-list ``ignored_devices`` "
+                "field; resetting to an empty set",
+                storage_path,
+            )
+            self.ignored_devices = set()
             return
         self.ignored_devices = {name for name in ignored if isinstance(name, str)}
 

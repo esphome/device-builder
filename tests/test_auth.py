@@ -612,7 +612,17 @@ def _make_ws_client(
     sent: list[dict] = []
 
     async def _send_json(data: Any, *, dumps: Any = None) -> None:
-        sent.append(data)
+        # Mirror aiohttp's behaviour: the production code always
+        # passes a custom ``dumps`` callable (the orjson wrapper), and
+        # only the serialised string ever lands on the wire. Round-
+        # trip through that callable here so the test catches payloads
+        # that aren't actually JSON-serialisable — without this the
+        # mock silently accepts anything (e.g. a dict with non-string
+        # keys) and the bug would only surface in production.
+        if dumps is not None:
+            sent.append(json.loads(dumps(data)))
+        else:
+            sent.append(data)
 
     async def _close(*_: Any, **__: Any) -> None:
         pass
