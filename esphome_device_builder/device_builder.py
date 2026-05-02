@@ -56,32 +56,6 @@ _HASHED_FILENAME_RE = re.compile(r"\.[a-f0-9]{8,}\.")
 # and the test suite's pin-down assertion can reference it.
 _EXECUTOR_MAX_WORKERS = 64
 
-# Job-related events fired on the bus. ``subscribe_events`` covers
-# these for legacy/all-in-one clients but the authoritative job
-# stream is ``follow_jobs``, which has its own snapshot for
-# reconnect resync. ``subscribe_events``' ``initial_state`` only
-# carries device + importable lists, so a forced disconnect on a
-# JOB_* overflow doesn't help the client recover its job state —
-# we ``push`` (drop newest) instead, while keeping
-# ``push_or_terminate`` for the device events that ARE
-# resync-able.
-_JOB_EVENT_TYPES: frozenset[EventType] = frozenset(
-    {
-        EventType.JOB_QUEUED,
-        EventType.JOB_STARTED,
-        EventType.JOB_OUTPUT,
-        EventType.JOB_PROGRESS,
-        EventType.JOB_COMPLETED,
-        EventType.JOB_FAILED,
-        EventType.JOB_CANCELLED,
-    }
-)
-
-
-def _is_job_event(event_type: EventType) -> bool:
-    """Return True for ``JOB_*`` events ``follow_jobs`` is the source of truth for."""
-    return event_type in _JOB_EVENT_TYPES
-
 
 class DeviceBuilder:
     """Core application singleton.
@@ -292,6 +266,18 @@ class DeviceBuilder:
         ``stream_events`` closes both: listeners attach inside its
         ``with bus.listening`` block before the snapshot is awaited,
         and the bounded queue serialises every event after the seed.
+
+        Backpressure: a queue overflow forces the WS to close
+        (``push_or_terminate`` for every event type). A client
+        that's fallen 4000+ events behind is already in a broken
+        state — its UI is showing wildly stale data — so the
+        cleanest recovery is to drop the connection and let the
+        client reconnect. ``initial_state`` reseeds device state
+        on the new connection; for authoritative job state
+        clients use ``follow_jobs`` (which has its own snapshot).
+        Selectively keeping log lines or lifecycle events through
+        an overflow doesn't actually leave the UI in a usable
+        state — the connection is fucked either way.
         """
         from .helpers.event_bus import Event, StreamControls, stream_events
 
@@ -324,33 +310,14 @@ class DeviceBuilder:
             serialized: dict[str, Any] = {}
             for key, value in data.items():
                 serialized[key] = value.to_dict() if hasattr(value, "to_dict") else value
-            # Per-event-type policy. Two distinct concerns share
-            # this firehose, with different recovery semantics:
-            #
-            # - Device-tracking events (DEVICE_*, IMPORTABLE_*)
-            #   carry state the UI maps onto its in-memory device
-            #   list. ``initial_state`` reseeds both ``devices``
-            #   and ``importable`` on (re)connect, so a forced
-            #   disconnect via ``push_or_terminate`` is fully
-            #   recoverable: the client reconnects and the next
-            #   ``subscribe_events`` rebuilds device state from
-            #   scratch.
-            #
-            # - Job events (JOB_*) don't have a reseed path here:
-            #   ``initial_state`` carries no job snapshot. The
-            #   authoritative stream for job tracking is
-            #   ``follow_jobs``, which has its own snapshot. So
-            #   tearing down ``subscribe_events`` on a JOB_*
-            #   overflow doesn't help — the client would
-            #   reconnect, get a device reseed, and still be
-            #   missing whatever job traffic was in flight.
-            #   ``push`` (drop newest) is no worse than the
-            #   forced disconnect, and dashboards that need
-            #   reliable job state already use ``follow_jobs``.
-            if _is_job_event(event.event_type):
-                controls.push(event.event_type.value, serialized)
-            else:
-                controls.push_or_terminate(event.event_type.value, serialized)
+            # Fail-closed for every event type. If the queue
+            # overflows, the client is 4000+ events behind and the
+            # connection is already broken; a forced disconnect +
+            # reconnect (which reseeds device state from
+            # ``initial_state``) is cleaner than leaving the WS
+            # open with selectively-delivered events behind a
+            # massive backlog.
+            controls.push_or_terminate(event.event_type.value, serialized)
 
         await stream_events(
             client=client,
