@@ -188,6 +188,8 @@ async def test_archive_wipes_device_metadata(tmp_path: Path) -> None:
     ``configuration`` would inherit the archived device's
     cached IP / friendly_name / board_id otherwise.
     """
+    import asyncio
+
     from esphome_device_builder.controllers.config import (
         get_device_metadata,
         set_device_metadata,
@@ -195,20 +197,28 @@ async def test_archive_wipes_device_metadata(tmp_path: Path) -> None:
 
     controller = _make_controller(tmp_path)
     _seed_device(tmp_path, "kitchen.yaml")
-    set_device_metadata(
+    # ``set_device_metadata`` writes through ``metadata_transaction``
+    # which calls ``tempfile.mkstemp`` for an atomic replace —
+    # blockbuster (the CI's blocking-call detector) flags the
+    # ``os.path.abspath`` inside ``mkstemp`` from an async context,
+    # so push the write to a thread.
+    await asyncio.to_thread(
+        set_device_metadata,
         tmp_path,
         "kitchen.yaml",
         board_id="esp32-c3-devkitm-1",
         friendly_name="Kitchen Sensor",
         ip="192.168.1.42",
     )
-    assert get_device_metadata(tmp_path, "kitchen.yaml")  # truthy: dict has fields
+    assert await asyncio.to_thread(
+        get_device_metadata, tmp_path, "kitchen.yaml"
+    )  # truthy: dict has fields
 
     await controller._archive_single("kitchen.yaml")
 
     # Empty dict means no metadata entry — same as a brand-new
     # device that's never had metadata written.
-    assert get_device_metadata(tmp_path, "kitchen.yaml") == {}
+    assert await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml") == {}
 
 
 @pytest.mark.asyncio
