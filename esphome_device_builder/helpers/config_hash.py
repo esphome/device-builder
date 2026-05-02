@@ -35,7 +35,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from esphome.storage_json import StorageJSON, ext_storage_path
+from esphome.storage_json import StorageJSON
 
 from .json import JSONDecodeError, loads
 
@@ -69,8 +69,18 @@ def read_build_info_hash(yaml_path: Path) -> str | None:
     re-entering the asyncio loop just to dispatch back to the same
     executor. Returns the same value ``compute_yaml_config_hash``
     awaits to.
+
+    Resolves ``StorageJSON`` from ``<yaml_dir>/.esphome/storage/<name>.json``
+    instead of ``ext_storage_path``. ``ext_storage_path`` is a thin
+    wrapper around ``CORE.data_dir`` that crashes when CORE hasn't
+    been initialised — fine in production (the dashboard sets
+    ``CORE.config_path`` on startup) but a footgun in tests, where
+    leaving the helper coupled to global CORE state would force
+    every test fixture to spin up a CORE just to read a JSON file.
     """
-    storage = StorageJSON.load(ext_storage_path(yaml_path.name))
+    config_dir = yaml_path.parent
+    storage_path = config_dir / ".esphome" / "storage" / f"{yaml_path.name}.json"
+    storage = StorageJSON.load(storage_path)
     if storage is None or storage.build_path is None:
         return None
     build_info_path = Path(storage.build_path) / _BUILD_INFO_FILENAME

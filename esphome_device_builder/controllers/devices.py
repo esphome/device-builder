@@ -893,7 +893,21 @@ class DevicesController:
         # ``StorageJSON``-derived values without making the user wait
         # for a real compile. Same upstream pattern used in
         # ``async_schedule_storage_json_update``.
-        if kind is ScanChange.ADDED and not device.loaded_integrations:
+        #
+        # Also fire when ``expected_config_hash`` is empty even
+        # though ``loaded_integrations`` is populated. That happens
+        # for devices configured before build_info.json existed (or
+        # imported from an older dashboard) — they have a working
+        # ``StorageJSON`` so the integrations / address / version
+        # all come through, but the build directory either pre-dates
+        # the build_info.json era or was wiped. Without this nudge
+        # the drawer's "Local config hash" shows a permanent em-dash
+        # for those devices because nothing else triggers a
+        # ``--only-generate`` until the user edits the YAML.
+        needs_storage_regen = kind is ScanChange.ADDED and (
+            not device.loaded_integrations or not device.expected_config_hash
+        )
+        if needs_storage_regen:
             self._schedule_storage_regenerate(device.configuration)
         # When a configured device is deleted, re-emit cached
         # discoveries. Upstream's ``DashboardImportDiscovery`` only
