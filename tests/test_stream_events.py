@@ -26,6 +26,7 @@ from esphome_device_builder.helpers.event_bus import (
     _DEFAULT_STREAM_QUEUE_MAX,
     Event,
     EventBus,
+    StreamBackpressureError,
     StreamControls,
     stream_events,
 )
@@ -290,3 +291,99 @@ async def test_push_priority_evicts_oldest_when_queue_full() -> None:
 
     priority_events = [d for (e, d) in received if e == "priority"]
     assert priority_events == [999]
+
+
+async def test_push_or_terminate_raises_when_queue_full() -> None:
+    """``push_or_terminate`` makes the drain loop raise on overflow.
+
+    State-tracking streams (``subscribe_events``) can't tolerate
+    silent drops — a missed ``DEVICE_REMOVED`` leaves the dashboard
+    showing a removed device until the user reconnects. Better to
+    drop the connection so the WS handler closes, the client
+    reconnects, and ``initial_state`` resyncs from scratch.
+
+    This test parks the drain on the first event so the queue
+    fills, fires once more to trigger the overflow path, then
+    asserts the helper task raises ``StreamBackpressureError``
+    after the drain unblocks. Without ``push_or_terminate`` the
+    same shape would silently drop the overflow event.
+    """
+    bus = EventBus()
+
+    drain_can_run = asyncio.Event()
+    received: list[tuple[str, Any]] = []
+
+    class GatedClient:
+        async def send_event(self, _mid: str, event: str, data: Any) -> None:
+            received.append((event, data))
+            if len(received) == 1:
+                await drain_can_run.wait()
+
+    def _handle_event(event: Event, controls: StreamControls) -> None:
+        controls.push_or_terminate(event.event_type.value, event.data["i"])
+
+    task = asyncio.create_task(
+        stream_events(
+            client=GatedClient(),
+            message_id="m1",
+            bus=bus,
+            event_types=[EventType.DEVICE_UPDATED],
+            handle_event=_handle_event,
+        )
+    )
+    await asyncio.sleep(0)
+
+    # Park drain in send_event with the first event.
+    bus.fire(EventType.DEVICE_UPDATED, {"i": 0})
+    await asyncio.sleep(0)
+
+    # Fill the queue exactly to capacity.
+    for i in range(1, _DEFAULT_STREAM_QUEUE_MAX + 1):
+        bus.fire(EventType.DEVICE_UPDATED, {"i": i})
+
+    # One more fire — this is the one that triggers terminate.
+    bus.fire(EventType.DEVICE_UPDATED, {"i": _DEFAULT_STREAM_QUEUE_MAX + 1})
+
+    # Unblock the drain so it can process the queue and reach the
+    # terminate sentinel that ``push_or_terminate`` enqueued.
+    drain_can_run.set()
+
+    with pytest.raises(StreamBackpressureError):
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+async def test_push_or_terminate_does_not_raise_when_queue_has_room() -> None:
+    """The terminate path only fires on actual overflow.
+
+    Sanity: a normal fire under cap goes through ``push_or_terminate``
+    and lands as a regular item — the helper drains it and parks
+    again, no exception.
+    """
+    bus = EventBus()
+    received: list[tuple[str, Any]] = []
+
+    class _Client:
+        async def send_event(self, _mid: str, event: str, data: Any) -> None:
+            await asyncio.sleep(0)
+            received.append((event, data))
+
+    def _handle_event(event: Event, controls: StreamControls) -> None:
+        controls.push_or_terminate(event.event_type.value, event.data["i"])
+        if event.data["i"] == 1:
+            controls.end()
+
+    task = asyncio.create_task(
+        stream_events(
+            client=_Client(),
+            message_id="m1",
+            bus=bus,
+            event_types=[EventType.DEVICE_UPDATED],
+            handle_event=_handle_event,
+        )
+    )
+    await asyncio.sleep(0)
+    bus.fire(EventType.DEVICE_UPDATED, {"i": 0})
+    bus.fire(EventType.DEVICE_UPDATED, {"i": 1})
+
+    await asyncio.wait_for(task, timeout=1.0)
+    assert received == [("device_updated", 0), ("device_updated", 1)]

@@ -106,28 +106,59 @@ class EventBus:
 # Type alias names kept short — they appear in three callbacks.
 _StreamItem = tuple[str, Any]
 
+# Internal sentinel pushed by ``push_or_terminate`` when the queue
+# is full. The drain loop turns this into a
+# ``StreamBackpressureError`` so the surrounding WS handler tears
+# the connection down — for state-tracking streams (where silent
+# drops would leave the client permanently stale with no resync
+# path) crashing the connection is preferable to lossy delivery.
+_TERMINATE_SENTINEL: tuple[str, None] = ("__terminate__", None)
+
+
+class StreamBackpressureError(RuntimeError):
+    """Raised by ``stream_events`` when a ``push_or_terminate`` overflows.
+
+    Surfaces backpressure as a hard failure so the WS handler
+    closes the connection and the frontend reconnects to get a
+    fresh ``initial_state`` snapshot. Used by streams whose
+    correctness depends on every message landing
+    (``subscribe_events``, where each event represents a state
+    transition the UI tracks); streams where lossy delivery is
+    fine (``follow_job`` output, ``follow_jobs`` log lines) keep
+    using ``push`` and accept the drop.
+    """
+
 
 @dataclass
 class StreamControls:
     """Push primitives handed to ``stream_events`` callbacks.
 
-    Three semantics are exposed because the right policy depends on
-    the message: a runaway compile's ``output`` lines are tolerable
-    to drop on slow followers, but a ``result`` carrying the job's
-    final exit status MUST land or the follower parks on
-    ``queue.get`` forever after the build finishes.
+    Four semantics are exposed because the right policy depends on
+    what kind of message is being pushed:
 
     - ``push(name, payload)`` — best-effort. Drops the new item on
       ``QueueFull`` so synchronous ``bus.fire`` returns immediately
-      and the producer never blocks on a slow client.
-    - ``push_priority(name, payload)`` — guaranteed. Evicts the
-      oldest queued item to make room when full.
+      and the producer never blocks on a slow client. Right for
+      log lines, progress updates, and other content where a
+      missing item is tolerable.
+    - ``push_priority(name, payload)`` — guaranteed delivery. Evicts
+      the oldest queued item to make room when full. Right for
+      one-shot must-land events like terminal job results or
+      lifecycle status transitions, where a silent drop would
+      leave the UI stuck on stale state forever.
+    - ``push_or_terminate(name, payload)`` — drop the *connection*
+      on overflow. Pushes a terminate sentinel that makes the drain
+      loop raise ``StreamBackpressureError`` and forces the WS
+      handler to close. Right for state-tracking streams where
+      silent loss is worse than a forced reconnect (the client
+      reconnects, gets a fresh seed, is consistent again).
     - ``end()`` — push the terminal sentinel via ``push_priority``
       so the drain loop breaks even if the queue is saturated.
     """
 
     push: Callable[[str, Any], None]
     push_priority: Callable[[str, Any], None]
+    push_or_terminate: Callable[[str, Any], None]
     end: Callable[[], None]
 
 
@@ -203,10 +234,25 @@ async def stream_events(
                     # than spin if it does.
                     return
 
+    def _push_or_terminate(name: str, payload: Any) -> None:
+        try:
+            queue.put_nowait((name, payload))
+        except asyncio.QueueFull:
+            # Backpressure exceeded — signal the drain to raise so
+            # the WS handler closes the connection. Terminate via
+            # ``_push_priority_item`` so the sentinel always lands
+            # even when the queue is saturated.
+            _push_priority_item(_TERMINATE_SENTINEL)
+
     def _end() -> None:
         _push_priority_item(None)
 
-    controls = StreamControls(push=_push, push_priority=_push_priority, end=_end)
+    controls = StreamControls(
+        push=_push,
+        push_priority=_push_priority,
+        push_or_terminate=_push_or_terminate,
+        end=_end,
+    )
 
     def _on_event(event: Event) -> None:
         handle_event(event, controls)
@@ -219,5 +265,12 @@ async def stream_events(
             item = await queue.get()
             if item is None:
                 return
+            if item is _TERMINATE_SENTINEL:
+                msg = (
+                    f"stream backpressure exceeded (queue cap {queue_max}); "
+                    "client is too slow to drain — closing connection so it "
+                    "can reconnect and resync"
+                )
+                raise StreamBackpressureError(msg)
             name, payload = item
             await client.send_event(message_id, name, payload)

@@ -298,7 +298,15 @@ class DeviceBuilder:
             serialized: dict[str, Any] = {}
             for key, value in data.items():
                 serialized[key] = value.to_dict() if hasattr(value, "to_dict") else value
-            controls.push(event.event_type.value, serialized)
+            # State-tracking stream — every event represents a
+            # transition the UI maps onto its in-memory state. A
+            # silent drop would leave the dashboard permanently
+            # stale (still showing a removed device, missing a
+            # state change) until the user reconnected. Use
+            # ``push_or_terminate`` so backpressure forces a
+            # disconnect; the frontend then reconnects and gets a
+            # fresh ``initial_state`` snapshot to recover from.
+            controls.push_or_terminate(event.event_type.value, serialized)
 
         await stream_events(
             client=client,
