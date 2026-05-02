@@ -676,48 +676,50 @@ class FirmwareController:
 
         Behaves like ``tail -f`` with history. If the job is already
         finished, sends all output and a final result event.
+
+        Race-free against the streaming loop: snapshot ``job.output``
+        and subscribe to ``JOB_OUTPUT`` in synchronous-adjacent
+        statements (no awaits between them) so the streaming loop
+        cannot append between the snapshot and the subscription.
+        Without that adjacency, the previous shape iterated
+        ``job.output`` directly and only subscribed afterwards, which
+        had two failure modes:
+
+        1. Lines appended to ``job.output`` during the history send
+           (each ``send_event`` await yields the loop) fired a
+           ``JOB_OUTPUT`` event with no subscriber attached and were
+           dropped for this follower.
+        2. The in-flight cap's ``_trim_job_output`` reassigns
+           ``job.output`` to a new list, so an iteration over the
+           old list reference stops seeing post-trim appends — making
+           the gap above strictly bigger after every cap-crossing.
+
+        Snapshot + subscribe atomically closes both: the snapshot
+        captures every line up to the subscribe point, and the
+        listener captures every line fired after it. Live events
+        queue up so the history send finishes first and live lines
+        stay strictly after, in order.
         """
         job = self._jobs.get(job_id)
         if not job:
             msg = f"Job not found: {job_id}"
             raise ValueError(msg)
 
-        # Send historical output
-        for line in job.output:
-            await client.send_event(message_id, "output", line)
-
-        # If already finished, send final status and return
-        if job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
-            await client.send_event(
-                message_id,
-                "result",
-                {
-                    "status": job.status.value,
-                    "exit_code": job.exit_code,
-                },
-            )
-            return
-
-        # Subscribe to new output for this specific job
-        done = asyncio.Event()
-        pending_tasks: set[asyncio.Task] = set()
+        # ``None`` is the sentinel pushed when the job hits a terminal
+        # status; the drain loop breaks on it.
+        queue: asyncio.Queue[tuple[str, Any] | None] = asyncio.Queue()
 
         def _on_event(event: Any) -> None:
             if event.event_type == EventType.JOB_OUTPUT:
                 if event.data.get("job_id") == job_id:
-                    task = asyncio.create_task(
-                        client.send_event(message_id, "output", event.data["line"])
-                    )
-                    pending_tasks.add(task)
-                    task.add_done_callback(pending_tasks.discard)
+                    queue.put_nowait(("output", event.data["line"]))
             elif event.event_type in (EventType.JOB_COMPLETED, EventType.JOB_FAILED):
                 ev_job = event.data.get("job")
                 if ev_job and getattr(ev_job, "job_id", None) == job_id:
                     status = getattr(ev_job, "status", "unknown")
                     status_val = status.value if hasattr(status, "value") else str(status)
-                    task = asyncio.create_task(
-                        client.send_event(
-                            message_id,
+                    queue.put_nowait(
+                        (
                             "result",
                             {
                                 "status": status_val,
@@ -725,16 +727,50 @@ class FirmwareController:
                             },
                         )
                     )
-                    pending_tasks.add(task)
-                    task.add_done_callback(pending_tasks.discard)
-                    done.set()
+                    queue.put_nowait(None)
 
+        # ATOMIC: snapshot + subscribe in synchronous-adjacent
+        # statements. See the docstring for the race this closes.
+        snapshot = list(job.output)
+        is_terminal = job.status in (
+            JobStatus.COMPLETED,
+            JobStatus.FAILED,
+            JobStatus.CANCELLED,
+        )
+        terminal_status = job.status.value if is_terminal else ""
+        terminal_exit_code = job.exit_code
         unsub_output = self._db.bus.add_listener(EventType.JOB_OUTPUT, _on_event)
         unsub_completed = self._db.bus.add_listener(EventType.JOB_COMPLETED, _on_event)
         unsub_failed = self._db.bus.add_listener(EventType.JOB_FAILED, _on_event)
 
         try:
-            await done.wait()
+            # Send history first so live events stay strictly after,
+            # in order. Live events that fire during this loop queue
+            # up rather than racing the in-order delivery.
+            for line in snapshot:
+                await client.send_event(message_id, "output", line)
+
+            if is_terminal:
+                await client.send_event(
+                    message_id,
+                    "result",
+                    {"status": terminal_status, "exit_code": terminal_exit_code},
+                )
+                return
+
+            # Drain until the listener pushes the terminal sentinel.
+            # Backpressure flows naturally through the queue: a slow
+            # client doesn't drop lines, it just slows the runner's
+            # event firing if subscribers' tasks pile up. Tradeoff
+            # against the previous create-task-per-event approach,
+            # which could deliver out of order on a contended loop
+            # but never blocked.
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                event_name, payload = item
+                await client.send_event(message_id, event_name, payload)
         finally:
             unsub_output()
             unsub_completed()
