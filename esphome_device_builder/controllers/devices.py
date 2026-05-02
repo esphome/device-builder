@@ -561,6 +561,12 @@ class DevicesController:
                         )
                         self._regenerate_failed.add(configuration)
                         return
+                    # ``--only-generate`` writes build_info.json with
+                    # the canonical config_hash before exiting, same as
+                    # a real compile. Persist it to the metadata
+                    # sidecar so the drawer can show "Local: <hash>"
+                    # before the first real flash.
+                    await self._persist_expected_config_hash(configuration)
                     await self._scanner.reload(configuration)
             finally:
                 self._regenerate_pending.discard(configuration)
@@ -1107,21 +1113,41 @@ class DevicesController:
         push the real value back in.
         """
         if recompute_hash:
-            yaml_path = self._db.settings.rel_path(configuration)
-            new_hash = await compute_yaml_config_hash(yaml_path)
-            if new_hash:
-                loop = asyncio.get_running_loop()
-                config_dir = self._db.settings.config_dir
-                await loop.run_in_executor(
-                    None,
-                    lambda: set_device_metadata(
-                        config_dir, configuration, expected_config_hash=new_hash
-                    ),
-                )
-                _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
+            await self._persist_expected_config_hash(configuration)
         await self._scanner.reload(configuration)
         if flashed:
             self._sync_deployed_hash_after_flash(configuration)
+
+    async def _persist_expected_config_hash(self, configuration: str) -> None:
+        """
+        Read the canonical config_hash from build_info.json and persist it.
+
+        ESPHome's build (and ``--only-generate``) writes the
+        ``config_hash`` to ``build_info.json`` after running the full
+        validate + codegen pipeline. We read that value back rather
+        than recompute it, because reproducing the build's hash
+        in-process is fragile — ``CORE.config_hash`` is sensitive to
+        post-codegen state (id-pinning, default backfill,
+        normalisation) that ``read_config`` alone doesn't apply.
+        Verified against ``acfloatmonitor32.yaml``: pre-codegen yields
+        ``f3e21d5a`` while the firmware bakes in ``5a94a12d``.
+
+        Silently no-op when the hash can't be read — the previously
+        stored sidecar value (if any) stays as the most-recent
+        firmware-canonical value, and the mtime side of
+        ``compute_has_pending_changes`` keeps the dot honest.
+        """
+        yaml_path = self._db.settings.rel_path(configuration)
+        new_hash = await compute_yaml_config_hash(yaml_path)
+        if not new_hash:
+            return
+        loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+        await loop.run_in_executor(
+            None,
+            lambda: set_device_metadata(config_dir, configuration, expected_config_hash=new_hash),
+        )
+        _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
 
     def _sync_deployed_hash_after_flash(self, configuration: str) -> None:
         """

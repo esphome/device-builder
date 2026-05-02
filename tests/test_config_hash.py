@@ -1,86 +1,148 @@
 """Tests for ``helpers/config_hash.compute_yaml_config_hash``.
 
-Computing the hash needs the real ESPHome ``read_config()`` toolchain
-on the path, so these run an end-to-end subprocess against a minimal
-valid YAML in ``tmp_path``. They double as a smoke test that our
-inline subprocess script imports cleanly under the dashboard's
-interpreter.
+The hash comes out of ``<build_path>/build_info.json``, which
+ESPHome writes during every successful build (including
+``--only-generate``). The dashboard already runs ``--only-generate``
+on YAML add / edit, so by the time we'd read the hash the file is
+in place. These tests stub ``StorageJSON.load`` to point at a
+``build_path`` we control, write a representative ``build_info.json``
+there, and verify the helper round-trips the value into the
+mDNS-canonical 8-char lowercase hex format.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from esphome_device_builder.helpers.config_hash import compute_yaml_config_hash
 
-_MINIMAL_VALID_YAML = """
-esphome:
-  name: kitchen
-esp32:
-  variant: esp32c3
-  framework:
-    type: esp-idf
-"""
+
+def _stub_storage(monkeypatch: Any, build_path: Path | None) -> None:
+    """Make ``StorageJSON.load`` return a stub pointing at *build_path*.
+
+    ``None`` simulates "device has never been compiled" — the
+    ``StorageJSON.load`` itself returns None for missing sidecars.
+    """
+    if build_path is None:
+        load_mock = MagicMock(return_value=None)
+    else:
+        storage = MagicMock()
+        storage.build_path = build_path
+        load_mock = MagicMock(return_value=storage)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.config_hash.StorageJSON.load",
+        load_mock,
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.config_hash.ext_storage_path",
+        lambda _filename: Path("/unused/by/the/stub.json"),
+    )
+
+
+def _write_build_info(build_path: Path, **fields: Any) -> None:
+    """Write a ``build_info.json`` with the given fields.
+
+    Defaults match what ESPHome's writer emits (see
+    ``esphome.writer.copy_src_tree``): a 32-bit unsigned int
+    ``config_hash``, a unix ``build_time`` etc. Tests override the
+    one or two fields they care about.
+    """
+    build_path.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "config_hash": 0xDEADBEEF,
+        "build_time": 1700000000,
+        "build_time_str": "2025-11-14 12:00:00 -0500",
+        "esphome_version": "2026.5.0-dev",
+    }
+    payload.update(fields)
+    (build_path / "build_info.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 @pytest.mark.asyncio
-async def test_compute_returns_eight_char_hex_for_valid_config(tmp_path: Path) -> None:
-    """A valid config produces a deterministic 8-char lowercase hex hash."""
-    yaml_path = tmp_path / "kitchen.yaml"
-    yaml_path.write_text(_MINIMAL_VALID_YAML)
+async def test_returns_canonical_hex_from_build_info(tmp_path: Path, monkeypatch: Any) -> None:
+    """``build_info.json`` round-trips into the 8-char hex shape."""
+    build_path = tmp_path / ".esphome" / "build" / "kitchen"
+    # 0x5a94a12d is the value the firmware actually broadcasts via
+    # mDNS for a representative Apollo float-monitor YAML — the
+    # original bug report. Locking in this exact shape protects
+    # against accidentally returning the decimal or hex-with-0x
+    # forms.
+    _write_build_info(build_path, config_hash=0x5A94A12D)
+    _stub_storage(monkeypatch, build_path)
 
-    result = await compute_yaml_config_hash(yaml_path)
+    result = await compute_yaml_config_hash(tmp_path / "kitchen.yaml")
 
-    assert result is not None
-    assert len(result) == 8
-    assert all(c in "0123456789abcdef" for c in result)
-
-
-@pytest.mark.asyncio
-async def test_compute_is_deterministic(tmp_path: Path) -> None:
-    """Same YAML → same hash on subsequent runs (depends on FNV-1a determinism)."""
-    yaml_path = tmp_path / "kitchen.yaml"
-    yaml_path.write_text(_MINIMAL_VALID_YAML)
-
-    first = await compute_yaml_config_hash(yaml_path)
-    second = await compute_yaml_config_hash(yaml_path)
-
-    assert first is not None
-    assert first == second
+    assert result == "5a94a12d"
 
 
 @pytest.mark.asyncio
-async def test_compute_hash_changes_with_content(tmp_path: Path) -> None:
-    """Edits that change the resolved config produce a different hash."""
-    yaml_path = tmp_path / "kitchen.yaml"
-    yaml_path.write_text(_MINIMAL_VALID_YAML)
-    before = await compute_yaml_config_hash(yaml_path)
+async def test_returns_zero_padded_low_value(tmp_path: Path, monkeypatch: Any) -> None:
+    """Small ints get padded to 8 chars so the comparison is straight strcmp."""
+    build_path = tmp_path / "build"
+    _write_build_info(build_path, config_hash=0x42)
+    _stub_storage(monkeypatch, build_path)
 
-    # Tweak a meaningful field — name change cascades through the
-    # resolved config and so changes the hash.
-    yaml_path.write_text(_MINIMAL_VALID_YAML.replace("name: kitchen", "name: bedroom"))
-    after = await compute_yaml_config_hash(yaml_path)
+    result = await compute_yaml_config_hash(tmp_path / "kitchen.yaml")
 
-    assert before is not None
-    assert after is not None
-    assert before != after
+    assert result == "00000042"
 
 
 @pytest.mark.asyncio
-async def test_compute_returns_none_for_invalid_yaml(tmp_path: Path) -> None:
-    """Subprocess exits non-zero on validation failure → None (fall back to mtime)."""
-    yaml_path = tmp_path / "broken.yaml"
-    yaml_path.write_text("esphome:\n  name: !!! not valid\n")
+async def test_returns_none_when_storage_missing(tmp_path: Path, monkeypatch: Any) -> None:
+    """No sidecar → no build path → no hash. Caller falls back to mtime."""
+    _stub_storage(monkeypatch, None)
 
-    result = await compute_yaml_config_hash(yaml_path)
-
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_compute_returns_none_for_missing_file(tmp_path: Path) -> None:
-    """Nonexistent path → None, no exception bubbled to the caller."""
     result = await compute_yaml_config_hash(tmp_path / "ghost.yaml")
+
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_returns_none_when_build_info_missing(tmp_path: Path, monkeypatch: Any) -> None:
+    """Sidecar points at a build dir but ``--only-generate`` hasn't run yet."""
+    build_path = tmp_path / "build"
+    build_path.mkdir(parents=True)
+    _stub_storage(monkeypatch, build_path)
+
+    result = await compute_yaml_config_hash(tmp_path / "kitchen.yaml")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_returns_none_for_corrupt_json(tmp_path: Path, monkeypatch: Any) -> None:
+    """Corrupt build_info.json → None, no exception bubbles up."""
+    build_path = tmp_path / "build"
+    build_path.mkdir(parents=True)
+    (build_path / "build_info.json").write_text("{this is not json", encoding="utf-8")
+    _stub_storage(monkeypatch, build_path)
+
+    result = await compute_yaml_config_hash(tmp_path / "kitchen.yaml")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_returns_none_when_hash_missing_or_wrong_type(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Defensive: build_info.json shape changes shouldn't crash us."""
+    build_path = tmp_path / "build"
+    build_path.mkdir(parents=True)
+    (build_path / "build_info.json").write_text(
+        json.dumps({"build_time": 0}),  # no config_hash key at all
+        encoding="utf-8",
+    )
+    _stub_storage(monkeypatch, build_path)
+    assert await compute_yaml_config_hash(tmp_path / "kitchen.yaml") is None
+
+    (build_path / "build_info.json").write_text(
+        json.dumps({"config_hash": "not-an-int"}),
+        encoding="utf-8",
+    )
+    assert await compute_yaml_config_hash(tmp_path / "kitchen.yaml") is None
