@@ -136,6 +136,83 @@ def test_multiple_cached_addresses_sorted() -> None:
 
 
 # ----------------------------------------------------------------------
+# DevicesController.get_address_cache_args integration gate
+# ----------------------------------------------------------------------
+
+
+def _devices_controller_with(*devices: Device) -> Any:
+    """Build a thin DevicesController shell with a stubbed scanner + monitor.
+
+    ``get_address_cache_args`` only reads the scanner's device list,
+    the state monitor's cached-addresses lookup, and the device's
+    ``loaded_integrations`` field — keep the rest of the controller
+    out of the test surface.
+    """
+    from esphome_device_builder.controllers.devices import DevicesController
+
+    controller = DevicesController.__new__(DevicesController)
+    scanner = MagicMock()
+    scanner.devices = list(devices)
+    controller._scanner = scanner
+    controller._state_monitor = _monitor(["192.168.1.50"])
+    return controller
+
+
+def test_get_address_cache_args_returns_cache_for_native_api_device() -> None:
+    """Native API OTA path uses ``CORE.address_cache`` — feed it the args."""
+    controller = _devices_controller_with(_device(loaded_integrations=["api", "wifi"]))
+
+    args = controller.get_address_cache_args("kitchen.yaml")
+
+    assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
+
+
+def test_get_address_cache_args_returns_cache_for_web_server_only_device() -> None:
+    """web_server OTA path also uses ``CORE.address_cache``.
+
+    esphome/esphome#16207 added an HTTP OTA upload through the
+    ``web_server`` component that resolves IPs via the same
+    ``CORE.address_cache`` plumbing as the native API path. A device
+    whose YAML enables ``web_server`` but not ``api`` (e.g. user lost
+    the API password and falls back to HTTP OTA) should still get
+    the cache args so the upload doesn't pay an unnecessary DNS
+    lookup.
+    """
+    controller = _devices_controller_with(_device(loaded_integrations=["web_server", "wifi"]))
+
+    args = controller.get_address_cache_args("kitchen.yaml")
+
+    assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
+
+
+def test_get_address_cache_args_skipped_for_neither_api_nor_web_server() -> None:
+    """MQTT-only / sensor-bridge configs don't need the cache.
+
+    Devices with neither ``api`` nor ``web_server`` loaded flash via
+    paths that don't take a host/port — the cache args would be
+    noise the CLI ignores.
+    """
+    controller = _devices_controller_with(_device(loaded_integrations=["mqtt", "wifi"]))
+
+    args = controller.get_address_cache_args("kitchen.yaml")
+
+    assert args == []
+
+
+def test_get_address_cache_args_unknown_configuration_returns_empty() -> None:
+    """Unknown filename → empty list, no exception.
+
+    The firmware controller calls this for every queued job; a stale
+    rename or a deleted YAML shouldn't crash the queue.
+    """
+    controller = _devices_controller_with()  # no devices
+
+    args = controller.get_address_cache_args("ghost.yaml")
+
+    assert args == []
+
+
+# ----------------------------------------------------------------------
 # FirmwareController._build_cache_args / _build_command
 # ----------------------------------------------------------------------
 

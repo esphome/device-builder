@@ -244,16 +244,24 @@ class DevicesController:
         """
         Return ``--mdns/--dns-address-cache`` CLI args for *configuration*.
 
-        Empty list when the device is unknown, has no API integration
-        loaded, or has no cached IP available.
+        Empty list when the device is unknown, has no OTA-capable
+        integration loaded, or has no cached IP available.
         """
         target_name = configuration.removesuffix(".yaml").removesuffix(".yml")
         device = next((d for d in self._scanner.devices if d.name == target_name), None)
         if device is None:
             return []
-        # The CLI only consults the address cache through the API client;
-        # non-API devices flash via a different path that wouldn't read it.
-        if "api" not in device.loaded_integrations:
+        # The CLI only consults the address cache from upload paths
+        # that resolve via ``CORE.address_cache``. That used to be just
+        # the Native API OTA client (``espota2``), but esphome/esphome#16207
+        # added an HTTP OTA path through the ``web_server`` component
+        # that goes through the same resolver. Either integration is
+        # enough for the cache to be useful — passing the args to a
+        # build that doesn't read them is harmless. Devices loading
+        # neither (e.g. MQTT-only configs) flash via paths that don't
+        # take a host/port at all, so the cache args are noise there.
+        loaded = device.loaded_integrations
+        if "api" not in loaded and "web_server" not in loaded:
             return []
         return _build_address_cache_args(device, self._state_monitor)
 
