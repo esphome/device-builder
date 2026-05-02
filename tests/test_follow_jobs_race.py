@@ -106,6 +106,94 @@ async def test_follow_jobs_replays_snapshot_then_live_events_in_order() -> None:
     assert max(snapshot_indices) < queued_index
 
 
+async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation() -> None:
+    """A running job mutating mid-snapshot doesn't appear twice.
+
+    The earlier shape captured ``FirmwareJob`` objects synchronously
+    and called ``to_dict()`` later inside ``send_initial``. With
+    multiple jobs that's racy: between iterations of the snapshot
+    loop, each ``await send_event(...)`` yields the loop, the
+    runner runs and can mutate the *next* job's ``output``, then
+    the next iteration's ``to_dict()`` captures the mutated state.
+    The matching live ``JOB_OUTPUT`` is also delivered by the
+    listener — so the client sees the same line twice (once in
+    snapshot, once in the drain).
+
+    The fix is to dict-freeze the snapshot synchronously before
+    ``stream_events`` attaches listeners (no awaits between
+    freeze and attach). This test pins it with the
+    multi-job shape: snapshot[0] parks the helper in
+    ``send_event``, the test mutates ``job_b.output`` and fires
+    the matching ``JOB_OUTPUT``, then unblocks the helper and
+    checks that snapshot[1] has *only* the pre-mutation output
+    while the live event is delivered exactly once.
+    """
+    job_a = FirmwareJob(
+        job_id="a",
+        configuration="a.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        output=["a-line\n"],
+    )
+    job_b = FirmwareJob(
+        job_id="b",
+        configuration="b.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        output=["b-pre-snapshot\n"],
+    )
+    controller = _make_controller([job_a, job_b])
+    bus = controller._db.bus
+
+    block = asyncio.Event()
+    received: list[tuple[str, Any]] = []
+
+    class GatedClient:
+        async def send_event(self, _message_id: str, event: str, data: Any) -> None:
+            received.append((event, data))
+            # Park after delivering snapshot[0] so the test can
+            # mutate job_b before the helper iterates to it.
+            if event == "snapshot" and data["job_id"] == "a":
+                await block.wait()
+
+    follow_task = asyncio.create_task(controller.follow_jobs(client=GatedClient(), message_id="m1"))
+    # Yield until the helper has delivered snapshot[a] and is
+    # parked on ``block.wait()``.
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if received:
+            break
+    assert received[0][0] == "snapshot"
+    assert received[0][1]["job_id"] == "a"
+
+    # Mutate job_b AND fire the matching JOB_OUTPUT — the same
+    # interleaving the runner produces between snapshot iterations.
+    job_b.output.append("b-mid-snapshot\n")
+    bus.fire(EventType.JOB_OUTPUT, {"job_id": "b", "line": "b-mid-snapshot\n"})
+
+    # Release the helper and let it iterate to snapshot[b] then
+    # drain the queued live event.
+    block.set()
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if any(e == "job_output" for (e, _d) in received):
+            break
+
+    follow_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await follow_task
+
+    snapshots = {d["job_id"]: d for (e, d) in received if e == "snapshot"}
+    job_outputs = [d for (e, d) in received if e == "job_output"]
+
+    # snapshot[b] was frozen synchronously up front (before any
+    # await), so the mid-snapshot mutation isn't reflected.
+    assert snapshots["b"]["output"] == ["b-pre-snapshot\n"]
+    # The mid-snapshot line lands exactly once via the live
+    # event — not duplicated through the snapshot path.
+    assert job_outputs == [{"job_id": "b", "line": "b-mid-snapshot\n"}]
+
+
 async def test_follow_jobs_unsubscribes_on_cancellation() -> None:
     """Cancelling the WS task releases every listener.
 
