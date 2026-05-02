@@ -209,6 +209,7 @@ async def test_on_version_change_updates_device_and_fires_event(monkeypatch: Any
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
     monkeypatch.setattr(controller, "_persist_storage_version_async", _fake_persist, raising=False)
 
     controller._on_version_change("kitchen", "2026.5.0")
@@ -232,6 +233,7 @@ async def test_on_version_change_skips_when_same(monkeypatch: Any) -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_version_change("kitchen", "2026.5.0")
 
@@ -253,6 +255,7 @@ async def test_on_version_change_marks_update_available_when_behind() -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     # Simulate mDNS reporting an even older version than the previous
     # deployed_version — the dashboard's installed esphome is newer

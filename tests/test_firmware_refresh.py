@@ -366,6 +366,7 @@ def _flush_controller(device: Device) -> tuple[Any, list[Any]]:
 
     scanner = MagicMock()
     scanner.devices = [device]
+    scanner.get_by_name = lambda name: [device] if device.name == name else []
 
     state_monitor = MagicMock()
     # Drive the same de-dup behaviour real ``apply_config_hash`` has —

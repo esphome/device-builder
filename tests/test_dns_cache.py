@@ -630,6 +630,7 @@ def test_on_ip_change_persists_non_empty_value(monkeypatch) -> None:  # type: ig
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_ip_change("kitchen", "10.0.0.1")
 
@@ -653,6 +654,7 @@ def test_on_ip_change_skips_persist_for_empty_value() -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_ip_change("kitchen", "")
 

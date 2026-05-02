@@ -96,6 +96,7 @@ class DevicesController:
         )
         self._state_monitor = DeviceStateMonitor(
             get_devices=self._get_devices,
+            get_devices_by_name=self._scanner.get_by_name,
             on_state_change=self._on_state_change,
             on_ip_change=self._on_ip_change,
             on_version_change=self._on_version_change,
@@ -967,9 +968,10 @@ class DevicesController:
         so any state / IP / version / config-hash / api-encryption
         observation needs to fan out to every matching device or the
         non-canonical copy stays stuck at "Unknown" while its sibling
-        shows online.
+        shows online. Reads the scanner's name-keyed index for an
+        O(1) lookup.
         """
-        return [d for d in self._scanner.devices if d.name == name]
+        return self._scanner.get_by_name(name)
 
     def _on_state_change(self, name: str, state: DeviceState, source: str) -> None:
         """Forward state monitor updates onto the event bus."""

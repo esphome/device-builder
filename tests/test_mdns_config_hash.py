@@ -171,6 +171,7 @@ async def test_on_config_hash_change_updates_device_and_fires_event() -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_config_hash_change("kitchen", "1a2b3c4d")
 
@@ -190,6 +191,7 @@ async def test_on_config_hash_change_skips_when_same() -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_config_hash_change("kitchen", "1a2b3c4d")
 
@@ -206,6 +208,7 @@ async def test_on_config_hash_change_unknown_device_is_noop() -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = []
+    controller._scanner.get_by_name = lambda name, _d=[]: [d for d in _d if d.name == name]
 
     controller._on_config_hash_change("ghost", "1a2b3c4d")
 
@@ -228,6 +231,7 @@ async def test_on_config_hash_change_flips_pending_when_hashes_diverge() -> None
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_config_hash_change("kitchen", "deadbeef")
 
@@ -251,6 +255,7 @@ async def test_on_config_hash_change_marks_in_sync_when_hashes_match() -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_config_hash_change("kitchen", "abc12345")
 
@@ -274,6 +279,7 @@ async def test_on_config_hash_change_leaves_pending_alone_without_expected_hash(
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_config_hash_change("kitchen", "deadbeef")
 

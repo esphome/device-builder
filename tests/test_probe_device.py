@@ -154,6 +154,7 @@ async def test_apply_service_info_claims_online() -> None:
         state=DeviceState.UNKNOWN,
     )
     monitor._get_devices = lambda: [device]
+    monitor._get_devices_by_name = lambda name: [device] if device.name == name else []
 
     fake_info = MagicMock()
     fake_info.parsed_scoped_addresses.return_value = []

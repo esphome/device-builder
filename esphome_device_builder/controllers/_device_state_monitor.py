@@ -165,8 +165,21 @@ class DeviceStateMonitor:
         on_importable_added: ImportableAddedCallback | None = None,
         on_importable_removed: ImportableRemovedCallback | None = None,
         is_ignored: Callable[[str], bool] | None = None,
+        get_devices_by_name: Callable[[str], list[Device]] | None = None,
     ) -> None:
         self._get_devices = get_devices
+        # ``get_devices_by_name`` is the O(1) name-keyed lookup that
+        # the scanner exposes; mDNS / ping / MQTT observations key on
+        # the device's ``esphome.name`` and call the apply-* methods
+        # several times per broadcast, so a linear scan of every
+        # configured YAML on every announcement is the obvious thing
+        # not to do at fleet scale. Falls back to a linear scan when
+        # the caller hasn't wired the index yet (kept so the existing
+        # tests that build a monitor with just ``get_devices`` keep
+        # working without a parallel rewrite).
+        self._get_devices_by_name = get_devices_by_name or (
+            lambda name: [d for d in get_devices() if d.name == name]
+        )
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
         self._on_version_change = on_version_change
@@ -349,16 +362,14 @@ class DeviceStateMonitor:
     def _any_matching_device_differs(self, name: str, attr: str, value: Any) -> bool:
         """Return True iff some configured device named *name* has ``attr != value``.
 
-        Single-pass scan with an early break: short-circuits the
-        moment a stale value is found, so large fleets don't pay
-        for the dedupe check on every mDNS broadcast. Returns False
-        when no device matches *name* (stray announcement) or when
-        every match already carries *value* (steady-state dedupe).
+        Uses the scanner's ``get_devices_by_name`` index for an O(1)
+        name lookup so a 1000-device fleet doesn't pay an O(N) scan
+        on every mDNS broadcast. Short-circuits the moment a stale
+        match is found; returns False when no device matches *name*
+        (stray announcement) or when every match already carries
+        *value* (steady-state dedupe).
         """
-        for device in self._get_devices():
-            if device.name == name and getattr(device, attr) != value:
-                return True
-        return False
+        return any(getattr(device, attr) != value for device in self._get_devices_by_name(name))
 
     def get_cached_addresses(self, host_name: str) -> list[str] | None:
         """
@@ -496,10 +507,8 @@ class DeviceStateMonitor:
     # ------------------------------------------------------------------
 
     def _find_device_by_name(self, name: str) -> Device | None:
-        for device in self._get_devices():
-            if device.name == name:
-                return device
-        return None
+        bucket = self._get_devices_by_name(name)
+        return bucket[0] if bucket else None
 
     async def _start_mdns_browser(self) -> None:
         try:

@@ -134,6 +134,7 @@ async def test_on_api_encryption_change_updates_device_and_fires_event() -> None
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
@@ -158,6 +159,7 @@ async def test_on_api_encryption_change_records_empty_string() -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_api_encryption_change("kitchen", "")
 
@@ -175,6 +177,7 @@ async def test_on_api_encryption_change_skips_when_same() -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = [device]
+    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
 
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
@@ -189,6 +192,7 @@ async def test_on_api_encryption_change_unknown_device_is_noop() -> None:
     controller._db = db
     controller._scanner = MagicMock()
     controller._scanner.devices = []
+    controller._scanner.get_by_name = lambda name, _d=[]: [d for d in _d if d.name == name]
 
     controller._on_api_encryption_change("ghost", "anything")
 

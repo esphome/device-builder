@@ -24,6 +24,7 @@ def _make_controller(devices: list[Device]) -> tuple[DevicesController, MagicMoc
     ctrl._db = db  # type: ignore[attr-defined]
     ctrl._scanner = MagicMock()
     ctrl._scanner.devices = devices
+    ctrl._scanner.get_by_name = lambda name, _d=devices: [d for d in _d if d.name == name]
     return ctrl, db
 
 

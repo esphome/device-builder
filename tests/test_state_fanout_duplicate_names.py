@@ -52,6 +52,12 @@ def _make_controller(devices: list[Device]) -> DevicesController:
     controller._db.bus = MagicMock()
     controller._scanner = MagicMock()
     controller._scanner.devices = devices
+    # ``_devices_by_name`` now reads the scanner's name index. Mirror
+    # the same name-keyed grouping the real scanner maintains.
+    by_name: dict[str, list[Device]] = {}
+    for device in devices:
+        by_name.setdefault(device.name, []).append(device)
+    controller._scanner.get_by_name = lambda name: by_name.get(name, [])
     return controller
 
 
