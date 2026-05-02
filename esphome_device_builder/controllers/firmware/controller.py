@@ -567,8 +567,11 @@ class FirmwareController:
         ``firmware/download`` to retrieve the binary content.
         """
         # ``ext_storage_path`` resolves to ``<data_dir>/storage/...``
-        # outside the config dir, so ``rel_path`` is the gate that
-        # rejects traversal payloads at the WS boundary.
+        # outside the config dir AND does no traversal sanitisation
+        # of its own (upstream definition is just
+        # ``CORE.data_dir / "storage" / f"{config_filename}.json"``),
+        # so the validator below is the only gate that keeps a
+        # traversal payload out of the inner closure. Do not reorder.
         await self._validate_configuration_boundary(configuration)
         loop = asyncio.get_running_loop()
 
@@ -610,6 +613,14 @@ class FirmwareController:
         """
         # See ``get_binaries`` — ``ext_storage_path`` skips the config
         # dir entirely, so we re-validate at the WS boundary.
+        # ``ext_storage_path`` itself does NOT path-sanitise — its
+        # upstream definition is literally
+        # ``CORE.data_dir / "storage" / f"{config_filename}.json"``,
+        # so a traversal-shaped configuration would escape the
+        # storage tree if it ever reached the inner closure. The
+        # ``_validate_configuration_boundary`` line above is the only
+        # gate; do not reorder. Coverage:
+        # ``test_download.py::test_download_validator_runs_before_ext_storage_path``.
         await self._validate_configuration_boundary(configuration)
         loop = asyncio.get_running_loop()
 
