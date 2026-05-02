@@ -464,6 +464,31 @@ async def test_handler_skips_gating_on_trusted_site(
         assert msg.type.name in ("TEXT", "BINARY")
 
 
+async def test_handler_no_origin_skips_both_gates(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Origin-less requests bypass Origin AND Host allowlist gates.
+
+    CLI tools / HA integration / direct ``websockets`` clients
+    don't send ``Origin`` (it's a browser-only header). The
+    DNS-rebinding attack vector is browser-only by construction
+    — a script in evil.com can only re-bind via the browser's
+    DNS resolver. Skipping the gates when Origin is absent keeps
+    non-browser clients working under a tightened
+    ``trusted_domains`` config without weakening the defense.
+
+    Pin both halves: a 403 here would mean an operator who set
+    ``trusted_domains`` to harden against rebinding accidentally
+    locked their HA integration out.
+    """
+    client = await aiohttp_client(_password_protected_app(["dashboard.example.com"]))
+    # No Origin header → CLI-style request. Host is the test
+    # client's local IP:port, deliberately NOT in the allowlist.
+    async with client.ws_connect("/ws") as ws:
+        msg = await ws.receive(timeout=2.0)
+        assert msg.type.name in ("TEXT", "BINARY")
+
+
 async def test_handler_accepts_when_no_password(
     aiohttp_client: AiohttpClient,
 ) -> None:

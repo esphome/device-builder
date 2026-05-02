@@ -105,17 +105,21 @@ def main() -> None:
         help=(
             "Comma-separated hostnames the WebSocket handshake trusts "
             "(case-insensitive, port-tolerant). Two effects when password "
-            "auth is on: (1) accept cross-origin connections whose Origin "
-            "header's hostname is in the list — required for reverse-proxy "
+            "auth is on AND the request carries an Origin header: (1) "
+            "accept cross-origin connections whose Origin header's "
+            "hostname is in the list — required for reverse-proxy "
             "deployments where Origin is ``dashboard.example.com`` but the "
             "upstream Host is ``localhost``; (2) reject any connection "
             "whose Host header isn't in the list — defense in depth against "
-            "DNS rebinding. Default (flag unset) consults the "
-            "$ESPHOME_TRUSTED_DOMAINS env var (legacy ESPHome dashboard "
-            'compatibility); pass ``--trusted-domains ""`` to explicitly '
-            "ignore the env var and disable both checks. Use ``*`` as the "
-            "only entry to opt out of host-restriction while keeping "
-            "cross-origin acceptance permissive."
+            "DNS rebinding. Both gates skip Origin-less requests (CLI "
+            "tools, HA integration, direct websockets clients) since "
+            "DNS-rebinding is a browser-only attack vector and those "
+            "clients are already gated by bearer-token auth. Default "
+            "(flag unset) consults the $ESPHOME_TRUSTED_DOMAINS env var "
+            '(legacy ESPHome dashboard compatibility); pass --trusted-domains "" '
+            "to explicitly ignore the env var and disable both checks. "
+            "Use ``*`` as the only entry to opt out of host-restriction "
+            "while keeping cross-origin acceptance permissive."
         ),
     )
 

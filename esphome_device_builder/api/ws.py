@@ -199,25 +199,35 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     # without an Origin header (CLI tools, HA integration) are unaffected.
     if settings.using_password and not trusted_site:
         origin = request.headers.get("Origin")
-        # Cross-origin acceptance gate (closes #80): the Origin must
-        # equal Host OR the Origin's hostname must be in the
-        # operator-supplied trusted-domains allowlist. Without the
-        # allowlist branch, reverse-proxy deployments where Origin is
-        # ``https://dashboard.example.com`` but Host is the upstream
-        # ``localhost:6052`` lose dashboard access entirely.
-        if (
-            origin
-            and not _origin_matches_host(origin, request.host)
-            and not _origin_in_allowlist(origin, settings.trusted_domains)
-        ):
-            return web.Response(status=403, text="Cross-origin connection rejected")
-        # Defense-in-depth Host allowlist (closes B-5 from #120).
-        # Empty list = not configured = pass through. When set, the
-        # request's Host must be one of the trusted domains —
-        # mitigates DNS-rebinding on top of the auth + per-IP rate
-        # limit chain.
-        if not _host_in_allowlist(request.host, settings.trusted_domains):
-            return web.Response(status=403, text="Host not in trusted-domains allowlist")
+        # Both Origin / Host gates apply only to requests that
+        # carry an ``Origin`` header — browser-driven WebSocket
+        # connections always set it (spec-mandated for any WS
+        # opening handshake), so any DNS-rebinding attack lands
+        # here. CLI tools / HA integration / direct ``websockets``
+        # clients omit Origin and skip both checks; the existing
+        # bearer-token / in-band auth gate is doing the work for
+        # them. Without this gate, an operator who sets
+        # ``trusted_domains`` to harden against rebinding would
+        # also lock out their HA integration.
+        if origin:
+            # Cross-origin acceptance gate: the Origin must equal
+            # Host OR the Origin's hostname must be in the
+            # operator-supplied trusted-domains allowlist. Without
+            # the allowlist branch, reverse-proxy deployments where
+            # Origin is ``https://dashboard.example.com`` but Host
+            # is the upstream ``localhost:6052`` lose dashboard
+            # access entirely.
+            if not _origin_matches_host(origin, request.host) and not _origin_in_allowlist(
+                origin, settings.trusted_domains
+            ):
+                return web.Response(status=403, text="Cross-origin connection rejected")
+            # Defense-in-depth Host allowlist. Empty list = not
+            # configured = pass through. When set, the request's
+            # Host must be one of the trusted domains — mitigates
+            # DNS-rebinding on top of the auth + per-IP rate limit
+            # chain.
+            if not _host_in_allowlist(request.host, settings.trusted_domains):
+                return web.Response(status=403, text="Host not in trusted-domains allowlist")
 
     ws = web.WebSocketResponse(heartbeat=_WS_HEARTBEAT_SECONDS)
     await ws.prepare(request)
