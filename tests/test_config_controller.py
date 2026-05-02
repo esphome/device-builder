@@ -215,34 +215,43 @@ def test_remove_device_metadata_clears_only_target(tmp_path: Path) -> None:
 
 
 def test_load_preferences_returns_defaults_on_missing(tmp_path: Path) -> None:
-    """A fresh install has no preferences — fall back to defaults."""
-    prefs = load_preferences(tmp_path)
-    assert isinstance(prefs, UserPreferences)
+    """A fresh install has no preferences — fall back to the default object.
+
+    Equality check (not just ``isinstance``) so a regression
+    that builds a non-default preferences object on the
+    missing-file path (e.g. one with ``dashboard_view=TABLE``
+    instead of CARDS) breaks this test.
+    """
+    assert load_preferences(tmp_path) == UserPreferences()
 
 
 def test_load_preferences_returns_defaults_on_bad_data(tmp_path: Path) -> None:
-    """Corrupted preferences blob → defaults rather than crash.
+    """Corrupted preferences blob → default object, not partial recovery.
 
     ``UserPreferences.from_dict`` raises on unknown / malformed
     fields; without the except-fallback the dashboard wouldn't
     load when an older version's preferences file is read by a
-    newer mashumaro schema.
+    newer mashumaro schema. Equality with ``UserPreferences()``
+    pins that the fallback is the same default object, not a
+    silently-mutated one a regression could produce.
     """
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b'{"_preferences": {"unknown_field": 42}}')
 
-    prefs = load_preferences(tmp_path)
-    assert isinstance(prefs, UserPreferences)
+    assert load_preferences(tmp_path) == UserPreferences()
 
 
 def test_save_preferences_round_trip(tmp_path: Path) -> None:
-    """Saved prefs survive a load round-trip.
+    """A non-default prefs blob round-trips through save → load.
 
-    Mostly here so blockbuster runs against the
-    ``metadata_transaction`` write path under the prefs key,
-    not just the device-entry one.
+    Pins the actual write path: round-tripping ``UserPreferences()``
+    would also pass if save / load both silently lost data, so
+    use a non-default value (``dashboard_view=TABLE``) to
+    actually exercise the marshalling.
     """
-    prefs = UserPreferences()
+    from esphome_device_builder.models.preferences import DashboardView
+
+    prefs = UserPreferences(dashboard_view=DashboardView.TABLE)
     save_preferences(tmp_path, prefs)
     assert load_preferences(tmp_path) == prefs
 
@@ -254,39 +263,59 @@ def test_save_preferences_round_trip(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_get_prefs_returns_loaded_preferences(tmp_path: Path) -> None:
-    """``get_prefs`` is the WS surface for ``load_preferences``.
+    """``get_prefs`` returns the persisted blob, not a fresh default.
 
-    Run via the controller (not the bare helper) so any future
-    regression that drops the ``loop.run_in_executor`` wrap
-    fires blockbuster on Linux CI; the helper itself uses
-    ``metadata_transaction`` which calls ``tempfile.mkstemp`` ->
-    ``os.path.abspath``.
+    Persists a non-default preferences object and asserts it
+    round-trips back. A regression that bypasses disk I/O and
+    just constructs ``UserPreferences()`` would still claim
+    ``isinstance`` but would fail this equality.
+
+    The seeding ``save_preferences`` runs in a thread because
+    ``metadata_transaction`` -> ``tempfile.mkstemp`` ->
+    ``os.path.abspath`` blocks the event loop, and blockbuster
+    flags it from inside an async test.
     """
-    save_preferences(tmp_path, UserPreferences())
+    from esphome_device_builder.models.preferences import DashboardView
+
+    persisted = UserPreferences(dashboard_view=DashboardView.TABLE)
+    await asyncio.to_thread(save_preferences, tmp_path, persisted)
     controller = _make_controller(tmp_path)
 
     prefs = await controller.get_prefs()
-    assert isinstance(prefs, UserPreferences)
+    assert prefs == persisted
 
 
 @pytest.mark.asyncio
 async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
-    """Partial-update merge: unknown / unset fields keep their current values.
+    """Partial-update merge: only the supplied field changes.
 
-    ``set_prefs`` accepts kwargs (whatever the WS layer routed
-    in) and merges them into the current dict before saving.
-    Without the merge, every set_prefs would clobber unrelated
-    fields with their defaults.
+    Persist a known initial state, then call ``set_prefs`` with
+    just one field. The unrelated fields must keep their
+    persisted values, not snap back to dataclass defaults — a
+    regression that re-constructs ``UserPreferences`` from
+    kwargs alone (skipping the merge step) would clobber them
+    silently.
+
+    Seeding goes via ``asyncio.to_thread`` so the
+    ``metadata_transaction`` -> ``tempfile.mkstemp`` write
+    doesn't trip blockbuster on Linux CI.
     """
-    initial = UserPreferences()
-    save_preferences(tmp_path, initial)
+    from esphome_device_builder.models.preferences import (
+        DashboardView,
+        Theme,
+    )
+
+    initial = UserPreferences(dashboard_view=DashboardView.TABLE, theme=Theme.DARK)
+    await asyncio.to_thread(save_preferences, tmp_path, initial)
     controller = _make_controller(tmp_path)
 
-    # Round-trip — even with no explicit kwargs, the saved blob
-    # should remain valid.
-    result = await controller.set_prefs()
-    assert isinstance(result, UserPreferences)
-    assert result == initial
+    # Update only ``theme``; ``dashboard_view`` should survive.
+    result = await controller.set_prefs(theme=Theme.LIGHT)
+    assert result.theme == Theme.LIGHT
+    assert result.dashboard_view == DashboardView.TABLE
+    # Persisted blob matches the merged state.
+    persisted = await asyncio.to_thread(load_preferences, tmp_path)
+    assert persisted == result
 
 
 @pytest.mark.asyncio
@@ -323,19 +352,22 @@ async def test_get_secrets_returns_sorted_keys(tmp_path: Path) -> None:
 async def test_get_info_rejects_path_traversal(tmp_path: Path) -> None:
     """Traversal-shaped configuration returns ``None`` rather than raising.
 
-    ``rel_path`` raises ``ValueError`` on traversal; the WS
-    handler catches and surfaces ``None`` so a malicious /
-    confused client gets a clean miss instead of an
-    INTERNAL_ERROR.
+    Wires the controller to the real ``DashboardSettings.rel_path``
+    so we exercise the production traversal-detection logic, not a
+    monkeypatched stub. ``rel_path`` raises ``ValueError`` on
+    traversal (resolved path falls outside ``absolute_config_dir``)
+    and the WS handler catches it. A regression in either side of
+    the boundary breaks the test.
     """
-    controller = _make_controller(tmp_path)
+    from esphome_device_builder.controllers.config import DashboardSettings
 
-    # Force rel_path to raise so the except-branch runs without
-    # reproducing the exact pathlib semantics across platforms.
-    def _raise(*_parts: str) -> Path:
-        raise ValueError("traversal")
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
 
-    controller._db.settings.rel_path = _raise
+    controller = ConfigController.__new__(ConfigController)
+    controller._db = MagicMock()
+    controller._db.settings = settings
 
     result = await asyncio.wait_for(controller.get_info(configuration="../etc/passwd"), timeout=2.0)
     assert result is None
