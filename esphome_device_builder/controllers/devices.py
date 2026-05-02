@@ -339,14 +339,51 @@ class DevicesController:
         """
         Rename a device configuration.
 
-        Tries the ESPHome CLI first (authoritative for validated
-        configs). Falls back to a file-level rename when the CLI
-        refuses because the config doesn't validate yet — typical for
-        a freshly-created empty config. Returns the new filename.
+        Validity gates which strategy we use, because the two paths
+        have very different rollback semantics on failure and we MUST
+        keep the user able to reach the device under its old name
+        whenever the rename can't complete:
+
+        - **Config doesn't validate** (typical for a freshly-created
+          empty config that the user hasn't filled in yet). The
+          ``esphome rename`` CLI refuses to touch it. Fall back to a
+          pure file-level rename — there's no firmware on the device
+          yet, so there's nothing to roll back from.
+        - **Config validates**. Run ``esphome --dashboard rename`` and
+          let it own the full atomic rename: write the new YAML,
+          re-validate, ``esphome run`` to compile + install + verify,
+          and then drop the old YAML only on install success. If
+          install fails the CLI unlinks its newly-written YAML and
+          returns non-zero — the old file (and the device's old
+          hostname) stay intact so the user can fix things and try
+          again. We DELIBERATELY do not fall back to a file-level
+          rename here: the legacy dashboard had exactly that bug, and
+          a half-flashed device with the YAML already pointing at the
+          new name leaves nothing to mDNS-resolve when the user goes
+          to retry.
+
+        Returns the new filename. Errors propagate verbatim (with the
+        last lines of ``esphome rename``'s output appended) so the
+        frontend can show a meaningful message.
         """
         config_path = str(self._db.settings.rel_path(configuration))
-        cmd = [*self._esphome_cmd, "rename", config_path, new_name]
+        loop = asyncio.get_running_loop()
+        new_filename = f"{new_name}.yaml"
 
+        if not await self._yaml_validates(config_path):
+            try:
+                await loop.run_in_executor(None, self._manual_rename, configuration, new_name)
+            except FileExistsError as exc:
+                msg = f"A device named {new_filename} already exists"
+                raise RuntimeError(msg) from exc
+            except Exception as exc:
+                _LOGGER.warning("Manual rename failed: %s", exc)
+                msg = f"Rename failed: {exc}"
+                raise RuntimeError(msg) from exc
+            await self._scanner.scan()
+            return {"configuration": new_filename}
+
+        cmd = [*self._esphome_cmd, "--dashboard", "rename", config_path, new_name]
         proc = await create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -357,26 +394,41 @@ class DevicesController:
         exit_code = proc.returncode
         output = stdout.decode("utf-8", errors="replace")
 
-        new_filename = f"{new_name}.yaml"
         if exit_code != 0:
-            _LOGGER.info(
-                "esphome rename failed (%s); falling back to manual rename",
-                exit_code,
+            tail = output.strip().splitlines()[-10:]
+            joined = "\n".join(tail)
+            msg = (
+                f"Rename of {configuration} failed (exit {exit_code}). The "
+                f"original config and device name were left untouched so you "
+                f"can retry once the issue is resolved. Last output:\n{joined}"
             )
-            loop = asyncio.get_running_loop()
-            try:
-                await loop.run_in_executor(None, self._manual_rename, configuration, new_name)
-            except FileExistsError as exc:
-                msg = f"A device named {new_filename} already exists"
-                raise RuntimeError(msg) from exc
-            except Exception as exc:
-                _LOGGER.warning("Manual rename failed: %s", exc)
-                tail = output.strip()[-500:]
-                msg = f"Rename failed (exit {exit_code}): {tail}"
-                raise RuntimeError(msg) from exc
+            _LOGGER.warning("%s", msg)
+            raise RuntimeError(msg)
 
         await self._scanner.scan()
         return {"configuration": new_filename}
+
+    async def _yaml_validates(self, config_path: str) -> bool:
+        """Best-effort ``esphome config`` precheck.
+
+        Used to decide between the file-level fallback (for empty /
+        broken configs) and the full ``esphome rename`` flow (which
+        will compile + install). Errors during the check fall
+        through as "doesn't validate" so we err on the side of the
+        safer file-level path.
+        """
+        try:
+            proc = await create_subprocess_exec(
+                *self._esphome_cmd,
+                "--dashboard",
+                "config",
+                config_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            return await proc.wait() == 0
+        except Exception:
+            return False
 
     @api_command("devices/delete")
     async def delete_device(self, *, configuration: str, **kwargs: Any) -> None:
