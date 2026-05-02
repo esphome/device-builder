@@ -49,7 +49,7 @@ async def test_reset_build_env_returns_queued_job_with_reset_type(
     before the runner picks it up) shows up immediately. The
     frontend's job-table renders the row from these two fields.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
 
     job = await controller.reset_build_env()
 
@@ -70,7 +70,7 @@ async def test_reset_build_env_uses_empty_configuration(
     refresh-scheduling logic relies on
     (``test_helpers.test_names_touched_by_job_with_empty_configuration_is_empty``).
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
 
     job = await controller.reset_build_env()
 
@@ -82,7 +82,7 @@ async def test_reset_build_env_registers_job_in_jobs_map(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     """The new job lands in ``self._jobs`` so ``cancel`` / ``follow_job`` can find it."""
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
 
     job = await controller.reset_build_env()
 
@@ -107,7 +107,7 @@ async def test_reset_build_env_fires_job_queued_after_enqueue(
     parent.queue.put = AsyncMock()
     parent.bus.fire = MagicMock()
 
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     controller._queue = parent.queue
     controller._db.bus = parent.bus
 
@@ -134,7 +134,7 @@ async def test_reset_build_env_accepts_arbitrary_kwargs(
     that tightens the signature would silently break those WS
     calls until they're individually retested.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
 
     job = await controller.reset_build_env(client=object(), message_id="m1", spurious=True)
 
@@ -180,7 +180,7 @@ async def test_reset_build_env_runner_removes_each_target(
     the test passes only if each named directory is gone after
     the runner finishes.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     _seed_targets(tmp_path)
     job = _make_job()
 
@@ -204,7 +204,7 @@ async def test_reset_build_env_runner_marks_job_completed(
     ``JOB_COMPLETED`` event so a frontend reading the post-event
     state sees a fully-finished job.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     _seed_targets(tmp_path)
     job = _make_job()
 
@@ -226,7 +226,7 @@ async def test_reset_build_env_runner_fires_job_completed(
     in the all-jobs view, even though the runner's local state
     flipped to COMPLETED.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     _seed_targets(tmp_path)
     job = _make_job()
 
@@ -247,7 +247,7 @@ async def test_reset_build_env_runner_streams_output_lines(
     see the same content; pin a representative line on each side
     so a refactor that drops one of the two writes surfaces here.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     _seed_targets(tmp_path)
     job = _make_job()
 
@@ -284,7 +284,7 @@ async def test_reset_build_env_runner_skips_missing_targets(
     targets and confirming the runner completes (status COMPLETED)
     while still naming the missing ones in the output.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     # Only seed the build dir; external_components and platformio_cache absent.
     _seed_targets(tmp_path, names=("build",))
     job = _make_job()
@@ -311,7 +311,7 @@ async def test_reset_build_env_runner_no_op_when_esphome_absent(
     because the targets don't exist. Pins the early-exit branch
     that checks ``esphome_root.exists()``.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     # Don't call _seed_targets — leave .esphome absent entirely.
     job = _make_job()
 
@@ -342,7 +342,7 @@ async def test_reset_build_env_runner_honours_cancel_between_targets(
       ``self._cancel_requested``) so a re-queued job with the same
       id wouldn't auto-cancel.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     _seed_targets(tmp_path)
     job = _make_job()
     controller._cancel_requested.add(job.job_id)

@@ -44,7 +44,7 @@ async def test_upload_returns_queued_job_with_upload_type(
     refactor that defaults to ``COMPILE`` (the most common job
     type) by mistake.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.upload(configuration="kitchen.yaml")
@@ -70,7 +70,7 @@ async def test_upload_defaults_port_to_empty_string(
     unifies the defaults breaks visibly here AND in the install
     suite.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.upload(configuration="kitchen.yaml")
@@ -93,7 +93,7 @@ async def test_upload_forwards_custom_port_to_job(
     mutated the value here, the upload would target the wrong
     device.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.upload(configuration="kitchen.yaml", port=port)
@@ -121,7 +121,7 @@ async def test_upload_validates_port_before_configuration(
     ("Invalid configuration filename …") instead of the
     port-shape error.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     with pytest.raises(CommandError) as exc:
         await controller.upload(configuration="../etc/passwd", port="not a port")
@@ -144,7 +144,7 @@ async def test_upload_rejects_traversal_configuration(
     direct WS client could path-traverse via ``configuration``
     even though every other handler stays gated.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     with pytest.raises(CommandError) as exc:
         await controller.upload(configuration="../etc/passwd")
@@ -175,7 +175,7 @@ async def test_upload_enqueues_before_firing_job_queued(
     parent.queue.put = AsyncMock()
     parent.bus.fire = MagicMock()
 
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     controller._queue = parent.queue
     controller._db.bus = parent.bus
     (tmp_path / "kitchen.yaml").write_text("")
@@ -201,7 +201,7 @@ async def test_upload_registers_job_in_jobs_map(
     forgetting to register it here would leave those handlers
     raising ``"Job not found"`` for a job the user just queued.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.upload(configuration="kitchen.yaml")

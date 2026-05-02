@@ -39,7 +39,7 @@ async def test_compile_returns_queued_job_with_compile_type(
     (``INSTALL`` is the obvious accident since the install
     handler delegates through the same queue).
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.compile(configuration="kitchen.yaml")
@@ -63,7 +63,7 @@ async def test_compile_rejects_traversal_configuration(
     could path-traverse via ``configuration`` even though every
     other handler stays gated.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     with pytest.raises(CommandError) as exc:
         await controller.compile(configuration="../etc/passwd")
@@ -95,7 +95,7 @@ async def test_compile_enqueues_before_firing_job_queued(
     parent.queue.put = AsyncMock()
     parent.bus.fire = MagicMock()
 
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     controller._queue = parent.queue
     controller._db.bus = parent.bus
     (tmp_path / "kitchen.yaml").write_text("")
@@ -121,7 +121,7 @@ async def test_compile_registers_job_in_jobs_map(
     forgetting to register it here would leave those handlers
     raising ``"Job not found"`` for a job the user just queued.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.compile(configuration="kitchen.yaml")

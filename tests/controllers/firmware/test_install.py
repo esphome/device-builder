@@ -41,7 +41,7 @@ async def test_install_returns_queued_job_with_install_type(
     ``job_type`` fields; pin both so a future refactor that defaults
     to ``COMPILE`` (the most common job type) shows up immediately.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.install(configuration="kitchen.yaml")
@@ -64,7 +64,7 @@ async def test_install_defaults_port_to_ota(
     of "flash the device named in the YAML" doesn't need a port
     arg from the caller.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.install(configuration="kitchen.yaml")
@@ -87,7 +87,7 @@ async def test_install_forwards_custom_port_to_job(
     mutated the value here, the install would silently re-target
     OTA instead of the user-named address.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.install(configuration="kitchen.yaml", port=port)
@@ -115,7 +115,7 @@ async def test_install_validates_port_before_configuration(
     ("Invalid configuration filename …") instead of the
     port-shape error, and this assertion catches it.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     with pytest.raises(CommandError) as exc:
         await controller.install(configuration="../etc/passwd", port="not a port")
@@ -137,7 +137,7 @@ async def test_install_rejects_traversal_configuration(
     public entry point and a regression in this handler specifically
     would be felt by every "Update" button click.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     with pytest.raises(CommandError) as exc:
         await controller.install(configuration="../etc/passwd")
@@ -176,7 +176,7 @@ async def test_install_enqueues_before_firing_job_queued(
     parent.queue.put = AsyncMock()
     parent.bus.fire = MagicMock()
 
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     controller._queue = parent.queue
     controller._db.bus = parent.bus
     (tmp_path / "kitchen.yaml").write_text("")
@@ -202,7 +202,7 @@ async def test_install_registers_job_in_jobs_map(
     forgetting to register it here would leave those handlers
     raising ``"Job not found"`` for a job the user just queued.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.install(configuration="kitchen.yaml")

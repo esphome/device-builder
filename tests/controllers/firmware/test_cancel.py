@@ -72,7 +72,7 @@ async def test_cancel_raises_not_found_for_unknown_job_id(
     distinguishes it from ``INVALID_ARGS`` to render a different
     error toast.
     """
-    controller = firmware_controller_factory(with_settings=False)
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
 
     with pytest.raises(CommandError) as exc:
         await controller.cancel(job_id="bogus")
@@ -97,7 +97,7 @@ async def test_cancel_queued_job_marks_terminal_and_fires_event(
     status until the next page refresh.
     """
     job = _job("j-q", status=JobStatus.QUEUED)
-    controller = firmware_controller_factory(job, with_settings=False)
+    controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
     controller._prune_history = MagicMock()
 
     await controller.cancel(job_id="j-q")
@@ -125,7 +125,7 @@ async def test_cancel_queued_job_prunes_history_before_persisting(
     and lose the cap on the very next read.
     """
     job = _job("j-q", status=JobStatus.QUEUED)
-    controller = firmware_controller_factory(job, with_settings=False)
+    controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
 
     parent = MagicMock()
     parent.prune_history = MagicMock()
@@ -155,7 +155,7 @@ async def test_cancel_queued_does_not_touch_terminate_current_process(
     null case crashes the cancel.
     """
     job = _job("j-q", status=JobStatus.QUEUED)
-    controller = firmware_controller_factory(job, with_settings=False)
+    controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
     controller._prune_history = MagicMock()
 
     await controller.cancel(job_id="j-q")
@@ -181,7 +181,7 @@ async def test_cancel_running_job_records_intent_and_terminates(
     failure in the dashboard log.
     """
     job = _job("j-r", status=JobStatus.RUNNING)
-    controller = firmware_controller_factory(job, with_settings=False)
+    controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
     controller._current_job = job
 
     await controller.cancel(job_id="j-r")
@@ -203,7 +203,7 @@ async def test_cancel_running_job_does_not_fire_event_directly(
     see two cancels for one job.
     """
     job = _job("j-r", status=JobStatus.RUNNING)
-    controller = firmware_controller_factory(job, with_settings=False)
+    controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
     controller._current_job = job
 
     await controller.cancel(job_id="j-r")
@@ -226,7 +226,7 @@ async def test_cancel_running_job_with_no_current_job_raises_runtime_error(
     inconsistency than to mask it.
     """
     job = _job("j-r", status=JobStatus.RUNNING)
-    controller = firmware_controller_factory(job, with_settings=False)
+    controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
     # ``_current_job`` left as ``None`` — out of sync.
 
     with pytest.raises(RuntimeError, match="state out of sync"):
@@ -246,7 +246,7 @@ async def test_cancel_running_job_with_mismatched_current_job_raises(
     """
     job = _job("j-r", status=JobStatus.RUNNING)
     other = _job("j-other", status=JobStatus.RUNNING)
-    controller = firmware_controller_factory(job, other, with_settings=False)
+    controller = firmware_controller_factory(job, other, with_settings=False, with_terminate=True)
     controller._current_job = other  # somebody else is running
 
     with pytest.raises(RuntimeError, match="state out of sync"):
@@ -277,7 +277,7 @@ async def test_cancel_terminal_job_raises_invalid_args(
     can tell why the cancel was refused (race vs. genuinely-finished).
     """
     job = _job("j-t", status=status)
-    controller = firmware_controller_factory(job, with_settings=False)
+    controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
 
     with pytest.raises(CommandError) as exc:
         await controller.cancel(job_id="j-t")

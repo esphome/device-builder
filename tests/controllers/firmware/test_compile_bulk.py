@@ -46,7 +46,7 @@ async def test_compile_bulk_returns_queued_jobs_for_every_config(
     """
     for name in ("kitchen.yaml", "garage.yaml", "office.yaml"):
         (tmp_path / name).write_text("")
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     jobs = await controller.compile_bulk(
         configurations=["kitchen.yaml", "garage.yaml", "office.yaml"],
@@ -73,7 +73,7 @@ async def test_compile_bulk_rejects_whole_batch_on_traversal_entry(
     """
     (tmp_path / "kitchen.yaml").write_text("")
     (tmp_path / "garage.yaml").write_text("")
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     with pytest.raises(CommandError) as exc:
         await controller.compile_bulk(
@@ -100,7 +100,7 @@ async def test_compile_bulk_rejects_whole_batch_on_empty_entry(
     the validator entirely).
     """
     (tmp_path / "kitchen.yaml").write_text("")
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     with pytest.raises(CommandError) as exc:
         await controller.compile_bulk(configurations=["kitchen.yaml", ""])
@@ -128,7 +128,7 @@ async def test_compile_bulk_skips_entries_with_enqueue_command_error(
     """
     for name in ("kitchen.yaml", "locked.yaml", "office.yaml"):
         (tmp_path / name).write_text("")
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     real_enqueue = controller._enqueue
 
@@ -166,7 +166,7 @@ async def test_compile_bulk_empty_input_returns_empty_list(
     list when the user selected nothing — surface a clean empty
     result rather than a confusing error.
     """
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     jobs = await controller.compile_bulk(configurations=[])
 
@@ -186,7 +186,7 @@ async def test_compile_bulk_fires_job_queued_per_successful_entry(
     """
     for name in ("kitchen.yaml", "garage.yaml"):
         (tmp_path / name).write_text("")
-    controller = firmware_controller_factory()
+    controller = firmware_controller_factory(with_queue=True)
 
     jobs = await controller.compile_bulk(configurations=["kitchen.yaml", "garage.yaml"])
 
