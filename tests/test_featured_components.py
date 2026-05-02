@@ -153,6 +153,55 @@ async def test_get_component_suggestions(catalog: ComponentCatalog) -> None:
     assert pin.suggestions == [4, 5]
 
 
+async def test_get_component_id_default_from_local(catalog: ComponentCatalog) -> None:
+    """Featured components without an explicit ``id`` preset default to the slugified local id."""
+    # ``button`` has no manifest preset for ``id`` — without the
+    # auto-derived default the merge logic would render ``id: gpio``,
+    # colliding with the platform stem.
+    entry = await catalog.get_component(component_id="featured.athom-smart-plug-v3.button")
+    assert entry is not None
+    id_field = next(ce for ce in entry.config_entries if ce.key == "id")
+    assert id_field.default_value == "button"
+    assert id_field.locked is False
+
+
+async def test_get_component_id_default_slugifies_dashes(catalog: ComponentCatalog) -> None:
+    """Featured local ids with dashes (``status-led-output``) become valid esphome ids."""
+    entry = await catalog.get_component(
+        component_id="featured.athom-smart-plug-v3.status-led-output",
+    )
+    assert entry is not None
+    id_field = next(ce for ce in entry.config_entries if ce.key == "id")
+    assert id_field.default_value == "status_led_output"
+
+
+async def test_get_component_name_default_from_featured_name(
+    catalog: ComponentCatalog,
+) -> None:
+    """The featured component's display name pre-fills the underlying ``name`` field."""
+    # apollo-esk-1.rgb-strip has ``name: RGB LED Strip (addon module)``
+    # at the featured level but no field preset for ``name`` — the
+    # auto-derived default lets the user start with a sensible
+    # HA-visible entity name without having to repeat it in the
+    # manifest's ``fields:`` block.
+    entry = await catalog.get_component(component_id="featured.apollo-esk-1.rgb-strip")
+    assert entry is not None
+    name_field = next(ce for ce in entry.config_entries if ce.key == "name")
+    assert name_field.default_value == "RGB LED Strip (addon module)"
+    assert name_field.locked is False
+
+
+async def test_get_component_explicit_field_preset_wins(catalog: ComponentCatalog) -> None:
+    """An explicit ``fields.name`` preset overrides the auto-derived default."""
+    # sonoff-basic.relay sets ``fields.name: Relay`` in the manifest
+    # while the featured display name is ``Onboard Relay`` — the
+    # explicit preset must win.
+    entry = await catalog.get_component(component_id="featured.sonoff-basic.relay")
+    assert entry is not None
+    name_field = next(ce for ce in entry.config_entries if ce.key == "name")
+    assert name_field.default_value == "Relay"
+
+
 async def test_get_components_featured_only_with_board_id(
     catalog: ComponentCatalog,
 ) -> None:
