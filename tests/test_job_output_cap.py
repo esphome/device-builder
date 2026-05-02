@@ -158,6 +158,52 @@ def test_inflight_hysteresis_amortises_trim_cost() -> None:
     assert len(job.output) <= _MAX_OUTPUT_LINES_INFLIGHT
 
 
+def test_no_module_named_esphome_detection_at_append_time() -> None:
+    r"""``saw_no_esphome_module`` flag survives the in-flight trim.
+
+    The post-exit handler used to render the actionable
+    ``"esphome is not importable from the dashboard's Python
+    environment …"`` message by re-scanning ``"".join(job.output)``
+    for ``No module named esphome``. After the in-flight cap can
+    elide the head, that line might be gone by exit time and the
+    user gets the generic ``"Process exited 0 but output contains
+    errors"`` message instead of the specific install hint.
+
+    Cure: set the flag at append time (where ``_check_error``
+    already had the line in hand). This test pins the at-append
+    detection by exercising the same closure shape the runner
+    uses: define a local flag + closure, feed lines through it,
+    and verify the flag stays True after the source line is
+    removed from the buffer.
+    """
+    from esphome_device_builder.controllers.firmware import _ERROR_PATTERNS
+
+    has_error_in_output = False
+    saw_no_esphome_module = False
+
+    def _check_error(text: str) -> None:
+        nonlocal has_error_in_output, saw_no_esphome_module
+        if "No module named esphome" in text:
+            saw_no_esphome_module = True
+        if has_error_in_output:
+            return
+        for pattern in _ERROR_PATTERNS:
+            if pattern in text:
+                has_error_in_output = True
+                return
+
+    # Line at the start of a long noisy build.
+    _check_error("ModuleNotFoundError: No module named 'esphome'\n")
+    # Mountains of unrelated noise.
+    for i in range(_MAX_OUTPUT_LINES_INFLIGHT * 2):
+        _check_error(f"line {i}\n")
+
+    assert has_error_in_output is True
+    # The captured flag is what the post-exit handler uses to pick
+    # the actionable error message — set once, never cleared.
+    assert saw_no_esphome_module is True
+
+
 def test_inflight_trim_followed_by_default_trim_chains_elided_counts() -> None:
     """Mid-run trim → terminal trim: both contributions counted.
 

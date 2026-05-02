@@ -149,10 +149,17 @@ def _trim_job_output(job: FirmwareJob, *, keep: int = _MAX_OUTPUT_LINES_RETAINED
     job — already-trimmed output stays stable and the elided count
     keeps growing as new lines are dropped.
 
-    ``keep`` defaults to the post-completion retention cap; the
-    in-flight path overrides it to a larger ``_MAX_OUTPUT_LINES_INFLIGHT``
-    so users tailing a live build don't lose the last several
-    thousand lines mid-stream.
+    ``keep`` is the same value (``_MAX_OUTPUT_LINES_RETAINED``) for
+    both the in-flight and post-completion call sites. The two
+    paths differ only in their *trigger*: the in-flight path
+    invokes this from the streaming loop when ``len(job.output)``
+    crosses ``_MAX_OUTPUT_LINES_INFLIGHT`` (=``2 * keep``), so
+    every trim drops back to ``keep`` and leaves a ``keep``-line
+    headroom before the next trim fires. The post-completion call
+    uses the default keep, so a build that finished under the
+    in-flight cap is trimmed once on exit; a build that already
+    triggered the in-flight trim is at ``keep`` lines plus the
+    elided notice and this final call is a no-op for it.
     """
     output = job.output
     extra_elided = 0
@@ -1065,10 +1072,19 @@ class FirmwareController:
             self._current_process = proc
 
             has_error_in_output = False
+            # Captured at append time because the in-flight trim can
+            # elide the offending line before the post-exit handler
+            # runs. ``_check_error`` already had the line in hand
+            # there; persisting the verdict here lets the post-exit
+            # handler render a specific actionable message even
+            # after a long noisy build trims the head.
+            saw_no_esphome_module = False
             assert proc.stdout is not None  # type narrowing
 
             def _check_error(text: str) -> None:
-                nonlocal has_error_in_output
+                nonlocal has_error_in_output, saw_no_esphome_module
+                if "No module named esphome" in text:
+                    saw_no_esphome_module = True
                 if has_error_in_output:
                     return
                 for pattern in _ERROR_PATTERNS:
@@ -1134,8 +1150,7 @@ class FirmwareController:
                 success = exit_code == 0 and not has_error_in_output
                 _mark_job_terminal(job, JobStatus.COMPLETED if success else JobStatus.FAILED)
                 if has_error_in_output and exit_code == 0:
-                    full_output = "".join(job.output)
-                    if "No module named esphome" in full_output:
+                    if saw_no_esphome_module:
                         job.error = (
                             "esphome is not importable from the dashboard's Python "
                             f"environment ({sys.executable}). Install it with "
