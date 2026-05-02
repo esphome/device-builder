@@ -64,6 +64,27 @@ class DashboardSettings:
     # production we let the browser apply its default heuristic; the
     # hashed bundles are still served as ``immutable`` regardless.
     dev_mode: bool = False
+    # Hostnames we trust for cross-origin / Host validation in the
+    # WebSocket handshake. Carries the legacy
+    # ``ESPHOME_TRUSTED_DOMAINS`` semantics from the upstream
+    # dashboard, plus a DNS-rebinding-defense Host check:
+    #
+    #   * Origin allowlist - when the browser's Origin header
+    #     doesn't match the request's Host (reverse-proxy hostname
+    #     mismatch), accept the connection if Origin's hostname is
+    #     in this list. Fixes the
+    #     "lose-dashboard-access-behind-nginx" papercut.
+    #   * Host allowlist - reject the request entirely if its Host
+    #     header isn't in this list. Defense in depth against DNS
+    #     rebinding, on top of the existing per-IP-rate-limited
+    #     ``auth/login`` gate.
+    #
+    # Empty list = both checks disabled (existing strict
+    # Origin/Host equality is the only gate; no Host allowlist).
+    # ``"*"`` is the explicit "match anything" escape hatch for
+    # operators who want to acknowledge the knob without
+    # restricting hosts.
+    trusted_domains: list[str] = field(default_factory=list)
 
     def parse_args(self, args: Any) -> None:
         """Parse CLI arguments into settings."""
@@ -93,6 +114,25 @@ class DashboardSettings:
         self.ingress_port = getattr(args, "ingress_port", DEFAULT_INGRESS_PORT)
         self.ingress_host = getattr(args, "ingress_host", "") or ""
         self.dev_mode = bool(getattr(args, "dev", False))
+        # ``--trusted-domains a,b,c`` (or ``$ESPHOME_TRUSTED_DOMAINS``).
+        # Comma-separated. Lower-cased for the case-insensitive match
+        # in the WS handshake. Empty list = both Origin and Host
+        # allowlists disabled.
+        #
+        # Precedence: a CLI flag value of ``None`` (argparse default
+        # when ``--trusted-domains`` wasn't passed) means "flag not
+        # set, consult the env var"; any string value, including the
+        # empty string, is an explicit override and wins over the
+        # env var. Lets operators say ``--trusted-domains ""`` to
+        # disable the checks even when ``$ESPHOME_TRUSTED_DOMAINS``
+        # is set in the environment (e.g. inherited from a parent).
+        cli_value = getattr(args, "trusted_domains", None)
+        raw_trusted = (
+            cli_value if cli_value is not None else os.getenv("ESPHOME_TRUSTED_DOMAINS", "")
+        )
+        self.trusted_domains = [
+            host.strip().lower() for host in raw_trusted.split(",") if host.strip()
+        ]
         CORE.config_path = self.config_dir / _DASHBOARD_SENTINEL_FILE
 
     def rel_path(self, *parts: str) -> Path:

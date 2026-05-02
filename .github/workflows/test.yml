@@ -7,6 +7,9 @@ name: Test
 # smoke test (``script/check_catalog.py``) runs alongside lint so a
 # bad sync result fails CI even when no one ran the full sync.
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -101,7 +104,10 @@ jobs:
         # which doesn't accept bash-style ``\`` line continuation.
         # ``--maxfail=5`` keeps CI snappy when something fundamental
         # is broken; ``-q`` keeps the log readable without ``-vv``.
-        run: pytest -q --maxfail=5 --durations=10 --cov=esphome_device_builder --cov-report=xml --cov-report=term
+        # The ``benchmarks/`` subtree is excluded — it's CodSpeed-driven,
+        # runs in a separate job, and its assertions only check chunk
+        # counts (not behaviour).
+        run: pytest -q --maxfail=5 --durations=10 --ignore=tests/benchmarks --cov=esphome_device_builder --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6.0.0
@@ -109,3 +115,38 @@ jobs:
           files: ./coverage.xml
           flags: py${{ matrix.python-version }}
           fail_ci_if_error: false
+
+  benchmarks:
+    name: Run benchmarks (CodSpeed)
+    runs-on: ubuntu-latest
+    # Benchmarks only run on PRs to ``main`` and pushes to ``main`` —
+    # ``workflow_call`` runs (release preflight) skip them since
+    # CodSpeed's instrumentation harness adds non-trivial wallclock
+    # to the matrix and the comparison only makes sense against the
+    # historical baseline CodSpeed already has.
+    if: github.event_name != 'workflow_call'
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install package + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[esphome]'
+          pip install -e '.[test]'
+
+      - name: Run benchmarks
+        # ``simulation`` is the new name for what used to be called
+        # ``instrumentation`` — same callgrind-based runner under
+        # the hood, just renamed. The action prints a deprecation
+        # warning when you ask for ``instrumentation`` explicitly.
+        uses: CodSpeedHQ/action@c381be0bfd20e844fb45594f6aa182ffcd94545c  # v4.15.0
+        with:
+          mode: simulation
+          run: pytest tests/benchmarks --codspeed --no-cov
