@@ -32,16 +32,41 @@ def _device(configuration: str, **overrides: Any) -> Device:
     return Device(**base)
 
 
+def _close_coro(coro: Any) -> Any:
+    """Close any coroutine handed to ``create_background_task``.
+
+    Without this the test stub leaves ``_persist_device_ip_async`` /
+    ``_persist_storage_version_async`` coroutines un-awaited, which
+    triggers ``RuntimeWarning: coroutine was never awaited`` (some
+    pytest configs upgrade that to a failure).
+    """
+    if hasattr(coro, "close"):
+        coro.close()
+    return MagicMock()
+
+
 def _make_controller(devices: list[Device]) -> DevicesController:
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
+    controller._db.create_background_task = MagicMock(side_effect=_close_coro)
+    controller._db.bus = MagicMock()
     controller._scanner = MagicMock()
     controller._scanner.devices = devices
     return controller
 
 
+def _fired_events(controller: DevicesController) -> list[tuple[Any, dict[str, Any]]]:
+    """All ``(event_type, data)`` pairs forwarded to the event bus."""
+    return [call.args for call in controller._db.bus.fire.call_args_list]
+
+
 def test_state_change_fans_out_to_every_matching_device() -> None:
-    """``_on_state_change`` updates *every* device sharing the name."""
+    """Fans the state update + bus event out to every matching device.
+
+    ``_on_state_change`` has to update *every* device sharing the
+    name and fire ``DEVICE_STATE_CHANGED`` once per configuration
+    so each dashboard card redraws independently.
+    """
     a = _device("kitchen.yaml")
     b = _device("kitchen (1).yaml")
     controller = _make_controller([a, b])
@@ -50,32 +75,44 @@ def test_state_change_fans_out_to_every_matching_device() -> None:
 
     assert a.state == DeviceState.ONLINE
     assert b.state == DeviceState.ONLINE
+    fired = _fired_events(controller)
+    assert len(fired) == 2
+    targeted = sorted(data["configuration"] for _et, data in fired)
+    assert targeted == ["kitchen (1).yaml", "kitchen.yaml"]
 
 
 def test_ip_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", ip="")
     b = _device("kitchen (1).yaml", ip="")
     controller = _make_controller([a, b])
-    # Drop the persist-async side effect; we only care about the
-    # in-memory mutation here.
-    controller._db.create_background_task = MagicMock()
 
     controller._on_ip_change("kitchen", "10.0.0.5")
 
     assert a.ip == "10.0.0.5"
     assert b.ip == "10.0.0.5"
+    fired = _fired_events(controller)
+    assert len(fired) == 2
+    assert sorted(data["device"].configuration for _et, data in fired) == [
+        "kitchen (1).yaml",
+        "kitchen.yaml",
+    ]
 
 
 def test_version_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", current_version="2026.5.0", deployed_version="")
     b = _device("kitchen (1).yaml", current_version="2026.5.0", deployed_version="")
     controller = _make_controller([a, b])
-    controller._db.create_background_task = MagicMock()
 
     controller._on_version_change("kitchen", "2026.5.0")
 
     assert a.deployed_version == "2026.5.0"
     assert b.deployed_version == "2026.5.0"
+    fired = _fired_events(controller)
+    assert len(fired) == 2
+    assert sorted(data["device"].configuration for _et, data in fired) == [
+        "kitchen (1).yaml",
+        "kitchen.yaml",
+    ]
 
 
 def test_config_hash_change_fans_out_to_every_matching_device() -> None:
@@ -94,6 +131,8 @@ def test_config_hash_change_fans_out_to_every_matching_device() -> None:
     # Both devices' has_pending_changes should reflect the match.
     assert a.has_pending_changes is False
     assert b.has_pending_changes is False
+    fired = _fired_events(controller)
+    assert len(fired) == 2
 
 
 def test_api_encryption_change_fans_out_to_every_matching_device() -> None:
@@ -105,6 +144,8 @@ def test_api_encryption_change_fans_out_to_every_matching_device() -> None:
 
     assert a.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
     assert b.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    fired = _fired_events(controller)
+    assert len(fired) == 2
 
 
 def test_unrelated_devices_are_not_touched() -> None:
@@ -117,3 +158,6 @@ def test_unrelated_devices_are_not_touched() -> None:
 
     assert kitchen.state == DeviceState.ONLINE
     assert garage.state == DeviceState.UNKNOWN
+    fired = _fired_events(controller)
+    assert len(fired) == 1
+    assert fired[0][1]["configuration"] == "kitchen.yaml"
