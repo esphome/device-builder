@@ -611,15 +611,13 @@ def _make_ws_client(
     fake_ws = MagicMock()
     sent: list[dict] = []
 
-    async def _send_str(payload: str) -> None:
-        import orjson
-
-        sent.append(orjson.loads(payload))
+    async def _send_json(data: Any, *, dumps: Any = None) -> None:
+        sent.append(data)
 
     async def _close(*_: Any, **__: Any) -> None:
         pass
 
-    fake_ws.send_str = _send_str
+    fake_ws.send_json = _send_json
     fake_ws.close = _close
 
     client = WebSocketClient(fake_ws, db, remote=remote, authenticated=authenticated, token=None)

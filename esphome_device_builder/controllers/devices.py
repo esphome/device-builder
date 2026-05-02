@@ -25,7 +25,7 @@ from ..helpers.device_yaml import (
     parse_platform_from_yaml,
 )
 from ..helpers.hostname import is_local_hostname, normalize_hostname
-from ..helpers.json import dumps_indent, loads
+from ..helpers.json import JSONDecodeError, dumps_indent, loads
 from ..helpers.subprocess import create_subprocess_exec
 from ..helpers.yaml import merge_component_yaml, rewrite_esphome_name
 from ..models import (
@@ -1043,10 +1043,30 @@ class DevicesController:
     def _load_ignored_devices(self) -> None:
         storage_path = ignored_devices_storage_path()
         try:
-            data = loads(storage_path.read_bytes())
+            raw = storage_path.read_bytes()
         except FileNotFoundError:
             return
-        self.ignored_devices = set(data.get("ignored_devices", []))
+        try:
+            data = loads(raw)
+        except JSONDecodeError:
+            # A corrupt file shouldn't tank controller bootstrap —
+            # start with an empty ignored set and let the next
+            # toggle_ignore call rewrite it cleanly.
+            _LOGGER.warning(
+                "Ignored-devices file at %s is corrupt; starting with an empty set",
+                storage_path,
+            )
+            return
+        if not isinstance(data, dict):
+            _LOGGER.warning(
+                "Ignored-devices file at %s isn't a JSON object; starting with an empty set",
+                storage_path,
+            )
+            return
+        ignored = data.get("ignored_devices", [])
+        if not isinstance(ignored, list):
+            return
+        self.ignored_devices = {name for name in ignored if isinstance(name, str)}
 
     def _save_ignored_devices(self) -> None:
         storage_path = ignored_devices_storage_path()

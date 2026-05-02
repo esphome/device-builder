@@ -33,6 +33,17 @@ def dumps(obj: Any) -> bytes:
     return orjson.dumps(obj)
 
 
+def dumps_str(obj: Any) -> str:
+    """Serialise *obj* to a compact JSON ``str``.
+
+    Adapter for aiohttp APIs that take a ``dumps`` callable returning
+    ``str`` — ``WebSocketResponse.send_json(dumps=...)`` and
+    ``web.json_response(dumps=...)``. Lets call sites use the standard
+    aiohttp shape instead of building a raw frame manually.
+    """
+    return orjson.dumps(obj).decode()
+
+
 def dumps_indent(obj: Any) -> bytes:
     """Serialise *obj* with two-space indentation — for human-readable files."""
     return orjson.dumps(obj, option=orjson.OPT_INDENT_2)
