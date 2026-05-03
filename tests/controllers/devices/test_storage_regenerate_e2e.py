@@ -22,11 +22,13 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
+
+from .conftest import MakeControllerFactory
 
 
 class _FakeProc:
@@ -43,46 +45,6 @@ class _FakeProc:
 
     async def communicate(self) -> tuple[bytes, bytes]:
         return (b"", self._stderr)
-
-
-def _make_controller(tmp_path: Path) -> DevicesController:
-    """Build a controller wired to ``tmp_path`` with the regenerate-state attrs.
-
-    Same ``__new__``-bypass shape as the other devices tests, with
-    the three regenerate guards (``_regenerate_pending`` /
-    ``_regenerate_failed`` / ``_regenerate_lock``) attached because
-    ``_schedule_storage_regenerate`` reads them on every entry.
-    ``_esphome_cmd`` is non-empty so the start-of-function guard
-    doesn't short-circuit.
-
-    ``_db.create_background_task`` returns a real ``asyncio.Task``
-    so tests can ``await`` it — production wraps the same shape
-    around ``DeviceBuilder.create_background_task`` which calls
-    ``loop.create_task``.
-    """
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = MagicMock()
-    controller._db.settings.config_dir = tmp_path
-    controller._db.settings.rel_path = lambda configuration: tmp_path / configuration
-
-    spawned_tasks: list[asyncio.Task] = []
-
-    def _create_bg(coro: Any) -> asyncio.Task:
-        task = asyncio.get_running_loop().create_task(coro)
-        spawned_tasks.append(task)
-        return task
-
-    controller._db.create_background_task = _create_bg
-    controller._spawned_tasks = spawned_tasks  # type: ignore[attr-defined]
-
-    controller._scanner = MagicMock()
-    controller._scanner.scan = AsyncMock()
-    controller._scanner.reload = AsyncMock()
-    controller._regenerate_pending = set()
-    controller._regenerate_failed = set()
-    controller._regenerate_lock = asyncio.Lock()
-    controller._esphome_cmd = ["esphome"]
-    return controller
 
 
 async def _drain(controller: DevicesController) -> None:
@@ -108,7 +70,9 @@ async def _drain(controller: DevicesController) -> None:
 
 @pytest.mark.asyncio
 async def test_regenerate_spawns_esphome_compile_only_generate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """Successful spawn → expected-hash persist + scanner reload.
 
@@ -119,7 +83,7 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     the scanner so the device's metadata refreshes without
     waiting for a real compile.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     captured_cmd: list[list[str]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
@@ -165,15 +129,17 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
 # ---------------------------------------------------------------------------
 
 
-def test_regenerate_skips_when_esphome_cmd_unset(tmp_path: Path) -> None:
+def test_regenerate_skips_when_esphome_cmd_unset(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``_esphome_cmd`` empty (``start()`` hasn't run) → no-op.
 
     Synchronous test — the guard is the very first check in the
     function and short-circuits before scheduling the
     background task. No spawn, no _regenerate_pending mutation.
     """
-    controller = _make_controller(tmp_path)
-    controller._esphome_cmd = []
+    # ``esphome_cmd=[]`` triggers the early-return guard.
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=[])
 
     controller._schedule_storage_regenerate("kitchen.yaml")
 
@@ -181,14 +147,16 @@ def test_regenerate_skips_when_esphome_cmd_unset(tmp_path: Path) -> None:
     assert controller._regenerate_pending == set()
 
 
-def test_regenerate_skips_duplicate_schedule(tmp_path: Path) -> None:
+def test_regenerate_skips_duplicate_schedule(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Configuration already in ``_regenerate_pending`` → second schedule is a no-op.
 
     Without this, repeated saves while a regenerate is already
     in flight would queue N background tasks all racing on the
     same YAML.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     controller._regenerate_pending.add("kitchen.yaml")
 
     controller._schedule_storage_regenerate("kitchen.yaml")
@@ -196,7 +164,9 @@ def test_regenerate_skips_duplicate_schedule(tmp_path: Path) -> None:
     assert controller._spawned_tasks == []  # type: ignore[attr-defined]
 
 
-def test_regenerate_skips_after_failed_marker(tmp_path: Path) -> None:
+def test_regenerate_skips_after_failed_marker(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Configuration in ``_regenerate_failed`` → no respin.
 
     The marker is cleared by ``_on_scan_change`` when the YAML's
@@ -204,7 +174,7 @@ def test_regenerate_skips_after_failed_marker(tmp_path: Path) -> None:
     then a respin would just burn another subprocess on the same
     bad input.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     controller._regenerate_failed.add("kitchen.yaml")
 
     controller._schedule_storage_regenerate("kitchen.yaml")
@@ -219,7 +189,9 @@ def test_regenerate_skips_after_failed_marker(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_regenerate_marks_failed_on_nonzero_exit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """``esphome compile`` exiting non-zero → no reload, ``_regenerate_failed`` set.
 
@@ -227,7 +199,7 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     case. The controller has to remember the failure so the
     next save (with the same broken YAML) doesn't re-spawn.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
         return _FakeProc(returncode=1, stderr=b"YAML parse error at line 3")
@@ -256,7 +228,9 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
 
 @pytest.mark.asyncio
 async def test_regenerate_marks_failed_on_spawn_oserror(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """``create_subprocess_exec`` raising → ``_regenerate_failed`` set.
 
@@ -266,7 +240,7 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
     schedule on the same configuration isn't blocked by the
     duplicate-schedule guard.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
 
     async def _broken_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
         raise OSError("esphome: command not found")
@@ -298,7 +272,9 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
 
 @pytest.mark.asyncio
 async def test_regenerate_pending_blocks_in_flight_dupe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """A second schedule mid-spawn doesn't queue a duplicate task.
 
@@ -308,7 +284,7 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
     sentinel event; while it's blocked, schedule again — the
     guard fires and no second task lands.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     in_flight = asyncio.Event()
     release = asyncio.Event()
 

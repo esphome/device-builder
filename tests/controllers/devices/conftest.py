@@ -19,10 +19,12 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Protocol
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.config import set_device_metadata
+from esphome_device_builder.controllers.devices import DevicesController
 
 
 class SeedDeviceFactory(Protocol):
@@ -155,6 +157,90 @@ def seed_device() -> SeedDeviceFactory:
         return yaml_path, build_path
 
     return _seed
+
+
+class MakeControllerFactory(Protocol):
+    """Shape of the ``make_controller`` fixture's return value."""
+
+    def __call__(
+        self,
+        config_dir: Path,
+        *,
+        with_regenerate_state: bool = ...,
+        esphome_cmd: list[str] | None = ...,
+    ) -> DevicesController: ...
+
+
+@pytest.fixture
+def make_controller() -> MakeControllerFactory:
+    """Return a factory that builds a bypass-init ``DevicesController``.
+
+    Most ``tests/controllers/devices/`` files exercise a single
+    handler in isolation and don't want to spin up a full
+    ``DeviceBuilder``. They've each grown their own
+    ``__new__``-bypass helper that attaches:
+
+    - ``_db`` (a ``MagicMock`` with ``settings.config_dir`` /
+      ``settings.rel_path`` wired against the test's tmp dir);
+    - ``_scanner`` (``MagicMock`` with ``scan`` / ``reload`` as
+      ``AsyncMock``).
+
+    The shape was duplicated across ``test_archive.py``,
+    ``test_rename_inline_e2e.py``, and the new
+    ``test_storage_regenerate_e2e.py``. Centralising means the
+    next test in this directory inherits the same wiring without
+    copy-pasting (and a ``DevicesController`` field rename only
+    has to update one site).
+
+    ``with_regenerate_state=True`` adds the three guards
+    (``_regenerate_pending`` / ``_regenerate_failed`` /
+    ``_regenerate_lock``) plus a real
+    ``_db.create_background_task`` that records spawned tasks on
+    ``controller._spawned_tasks`` (test-only attr) so callers can
+    ``await`` them — used by the ``_schedule_storage_regenerate``
+    tests where the controller really fires off background work
+    via the production code path.
+
+    ``esphome_cmd`` populates ``_esphome_cmd`` so the
+    early-return guard at the top of
+    ``_schedule_storage_regenerate`` doesn't short-circuit;
+    leave it ``None`` for tests that don't reach that code path.
+    """
+
+    def _make(
+        config_dir: Path,
+        *,
+        with_regenerate_state: bool = False,
+        esphome_cmd: list[str] | None = None,
+    ) -> DevicesController:
+        controller = DevicesController.__new__(DevicesController)
+        controller._db = MagicMock()
+        controller._db.settings.config_dir = config_dir
+        controller._db.settings.rel_path = lambda configuration: config_dir / configuration
+        controller._scanner = MagicMock()
+        controller._scanner.scan = AsyncMock()
+        controller._scanner.reload = AsyncMock()
+
+        if with_regenerate_state:
+            spawned_tasks: list[asyncio.Task[object]] = []
+
+            def _create_bg(coro: object) -> asyncio.Task[object]:
+                task = asyncio.get_running_loop().create_task(coro)  # type: ignore[arg-type]
+                spawned_tasks.append(task)
+                return task
+
+            controller._db.create_background_task = _create_bg
+            controller._spawned_tasks = spawned_tasks  # type: ignore[attr-defined]
+            controller._regenerate_pending = set()
+            controller._regenerate_failed = set()
+            controller._regenerate_lock = asyncio.Lock()
+
+        if esphome_cmd is not None:
+            controller._esphome_cmd = esphome_cmd
+
+        return controller
+
+    return _make
 
 
 @pytest.fixture

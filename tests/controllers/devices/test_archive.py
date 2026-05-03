@@ -21,7 +21,6 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -32,7 +31,6 @@ from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
-from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices import helpers as devices_helpers
 from esphome_device_builder.controllers.devices.helpers import (
     _archive_clear_device_sidecars,
@@ -41,23 +39,7 @@ from esphome_device_builder.controllers.devices.helpers import (
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
-from .conftest import SeedDeviceFactory
-
-
-def _make_controller(config_dir: Path) -> DevicesController:
-    """Build a bare-bones controller wired to *config_dir* on disk.
-
-    Same pattern as ``test_delete_device.py`` — bypass ``__init__``
-    so we don't have to seed a full ``DeviceBuilder``, attach a
-    mock scanner that satisfies ``await scan()`` calls.
-    """
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = MagicMock()
-    controller._db.settings.config_dir = config_dir
-    controller._db.settings.rel_path = lambda configuration: config_dir / configuration
-    controller._scanner = MagicMock()
-    controller._scanner.scan = AsyncMock()
-    return controller
+from .conftest import MakeControllerFactory, SeedDeviceFactory
 
 
 @pytest.fixture(autouse=True)
@@ -82,7 +64,9 @@ def _ext_storage_for_archive(redirect_storage_path: None) -> None:
 
 @pytest.mark.asyncio
 async def test_archive_moves_yaml_to_archive_dir(
-    tmp_path: Path, seed_device: SeedDeviceFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
 ) -> None:
     """The YAML lands in ``<config_dir>/archive/<configuration>``.
 
@@ -92,7 +76,7 @@ async def test_archive_moves_yaml_to_archive_dir(
     cache root) shows up as a test failure rather than a user
     finding their old configs in an unfamiliar place.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     yaml_path, _ = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     original_text = yaml_path.read_text()
 
@@ -106,7 +90,9 @@ async def test_archive_moves_yaml_to_archive_dir(
 
 @pytest.mark.asyncio
 async def test_archive_wipes_build_directory(
-    tmp_path: Path, seed_device: SeedDeviceFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
 ) -> None:
     """An archived device's compile output is dead weight — wipe it.
 
@@ -116,7 +102,7 @@ async def test_archive_wipes_build_directory(
     (a few KB), not the build tree's worth (50-200 MB), and users
     would still complain about disk usage on long-running fleets.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     _, build_path = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     assert build_path.exists()
 
@@ -127,7 +113,9 @@ async def test_archive_wipes_build_directory(
 
 @pytest.mark.asyncio
 async def test_archive_wipes_storage_sidecar(
-    tmp_path: Path, seed_device: SeedDeviceFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
 ) -> None:
     """The StorageJSON sidecar is removed when archiving.
 
@@ -138,7 +126,7 @@ async def test_archive_wipes_storage_sidecar(
     clean cache; the scanner re-fills via mDNS once the device
     is back online (only a few seconds of "unknown state").
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     storage_path = tmp_path / ".esphome" / "storage" / "kitchen.yaml.json"
     assert storage_path.exists()
@@ -150,7 +138,9 @@ async def test_archive_wipes_storage_sidecar(
 
 @pytest.mark.asyncio
 async def test_archive_clears_volatile_metadata_keeps_identity(
-    tmp_path: Path, seed_device: SeedDeviceFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
 ) -> None:
     """Archive scrubs runtime state but keeps stable identity fields.
 
@@ -163,7 +153,7 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
     losing it on every archive cycle forced an unnecessary
     re-derive on unarchive.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     # ``set_device_metadata`` writes through ``metadata_transaction``
     # which calls ``tempfile.mkstemp`` for an atomic replace —
@@ -201,7 +191,9 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
 
 @pytest.mark.asyncio
 async def test_archive_drops_metadata_entry_when_only_volatile_fields(
-    tmp_path: Path, seed_device: SeedDeviceFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
 ) -> None:
     """An entry with only volatile fields is removed entirely on archive.
 
@@ -211,7 +203,7 @@ async def test_archive_drops_metadata_entry_when_only_volatile_fields(
     leave an empty dict. Drop the entry entirely so the metadata
     file doesn't accumulate dead keys.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     # ``write_metadata=False`` so the starting state has no
     # identity fields — the only metadata is the volatile ones we
     # add below, which is the exact precondition this branch
@@ -235,7 +227,9 @@ async def test_archive_drops_metadata_entry_when_only_volatile_fields(
 
 @pytest.mark.asyncio
 async def test_archive_succeeds_when_never_compiled(
-    tmp_path: Path, seed_device: SeedDeviceFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
 ) -> None:
     """A device that was never compiled has no build dir — archive still works.
 
@@ -243,7 +237,7 @@ async def test_archive_succeeds_when_never_compiled(
     they don't need it after all". No StorageJSON, no build tree;
     the move-to-archive must still succeed without raising.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     yaml_path, _ = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=False)
     # Wipe the StorageJSON sidecar to simulate "never compiled".
     (tmp_path / ".esphome" / "storage" / "kitchen.yaml.json").unlink()
@@ -256,7 +250,9 @@ async def test_archive_succeeds_when_never_compiled(
 
 @pytest.mark.asyncio
 async def test_archive_collision_raises_invalid_args(
-    tmp_path: Path, seed_device: SeedDeviceFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
 ) -> None:
     """Archiving twice with the same name refuses rather than silently renaming.
 
@@ -269,7 +265,7 @@ async def test_archive_collision_raises_invalid_args(
     resolve the collision (unarchive or permanently delete the
     existing archive copy first).
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
 
     # First archive lands at the plain name.
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
@@ -290,7 +286,9 @@ async def test_archive_collision_raises_invalid_args(
 
 
 @pytest.mark.asyncio
-async def test_archive_missing_file_raises_file_not_found(tmp_path: Path) -> None:
+async def test_archive_missing_file_raises_file_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """An archive of a non-existent configuration raises cleanly.
 
     Symmetric with ``_delete_single`` — the WS layer surfaces the
@@ -298,14 +296,16 @@ async def test_archive_missing_file_raises_file_not_found(tmp_path: Path) -> Non
     (someone else just deleted the device) doesn't silently
     succeed.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     with pytest.raises(FileNotFoundError):
         await controller._archive_single("ghost.yaml")
 
 
 @pytest.mark.asyncio
 async def test_archive_device_full_flow_calls_scanner(
-    tmp_path: Path, seed_device: SeedDeviceFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
 ) -> None:
     """End-to-end ``archive_device`` runs the helper and re-scans.
 
@@ -314,7 +314,7 @@ async def test_archive_device_full_flow_calls_scanner(
     follow-up ``self._scanner.scan()`` that triggers the
     ``DEVICE_REMOVED`` event for the dashboard.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     yaml_path, _ = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
 
     await controller.archive_device(configuration="kitchen.yaml")
@@ -325,13 +325,15 @@ async def test_archive_device_full_flow_calls_scanner(
 
 
 @pytest.mark.asyncio
-async def test_unarchive_device_full_flow_calls_scanner(tmp_path: Path) -> None:
+async def test_unarchive_device_full_flow_calls_scanner(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """End-to-end ``unarchive_device`` runs the helper and re-scans.
 
     Same shape as ``test_archive_device_full_flow_calls_scanner`` —
     covers the WS-command tail (``_scanner.scan()`` after success).
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     archive_dir = tmp_path / "archive"
     archive_dir.mkdir()
     (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
@@ -344,7 +346,9 @@ async def test_unarchive_device_full_flow_calls_scanner(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_archived_full_flow(tmp_path: Path) -> None:
+async def test_list_archived_full_flow(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """End-to-end ``list_archived`` returns the parsed rows.
 
     Covers the WS-command body that runs ``_list_archived_sync``
@@ -358,7 +362,7 @@ async def test_list_archived_full_flow(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     rows = await controller.list_archived()
 
     assert len(rows) == 1
@@ -367,7 +371,9 @@ async def test_list_archived_full_flow(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_archive_device_translates_missing_to_command_error(tmp_path: Path) -> None:
+async def test_archive_device_translates_missing_to_command_error(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)`` to the client.
 
     The internal ``_archive_single`` raises ``FileNotFoundError`` so
@@ -376,16 +382,18 @@ async def test_archive_device_translates_missing_to_command_error(tmp_path: Path
     reference shows up as a clean ``not_found`` over the wire
     instead of a generic ``internal_error``.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     with pytest.raises(CommandError) as exc:
         await controller.archive_device(configuration="ghost.yaml")
     assert exc.value.code == ErrorCode.NOT_FOUND
 
 
 @pytest.mark.asyncio
-async def test_unarchive_device_translates_missing_to_command_error(tmp_path: Path) -> None:
+async def test_unarchive_device_translates_missing_to_command_error(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``unarchive_device`` mirrors ``archive_device`` for not-found mapping."""
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     with pytest.raises(CommandError) as exc:
         await controller.unarchive_device(configuration="ghost.yaml")
     assert exc.value.code == ErrorCode.NOT_FOUND
@@ -397,14 +405,16 @@ async def test_unarchive_device_translates_missing_to_command_error(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_unarchive_moves_yaml_back(tmp_path: Path) -> None:
+async def test_unarchive_moves_yaml_back(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Unarchive is the inverse of archive — YAML returns to config_dir.
 
     The scanner's next sweep then fires ``DEVICE_ADDED``;
     ``unarchive_device`` calls ``self._scanner.scan()`` itself so
     the dashboard refreshes without a manual reload.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     archive_dir = tmp_path / "archive"
     archive_dir.mkdir()
     archived = archive_dir / "kitchen.yaml"
@@ -417,7 +427,9 @@ async def test_unarchive_moves_yaml_back(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_unarchive_refuses_to_clobber_active_config(tmp_path: Path) -> None:
+async def test_unarchive_refuses_to_clobber_active_config(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """An active YAML with the same name blocks the unarchive.
 
     The active YAML may carry the user's recent edits; silently
@@ -425,7 +437,7 @@ async def test_unarchive_refuses_to_clobber_active_config(tmp_path: Path) -> Non
     Surface a ``CommandError(INVALID_ARGS)`` so the dialog can
     prompt for an alternate filename or for an explicit overwrite.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     archive_dir = tmp_path / "archive"
     archive_dir.mkdir()
     archived = archive_dir / "kitchen.yaml"
@@ -443,9 +455,11 @@ async def test_unarchive_refuses_to_clobber_active_config(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_unarchive_missing_archive_file_raises(tmp_path: Path) -> None:
+async def test_unarchive_missing_archive_file_raises(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Unarchiving a name that isn't in the archive raises cleanly."""
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     with pytest.raises(FileNotFoundError):
         await controller._unarchive_single("ghost.yaml")
 
@@ -472,7 +486,9 @@ async def test_unarchive_missing_archive_file_raises(tmp_path: Path) -> None:
     ],
 )
 @pytest.mark.asyncio
-async def test_archive_rejects_path_traversal(tmp_path: Path, configuration: str) -> None:
+async def test_archive_rejects_path_traversal(
+    tmp_path: Path, make_controller: MakeControllerFactory, configuration: str
+) -> None:
     """All three archive commands reject non-basename ``configuration``.
 
     The helpers build paths like ``<config_dir>/archive/<configuration>``
@@ -484,7 +500,7 @@ async def test_archive_rejects_path_traversal(tmp_path: Path, configuration: str
     tree. Reject at the WS boundary so the helpers never see a
     suspect value.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     for cmd in (
         controller.archive_device,
         controller.unarchive_device,
@@ -616,7 +632,9 @@ def test_archive_clear_device_sidecars_logs_exception_on_metadata_clear(
 
 
 @pytest.mark.asyncio
-async def test_delete_archived_removes_yaml_and_sidecars(tmp_path: Path) -> None:
+async def test_delete_archived_removes_yaml_and_sidecars(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Permanent delete clears the archived YAML and its sidecars.
 
     The archive flow leaves StorageJSON / device-metadata behind so
@@ -633,7 +651,7 @@ async def test_delete_archived_removes_yaml_and_sidecars(tmp_path: Path) -> None
     storage_path = storage_dir / "kitchen.yaml.json"
     storage_path.write_text("{}", encoding="utf-8")
 
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     await controller._delete_archived_single("kitchen.yaml")
 
     assert not (archive_dir / "kitchen.yaml").exists()
@@ -641,7 +659,9 @@ async def test_delete_archived_removes_yaml_and_sidecars(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_delete_archived_preserves_active_sidecars(tmp_path: Path) -> None:
+async def test_delete_archived_preserves_active_sidecars(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Same-name active config keeps its sidecars when the archive copy is deleted.
 
     Defense-in-depth: if an active config has been re-created
@@ -663,7 +683,7 @@ async def test_delete_archived_preserves_active_sidecars(tmp_path: Path) -> None
     storage_path = storage_dir / "kitchen.yaml.json"
     storage_path.write_text('{"name":"active"}', encoding="utf-8")
 
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     await controller._delete_archived_single("kitchen.yaml")
 
     assert not (archive_dir / "kitchen.yaml").exists()
@@ -673,7 +693,9 @@ async def test_delete_archived_preserves_active_sidecars(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_delete_archived_succeeds_without_sidecars(tmp_path: Path) -> None:
+async def test_delete_archived_succeeds_without_sidecars(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """A bare YAML in the archive (no sidecar) deletes cleanly.
 
     Same shape as ``_delete_single`` — ``unlink(missing_ok=True)``
@@ -685,28 +707,32 @@ async def test_delete_archived_succeeds_without_sidecars(tmp_path: Path) -> None
     archive_dir.mkdir()
     (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     await controller._delete_archived_single("kitchen.yaml")
     assert not (archive_dir / "kitchen.yaml").exists()
 
 
 @pytest.mark.asyncio
-async def test_delete_archived_missing_raises_file_not_found(tmp_path: Path) -> None:
+async def test_delete_archived_missing_raises_file_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Permanent delete of a non-existent archive entry raises cleanly."""
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     with pytest.raises(FileNotFoundError):
         await controller._delete_archived_single("ghost.yaml")
 
 
 @pytest.mark.asyncio
-async def test_delete_archived_translates_missing_to_command_error(tmp_path: Path) -> None:
+async def test_delete_archived_translates_missing_to_command_error(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)``.
 
     Mirrors ``archive_device`` / ``unarchive_device`` — the helper
     raises ``FileNotFoundError`` so internal callers can catch by
     type, but the public command translates to a clean WS error.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     with pytest.raises(CommandError) as exc:
         await controller.delete_archived(configuration="ghost.yaml")
     assert exc.value.code == ErrorCode.NOT_FOUND
@@ -717,18 +743,22 @@ async def test_delete_archived_translates_missing_to_command_error(tmp_path: Pat
 # ---------------------------------------------------------------------------
 
 
-def test_list_archived_returns_empty_when_no_archive_dir(tmp_path: Path) -> None:
+def test_list_archived_returns_empty_when_no_archive_dir(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Pre-first-archive: no directory, no entries, no error.
 
     The dashboard pulls this list on every "Show archived"
     toggle; raising on the no-directory case would force the
     frontend to special-case it. Return ``[]`` instead.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     assert controller._list_archived_sync() == []
 
 
-def test_list_archived_parses_each_yaml_meta_block(tmp_path: Path) -> None:
+def test_list_archived_parses_each_yaml_meta_block(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Each archived YAML's ``esphome:`` block surfaces as a row.
 
     Mirrors the active list's name / friendly_name / comment shape
@@ -746,7 +776,7 @@ def test_list_archived_parses_each_yaml_meta_block(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     rows = controller._list_archived_sync()
 
     by_config = {r["configuration"]: r for r in rows}
@@ -757,7 +787,9 @@ def test_list_archived_parses_each_yaml_meta_block(tmp_path: Path) -> None:
     assert by_config["garage.yaml"]["friendly_name"] == "Garage Door"
 
 
-def test_list_archived_skips_non_yaml_and_hidden(tmp_path: Path) -> None:
+def test_list_archived_skips_non_yaml_and_hidden(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """A stray ``.DS_Store`` / ``.txt`` next to the YAMLs doesn't crash.
 
     Archive directory is user-managed; some users sync it via Git
@@ -772,12 +804,13 @@ def test_list_archived_skips_non_yaml_and_hidden(tmp_path: Path) -> None:
     (archive_dir / "notes.txt").write_text("scratch", encoding="utf-8")
     (archive_dir / ".hidden.yaml").write_text("esphome:\n  name: hidden\n", encoding="utf-8")
 
-    rows = _make_controller(tmp_path)._list_archived_sync()
+    rows = make_controller(tmp_path)._list_archived_sync()
     assert [r["configuration"] for r in rows] == ["kitchen.yaml"]
 
 
 def test_list_archived_falls_back_to_filename_when_meta_unparseable(
     tmp_path: Path,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """A YAML the meta parser can't read still surfaces as a row.
 
@@ -790,7 +823,7 @@ def test_list_archived_falls_back_to_filename_when_meta_unparseable(
     archive_dir.mkdir()
     (archive_dir / "kitchen.yaml").write_text("# no esphome: block at all\n", encoding="utf-8")
 
-    rows = _make_controller(tmp_path)._list_archived_sync()
+    rows = make_controller(tmp_path)._list_archived_sync()
     assert len(rows) == 1
     assert rows[0]["configuration"] == "kitchen.yaml"
     assert rows[0]["name"] == "kitchen"
@@ -799,6 +832,7 @@ def test_list_archived_falls_back_to_filename_when_meta_unparseable(
 
 def test_list_archived_falls_back_to_storage_json_when_yaml_meta_sparse(
     tmp_path: Path,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """When the YAML's ``esphome:`` block is missing fields, fill from StorageJSON.
 
@@ -842,7 +876,7 @@ def test_list_archived_falls_back_to_storage_json_when_yaml_meta_sparse(
         encoding="utf-8",
     )
 
-    rows = _make_controller(tmp_path)._list_archived_sync()
+    rows = make_controller(tmp_path)._list_archived_sync()
     assert len(rows) == 1
     assert rows[0]["configuration"] == "kitchen.yaml"
     assert rows[0]["name"] == "kitchen"

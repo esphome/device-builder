@@ -22,7 +22,6 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -31,28 +30,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
-from .conftest import SeedDeviceFactory
-
-
-def _make_controller(tmp_path: Path) -> DevicesController:
-    """Build a controller wired to ``tmp_path`` for real file ops.
-
-    Same shape as the in-process helpers in ``test_archive.py`` /
-    ``test_get_update_config.py``: bypass ``__init__`` and attach
-    a ``_db.settings`` whose ``rel_path`` joins onto ``tmp_path``.
-    The scanner is mocked because ``_manual_rename`` doesn't talk
-    to it; ``rename_device`` does (post-rename ``await
-    self._scanner.scan()``) so we satisfy that with an
-    ``AsyncMock``.
-    """
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = MagicMock()
-    controller._db.settings.config_dir = tmp_path
-    controller._db.settings.rel_path = lambda configuration: tmp_path / configuration
-    controller._scanner = MagicMock()
-    controller._scanner.scan = AsyncMock()
-    controller._esphome_cmd = ["esphome"]
-    return controller
+from .conftest import MakeControllerFactory, SeedDeviceFactory
 
 
 async def _route_through_manual(
@@ -86,11 +64,12 @@ async def _route_through_manual(
 async def test_manual_rename_writes_new_yaml_with_rewritten_name(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
     """``esphome.name`` inside the YAML is rewritten and the file is moved."""
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     await seed_device(tmp_path, "kitchen.yaml")
 
     result = await _route_through_manual(
@@ -111,6 +90,7 @@ async def test_manual_rename_writes_new_yaml_with_rewritten_name(
 async def test_manual_rename_preserves_unrelated_yaml_content(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -122,7 +102,7 @@ async def test_manual_rename_preserves_unrelated_yaml_content(
     block; this test pins that scoping end-to-end so a refactor
     that loosened the rewrite would surface.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     yaml_text = (
         "esphome:\n"
         "  name: kitchen\n"
@@ -163,6 +143,7 @@ async def test_manual_rename_preserves_unrelated_yaml_content(
 async def test_manual_rename_moves_and_rewrites_storage_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -173,7 +154,7 @@ async def test_manual_rename_moves_and_rewrites_storage_json(
     correlation; both must reflect the rename or the device's
     online indicator goes UNKNOWN until the next compile.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     await seed_device(tmp_path, "kitchen.yaml")
 
     storage_dir = tmp_path / ".esphome" / "storage"
@@ -200,6 +181,7 @@ async def test_manual_rename_moves_and_rewrites_storage_json(
 async def test_manual_rename_keeps_unrelated_friendly_name_in_storage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -209,7 +191,7 @@ async def test_manual_rename_keeps_unrelated_friendly_name_in_storage(
     have it overwritten when the YAML file is renamed.
     Pin the conditional rewrite end-to-end.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     await seed_device(
         tmp_path,
         "kitchen.yaml",
@@ -232,6 +214,7 @@ async def test_manual_rename_keeps_unrelated_friendly_name_in_storage(
 async def test_manual_rename_succeeds_when_storage_json_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -241,7 +224,7 @@ async def test_manual_rename_succeeds_when_storage_json_missing(
     is the load-bearing operation; the storage-move is best-effort
     and shouldn't blow up the rename when there's nothing to move.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     # Plain YAML, no storage / sidecar.
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
@@ -259,6 +242,7 @@ async def test_manual_rename_succeeds_when_storage_json_missing(
 async def test_manual_rename_swallows_storage_load_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -275,7 +259,7 @@ async def test_manual_rename_swallows_storage_load_failure(
     payloads rather than raising; we want to pin the
     *exception* path here.)
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     await seed_device(tmp_path, "kitchen.yaml")
 
     def _raise(_path: Path) -> None:
@@ -299,6 +283,7 @@ async def test_manual_rename_swallows_storage_load_failure(
 async def test_manual_rename_swallows_metadata_move_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -309,7 +294,7 @@ async def test_manual_rename_swallows_metadata_move_failure(
     succeeded; an issue with the metadata sidecar must not strand
     the user with mismatched on-disk state.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     await seed_device(tmp_path, "kitchen.yaml")
 
     def _raise(*_args: Any, **_kwargs: Any) -> None:
@@ -339,6 +324,7 @@ async def test_manual_rename_swallows_metadata_move_failure(
 async def test_manual_rename_moves_sidecar_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -350,7 +336,7 @@ async def test_manual_rename_moves_sidecar_metadata(
     new device would show up unidentified until the next
     StorageJSON regenerate.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     await seed_device(tmp_path, "kitchen.yaml", friendly_name="kitchen")
 
     await _route_through_manual(
@@ -371,6 +357,7 @@ async def test_manual_rename_moves_sidecar_metadata(
 async def test_manual_rename_keeps_unrelated_metadata_friendly_name(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -380,7 +367,7 @@ async def test_manual_rename_keeps_unrelated_metadata_friendly_name(
     "rewrite only when it matches old_name" branches in
     ``_manual_rename`` — pin both.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     await seed_device(tmp_path, "kitchen.yaml", friendly_name="My Kitchen Sensor")
 
     await _route_through_manual(
@@ -401,6 +388,7 @@ async def test_manual_rename_keeps_unrelated_metadata_friendly_name(
 async def test_manual_rename_raises_when_source_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -411,7 +399,7 @@ async def test_manual_rename_raises_when_source_missing(
     ``INTERNAL_ERROR`` (``FileNotFoundError`` isn't a typed
     user-correctable error).
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     # No YAML on disk at all.
 
     with pytest.raises(CommandError) as excinfo:
@@ -426,6 +414,7 @@ async def test_manual_rename_raises_when_source_missing(
 async def test_manual_rename_does_not_clobber_existing_target(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -434,7 +423,7 @@ async def test_manual_rename_does_not_clobber_existing_target(
     The public handler's pre-check fires here; verify the OLD
     YAML survives intact (no half-rename) so the user can recover.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     (tmp_path / "livingroom.yaml").write_text("esphome:\n  name: livingroom\n", encoding="utf-8")
     livingroom_orig = (tmp_path / "livingroom.yaml").read_text(encoding="utf-8")
@@ -458,6 +447,7 @@ async def test_manual_rename_does_not_clobber_existing_target(
 async def test_manual_rename_full_round_trip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     redirect_storage_path: None,
 ) -> None:
@@ -468,7 +458,7 @@ async def test_manual_rename_full_round_trip(
     verifies the *contract* (file moves + content rewrites +
     metadata move) the public ``rename_device`` API delivers.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     await seed_device(tmp_path, "kitchen.yaml", friendly_name="kitchen")
 
     # Exercise via the executor path the API actually uses
