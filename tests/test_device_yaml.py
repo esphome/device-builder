@@ -12,9 +12,48 @@ from esphome_device_builder.helpers.device_yaml import (
     _parse_inline_value,
     compute_has_pending_changes,
     detect_platform_from_yaml,
+    generate_device_yaml,
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
+from esphome_device_builder.models import (
+    BoardCatalogEntry,
+    BoardEsphomeConfig,
+    BoardHardware,
+    Connectivity,
+    Esp32Variant,
+    Platform,
+)
+
+
+def _make_esp32_board(
+    *,
+    variant: Esp32Variant | None = None,
+    flash_size: str | None = None,
+    framework: str | None = None,
+) -> BoardCatalogEntry:
+    """Build a minimal ESP32 ``BoardCatalogEntry`` for the YAML generator.
+
+    Defaults reflect the ESP32 generic dev-kit shape; tests pass
+    explicit kwargs to drive each ``if`` branch in
+    ``generate_device_yaml``'s ESP32-specific block.
+    """
+    return BoardCatalogEntry(
+        id="esp32-test",
+        name="ESP32 Test",
+        description="",
+        manufacturer="Espressif",
+        esphome=BoardEsphomeConfig(
+            platform=Platform.ESP32,
+            board="esp32dev",
+            variant=variant,
+            framework=framework,
+        ),
+        hardware=BoardHardware(
+            flash_size=flash_size,
+            connectivity=[Connectivity.WIFI],
+        ),
+    )
 
 
 def test_parse_meta_plain_values() -> None:
@@ -389,3 +428,118 @@ def test_parse_inline_value_strips_matched_quotes() -> None:
     # Mismatched quotes are left alone — picking one off would change
     # the user's literal value.
     assert _parse_inline_value("\"mismatched'") == "\"mismatched'"
+
+
+# ----------------------------------------------------------------------
+# generate_device_yaml — ESP32 platform branch
+# ----------------------------------------------------------------------
+
+
+def test_generate_yaml_emits_esp32_variant_when_set() -> None:
+    """ESP32 board with a variant produces ``variant: <id>`` under the platform.
+
+    The variant line drives ESPHome's chip-specific build path
+    (ESP32S3 vs ESP32C3 vs base ESP32). A board with ``variant``
+    set but no ``flash_size`` / ``framework`` should still emit
+    just the variant line — pin the per-field independence so a
+    refactor that consolidated the three ``if``s into one block
+    can't silently drop a field.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32S3)
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "esp32:\n  variant: esp32s3\n" in yaml
+    # No flash_size / framework lines.
+    assert "  flash_size:" not in yaml
+    assert "  framework:" not in yaml
+    # Bare ``board:`` line is the non-ESP32 fallback — must NOT appear here.
+    assert "  board:" not in yaml
+
+
+def test_generate_yaml_emits_esp32_flash_size_when_set() -> None:
+    """``hardware.flash_size`` populated → ``flash_size: <value>`` line emitted.
+
+    The flash-size hint lets ESPHome pick the right partition table
+    and OTA layout. Boards with non-default flash (4MB / 8MB / 16MB)
+    rely on this round-tripping; a regression that dropped the line
+    would silently pick the framework's default and break OTA on
+    larger-flash boards.
+    """
+    board = _make_esp32_board(flash_size="8MB")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "  flash_size: 8MB\n" in yaml
+
+
+def test_generate_yaml_emits_esp32_framework_when_set() -> None:
+    r"""``framework`` populated → ``framework:`` block with ``type:`` child.
+
+    Pin the two-line emit (``framework:\n    type: esp-idf``) — a
+    refactor that flattened it to ``framework: esp-idf`` would
+    produce invalid ESPHome YAML, since ``framework`` expects a
+    nested mapping.
+    """
+    board = _make_esp32_board(framework="esp-idf")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "  framework:\n    type: esp-idf\n" in yaml
+
+
+def test_generate_yaml_omits_esp32_branch_fields_when_unset() -> None:
+    """All three ESP32 sub-fields ``None`` → only the bare ``esp32:`` line.
+
+    Pin the negative path: without the per-field ``if`` guards a
+    refactor could emit ``variant: None`` / ``flash_size: None``
+    which ESPHome would reject at validation time.
+    """
+    board = _make_esp32_board()  # no variant, flash_size, framework
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "esp32:\n\n" in yaml
+    assert "variant:" not in yaml
+    assert "flash_size:" not in yaml
+    assert "framework:" not in yaml
+
+
+def test_generate_yaml_emits_all_three_esp32_fields_together() -> None:
+    """All three ESP32 sub-fields set → all three lines emit in order.
+
+    Variant first, then flash_size, then framework — the iteration
+    order matters because users (and operators reading their
+    configs) expect the same shape ESPHome's docs use.
+    """
+    board = _make_esp32_board(
+        variant=Esp32Variant.ESP32S3,
+        flash_size="16MB",
+        framework="arduino",
+    )
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    # Verify the three lines appear in the documented order.
+    variant_idx = yaml.index("  variant:")
+    flash_idx = yaml.index("  flash_size:")
+    framework_idx = yaml.index("  framework:")
+    assert variant_idx < flash_idx < framework_idx
+
+
+def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
+    """``ssid`` non-empty → literal credentials; empty ``ssid`` → ``!secret`` refs.
+
+    The non-empty branch is the wizard path (user typed credentials
+    in the form); the empty branch matches what the upstream
+    ``esphome wizard`` writes by default. Pin both so a refactor
+    that always emitted ``!secret`` would silently break the
+    "works without secrets.yaml" path.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+
+    # Explicit credentials.
+    explicit = generate_device_yaml("kitchen", "Kitchen", board, ssid="MyNetwork", psk="hunter2")
+    assert "  ssid: MyNetwork\n" in explicit
+    assert "  password: hunter2\n" in explicit
+    assert "!secret" not in explicit
+
+    # Empty credentials → !secret references.
+    secret = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    assert "  ssid: !secret wifi_ssid\n" in secret
+    assert "  password: !secret wifi_password\n" in secret
