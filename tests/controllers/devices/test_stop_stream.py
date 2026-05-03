@@ -6,7 +6,7 @@ streaming task on the issuing connection's ``WebSocketClient``
 and calls ``cancel_stream`` — which cancels the task and removes
 it from the per-connection registry.
 
-Three branches to pin:
+Four branches to pin:
 
 1. No ``client`` context (the dispatch layer didn't thread one
    through, e.g. legacy REST entry point) → ``{"cancelled": False}``
@@ -16,6 +16,10 @@ Three branches to pin:
    actually cancelled.
 3. Unknown ``stream_id`` (already finished, never registered) →
    ``{"cancelled": False}``.
+4. Double-cancel: a second call for the same id reports ``False``
+   because ``cancel_stream`` pops the entry on the first call.
+   Pin the idempotent contract so a frontend retry doesn't
+   misreport success twice.
 """
 
 from __future__ import annotations
