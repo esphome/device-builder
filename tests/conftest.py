@@ -33,7 +33,7 @@ from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.event_bus import Event, EventBus
-from esphome_device_builder.models import Device, DeviceState, EventType
+from esphome_device_builder.models import AdoptableDevice, Device, DeviceState, EventType
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
@@ -333,61 +333,72 @@ def make_devices_controller_with_bus(
 class RecordingMonitorCallbacks:
     """Capture monitor callback calls + apply production state-flip side-effects.
 
-    Mirrors the callback interface ``DeviceStateMonitor`` invokes on
-    its owning ``DevicesController`` (``on_state_change`` /
+    Mirrors every callback ``DeviceStateMonitor`` invokes on its
+    owning ``DevicesController`` (``on_state_change`` /
     ``on_ip_change`` / ``on_version_change`` /
-    ``on_config_hash_change`` / ``on_api_encryption_change``). Each
+    ``on_config_hash_change`` / ``on_api_encryption_change`` /
+    ``on_importable_added`` / ``on_importable_removed``). Each
     invocation lands in ``self.calls`` as a flat tuple
     ``(callback_name, *args)``; tests assert on the list directly
     instead of poking ``MagicMock.assert_called_*``.
 
-    Each callback also writes the new value back onto the matching
-    ``Device`` in *devices* — the same write the production
+    Per-device callbacks also write the new value back onto the
+    matching ``Device`` in *devices* — the same write the production
     ``DevicesController._on_*_change`` callback does. Without that
     side-effect, the monitor's dedupe (keyed off the device's own
     field) would never observe the post-callback state and every
-    repeat call would re-fire. Centralising means every mdns test
-    inherits the correct mirror without copy-pasting the
-    ``_flip``-style helper.
+    repeat call would re-fire. The importable callbacks just record
+    (no per-device state to mirror).
 
     Type-resistant to typos: ``cb.assertt_called_once_with`` would
     spawn a fresh ``MagicMock`` attribute and silently pass; calling
     ``callbacks.assertt_called_once_with`` raises ``AttributeError``.
+
+    Helpers:
+    - ``calls_for(name)`` filters the log by callback name — the
+      mDNS lifecycle tests frequently want "every importable_added
+      that fired" without re-doing the list-comp.
     """
 
     def __init__(self, devices: list[Device]) -> None:
         self.calls: list[tuple[Any, ...]] = []
         self._devices = devices
 
-    def on_state_change(self, name: str, state: DeviceState, source: str) -> None:
-        self.calls.append(("on_state_change", name, state, source))
+    def _flip(self, name: str, attr: str, value: Any) -> None:
+        """Write *value* to *attr* on every matching device."""
         for device in self._devices:
             if device.name == name:
-                device.state = state
+                setattr(device, attr, value)
+
+    def calls_for(self, callback_name: str) -> list[tuple[Any, ...]]:
+        """Return every recorded call whose first element equals *callback_name*."""
+        return [call for call in self.calls if call[0] == callback_name]
+
+    def on_state_change(self, name: str, state: DeviceState, source: str) -> None:
+        self.calls.append(("on_state_change", name, state, source))
+        self._flip(name, "state", state)
 
     def on_ip_change(self, name: str, ip: str) -> None:
         self.calls.append(("on_ip_change", name, ip))
-        for device in self._devices:
-            if device.name == name:
-                device.ip = ip
+        self._flip(name, "ip", ip)
 
     def on_version_change(self, name: str, version: str) -> None:
         self.calls.append(("on_version_change", name, version))
-        for device in self._devices:
-            if device.name == name:
-                device.deployed_version = version
+        self._flip(name, "deployed_version", version)
 
     def on_config_hash_change(self, name: str, config_hash: str) -> None:
         self.calls.append(("on_config_hash_change", name, config_hash))
-        for device in self._devices:
-            if device.name == name:
-                device.deployed_config_hash = config_hash
+        self._flip(name, "deployed_config_hash", config_hash)
 
     def on_api_encryption_change(self, name: str, encryption: str) -> None:
         self.calls.append(("on_api_encryption_change", name, encryption))
-        for device in self._devices:
-            if device.name == name:
-                device.api_encryption_active = encryption
+        self._flip(name, "api_encryption_active", encryption)
+
+    def on_importable_added(self, device: AdoptableDevice) -> None:
+        self.calls.append(("on_importable_added", device))
+
+    def on_importable_removed(self, name: str) -> None:
+        self.calls.append(("on_importable_removed", name))
 
 
 def make_state_monitor_with_callbacks(

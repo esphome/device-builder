@@ -31,6 +31,8 @@ import esphome_device_builder.controllers._device_state_monitor as state_monitor
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.models import Device, DeviceState
 
+from .conftest import RecordingMonitorCallbacks
+
 # The service-type strings the production code uses; pinned here so
 # tests calling the captured dispatch use the exact same constants
 # the code under test does.
@@ -56,15 +58,23 @@ def _device(
     )
 
 
-def _make_monitor(devices: list[Device] | None = None) -> DeviceStateMonitor:
+def _make_monitor(
+    devices: list[Device] | None = None,
+) -> tuple[DeviceStateMonitor, RecordingMonitorCallbacks]:
     """Build a monitor shell with the apply-* callbacks recorded.
 
     Bypasses ``__init__`` so tests don't have to feed the full
-    callback set or hit the real zeroconf bring-up. The callbacks
-    mirror what the production controller does — write the new
-    value back onto every matching Device — so the monitor's own
-    dedupe (``_any_matching_device_differs``) sees an updated state
+    callback set or hit the real zeroconf bring-up. Wires a shared
+    :class:`RecordingMonitorCallbacks` for every ``_on_*`` slot so
+    the production state-flip side-effect (each callback writes
+    the broadcast value back onto every matching Device) runs
+    inline — the monitor's own dedupe
+    (``_any_matching_device_differs``) then sees the updated state
     on the second call instead of repeating itself.
+
+    Returns ``(monitor, callbacks)`` so tests assert on
+    ``callbacks.calls`` directly instead of poking
+    ``MagicMock.assert_called_*`` on each separate slot.
     """
     devices = list(devices) if devices is not None else [_device()]
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
@@ -79,28 +89,16 @@ def _make_monitor(devices: list[Device] | None = None) -> DeviceStateMonitor:
     monitor._tasks = set()
     monitor._import_discovery = None
 
-    # Each ``on_*_change`` callback writes the broadcast value back
-    # onto every matching Device. ``_flip`` parameterises that over
-    # the field name; the trailing ``*_extra`` swallows the third
-    # ``source`` argument that ``on_state_change`` carries (the rest
-    # are ``(name, value)`` pairs).
-    def _flip(attr: str) -> Any:
-        def _impl(name: str, value: Any, *_extra: Any) -> None:
-            for d in devices:
-                if d.name == name:
-                    setattr(d, attr, value)
-
-        return _impl
-
-    monitor._on_state_change = MagicMock(side_effect=_flip("state"))
-    monitor._on_ip_change = MagicMock(side_effect=_flip("ip"))
-    monitor._on_version_change = MagicMock(side_effect=_flip("deployed_version"))
-    monitor._on_config_hash_change = MagicMock(side_effect=_flip("deployed_config_hash"))
-    monitor._on_api_encryption_change = MagicMock(side_effect=_flip("api_encryption_active"))
-    monitor._on_importable_added = MagicMock()
-    monitor._on_importable_removed = MagicMock()
+    callbacks = RecordingMonitorCallbacks(devices)
+    monitor._on_state_change = callbacks.on_state_change
+    monitor._on_ip_change = callbacks.on_ip_change
+    monitor._on_version_change = callbacks.on_version_change
+    monitor._on_config_hash_change = callbacks.on_config_hash_change
+    monitor._on_api_encryption_change = callbacks.on_api_encryption_change
+    monitor._on_importable_added = callbacks.on_importable_added
+    monitor._on_importable_removed = callbacks.on_importable_removed
     monitor._dns_cache = MagicMock()
-    return monitor
+    return monitor, callbacks
 
 
 async def _start_with_captured_dispatch(
@@ -202,7 +200,7 @@ async def test_stop_cancels_every_async_resource(monkeypatch: pytest.MonkeyPatch
     ``async_cancel`` is an AsyncMock so the cancel call is real,
     not just a no-op.
     """
-    monitor = _make_monitor()
+    monitor, _callbacks = _make_monitor()
     await _start_with_captured_dispatch(monitor, monkeypatch)
 
     # Add a fake in-flight resolve task so stop has something to drain.
@@ -234,7 +232,7 @@ async def test_stop_swallows_browser_cancel_exception(
     browser teardown can't be allowed to leak into aiohttp's
     cleanup chain or the user-visible exit hangs.
     """
-    monitor = _make_monitor()
+    monitor, _callbacks = _make_monitor()
     await _start_with_captured_dispatch(monitor, monkeypatch)
     monitor._mdns_browser.async_cancel = AsyncMock(side_effect=RuntimeError("browser broke"))
     monitor._zeroconf.async_close = AsyncMock()
@@ -249,7 +247,7 @@ async def test_stop_swallows_zeroconf_close_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``zeroconf.async_close`` raise also lands at debug, not the caller."""
-    monitor = _make_monitor()
+    monitor, _callbacks = _make_monitor()
     await _start_with_captured_dispatch(monitor, monkeypatch)
     monitor._zeroconf.async_close = AsyncMock(side_effect=RuntimeError("zeroconf broke"))
 
@@ -273,7 +271,7 @@ async def test_start_falls_back_when_zeroconf_construct_fails(
     can't bring up zeroconf. The monitor must still run the ping
     sweep so the dashboard isn't blind, hence the catch-and-continue.
     """
-    monitor = _make_monitor()
+    monitor, _callbacks = _make_monitor()
 
     def _boom() -> None:
         raise RuntimeError("no zeroconf for you")
@@ -306,7 +304,7 @@ async def test_start_continues_when_browser_construct_fails(
     helpers still work; only the live announcement stream is lost,
     and ping covers it.
     """
-    monitor = _make_monitor()
+    monitor, _callbacks = _make_monitor()
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf = MagicMock()
     fake_zeroconf.async_close = AsyncMock()
@@ -346,7 +344,7 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
 ) -> None:
     """A ``Removed`` esphomelib event flips OFFLINE, clears IP, drops source slot."""
     device = _device(state=DeviceState.ONLINE, ip="10.0.0.1")
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
     monitor._state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
@@ -375,7 +373,7 @@ async def test_dispatch_added_cache_hit_propagates_full_txt_bundle(
     V4 address even though the info also carries V6.
     """
     device = _device()
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
@@ -423,7 +421,7 @@ async def test_dispatch_added_cache_hit_falls_back_to_v6_when_no_v4(
     apply_ip happens.
     """
     device = _device(state=DeviceState.UNKNOWN)
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
@@ -460,7 +458,7 @@ async def test_dispatch_added_with_empty_api_encryption_pushes_empty_string(
     coding off this tri-state.
     """
     device = _device(api_encryption_active=None)
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
@@ -494,7 +492,7 @@ async def test_dispatch_added_cache_miss_resolves_and_applies(
     direct call to ``_resolve_then`` in the test).
     """
     device = _device()
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
@@ -530,7 +528,7 @@ async def test_dispatch_added_cache_miss_skips_apply_when_request_returns_false(
     stays empty because no apply ever ran.
     """
     device = _device()
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
@@ -562,7 +560,7 @@ async def test_dispatch_added_cache_miss_swallows_resolve_exception(
     forget task must not propagate — there's no caller to handle it.
     """
     device = _device()
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
@@ -594,7 +592,7 @@ async def test_dispatch_skips_unconfigured_devices(
     we don't want to spawn lookups or apply state for unrelated
     nodes that just happen to share the air.
     """
-    monitor = _make_monitor()  # only "kitchen" configured
+    monitor, callbacks = _make_monitor()  # only "kitchen" configured
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     try:
         dispatch(
@@ -603,7 +601,7 @@ async def test_dispatch_skips_unconfigured_devices(
             f"stranger.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
         )
-        assert monitor._on_state_change.call_count == 0
+        assert callbacks.calls_for("on_state_change") == []
         assert monitor._tasks == set()
     finally:
         await _stop_and_drain(monitor)
@@ -656,7 +654,7 @@ async def test_dispatch_http_service_added_records_url_and_refires_importable(
     the URL and calls ``on_importable_added`` again so the
     frontend picks up the ``web_url`` change.
     """
-    monitor = _make_monitor(devices=[])
+    monitor, callbacks = _make_monitor(devices=[])
     discovered = _build_discovered("factory-firmware")
     discovery = _make_import_discovery({f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": discovered})
 
@@ -676,8 +674,7 @@ async def test_dispatch_http_service_added_records_url_and_refires_importable(
         )
         assert monitor._http_urls["factory-firmware"] == ("http://factory-firmware.local:8080")
         # The importable was re-emitted with the new web_url.
-        emitted = monitor._on_importable_added.call_args_list
-        assert any(call.args[0].web_url for call in emitted)
+        assert any(call[1].web_url for call in callbacks.calls_for("on_importable_added"))
     finally:
         await _stop_and_drain(monitor)
 
@@ -691,7 +688,7 @@ async def test_dispatch_http_service_added_skips_when_no_importable(
     Without this guard ``_http_urls`` would grow unbounded from
     every HTTP service on the LAN (printers, NAS boxes, routers).
     """
-    monitor = _make_monitor(devices=[])
+    monitor, callbacks = _make_monitor(devices=[])
     discovery = _make_import_discovery()  # no discoveries
 
     fake_info = MagicMock()
@@ -709,7 +706,7 @@ async def test_dispatch_http_service_added_skips_when_no_importable(
             ServiceStateChange.Added,
         )
         assert monitor._http_urls == {}
-        monitor._on_importable_added.assert_not_called()
+        assert callbacks.calls_for("on_importable_added") == []
     finally:
         await _stop_and_drain(monitor)
 
@@ -726,7 +723,7 @@ async def test_dispatch_http_service_removed_clears_url_and_refires(
     we asserted was already populated, and the seed path is meant
     to be a no-op when the user-visible state already has it.
     """
-    monitor = _make_monitor(devices=[])
+    monitor, callbacks = _make_monitor(devices=[])
     discovered = _build_discovered("factory-firmware")
     discovery = _make_import_discovery({f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": discovered})
     monitor._http_urls["factory-firmware"] = "http://factory-firmware.local"
@@ -744,7 +741,7 @@ async def test_dispatch_http_service_removed_clears_url_and_refires(
             ServiceStateChange.Removed,
         )
         assert "factory-firmware" not in monitor._http_urls
-        monitor._on_importable_added.assert_called()
+        assert callbacks.calls_for("on_importable_added")
     finally:
         await _stop_and_drain(monitor)
 
@@ -754,7 +751,7 @@ async def test_dispatch_http_service_removed_for_untracked_is_noop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Removing an HTTP service we never tracked → no fan-out at all."""
-    monitor = _make_monitor(devices=[])
+    monitor, callbacks = _make_monitor(devices=[])
     discovery = _make_import_discovery()
 
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch, import_discovery=discovery)
@@ -765,7 +762,7 @@ async def test_dispatch_http_service_removed_for_untracked_is_noop(
             f"stranger.{HTTP_SERVICE_TYPE}",
             ServiceStateChange.Removed,
         )
-        monitor._on_importable_added.assert_not_called()
+        assert callbacks.calls_for("on_importable_added") == []
     finally:
         await _stop_and_drain(monitor)
 
@@ -775,7 +772,7 @@ async def test_dispatch_http_service_added_cache_miss_resolves_and_applies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Cache-miss HTTP service spawns a resolve task that fills the URL on success."""
-    monitor = _make_monitor(devices=[])
+    monitor, _callbacks = _make_monitor(devices=[])
     discovered = _build_discovered("factory-firmware")
     discovery = _make_import_discovery({f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": discovered})
 
@@ -813,17 +810,17 @@ def test_revisit_all_importables_no_op_when_discovery_not_running() -> None:
     ``import_discovery is None`` guard doesn't ``AttributeError``
     before the dashboard's mDNS browser has come up.
     """
-    monitor = _make_monitor()
+    monitor, callbacks = _make_monitor()
     monitor._import_discovery = None
 
     monitor.revisit_all_importables()  # must not raise
 
-    monitor._on_importable_added.assert_not_called()
+    assert callbacks.calls_for("on_importable_added") == []
 
 
 def test_revisit_all_importables_re_emits_every_cached_entry() -> None:
     """``revisit_all_importables`` walks every entry and re-fires the ADD callback."""
-    monitor = _make_monitor(devices=[])
+    monitor, callbacks = _make_monitor(devices=[])
     monitor._import_discovery = _make_import_discovery(
         {
             f"a.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("a"),
@@ -833,7 +830,7 @@ def test_revisit_all_importables_re_emits_every_cached_entry() -> None:
 
     monitor.revisit_all_importables()
 
-    emitted = {call.args[0].name for call in monitor._on_importable_added.call_args_list}
+    emitted = {call[1].name for call in callbacks.calls_for("on_importable_added")}
     assert emitted == {"a", "b"}
 
 
@@ -850,7 +847,7 @@ def test_revisit_importable_seeds_url_from_cache_when_http_already_resolved(
     pulls the URL out of zeroconf's cache so the emitted
     ``AdoptableDevice`` carries the link from the first event.
     """
-    monitor = _make_monitor(devices=[])
+    monitor, callbacks = _make_monitor(devices=[])
     monitor._zeroconf = MagicMock()
     monitor._zeroconf.zeroconf = MagicMock()
     discovered = _build_discovered("factory-firmware")
@@ -866,9 +863,9 @@ def test_revisit_importable_seeds_url_from_cache_when_http_already_resolved(
 
     monitor.revisit_importable("factory-firmware")
 
-    emitted = monitor._on_importable_added.call_args_list
+    emitted = callbacks.calls_for("on_importable_added")
     assert len(emitted) == 1
-    assert emitted[0].args[0].web_url == "http://factory-firmware.local:8080"
+    assert emitted[0][1].web_url == "http://factory-firmware.local:8080"
 
 
 def test_revisit_importable_skips_seed_when_url_already_set() -> None:
@@ -879,7 +876,7 @@ def test_revisit_importable_skips_seed_when_url_already_set() -> None:
     fires, the importable is re-emitted, and the URL stays the
     pre-populated one (no AsyncServiceInfo lookup at all).
     """
-    monitor = _make_monitor(devices=[])
+    monitor, callbacks = _make_monitor(devices=[])
     monitor._zeroconf = MagicMock()
     monitor._http_urls["factory-firmware"] = "http://factory-firmware.local"
     monitor._import_discovery = _make_import_discovery(
@@ -888,13 +885,13 @@ def test_revisit_importable_skips_seed_when_url_already_set() -> None:
 
     monitor.revisit_importable("factory-firmware")
 
-    emitted = monitor._on_importable_added.call_args_list
-    assert emitted[0].args[0].web_url == "http://factory-firmware.local"
+    emitted = callbacks.calls_for("on_importable_added")
+    assert emitted[0][1].web_url == "http://factory-firmware.local"
 
 
 def test_revisit_importable_skips_seed_when_zeroconf_down() -> None:
     """Pre-start monitor (zeroconf=None) silently bails out of the seed."""
-    monitor = _make_monitor(devices=[])
+    monitor, _callbacks = _make_monitor(devices=[])
     monitor._zeroconf = None
     monitor._import_discovery = _make_import_discovery(
         {f"factory-firmware.{ESPHOMELIB_SERVICE_TYPE}": _build_discovered("factory-firmware")}
@@ -914,7 +911,7 @@ def test_revisit_importable_seeds_nothing_on_cache_miss(
     HTTP service. The seed path is purely opportunistic; on miss
     we leave it to the regular browser-callback path.
     """
-    monitor = _make_monitor(devices=[])
+    monitor, _callbacks = _make_monitor(devices=[])
     monitor._zeroconf = MagicMock()
     monitor._zeroconf.zeroconf = MagicMock()
     monitor._import_discovery = _make_import_discovery(
@@ -966,7 +963,7 @@ async def test_start_drives_ping_pipeline_to_online_state(
     terminates; the device's state is the observable outcome.
     """
     device = _device(address="example.com", state=DeviceState.UNKNOWN)
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     async def _fake_ping(_target: str, **_kw: Any) -> Any:
         return MagicMock(is_alive=True)
@@ -995,7 +992,7 @@ async def test_start_with_icmplib_unavailable_skips_dns_resolution(
     primitive, and bails before touching the DNS cache. Pinning
     the negative — DNS cache untouched — anchors the early-return.
     """
-    monitor = _make_monitor()
+    monitor, _callbacks = _make_monitor()
 
     monkeypatch.setattr(state_monitor_module, "icmp_ping", None)
     monitor._dns_cache.async_resolve = AsyncMock()
@@ -1024,7 +1021,7 @@ async def test_start_marks_offline_on_icmp_exception(
     # the mDNS cache lookup and falls through to the icmp probe —
     # which is what we want this test to exercise.
     device = _device(address="example.com", state=DeviceState.UNKNOWN)
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     async def _boom(*_a: Any, **_kw: Any) -> None:
         raise OSError("name lookup failed")
@@ -1053,7 +1050,7 @@ async def test_start_skips_ping_for_cached_dns_failures(
     drive through the public ping pipeline via ``start``.
     """
     device = _device(address="example.com")
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     icmp_called: list[str] = []
 
@@ -1084,7 +1081,7 @@ async def test_start_logs_ping_count_at_debug(
 ) -> None:
     """Happy-path sweep emits the "Pinging N devices" debug message."""
     device = _device(address="example.com", state=DeviceState.UNKNOWN)
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     async def _icmp(_target: str, **_kw: Any) -> Any:
         return MagicMock(is_alive=True)
@@ -1115,7 +1112,7 @@ async def test_start_skips_devices_without_address(
     test on the public-API side.
     """
     no_addr = _device(name="orphan", address="")
-    monitor = _make_monitor([no_addr])
+    monitor, _callbacks = _make_monitor([no_addr])
     monitor._dns_cache.async_resolve = AsyncMock(return_value=[])
 
     async def _icmp(*_a: Any, **_kw: Any) -> Any:
@@ -1141,7 +1138,7 @@ def test_get_cached_addresses_returns_addresses_on_cache_hit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A cache hit returns the parsed addresses; miss returns None."""
-    monitor = _make_monitor()
+    monitor, _callbacks = _make_monitor()
     monitor._zeroconf = MagicMock()
     monitor._zeroconf.zeroconf = MagicMock()
 
@@ -1157,7 +1154,7 @@ def test_get_cached_addresses_returns_none_on_cache_miss(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``load_from_cache`` False → ``None`` (caller falls back to DNS / mDNS query)."""
-    monitor = _make_monitor()
+    monitor, _callbacks = _make_monitor()
     monitor._zeroconf = MagicMock()
     monitor._zeroconf.zeroconf = MagicMock()
 
@@ -1178,7 +1175,7 @@ def test_get_cached_addresses_returns_none_when_addresses_empty(
     ``parsed_scoped_addresses`` came up empty. Both surface to the
     caller as "no addresses I can use".
     """
-    monitor = _make_monitor()
+    monitor, _callbacks = _make_monitor()
     monitor._zeroconf = MagicMock()
     monitor._zeroconf.zeroconf = MagicMock()
 
@@ -1205,7 +1202,7 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
     have an IP to OTA against.
     """
     device = _device(address="kitchen.local", state=DeviceState.UNKNOWN)
-    monitor = _make_monitor([device])
+    monitor, _callbacks = _make_monitor([device])
 
     cached_info = MagicMock()
     cached_info.load_from_cache.return_value = True
@@ -1238,8 +1235,8 @@ def test_apply_ip_short_circuits_when_value_unchanged() -> None:
     the same IP and the UI would thrash.
     """
     device = _device(ip="10.0.0.1")
-    monitor = _make_monitor([device])
+    monitor, callbacks = _make_monitor([device])
 
     monitor.apply_ip("kitchen", "10.0.0.1")
 
-    monitor._on_ip_change.assert_not_called()
+    assert callbacks.calls_for("on_ip_change") == []
