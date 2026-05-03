@@ -1,4 +1,5 @@
-"""Tests for ``_extract_featured_components`` in ``script/sync_esphome_devices.py``.
+"""
+Tests for ``_extract_featured_components`` in ``script/sync_esphome_devices.py``.
 
 Focuses on the explicit-fields contract: every emitted featured-component
 entry must carry ``fields.id`` and, for HA entity domains, ``fields.name``

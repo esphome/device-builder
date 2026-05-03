@@ -32,10 +32,43 @@ COMPONENTS_JSON = DEFINITIONS_DIR / "components.json"
 _FEATURED_EXCLUDED_CATEGORIES = {"core", "ota", "time", "update"}
 
 # Required shape for featured-component ids: lowercase letters, digits, and
-# underscores only, starting with a letter. Mirrors what the runtime
-# slugifier (controllers/components.py::_default_id_from_local) and the
-# sync script's auto-id format produce, so manifests stay canonical.
+# underscores only, starting with a letter. Mirrors what ESPHome accepts
+# as a valid identifier and what the sync script's auto-id format produces.
 _FEATURED_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+
+# Categories whose ESPHome schema accepts a top-level ``name:`` field
+# (entity-base universals). Used to gate the ``fields.name`` exception
+# below — without this, a manifest could attach ``fields.name`` to an
+# ``output.*`` component and still validate, then later compile-fail
+# because ``output:`` doesn't carry a ``name`` field.
+_HA_ENTITY_CATEGORIES: frozenset[str] = frozenset(
+    {
+        "alarm_control_panel",
+        "binary_sensor",
+        "button",
+        "camera",
+        "climate",
+        "cover",
+        "datetime",
+        "display",
+        "event",
+        "fan",
+        "light",
+        "lock",
+        "media_player",
+        "microphone",
+        "number",
+        "select",
+        "sensor",
+        "speaker",
+        "switch",
+        "text",
+        "text_sensor",
+        "touchscreen",
+        "update",
+        "valve",
+    }
+)
 
 # Pin features the board manifest can declare (mirrors the JSON Schema enum
 # in board.schema.json). Components.json sometimes carries pin_features
@@ -285,16 +318,10 @@ def _validate_featured_component(
         if isinstance(key, str):
             entries_by_key[key] = ce
 
+    component_category = component.get("category")
     for fkey, fval in (entry.get("fields") or {}).items():
         if fkey not in entries_by_key:
-            # ``id`` and ``name`` are entity-base universals — every
-            # ESPHome entity-platform schema accepts them, but the
-            # components.json sync misses ``name`` for a chunk of
-            # entity platforms (binary_sensor.gpio, sensor.aht10, ...)
-            # because of how ENTITY_BASE_SCHEMA inheritance is
-            # surfaced. Allow these through so manifests can be
-            # explicit without tripping the unknown-key gate.
-            if fkey in ("id", "name"):
+            if _is_entity_base_universal(fkey, component_category):
                 continue
             errors.append(f"{path}.fields.{fkey}: not a config_entry on {component_id}")
             continue
@@ -302,6 +329,21 @@ def _validate_featured_component(
         errors.extend(_validate_field_preset(path, fkey, fval, ce, pins_by_gpio, is_imported))
 
     return errors
+
+
+def _is_entity_base_universal(fkey: str, category: str | None) -> bool:
+    """
+    Return ``True`` for fields ESPHome accepts beyond the catalog schema.
+
+    ``id`` is universal across every component. ``name`` is part of
+    ENTITY_BASE_SCHEMA, inherited by every HA-entity-domain platform —
+    but the schema sync misses it for several entity components
+    (binary_sensor.gpio, sensor.aht10, ...), so a manifest setting
+    ``fields.name`` on those would otherwise trip the unknown-key gate.
+    """
+    if fkey == "id":
+        return True
+    return fkey == "name" and category in _HA_ENTITY_CATEGORIES
 
 
 def _validate_field_preset(

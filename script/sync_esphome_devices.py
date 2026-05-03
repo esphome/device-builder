@@ -190,39 +190,17 @@ _IMAGE_EXTENSIONS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".webp",
 # editing.
 _SKIPPED_FIELDS: frozenset[str] = frozenset({"platform", "id", "name"})
 
-# HA-entity subset of ``_PLATFORM_LIST_DOMAINS``. Platforms in this set
-# accept a top-level ``name:`` field (it's part of ESPHome's entity-base
-# schema). Non-entity platform-list domains (``output:``) don't — they're
-# referenced by entity wrappers (``light:`` / ``switch:``) and emitting
-# ``name:`` there produces a config ESPHome rejects.
-_HA_ENTITY_DOMAINS: frozenset[str] = frozenset(
-    {
-        "alarm_control_panel",
-        "binary_sensor",
-        "button",
-        "camera",
-        "climate",
-        "cover",
-        "datetime",
-        "display",
-        "event",
-        "fan",
-        "light",
-        "lock",
-        "media_player",
-        "microphone",
-        "number",
-        "select",
-        "sensor",
-        "speaker",
-        "switch",
-        "text",
-        "text_sensor",
-        "touchscreen",
-        "update",
-        "valve",
-    }
-)
+# Platform-list domains that aren't HA entities — they're referenced
+# by entity wrappers (``light:`` / ``switch:`` reference an ``output:``
+# entry by id) rather than surfaced directly, and emitting a top-level
+# ``name:`` on one of these produces a config ESPHome rejects. Kept
+# explicit so adding a new entry to ``_PLATFORM_LIST_DOMAINS`` doesn't
+# silently flip its name-injection behaviour.
+_NON_ENTITY_PLATFORM_DOMAINS: frozenset[str] = frozenset({"output"})
+
+# HA-entity subset of ``_PLATFORM_LIST_DOMAINS`` — derived so a new
+# entity domain added upstream doesn't get forgotten here.
+_HA_ENTITY_DOMAINS: frozenset[str] = _PLATFORM_LIST_DOMAINS - _NON_ENTITY_PLATFORM_DOMAINS
 
 
 # ---------------------------------------------------------------------------
