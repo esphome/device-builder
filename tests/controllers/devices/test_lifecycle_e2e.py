@@ -79,10 +79,11 @@ def test_init_constructs_inner_controllers(tmp_path: Path) -> None:
 
     Pin the wiring so a refactor that drops one of the three
     components, or skips threading a callback through, surfaces
-    here. The state monitor in particular has nine separate
-    callbacks that all have to point back at controller methods —
-    a typo'd one would silently break a single class of state
-    transitions in production.
+    here. The state monitor in particular has seven separate
+    callbacks (state, ip, version, config_hash, api_encryption,
+    importable_added, importable_removed) that all have to point
+    back at controller methods — a typo'd one would silently
+    break a single class of state transitions in production.
     """
     db = _make_db(tmp_path)
     controller = DevicesController(db)
