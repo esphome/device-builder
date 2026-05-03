@@ -14,7 +14,6 @@ to retry.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -53,24 +52,8 @@ def _seed_device(
     return yaml_path, build_path
 
 
-@pytest.fixture
-def _patch_ext_storage(monkeypatch: Any, tmp_path: Path) -> None:
-    """Redirect ``ext_storage_path`` away from CORE.
-
-    ``ext_storage_path`` walks ``CORE.config_path`` which isn't set
-    in the test process; pin it to the tmp config directory so the
-    on-disk sidecar laid down by ``_seed_device`` is the one the
-    delete path reads.
-    """
-    fake = lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json"  # noqa: E731
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.ext_storage_path", fake
-    )
-    monkeypatch.setattr("esphome_device_builder.controllers.devices.helpers.ext_storage_path", fake)
-
-
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_patch_ext_storage")
+@pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_wipes_build_directory(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -90,7 +73,7 @@ async def test_delete_wipes_build_directory(
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_patch_ext_storage")
+@pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_succeeds_when_never_compiled(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -105,7 +88,7 @@ async def test_delete_succeeds_when_never_compiled(
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_patch_ext_storage")
+@pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_tolerates_missing_build_directory(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
