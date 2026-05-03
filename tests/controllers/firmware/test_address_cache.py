@@ -16,6 +16,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices.helpers import _build_address_cache_args
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.models import Device, FirmwareJob, JobType
+from tests.controllers.devices.conftest import RecordingStateMonitor
 
 
 def _device(**overrides: Any) -> Device:
@@ -31,14 +32,30 @@ def _device(**overrides: Any) -> Device:
     return Device(**base)
 
 
+_TEST_HOSTS = ("kitchen.local", "esp.example.com")
+
+
+def _seed(values: list[str] | None) -> dict[str, list[str]] | None:
+    """Map every test hostname to *values*, or return ``None`` if no values given."""
+    return dict.fromkeys(_TEST_HOSTS, values) if values is not None else None
+
+
 def _monitor(
     addresses: list[str] | None = None,
     dns_addresses: list[str] | None = None,
-) -> Any:
-    monitor = MagicMock()
-    monitor.get_cached_addresses.return_value = addresses
-    monitor.get_cached_dns_addresses.return_value = dns_addresses
-    return monitor
+) -> RecordingStateMonitor:
+    """Build a typed-fake state monitor with the cache lookups pre-seeded.
+
+    Both maps are keyed by hostname with normalize_hostname semantics
+    so production-equivalent inputs like ``Kitchen.Local.`` hit the
+    same entry as ``kitchen.local``. The two test addresses
+    (``kitchen.local`` and ``esp.example.com``) cover every test
+    in this file.
+    """
+    return RecordingStateMonitor(
+        cached_addresses=_seed(addresses),
+        cached_dns_addresses=_seed(dns_addresses),
+    )
 
 
 # ----------------------------------------------------------------------
@@ -103,7 +120,7 @@ def test_non_local_skips_zeroconf_lookup() -> None:
     monitor = _monitor(addresses=["1.1.1.1"], dns_addresses=["10.0.0.1"])
     args = _build_address_cache_args(_device(address="esp.example.com"), monitor)
     assert args == ["--dns-address-cache", "esp.example.com=10.0.0.1"]
-    monitor.get_cached_addresses.assert_not_called()
+    assert not any(call[0] == "get_cached_addresses" for call in monitor.calls)
 
 
 def test_local_skips_dns_cache_lookup() -> None:
@@ -111,7 +128,7 @@ def test_local_skips_dns_cache_lookup() -> None:
     monitor = _monitor(addresses=["192.168.1.50"], dns_addresses=["10.0.0.1"])
     args = _build_address_cache_args(_device(), monitor)
     assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
-    monitor.get_cached_dns_addresses.assert_not_called()
+    assert not any(call[0] == "get_cached_dns_addresses" for call in monitor.calls)
 
 
 def test_no_address_returns_empty() -> None:
