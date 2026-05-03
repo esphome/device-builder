@@ -508,9 +508,10 @@ class FirmwareController:
         def _handle_event(event: Event, controls: StreamControls) -> None:
             if event.event_type == EventType.JOB_OUTPUT:
                 # Forward the bus event name through verbatim — the
-                # all-jobs follower's wire protocol uses the EventType
-                # value directly for job-* events (see push_priority
-                # branch below).
+                # all-jobs follower's wire protocol matches the
+                # ``EventType`` value byte-for-byte for these high-
+                # rate events. Pass the StrEnum member directly;
+                # ``StreamControls.push`` accepts any str.
                 controls.push(EventType.JOB_OUTPUT, event.data)
             elif event.event_type == EventType.JOB_PROGRESS:
                 controls.push(EventType.JOB_PROGRESS, event.data)
