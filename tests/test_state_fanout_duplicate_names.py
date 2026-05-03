@@ -16,10 +16,9 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.models import Device, DeviceState
 
-from .conftest import make_devices_controller_with_bus
+from .conftest import make_devices_controller_with_bus, make_state_monitor_with_callbacks
 
 
 def _device(configuration: str, **overrides: Any) -> Device:
@@ -177,24 +176,9 @@ def test_apply_state_repairs_stale_sibling_when_first_match_is_in_sync() -> None
     primary = _device("kitchen.yaml")
     primary.state = DeviceState.ONLINE  # already in-sync
     sibling = _device("kitchen (1).yaml")  # state=UNKNOWN — was rebuilt
-
-    on_state = MagicMock()
-
-    def _flip(name: str, state: DeviceState, _source: str) -> None:
-        for d in (primary, sibling):
-            if d.name == name:
-                d.state = state
-
-    on_state.side_effect = _flip
-
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [primary, sibling],
-        get_devices_by_name=lambda name: [d for d in (primary, sibling) if d.name == name],
-        on_state_change=on_state,
-        on_ip_change=MagicMock(),
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([primary, sibling])
 
     assert monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True) is True
     assert primary.state == DeviceState.ONLINE
     assert sibling.state == DeviceState.ONLINE
-    on_state.assert_called_once_with("kitchen", DeviceState.ONLINE, "mdns")
+    assert callbacks.calls == [("on_state_change", "kitchen", DeviceState.ONLINE, "mdns")]
