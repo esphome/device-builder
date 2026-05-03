@@ -144,8 +144,8 @@ async def test_get_available_for_device_includes_only_present_platform_types(
 ) -> None:
     """A device with ``binary_sensor:`` configured surfaces button-style triggers.
 
-    The scan walks the YAML line-by-line looking for top-level
-    keys (column zero, alphabetic) and intersects them against
+    The scan walks the YAML line-by-line looking for non-indented
+    lines containing ``:``, then intersects the extracted key with
     the controller's platform-type allowlist. A device with only
     ``binary_sensor:`` should see ``on_press`` / ``on_release`` /
     ``on_click`` / ``on_state`` but not ``on_value`` (which is
