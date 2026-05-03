@@ -1,0 +1,62 @@
+id: esp32s3_1_8_inch_jc3636k518c
+name: ESP32S3-1.8-inch JC3636K518C
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/JC3636K518C.webp
+pins:
+- gpio: 47
+  available: false
+  occupied_by: output.ledc (backlight_pwm)
+docs_url: https://devices.esphome.io/devices/ESP32S3-1.8-inch-JC3636K518C/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    id: light_monochromatic_1
+    name: Backlight
+- id: number_template_1
+  component_id: number.template
+  fields:
+    optimistic: true
+    unit_of_measurement: s
+    initial_value: 45
+    restore_value: true
+    min_value: 10
+    max_value: 180
+    step: 5
+    mode: box
+    id: number_template_1
+    name: LVGL Screen timeout
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value:
+        number: 47
+      locked: true
+    id: output_ledc_1
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    icon: mdi:television-shimmer
+    optimistic: true
+    entity_category: config
+    id: switch_template_1
+    name: Antiburn
+source:
+  type: esphome-devices
+  remote_id: ESP32S3-1.8-inch-JC3636K518C
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32S3-1.8-inch-JC3636K518C/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1617cc473ac6bcc2d854dc91eb31bda702f4ed5f50947a8e88e1021af23c0ce7

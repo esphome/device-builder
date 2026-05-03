@@ -1,0 +1,284 @@
+id: kincony_dm4
+name: KinCony-DM4 (ESP32-S3 4CH Dimmer board)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/DM4-1.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-input01)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-input02)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-input03)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-input04)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-io13)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-io14)
+- gpio: 17
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-W1-io17)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-21)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-W1-io40)
+- gpio: 47
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-W1-io47)
+- gpio: 48
+  available: false
+  occupied_by: binary_sensor.gpio (dm4-W1-io48)
+docs_url: https://devices.esphome.io/devices/KinCony-DM4/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: dm4-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: dm4-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: dm4-input03
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: dm4-input04
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 48
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: dm4-W1-io48
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 47
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: dm4-W1-io47
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: dm4-W1-io40
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 17
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: dm4-W1-io17
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_9
+    name: dm4-io13
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_10
+    name: dm4-io14
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 21
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_11
+    name: dm4-21
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_12
+    name: dm4-0
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    model: SSD1306 128x64
+    address: 60
+    lambda: 'it.printf(0, 15, id(roboto), "IP: %s", id(eth_ip).state.c_str());'
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: ac_dimmer_1
+    gamma_correct: 1.0
+    id: light_monochromatic_1
+    name: DM4 DAC-1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: ac_dimmer_2
+    gamma_correct: 1.0
+    id: light_monochromatic_2
+    name: DM4 DAC-2
+- id: light_monochromatic_3
+  component_id: light.monochromatic
+  fields:
+    output: ac_dimmer_3
+    gamma_correct: 1.0
+    id: light_monochromatic_3
+    name: DM4 DAC-3
+- id: light_monochromatic_4
+  component_id: light.monochromatic
+  fields:
+    output: ac_dimmer_4
+    gamma_correct: 1.0
+    id: light_monochromatic_4
+    name: DM4 DAC-4
+- id: output_mcp4728_1
+  component_id: output.mcp4728
+  fields:
+    mcp4728_id: dac_output
+    channel: A
+    vref: internal
+    id: output_mcp4728_1
+- id: output_mcp4728_2
+  component_id: output.mcp4728
+  fields:
+    mcp4728_id: dac_output
+    channel: B
+    vref: internal
+    id: output_mcp4728_2
+- id: output_mcp4728_3
+  component_id: output.mcp4728
+  fields:
+    channel: C
+    vref: internal
+    id: output_mcp4728_3
+- id: output_mcp4728_4
+  component_id: output.mcp4728
+  fields:
+    channel: D
+    vref: internal
+    id: output_mcp4728_4
+- id: sensor_ads1115_1
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A0_GND
+    gain: 6.144
+    resolution: 16_BITS
+    update_interval: 5s
+    id: sensor_ads1115_1
+    name: ADS1115 Channel A0-GND
+- id: sensor_ads1115_2
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A1_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_2
+    name: ADS1115 Channel A1-GND
+- id: sensor_ads1115_3
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A2_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_3
+    name: ADS1115 Channel A2-GND
+- id: sensor_ads1115_4
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A3_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_4
+    name: ADS1115 Channel A3-GND
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_1
+    id: switch_uart_1
+    name: RS485 Button
+source:
+  type: esphome-devices
+  remote_id: KinCony-DM4
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-DM4/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: d373adb661eda887178821c381a81dfcdb8450a56938f824d75dcfc3e17739ce

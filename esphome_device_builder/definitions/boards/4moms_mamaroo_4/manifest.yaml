@@ -1,0 +1,75 @@
+id: 4moms_mamaroo_4
+name: 4moms Mamaroo 4
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/4moms-mamaroo-4.jpg
+docs_url: https://devices.esphome.io/devices/4moms-mamaroo-4/
+featured_components:
+- id: binary_sensor_template_1
+  component_id: binary_sensor.template
+  fields:
+    device_class: moving
+    id: binary_sensor_template_1
+    name: Motion
+- id: binary_sensor_template_2
+  component_id: binary_sensor.template
+  fields:
+    device_class: sound
+    id: binary_sensor_template_2
+    name: Sound
+- id: number_template_1
+  component_id: number.template
+  fields:
+    optimistic: true
+    min_value: 0
+    max_value: 5
+    step: 1
+    icon: mdi:speedometer
+    id: number_template_1
+    name: Speed
+- id: number_template_2
+  component_id: number.template
+  fields:
+    optimistic: true
+    min_value: 0
+    max_value: 5
+    step: 1
+    icon: mdi:volume-high
+    id: number_template_2
+    name: Volume
+- id: select_template_1
+  component_id: select.template
+  fields:
+    optimistic: true
+    icon: mdi:swap-vertical-variant
+    id: select_template_1
+    name: Motion
+- id: select_template_2
+  component_id: select.template
+  fields:
+    optimistic: true
+    icon: mdi:music-note-sixteenth
+    id: select_template_2
+    name: Sound
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    optimistic: true
+    restore_mode: DISABLED
+    id: switch_template_1
+    name: Power
+source:
+  type: esphome-devices
+  remote_id: 4moms-mamaroo-4
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/4moms-mamaroo-4/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 51f128e6c8cad3c6e775433f17e8d156144bcbaec17ab8173430c236778d3676

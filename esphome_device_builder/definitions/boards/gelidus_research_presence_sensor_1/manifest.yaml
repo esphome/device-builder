@@ -1,0 +1,42 @@
+id: gelidus_research_presence_sensor_1
+name: Gelidus Research Presence Sensor 1 (GRPS1)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/grps1.radome.jpg
+- images/grps1.features.example.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (GPIO Presence)
+docs_url: https://devices.esphome.io/devices/Gelidus-Research-Presence-Sensor-1/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: binary_sensor_gpio_1
+    name: GPIO Presence
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    id: switch_template_1
+    name: Enable Presence Sensor
+source:
+  type: esphome-devices
+  remote_id: Gelidus-Research-Presence-Sensor-1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gelidus-Research-Presence-Sensor-1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 80eabf256461c5a79a55c88b0159c38693841b796ca681eb7ba1a06810f6bf56

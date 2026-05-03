@@ -1,0 +1,30 @@
+id: tuya_wifi_smart_switch_sb2s
+name: Tuya WiFi Smart Switch (CB2S WHD06 v.1.2)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Tuya-WiFi-Smart-Switch-SB2S-front.jpg
+- images/Tuya-WiFi-Smart-Switch-SB2S-pcb-front.jpg
+- images/Tuya-WiFi-Smart-Switch-SB2S-pcb-back.jpg
+- images/Tuya-WiFi-Smart-Switch-SB2S-submodule-front.jpg
+- images/Tuya-WiFi-Smart-Switch-SB2S-submodule-back.jpg
+docs_url: https://devices.esphome.io/devices/Tuya-WiFi-Smart-Switch-SB2S/
+featured_components:
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    output: relayoutput
+    restore_mode: ALWAYS_OFF
+    id: switch_output_1
+    name: Output 1
+source:
+  type: esphome-devices
+  remote_id: Tuya-WiFi-Smart-Switch-SB2S
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 459377a31efdf0df1a4ac94802e5b46333558cda43f7ba3643631bcb41e4eaf8

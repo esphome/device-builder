@@ -1,0 +1,44 @@
+id: milfra_smart_dimmer_switch
+name: Milfra Smart Dimmer Switch
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Milfra-Dimmer-Front.jpg
+- images/Milfra-Dimmer-Back.jpg
+docs_url: https://devices.esphome.io/devices/Milfra-Smart-Dimmer-Switch/
+featured_components:
+- id: light_tuya_1
+  component_id: light.tuya
+  fields:
+    dimmer_datapoint: 2
+    min_value_datapoint: 3
+    switch_datapoint: 1
+    min_value: 200
+    max_value: 1000
+    id: light_tuya_1
+    name: dimmer
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 13
+    optimistic: true
+    id: select_tuya_1
+    name: Work Mode
+- id: select_tuya_2
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 14
+    optimistic: true
+    id: select_tuya_2
+    name: Relay Status
+source:
+  type: esphome-devices
+  remote_id: Milfra-Smart-Dimmer-Switch
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Milfra-Smart-Dimmer-Switch/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 8bde9ff4144fabce6e310922909196d6c39d538abba9584945a3c75f5c875cd6

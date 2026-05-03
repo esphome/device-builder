@@ -15,6 +15,8 @@ from esphome_device_builder.api.ws import WebSocketClient
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
 
+from .conftest import MakeControllerFactory
+
 
 class _FakeWS:
     """Minimal WebSocket stand-in capturing sent messages."""
@@ -208,16 +210,26 @@ async def test_cleanup_kills_running_streams() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_controller_with_settings(esphome_cmd: list[str]) -> DevicesController:
-    """Stand up a controller far enough to exercise ``stream_logs`` / ``validate_config``."""
-    ctrl = DevicesController.__new__(DevicesController)
-    ctrl._esphome_cmd = esphome_cmd
-    ctrl._db = MagicMock()
+def _make_controller_with_settings(
+    make_controller: MakeControllerFactory,
+    tmp_path: Path,
+    esphome_cmd: list[str],
+) -> DevicesController:
+    """Stand up a controller far enough to exercise ``stream_logs`` / ``validate_config``.
+
+    Uses the shared ``make_controller`` factory and overrides
+    ``rel_path`` with the bare ``Path`` constructor so these tests
+    can assert the raw configuration argument in argv (for example,
+    ``"kitchen.yaml"``) without ``tmp_path`` being prepended.
+    """
+    ctrl = make_controller(tmp_path, esphome_cmd=esphome_cmd)
     ctrl._db.settings.rel_path = Path
     return ctrl
 
 
-async def test_stream_logs_command_includes_dashboard_flag() -> None:
+async def test_stream_logs_command_includes_dashboard_flag(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``devices/logs`` invokes esphome with ``--dashboard`` before the subcommand.
 
     Without the flag ESPHome's ``ESPHomeLogFormatter`` lets ``colorama``
@@ -225,7 +237,7 @@ async def test_stream_logs_command_includes_dashboard_flag() -> None:
     view ends up monochrome. The flag has to land before ``logs``
     because esphome's argparse only accepts it on the top-level parser.
     """
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
     async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
@@ -243,9 +255,11 @@ async def test_stream_logs_command_includes_dashboard_flag() -> None:
     assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA"]]
 
 
-async def test_stream_logs_command_without_port_omits_device_arg() -> None:
+async def test_stream_logs_command_without_port_omits_device_arg(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """No port given → no ``--device`` arg, ``--dashboard`` still present."""
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
     async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
@@ -258,9 +272,11 @@ async def test_stream_logs_command_without_port_omits_device_arg() -> None:
     assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml"]]
 
 
-async def test_stream_logs_command_appends_no_states_when_requested() -> None:
+async def test_stream_logs_command_appends_no_states_when_requested(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``no_states=True`` → ``--no-states`` is appended after the device arg."""
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
     async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
@@ -281,9 +297,11 @@ async def test_stream_logs_command_appends_no_states_when_requested() -> None:
     ]
 
 
-async def test_stream_logs_command_no_states_without_port() -> None:
+async def test_stream_logs_command_no_states_without_port(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``no_states=True`` and no ``port`` → ``--no-states`` lands without ``--device``."""
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
     async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
@@ -301,9 +319,11 @@ async def test_stream_logs_command_no_states_without_port() -> None:
     assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--no-states"]]
 
 
-async def test_stream_logs_command_omits_no_states_by_default() -> None:
+async def test_stream_logs_command_omits_no_states_by_default(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Default ``no_states=False`` → no ``--no-states`` in argv (regression guard)."""
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
     async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
@@ -321,9 +341,11 @@ async def test_stream_logs_command_omits_no_states_by_default() -> None:
     assert captured == [["esphome", "--dashboard", "logs", "kitchen.yaml", "--device", "OTA"]]
 
 
-async def test_validate_config_command_includes_dashboard_flag() -> None:
+async def test_validate_config_command_includes_dashboard_flag(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``devices/validate`` invokes ``esphome --dashboard config <yaml>``."""
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
     async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
@@ -336,7 +358,9 @@ async def test_validate_config_command_includes_dashboard_flag() -> None:
     assert captured == [["esphome", "--dashboard", "config", "kitchen.yaml"]]
 
 
-async def test_validate_config_omits_show_secrets_by_default() -> None:
+async def test_validate_config_omits_show_secrets_by_default(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``--show-secrets`` is not appended unless the caller explicitly opts in.
 
     Resolved secrets are sensitive — the legacy dashboard surfaced
@@ -344,7 +368,7 @@ async def test_validate_config_omits_show_secrets_by_default() -> None:
     off. The new dashboard inverts the default so they only appear
     when the user actively asks for them.
     """
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
     async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
@@ -363,9 +387,11 @@ async def test_validate_config_omits_show_secrets_by_default() -> None:
     assert captured == [["esphome", "--dashboard", "config", "kitchen.yaml"]]
 
 
-async def test_validate_config_passes_show_secrets_flag_when_enabled() -> None:
+async def test_validate_config_passes_show_secrets_flag_when_enabled(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``show_secrets=True`` appends ``--show-secrets`` to the esphome command."""
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: list[list[str]] = []
 
     async def fake_stream(cmd: list[str], _client: Any, _mid: str, **_kwargs: Any) -> None:
@@ -388,7 +414,9 @@ async def test_validate_config_passes_show_secrets_flag_when_enabled() -> None:
     ]
 
 
-async def test_validate_config_off_attaches_redactor_transform() -> None:
+async def test_validate_config_off_attaches_redactor_transform(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     r"""``show_secrets=False`` wires the line transform that scrubs concealed runs.
 
     ``esphome config`` without ``--show-secrets`` doesn't redact —
@@ -400,7 +428,7 @@ async def test_validate_config_off_attaches_redactor_transform() -> None:
     strips those wrapped runs so the secret never leaves the
     server.
     """
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: dict[str, Any] = {}
 
     async def fake_stream(
@@ -415,9 +443,11 @@ async def test_validate_config_off_attaches_redactor_transform() -> None:
     assert captured["line_transform"] is _redact_concealed_secrets
 
 
-async def test_validate_config_on_passes_no_line_transform() -> None:
+async def test_validate_config_on_passes_no_line_transform(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``show_secrets=True`` ships raw output — no redactor wired."""
-    ctrl = _make_controller_with_settings(["esphome"])
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
     captured: dict[str, Any] = {}
 
     async def fake_stream(

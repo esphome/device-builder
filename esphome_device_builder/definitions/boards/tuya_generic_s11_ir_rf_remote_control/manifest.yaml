@@ -1,0 +1,39 @@
+id: tuya_generic_s11_ir_rf_remote_control
+name: Tuya Generic S11 Universal IR+RF Wifi Remote Control
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/S11.png
+docs_url: https://devices.esphome.io/devices/Tuya-Generic-S11-IR-RF-Remote-Control/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    icon: mdi:button-pointer
+    id: binary_sensor_gpio_1
+    name: Button
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    entity_category: diagnostic
+    id: sensor_wifi_signal_1
+    name: WiFi Signal dB
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    id: switch_template_1
+    name: RF Receiver
+source:
+  type: esphome-devices
+  remote_id: Tuya-Generic-S11-IR-RF-Remote-Control
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Generic-S11-IR-RF-Remote-Control/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 466992348370261b0b6755a9f3fb50475f71cd9c5a5015c83fd618765e897e31

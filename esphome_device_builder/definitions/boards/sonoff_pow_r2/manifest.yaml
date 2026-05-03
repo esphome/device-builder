@@ -1,0 +1,48 @@
+id: sonoff_pow_r2
+name: Sonoff POWR2
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/inside.jpg
+tags:
+- relay
+- sonoff
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (Relay)
+docs_url: https://devices.esphome.io/devices/Sonoff-POW-R2/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_1
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: Sonoff-POW-R2
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-POW-R2/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 0f7ee3226ed20c1b63c735a0839dcf1b9f1dd382f8673e3b64703f8ae07f2399

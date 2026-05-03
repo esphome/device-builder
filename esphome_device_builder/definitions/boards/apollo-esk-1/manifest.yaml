@@ -1,5 +1,5 @@
 id: apollo-esk-1
-name: Apollo ESK-1 ESPHome Starter Kit
+name: Apollo ESPHome Starter Kit
 description: >
   Official ESPHome Starter Kit by Apollo Automation. Plug-and-play kit with
   an ESP32-C6-MINI-1 module, two 14-pin FPC expansion ports, onboard RGB LED,
@@ -52,20 +52,26 @@ pins:
   - adc
   available: true
 - gpio: 3
+  label: GPIO3
+  features:
+  - adc
+  available: true
+  notes: Available on FPC connector
+- gpio: 5
   label: RGB_LED
   features:
   - rgb_led
   available: false
   occupied_by: Onboard WS2812 RGB LED
   notes: WS2812 addressable LED, active by default
-- gpio: 4
-  label: GPIO4
+- gpio: 6
+  label: GPIO6
   features:
   - adc
   available: true
   notes: Available on FPC connector
-- gpio: 5
-  label: GPIO5
+- gpio: 7
+  label: GPIO7
   features:
   - adc
   available: true
@@ -77,6 +83,18 @@ pins:
   available: false
   occupied_by: Physical button
   notes: Active-low with internal pull-up, directly usable
+- gpio: 14
+  label: GPIO14
+  features:
+  - adc
+  available: true
+  notes: Available on FPC connector
+- gpio: 18
+  label: GPIO18
+  features:
+  - adc
+  available: true
+  notes: Available on FPC connector
 - gpio: 30
   label: RX
   features:
@@ -117,42 +135,35 @@ featured_components:
   component_id: binary_sensor.gpio
   name: PIR Motion Module (MH-SR602)
   description: |
-    Motion sensor module included with the kit. Pin depends on which
-    FPC connector you plug it into — pick GPIO4 for connector A or
-    GPIO5 for connector B.
+    Motion sensor module included with the kit.
   fields:
     id: pir_motion
     name: PIR Motion Module
     pin:
-      suggestions: [4, 5]
-      value: 4
+      value: 3
     device_class: motion
 - id: rgb_strip
   component_id: light.esp32_rmt_led_strip
   name: RGB LED Strip (addon module)
   description: |
-    Addressable LED strip from the RGB+buzzer addon. Pin tracks the
-    FPC connector (GPIO4 for A, GPIO5 for B). Defaults to 8 LEDs in
+    Addressable LED strip from the RGB+buzzer addon. Defaults to 10 LEDs in
     GRB order — adjust to match your strip.
   fields:
     id: rgb_strip
     name: RGB LED Strip
     pin:
-      suggestions: [4, 5]
-      value: 4
-    num_leds: 8
+      value: 14
+    num_leds: 10
     rgb_order: GRB
 - id: buzzer_output
   component_id: output.ledc
   name: Piezo Buzzer (addon module)
   description: |
     PWM output driving the piezo buzzer on the RGB+buzzer addon.
-    Pick the FPC connector pin not used by the strip — GPIO4 or GPIO5.
   fields:
     id: buzzer_output
     pin:
-      suggestions: [4, 5]
-      value: 5
+      value: 18
 - id: rtttl_player
   component_id: rtttl
   name: RTTTL Player (addon buzzer)

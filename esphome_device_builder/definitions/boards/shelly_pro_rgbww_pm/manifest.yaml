@@ -1,0 +1,193 @@
+id: shelly_pro_rgbww_pm
+name: Shelly Pro RGBWW PM
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/Shelly-Pro-RGBWW-PM.png
+- images/Shelly-Pro-Internal-Front.jpg
+- images/Shelly-Pro-Internal-Back.jpg
+- images/Pro-addon-interface.png
+tags:
+- shelly
+pins:
+- gpio: 0
+  available: false
+  occupied_by: output.gpio (mux_a)
+- gpio: 2
+  available: false
+  occupied_by: output.gpio (mux_b)
+- gpio: 12
+  available: false
+  occupied_by: output.ledc (pwm_2)
+- gpio: 13
+  available: false
+  occupied_by: output.ledc (pwm_1)
+- gpio: 14
+  available: false
+  occupied_by: output.ledc (pwm_3)
+- gpio: 16
+  available: false
+  occupied_by: output.ledc (pwm_4)
+- gpio: 17
+  available: false
+  occupied_by: output.ledc (pwm_5)
+- gpio: 35
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Reset Button)
+- gpio: 36
+  available: false
+  occupied_by: binary_sensor.gpio (in36)
+- gpio: 37
+  available: false
+  occupied_by: binary_sensor.gpio (in37)
+- gpio: 38
+  available: false
+  occupied_by: binary_sensor.gpio (in38)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (in39)
+docs_url: https://devices.esphome.io/devices/Shelly-Pro-RGBWW-PM/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 35
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 36
+        mode: INPUT
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 37
+        mode: INPUT
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 38
+        mode: INPUT
+      locked: true
+    id: binary_sensor_gpio_4
+    name: Gpio 4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+        mode: INPUT
+      locked: true
+    id: binary_sensor_gpio_5
+    name: Gpio 5
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: pwm_1
+    id: light_monochromatic_1
+    name: Channel 1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: pwm_2
+    id: light_monochromatic_2
+    name: Channel 2
+- id: light_monochromatic_3
+  component_id: light.monochromatic
+  fields:
+    output: pwm_3
+    id: light_monochromatic_3
+    name: Channel 3
+- id: light_monochromatic_4
+  component_id: light.monochromatic
+  fields:
+    output: pwm_4
+    id: light_monochromatic_4
+    name: Channel 4
+- id: light_monochromatic_5
+  component_id: light.monochromatic
+  fields:
+    output: pwm_5
+    id: light_monochromatic_5
+    name: Channel 5
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_ledc_2
+- id: output_ledc_3
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_ledc_3
+- id: output_ledc_4
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 16
+      locked: true
+    id: output_ledc_4
+- id: output_ledc_5
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 17
+      locked: true
+    id: output_ledc_5
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 2
+      locked: true
+    id: output_gpio_2
+source:
+  type: esphome-devices
+  remote_id: Shelly-Pro-RGBWW-PM
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Pro-RGBWW-PM/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 5f24aab4c8c3048068f2902f6f18d77cb719e8f780007212e97be11407c5488e

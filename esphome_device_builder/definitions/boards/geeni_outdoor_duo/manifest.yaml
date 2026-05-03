@@ -1,0 +1,97 @@
+id: geeni_outdoor_duo
+name: Geeni Outdoor Duo
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/image.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 5
+  available: false
+  occupied_by: output.gpio (green_led_gpio)
+- gpio: 13
+  available: false
+  occupied_by: output.gpio (blue_led_gpio)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (Left plug)
+- gpio: 16
+  available: false
+  occupied_by: switch.gpio (Right plug)
+docs_url: https://devices.esphome.io/devices/Geeni-Outdoor-Duo/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: green_led_gpio
+    id: light_binary_1
+    name: Green LED
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: blue_led_gpio
+    id: light_binary_2
+    name: Blue LED
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_2
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: switch_gpio_1
+    name: Left plug
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 16
+      locked: true
+    id: switch_gpio_2
+    name: Right plug
+source:
+  type: esphome-devices
+  remote_id: Geeni-Outdoor-Duo
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Geeni-Outdoor-Duo/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 419e40323f75e12daf610cf3492ac21e5df1f279da34b7cb7511d75c8a87aab3

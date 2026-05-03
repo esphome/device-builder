@@ -1,0 +1,108 @@
+id: gosund_wo1
+name: Gosund WO1 Wall Outlet
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Gosund-WO1.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: output.gpio (top_outlet_led)
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: output.gpio (bottom_outlet_led)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (Bottom Outlet)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (Top Outlet)
+docs_url: https://devices.esphome.io/devices/Gosund-WO1/
+featured_components:
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_2
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 5
+      locked: true
+    cf1_pin:
+      value: 4
+      locked: true
+    change_mode_every: 1
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    raw: true
+    update_interval: 100ms
+    unit_of_measurement: ''
+    id: sensor_adc_1
+    name: Adc 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Top Outlet
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_2
+    name: Bottom Outlet
+source:
+  type: esphome-devices
+  remote_id: Gosund-WO1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gosund-WO1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e550c16029870bb9c7b92a2a5e00ce56e6b7b0ee92526da567d14d2b42bf0ec2

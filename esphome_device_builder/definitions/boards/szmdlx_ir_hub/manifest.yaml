@@ -1,0 +1,38 @@
+id: szmdlx_ir_hub
+name: SZMDLX IR Hub
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/irhub1.jpg
+- images/irhub2.jpg
+pins:
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (physical_button)
+docs_url: https://devices.esphome.io/devices/SZMDLX-IR-Hub/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: IR WiFi signal
+source:
+  type: esphome-devices
+  remote_id: SZMDLX-IR-Hub
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/SZMDLX-IR-Hub/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f4ede4d1c145ca2315972a70ddbb17b487a25265b638b1d723878915c6899076

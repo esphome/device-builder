@@ -1,0 +1,98 @@
+id: lilygo_tdongle_s3
+name: Lilygo TDongle S3
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/T-Dongle-LILYGO_16_1024x1024.webp
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 1
+  available: false
+  occupied_by: display.st7735
+- gpio: 2
+  available: false
+  occupied_by: display.st7735
+- gpio: 4
+  available: false
+  occupied_by: display.st7735
+- gpio: 38
+  available: false
+  occupied_by: output.ledc (backlight_output)
+docs_url: https://devices.esphome.io/devices/Lilygo-TDongle-S3/
+product_url: https://lilygo.cc/products/t-dongle-s3
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: display_st7735_1
+  component_id: display.st7735
+  fields:
+    spi_id: spi_lcd
+    model: INITR_MINI160X80
+    reset_pin:
+      value: 1
+      locked: true
+    cs_pin:
+      value: 4
+      locked: true
+    dc_pin:
+      value: 2
+      locked: true
+    rotation: 270
+    device_width: 82
+    device_height: 161
+    col_start: 0
+    row_start: 0
+    eight_bit_color: true
+    invert_colors: true
+    use_bgr: true
+    auto_clear_enabled: false
+    id: display_st7735_1
+    name: St7735 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: backlight_output
+    restore_mode: ALWAYS_OFF
+    id: light_monochromatic_1
+    name: LCD Backlight
+- id: light_spi_led_strip_1
+  component_id: light.spi_led_strip
+  fields:
+    spi_id: spi_led
+    num_leds: 1
+    data_rate: 1MHz
+    id: light_spi_led_strip_1
+    name: FastLED SPI Light
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    frequency: 2000
+    pin:
+      value: 38
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_ledc_1
+source:
+  type: esphome-devices
+  remote_id: Lilygo-TDongle-S3
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Lilygo-TDongle-S3/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 2578dd2c50849ccba6759f9d216a80a29345a34a55fc6e8aabfd65f14294a4cb

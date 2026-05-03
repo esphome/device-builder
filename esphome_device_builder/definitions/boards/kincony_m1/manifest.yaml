@@ -1,0 +1,51 @@
+id: kincony_m1
+name: KinCony-M1 AC energy meter
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/M1-2_01.jpg
+pins:
+- gpio: 32
+  available: false
+  occupied_by: binary_sensor.gpio (M1-sensor-DI)
+- gpio: 33
+  available: false
+  occupied_by: switch.gpio (M1-relay)
+docs_url: https://devices.esphome.io/devices/KinCony-M1/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 32
+      locked: true
+    id: binary_sensor_gpio_1
+    name: M1-sensor-DI
+- id: sensor_bl0942_1
+  component_id: sensor.bl0942
+  fields:
+    uart_id: uart_bus
+    update_interval: 3s
+    id: sensor_bl0942_1
+    name: Bl0942 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 33
+      locked: true
+    id: switch_gpio_1
+    name: M1-relay
+source:
+  type: esphome-devices
+  remote_id: KinCony-M1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-M1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 0c114ed313b81975a7c9c943a410c55d6bd0abc210d4775a115decaf6836cd78

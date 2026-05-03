@@ -43,6 +43,7 @@ test = [
   "pytest-aiohttp==1.1.0",
   "pytest-codspeed==4.5.0",
   "pytest-cov==7.1.0",
+  "pytest-xdist==3.8.0",
   "ruff==0.15.12",
 ]
 
@@ -141,6 +142,12 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# ``loadgroup`` keeps the round-robin scheduler for unmarked tests but
+# pins anything tagged ``@pytest.mark.xdist_group("<name>")`` to a
+# single worker. The catalog-heavy modules use that to share one
+# ``ComponentCatalog.load`` (~2s on Linux CI) per run instead of
+# paying it on every xdist worker.
+addopts = "--dist=loadgroup"
 
 [build-system]
 build-backend = "setuptools.build_meta"

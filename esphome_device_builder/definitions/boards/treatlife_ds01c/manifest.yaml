@@ -1,0 +1,34 @@
+id: treatlife_ds01c
+name: TreatLife DS01C Dimmer
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: wb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/treatlife_DS01C.jpg
+docs_url: https://devices.esphome.io/devices/Treatlife-DS01C/
+featured_components:
+- id: light_tuya_1
+  component_id: light.tuya
+  fields:
+    dimmer_datapoint: 2
+    switch_datapoint: 1
+    min_value: 100
+    max_value: 1000
+    id: light_tuya_1
+    name: Lights
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 4
+    id: select_tuya_1
+    name: Dimming Mode
+source:
+  type: esphome-devices
+  remote_id: Treatlife-DS01C
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Treatlife-DS01C/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 32673e9abf93ad937a56dc26c809be437132dda1cdb2effe85ee0d59dfb53dfe

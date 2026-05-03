@@ -1,0 +1,136 @@
+id: shelly_em_gen3
+name: Shelly EM Gen3
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/shelly_em_gen3.jpg
+- images/pcb_pinout_diagram.thumb.jpg
+- images/ct1.thumb.jpg
+- images/ct2.thumb.jpg
+- images/ct3.thumb.jpg
+- images/package_front.jpg
+- images/package_back.jpg
+- images/package_left.jpg
+tags:
+- shelly
+pins:
+- gpio: 0
+  available: false
+  occupied_by: switch.gpio (Relay)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 3
+  available: false
+  occupied_by: sensor.adc (temp_analog_reading)
+- gpio: 4
+  available: false
+  occupied_by: sensor.ade7953_i2c (ade7953_id)
+- gpio: 9
+  available: false
+  occupied_by: light.status_led (Status LED)
+- gpio: 18
+  available: false
+  occupied_by: binary_sensor.gpio (Header GPIO)
+docs_url: https://devices.esphome.io/devices/Shelly-EM-Gen3/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    entity_category: diagnostic
+    pin:
+      value:
+        number: 1
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    entity_category: diagnostic
+    disabled_by_default: true
+    pin:
+      value:
+        number: 18
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Header GPIO
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    disabled_by_default: true
+    entity_category: diagnostic
+    pin:
+      value:
+        number: 9
+        inverted: true
+        ignore_strapping_warning: true
+      locked: true
+    id: light_status_led_1
+    name: Status LED
+- id: sensor_ntc_1
+  component_id: sensor.ntc
+  fields:
+    entity_category: diagnostic
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    icon: mdi:thermometer
+    sensor: temp_resistance_reading
+    id: sensor_ntc_1
+    name: NTC Temperature
+- id: sensor_resistance_1
+  component_id: sensor.resistance
+  fields:
+    sensor: temp_analog_reading
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    id: sensor_resistance_1
+    name: Resistance 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 3
+      locked: true
+    attenuation: 12db
+    id: sensor_adc_1
+    name: Adc 1
+- id: sensor_ade7953_i2c_1
+  component_id: sensor.ade7953_i2c
+  fields:
+    irq_pin:
+      value: 4
+      locked: true
+    use_accumulated_energy_registers: true
+    id: sensor_ade7953_i2c_1
+    name: Ade7953 I2C 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    id: switch_gpio_1
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: Shelly-EM-Gen3
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-EM-Gen3/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 29ed745f8fc6b59bbf778b27dfd95d319fec6b51dbfadde709ad14f89448e3af

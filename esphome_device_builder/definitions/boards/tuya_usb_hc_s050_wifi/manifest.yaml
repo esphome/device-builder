@@ -1,0 +1,35 @@
+id: tuya_usb_hc_s050_wifi
+name: Tuya USB Relay HC-S050-WIFI
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/tuya-hc-s050-wifi.jpg
+- images/tuya-hc-s050-wifi-pcb-flashing.jpg
+tags:
+- relay
+docs_url: https://devices.esphome.io/devices/Tuya-USB-HC-S050-WIFI/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    disabled_by_default: true
+    entity_category: diagnostic
+    id: light_status_led_1
+    name: Status LED
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: Tuya-USB-HC-S050-WIFI
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 7b4aab56389d8bd9457e493eb7606978095ae77b3124653fe1c5c2e1ef82251d

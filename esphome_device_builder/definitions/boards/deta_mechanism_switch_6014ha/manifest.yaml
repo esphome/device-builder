@@ -1,0 +1,84 @@
+id: deta_mechanism_switch_6014ha
+name: DETA Mechanism Switch (6014HA)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp12e
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/deta_6014HA.png
+- images/Converted.png
+pins:
+- gpio: 12
+  available: false
+  occupied_by: light.status_led (status1)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+- gpio: 16
+  available: false
+  occupied_by: output.gpio (relay1)
+docs_url: https://devices.esphome.io/devices/DETA-Mechanism-Switch-6014HA/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: button_restart_1
+  component_id: button.restart
+  fields:
+    disabled_by_default: true
+    id: button_restart_1
+    name: Restart 1
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: relay1
+    id: light_binary_1
+    name: Binary 1
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    id: light_status_led_1
+    name: Status Led 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 16
+      locked: true
+    id: output_gpio_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 600s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:clock-start
+    id: text_sensor_template_1
+    name: Uptime
+source:
+  type: esphome-devices
+  remote_id: DETA-Mechanism-Switch-6014HA
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/DETA-Mechanism-Switch-6014HA/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 048d06082c151b03e594459c341b819c964c1c617e552bafa2be182674c01bff

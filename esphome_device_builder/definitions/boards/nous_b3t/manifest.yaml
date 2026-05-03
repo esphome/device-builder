@@ -1,0 +1,119 @@
+id: nous_b3t
+name: NOUS B3T
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/B3T_mockup.jpg
+- images/pinout.png
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: light.status_led (Status LED)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (Switch 1 (external))
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (Switch 1)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (Switch 2)
+- gpio: 18
+  available: false
+  occupied_by: binary_sensor.gpio (Switch 2 (external))
+docs_url: https://devices.esphome.io/devices/Nous-B3T/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        mode: INPUT_PULLUP
+        inverted: true
+        ignore_strapping_warning: true
+      locked: true
+    icon: mdi:light-switch
+    entity_category: diagnostic
+    id: binary_sensor_gpio_2
+    name: Switch 1 (external)
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 18
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    icon: mdi:light-switch
+    entity_category: diagnostic
+    id: binary_sensor_gpio_3
+    name: Switch 2 (external)
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: true
+        ignore_strapping_warning: true
+      locked: true
+    entity_category: config
+    id: light_status_led_1
+    name: Status LED
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        ignore_strapping_warning: true
+      locked: true
+    device_class: switch
+    restore_mode: restore_default_on
+    id: switch_gpio_1
+    name: Switch 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    device_class: switch
+    restore_mode: restore_default_on
+    id: switch_gpio_2
+    name: Switch 2
+source:
+  type: esphome-devices
+  remote_id: Nous-B3T
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Nous-B3T/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: a4605e782cd37ecf47e5db4b0f3ffa7c92073b27f6ad6e941ddd9589ab8a6836

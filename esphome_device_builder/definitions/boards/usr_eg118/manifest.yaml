@@ -1,0 +1,98 @@
+id: usr_eg118
+name: PUSR USR-EG118
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/USR-EG118.png
+- images/USR-M100-expansion.png
+pins:
+- gpio: 1
+  available: false
+  occupied_by: switch.gpio (DO1)
+- gpio: 2
+  available: false
+  occupied_by: switch.gpio (DO2)
+- gpio: 3
+  available: false
+  occupied_by: output.gpio (WDT_Trigger)
+- gpio: 35
+  available: false
+  occupied_by: sensor.adc (AI1)
+- gpio: 36
+  available: false
+  occupied_by: binary_sensor.gpio (Reload)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (DI1)
+docs_url: https://devices.esphome.io/devices/USR-EG118/
+product_url: https://www.pusr.com/products/arduino-open-source-iot-gateway.html
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: DI1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 36
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Reload
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 3
+      locked: true
+    id: output_gpio_1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 35
+      locked: true
+    id: sensor_adc_1
+    name: AI1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 1
+      locked: true
+    id: switch_gpio_1
+    name: DO1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 2
+      locked: true
+    id: switch_gpio_2
+    name: DO2
+source:
+  type: esphome-devices
+  remote_id: USR-EG118
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/USR-EG118/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 97ea9e3aa03fc8fccba4e779eb3d8de944654fe5565490885c7016bcfe66c10c

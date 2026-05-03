@@ -1,0 +1,86 @@
+id: agl_2_3_gang_switch
+name: AGL Switch 2, 3 gang variants
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/agl_1106062.png
+- images/back.jpg
+- images/open.jpg
+pins:
+- gpio: 2
+  available: false
+  occupied_by: light.status_led (blue_led)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (AGL 2 Gang Button 2)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (AGL 2 Gang Switch 2)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (AGL 2 Gang Switch 1)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (AGL 2 Gang Button 1)
+docs_url: https://devices.esphome.io/devices/AGL-2-3-Gang-Switch/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: AGL 2 Gang Button 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: AGL 2 Gang Button 2
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    restore_mode: ALWAYS_ON
+    pin:
+      value:
+        number: 2
+        inverted: true
+      locked: true
+    internal: true
+    id: light_status_led_1
+    name: Status Led 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: switch_gpio_1
+    name: AGL 2 Gang Switch 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_2
+    name: AGL 2 Gang Switch 2
+source:
+  type: esphome-devices
+  remote_id: AGL-2-3-Gang-Switch
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AGL-2-3-Gang-Switch/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 8c41c1b92ac49e2541dd04fe626a7a8322ae001b6d6a1aab5d733f567b66dbee

@@ -1,0 +1,49 @@
+id: tuya_smart_plug_16a_il
+name: Tuya Smart Plug 16A IL
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/tuya-smart-plug-16A-IL-front.png
+- images/tuya-smart-plug-16A-IL-back.png
+- images/tuya-smart-plug-16A-IL-dissasemble.png
+- images/tuya-smart-plug-16A-IL-breakout.png
+- images/tuya-smart-plug-16A-IL-flasher.png
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-16A-IL/
+featured_components:
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    voltage_divider: 800
+    current_resistor: 0.001 ohm
+    update_interval: 1s
+    change_mode_every: 1
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Tuya-Smart-Plug-16A-IL
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: a0bce30c3c1311a6239e21125f3749de2b1d91913129ed63659579c62e2bcc43

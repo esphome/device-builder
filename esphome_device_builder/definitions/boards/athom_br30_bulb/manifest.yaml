@@ -1,0 +1,87 @@
+id: athom_br30_bulb
+name: Athom BR30 Bulb
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Athom-BR30-Bulb.png
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (red_output)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (white_output)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (green_output)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (ct_output)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (blue_output)
+docs_url: https://devices.esphome.io/devices/Athom-BR30-Bulb/
+featured_components:
+- id: light_rgbct_1
+  component_id: light.rgbct
+  fields:
+    restore_mode: RESTORE_DEFAULT_ON
+    red: red_output
+    green: green_output
+    blue: blue_output
+    white_brightness: white_output
+    color_temperature: ct_output
+    cold_white_color_temperature: 153 mireds
+    warm_white_color_temperature: 500 mireds
+    color_interlock: true
+    id: light_rgbct_1
+    name: Rgbct 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_4
+- id: output_esp8266_pwm_5
+  component_id: output.esp8266_pwm
+  fields:
+    inverted:
+      value: true
+      locked: true
+    pin:
+      value: 13
+      locked: true
+    id: output_esp8266_pwm_5
+source:
+  type: esphome-devices
+  remote_id: Athom-BR30-Bulb
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-BR30-Bulb/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 5903b9acdd01807b36d90f075d6029bf7e8623041bd491764b7201654921bdd5

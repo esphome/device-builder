@@ -371,7 +371,12 @@ class DevicesController:
             comment=comment,
         )
 
-        meta = get_device_metadata(self._db.settings.config_dir, filename)
+        # ``get_device_metadata`` reads ``.device-builder.json`` via
+        # ``Path.read_bytes()``; route it through the executor so the
+        # sync I/O doesn't stall the event loop (and doesn't trip
+        # blockbuster on Linux CI).
+        config_dir = self._db.settings.config_dir
+        meta = await asyncio.to_thread(get_device_metadata, config_dir, filename)
         return UpdateDeviceResponse(
             name=name,
             friendly_name=meta.get("friendly_name", name),
@@ -436,13 +441,17 @@ class DevicesController:
         # blindly ``write_text``s the new YAML and then OTA-installs
         # it, so a collision would silently overwrite the unrelated
         # device's config and flash that firmware to the wrong device.
+        # ``rel_path`` resolves the filename and ``.exists()`` is an
+        # ``os.stat`` — both blocking syscalls. Push the pair to the
+        # executor so the dashboard's request-path stays
+        # event-loop-friendly on slow / network-mounted config dirs.
+        loop = asyncio.get_running_loop()
         new_path = self._db.settings.rel_path(new_filename)
-        if new_path.exists():
+        if await loop.run_in_executor(None, new_path.exists):
             msg = f"A device named {new_filename} already exists"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
         if not await self._yaml_validates(config_path):
-            loop = asyncio.get_running_loop()
             try:
                 await loop.run_in_executor(None, self._manual_rename, configuration, new_name)
             except FileExistsError as exc:

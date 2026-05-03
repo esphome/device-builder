@@ -1,0 +1,73 @@
+id: ewelink_sant_sud01
+name: eWeLink PCIe Computer Remote (SANT-SUD01)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/eWeLink-SANT-SUD01-PCIe-power-remote.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: sensor.pulse_meter (power_status_pulses)
+- gpio: 12
+  available: false
+  occupied_by: output.gpio (out_relay)
+docs_url: https://devices.esphome.io/devices/eWeLink-SANT-SUD01/
+featured_components:
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    inverted:
+      value: true
+      locked: true
+    pin:
+      value: 12
+      locked: true
+    id: output_gpio_1
+- id: sensor_pulse_meter_1
+  component_id: sensor.pulse_meter
+  fields:
+    pin:
+      value: 0
+      locked: true
+    timeout: 5s
+    id: sensor_pulse_meter_1
+    name: Pulse Meter 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 600s
+    entity_category: diagnostic
+    id: sensor_wifi_signal_1
+    name: WiFi Signal dB
+- id: sensor_copy_1
+  component_id: sensor.copy
+  fields:
+    source_id: wifi_signal_db
+    unit_of_measurement: Signal %
+    entity_category: diagnostic
+    device_class: ''
+    id: sensor_copy_1
+    name: WiFi Signal Percent
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    restore_mode: ALWAYS_OFF
+    id: switch_template_1
+    name: Template 1
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:clock-start
+    id: text_sensor_template_1
+    name: Uptime Human Readable
+source:
+  type: esphome-devices
+  remote_id: eWeLink-SANT-SUD01
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/eWeLink-SANT-SUD01/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 5f5d6c1c85f24f9a777e7f8d9e89b71a85ee1c40dd17cd98f8bab4b680857edf

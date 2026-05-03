@@ -1,0 +1,47 @@
+id: geeni_4_outlet_surge_strip
+name: Geeni 4-Outlet Surge Strip
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/geeni4.jpg
+- images/20251115_163733.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Geeni-4-outlet-surge-strip/
+featured_components:
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: ALWAYS_ON
+    id: switch_gpio_1
+    name: Outlet 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    restore_mode: ALWAYS_ON
+    id: switch_gpio_2
+    name: Outlet 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    restore_mode: ALWAYS_ON
+    id: switch_gpio_3
+    name: Outlet 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    restore_mode: ALWAYS_ON
+    id: switch_gpio_4
+    name: Outlet 4
+source:
+  type: esphome-devices
+  remote_id: Geeni-4-outlet-surge-strip
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Geeni-4-outlet-surge-strip/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 2f4d98cd886540245572f1dfa20f87c8e642b21b7841795bdbd43f553808abd2

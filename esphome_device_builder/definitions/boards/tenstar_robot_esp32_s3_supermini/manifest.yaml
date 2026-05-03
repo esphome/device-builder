@@ -1,0 +1,38 @@
+id: tenstar_robot_esp32_s3_supermini
+name: TENSTAR ROBOT ESP32-S3 Supermini
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/esp32s3supermini.jpeg
+pins:
+- gpio: 48
+  available: false
+  occupied_by: light.esp32_rmt_led_strip (WS2812B Light)
+docs_url: https://devices.esphome.io/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/
+featured_components:
+- id: light_esp32_rmt_led_strip_1
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    chipset: WS2812
+    pin:
+      value: 48
+      locked: true
+    num_leds: 1
+    rgb_order: GRB
+    restore_mode: ALWAYS_ON
+    id: light_esp32_rmt_led_strip_1
+    name: WS2812B Light
+source:
+  type: esphome-devices
+  remote_id: TENSTAR-ROBOT-ESP32-S3-SuperMini
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 423eeab17a2da8b96eebd19a6d1dc37cfb5693938298ad4cbf1db037b7b3c213

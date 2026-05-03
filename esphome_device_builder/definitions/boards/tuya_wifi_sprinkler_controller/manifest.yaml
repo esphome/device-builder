@@ -1,0 +1,237 @@
+id: tuya_wifi_sprinkler_controller
+name: Tuya WIFI Sprinkler Controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/disassembled.jpg
+- images/assembled.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: output.gpio (led_1)
+- gpio: 1
+  available: false
+  occupied_by: output.gpio (led_2)
+- gpio: 2
+  available: false
+  occupied_by: output.gpio (led_3)
+- gpio: 3
+  available: false
+  occupied_by: output.gpio (led_4)
+- gpio: 4
+  available: false
+  occupied_by: output.gpio (led_5)
+- gpio: 5
+  available: false
+  occupied_by: output.gpio (led_6)
+- gpio: 6
+  available: false
+  occupied_by: output.gpio (led_7)
+- gpio: 7
+  available: false
+  occupied_by: output.gpio (led_8)
+docs_url: https://devices.esphome.io/devices/Tuya-WIFI-Sprinkler-Controller/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_4
+    name: Gpio 4
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: led_sn74hc595
+        number: 0
+        inverted: true
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: led_sn74hc595
+        number: 1
+        inverted: true
+      locked: true
+    id: output_gpio_2
+- id: output_gpio_3
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: led_sn74hc595
+        number: 2
+        inverted: true
+      locked: true
+    id: output_gpio_3
+- id: output_gpio_4
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: led_sn74hc595
+        number: 3
+        inverted: true
+      locked: true
+    id: output_gpio_4
+- id: output_gpio_5
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: led_sn74hc595
+        number: 4
+        inverted: true
+      locked: true
+    id: output_gpio_5
+- id: output_gpio_6
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: led_sn74hc595
+        number: 5
+        inverted: true
+      locked: true
+    id: output_gpio_6
+- id: output_gpio_7
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: led_sn74hc595
+        number: 6
+        inverted: true
+      locked: true
+    id: output_gpio_7
+- id: output_gpio_8
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: led_sn74hc595
+        number: 7
+        inverted: true
+      locked: true
+    id: output_gpio_8
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: valve_sn74hc595
+        number: 0
+        inverted: false
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: valve_sn74hc595
+        number: 1
+        inverted: false
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: valve_sn74hc595
+        number: 2
+        inverted: false
+      locked: true
+    id: switch_gpio_3
+    name: Gpio 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: valve_sn74hc595
+        number: 3
+        inverted: false
+      locked: true
+    id: switch_gpio_4
+    name: Gpio 4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: valve_sn74hc595
+        number: 4
+        inverted: false
+      locked: true
+    id: switch_gpio_5
+    name: Gpio 5
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: valve_sn74hc595
+        number: 5
+        inverted: false
+      locked: true
+    id: switch_gpio_6
+    name: Gpio 6
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: valve_sn74hc595
+        number: 6
+        inverted: false
+      locked: true
+    id: switch_gpio_7
+    name: Gpio 7
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: valve_sn74hc595
+        number: 7
+        inverted: false
+      locked: true
+    id: switch_gpio_8
+    name: Gpio 8
+source:
+  type: esphome-devices
+  remote_id: Tuya-WIFI-Sprinkler-Controller
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-WIFI-Sprinkler-Controller/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 6d7bf10c35b6961bea168848585c2833db18d5691cb086ac2e4dd268d3e1d81b

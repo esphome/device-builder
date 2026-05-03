@@ -1,0 +1,58 @@
+id: geekbes_ym_ws_1
+name: Geekbes YM-WS-1 Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/geekbes_YM-WS-1.png
+tags:
+- relay
+- compact
+pins:
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (blue_led)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (${friendly_name})
+docs_url: https://devices.esphome.io/devices/Geekbes-YM-WS-1/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: Geekbes-YM-WS-1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Geekbes-YM-WS-1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: aa985c3aee8aad4cea8dc52e65e5bdc1ce42ec188f5e0d18a96f4a15ca899872

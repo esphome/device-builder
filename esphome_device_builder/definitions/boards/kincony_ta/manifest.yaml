@@ -1,0 +1,399 @@
+id: kincony_ta
+name: KinCony-TA (ESP32 Smart Tiny Alarm System)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/TA1.jpg
+- images/TA2.jpg
+- images/TA3.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input01)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input02)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input03)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input04)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input05)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input06)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input07)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input08)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input09)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input10)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input11)
+- gpio: 11
+  available: false
+  occupied_by: binary_sensor.gpio (ta-input12)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (ta-433M-R)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (ta-io13)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (ta-io14)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (ta-output02)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (ta-io21)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (ta-io40)
+- gpio: 47
+  available: false
+  occupied_by: binary_sensor.gpio (ta-io47)
+- gpio: 48
+  available: false
+  occupied_by: binary_sensor.gpio (ta-io48)
+docs_url: https://devices.esphome.io/devices/KinCony-TA/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: ta-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: ta-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: ta-input03
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: ta-input04
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: ta-input05
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: ta-input06
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: ta-input07
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: ta-input08
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: ta-input09
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: ta-input10
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: ta-input11
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: ta-input12
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 9
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: ta-io09
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 11
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: ta-io11
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: ta-io05
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: ta-io04
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 7
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_17
+    name: ta-io07
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_18
+    name: ta-io06
+- id: binary_sensor_gpio_19
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_19
+    name: ta-io13
+- id: binary_sensor_gpio_20
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_20
+    name: ta-io40
+- id: binary_sensor_gpio_21
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_21
+    name: ta-io14
+- id: binary_sensor_gpio_22
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 48
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_22
+    name: ta-io48
+- id: binary_sensor_gpio_23
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 21
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_23
+    name: ta-io21
+- id: binary_sensor_gpio_24
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 47
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_24
+    name: ta-io47
+- id: binary_sensor_gpio_25
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_25
+    name: ta-io0
+- id: binary_sensor_gpio_26
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_26
+    name: ta-433M-R
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_1
+    id: switch_uart_1
+    name: RS485 Button
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: ta-output01
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: ta-output02
+source:
+  type: esphome-devices
+  remote_id: KinCony-TA
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-TA/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1300f77c5a1d463cc4d7de1cefc5ebd70ab70ee773c7fe040003664e71aacf3b

@@ -1,0 +1,190 @@
+id: kincony_mb
+name: KinCony-MB (DC Battery Monitor)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/MB-1_05.jpg
+- images/MB-1_06.jpg
+docs_url: https://devices.esphome.io/devices/KinCony-MB/
+featured_components:
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    i2c_id: bus_a
+    model: SSD1306 128x64
+    address: 60
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: sensor_ina226_1
+  component_id: sensor.ina226
+  fields:
+    address: 64
+    i2c_id: bus_a
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_1
+    name: Ina226 1
+- id: sensor_ina226_2
+  component_id: sensor.ina226
+  fields:
+    address: 65
+    i2c_id: bus_a
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_2
+    name: Ina226 2
+- id: sensor_ina226_3
+  component_id: sensor.ina226
+  fields:
+    address: 66
+    i2c_id: bus_a
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_3
+    name: Ina226 3
+- id: sensor_ina226_4
+  component_id: sensor.ina226
+  fields:
+    address: 67
+    i2c_id: bus_a
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_4
+    name: Ina226 4
+- id: sensor_ina226_5
+  component_id: sensor.ina226
+  fields:
+    address: 68
+    i2c_id: bus_a
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_5
+    name: Ina226 5
+- id: sensor_ina226_6
+  component_id: sensor.ina226
+  fields:
+    address: 69
+    i2c_id: bus_a
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_6
+    name: Ina226 6
+- id: sensor_ina226_7
+  component_id: sensor.ina226
+  fields:
+    address: 70
+    i2c_id: bus_a
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_7
+    name: Ina226 7
+- id: sensor_ina226_8
+  component_id: sensor.ina226
+  fields:
+    address: 71
+    i2c_id: bus_a
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_8
+    name: Ina226 8
+- id: sensor_ina226_9
+  component_id: sensor.ina226
+  fields:
+    address: 64
+    i2c_id: bus_b
+    shunt_resistance: 0.1 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_9
+    name: Ina226 9
+- id: sensor_ina226_10
+  component_id: sensor.ina226
+  fields:
+    address: 65
+    i2c_id: bus_b
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_10
+    name: Ina226 10
+- id: sensor_ina226_11
+  component_id: sensor.ina226
+  fields:
+    address: 66
+    i2c_id: bus_b
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_11
+    name: Ina226 11
+- id: sensor_ina226_12
+  component_id: sensor.ina226
+  fields:
+    address: 67
+    i2c_id: bus_b
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_12
+    name: Ina226 12
+- id: sensor_ina226_13
+  component_id: sensor.ina226
+  fields:
+    address: 68
+    i2c_id: bus_b
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_13
+    name: Ina226 13
+- id: sensor_ina226_14
+  component_id: sensor.ina226
+  fields:
+    address: 69
+    i2c_id: bus_b
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_14
+    name: Ina226 14
+- id: sensor_ina226_15
+  component_id: sensor.ina226
+  fields:
+    address: 70
+    i2c_id: bus_b
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_15
+    name: Ina226 15
+- id: sensor_ina226_16
+  component_id: sensor.ina226
+  fields:
+    address: 71
+    i2c_id: bus_b
+    shunt_resistance: 0.01 ohm
+    max_current: 15A
+    update_interval: 5s
+    id: sensor_ina226_16
+    name: Ina226 16
+source:
+  type: esphome-devices
+  remote_id: KinCony-MB
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-MB/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 5490c887019040892fc001b40544cd539c5f33a46dddd1bd35996f10f71ceec2

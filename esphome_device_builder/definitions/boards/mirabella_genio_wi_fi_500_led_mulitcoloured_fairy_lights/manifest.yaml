@@ -1,0 +1,82 @@
+id: mirabella_genio_wi_fi_500_led_mulitcoloured_fairy_lights
+name: Mirabella Genio Wi-Fi 500 LED Mulitcoloured Fairy Lights
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.gpio (status_led)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (pina)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (pinb)
+docs_url: https://devices.esphome.io/devices/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: light_hbridge_1
+  component_id: light.hbridge
+  fields:
+    pin_a:
+      value: pina
+      locked: true
+    pin_b:
+      value: pinb
+      locked: true
+    id: light_hbridge_1
+    name: Fairy Lights
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    internal: true
+    output: status_led
+    id: light_binary_1
+    name: LED
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_gpio_1
+source:
+  type: esphome-devices
+  remote_id: Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 92c7c609fb9264b10f099f748c772dd76d020ec06952dc2c5add7563f0b98eb5

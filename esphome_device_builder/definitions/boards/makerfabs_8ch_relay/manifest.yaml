@@ -1,0 +1,137 @@
+id: makerfabs_8ch_relay
+name: MAKERFABS-8CH-RELAY
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image_1.jpg
+tags:
+- relay
+pins:
+- gpio: 4
+  available: false
+  occupied_by: 'switch.gpio (Relay #6)'
+- gpio: 5
+  available: false
+  occupied_by: 'switch.gpio (Relay #8)'
+- gpio: 13
+  available: false
+  occupied_by: 'switch.gpio (Relay #4)'
+- gpio: 14
+  available: false
+  occupied_by: 'switch.gpio (Relay #3)'
+- gpio: 15
+  available: false
+  occupied_by: 'switch.gpio (Relay #5)'
+- gpio: 16
+  available: false
+  occupied_by: 'switch.gpio (Relay #7)'
+- gpio: 32
+  available: false
+  occupied_by: 'switch.gpio (Relay #1)'
+- gpio: 33
+  available: false
+  occupied_by: 'switch.gpio (Relay #2)'
+docs_url: https://devices.esphome.io/devices/Makerfabs-8CH-Relay/
+featured_components:
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 32
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_1
+    name: 'Relay #1'
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 33
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_2
+    name: 'Relay #2'
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_3
+    name: 'Relay #3'
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_4
+    name: 'Relay #4'
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_5
+    name: 'Relay #5'
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_6
+    name: 'Relay #6'
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 16
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_7
+    name: 'Relay #7'
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_8
+    name: 'Relay #8'
+source:
+  type: esphome-devices
+  remote_id: Makerfabs-8CH-Relay
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Makerfabs-8CH-Relay/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e0d06fe814c007665bc4a580503cf026ba48dd5e1b108a30eb0892bcacb2348e

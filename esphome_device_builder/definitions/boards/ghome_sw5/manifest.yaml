@@ -1,0 +1,28 @@
+id: ghome_sw5
+name: GHome SW5
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/ghome-sw5.jpg
+- images/pogo-mounted.png
+- images/pogo-clip.png
+- images/janky.png
+docs_url: https://devices.esphome.io/devices/Ghome-SW5/
+featured_components:
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: red_led
+    id: light_binary_1
+    name: Red LED
+source:
+  type: esphome-devices
+  remote_id: Ghome-SW5
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Ghome-SW5/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: df97ff471449e4454453a0d0eb7a124c6f6c89db638fb1ab95799d446a0cfb82

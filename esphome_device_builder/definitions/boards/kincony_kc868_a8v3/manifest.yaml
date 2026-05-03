@@ -1,0 +1,368 @@
+id: kincony_kc868_a8v3
+name: KinCony KC868-A8v3 (ESP32-S3 Relay)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/A8v3-3.jpg
+- images/A8v3_diagram-1.jpg
+- images/A8v3_diagram-2.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-0)
+- gpio: 1
+  available: false
+  occupied_by: switch.gpio (a8v3-output02)
+- gpio: 2
+  available: false
+  occupied_by: switch.gpio (a8v3-output03)
+- gpio: 3
+  available: false
+  occupied_by: switch.gpio (a8v3-output04)
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (a8v3-output05)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-5)
+- gpio: 6
+  available: false
+  occupied_by: sensor.adc (A8v3 A2 Voltage)
+- gpio: 7
+  available: false
+  occupied_by: sensor.adc (A8v3 A1 Voltage)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-input01)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-input02)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-input03)
+- gpio: 11
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-input04)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-input05)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-input06)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-input07)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-input08)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-W1-io40)
+- gpio: 48
+  available: false
+  occupied_by: binary_sensor.gpio (a8v3-W1-io48)
+docs_url: https://devices.esphome.io/devices/KinCony-KC868-A8v3/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: a8v3-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: a8v3-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: a8v3-input03
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: a8v3-input04
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: a8v3-input05
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: a8v3-input06
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: a8v3-input07
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: a8v3-input08
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: a8v3-W1-io13
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: a8v3-W1-io40
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: a8v3-W1-io14
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 48
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: a8v3-W1-io48
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_13
+    name: a8v3-5
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_14
+    name: a8v3-0
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    i2c_id: bus_a
+    model: SSD1306 128x64
+    address: 60
+    lambda: it.printf(0, 0, id(roboto), "KinCony a8v3");
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 7
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_1
+    name: A8v3 A1 Voltage
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 6
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_2
+    name: A8v3 A2 Voltage
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_1
+    id: switch_uart_1
+    name: RS485 Button
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: a8v3-output01
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: a8v3-output02
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: a8v3-output03
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: a8v3-output04
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: a8v3-output05
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_6
+    name: a8v3-output06
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_7
+    name: a8v3-output07
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_8
+    name: a8v3-output08
+source:
+  type: esphome-devices
+  remote_id: KinCony-KC868-A8v3
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-A8v3/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: fe0efa7c32a9aacdc1e6a3d55923208f9aeade25682398b367ab3f534a894682

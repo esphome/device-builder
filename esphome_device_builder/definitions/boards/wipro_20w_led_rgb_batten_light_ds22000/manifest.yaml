@@ -1,0 +1,100 @@
+id: wipro_20w_led_rgb_batten_light_ds22000
+name: Wipro 20W LED RGB Batten Light (DS22000)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/TYWE3L.png
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (red)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (cold_white)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (green)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (warm_white)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (blue)
+docs_url: https://devices.esphome.io/devices/Wipro-20W-LED-RGB-Batten-Light-DS22000/
+featured_components:
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    default_transition_length: 0s
+    red: red
+    green: green
+    blue: blue
+    cold_white: cold_white
+    warm_white: warm_white
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    color_interlock: true
+    restore_mode: ALWAYS_ON
+    id: light_rgbww_1
+    name: Wipro RGB
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_4
+- id: output_esp8266_pwm_5
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_5
+source:
+  type: esphome-devices
+  remote_id: Wipro-20W-LED-RGB-Batten-Light-DS22000
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Wipro-20W-LED-RGB-Batten-Light-DS22000/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 48cac83b51238a28bff53d7a8114eac8b1e64c86c666e93f62d5e48e8413b808

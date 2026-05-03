@@ -27,28 +27,7 @@ from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LI
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
 
-
-class _FakeClient:
-    """Captures send_event calls in order without an actual WS.
-
-    ``send_event`` yields control via ``asyncio.sleep(0)`` on every
-    call so the history-send loop interleaves with whatever else
-    the test scheduled — without that yield the entire history
-    snapshot would be drained in a single uninterrupted task slice
-    (``send_event`` is sync work otherwise) and the race-window
-    tests below would never actually observe a mid-history-send
-    state. The yield makes the test loop's "fire JOB_OUTPUT now"
-    scheduling actually land inside the history send rather than
-    after it, which is the critical case the race-fix was added
-    for.
-    """
-
-    def __init__(self) -> None:
-        self.events: list[tuple[str, Any]] = []
-
-    async def send_event(self, _message_id: str, event: str, data: Any) -> None:
-        await asyncio.sleep(0)
-        self.events.append((event, data))
+from ...conftest import FakeWebSocketClient
 
 
 def _make_controller_with_job(job: FirmwareJob) -> FirmwareController:
@@ -77,12 +56,12 @@ async def test_terminal_job_replays_full_history_and_returns() -> None:
         exit_code=0,
     )
     controller = _make_controller_with_job(job)
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
 
     await controller.follow_job(job_id="abc", client=client, message_id="m1")
 
-    output_events = [(e, d) for (e, d) in client.events if e == "output"]
-    result_events = [(e, d) for (e, d) in client.events if e == "result"]
+    output_events = [("output", d) for d in client.events_for("output")]
+    result_events = [("result", d) for d in client.events_for("result")]
     assert [d for _e, d in output_events] == ["line a\n", "line b\n", "line c\n"]
     assert len(result_events) == 1
     assert result_events[0][1] == {"status": "completed", "exit_code": 0}
@@ -105,7 +84,7 @@ async def test_history_lines_arrive_before_live_lines_in_order() -> None:
         output=["history-1\n", "history-2\n"],
     )
     controller = _make_controller_with_job(job)
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
     async def follower() -> None:
@@ -130,7 +109,7 @@ async def test_history_lines_arrive_before_live_lines_in_order() -> None:
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    output_lines = [d for (e, d) in client.events if e == "output"]
+    output_lines = client.events_for("output")
     # Strict ordering: every history line strictly precedes every
     # live line, and within each group the original order is
     # preserved.
@@ -152,7 +131,7 @@ async def test_live_events_for_other_jobs_are_filtered_out() -> None:
         output=[],
     )
     controller = _make_controller_with_job(job)
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
     async def follower() -> None:
@@ -171,7 +150,7 @@ async def test_live_events_for_other_jobs_are_filtered_out() -> None:
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    output_lines = [d for (e, d) in client.events if e == "output"]
+    output_lines = client.events_for("output")
     assert output_lines == ["from us\n"]
 
 
@@ -199,7 +178,7 @@ async def test_streaming_loop_cannot_append_between_snapshot_and_subscribe() -> 
         output=["pre-snapshot\n"],
     )
     controller = _make_controller_with_job(job)
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
     async def follower() -> None:
@@ -218,7 +197,7 @@ async def test_streaming_loop_cannot_append_between_snapshot_and_subscribe() -> 
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    output_lines = [d for (e, d) in client.events if e == "output"]
+    output_lines = client.events_for("output")
     # Exactly one of each — no duplication of pre-snapshot, no
     # missing post-snapshot.
     assert output_lines == ["pre-snapshot\n", "post-snapshot\n"]
@@ -373,7 +352,7 @@ async def test_cancelled_terminal_event_returns_with_status() -> None:
         output=["pre-cancel\n"],
     )
     controller = _make_controller_with_job(job)
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
     async def follower() -> None:
@@ -387,8 +366,8 @@ async def test_cancelled_terminal_event_returns_with_status() -> None:
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    output_lines = [d for (e, d) in client.events if e == "output"]
-    result_events = [d for (e, d) in client.events if e == "result"]
+    output_lines = client.events_for("output")
+    result_events = client.events_for("result")
     assert output_lines == ["pre-cancel\n"]
     assert len(result_events) == 1
     assert result_events[0]["status"] == "cancelled"

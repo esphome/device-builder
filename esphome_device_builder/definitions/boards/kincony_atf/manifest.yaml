@@ -1,0 +1,257 @@
+id: kincony_atf
+name: KinCony-ATF (ESP32-S3 SD Card Module)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/esp32-sd-card-pins.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (4)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (13)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (14)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (15)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (16)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (21)
+- gpio: 22
+  available: false
+  occupied_by: binary_sensor.gpio (22)
+- gpio: 25
+  available: false
+  occupied_by: binary_sensor.gpio (TMP2)
+- gpio: 26
+  available: false
+  occupied_by: binary_sensor.gpio (TMP1)
+- gpio: 27
+  available: false
+  occupied_by: binary_sensor.gpio (27)
+- gpio: 32
+  available: false
+  occupied_by: binary_sensor.gpio (32)
+- gpio: 33
+  available: false
+  occupied_by: binary_sensor.gpio (33)
+- gpio: 34
+  available: false
+  occupied_by: binary_sensor.gpio (34)
+- gpio: 35
+  available: false
+  occupied_by: binary_sensor.gpio (35)
+- gpio: 36
+  available: false
+  occupied_by: binary_sensor.gpio (36)
+- gpio: 37
+  available: false
+  occupied_by: binary_sensor.gpio (37)
+- gpio: 38
+  available: false
+  occupied_by: binary_sensor.gpio (38)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (39)
+docs_url: https://devices.esphome.io/devices/KinCony-ATF/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 21
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: '21'
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 22
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: '22'
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: '14'
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 27
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: '27'
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: '13'
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: '15'
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: '16'
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: '4'
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 36
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: '36'
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 37
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: '37'
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 38
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: '38'
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: '39'
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 34
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: '34'
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 35
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: '35'
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: TMP1
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 25
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: TMP2
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 32
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_17
+    name: '32'
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 33
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_18
+    name: '33'
+source:
+  type: esphome-devices
+  remote_id: KinCony-ATF
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-ATF/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f6bc388ee415414ef6b82828ea1ef8a445a2be0203bb71ee93fe8f578a66a5d2

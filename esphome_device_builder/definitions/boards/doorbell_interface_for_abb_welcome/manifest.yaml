@@ -1,0 +1,42 @@
+id: doorbell_interface_for_abb_welcome
+name: Doorbell Interface for ABB-Welcome
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/pcb.png
+docs_url: https://devices.esphome.io/devices/Doorbell-Interface-for-ABB-Welcome/
+product_url: https://github.com/Mat931/esp32-doorbell-bus-interface
+featured_components:
+- id: binary_sensor_template_1
+  component_id: binary_sensor.template
+  fields:
+    icon: mdi:bell
+    id: binary_sensor_template_1
+    name: Doorbell indoor
+- id: binary_sensor_template_2
+  component_id: binary_sensor.template
+  fields:
+    icon: mdi:bell
+    id: binary_sensor_template_2
+    name: Doorbell outdoor
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:bell-circle
+    update_interval: never
+    id: text_sensor_template_1
+    name: Doorbell Intercom
+source:
+  type: esphome-devices
+  remote_id: Doorbell-Interface-for-ABB-Welcome
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Doorbell-Interface-for-ABB-Welcome/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 49ade9a5a3df5df62aa9e12f40bdc256b663497f33131a80bcfa737ca5f538f5

@@ -1,0 +1,89 @@
+id: elegrp_rrr00_in_wall_outlet
+name: Elegrp RRR00 Smart In-Wall Outlet with Energy Monitoring
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/RRR00-front-amazon.jpg
+- images/backDetail.jpg
+- images/relays.jpg
+- images/wifiModuleFront.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Elegrp-RRR00-in-wall-outlet/
+featured_components:
+- id: button_factory_reset_1
+  component_id: button.factory_reset
+  fields:
+    disabled_by_default: true
+    entity_category: config
+    icon: mdi:restart-alert
+    id: button_factory_reset_1
+    name: Factory Reset
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: upper_white_led
+    internal: true
+    id: light_binary_1
+    name: Binary 1
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: lower_white_led
+    internal: true
+    id: light_binary_2
+    name: Binary 2
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    inverted:
+      value: false
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    inverted:
+      value: false
+      locked: true
+    id: output_gpio_2
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: WiFi Signal
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    power_id: power_monitor
+    unit_of_measurement: kWh
+    state_class: total_increasing
+    device_class: energy
+    accuracy_decimals: 3
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Relay 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_2
+    name: Relay 2
+source:
+  type: esphome-devices
+  remote_id: Elegrp-RRR00-in-wall-outlet
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: fe51ddb2b03ddb258ae8e585ff2ed0661cf98a83c89c647bd779ef78f8edb0bd

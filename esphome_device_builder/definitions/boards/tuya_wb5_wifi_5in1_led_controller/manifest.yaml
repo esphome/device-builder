@@ -1,0 +1,38 @@
+id: tuya_wb5_wifi_5in1_led_controller
+name: Tuya WB5 WiFi 5 in 1 LED Controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/WB5-WiFi-5IN1-LED-Controller.jpg
+- images/WB5-pcb.jpg
+- images/usb-serial-adapter.jpg
+- images/probe-hook.jpg
+- images/Probe-Test-Lead.jpg
+- images/pins.jpg
+- images/pcbite.jpg
+- images/Outout-Mode.jpg
+docs_url: https://devices.esphome.io/devices/Tuya-WB5-WiFi-5in1-LED-Controller/
+featured_components:
+- id: light_tuya_1
+  component_id: light.tuya
+  fields:
+    color_interlock: true
+    gamma_correct: 1
+    default_transition_length: 0s
+    switch_datapoint: 20
+    dimmer_datapoint: 22
+    min_value: 0
+    max_value: 1000
+    id: light_tuya_1
+    name: WB5 LED Controller
+source:
+  type: esphome-devices
+  remote_id: Tuya-WB5-WiFi-5in1-LED-Controller
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: a9b4695749505ceb4c37940f7bc4400fd7ef7763b0251928bb2069da599717fb

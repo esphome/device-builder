@@ -1,0 +1,35 @@
+id: tapo_l900_5eu
+name: Tapo L900 RGB 5M Light Strip
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: rtl87xx
+  board: generic-rtl8720cf-2mb-992k
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Tapo-L900-Box.jpg
+- images/Tapo-L900-PCB-Front.jpg
+- images/Tapo-L900-PCB-Back.jpg
+docs_url: https://devices.esphome.io/devices/Tapo-L900-5EU/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_1
+    name: strip_light_pushbutton
+- id: light_rgb_1
+  component_id: light.rgb
+  fields:
+    red: output_red
+    green: output_green
+    blue: output_blue
+    id: light_rgb_1
+    name: Strip Light
+source:
+  type: esphome-devices
+  remote_id: Tapo-L900-5EU
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tapo-L900-5EU/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 23ae21562a82d9d31b93cbc2f0f82489124b2311943f1f89e735b9e2b220fd2e

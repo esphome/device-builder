@@ -1,0 +1,96 @@
+id: sonoff_pow_r1
+name: Sonoff POWR1
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/inside.jpg
+tags:
+- relay
+- sonoff
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (SonOff POW Button)
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (relay)
+- gpio: 13
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 14
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 15
+  available: false
+  occupied_by: output.esp8266_pwm (pow_blue_led)
+docs_url: https://devices.esphome.io/devices/Sonoff-POW-R1/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: SonOff POW Button
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: pow_blue_led
+    id: light_monochromatic_1
+    name: SonOff POW Blue LED
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value:
+        number: 15
+        inverted: true
+      locked: true
+    id: output_esp8266_pwm_1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value: 5
+      locked: true
+    cf_pin:
+      value: 14
+      locked: true
+    cf1_pin:
+      value: 13
+      locked: true
+    update_interval: 2s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    optimistic: true
+    id: switch_template_1
+    name: SonOff POW Relay
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Sonoff-POW-R1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-POW-R1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: db2253433ea5814cc9f37b5fe5882dbb0ab78ab2bcdc96949f249e3710eba37b

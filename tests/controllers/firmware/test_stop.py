@@ -19,11 +19,14 @@ import subprocess
 import sys
 import time
 from contextlib import suppress
+from functools import partial
 from unittest.mock import MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware import controller as _firmware_controller_mod
+from esphome_device_builder.helpers import process as _process_mod
 from esphome_device_builder.helpers.process import _signal_process_group
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
 
@@ -149,6 +152,7 @@ def controller() -> FirmwareController:
 
 async def test_terminate_kills_grandchild_via_process_group(
     controller: FirmwareController,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Cancel-while-compiling must kill platformio/gcc grandchildren too.
 
@@ -156,6 +160,15 @@ async def test_terminate_kills_grandchild_via_process_group(
     forks ``gcc``. ``proc.terminate()`` only hits the direct child, so
     the toolchain runs on regardless. Group-signalling fixes that.
     """
+    # Production grace is 3s so well-behaved tools can flush on SIGTERM;
+    # this test deliberately traps SIGTERM, so the grace is pure dead
+    # time. Wrap the controller's binding so the SIGKILL escalation
+    # fires after 0.1s instead of the full window.
+    monkeypatch.setattr(
+        _firmware_controller_mod,
+        "terminate_subtree_with_grace",
+        partial(_process_mod.terminate_subtree_with_grace, grace_seconds=0.1),
+    )
     # Parent spawns a grandchild that traps SIGTERM (so a parent-only
     # signal would not cascade) and prints its pid for the assertion.
     script = (

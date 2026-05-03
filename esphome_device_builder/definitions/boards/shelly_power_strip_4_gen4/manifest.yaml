@@ -1,0 +1,187 @@
+id: shelly_power_strip_4_gen4
+name: Shelly Power Strip 4 Gen4
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/index.png
+tags:
+- relay
+- compact
+- shelly
+pins:
+- gpio: 1
+  available: false
+  occupied_by: switch.gpio (Outlet 4)
+- gpio: 2
+  available: false
+  occupied_by: switch.gpio (Outlet 2)
+- gpio: 3
+  available: false
+  occupied_by: switch.gpio (Outlet 3)
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (Outlet 1)
+- gpio: 6
+  available: false
+  occupied_by: sensor.ade7953_spi (ade7953_0)
+- gpio: 7
+  available: false
+  occupied_by: sensor.ade7953_spi (ade7953_1)
+- gpio: 10
+  available: false
+  occupied_by: sensor.ade7953_spi (ade7953_1)
+- gpio: 15
+  available: false
+  occupied_by: sensor.ade7953_spi (ade7953_0)
+- gpio: 18
+  available: false
+  occupied_by: light.esp32_rmt_led_strip (LED Strip)
+- gpio: 20
+  available: false
+  occupied_by: binary_sensor.gpio (Button 1)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (Button 4)
+- gpio: 22
+  available: false
+  occupied_by: binary_sensor.gpio (Button 2)
+- gpio: 23
+  available: false
+  occupied_by: binary_sensor.gpio (Button 3)
+docs_url: https://devices.esphome.io/devices/Shelly-Power-Strip-4-Gen4/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 20
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 22
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Button 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 23
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Button 3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 21
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: Button 4
+- id: light_esp32_rmt_led_strip_1
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    pin:
+      value: 18
+      locked: true
+    num_leds: 12
+    chipset: WS2812
+    rgb_order: GRB
+    default_transition_length: 0s
+    internal: true
+    id: light_esp32_rmt_led_strip_1
+    name: LED Strip
+- id: sensor_ade7953_spi_1
+  component_id: sensor.ade7953_spi
+  fields:
+    cs_pin:
+      value: 15
+      locked: true
+    irq_pin:
+      value: 6
+      locked: true
+    update_interval: 10s
+    id: sensor_ade7953_spi_1
+    name: Ade7953 Spi 1
+- id: sensor_ade7953_spi_2
+  component_id: sensor.ade7953_spi
+  fields:
+    cs_pin:
+      value: 10
+      locked: true
+    irq_pin:
+      value: 7
+      locked: true
+    update_interval: 10s
+    id: sensor_ade7953_spi_2
+    name: Ade7953 Spi 2
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:power-socket-eu
+    id: switch_gpio_1
+    name: Outlet 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 2
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:power-socket-eu
+    id: switch_gpio_2
+    name: Outlet 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 3
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:power-socket-eu
+    id: switch_gpio_3
+    name: Outlet 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 1
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:power-socket-eu
+    id: switch_gpio_4
+    name: Outlet 4
+source:
+  type: esphome-devices
+  remote_id: Shelly-Power-Strip-4-Gen4
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Power-Strip-4-Gen4/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 453cec4b753cd6f567798e7ef0e49f06f9db7d5d0ef94523a8c15757bd0b9729

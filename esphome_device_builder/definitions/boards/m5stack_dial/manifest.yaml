@@ -1,0 +1,121 @@
+id: m5stack_dial
+name: M5Stack Dial
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/M5Stack-Dial.png
+pins:
+- gpio: 3
+  available: false
+  occupied_by: output.ledc (buzzer)
+- gpio: 4
+  available: false
+  occupied_by: display.ili9xxx (round_display)
+- gpio: 7
+  available: false
+  occupied_by: display.ili9xxx (round_display)
+- gpio: 8
+  available: false
+  occupied_by: display.ili9xxx (round_display)
+- gpio: 9
+  available: false
+  occupied_by: output.ledc (backlight_output)
+- gpio: 40
+  available: false
+  occupied_by: sensor.rotary_encoder (encoder)
+- gpio: 41
+  available: false
+  occupied_by: sensor.rotary_encoder (encoder)
+- gpio: 42
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 46
+  available: false
+  occupied_by: binary_sensor.gpio (Hold Button)
+docs_url: https://devices.esphome.io/devices/M5Stack-Dial/
+product_url: https://docs.m5stack.com/en/core/M5Dial
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 42
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 46
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Hold Button
+- id: display_ili9xxx_1
+  component_id: display.ili9xxx
+  fields:
+    model: GC9A01A
+    cs_pin:
+      value: 7
+      locked: true
+    reset_pin:
+      value: 8
+      locked: true
+    dc_pin:
+      value: 4
+      locked: true
+    id: display_ili9xxx_1
+    name: Ili9Xxx 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: backlight_output
+    default_transition_length: 0s
+    id: light_monochromatic_1
+    name: Backlight
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 3
+      locked: true
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 9
+      locked: true
+    id: output_ledc_2
+- id: sensor_rotary_encoder_1
+  component_id: sensor.rotary_encoder
+  fields:
+    pin_a:
+      value: 40
+      locked: true
+    pin_b:
+      value: 41
+      locked: true
+    id: sensor_rotary_encoder_1
+    name: Rotary Encoder 1
+- id: touchscreen_ft5x06_1
+  component_id: touchscreen.ft5x06
+  fields:
+    i2c_id: internal_i2c
+    address: 56
+    id: touchscreen_ft5x06_1
+    name: Ft5X06 1
+source:
+  type: esphome-devices
+  remote_id: M5Stack-Dial
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/M5Stack-Dial/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: a54556103154ce7822a68f57658d77b7b861e16505c2e29512fe06f346784d6a

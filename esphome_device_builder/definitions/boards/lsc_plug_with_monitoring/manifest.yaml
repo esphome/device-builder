@@ -1,0 +1,50 @@
+id: lsc_plug_with_monitoring
+name: LSC smart plug with monitoring 3202087
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/box.png
+- images/device.png
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/LSC-Plug-With-Monitoring/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: light_status_led_1
+    name: Red led
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: output_blue_led
+    restore_mode: RESTORE_DEFAULT_OFF
+    internal: true
+    id: light_binary_1
+    name: Status led
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    change_mode_every: 2
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: none
+source:
+  type: esphome-devices
+  remote_id: LSC-Plug-With-Monitoring
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LSC-Plug-With-Monitoring/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: aa8a8783c823cf454116baf7fd400b0a0207d2af4de7d7f9926cf8be41819bb1

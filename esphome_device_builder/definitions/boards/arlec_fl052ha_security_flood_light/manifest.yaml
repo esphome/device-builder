@@ -1,0 +1,40 @@
+id: arlec_fl052ha_security_flood_light
+name: Arlec FL052HA Security Flood Light
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Arlec-FL052HA-Security-Flood-Light.png
+- images/1019.jpg
+- images/0320.jpg
+- images/0520.jpg
+pins:
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_output)
+docs_url: https://devices.esphome.io/devices/Arlec-FL052HA-Security-Flood-Light/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: pwm_output
+    id: light_monochromatic_1
+    name: fl052ha_flood_light
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_1
+source:
+  type: esphome-devices
+  remote_id: Arlec-FL052HA-Security-Flood-Light
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b171af82418e8f268d3fb457c00f7c0e252e44eac010ce6f778102ad1fcad81a

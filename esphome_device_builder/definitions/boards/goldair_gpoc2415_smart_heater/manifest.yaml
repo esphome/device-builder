@@ -1,0 +1,97 @@
+id: goldair_gpoc2415_smart_heater
+name: Goldair GPOC2415 Platinum 2400W Smart Wi-Fi Oil Column Heater
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp12e
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/device.webp
+- images/chip.jpg
+docs_url: https://devices.esphome.io/devices/Goldair-GPOC2415-Smart-Heater/
+featured_components:
+- id: climate_tuya_1
+  component_id: climate.tuya
+  fields:
+    switch_datapoint: 1
+    target_temperature_datapoint: 2
+    current_temperature_datapoint: 3
+    id: climate_tuya_1
+    name: Smart Heater
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 2
+    unit_of_measurement: °C
+    min_value: 5
+    max_value: 30
+    step: 1
+    id: number_tuya_1
+    name: Temperature
+- id: number_tuya_2
+  component_id: number.tuya
+  fields:
+    number_datapoint: 102
+    unit_of_measurement: Hours
+    min_value: 0
+    max_value: 24
+    step: 1
+    id: number_tuya_2
+    name: AUTO-ON
+- id: number_tuya_3
+  component_id: number.tuya
+  fields:
+    number_datapoint: 103
+    unit_of_measurement: Hours
+    min_value: 0
+    max_value: 24
+    step: 1
+    id: number_tuya_3
+    name: AUTO-OFF
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 5
+    optimistic: true
+    id: select_tuya_1
+    name: Power/Mode
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 3
+    unit_of_measurement: °C
+    id: sensor_tuya_1
+    name: Current Temperature
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 20
+    unit_of_measurement: min
+    id: sensor_tuya_2
+    name: AUTO-OFF Time Remaining
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 1
+    id: switch_tuya_1
+    name: Power
+- id: switch_tuya_2
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 7
+    id: switch_tuya_2
+    name: Child Lock
+- id: switch_tuya_3
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 101
+    id: switch_tuya_3
+    name: Disable Beeping
+source:
+  type: esphome-devices
+  remote_id: Goldair-GPOC2415-Smart-Heater
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 2b017b6751c224c489a1b19beeb50bbc3daf0eda97279ab24478871b8906fca2

@@ -1,0 +1,195 @@
+id: smart_powermeter
+name: Smart Powermeter
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s2-saola-1
+  variant: esp32s2
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Smart_Powermeter.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: sensor.adc (Input_1)
+- gpio: 2
+  available: false
+  occupied_by: sensor.adc (Input_2)
+- gpio: 3
+  available: false
+  occupied_by: sensor.adc (Input_3)
+- gpio: 4
+  available: false
+  occupied_by: sensor.adc (Input_4)
+- gpio: 5
+  available: false
+  occupied_by: sensor.adc (Input_5)
+- gpio: 6
+  available: false
+  occupied_by: sensor.adc (Input_6)
+- gpio: 10
+  available: false
+  occupied_by: display.waveshare_epaper
+- gpio: 13
+  available: false
+  occupied_by: display.waveshare_epaper
+- gpio: 14
+  available: false
+  occupied_by: display.waveshare_epaper
+- gpio: 15
+  available: false
+  occupied_by: display.waveshare_epaper
+docs_url: https://devices.esphome.io/devices/Smart-Powermeter/
+product_url: https://smart-powermeter.readthedocs.io
+featured_components:
+- id: display_waveshare_epaper_1
+  component_id: display.waveshare_epaper
+  fields:
+    cs_pin:
+      value: 10
+      locked: true
+    dc_pin:
+      value: 13
+      locked: true
+    busy_pin:
+      value: 14
+      locked: true
+    reset_pin:
+      value: 15
+      locked: true
+    model: 2.90inv2
+    rotation: 270
+    update_interval: 1min
+    full_update_every: 1
+    id: display_waveshare_epaper_1
+    name: Waveshare Epaper 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 1
+      locked: true
+    attenuation: 12db
+    update_interval: 1s
+    id: sensor_adc_1
+    name: Adc 1
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 2
+      locked: true
+    attenuation: 12db
+    update_interval: 1s
+    id: sensor_adc_2
+    name: Adc 2
+- id: sensor_adc_3
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 3
+      locked: true
+    attenuation: 12db
+    update_interval: 1s
+    id: sensor_adc_3
+    name: Adc 3
+- id: sensor_adc_4
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    attenuation: 12db
+    update_interval: 1s
+    id: sensor_adc_4
+    name: Adc 4
+- id: sensor_adc_5
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 5
+      locked: true
+    attenuation: 12db
+    update_interval: 1s
+    id: sensor_adc_5
+    name: Adc 5
+- id: sensor_adc_6
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 6
+      locked: true
+    attenuation: 12db
+    update_interval: 1s
+    id: sensor_adc_6
+    name: Adc 6
+- id: sensor_ct_clamp_1
+  component_id: sensor.ct_clamp
+  fields:
+    sensor: Input_1
+    sample_duration: 200ms
+    update_interval: 1s
+    id: sensor_ct_clamp_1
+    name: Probe 1
+- id: sensor_ct_clamp_2
+  component_id: sensor.ct_clamp
+  fields:
+    sensor: Input_2
+    sample_duration: 200ms
+    update_interval: 1s
+    id: sensor_ct_clamp_2
+    name: Probe 2
+- id: sensor_ct_clamp_3
+  component_id: sensor.ct_clamp
+  fields:
+    sensor: Input_3
+    sample_duration: 200ms
+    update_interval: 1s
+    id: sensor_ct_clamp_3
+    name: Probe 3
+- id: sensor_ct_clamp_4
+  component_id: sensor.ct_clamp
+  fields:
+    sensor: Input_4
+    sample_duration: 200ms
+    update_interval: 1s
+    id: sensor_ct_clamp_4
+    name: Probe 4
+- id: sensor_ct_clamp_5
+  component_id: sensor.ct_clamp
+  fields:
+    sensor: Input_5
+    sample_duration: 200ms
+    update_interval: 1s
+    id: sensor_ct_clamp_5
+    name: Probe 5
+- id: sensor_ct_clamp_6
+  component_id: sensor.ct_clamp
+  fields:
+    sensor: Input_6
+    sample_duration: 200ms
+    update_interval: 1s
+    id: sensor_ct_clamp_6
+    name: Probe 6
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    power_id: current_power
+    id: sensor_total_daily_energy_1
+    name: Total Daily Power
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: kW
+    update_interval: 5s
+    id: sensor_template_1
+    name: Measured Power
+source:
+  type: esphome-devices
+  remote_id: Smart-Powermeter
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Smart-Powermeter/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 00bf193f20e702fa8a709e36052805a07f3460104519d245ac88c23dda2e73d9

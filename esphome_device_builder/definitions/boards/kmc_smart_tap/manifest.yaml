@@ -1,0 +1,103 @@
+id: kmc_smart_tap
+name: KMC Smart Tap Outlet With Energy Meter
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/KMC-Smart-Tap.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (KMC01 Outlet 2)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (KMC01 Outlet 3)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (KMC01 Outlet 1)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (KMC01 button)
+docs_url: https://devices.esphome.io/devices/KMC-Smart-Tap/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: KMC01 button
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value: 12
+      locked: true
+    cf_pin:
+      value: 4
+      locked: true
+    cf1_pin:
+      value: 5
+      locked: true
+    update_interval: 30s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: KMC01 WiFi signal
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_gpio_1
+    name: KMC01 Outlet 3
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_gpio_2
+    name: KMC01 Outlet 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_gpio_3
+    name: KMC01 Outlet 1
+source:
+  type: esphome-devices
+  remote_id: KMC-Smart-Tap
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KMC-Smart-Tap/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 04f6c42ed46f43ad04bd937b6c851f4ea60f2c08563d5275749518e2985ecae9

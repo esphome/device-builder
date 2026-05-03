@@ -1,0 +1,100 @@
+id: kogan_smarterhome_smart_plug_with_energy_meter
+name: Kogan Smart Plug with Energy Monitoring
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/kogan-smarterhome-smart-plug-energy-meter.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Kogan Plug 1 Power Button)
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (green_led)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (Kogan Plug 1)
+docs_url: https://devices.esphome.io/devices/Kogan-Smarterhome-Smart-Plug-With-Energy-Meter/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Kogan Plug 1 Power Button
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 4
+      locked: true
+    cf1_pin:
+      value: 5
+      locked: true
+    current_resistor: '0.00087'
+    voltage_divider: '2030'
+    change_mode_every: 8
+    update_interval: 5s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    power_id: kogan_plug_1_wattage
+    unit_of_measurement: kWh
+    id: sensor_total_daily_energy_1
+    name: Kogan Plug 1 Daily Energy
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    icon: mdi:television
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_2
+    name: Kogan Plug 1
+source:
+  type: esphome-devices
+  remote_id: Kogan-Smarterhome-Smart-Plug-With-Energy-Meter
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-With-Energy-Meter/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 800caf139b0e7d41144822ba7c861e38e6661244ddc9afdd852b137adf2df383

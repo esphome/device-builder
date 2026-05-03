@@ -1,0 +1,52 @@
+id: arlec_grid_connect_smart_led_globe_cwww
+name: Arlec Grid Connect Smart LED Globe CWWW (GLD112HA)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/GLD112HA.jpg
+pins:
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (dimmer)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (color_temp)
+docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-LED-Globe-CWWW/
+featured_components:
+- id: light_color_temperature_1
+  component_id: light.color_temperature
+  fields:
+    color_temperature: color_temp
+    brightness: dimmer
+    cold_white_color_temperature: 5700 K
+    warm_white_color_temperature: 3000 K
+    id: light_color_temperature_1
+    name: Arlec GLD112HA
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_2
+source:
+  type: esphome-devices
+  remote_id: Arlec-Grid-Connect-Smart-LED-Globe-CWWW
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-Globe-CWWW/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 6482cd98d285a574554355dca9ef1c50c578fc43269fb13ac0b02bcfbf1951a5

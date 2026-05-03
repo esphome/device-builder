@@ -1,0 +1,47 @@
+id: avatto_s06_ir_remote_no_temp_no_humidity_new_version
+name: AVATTO S06 WiFi IR Universal Remote Controller (No Temp/No Humidity) - New Version
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/AVATTO-S06-WiFi-IR-Universal-Remote-Controller.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 8
+  available: false
+  occupied_by: light.status_led (Status LED)
+docs_url: https://devices.esphome.io/devices/AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: light_status_led_1
+    name: Status LED
+source:
+  type: esphome-devices
+  remote_id: AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AVATTO-S06-IR-Remote-no-temp-no-humidity-new-version/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: c764419f7da3b6189fda97d543ddff9216b92b9d090fd4b73e7a5083fc8656c5

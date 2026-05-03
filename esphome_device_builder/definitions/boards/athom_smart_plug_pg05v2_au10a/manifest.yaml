@@ -1,0 +1,91 @@
+id: athom_smart_plug_pg05v2_au10a
+name: Athom Smart Plug AU V2 (PG05V2-AU10A)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/athom-plug-au-v2.webp
+tags:
+- relay
+- compact
+pins:
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Power Button)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${friendly_name})
+- gpio: 13
+  available: false
+  occupied_by: light.status_led (${friendly_name} Status LED)
+docs_url: https://devices.esphome.io/devices/Athom-Smart-Plug-PG05V2-AU10A/
+product_url: https://github.com/athom-tech/athom-configs/blob/main/athom-smart-plug-v2.yaml
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    disabled_by_default: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: button_safe_mode_1
+  component_id: button.safe_mode
+  fields:
+    internal: false
+    id: button_safe_mode_1
+    name: Safe Mode
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    disabled_by_default: true
+    pin:
+      value:
+        inverted: true
+        number: 13
+      locked: true
+    id: light_status_led_1
+    name: Status Led 1
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+    icon: mdi:lightning-bolt
+    accuracy_decimals: 3
+    lambda: return id(total_energy);
+    update_interval: 10s
+    id: sensor_template_1
+    name: Template 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    restore: true
+    power_id: power_sensor
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Athom-Smart-Plug-PG05V2-AU10A
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-Smart-Plug-PG05V2-AU10A/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: ab2a90726f20706244b3a16386a2cff0948fe142a5288fd54fdc2c432756f071

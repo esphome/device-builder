@@ -1,0 +1,167 @@
+id: ezaiot_xyzoo_thermostat
+name: EZAIOT/XYZOO Thermostat (Tuya MCU)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/dq6nlukkifyawj9n.png
+- images/board_with_holes.png
+docs_url: https://devices.esphome.io/devices/EZAIOT-XYZOO-Thermostat/
+featured_components:
+- id: number_template_1
+  component_id: number.template
+  fields:
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: '%'
+    mode: BOX
+    optimistic: true
+    entity_category: config
+    icon: mdi:brightness-percent
+    id: number_template_1
+    name: BackLight MIN
+- id: number_template_2
+  component_id: number.template
+  fields:
+    icon: mdi:home-thermometer
+    mode: BOX
+    entity_category: config
+    unit_of_measurement: °C
+    min_value: 5
+    max_value: 50
+    step: 0.5
+    optimistic: true
+    id: number_template_2
+    name: P1 Temp
+- id: number_template_3
+  component_id: number.template
+  fields:
+    icon: mdi:home-thermometer
+    mode: BOX
+    entity_category: config
+    unit_of_measurement: °C
+    min_value: 5
+    max_value: 50
+    step: 0.5
+    optimistic: true
+    id: number_template_3
+    name: P2 Temp
+- id: number_template_4
+  component_id: number.template
+  fields:
+    icon: mdi:home-thermometer
+    mode: BOX
+    entity_category: config
+    unit_of_measurement: °C
+    min_value: 5
+    max_value: 50
+    step: 0.5
+    optimistic: true
+    id: number_template_4
+    name: P3 Temp
+- id: number_template_5
+  component_id: number.template
+  fields:
+    icon: mdi:home-thermometer
+    mode: BOX
+    entity_category: config
+    unit_of_measurement: °C
+    min_value: 5
+    max_value: 50
+    step: 0.5
+    optimistic: true
+    id: number_template_5
+    name: P4 Temp
+- id: number_template_6
+  component_id: number.template
+  fields:
+    icon: mdi:home-thermometer
+    mode: BOX
+    entity_category: config
+    unit_of_measurement: °C
+    min_value: 5
+    max_value: 50
+    step: 0.5
+    optimistic: true
+    id: number_template_6
+    name: P5 Temp
+- id: number_template_7
+  component_id: number.template
+  fields:
+    icon: mdi:home-thermometer
+    mode: BOX
+    entity_category: config
+    unit_of_measurement: °C
+    min_value: 5
+    max_value: 50
+    step: 0.5
+    optimistic: true
+    id: number_template_7
+    name: P6 Temp
+- id: number_template_8
+  component_id: number.template
+  fields:
+    icon: mdi:home-thermometer
+    mode: BOX
+    entity_category: config
+    unit_of_measurement: °C
+    min_value: 5
+    max_value: 50
+    step: 0.5
+    optimistic: true
+    id: number_template_8
+    name: P7 WE Temp
+- id: number_template_9
+  component_id: number.template
+  fields:
+    icon: mdi:home-thermometer
+    mode: BOX
+    entity_category: config
+    unit_of_measurement: °C
+    min_value: 5
+    max_value: 50
+    step: 0.5
+    optimistic: true
+    id: number_template_9
+    name: P8 WE Temp
+- id: select_template_1
+  component_id: select.template
+  fields:
+    optimistic: true
+    entity_category: config
+    id: select_template_1
+    name: BackLight Auto Off
+- id: sensor_homeassistant_1
+  component_id: sensor.homeassistant
+  fields:
+    entity_id: weather.forecast_casa
+    attribute: temperature
+    internal: true
+    id: sensor_homeassistant_1
+    name: Homeassistant 1
+- id: sensor_homeassistant_2
+  component_id: sensor.homeassistant
+  fields:
+    entity_id: weather.forecast_casa
+    attribute: humidity
+    internal: true
+    id: sensor_homeassistant_2
+    name: Homeassistant 2
+- id: text_sensor_homeassistant_1
+  component_id: text_sensor.homeassistant
+  fields:
+    entity_id: weather.forecast_casa
+    internal: true
+    id: text_sensor_homeassistant_1
+    name: Homeassistant 1
+source:
+  type: esphome-devices
+  remote_id: EZAIOT-XYZOO-Thermostat
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/EZAIOT-XYZOO-Thermostat/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 87eb7b9ed1472daf6475ed1463e87ae99679c6bd01a90dd7f3a2596cc3d22529

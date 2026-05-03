@@ -1,0 +1,109 @@
+id: lanbon_l8
+name: Lanbon L8 Smart Switch Panel
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/lanbon-l8-us-white.png
+- images/lanbon-l8-eu-black.png
+pins:
+- gpio: 5
+  available: false
+  occupied_by: output.ledc (backlight_pwm)
+- gpio: 12
+  available: false
+  occupied_by: output.gpio (relay_1)
+- gpio: 14
+  available: false
+  occupied_by: output.gpio (relay_2)
+- gpio: 26
+  available: false
+  occupied_by: output.ledc (moodRed)
+- gpio: 27
+  available: false
+  occupied_by: output.gpio (relay_3)
+- gpio: 32
+  available: false
+  occupied_by: output.ledc (moodGreen)
+- gpio: 33
+  available: false
+  occupied_by: output.ledc (moodBlue)
+docs_url: https://devices.esphome.io/devices/lanbon_l8/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    id: light_monochromatic_1
+    name: Backlight
+- id: light_rgb_1
+  component_id: light.rgb
+  fields:
+    red: moodRed
+    green: moodGreen
+    blue: moodBlue
+    id: light_rgb_1
+    name: Mood Light
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: output_ledc_2
+- id: output_ledc_3
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 32
+      locked: true
+    id: output_ledc_3
+- id: output_ledc_4
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 33
+      locked: true
+    id: output_ledc_4
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_gpio_2
+- id: output_gpio_3
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 27
+      locked: true
+    id: output_gpio_3
+source:
+  type: esphome-devices
+  remote_id: lanbon_l8
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/lanbon_l8/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f22118de5dea812eb5eb318ef5a56850da2537769f0d66e7eee5b15451d74589

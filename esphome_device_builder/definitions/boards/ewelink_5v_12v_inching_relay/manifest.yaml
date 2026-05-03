@@ -1,0 +1,63 @@
+id: ewelink_5v_12v_inching_relay
+name: eWelink 5V/12V Inching Relay
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/device.png
+- images/programming-pins.png
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (button0)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (relay)
+- gpio: 13
+  available: false
+  occupied_by: light.status_led (wifi_led)
+docs_url: https://devices.esphome.io/devices/eWelink-5V-12V-Inching-Relay/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: light_status_led_1
+    name: Status Led 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: eWelink-5V-12V-Inching-Relay
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/eWelink-5V-12V-Inching-Relay/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: fedab992f83d60980119fd3212261d75ed513c445db2b49bca922b8d8bf1b823

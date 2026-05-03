@@ -1,0 +1,800 @@
+id: kincony_n20
+name: KinCony-N20 AC energy meter
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/N20-1.jpg
+docs_url: https://devices.esphome.io/devices/KinCony-N20/
+featured_components:
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    model: SSD1306 128x64
+    address: 60
+    lambda: 'it.printf(0, 15, id(roboto), "IP: %s", id(eth_ip).state.c_str());'
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: sensor_modbus_controller_1
+  component_id: sensor.modbus_controller
+  fields:
+    address: 100
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_1
+    name: bl0910_1_current_1
+- id: sensor_modbus_controller_2
+  component_id: sensor.modbus_controller
+  fields:
+    address: 102
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_2
+    name: bl0910_1_current_2
+- id: sensor_modbus_controller_3
+  component_id: sensor.modbus_controller
+  fields:
+    address: 104
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_3
+    name: bl0910_1_current_3
+- id: sensor_modbus_controller_4
+  component_id: sensor.modbus_controller
+  fields:
+    address: 106
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_4
+    name: bl0910_1_current_4
+- id: sensor_modbus_controller_5
+  component_id: sensor.modbus_controller
+  fields:
+    address: 108
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_5
+    name: bl0910_1_current_5
+- id: sensor_modbus_controller_6
+  component_id: sensor.modbus_controller
+  fields:
+    address: 110
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_6
+    name: bl0910_1_current_6
+- id: sensor_modbus_controller_7
+  component_id: sensor.modbus_controller
+  fields:
+    address: 112
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_7
+    name: bl0910_1_current_7
+- id: sensor_modbus_controller_8
+  component_id: sensor.modbus_controller
+  fields:
+    address: 114
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_8
+    name: bl0910_1_current_8
+- id: sensor_modbus_controller_9
+  component_id: sensor.modbus_controller
+  fields:
+    address: 116
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_9
+    name: bl0910_1_current_9
+- id: sensor_modbus_controller_10
+  component_id: sensor.modbus_controller
+  fields:
+    address: 118
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_10
+    name: bl0910_1_current_10
+- id: sensor_modbus_controller_11
+  component_id: sensor.modbus_controller
+  fields:
+    address: 120
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_11
+    name: bl0910_1_power_1
+- id: sensor_modbus_controller_12
+  component_id: sensor.modbus_controller
+  fields:
+    address: 122
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_12
+    name: bl0910_1_power_2
+- id: sensor_modbus_controller_13
+  component_id: sensor.modbus_controller
+  fields:
+    address: 124
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_13
+    name: bl0910_1_power_3
+- id: sensor_modbus_controller_14
+  component_id: sensor.modbus_controller
+  fields:
+    address: 126
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_14
+    name: bl0910_1_power_4
+- id: sensor_modbus_controller_15
+  component_id: sensor.modbus_controller
+  fields:
+    address: 128
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_15
+    name: bl0910_1_power_5
+- id: sensor_modbus_controller_16
+  component_id: sensor.modbus_controller
+  fields:
+    address: 130
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_16
+    name: bl0910_1_power_6
+- id: sensor_modbus_controller_17
+  component_id: sensor.modbus_controller
+  fields:
+    address: 132
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_17
+    name: bl0910_1_power_7
+- id: sensor_modbus_controller_18
+  component_id: sensor.modbus_controller
+  fields:
+    address: 134
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_18
+    name: bl0910_1_power_8
+- id: sensor_modbus_controller_19
+  component_id: sensor.modbus_controller
+  fields:
+    address: 136
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_19
+    name: bl0910_1_power_9
+- id: sensor_modbus_controller_20
+  component_id: sensor.modbus_controller
+  fields:
+    address: 138
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_20
+    name: bl0910_1_power_10
+- id: sensor_modbus_controller_21
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 140
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_21
+    name: bl0910_1_energy_1
+- id: sensor_modbus_controller_22
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 142
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_22
+    name: bl0910_1_energy_2
+- id: sensor_modbus_controller_23
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 144
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_23
+    name: bl0910_1_energy_3
+- id: sensor_modbus_controller_24
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 146
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_24
+    name: bl0910_1_energy_4
+- id: sensor_modbus_controller_25
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 148
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_25
+    name: bl0910_1_energy_5
+- id: sensor_modbus_controller_26
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 150
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_26
+    name: bl0910_1_energy_6
+- id: sensor_modbus_controller_27
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 152
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_27
+    name: bl0910_1_energy_7
+- id: sensor_modbus_controller_28
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 154
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_28
+    name: bl0910_1_energy_8
+- id: sensor_modbus_controller_29
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 156
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_29
+    name: bl0910_1_energy_9
+- id: sensor_modbus_controller_30
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 158
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_30
+    name: bl0910_1_energy_10
+- id: sensor_modbus_controller_31
+  component_id: sensor.modbus_controller
+  fields:
+    state_class: total_increasing
+    device_class: energy
+    address: 160
+    register_type: holding
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_31
+    name: bl0910_1_energy_sum
+- id: sensor_modbus_controller_32
+  component_id: sensor.modbus_controller
+  fields:
+    address: 162
+    register_type: holding
+    unit_of_measurement: V
+    device_class: voltage
+    accuracy_decimals: 1
+    value_type: U_WORD
+    id: sensor_modbus_controller_32
+    name: bl0910_1_voltage
+- id: sensor_modbus_controller_33
+  component_id: sensor.modbus_controller
+  fields:
+    address: 163
+    register_type: holding
+    unit_of_measurement: Hz
+    device_class: frequency
+    accuracy_decimals: 1
+    value_type: U_WORD
+    id: sensor_modbus_controller_33
+    name: bl0910_1_frequency
+- id: sensor_modbus_controller_34
+  component_id: sensor.modbus_controller
+  fields:
+    address: 164
+    register_type: holding
+    unit_of_measurement: °C
+    device_class: temperature
+    accuracy_decimals: 1
+    value_type: FP32_R
+    id: sensor_modbus_controller_34
+    name: bl0910_1_tps1
+- id: sensor_modbus_controller_35
+  component_id: sensor.modbus_controller
+  fields:
+    address: 200
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_35
+    name: bl0910_2_current_1
+- id: sensor_modbus_controller_36
+  component_id: sensor.modbus_controller
+  fields:
+    address: 202
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_36
+    name: bl0910_2_current_2
+- id: sensor_modbus_controller_37
+  component_id: sensor.modbus_controller
+  fields:
+    address: 204
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_37
+    name: bl0910_2_current_3
+- id: sensor_modbus_controller_38
+  component_id: sensor.modbus_controller
+  fields:
+    address: 206
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_38
+    name: bl0910_2_current_4
+- id: sensor_modbus_controller_39
+  component_id: sensor.modbus_controller
+  fields:
+    address: 208
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_39
+    name: bl0910_2_current_5
+- id: sensor_modbus_controller_40
+  component_id: sensor.modbus_controller
+  fields:
+    address: 210
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_40
+    name: bl0910_2_current_6
+- id: sensor_modbus_controller_41
+  component_id: sensor.modbus_controller
+  fields:
+    address: 212
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_41
+    name: bl0910_2_current_7
+- id: sensor_modbus_controller_42
+  component_id: sensor.modbus_controller
+  fields:
+    address: 214
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_42
+    name: bl0910_2_current_8
+- id: sensor_modbus_controller_43
+  component_id: sensor.modbus_controller
+  fields:
+    address: 216
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_43
+    name: bl0910_2_current_9
+- id: sensor_modbus_controller_44
+  component_id: sensor.modbus_controller
+  fields:
+    address: 218
+    register_type: holding
+    unit_of_measurement: A
+    device_class: current
+    accuracy_decimals: 3
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_44
+    name: bl0910_2_current_10
+- id: sensor_modbus_controller_45
+  component_id: sensor.modbus_controller
+  fields:
+    address: 220
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_45
+    name: bl0910_2_power_1
+- id: sensor_modbus_controller_46
+  component_id: sensor.modbus_controller
+  fields:
+    address: 222
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_46
+    name: bl0910_2_power_2
+- id: sensor_modbus_controller_47
+  component_id: sensor.modbus_controller
+  fields:
+    address: 224
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_47
+    name: bl0910_2_power_3
+- id: sensor_modbus_controller_48
+  component_id: sensor.modbus_controller
+  fields:
+    address: 226
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_48
+    name: bl0910_2_power_4
+- id: sensor_modbus_controller_49
+  component_id: sensor.modbus_controller
+  fields:
+    address: 228
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_49
+    name: bl0910_2_power_5
+- id: sensor_modbus_controller_50
+  component_id: sensor.modbus_controller
+  fields:
+    address: 230
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_50
+    name: bl0910_2_power_6
+- id: sensor_modbus_controller_51
+  component_id: sensor.modbus_controller
+  fields:
+    address: 232
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_51
+    name: bl0910_2_power_7
+- id: sensor_modbus_controller_52
+  component_id: sensor.modbus_controller
+  fields:
+    address: 234
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_52
+    name: bl0910_2_power_8
+- id: sensor_modbus_controller_53
+  component_id: sensor.modbus_controller
+  fields:
+    address: 236
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_53
+    name: bl0910_2_power_9
+- id: sensor_modbus_controller_54
+  component_id: sensor.modbus_controller
+  fields:
+    address: 238
+    register_type: holding
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    id: sensor_modbus_controller_54
+    name: bl0910_2_power_10
+- id: sensor_modbus_controller_55
+  component_id: sensor.modbus_controller
+  fields:
+    address: 240
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_55
+    name: bl0910_2_energy_1
+- id: sensor_modbus_controller_56
+  component_id: sensor.modbus_controller
+  fields:
+    address: 242
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_56
+    name: bl0910_2_energy_2
+- id: sensor_modbus_controller_57
+  component_id: sensor.modbus_controller
+  fields:
+    address: 244
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_57
+    name: bl0910_2_energy_3
+- id: sensor_modbus_controller_58
+  component_id: sensor.modbus_controller
+  fields:
+    address: 246
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_58
+    name: bl0910_2_energy_4
+- id: sensor_modbus_controller_59
+  component_id: sensor.modbus_controller
+  fields:
+    address: 248
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_59
+    name: bl0910_2_energy_5
+- id: sensor_modbus_controller_60
+  component_id: sensor.modbus_controller
+  fields:
+    address: 250
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_60
+    name: bl0910_2_energy_6
+- id: sensor_modbus_controller_61
+  component_id: sensor.modbus_controller
+  fields:
+    address: 252
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_61
+    name: bl0910_2_energy_7
+- id: sensor_modbus_controller_62
+  component_id: sensor.modbus_controller
+  fields:
+    address: 254
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_62
+    name: bl0910_2_energy_8
+- id: sensor_modbus_controller_63
+  component_id: sensor.modbus_controller
+  fields:
+    address: 256
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_63
+    name: bl0910_2_energy_9
+- id: sensor_modbus_controller_64
+  component_id: sensor.modbus_controller
+  fields:
+    address: 258
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_64
+    name: bl0910_2_energy_10
+- id: sensor_modbus_controller_65
+  component_id: sensor.modbus_controller
+  fields:
+    address: 260
+    register_type: holding
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    value_type: U_DWORD_R
+    state_class: total_increasing
+    id: sensor_modbus_controller_65
+    name: bl0910_2_energy_sum
+- id: sensor_modbus_controller_66
+  component_id: sensor.modbus_controller
+  fields:
+    address: 262
+    register_type: holding
+    unit_of_measurement: V
+    device_class: voltage
+    accuracy_decimals: 1
+    value_type: U_WORD
+    id: sensor_modbus_controller_66
+    name: bl0910_2_voltage
+- id: sensor_modbus_controller_67
+  component_id: sensor.modbus_controller
+  fields:
+    address: 263
+    register_type: holding
+    unit_of_measurement: Hz
+    device_class: frequency
+    accuracy_decimals: 1
+    value_type: U_WORD
+    id: sensor_modbus_controller_67
+    name: bl0910_2_frequency
+- id: sensor_modbus_controller_68
+  component_id: sensor.modbus_controller
+  fields:
+    address: 264
+    register_type: holding
+    unit_of_measurement: °C
+    device_class: temperature
+    accuracy_decimals: 1
+    value_type: FP32_R
+    id: sensor_modbus_controller_68
+    name: bl0910_2_tps1
+source:
+  type: esphome-devices
+  remote_id: KinCony-N20
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-N20/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 367fa23625be02cfb7528c7c642650166e55c54c8dedcfa548540b6936581193

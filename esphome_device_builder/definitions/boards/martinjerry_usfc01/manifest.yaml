@@ -1,0 +1,27 @@
+id: martinjerry_usfc01
+name: Martin Jerry US-FC-01 Smart Ceiling Fan Controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/MJ-usfc01.jpg
+docs_url: https://devices.esphome.io/devices/MartinJerry-USFC01/
+featured_components:
+- id: fan_tuya_1
+  component_id: fan.tuya
+  fields:
+    switch_datapoint: 1
+    speed_datapoint: 3
+    speed_count: 4
+    id: fan_tuya_1
+    name: MJ FC01 Fan Speed
+source:
+  type: esphome-devices
+  remote_id: MartinJerry-USFC01
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/MartinJerry-USFC01/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e59474d34e0908e0e23d57caf8adde775c224128ff53bc5da8cab6c32776d8fc

@@ -1,0 +1,82 @@
+id: hiking_dds238_2_wifi
+name: Hiking DDS238-2 WIFI Single Phase 65A Energy Meter
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/hiking_DDS238-2.jpg
+pins:
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+docs_url: https://devices.esphome.io/devices/Hiking-DDS238-2-WIFI/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 16
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 18
+    accuracy_decimals: 2
+    unit_of_measurement: A
+    icon: mdi:flash
+    id: sensor_tuya_1
+    name: Tuya 1
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 19
+    accuracy_decimals: 1
+    unit_of_measurement: W
+    icon: mdi:flash
+    id: sensor_tuya_2
+    name: Tuya 2
+- id: sensor_tuya_3
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 20
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    icon: mdi:flash
+    id: sensor_tuya_3
+    name: Tuya 3
+- id: sensor_tuya_4
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 101
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    icon: mdi:flash
+    id: sensor_tuya_4
+    name: Tuya 4
+- id: sensor_tuya_5
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 9
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    icon: mdi:flash
+    id: sensor_tuya_5
+    name: Tuya 5
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 1
+    id: switch_tuya_1
+    name: Tuya 1
+source:
+  type: esphome-devices
+  remote_id: Hiking-DDS238-2-WIFI
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Hiking-DDS238-2-WIFI/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: a8ab767e492c2e4d1d0890d9974737c50382d33838391442e47dc2859265bd2f

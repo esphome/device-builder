@@ -1,0 +1,87 @@
+id: sonoff_mini_relay
+name: Sonoff Mini Relay
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Sonoff-Mini-Relay.png
+tags:
+- relay
+- sonoff
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (reset)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name}_status)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${device_name}_switch)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (blue_led)
+docs_url: https://devices.esphome.io/devices/Sonoff-Mini-Relay/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: blue_led
+    internal: true
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value:
+        number: 13
+        allow_other_uses: true
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    icon: mdi:lightbulb_outline
+    pin:
+      value: 12
+      locked: true
+    restore_mode: restore_default_off
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Sonoff-Mini-Relay
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-Mini-Relay/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: fe5ab297af426e287a5999864874e747a4c3c543351e2c8d419dcefd71c42d9a

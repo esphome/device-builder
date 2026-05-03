@@ -1,0 +1,93 @@
+id: xiangshang_xs_ssa05
+name: Xiangshang XS-SSA05 Smart Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/XS-SSA05-Overview.png
+- images/XS-SSA05-Flashing-Pins.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: output.gpio (relay_led)
+- gpio: 3
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (XS-SSA05 Relay)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (XS-SSA05 Button)
+- gpio: 14
+  available: false
+  occupied_by: sensor.hlw8012
+docs_url: https://devices.esphome.io/devices/Xiangshang-XS-SSA05/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: XS-SSA05 Button
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: true
+      locked: true
+    id: output_gpio_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: XS-SSA05 WiFi Signal
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 3
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 5
+      locked: true
+    cf1_pin:
+      value: 14
+      locked: true
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_1
+    name: XS-SSA05 Relay
+source:
+  type: esphome-devices
+  remote_id: Xiangshang-XS-SSA05
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Xiangshang-XS-SSA05/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e29f3da64b4a80a6215169c720456c50903510b4c44ef6c97a27b1578bae9e38

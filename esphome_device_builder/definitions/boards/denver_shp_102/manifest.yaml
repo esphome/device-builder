@@ -1,0 +1,38 @@
+id: denver_shp_102
+name: Denver SHP-102 Smart Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/denver-shp-102-box.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Denver-SHP-102/
+featured_components:
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: output_led_1
+    id: light_binary_1
+    name: Binary 1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    voltage_divider: 800
+    current_resistor: 0.001 ohm
+    update_interval: 1s
+    change_mode_every: 1
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+source:
+  type: esphome-devices
+  remote_id: Denver-SHP-102
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Denver-SHP-102/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 45d8ffd7b9e9b7c8023b7ff7313a1a4a23f60d02a9316cd63232e9daae9be08b

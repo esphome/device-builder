@@ -1,0 +1,60 @@
+id: arlec_pc191ha_plug
+name: Arlec Grid Connect Smart Plug In Socket With Energy Meter (PC191HA or PC191BKHA)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: wb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Arlec-PC191HA-Plug.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Arlec-PC191HA-Plug/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    device_class: window
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 30s
+    id: sensor_wifi_signal_1
+    name: $name WiFi Signal
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    update_interval: 15s
+    initial_mode: VOLTAGE
+    change_mode_every: 4
+    voltage_divider: 775
+    current_resistor: 0.0009
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    update_interval: 30s
+    id: sensor_template_1
+    name: $name Current
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: always off
+    icon: mdi:power-socket-au
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Arlec-PC191HA-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-PC191HA-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 04b21a5e8d0d75f493385749644f65bcc7df350d19d5fcda4745a3c04c4773ae

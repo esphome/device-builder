@@ -1,0 +1,118 @@
+id: tuya_zy_hps01_human_presence_sensor
+name: Tuya ZY-HPS01/ZY-ZHPS01 Human Presence Sensor
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/ZY_HPS01.png
+- images/cb3s.png
+docs_url: https://devices.esphome.io/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/
+featured_components:
+- id: binary_sensor_tuya_1
+  component_id: binary_sensor.tuya
+  fields:
+    sensor_datapoint: 101
+    device_class: occupancy
+    id: binary_sensor_tuya_1
+    name: Presence State
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 109
+    min_value: 0
+    max_value: 600
+    step: 1
+    mode: slider
+    unit_of_measurement: cm
+    icon: mdi:signal-distance-variant
+    id: number_tuya_1
+    name: Far Detection
+- id: number_tuya_2
+  component_id: number.tuya
+  fields:
+    number_datapoint: 104
+    min_value: 1
+    max_value: 255
+    step: 1
+    mode: slider
+    unit_of_measurement: s
+    icon: mdi:timer
+    id: number_tuya_2
+    name: Presence Delay
+- id: number_tuya_3
+  component_id: number.tuya
+  fields:
+    number_datapoint: 105
+    min_value: 0
+    max_value: 10
+    step: 1
+    mode: slider
+    icon: mdi:ray-vertex
+    id: number_tuya_3
+    name: Sensitivity
+- id: number_tuya_4
+  component_id: number.tuya
+  fields:
+    number_datapoint: 107
+    min_value: 0
+    max_value: 10
+    step: 1
+    mode: slider
+    icon: mdi:ray-vertex
+    id: number_tuya_4
+    name: Micro Sensitivity
+- id: number_tuya_5
+  component_id: number.tuya
+  fields:
+    number_datapoint: 110
+    min_value: 0
+    max_value: 600
+    step: 1
+    mode: slider
+    unit_of_measurement: cm
+    icon: mdi:signal-distance-variant
+    id: number_tuya_5
+    name: Min Range
+- id: number_tuya_6
+  component_id: number.tuya
+  fields:
+    number_datapoint: 111
+    min_value: 0
+    max_value: 600
+    step: 1
+    mode: slider
+    unit_of_measurement: cm
+    icon: mdi:signal-distance-variant
+    id: number_tuya_6
+    name: Micro Max Range
+- id: number_tuya_7
+  component_id: number.tuya
+  fields:
+    number_datapoint: 112
+    min_value: 0
+    max_value: 600
+    step: 1
+    mode: slider
+    unit_of_measurement: cm
+    icon: mdi:signal-distance-variant
+    id: number_tuya_7
+    name: Micro Min Range
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 103
+    unit_of_measurement: lux
+    icon: mdi:brightness-5
+    state_class: measurement
+    id: sensor_tuya_1
+    name: Light Intensity
+source:
+  type: esphome-devices
+  remote_id: Tuya-ZY-HPS01-Human-Presence-Sensor
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: fe7eb462e1f260b5e8a8f52c93afe5617ad13aade3d07ca0a672d5a73972c76b

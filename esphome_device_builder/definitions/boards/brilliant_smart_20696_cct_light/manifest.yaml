@@ -1,0 +1,49 @@
+id: brilliant_smart_20696_cct_light
+name: Brilliant Smart 20696/20874 WiFi A60 LED 8.5W 800LM CCT light
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/390a449d-16dd-4ad4-8420-243c7c56df39.jpeg
+pins:
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (ww_color_temp)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (cw_color_temp)
+docs_url: https://devices.esphome.io/devices/Brilliant-Smart-20696-CCT-light/
+featured_components:
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white: cw_color_temp
+    warm_white: ww_color_temp
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    id: light_cwww_1
+    name: $friendly_name
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_2
+source:
+  type: esphome-devices
+  remote_id: Brilliant-Smart-20696-CCT-light
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Brilliant-Smart-20696-CCT-light/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e34f338b3daef25f52226a17ebd66e00e92e091807bec77855f4c886e3cdba25

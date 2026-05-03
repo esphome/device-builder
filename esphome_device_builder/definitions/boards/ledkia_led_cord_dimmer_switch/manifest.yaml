@@ -1,0 +1,32 @@
+id: ledkia_led_cord_dimmer_switch
+name: Ledkia LED Cord DIMMER Switch
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: rtl87xx
+  board: wr3
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Ledkia-LED-Cord-DIMMER-device.webp
+- images/Ledkia-LED-Cord-DIMMER-manual.png
+- images/Ledkia-LED-Cord-DIMMER-topside.jpg
+- images/Ledkia-LED-Cord-DIMMER-underside.jpg
+- images/Ledkia-LED-Cord-DIMMER-connections.JPG
+docs_url: https://devices.esphome.io/devices/Ledkia-LED-Cord-DIMMER-SWITCH/
+featured_components:
+- id: light_tuya_1
+  component_id: light.tuya
+  fields:
+    dimmer_datapoint: 2
+    min_value_datapoint: 0
+    switch_datapoint: 1
+    max_value: 1000
+    id: light_tuya_1
+    name: Dimmer
+source:
+  type: esphome-devices
+  remote_id: Ledkia-LED-Cord-DIMMER-SWITCH
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Ledkia-LED-Cord-DIMMER-SWITCH/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 169fcc2bf1f82f1f9cb478ee00466f61e20d61ea4e12e4dfb55bcd1f7b2f67fc

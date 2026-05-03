@@ -1,0 +1,69 @@
+id: lilygo_tdisplay_s3
+name: Lilygo TDisplay S3
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/tdisplay-s3.webp
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Button 1)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (Button 2)
+- gpio: 38
+  available: false
+  occupied_by: output.ledc (backlight_output)
+docs_url: https://devices.esphome.io/devices/Lilygo-TDisplay-S3/
+product_url: https://www.lilygo.cc/en-ca/products/t-display-s3
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Button 2
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: backlight_output
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0s
+    id: light_monochromatic_1
+    name: LCD Backlight
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    frequency: 2000
+    pin:
+      value: 38
+      locked: true
+    id: output_ledc_1
+source:
+  type: esphome-devices
+  remote_id: Lilygo-TDisplay-S3
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Lilygo-TDisplay-S3/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 30e395b09ce6722634889c46c24aab5877aeef8a3a1acd64a69a04fb6786c405

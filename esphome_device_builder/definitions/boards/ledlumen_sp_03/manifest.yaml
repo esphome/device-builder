@@ -1,0 +1,32 @@
+id: ledlumen_sp_03
+name: LEDLUMEN SP-03 Smart Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/ledlumen-sp-03.webp
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/LEDLUMEN-SP-03/
+featured_components:
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    voltage_divider: 775
+    current_resistor: 0.001 ohm
+    update_interval: 1s
+    change_mode_every: 1
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+source:
+  type: esphome-devices
+  remote_id: LEDLUMEN-SP-03
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LEDLUMEN-SP-03/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b0c59d1955a67fde07a44451a32af01225309455dce292de1a29aece59369d1e

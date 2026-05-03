@@ -1,0 +1,62 @@
+id: cloudfree_cf_p1
+name: CloudFree CF-P1
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/cloudfree-cf-p1.jpg
+- images/cloudfree-cf-p1-back.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 2
+  available: false
+  occupied_by: output.gpio (led)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (Relay)
+docs_url: https://devices.esphome.io/devices/CloudFree-CF-P1/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    device_class: power
+    pin:
+      value:
+        number: 13
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 2
+        inverted: true
+      locked: true
+    id: output_gpio_1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: switch_gpio_1
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: CloudFree-CF-P1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/CloudFree-CF-P1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 5c37634e2e17aae1d1e454c2cde5762edf3d12621457a7f47d69fc317b4c1174

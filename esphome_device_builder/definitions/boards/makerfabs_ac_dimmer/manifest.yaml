@@ -1,0 +1,29 @@
+id: makerfabs_ac_dimmer
+name: MAKERFABS-AC-Dimmer
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image_1.jpg
+docs_url: https://devices.esphome.io/devices/Makerfabs-AC-Dimmer/
+featured_components:
+- id: fan_speed_1
+  component_id: fan.speed
+  fields:
+    output: arduino_dimmer_1
+    icon: mdi:lightbulb
+    id: fan_speed_1
+    name: Kitchen Lights
+source:
+  type: esphome-devices
+  remote_id: Makerfabs-AC-Dimmer
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Makerfabs-AC-Dimmer/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 8c5076e8f635f0761fa22a5c10a237f3d28ea4b1616bf0d594c3137a7f1a3ca5

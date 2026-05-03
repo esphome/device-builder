@@ -1,0 +1,117 @@
+id: ledds
+name: LEDDs v2
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/ledds-on-front-1440p.jpg
+- images/enclosure-pcb-side-angle-1440p.jpg
+docs_url: https://devices.esphome.io/devices/LEDDs/
+product_url: https://github.com/VasilKalchev/LEDDs
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    entity_category: diagnostic
+    use_interrupt: true
+    interrupt_type: ANY
+    id: binary_sensor_gpio_1
+    name: Knob button
+- id: button_restart_1
+  component_id: button.restart
+  fields:
+    entity_category: config
+    device_class: restart
+    id: button_restart_1
+    name: Restart
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    icon: mdi:lightbulb-variant
+    id: light_monochromatic_1
+    name: Bulb
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: led1
+    icon: mdi:led-outline
+    entity_category: config
+    default_transition_length: 1000 ms
+    restore_mode: RESTORE_DEFAULT_ON
+    id: light_monochromatic_2
+    name: 'LED: red'
+- id: light_monochromatic_3
+  component_id: light.monochromatic
+  fields:
+    output: led2
+    icon: mdi:led-outline
+    entity_category: config
+    default_transition_length: 1000 ms
+    restore_mode: RESTORE_DEFAULT_ON
+    id: light_monochromatic_3
+    name: 'LED: blue'
+- id: light_monochromatic_4
+  component_id: light.monochromatic
+  fields:
+    output: led3
+    icon: mdi:led-outline
+    entity_category: config
+    default_transition_length: 1000 ms
+    restore_mode: RESTORE_DEFAULT_ON
+    id: light_monochromatic_4
+    name: 'LED: white'
+- id: output_ac_dimmer_1
+  component_id: output.ac_dimmer
+  fields:
+    method: trailing
+    init_with_half_cycle: true
+    zero_means_zero: true
+    max_power: 100 %
+    power_supply: ac_live
+    id: output_ac_dimmer_1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    frequency: 200 Hz
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    frequency: 200 Hz
+    id: output_ledc_2
+- id: output_ledc_3
+  component_id: output.ledc
+  fields:
+    frequency: 200 Hz
+    id: output_ledc_3
+- id: sensor_rotary_encoder_1
+  component_id: sensor.rotary_encoder
+  fields:
+    icon: mdi:knob
+    internal: true
+    min_value: -1
+    max_value: 1
+    publish_initial_value: true
+    restore_mode: ALWAYS_ZERO
+    id: sensor_rotary_encoder_1
+    name: Knob
+- id: text_sensor_version_1
+  component_id: text_sensor.version
+  fields:
+    hide_timestamp: true
+    id: text_sensor_version_1
+    name: ESPHome version
+source:
+  type: esphome-devices
+  remote_id: LEDDs
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LEDDs/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f596f4db92842e67c67c2594c229a672d4cd331f6c4e1ac588406ab90497146e

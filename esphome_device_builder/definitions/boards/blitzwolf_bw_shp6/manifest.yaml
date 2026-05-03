@@ -1,0 +1,90 @@
+id: blitzwolf_bw_shp6
+name: Blitzwolf BW-SHP6 Socket with powermonitoring
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/BlitzWolf-BW-SHP6.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: output.gpio (led)
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} button)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (${device_name} Relay)
+docs_url: https://devices.esphome.io/devices/BlitzWolf-BW-SHP6/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 5
+      locked: true
+    change_mode_every: 4
+    update_interval: 10s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    power_id: power
+    unit_of_measurement: kWh
+    accuracy_decimals: 5
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: BlitzWolf-BW-SHP6
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/BlitzWolf-BW-SHP6/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 4e9549c9b58ad5fbdbef3544e86906895707867d206e55265d5dfec595ed7b20

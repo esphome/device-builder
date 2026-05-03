@@ -14,6 +14,7 @@ Covers two regressions discovered while wiring up the adoption flow:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -24,24 +25,17 @@ from esphome_device_builder.controllers.devices import controller as devices_mod
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import AdoptableDevice, DeviceState, ErrorCode, EventType
 
+from .conftest import MakeControllerFactory
 
-def _make_controller(tmp_path: Any) -> DevicesController:
-    """Stand up a controller without booting the full DeviceBuilder."""
-    ctrl = DevicesController.__new__(DevicesController)
-    ctrl._db = MagicMock()
-    ctrl._db.settings.rel_path = lambda name: tmp_path / name
-    ctrl._scanner = MagicMock()
-    ctrl._scanner.scan = AsyncMock()
-    # The fast-online seed pulls the cached IP out of the state
-    # monitor and forces ONLINE on success; tests use a Mock so they
-    # can assert the calls without standing up a real zeroconf.
-    ctrl._state_monitor = MagicMock()
-    ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=None)
-    # ``import_result`` must be a real dict so the iteration in
-    # ``import_device`` works; the discovery callback path is
-    # exercised separately in ``test_importable_discovery``.
-    ctrl.import_result = {}
-    return ctrl
+
+def _seed_import_state(controller: DevicesController) -> None:
+    """Initialise ``import_result`` to an empty dict.
+
+    ``import_device`` iterates ``import_result`` for the cached
+    AdoptableDevice — production wires this up in ``__init__``,
+    but the bypass-init factory leaves it unset.
+    """
+    controller.import_result = {}
 
 
 def test_import_config_resolves_at_import_time() -> None:
@@ -59,7 +53,9 @@ def test_import_config_resolves_at_import_time() -> None:
 
 
 async def test_import_device_invokes_import_config_and_returns_path(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """Happy path: write the YAML, run a scan, return the configuration name."""
     captured: dict[str, Any] = {}
@@ -68,7 +64,8 @@ async def test_import_device_invokes_import_config_and_returns_path(
         captured["args"] = args
 
     monkeypatch.setattr(devices_module, "import_config", fake_import_config)
-    ctrl = _make_controller(tmp_path)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
 
     result = await ctrl.import_device(
         name="kitchen-1a2b3c",
@@ -94,7 +91,9 @@ async def test_import_device_invokes_import_config_and_returns_path(
 
 
 async def test_import_device_passes_ethernet_network_through_to_import_config(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """An ESP32-PoE / Olimex broadcasts ``network=ethernet`` — preserve it.
 
@@ -109,7 +108,8 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
         devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
     )
 
-    ctrl = _make_controller(tmp_path)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
     ctrl.import_result["olimex-poe-aabbcc"] = AdoptableDevice(
         name="olimex-poe-aabbcc",
         friendly_name="Olimex PoE",
@@ -132,7 +132,9 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
 
 
 async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """Multiple identical products on the LAN don't get the wrong network.
 
@@ -154,7 +156,8 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
         devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
     )
 
-    ctrl = _make_controller(tmp_path)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
     # Two Apollo PLT-1s — same firmware, different network types.
     # The import dict's insertion order would otherwise pick whichever
     # arrived first; the direct-name lookup ignores order.
@@ -189,7 +192,9 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
 
 
 async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """Older factory firmwares didn't advertise ``network=`` — fall back to wifi.
 
@@ -204,7 +209,8 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
         devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
     )
 
-    ctrl = _make_controller(tmp_path)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
     ctrl.import_result["legacy-bulb-001122"] = AdoptableDevice(
         name="legacy-bulb-001122",
         friendly_name="Legacy Bulb",
@@ -225,7 +231,9 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
 
 
 async def test_import_device_translates_file_exists_to_command_error(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """``FileExistsError`` becomes a user-facing ``CommandError``.
 
@@ -240,7 +248,8 @@ async def test_import_device_translates_file_exists_to_command_error(
         raise FileExistsError
 
     monkeypatch.setattr(devices_module, "import_config", raises_file_exists)
-    ctrl = _make_controller(tmp_path)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
 
     with pytest.raises(CommandError) as excinfo:
         await ctrl.import_device(
@@ -257,7 +266,9 @@ async def test_import_device_translates_file_exists_to_command_error(
 
 
 async def test_import_device_returns_even_when_post_scan_fails(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """A scan failure after a successful YAML write must not roll back.
 
@@ -267,7 +278,8 @@ async def test_import_device_returns_even_when_post_scan_fails(
     whatever this attempt missed.
     """
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
-    ctrl = _make_controller(tmp_path)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
     ctrl._scanner.scan = AsyncMock(side_effect=RuntimeError("transient"))
 
     result = await ctrl.import_device(
@@ -280,7 +292,9 @@ async def test_import_device_returns_even_when_post_scan_fails(
 
 
 async def test_import_device_seeds_online_state_from_zeroconf_cache(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """A freshly-adopted device should land ONLINE without waiting for ping.
 
@@ -292,7 +306,8 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
     new card has an address right away.
     """
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
-    ctrl = _make_controller(tmp_path)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
     ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=["192.168.1.42"])
 
     await ctrl.import_device(
@@ -309,11 +324,14 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
 
 
 async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """No cached IP → state still flips ONLINE, just no apply_ip call."""
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
-    ctrl = _make_controller(tmp_path)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
     ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=None)
 
     await ctrl.import_device(
@@ -329,7 +347,9 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
 
 
 async def test_import_device_drops_matching_import_result_entry(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """The discovery banner entry disappears the moment adoption finishes.
 
@@ -340,7 +360,8 @@ async def test_import_device_drops_matching_import_result_entry(
     YAML name in the dialog.
     """
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
-    ctrl = _make_controller(tmp_path)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
     discovered = AdoptableDevice(
         name="apollo-plt-1-983300",
         friendly_name="Apollo PLT-1",

@@ -1,0 +1,85 @@
+id: lenovo_800lm_rgbcct_bulb
+name: Lenovo 800lm RGBCCT Bulb
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/lenovo_ZG38C02978.webp
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (output_r)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (output_brightness)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (output_g)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (output_temp)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (output_b)
+docs_url: https://devices.esphome.io/devices/Lenovo-800lm-RGBCCT-Bulb/
+featured_components:
+- id: light_rgbct_1
+  component_id: light.rgbct
+  fields:
+    color_interlock: true
+    red: output_r
+    green: output_g
+    blue: output_b
+    white_brightness: output_brightness
+    color_temperature: output_temp
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    id: light_rgbct_1
+    name: Rgbct 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_4
+- id: output_esp8266_pwm_5
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: output_esp8266_pwm_5
+source:
+  type: esphome-devices
+  remote_id: Lenovo-800lm-RGBCCT-Bulb
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Lenovo-800lm-RGBCCT-Bulb/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 2ce5a49eee5dc9a825b262b98ef3779738cade0a0eb9c995020ce7bd3c0c0228

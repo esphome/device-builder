@@ -1,0 +1,62 @@
+id: makerfabs_weater_station
+name: MAKERFABS-WEATHER-STATION
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image_1.jpg
+pins:
+- gpio: 27
+  available: false
+  occupied_by: sensor.pulse_counter (Wind Speed)
+docs_url: https://devices.esphome.io/devices/Makerfabs-Weater-Station/
+featured_components:
+- id: sensor_aht10_1
+  component_id: sensor.aht10
+  fields:
+    i2c_id: i2c_bus
+    update_interval: 10s
+    id: sensor_aht10_1
+    name: Aht10 1
+- id: sensor_pulse_counter_1
+  component_id: sensor.pulse_counter
+  fields:
+    pin:
+      value:
+        number: 27
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    unit_of_measurement: m/s
+    accuracy_decimals: 2
+    update_interval: 5s
+    id: sensor_pulse_counter_1
+    name: Wind Speed
+- id: sensor_bmp280_i2c_1
+  component_id: sensor.bmp280_i2c
+  fields:
+    i2c_id: i2c_bus
+    address: 118
+    update_interval: 10s
+    iir_filter: 16X
+    id: sensor_bmp280_i2c_1
+    name: Bmp280 I2C 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: WiFi Signal Strength
+source:
+  type: esphome-devices
+  remote_id: Makerfabs-Weater-Station
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Makerfabs-Weater-Station/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e92c70f08396f75f9f9e71ae713f9aa62f1fd44e45bd1c5b3f06469fe0c826c8

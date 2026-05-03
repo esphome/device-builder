@@ -1,0 +1,110 @@
+id: blitzwolf_bh_ap2501
+name: BlitzWolf BH-AP2501
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp12e
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/product.jpg
+- images/ESP12F.jpg
+docs_url: https://devices.esphome.io/devices/BlitzWolf-BH-AP2501/
+product_url: https://github.com/wildekek/BlitzHome-BH-AP2501
+featured_components:
+- id: button_template_1
+  component_id: button.template
+  fields:
+    entity_category: diagnostic
+    icon: mdi:air-filter
+    id: button_template_1
+    name: Filter cartridge reset
+- id: fan_speed_1
+  component_id: fan.speed
+  fields:
+    output: fan_output
+    speed_count: 3
+    id: fan_speed_1
+    name: Fan
+- id: fan_tuya_1
+  component_id: fan.tuya
+  fields:
+    internal: true
+    switch_datapoint: 1
+    speed_datapoint: 3
+    speed_count: 4
+    id: fan_tuya_1
+    name: Fan
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 18
+    unit_of_measurement: hours
+    mode: box
+    icon: mdi:fan-clock
+    min_value: 0
+    max_value: 24
+    step: 1
+    id: number_tuya_1
+    name: Countdown
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 2
+    device_class: aqi
+    state_class: measurement
+    accuracy_decimals: 0
+    id: sensor_tuya_1
+    name: PM2.5
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 5
+    unit_of_measurement: '%'
+    icon: mdi:ticket-percent-outline
+    entity_category: diagnostic
+    id: sensor_tuya_2
+    name: Filter remaining
+- id: sensor_tuya_3
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 19
+    icon: mdi:fan-clock
+    unit_of_measurement: minutes
+    id: sensor_tuya_3
+    name: Countdown Remaining
+- id: sensor_tuya_4
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 21
+    icon: mdi:air-filter
+    id: sensor_tuya_4
+    name: Air Quality
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 6
+    icon: mdi:chart-bubble
+    id: switch_tuya_1
+    name: Ionizer
+- id: switch_tuya_2
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 9
+    icon: mdi:sun-wireless
+    id: switch_tuya_2
+    name: UV sterilization
+- id: switch_tuya_3
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 11
+    internal: true
+    id: switch_tuya_3
+    name: Tuya 3
+source:
+  type: esphome-devices
+  remote_id: BlitzWolf-BH-AP2501
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/BlitzWolf-BH-AP2501/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: a0d8a536420deaade585252c76b352fdd89dd111bd482d4604aa4d4b3ad7e6f5

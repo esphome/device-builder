@@ -1,0 +1,315 @@
+id: tongou_to_q_sys_jwt_power_meter
+name: Tongou TO-Q-SYS-JWT DIN Rail Switch and Meter
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/product-image.webp
+- images/device-disassembled.webp
+- images/internal-mains-attachments.webp
+- images/mcu.webp
+- images/CBU-board.webp
+- images/CBU-board-2.webp
+- images/TO-Q-SYS-JWT-1.png
+- images/TO-Q-SYS-JWT-2.png
+docs_url: https://devices.esphome.io/devices/Tongou-TO-Q-SYS-JWT-power-meter/
+product_url: https://github.com/dshcherb/TO-Q-SYS-JWT-meter-esphome
+featured_components:
+- id: button_template_1
+  component_id: button.template
+  fields:
+    icon: mdi:checkbox-blank-off-outline
+    id: button_template_1
+    name: Clear Balance
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 116
+    device_class: voltage
+    unit_of_measurement: V
+    min_value: 100
+    max_value: 280
+    step: 1
+    id: number_tuya_1
+    name: Under-voltage Threshold
+- id: number_tuya_2
+  component_id: number.tuya
+  fields:
+    number_datapoint: 115
+    device_class: voltage
+    unit_of_measurement: V
+    min_value: 100
+    max_value: 280
+    step: 1
+    id: number_tuya_2
+    name: Over-voltage Threshold
+- id: number_tuya_3
+  component_id: number.tuya
+  fields:
+    number_datapoint: 114
+    device_class: current
+    unit_of_measurement: A
+    min_value: 1
+    max_value: 50
+    step: 0.1
+    id: number_tuya_3
+    name: Over-current Threshold
+- id: number_tuya_4
+  component_id: number.tuya
+  fields:
+    number_datapoint: 118
+    unit_of_measurement: °C
+    device_class: temperature
+    min_value: -25
+    max_value: 100
+    multiply: 10.0
+    step: 0.1
+    id: number_tuya_4
+    name: Temperature Threshold
+- id: number_tuya_5
+  component_id: number.tuya
+  fields:
+    number_datapoint: 119
+    device_class: power
+    unit_of_measurement: W
+    min_value: 5
+    max_value: 12000
+    step: 1
+    id: number_tuya_5
+    name: Over-Power Threshold
+- id: number_tuya_6
+  component_id: number.tuya
+  fields:
+    number_datapoint: 140
+    min_value: 1
+    max_value: 5
+    step: 1
+    id: number_tuya_6
+    name: Screen Brightness
+- id: number_tuya_7
+  component_id: number.tuya
+  fields:
+    number_datapoint: 137
+    unit_of_measurement: S
+    min_value: 5
+    max_value: 600
+    step: 1
+    id: number_tuya_7
+    name: Reporting Interval
+- id: number_tuya_8
+  component_id: number.tuya
+  fields:
+    device_class: energy
+    number_datapoint: 120
+    unit_of_measurement: kW·h
+    min_value: 1
+    max_value: 500
+    step: 1
+    id: number_tuya_8
+    name: Balance Shortage Threshold
+- id: number_tuya_9
+  component_id: number.tuya
+  fields:
+    number_datapoint: 14
+    device_class: energy_storage
+    unit_of_measurement: kW·h
+    min_value: 0
+    max_value: 9999
+    step: 0.1
+    multiply: 100
+    id: number_tuya_9
+    name: Charge Electricity
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 103
+    optimistic: true
+    id: select_tuya_1
+    name: Under-voltage Action
+- id: select_tuya_2
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 102
+    optimistic: true
+    id: select_tuya_2
+    name: Over-voltage Action
+- id: select_tuya_3
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 104
+    optimistic: true
+    id: select_tuya_3
+    name: Over-current Action
+- id: select_tuya_4
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 105
+    optimistic: true
+    id: select_tuya_4
+    name: Over-power Action
+- id: select_tuya_5
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 107
+    optimistic: true
+    id: select_tuya_5
+    name: Over-temperature Action
+- id: select_tuya_6
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 101
+    optimistic: true
+    id: select_tuya_6
+    name: Balance Shortage Action
+- id: select_tuya_7
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 142
+    optimistic: true
+    id: select_tuya_7
+    name: Relay Power-on State
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 1
+    device_class: energy
+    unit_of_measurement: kW·h
+    state_class: measurement
+    accuracy_decimals: 2
+    id: sensor_tuya_1
+    name: Total Electricity Consumption
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 125
+    device_class: energy
+    unit_of_measurement: kW·h
+    state_class: measurement
+    icon: mdi:meter-electric-outline
+    accuracy_decimals: 2
+    id: sensor_tuya_2
+    name: Forward Electricity
+- id: sensor_tuya_3
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 131
+    state_class: measurement
+    unit_of_measurement: °C
+    device_class: temperature
+    accuracy_decimals: 1
+    icon: mdi:temperature-celcius
+    id: sensor_tuya_3
+    name: Real-time Temperature
+- id: sensor_tuya_4
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 13
+    state_class: measurement
+    unit_of_measurement: kW·h
+    device_class: energy
+    accuracy_decimals: 2
+    icon: mdi:home-battery-outline
+    id: sensor_tuya_4
+    name: Electricity Balance
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: A
+    state_class: measurement
+    device_class: current
+    icon: mdi:current-ac
+    accuracy_decimals: 3
+    id: sensor_template_1
+    name: Real-time Current
+- id: sensor_template_2
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: kW
+    state_class: measurement
+    device_class: power
+    icon: mdi:lightning-bolt
+    accuracy_decimals: 3
+    id: sensor_template_2
+    name: Real-time Power
+- id: sensor_template_3
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: V
+    state_class: measurement
+    device_class: voltage
+    icon: mdi:flash-triangle
+    accuracy_decimals: 1
+    id: sensor_template_3
+    name: Real-time Voltage
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 16
+    icon: mdi:restart
+    device_class: outlet
+    id: switch_tuya_1
+    name: Circuit Breaker Switch
+- id: switch_tuya_2
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 112
+    restore_mode: DISABLED
+    id: switch_tuya_2
+    name: Automatic Closing
+- id: switch_tuya_3
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 113
+    id: switch_tuya_3
+    name: Reset MCU to Defaults
+- id: switch_tuya_4
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 111
+    restore_mode: DISABLED
+    id: switch_tuya_4
+    name: Report State Changes
+- id: switch_tuya_5
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 11
+    id: switch_tuya_5
+    name: Prepayment Switch Mode
+- id: switch_tuya_6
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 12
+    internal: true
+    id: switch_tuya_6
+    name: Clear Remaining Electricity
+- id: switch_tuya_7
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 141
+    inverted:
+      value: true
+      locked: true
+    id: switch_tuya_7
+    name: Screen On
+- id: text_sensor_tuya_1
+  component_id: text_sensor.tuya
+  fields:
+    sensor_datapoint: 109
+    id: text_sensor_tuya_1
+    name: Online Status
+- id: text_sensor_tuya_2
+  component_id: text_sensor.tuya
+  fields:
+    sensor_datapoint: 110
+    id: text_sensor_tuya_2
+    name: Last MCU Event
+source:
+  type: esphome-devices
+  remote_id: Tongou-TO-Q-SYS-JWT-power-meter
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b3018ca01f36ed4c2b996e896840ac31a73c44528265215665f82f57705fda3a

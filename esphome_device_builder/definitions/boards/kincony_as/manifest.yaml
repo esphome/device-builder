@@ -1,0 +1,45 @@
+id: kincony_as
+name: KinCony-AS (ESP32 Voice Assistant)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/KinCony-AS-1.jpg
+- images/KinCony-AS-5.jpg
+- images/KinCony-AS-7.jpg
+pins:
+- gpio: 16
+  available: false
+  occupied_by: light.esp32_rmt_led_strip (on board light)
+docs_url: https://devices.esphome.io/devices/KinCony-AS/
+featured_components:
+- id: light_esp32_rmt_led_strip_1
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    rgb_order: RGB
+    pin:
+      value: 16
+      locked: true
+    num_leds: 1
+    chipset: ws2812
+    id: light_esp32_rmt_led_strip_1
+    name: on board light
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    optimistic: true
+    id: switch_template_1
+    name: mute
+source:
+  type: esphome-devices
+  remote_id: KinCony-AS
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-AS/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 07941fce5c65cac09a8ef83b9d23db6c77a9917718e82532b261e15579886e33

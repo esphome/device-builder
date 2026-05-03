@@ -1,0 +1,77 @@
+id: mi_smart_led_bulb
+name: Xiaomi Mi Smart LED Bulb
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: modwifi
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/mi-smart-led-bulb-parts.jpg
+- images/mi-smart-led-bulb-inside.jpg
+- images/mi-smart-led-bulb-flash-pins.jpg
+- images/mi-smart-led-bulb-pinout.jpg
+pins:
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (pwm1)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (pwm3)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (pwm2)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (pwm4)
+docs_url: https://devices.esphome.io/devices/Mi-Smart-LED-Bulb/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: pwm1
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0.2s
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_4
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+source:
+  type: esphome-devices
+  remote_id: Mi-Smart-LED-Bulb
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Mi-Smart-LED-Bulb/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 6b38a91ade90b4476cefd9b89c78549cc39e88ff2c1d51e56c40dedb26a1994f

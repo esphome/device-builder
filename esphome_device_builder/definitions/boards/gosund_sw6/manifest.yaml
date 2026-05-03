@@ -1,0 +1,79 @@
+id: gosund_sw6
+name: Gosund SW6
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/gosund_SW6.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (Dumb Switch Output)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (relay)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (dummy_relay)
+docs_url: https://devices.esphome.io/devices/Gosund-SW6/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        inverted: true
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_2
+    name: Dumb Switch Output
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    internal: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    icon: mdi:light-switch
+    id: switch_template_1
+    name: Template 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+        mode: INPUT_PULLDOWN_16
+      locked: true
+    internal: true
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: Gosund-SW6
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gosund-SW6/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: ccbac45e84adb118ef72d34cec4b0846681e0831e8bb39da1958a67a2936194c

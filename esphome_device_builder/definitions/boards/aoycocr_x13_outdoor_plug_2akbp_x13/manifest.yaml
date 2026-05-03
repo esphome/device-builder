@@ -1,0 +1,73 @@
+id: aoycocr_x13_outdoor_plug_2akbp_x13
+name: Aoycocr X13 Outdoor Plug (2AKBP-X13)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/X13.png
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: output.gpio (led2)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio ($devicename 2)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio ($devicename 1)
+docs_url: https://devices.esphome.io/devices/Aoycocr-X13-Outdoor-Plug-2AKBP-X13/
+product_url: https://github.com/iprak/esphome/blob/master/x13.yaml
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    icon: mdi:floor-lamp
+    id: switch_gpio_1
+    name: $devicename 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    icon: mdi:floor-lamp
+    id: switch_gpio_2
+    name: $devicename 2
+source:
+  type: esphome-devices
+  remote_id: Aoycocr-X13-Outdoor-Plug-2AKBP-X13
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Aoycocr-X13-Outdoor-Plug-2AKBP-X13/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 09815a6fd2a60b238612163b17da684077b7e898c5aaf1e5ef7a1ea0a999b707

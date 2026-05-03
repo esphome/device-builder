@@ -1,0 +1,104 @@
+id: cloudfree_eu_plug_p1eu
+name: CloudFree EU Plug (P1EU)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/cloudfree_P1EU.jpg
+- images/cloudfree_P1EU_Reference.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 2
+  available: false
+  occupied_by: output.esp8266_pwm (${devicename}_blue_output)
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+- gpio: 14
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (${friendly_name})
+docs_url: https://devices.esphome.io/devices/CloudFree-EU-Plug-P1EU/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    device_class: power
+    pin:
+      value:
+        number: 13
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value:
+        number: 2
+        inverted: true
+      locked: true
+    id: output_esp8266_pwm_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 5
+      locked: true
+    cf1_pin:
+      value: 14
+      locked: true
+    change_mode_every: 8
+    update_interval: 10s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    icon: mdi:circle-slice-3
+    power_id: wattage
+    unit_of_measurement: kWh
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: CloudFree-EU-Plug-P1EU
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/CloudFree-EU-Plug-P1EU/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 7a5eb5697540c39f63e0830d4046fc236c21e30888a1ba7e718dba7634b46520

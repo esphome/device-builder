@@ -1,0 +1,420 @@
+id: kincony_aio
+name: KinCony-AIO Hybrid (ESP32-S3 ALL IN ONE Removable Relay board)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/AIO-Hybrid-1.jpg
+- images/AIO-Hybrid_diagram.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input01)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input02)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input03)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input04)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input05)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input06)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input07)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input08)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input09)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input10)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input11)
+- gpio: 11
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-input12)
+- gpio: 21
+  available: false
+  occupied_by: light.esp32_rmt_led_strip (My Light IO21)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (AIO_hybrid-433M)
+docs_url: https://devices.esphome.io/devices/KinCony-AIO/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: AIO_hybrid-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: AIO_hybrid-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: AIO_hybrid-input03
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: AIO_hybrid-input04
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: AIO_hybrid-input05
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: AIO_hybrid-input06
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: AIO_hybrid-input07
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: AIO_hybrid-input08
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: AIO_hybrid-input09
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: AIO_hybrid-input10
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: AIO_hybrid-input11
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_input_1
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: AIO_hybrid-input12
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_13
+    name: AIO_hybrid-433M
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_14
+    name: AIO_hybrid-io0
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    i2c_id: bus_a
+    model: SSD1306 128x64
+    address: 60
+    lambda: it.printf(0, 0, id(roboto), "AIO-hybrid");
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: dimmer1
+    gamma_correct: 1.0
+    id: light_monochromatic_1
+    name: dimmer-1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: dimmer2
+    gamma_correct: 1.0
+    id: light_monochromatic_2
+    name: dimmer-2
+- id: light_monochromatic_3
+  component_id: light.monochromatic
+  fields:
+    output: dimmer3
+    gamma_correct: 1.0
+    id: light_monochromatic_3
+    name: dimmer-3
+- id: light_monochromatic_4
+  component_id: light.monochromatic
+  fields:
+    output: dimmer4
+    gamma_correct: 1.0
+    id: light_monochromatic_4
+    name: dimmer-4
+- id: light_esp32_rmt_led_strip_1
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    rgb_order: GRB
+    pin:
+      value: 21
+      locked: true
+    num_leds: 20
+    chipset: ws2812
+    id: light_esp32_rmt_led_strip_1
+    name: My Light IO21
+- id: output_mcp4728_1
+  component_id: output.mcp4728
+  fields:
+    mcp4728_id: dac_output
+    channel: A
+    vref: vdd
+    power_down: normal
+    id: output_mcp4728_1
+- id: output_mcp4728_2
+  component_id: output.mcp4728
+  fields:
+    mcp4728_id: dac_output
+    channel: B
+    vref: vdd
+    power_down: normal
+    id: output_mcp4728_2
+- id: output_mcp4728_3
+  component_id: output.mcp4728
+  fields:
+    mcp4728_id: dac_output
+    channel: C
+    vref: vdd
+    power_down: normal
+    id: output_mcp4728_3
+- id: output_mcp4728_4
+  component_id: output.mcp4728
+  fields:
+    mcp4728_id: dac_output
+    channel: D
+    vref: vdd
+    power_down: normal
+    id: output_mcp4728_4
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 5
+      locked: true
+    update_interval: 55s
+    attenuation: 11db
+    id: sensor_adc_1
+    name: AIO_hybrid A1 Voltage
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 7
+      locked: true
+    update_interval: 55s
+    attenuation: 11db
+    id: sensor_adc_2
+    name: AIO_hybrid A2 Voltage
+- id: sensor_adc_3
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 6
+      locked: true
+    update_interval: 55s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_3
+    name: AIO_hybrid A3 Current
+- id: sensor_adc_4
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    update_interval: 55s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_4
+    name: AIO_hybrid A4 Current
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_zsu
+    id: switch_uart_1
+    name: UART zigbee
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_output_1
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: AIO_hybrid-output01
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_output_1
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: AIO_hybrid-output02
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_output_1
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: AIO_hybrid-output03
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_output_1
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: AIO_hybrid-output04
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_output_1
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: AIO_hybrid-output05
+source:
+  type: esphome-devices
+  remote_id: KinCony-AIO
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-AIO/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 45c42e7fc2c6a5b0d8e9bac576cf802882c6e7aefe78a55f7d6ed6ff534f21eb

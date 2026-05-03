@@ -1,0 +1,186 @@
+id: kincony_kc868_a2v3
+name: KinCony KC868-A2v3 (ESP32-S3 2CH Relay)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/A2v3-1.jpg
+- images/A2v3-2.jpg
+- images/A2v3-diagram.jpg
+tags:
+- relay
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (IO4)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (IO5)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (IO6)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (IO8)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (A2v3-input1)
+- gpio: 17
+  available: false
+  occupied_by: binary_sensor.gpio (A2v3-input2)
+- gpio: 18
+  available: false
+  occupied_by: binary_sensor.gpio (IO18)
+- gpio: 38
+  available: false
+  occupied_by: binary_sensor.gpio (IO38)
+- gpio: 39
+  available: false
+  occupied_by: switch.gpio (A2v3-Relay2)
+- gpio: 40
+  available: false
+  occupied_by: switch.gpio (A2v3-Relay1)
+docs_url: https://devices.esphome.io/devices/KinCony-KC868-A2v3/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: A2v3-input1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 17
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: A2v3-input2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 18
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: IO18
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: IO8
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: IO4
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: IO5
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: IO6
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 38
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: IO38
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    i2c_id: bus_a
+    model: SSD1306 128x64
+    address: 60
+    lambda: it.printf(0, 0, id(roboto), "A2v3");
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 40
+      locked: true
+    id: switch_gpio_1
+    name: A2v3-Relay1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 39
+      locked: true
+    id: switch_gpio_2
+    name: A2v3-Relay2
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_1
+    id: switch_uart_1
+    name: RS485 Button
+- id: switch_uart_2
+  component_id: switch.uart
+  fields:
+    uart_id: uart_sim7600
+    id: switch_uart_2
+    name: UART 4G
+source:
+  type: esphome-devices
+  remote_id: KinCony-KC868-A2v3
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-A2v3/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e22ba39ea5f13eb2d9a049dc0d50159e6b567eda7932d48e2fadc03053474d65

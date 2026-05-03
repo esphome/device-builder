@@ -1,0 +1,77 @@
+id: athom_smart_plug_pg01v2_eu16a
+name: Athom Smart Plug PG01V2 EU16A
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/athom_PG01V2-EU16A.webp
+tags:
+- relay
+- compact
+pins:
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (button_1)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${upper_devicename} Switch)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (sw_led1)
+docs_url: https://devices.esphome.io/devices/Athom-Smart-Plug-PG01V2-EU16A/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: sensor_cse7766_1
+  component_id: sensor.cse7766
+  fields:
+    uart_id: cse7766_uart_bus
+    id: sensor_cse7766_1
+    name: Cse7766 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    unit_of_measurement: kWh
+    icon: mdi:clock-alert
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    icon: mdi:power-socket-fr
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: Athom-Smart-Plug-PG01V2-EU16A
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-Smart-Plug-PG01V2-EU16A/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e3b378aa43e9835fd86315ae0d6a912ba5c395536b7ffb7da2fef36253e0ddcf

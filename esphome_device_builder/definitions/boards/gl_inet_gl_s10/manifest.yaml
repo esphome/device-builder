@@ -1,0 +1,81 @@
+id: gl_inet_gl_s10
+name: GL-iNet GL-S10
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image1.jpg
+- images/image2.jpg
+- images/image3.jpg
+- images/image4.jpg
+- images/image5.jpg
+- images/image6.jpg
+- images/image7.jpg
+- images/image8.jpg
+pins:
+- gpio: 12
+  available: false
+  occupied_by: output.gpio (bluetooth_led)
+- gpio: 14
+  available: false
+  occupied_by: output.gpio (power_led)
+- gpio: 33
+  available: false
+  occupied_by: binary_sensor.gpio (Reset Button)
+docs_url: https://devices.esphome.io/devices/GL-iNet-GL-S10/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 33
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Reset Button
+- id: binary_sensor_status_1
+  component_id: binary_sensor.status
+  fields:
+    internal: true
+    id: binary_sensor_status_1
+    name: Status 1
+- id: button_safe_mode_1
+  component_id: button.safe_mode
+  fields:
+    entity_category: diagnostic
+    id: button_safe_mode_1
+    name: Safe Mode Boot
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_2
+source:
+  type: esphome-devices
+  remote_id: GL-iNet-GL-S10
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/GL-iNet-GL-S10/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1029ba2937fb8e7794df9de756250c5b06e6f8bdfbc0de97d5aa82e82a7db5d1

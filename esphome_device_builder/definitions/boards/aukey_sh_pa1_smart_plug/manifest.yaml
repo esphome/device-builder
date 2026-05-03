@@ -1,0 +1,69 @@
+id: aukey_sh_pa1_smart_plug
+name: Aukey SH-PA1 Wi-Fi Smart Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/aukey-plug.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 2
+  available: false
+  occupied_by: output.gpio (blue_led_output)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (mini_tree_button)
+- gpio: 15
+  available: false
+  occupied_by: output.gpio (plug_outlet)
+docs_url: https://devices.esphome.io/devices/Aukey-SH-PA1-Smart-Plug/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: plug_outlet
+    id: light_binary_1
+    name: Mini Tree
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: blue_led_output
+    id: light_binary_2
+    name: Binary 2
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 2
+        inverted: true
+      locked: true
+    id: output_gpio_2
+source:
+  type: esphome-devices
+  remote_id: Aukey-SH-PA1-Smart-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Aukey-SH-PA1-Smart-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: a78834c0d3e2b062ee3bd421d5749ea2ac7f83e796239674d966ed7f01807640

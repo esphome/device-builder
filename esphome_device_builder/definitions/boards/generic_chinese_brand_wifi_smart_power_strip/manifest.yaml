@@ -1,0 +1,143 @@
+id: generic_chinese_brand_wifi_smart_power_strip
+name: Generic Chinese Brand WiFi Smart Power Strip
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Generic-Chinese-Brand-WiFi-Smart-Power-Strip.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: output.gpio (light_1_output)
+- gpio: 3
+  available: false
+  occupied_by: output.gpio (light_2_output)
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (${device_name} socket 1)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Button)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${device_name} socket 3)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (${device_name} socket 2)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (${device_name} socket 4)
+- gpio: 16
+  available: false
+  occupied_by: switch.gpio (${device_name} USB)
+docs_url: https://devices.esphome.io/devices/Generic-Chinese-Brand-WiFi-Smart-Power-Strip/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: light_1_output
+    id: light_binary_1
+    name: Binary 1
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: light_2_output
+    id: light_binary_2
+    name: Binary 2
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: true
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 3
+        inverted: true
+      locked: true
+    id: output_gpio_2
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: Gpio 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: Gpio 4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        inverted: false
+      locked: true
+    id: switch_gpio_5
+    name: Gpio 5
+source:
+  type: esphome-devices
+  remote_id: Generic-Chinese-Brand-WiFi-Smart-Power-Strip
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Generic-Chinese-Brand-WiFi-Smart-Power-Strip/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 2a262c4152643d45c86b481222421d18e6b3448141e156467a7535affb5454f3

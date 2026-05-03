@@ -1,0 +1,62 @@
+id: azpen_home_with_usb
+name: Azpen Home with USB port
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/WallSide.jpeg
+- images/SocketSide.jpeg
+- images/ESPboard.jpeg
+- images/GPIOs.jpeg
+tags:
+- relay
+- compact
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (USB Relay)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (Relay)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (Relay Button)
+docs_url: https://devices.esphome.io/devices/Azpen-Home-With-USB/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Relay Button
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_1
+    name: Relay
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: switch_gpio_2
+    name: USB Relay
+source:
+  type: esphome-devices
+  remote_id: Azpen-Home-With-USB
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Azpen-Home-With-USB/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: d0b1f74d3e7d3d5a6c3c8a8e6342c7b65f21e44c8ee32fc043b2d6d9cccc433c

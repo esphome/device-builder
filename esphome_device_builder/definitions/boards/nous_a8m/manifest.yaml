@@ -1,0 +1,49 @@
+id: nous_a8m
+name: Nous A8M Smart Matter Socket 16A
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/A8M.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Nous-A8M/
+product_url: https://nous.technology/product/a8m.html
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    id: light_status_led_1
+    name: Switch State LED
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    update_interval: 10s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:power
+    id: switch_gpio_1
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: Nous-A8M
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Nous-A8M/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 99be1f356ffa6bda175ca3cd2a459f0458c2cd6d6da4c910c96c30a801407cd7

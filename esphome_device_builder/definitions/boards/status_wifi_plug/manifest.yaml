@@ -1,0 +1,32 @@
+id: status_wifi_plug
+name: Status Wifi Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231t-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Status-plug.jpg
+- images/21DG.jpg
+- images/23A.jpg
+- images/term1.png
+- images/term2.png
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Status-Wifi-Plug/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: state_led
+    id: light_monochromatic_1
+    name: Monochromatic 1
+source:
+  type: esphome-devices
+  remote_id: Status-Wifi-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Status-Wifi-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: ae1c6715a431e7084fdc18ef9449d3106127c7e12256481838806cf889361c9f

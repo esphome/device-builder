@@ -1,0 +1,173 @@
+id: tuya_mini_w1_4ch
+name: TuYa MINI-W1-4CH - PSW-4CH-CBU
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/front.jpg
+- images/back.jpg
+- images/soldering.jpg
+tags:
+- relay
+pins:
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (S1)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (S2)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (S3)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (S4)
+- gpio: 10
+  available: false
+  occupied_by: output.gpio (relay1)
+- gpio: 23
+  available: false
+  occupied_by: binary_sensor.gpio (Push Button)
+- gpio: 24
+  available: false
+  occupied_by: output.gpio (relay2)
+- gpio: 26
+  available: false
+  occupied_by: output.gpio (relay3)
+- gpio: 28
+  available: false
+  occupied_by: output.gpio (relay4)
+docs_url: https://devices.esphome.io/devices/Tuya-Mini-W1-4CH/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 6
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: S1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 7
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: S2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 8
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: S3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 9
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: S4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 23
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: Push Button
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: relay1
+    id: light_binary_1
+    name: Relay 1
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: relay2
+    id: light_binary_2
+    name: Relay 2
+- id: light_binary_3
+  component_id: light.binary
+  fields:
+    output: relay3
+    id: light_binary_3
+    name: Relay 3
+- id: light_binary_4
+  component_id: light.binary
+  fields:
+    output: relay4
+    id: light_binary_4
+    name: Relay 4
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 10
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: output_gpio_2
+- id: output_gpio_3
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: output_gpio_3
+- id: output_gpio_4
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 28
+      locked: true
+    id: output_gpio_4
+source:
+  type: esphome-devices
+  remote_id: Tuya-Mini-W1-4CH
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Mini-W1-4CH/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 087e7156a3f13907b339f4f3c0144e65c27a671ca191e30b25f27c86f71360c7

@@ -1,0 +1,68 @@
+id: tomzn_tompd_63_wifi
+name: TOMZN TOMPD-63-WiFi
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/20250503_202919.recorte.jpg
+- images/20250425_175840.jpg
+docs_url: https://devices.esphome.io/devices/Tomzn-TOMPD-63-WiFi/
+featured_components:
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: V
+    icon: mdi:sine-wave
+    accuracy_decimals: 1
+    id: sensor_template_1
+    name: Volt
+- id: sensor_template_2
+  component_id: sensor.template
+  fields:
+    icon: mdi:current-ac
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    id: sensor_template_2
+    name: Curent
+- id: sensor_template_3
+  component_id: sensor.template
+  fields:
+    icon: mdi:flash
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    id: sensor_template_3
+    name: Power
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 1
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    icon: mdi:lightning-bolt
+    id: sensor_tuya_1
+    name: Total Energy
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 15
+    unit_of_measurement: mA
+    accuracy_decimals: 0
+    icon: mdi:flash-alert
+    id: sensor_tuya_2
+    name: Leakage Current
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 16
+    id: switch_tuya_1
+    name: 'On'
+source:
+  type: esphome-devices
+  remote_id: Tomzn-TOMPD-63-WiFi
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tomzn-TOMPD-63-WiFi/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e6e886589d0392fb1a122cdf3d6800bf30f028ec98e28beecb9238e0a7fca362

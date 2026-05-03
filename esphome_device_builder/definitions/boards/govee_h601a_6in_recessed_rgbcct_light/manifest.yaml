@@ -1,0 +1,58 @@
+id: govee_h601a_6in_recessed_rgbcct_light
+name: Govee 6in recessed RGBCCT light
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: rtl87xx
+  board: generic-rtl8720cf-2mb-992k
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/module.jpeg
+- images/full_pcb.png
+docs_url: https://devices.esphome.io/devices/Govee-H601A-6in-recessed-RGBCCT-light/
+featured_components:
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    red: red_pwm_output
+    green: green_pwm_output
+    blue: blue_pwm_output
+    cold_white: cool_pwm_output
+    warm_white: warm_pwm_output
+    cold_white_color_temperature: 6350 K
+    warm_white_color_temperature: 3000 K
+    color_interlock: true
+    id: light_rgbww_1
+    name: Light
+- id: output_libretiny_pwm_1
+  component_id: output.libretiny_pwm
+  fields:
+    max_power: 80%
+    id: output_libretiny_pwm_1
+- id: output_libretiny_pwm_2
+  component_id: output.libretiny_pwm
+  fields:
+    max_power: 80%
+    id: output_libretiny_pwm_2
+- id: output_libretiny_pwm_3
+  component_id: output.libretiny_pwm
+  fields:
+    max_power: 80%
+    id: output_libretiny_pwm_3
+- id: output_libretiny_pwm_4
+  component_id: output.libretiny_pwm
+  fields:
+    max_power: 80%
+    id: output_libretiny_pwm_4
+- id: output_libretiny_pwm_5
+  component_id: output.libretiny_pwm
+  fields:
+    max_power: 80%
+    id: output_libretiny_pwm_5
+source:
+  type: esphome-devices
+  remote_id: Govee-H601A-6in-recessed-RGBCCT-light
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Govee-H601A-6in-recessed-RGBCCT-light/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: c70ae990f8215691610fe554bcbb48131bbbf29743aca283867740674aabfc35

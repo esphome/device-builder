@@ -1,0 +1,52 @@
+id: wipro_next_20w_smart_cct_batten
+name: Wipro Next 20W CCT Batten
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/wipro-wiring-pcb.jpg
+pins:
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (brightness_pwm)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (color_temp_pwm)
+docs_url: https://devices.esphome.io/devices/Wipro-Next-20W-Smart-CCT-Batten/
+featured_components:
+- id: light_color_temperature_1
+  component_id: light.color_temperature
+  fields:
+    color_temperature: color_temp_pwm
+    brightness: brightness_pwm
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    id: light_color_temperature_1
+    name: wipro-next-cct-batten
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_2
+source:
+  type: esphome-devices
+  remote_id: Wipro-Next-20W-Smart-CCT-Batten
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Wipro-Next-20W-Smart-CCT-Batten/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 5df1d7e3990a5e6d115252e76a68e28282402a20e16fea536db08b9b36bd34ec

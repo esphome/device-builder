@@ -1,0 +1,153 @@
+id: rsh_wifi_sky01
+name: Tuya Galaxy / Laser Star Projector (RSH-WiFi-Sky01)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp12e
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Sky01.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: light.status_led (${friendly_name} Status Led)
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (red)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (laser_pwm)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (green)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (motor_pwm)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (blue)
+- gpio: 15
+  available: false
+  occupied_by: output.esp8266_pwm (btn_led_pwm)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+docs_url: https://devices.esphome.io/devices/RSH-WiFi-Sky01/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        mode: INPUT_PULLDOWN_16
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_rgb_1
+  component_id: light.rgb
+  fields:
+    icon: mdi:star-shooting
+    red: red
+    green: green
+    blue: blue
+    restore_mode: RESTORE_DEFAULT_OFF
+    default_transition_length: 2s
+    id: light_rgb_1
+    name: Rgb 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    icon: mdi:laser-pointer
+    output: laser_pwm
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 3s
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    icon: mdi:led-outline
+    entity_category: diagnostic
+    pin:
+      value: 0
+      locked: true
+    internal: true
+    id: light_status_led_1
+    name: Status Led 1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    icon: mdi:led-outline
+    entity_category: diagnostic
+    output: btn_led_pwm
+    restore_mode: ALWAYS_OFF
+    id: light_monochromatic_2
+    name: Monochromatic 2
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_4
+- id: output_esp8266_pwm_5
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    min_power: 15%
+    id: output_esp8266_pwm_5
+- id: output_esp8266_pwm_6
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 15
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_6
+source:
+  type: esphome-devices
+  remote_id: RSH-WiFi-Sky01
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/RSH-WiFi-Sky01/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e220d019e9b6da57f317383844a7571d9e28fc7067b47cb0a16f0597a84a216f

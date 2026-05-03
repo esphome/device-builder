@@ -1,0 +1,86 @@
+id: wyze_bulb_color
+name: Wyze Bulb Color
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/led-array.jpg
+- images/potting.jpg
+- images/pinout.jpg
+- images/soldered.jpg
+pins:
+- gpio: 13
+  available: false
+  occupied_by: output.ledc (output_blue)
+- gpio: 14
+  available: false
+  occupied_by: output.ledc (output_red)
+- gpio: 15
+  available: false
+  occupied_by: output.ledc (output_white)
+- gpio: 26
+  available: false
+  occupied_by: output.ledc (output_green)
+docs_url: https://devices.esphome.io/devices/wyze-bulb-color/
+featured_components:
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    red: output_red
+    green: output_green
+    blue: output_blue
+    white: output_white
+    id: light_rgbw_1
+    name: Rgbw 1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 14
+      locked: true
+    max_power: 0.9
+    power_supply: rgb_power
+    frequency: 1220hz
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 26
+      locked: true
+    max_power: 0.9
+    power_supply: rgb_power
+    frequency: 1220hz
+    id: output_ledc_2
+- id: output_ledc_3
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 13
+      locked: true
+    max_power: 0.9
+    power_supply: rgb_power
+    frequency: 1220hz
+    id: output_ledc_3
+- id: output_ledc_4
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 15
+      locked: true
+    max_power: 0.8
+    frequency: 1220hz
+    id: output_ledc_4
+source:
+  type: esphome-devices
+  remote_id: wyze-bulb-color
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/wyze-bulb-color/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 573858ac31e286c532feb2bba14f0c2e1f2e36c8c51d01a406a25c5b48e555f8

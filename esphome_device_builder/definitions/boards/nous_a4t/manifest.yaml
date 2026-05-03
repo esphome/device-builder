@@ -1,0 +1,102 @@
+id: nous_a4t
+name: Nous A4t
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/A4T_00.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 1
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 3
+  available: false
+  occupied_by: light.status_led (status_led)
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (switch_1)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (switch_2)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (input)
+docs_url: https://devices.esphome.io/devices/Nous-A4t/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: input
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 3
+        inverted: true
+      locked: true
+    id: light_status_led_1
+    name: status_led
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    sel_pin:
+      value:
+        number: 1
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 5
+      locked: true
+    cf1_pin:
+      value: 4
+      locked: true
+    change_mode_every: 4
+    update_interval: 3s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: switch_1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_2
+    name: switch_2
+source:
+  type: esphome-devices
+  remote_id: Nous-A4t
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Nous-A4t/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 7cfc7db7d70b1c5487b3c5e4b75dbebd86946b85f89f69fe0d77420489d22319

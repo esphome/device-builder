@@ -60,7 +60,7 @@ async def test_create_subprocess_exec_actually_runs() -> None:
     assert b"subprocess-helper-ok" in stdout
 
 
-async def test_no_call_site_uses_asyncio_create_subprocess_exec_directly() -> None:
+def test_no_call_site_uses_asyncio_create_subprocess_exec_directly() -> None:
     """Guard against regressions: no callsite should bypass the helper.
 
     Catches future commits that re-introduce a direct
@@ -69,15 +69,22 @@ async def test_no_call_site_uses_asyncio_create_subprocess_exec_directly() -> No
     """
     pkg_root = Path(esphome_device_builder.__file__).parent
     helper_path = pkg_root / "helpers" / "subprocess.py"
+    needle = b"asyncio.create_subprocess_exec"
 
+    # Bytes-mode short-circuit: most files don't contain the needle, so
+    # one ``in`` check on the file blob beats decoding + walking every
+    # line. Run as a sync test so blockbuster doesn't wrap each
+    # ``read_bytes`` on Linux CI.
     offenders: list[str] = []
     for path in pkg_root.rglob("*.py"):
         if path == helper_path:
             continue
-        text = path.read_text(encoding="utf-8")
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            if "asyncio.create_subprocess_exec" in line:
-                offenders.append(f"{path.relative_to(pkg_root)}:{lineno}: {line.strip()}")
+        blob = path.read_bytes()
+        if needle not in blob:
+            continue
+        for lineno, line in enumerate(blob.splitlines(), start=1):
+            if needle in line:
+                offenders.append(f"{path.relative_to(pkg_root)}:{lineno}: {line.decode().strip()}")
 
     assert not offenders, (
         "Found direct asyncio.create_subprocess_exec calls — use "

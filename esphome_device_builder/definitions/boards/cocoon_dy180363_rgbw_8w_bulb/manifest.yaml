@@ -1,0 +1,72 @@
+id: cocoon_dy180363_rgbw_8w_bulb
+name: Cocoon DY180363 RGBW 8W Bulb
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/DY180363.png
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (output_red)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (output_white)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (output_green)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (output_blue)
+docs_url: https://devices.esphome.io/devices/Cocoon-DY180363-RGBW-8W-Bulb/
+featured_components:
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    icon: mdi:light
+    red: output_red
+    green: output_green
+    blue: output_blue
+    white: output_white
+    color_interlock: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: light_rgbw_1
+    name: None
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_4
+source:
+  type: esphome-devices
+  remote_id: Cocoon-DY180363-RGBW-8W-Bulb
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Cocoon-DY180363-RGBW-8W-Bulb/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 548583fd81c17b2298ceee18683b91bdd973558dd721741fa1f85d866061da56

@@ -1,0 +1,53 @@
+id: iot_devices_ggreg20_v3
+name: IoT-devices GGreg20_V3 module
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: nodemcuv2
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/image.jpg
+- images/image2.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (D3 Input Button)
+docs_url: https://devices.esphome.io/devices/IoT-devices-GGreg20-V3/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_sensor_gpio_1
+    name: D3 Input Button
+- id: sensor_pulse_counter_1
+  component_id: sensor.pulse_counter
+  fields:
+    unit_of_measurement: mkSv/Hour
+    update_interval: 60s
+    accuracy_decimals: 3
+    id: sensor_pulse_counter_1
+    name: Ionizing Radiation Power
+- id: sensor_integration_1
+  component_id: sensor.integration
+  fields:
+    unit_of_measurement: mkSv
+    sensor: my_doze_meter
+    icon: mdi:radioactive
+    accuracy_decimals: 5
+    time_unit: min
+    id: sensor_integration_1
+    name: Total Ionizing Radiation Doze
+source:
+  type: esphome-devices
+  remote_id: IoT-devices-GGreg20-V3
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/IoT-devices-GGreg20-V3/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1185af223494f101eeac51ea08b863a31c152c0a7551a0e10e320c0a4502c2cc

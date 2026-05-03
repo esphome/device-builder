@@ -1,0 +1,35 @@
+id: mirabella_door_window_sensor
+name: Mirabella Genio Door & Window Sensor
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Mirabella-Door-Window-Sensor.jpg
+docs_url: https://devices.esphome.io/devices/Mirabella-Door-Window-Sensor/
+featured_components:
+- id: binary_sensor_template_1
+  component_id: binary_sensor.template
+  fields:
+    device_class: door
+    lambda: return {};
+    id: binary_sensor_template_1
+    name: Door Window Sensor
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    update_interval: 1s
+    expire_after: null
+    unit_of_measurement: '%'
+    accuracy_decimals: 0
+    id: sensor_adc_1
+    name: Doow Window Battery
+source:
+  type: esphome-devices
+  remote_id: Mirabella-Door-Window-Sensor
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Mirabella-Door-Window-Sensor/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b771c92a25d45718c78cf9106df6d3a49e67ff153257fc947152aa1dee3f83e9

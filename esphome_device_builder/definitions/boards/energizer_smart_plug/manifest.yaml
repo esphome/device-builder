@@ -1,0 +1,29 @@
+id: energizer_smart_plug
+name: Energizer Smart Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/exterior.png
+- images/test-pads.png
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Energizer-Smart-Plug/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    id: light_status_led_1
+    name: Status Led 1
+source:
+  type: esphome-devices
+  remote_id: Energizer-Smart-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Energizer-Smart-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 42c1631baacc03a14280849715c969e71a67982a7bff50fb2edf2958d5b3b221

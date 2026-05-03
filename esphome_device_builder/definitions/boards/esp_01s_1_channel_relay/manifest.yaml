@@ -1,0 +1,48 @@
+id: esp_01s_1_channel_relay
+name: ESP-01S 1 Channel Relay
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/ESP-01S-1-Channel-Relay.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: switch.gpio (Heart switch)
+docs_url: https://devices.esphome.io/devices/ESP-01S-1-channel-relay/
+featured_components:
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 600s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_1
+    name: Heart switch
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:clock-start
+    id: text_sensor_template_1
+    name: Uptime Human Readable
+source:
+  type: esphome-devices
+  remote_id: ESP-01S-1-channel-relay
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP-01S-1-channel-relay/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 79830ce2f5656be646c1f6af9867748706f5d934df7d6ad03ec0912b07c4feeb

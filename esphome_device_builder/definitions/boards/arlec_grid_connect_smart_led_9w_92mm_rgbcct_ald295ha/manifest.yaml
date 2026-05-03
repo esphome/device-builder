@@ -1,0 +1,75 @@
+id: arlec_grid_connect_smart_led_9w_92mm_rgbcct_ald295ha
+name: Arlec 9W 92mm Grid Connect Smart RGB+CCT LED Downlight (ALD295HA)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/ALD295HA.jpeg
+- images/1.jpg
+- images/2.jpg
+- images/3.jpg
+- images/A.jpg
+- images/B.jpg
+- images/C.jpg
+- images/D.jpg
+docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/
+featured_components:
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    color_interlock: true
+    constant_brightness: true
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    red: output_red
+    green: output_green
+    blue: output_blue
+    cold_white: output_cold
+    warm_white: output_warm
+    restore_mode: RESTORE_DEFAULT_ON
+    gamma_correct: 1.5
+    default_transition_length: 0.5s
+    id: light_rgbww_1
+    name: None
+- id: output_bp5758d_1
+  component_id: output.bp5758d
+  fields:
+    channel: 3
+    current: 14
+    id: output_bp5758d_1
+- id: output_bp5758d_2
+  component_id: output.bp5758d
+  fields:
+    channel: 2
+    current: 14
+    id: output_bp5758d_2
+- id: output_bp5758d_3
+  component_id: output.bp5758d
+  fields:
+    channel: 1
+    current: 14
+    id: output_bp5758d_3
+- id: output_bp5758d_4
+  component_id: output.bp5758d
+  fields:
+    channel: 5
+    current: 24
+    max_power: 0.8
+    id: output_bp5758d_4
+- id: output_bp5758d_5
+  component_id: output.bp5758d
+  fields:
+    channel: 4
+    current: 24
+    max_power: 0.8
+    id: output_bp5758d_5
+source:
+  type: esphome-devices
+  remote_id: Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 9e2417391d47a16891586d8ece10f23e22a93b74f8a0132accc3f6be57d7a60f

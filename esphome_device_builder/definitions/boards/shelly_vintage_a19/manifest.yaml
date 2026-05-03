@@ -1,0 +1,38 @@
+id: shelly_vintage_a19
+name: Shelly Vintage A19
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Shelly_Vintage_A60_x1-938x938.png
+tags:
+- shelly
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (brightness)
+docs_url: https://devices.esphome.io/devices/Shelly-Vintage-A19/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: brightness
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_esp8266_pwm_1
+source:
+  type: esphome-devices
+  remote_id: Shelly-Vintage-A19
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Vintage-A19/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 362299c346953057500d08e49ee1c2d66252f519f85480a66d83126ca6fe37aa

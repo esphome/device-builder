@@ -6,9 +6,14 @@ hand-rolled text scanning makes regression risk meaningful.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from esphome_device_builder.helpers.device_yaml import (
+    _parse_inline_value,
     compute_has_pending_changes,
+    detect_platform_from_yaml,
     parse_esphome_meta,
+    parse_platform_from_yaml,
 )
 
 
@@ -245,3 +250,142 @@ def test_in_sync_when_only_one_hash_known() -> None:
         )
         is False
     )
+
+
+# ----------------------------------------------------------------------
+# parse_esphome_meta — comment branch + edge cases
+# ----------------------------------------------------------------------
+
+
+def test_parse_meta_comment_field() -> None:
+    """The ``comment:`` branch of the field-dispatch is exercised.
+
+    Covers the ``else`` arm of the name/friendly_name/comment
+    triad — the previous tests only ever hit the first two.
+    """
+    yaml_content = """
+esphome:
+  name: my-device
+  comment: Hand-built controller
+"""
+    name, friendly_name, comment = parse_esphome_meta(yaml_content)
+    assert name == "my-device"
+    assert friendly_name is None
+    assert comment == "Hand-built controller"
+
+
+def test_parse_meta_skips_blank_and_comment_lines_inside_block() -> None:
+    """Comment lines and blank lines inside the ``esphome:`` block are skipped.
+
+    Pin the ``stripped.startswith("#") or not stripped`` guard —
+    a refactor that dropped it would mis-parse a ``# friendly_name: foo``
+    comment as the actual field.
+    """
+    yaml_content = """
+esphome:
+  name: my-device
+
+  # friendly_name: this is just a comment, ignore me
+  comment: real comment
+"""
+    name, friendly_name, comment = parse_esphome_meta(yaml_content)
+    assert name == "my-device"
+    assert friendly_name is None  # comment line wasn't picked up
+    assert comment == "real comment"
+
+
+# ----------------------------------------------------------------------
+# parse_platform_from_yaml — pure-text scanner
+# ----------------------------------------------------------------------
+
+
+def test_parse_platform_extracts_board_and_variant() -> None:
+    """Board + variant nested under an ``esp32:`` block are picked up."""
+    yaml_content = """
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: ESP32C3
+"""
+    assert parse_platform_from_yaml(yaml_content) == (
+        "esp32",
+        "esp32-c3-devkitm-1",
+        "ESP32C3",
+    )
+
+
+def test_parse_platform_resets_in_platform_on_non_platform_key() -> None:
+    """A non-platform top-level key after a platform block stops field capture.
+
+    Pin the ``in_platform = False`` reset — without it, a ``board:``
+    nested under ``logger:`` (for example) would erroneously be
+    treated as the platform's board.
+    """
+    yaml_content = """
+esp32:
+  variant: ESP32C3
+logger:
+  board: not-really-a-board
+"""
+    platform, pio_board, variant = parse_platform_from_yaml(yaml_content)
+    assert platform == "esp32"
+    assert variant == "ESP32C3"
+    # ``logger.board`` is ignored because the scanner left the platform.
+    assert pio_board == ""
+
+
+def test_parse_platform_strips_quotes() -> None:
+    """Quoted ``board:`` / ``variant:`` values are unwrapped."""
+    yaml_content = """
+esp8266:
+  board: "nodemcuv2"
+"""
+    assert parse_platform_from_yaml(yaml_content) == ("esp8266", "nodemcuv2", "")
+
+
+# ----------------------------------------------------------------------
+# detect_platform_from_yaml — file I/O wrapper
+# ----------------------------------------------------------------------
+
+
+def test_detect_platform_returns_empty_on_missing_file(tmp_path: Path) -> None:
+    """Unreadable file (``OSError``) falls into the ``except`` branch.
+
+    Pin the silent-fallback contract — callers (the device-loader
+    address fallback) rely on the empty-string sentinel rather
+    than having to wrap every call in their own try/except.
+    """
+    missing = tmp_path / "no-such-file.yaml"
+    assert detect_platform_from_yaml(missing) == ""
+
+
+def test_detect_platform_reads_real_file(tmp_path: Path) -> None:
+    """Round-trip through the file reader picks up the platform key."""
+    path = tmp_path / "device.yaml"
+    path.write_text("esp32:\n  variant: ESP32S3\n", encoding="utf-8")
+    assert detect_platform_from_yaml(path) == "esp32"
+
+
+# ----------------------------------------------------------------------
+# _parse_inline_value — comment + quote stripping
+# ----------------------------------------------------------------------
+
+
+def test_parse_inline_value_strips_trailing_comment() -> None:
+    """Bare values drop ``# ...`` trailers; quoted values keep them.
+
+    The ``# in value and not value.startswith('"' / "'")`` guard
+    is the key branch — a quoted value containing a literal ``#``
+    must survive intact.
+    """
+    assert _parse_inline_value("my-device  # the device") == "my-device"
+    # Quoted values keep an embedded ``#`` literal.
+    assert _parse_inline_value('"with #hash"') == "with #hash"
+
+
+def test_parse_inline_value_strips_matched_quotes() -> None:
+    """Outer single or double quotes are stripped; mismatched ones aren't."""
+    assert _parse_inline_value('"quoted"') == "quoted"
+    assert _parse_inline_value("'quoted'") == "quoted"
+    # Mismatched quotes are left alone — picking one off would change
+    # the user's literal value.
+    assert _parse_inline_value("\"mismatched'") == "\"mismatched'"

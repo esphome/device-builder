@@ -1,0 +1,150 @@
+id: hiking_dds238_1_w1
+name: Hiking DDS238-1-W1 WiFi Single Phase 63A Energy Meter
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp12e
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Hiking-DDS238-1-W1.jpg
+- images/Hiking-DDS238-1-W1-inside.jpg
+- images/Hiking-DDS238-1-W1-MCU.jpg
+pins:
+- gpio: 14
+  available: false
+  occupied_by: output.gpio (tuya_led_wifi)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (SET long press)
+docs_url: https://devices.esphome.io/devices/Hiking-DDS238-1-W1/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: SET long press
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    device_class: voltage
+    unit_of_measurement: V
+    state_class: measurement
+    accuracy_decimals: 1
+    id: sensor_template_1
+    name: Voltage
+- id: sensor_template_2
+  component_id: sensor.template
+  fields:
+    device_class: current
+    unit_of_measurement: A
+    state_class: measurement
+    accuracy_decimals: 3
+    id: sensor_template_2
+    name: Current
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 105
+    device_class: frequency
+    unit_of_measurement: Hz
+    state_class: measurement
+    accuracy_decimals: 2
+    id: sensor_tuya_1
+    name: Frequency
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 103
+    device_class: power
+    unit_of_measurement: kW
+    state_class: measurement
+    accuracy_decimals: 3
+    id: sensor_tuya_2
+    name: Power Active
+- id: sensor_tuya_3
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 110
+    device_class: power
+    unit_of_measurement: kVAr
+    state_class: measurement
+    accuracy_decimals: 3
+    id: sensor_tuya_3
+    name: Power Reactive
+- id: sensor_tuya_4
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 111
+    device_class: power_factor
+    state_class: measurement
+    accuracy_decimals: 3
+    id: sensor_tuya_4
+    name: Power Factor
+- id: sensor_tuya_5
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 101
+    device_class: energy
+    unit_of_measurement: kWh
+    state_class: total_increasing
+    accuracy_decimals: 3
+    id: sensor_tuya_5
+    name: Energy
+- id: sensor_tuya_6
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 1
+    device_class: energy
+    unit_of_measurement: kWh
+    state_class: total_increasing
+    accuracy_decimals: 3
+    id: sensor_tuya_6
+    name: Energy from Grid
+- id: sensor_tuya_7
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 102
+    device_class: energy
+    unit_of_measurement: kWh
+    state_class: total_increasing
+    accuracy_decimals: 3
+    id: sensor_tuya_7
+    name: Energy to Grid
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 16
+    id: switch_tuya_1
+    name: Switch
+- id: switch_tuya_2
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 11
+    inverted:
+      value: true
+      locked: true
+    id: switch_tuya_2
+    name: Restore on startup
+source:
+  type: esphome-devices
+  remote_id: Hiking-DDS238-1-W1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Hiking-DDS238-1-W1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 05383452651508651f2f89f5293ad0198d6bcb0bd36551d6f580aac2f6ccf165

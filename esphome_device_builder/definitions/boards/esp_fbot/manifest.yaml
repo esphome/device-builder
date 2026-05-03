@@ -1,0 +1,42 @@
+id: esp_fbot
+name: ESP-FBot Battery Integration
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/main.png
+docs_url: https://devices.esphome.io/devices/ESP-FBot/
+product_url: https://github.com/Ylianst/ESP-FBot
+featured_components:
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: h
+    accuracy_decimals: 1
+    device_class: duration
+    state_class: measurement
+    update_interval: 5s
+    id: sensor_template_1
+    name: Remaining Hours
+- id: sensor_template_2
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    device_class: power
+    state_class: measurement
+    update_interval: 5s
+    id: sensor_template_2
+    name: Net Power
+source:
+  type: esphome-devices
+  remote_id: ESP-FBot
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP-FBot/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b419105c56ea1c2183005c6284df3241a1b1b050f578afe6c6bbd10e9ac062b6

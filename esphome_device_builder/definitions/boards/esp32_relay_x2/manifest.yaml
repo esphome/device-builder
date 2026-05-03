@@ -1,0 +1,62 @@
+id: esp32_relay_x2
+name: ESP32 Relay x2
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image.jpg
+tags:
+- relay
+pins:
+- gpio: 16
+  available: false
+  occupied_by: switch.gpio (Relay 1)
+- gpio: 17
+  available: false
+  occupied_by: switch.gpio (Relay 2)
+- gpio: 23
+  available: false
+  occupied_by: output.gpio (output_led)
+docs_url: https://devices.esphome.io/devices/ESP32-Relay-X2/
+featured_components:
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: output_led
+    id: light_binary_1
+    name: LED
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 23
+      locked: true
+    id: output_gpio_1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 16
+      locked: true
+    id: switch_gpio_1
+    name: Relay 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 17
+      locked: true
+    id: switch_gpio_2
+    name: Relay 2
+source:
+  type: esphome-devices
+  remote_id: ESP32-Relay-X2
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32-Relay-X2/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: df03b40d47061c061907d9cfe98c52e7eebd4eb1beee0066b9556f3e057a42e8

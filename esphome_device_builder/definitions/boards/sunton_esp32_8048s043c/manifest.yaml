@@ -1,0 +1,98 @@
+id: sunton_esp32_8048s043c
+name: Sunton-ESP32-8048S043C
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/Sunton-esp32-8048s043.jpg
+- images/Sunton-esp32-8048s043-connector.jpg
+- images/Sunton-esp32-8048s043-gpio.jpeg
+pins:
+- gpio: 2
+  available: false
+  occupied_by: output.ledc (backlight_pwm)
+- gpio: 39
+  available: false
+  occupied_by: display.rpi_dpi_rgb (my_display)
+- gpio: 40
+  available: false
+  occupied_by: display.rpi_dpi_rgb (my_display)
+- gpio: 41
+  available: false
+  occupied_by: display.rpi_dpi_rgb (my_display)
+- gpio: 42
+  available: false
+  occupied_by: display.rpi_dpi_rgb (my_display)
+docs_url: https://devices.esphome.io/devices/Sunton-ESP32-8048S043C/
+featured_components:
+- id: display_rpi_dpi_rgb_1
+  component_id: display.rpi_dpi_rgb
+  fields:
+    rotation: 0
+    color_order: RGB
+    de_pin:
+      value: 40
+      locked: true
+    hsync_pin:
+      value: 39
+      locked: true
+    vsync_pin:
+      value: 41
+      locked: true
+    pclk_pin:
+      value: 42
+      locked: true
+    pclk_inverted: true
+    pclk_frequency: 16MHz
+    hsync_front_porch: 8
+    hsync_pulse_width: 4
+    hsync_back_porch: 8
+    vsync_front_porch: 8
+    vsync_pulse_width: 4
+    vsync_back_porch: 8
+    update_interval: never
+    auto_clear_enabled: false
+    lambda: it.print(400, 240,id(roboto_48),TextAlign::CENTER, "Hello Viet Nam");
+    id: display_rpi_dpi_rgb_1
+    name: Rpi Dpi Rgb 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    id: light_monochromatic_1
+    name: Đèn nền
+- id: number_template_1
+  component_id: number.template
+  fields:
+    optimistic: true
+    initial_value: 15
+    restore_value: true
+    unit_of_measurement: s
+    device_class: duration
+    mode: box
+    min_value: 5
+    max_value: 600
+    step: 1
+    id: number_template_1
+    name: Sleep time
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 2
+      locked: true
+    id: output_ledc_1
+source:
+  type: esphome-devices
+  remote_id: Sunton-ESP32-8048S043C
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sunton-ESP32-8048S043C/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 36fc76e2e66e8798468845a65530309d34ca8a1b2ff60f5d7b08cd33c6797c8e

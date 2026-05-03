@@ -1,0 +1,68 @@
+id: deta_grid_connect_two_gang_two_way_6952ha
+name: DETA Grid Connect Smart Switch 2 Way 2 Gang (6952HA)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/6952HA-packet.jpg
+- images/6952HA-manual-flashing.jpg
+docs_url: https://devices.esphome.io/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    id: binary_sensor_gpio_4
+    name: Gpio 4
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: filter_1
+    id: light_binary_1
+    name: Binary 1
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: filter_2
+    id: light_binary_2
+    name: Binary 2
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    internal: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    internal: true
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: DETA-Grid-Connect-Two-Gang-Two-Way-6952HA
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 5b14b6c374066ba4352cd33e95d88974d1c5fe6e4c5836f17fc36bac82780c8b

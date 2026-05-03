@@ -1,0 +1,58 @@
+id: texxmo_iot_button
+name: teXXmo IoT Button
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/button_s_a.jpg
+- images/schematic.png
+pins:
+- gpio: 5
+  available: false
+  occupied_by: output.gpio (power_pin)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (led_red_pin)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (led_green_pin)
+docs_url: https://devices.esphome.io/devices/TeXXmo-IoT-Button/
+featured_components:
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_gpio_1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_2
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    internal: true
+    update_interval: 10s
+    id: sensor_adc_1
+    name: Adc 1
+source:
+  type: esphome-devices
+  remote_id: TeXXmo-IoT-Button
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/TeXXmo-IoT-Button/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 95ddbc5585c56826fab57022896315e6a5bf62b967da328ab42ce0b25182d3da

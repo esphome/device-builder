@@ -1,0 +1,50 @@
+id: arlec_grid_connect_smart_9w_cct_led_downlight
+name: Arlec Grid Connect Smart 9W CCT LED Downlight (ALD092CHA)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (output_cw)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (output_ww)
+docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight/
+featured_components:
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white: output_cw
+    warm_white: output_ww
+    cold_white_color_temperature: 5700 K
+    warm_white_color_temperature: 3000 K
+    constant_brightness: true
+    id: light_cwww_1
+    name: Cwww 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_2
+source:
+  type: esphome-devices
+  remote_id: Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 92baa9e4629d5fb00cc4dfbd9437c092a9eb576b4eced75048ab69891012828c

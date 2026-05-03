@@ -1,0 +1,32 @@
+id: jdong_x6060_lamp
+name: JDONG X6060-450 ceiling light
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: wb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/jdong_x6060.jpeg
+docs_url: https://devices.esphome.io/devices/JDONG-X6060-lamp/
+featured_components:
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    color_interlock: true
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    red: output_red
+    green: output_green
+    blue: output_blue
+    cold_white: output_cold
+    warm_white: output_warm
+    id: light_rgbww_1
+    name: Rgbww 1
+source:
+  type: esphome-devices
+  remote_id: JDONG-X6060-lamp
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/JDONG-X6060-lamp/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 9f5e28aeff370f957cd5e299e8cda6e625097080d18540c26695be75a947a6ff

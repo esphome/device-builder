@@ -1,0 +1,82 @@
+id: sonoff_minir4m
+name: Sonoff Mini R4M
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/sonoff-mini-r4m.jpg
+- images/view_top.jpg
+- images/view_side.jpg
+- images/view_ic.jpg
+tags:
+- relay
+- sonoff
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.gpio (relay_1)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (s1)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+- gpio: 19
+  available: false
+  occupied_by: output.gpio (status_led_output)
+docs_url: https://devices.esphome.io/devices/Sonoff-MINIR4M/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 9
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: binary_sensor_gpio_2
+    name: s1
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    icon: mdi:ceiling-light-multiple-outline
+    restore_mode: restore_default_off
+    output: relay_1
+    id: light_binary_1
+    name: Binary 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 19
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_2
+source:
+  type: esphome-devices
+  remote_id: Sonoff-MINIR4M
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-MINIR4M/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 65168d49ea9ec9bb1b98bcf8076fac94f6ecf3e343a5532a06c6bd1092cdcc89

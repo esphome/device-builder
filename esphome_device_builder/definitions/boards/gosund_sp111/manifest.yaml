@@ -1,0 +1,130 @@
+id: gosund_sp111
+name: Gosund SP111
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/gosund-sp111.JPG
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: output.gpio (led_red)
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (${devicename}_button_state)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (relay)
+docs_url: https://devices.esphome.io/devices/Gosund-SP111/
+featured_components:
+- id: binary_sensor_status_1
+  component_id: binary_sensor.status
+  fields:
+    device_class: connectivity
+    id: binary_sensor_status_1
+    name: Status 1
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    icon: mdi:wifi
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    power_id: power_wattage
+    unit_of_measurement: kWh
+    icon: mdi:calendar-clock
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    icon: mdi:flash-outline
+    id: sensor_adc_1
+    name: Adc 1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 5
+      locked: true
+    cf1_pin:
+      value: 4
+      locked: true
+    change_mode_every: 4
+    update_interval: 3s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    icon: mdi:power
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    lambda: return id(relay).state;
+    id: switch_template_1
+    name: Template 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: text_sensor_version_1
+  component_id: text_sensor.version
+  fields:
+    icon: mdi:cube-outline
+    id: text_sensor_version_1
+    name: Version 1
+source:
+  type: esphome-devices
+  remote_id: Gosund-SP111
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gosund-SP111/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 928ac63f79407a1657399a7b792c815d99140264edaaf0b017828923c2b07d23

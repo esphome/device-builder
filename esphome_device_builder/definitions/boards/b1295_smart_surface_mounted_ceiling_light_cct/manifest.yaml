@@ -1,0 +1,53 @@
+id: b1295_smart_surface_mounted_ceiling_light_cct
+name: Surface-Mounted Smart LED Ceiling Light 24W 2040lm with CCT (B1295-SMART)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/smart-cct-wifi-surface-mounted-led-ceiling-light-24w-ip20.jpg
+- images/TYWE2L-backside-flash.jpg
+pins:
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (output_temperature)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (output_brightness)
+docs_url: https://devices.esphome.io/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/
+featured_components:
+- id: light_color_temperature_1
+  component_id: light.color_temperature
+  fields:
+    color_temperature: output_temperature
+    brightness: output_brightness
+    cold_white_color_temperature: 6000 K
+    warm_white_color_temperature: 3000 K
+    id: light_color_temperature_1
+    name: Color Temperature 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_2
+source:
+  type: esphome-devices
+  remote_id: B1295-SMART-Surface-Mounted-Ceiling-Light-CCT
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 92235f206ff83f1ff9f8265d403d451ef94e184fcb250119494de3800759200c

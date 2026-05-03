@@ -1,0 +1,38 @@
+id: ultrapro_wfd1001_wall_outlet
+name: UltraPro WFD1001 Wall Outlet
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/ultrapro-wfd1001-wall-outlet-v1.0.4.jpg
+- images/ultrapro-wfd1001-label-sticker.png
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/UltraPro-WFD1001-Wall-Outlet/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    output: output_blue_led
+    disabled_by_default: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: light_status_led_1
+    name: Blue LED
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    device_class: switch
+    id: switch_gpio_1
+    name: None
+source:
+  type: esphome-devices
+  remote_id: UltraPro-WFD1001-Wall-Outlet
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 58068c935455713d0330090fa58cf172de18698ea25480715e60947d63d3a9a2

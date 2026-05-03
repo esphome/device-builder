@@ -1,0 +1,148 @@
+id: blitzwolf_bw_shp7
+name: Blitzwolf BW-SHP7 Double socket with powermonitoring
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/BlitzWolf-BW-SHP7-Power-Monitoring-Doubleplug.jpg
+- images/BlitzWolf-BW-SHP7-Power-Monitoring-Doubleplug-measurement.jpg
+- images/BlitzWolf-BW-SHP7-Power-Monitoring-Doubleplug-back.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (button1)
+- gpio: 2
+  available: false
+  occupied_by: output.esp8266_pwm (led2)
+- gpio: 3
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (button2)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (led1)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (relay1)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (gpio15_irq)
+- gpio: 16
+  available: false
+  occupied_by: switch.gpio (relay2)
+docs_url: https://devices.esphome.io/devices/BlitzWolf-BW-SHP7/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: button1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 12
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: button2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value:
+        number: 2
+        inverted: true
+      locked: true
+    id: output_esp8266_pwm_2
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 3
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 4
+      locked: true
+    cf1_pin:
+      value: 5
+      locked: true
+    change_mode_every: 4
+    update_interval: 10s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    power_id: power
+    unit_of_measurement: kWh
+    accuracy_decimals: 5
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: switch_gpio_1
+    name: relay1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 16
+      locked: true
+    id: switch_gpio_2
+    name: relay2
+source:
+  type: esphome-devices
+  remote_id: BlitzWolf-BW-SHP7
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/BlitzWolf-BW-SHP7/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 289b89d9d62e75b6bd7d2e56471ed7145c6da65072f45bd54eace1dc621f06c0

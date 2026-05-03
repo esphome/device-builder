@@ -1,0 +1,63 @@
+id: loratap_sc511wsc
+name: LoraTap In-Wall SC511WSC
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/image.png
+docs_url: https://devices.esphome.io/devices/LoraTap-SC511WSC/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    disabled_by_default: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    disabled_by_default: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    disabled_by_default: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: cover_time_based_1
+  component_id: cover.time_based
+  fields:
+    has_built_in_endstop: true
+    id: cover_time_based_1
+    name: Time Based 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    internal: true
+    restore_mode: always off
+    id: switch_gpio_1
+    name: 'Relay #1'
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    internal: true
+    restore_mode: always off
+    id: switch_gpio_2
+    name: 'Relay #2'
+source:
+  type: esphome-devices
+  remote_id: LoraTap-SC511WSC
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LoraTap-SC511WSC/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: d10aea73cb4825e163f424d8d9dbfc15dbcbc525569d373bbe1e39a2b75987ae

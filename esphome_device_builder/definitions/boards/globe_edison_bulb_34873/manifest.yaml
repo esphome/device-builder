@@ -1,0 +1,51 @@
+id: globe_edison_bulb_34873
+name: Globe Edison Bulb 34873
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Globe-34873.jpg
+pins:
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (ww)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (cw)
+docs_url: https://devices.esphome.io/devices/Globe-Edison-Bulb-34873/
+featured_components:
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white: cw
+    warm_white: ww
+    cold_white_color_temperature: 5000 K
+    warm_white_color_temperature: 2000 K
+    restore_mode: RESTORE_DEFAULT_ON
+    constant_brightness: true
+    id: light_cwww_1
+    name: light
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_2
+source:
+  type: esphome-devices
+  remote_id: Globe-Edison-Bulb-34873
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Globe-Edison-Bulb-34873/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: dbc154352a07602a4d2fdd3f4b0fe6fc093d3920c6ac2aa53f93b11702e3f969

@@ -16,22 +16,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.devices import DevicesController
-
-
-def _make_controller(config_dir: Path) -> DevicesController:
-    """Build a bare-bones controller wired to *config_dir* on disk."""
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = MagicMock()
-    controller._db.settings.config_dir = config_dir
-    controller._db.settings.rel_path = lambda configuration: config_dir / configuration
-    controller._scanner = MagicMock()
-    controller._scanner.scan = AsyncMock()
-    return controller
+from .conftest import MakeControllerFactory
 
 
 def _seed_device(
@@ -101,13 +89,15 @@ def _patch_ext_storage(monkeypatch: Any, tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_patch_ext_storage")
-async def test_delete_wipes_build_directory(tmp_path: Path) -> None:
+async def test_delete_wipes_build_directory(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """The PlatformIO build tree goes away with the device.
 
     Without this, a recycled device name picks up stale ``.pioenvs``
     state on the next compile and we leak disk on every churn.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     yaml_path, build_path = _seed_device(tmp_path, "kitchen.yaml")
 
     await controller._delete_single("kitchen.yaml")
@@ -119,9 +109,11 @@ async def test_delete_wipes_build_directory(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_patch_ext_storage")
-async def test_delete_succeeds_when_never_compiled(tmp_path: Path) -> None:
+async def test_delete_succeeds_when_never_compiled(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """A device that's never been built has no sidecar — delete must still succeed."""
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
@@ -132,9 +124,11 @@ async def test_delete_succeeds_when_never_compiled(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_patch_ext_storage")
-async def test_delete_tolerates_missing_build_directory(tmp_path: Path) -> None:
+async def test_delete_tolerates_missing_build_directory(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Sidecar present but build tree already wiped — delete must not raise."""
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
     yaml_path, build_path = _seed_device(tmp_path, "kitchen.yaml", with_build_dir=False)
     assert not build_path.exists()
 
@@ -144,9 +138,11 @@ async def test_delete_tolerates_missing_build_directory(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_raises_when_yaml_missing(tmp_path: Path) -> None:
+async def test_delete_raises_when_yaml_missing(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Missing YAML pre-check still fires before any cleanup runs."""
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
 
     with pytest.raises(FileNotFoundError):
         await controller._delete_single("ghost.yaml")

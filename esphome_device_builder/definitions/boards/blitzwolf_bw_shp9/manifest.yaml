@@ -1,0 +1,91 @@
+id: blitzwolf_bw_shp9
+name: Blitzwolf BW-SHP9 Triple powerstrip with dual USB power
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/BlitzWolf-BW-SHP9-Power-strip.jpg
+- images/BlitzWolf-BW-SHP9-Power-strip-measurement.jpg
+- images/BlitzWolf-BW-SHP9-Power-strip-outside.jpg
+- images/BlitzWolf-BW-SHP9-Power-strip-inside.jpg
+- images/BlitzWolf-BW-SHP9-Power-strip-connector.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 5
+  available: false
+  occupied_by: switch.gpio (livingroomextension-socket3)
+- gpio: 12
+  available: false
+  occupied_by: output.gpio (light_relay)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (livingroomextension-socket2)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (livingroomextension-usb-socket)
+docs_url: https://devices.esphome.io/devices/BlitzWolf-BW-SHP9/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 13
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: light_relay
+    id: light_binary_1
+    name: Floorlamp
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_gpio_1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: switch_gpio_1
+    name: livingroomextension-socket2
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: switch_gpio_2
+    name: livingroomextension-socket3
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: switch_gpio_3
+    name: livingroomextension-usb-socket
+source:
+  type: esphome-devices
+  remote_id: BlitzWolf-BW-SHP9
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/BlitzWolf-BW-SHP9/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 8b08a3f800eee1b6c9c14bf7dd6afa9504391c6bcfa4aade0ba1162add6a5df8

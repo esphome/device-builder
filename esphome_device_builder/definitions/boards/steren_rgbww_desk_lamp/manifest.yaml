@@ -1,0 +1,35 @@
+id: steren_rgbww_desk_lamp
+name: Steren RGBWW Desk Lamp
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: wb3l
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/box.webp
+- images/open.jpg
+- images/pcb1.jpg
+docs_url: https://devices.esphome.io/devices/Steren-RGBWW-Desk-Lamp/
+featured_components:
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    restore_mode: ALWAYS_OFF
+    red: red
+    green: green
+    blue: blue
+    warm_white: warm_white
+    cold_white: cold_white
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2000 K
+    color_interlock: true
+    id: light_rgbww_1
+    name: Light
+source:
+  type: esphome-devices
+  remote_id: Steren-RGBWW-Desk-Lamp
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 2b0b061a101feb9fc45a21f1f20f1ae4d3457a715ab1c22131a5f445a3c1e734

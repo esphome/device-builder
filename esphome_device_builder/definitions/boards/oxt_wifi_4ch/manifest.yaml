@@ -1,0 +1,158 @@
+id: oxt_wifi_4ch
+name: OXT Wi-Fi 4CH
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/device_main.jpg
+- images/pcb_front.jpg
+- images/soldering.jpg
+tags:
+- relay
+pins:
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} switch 3)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} switch 2)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} switch 1)
+- gpio: 16
+  available: false
+  occupied_by: output.gpio (relay4)
+- gpio: 17
+  available: false
+  occupied_by: output.gpio (relay3)
+- gpio: 20
+  available: false
+  occupied_by: output.gpio (relay1)
+- gpio: 24
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} button)
+- gpio: 26
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} switch 4)
+- gpio: 28
+  available: false
+  occupied_by: output.gpio (relay2)
+docs_url: https://devices.esphome.io/devices/OXT-WiFi-4CH/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 24
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 7
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: Gpio 4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: Gpio 5
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: relay1
+    id: light_binary_1
+    name: Binary 1
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: relay2
+    id: light_binary_2
+    name: Binary 2
+- id: light_binary_3
+  component_id: light.binary
+  fields:
+    output: relay3
+    id: light_binary_3
+    name: Binary 3
+- id: light_binary_4
+  component_id: light.binary
+  fields:
+    output: relay4
+    id: light_binary_4
+    name: Binary 4
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 20
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 28
+      locked: true
+    id: output_gpio_2
+- id: output_gpio_3
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 17
+      locked: true
+    id: output_gpio_3
+- id: output_gpio_4
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 16
+      locked: true
+    id: output_gpio_4
+source:
+  type: esphome-devices
+  remote_id: OXT-WiFi-4CH
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/OXT-WiFi-4CH/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: ac5a612d1344ed5f10044ed89d8b2bde2f81089840cc29eb0661ee6bee20127e

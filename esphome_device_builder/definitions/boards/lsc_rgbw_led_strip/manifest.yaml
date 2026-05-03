@@ -1,0 +1,121 @@
+id: lsc_rgbw_led_strip
+name: LSC-RGBW-LED-Strip
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/image.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_red)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_green)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_white)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_blue)
+docs_url: https://devices.esphome.io/devices/LSC-RGBW-LED-Strip/
+featured_components:
+- id: binary_sensor_remote_receiver_1
+  component_id: binary_sensor.remote_receiver
+  fields:
+    internal: true
+    id: binary_sensor_remote_receiver_1
+    name: Remote On
+- id: binary_sensor_remote_receiver_2
+  component_id: binary_sensor.remote_receiver
+  fields:
+    internal: true
+    id: binary_sensor_remote_receiver_2
+    name: Remote Off
+- id: binary_sensor_remote_receiver_3
+  component_id: binary_sensor.remote_receiver
+  fields:
+    internal: true
+    id: binary_sensor_remote_receiver_3
+    name: Remote white
+- id: binary_sensor_remote_receiver_4
+  component_id: binary_sensor.remote_receiver
+  fields:
+    internal: true
+    id: binary_sensor_remote_receiver_4
+    name: Remote blue
+- id: binary_sensor_remote_receiver_5
+  component_id: binary_sensor.remote_receiver
+  fields:
+    internal: true
+    id: binary_sensor_remote_receiver_5
+    name: Remote red
+- id: binary_sensor_remote_receiver_6
+  component_id: binary_sensor.remote_receiver
+  fields:
+    internal: true
+    id: binary_sensor_remote_receiver_6
+    name: Remote green
+- id: binary_sensor_remote_receiver_7
+  component_id: binary_sensor.remote_receiver
+  fields:
+    internal: true
+    id: binary_sensor_remote_receiver_7
+    name: Remote Strobe
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    red: pwm_red
+    green: pwm_green
+    blue: pwm_blue
+    white: pwm_white
+    id: light_rgbw_1
+    name: Rgbw 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_4
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+source:
+  type: esphome-devices
+  remote_id: LSC-RGBW-LED-Strip
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LSC-RGBW-LED-Strip/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: d49f23530f24a845c8248defe6a36b7c59f3f16df3c044879e348de85e1bed2f

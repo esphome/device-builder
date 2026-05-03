@@ -1,0 +1,39 @@
+id: martin_jerry_rp_fc01
+name: MJ-RP-FC01 Ceiling Fan Controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/MJ-RP-FC01.jpg
+- images/rp-fc01-board.jpg
+- images/rp-fc01-flash-diagram.png
+docs_url: https://devices.esphome.io/devices/Martin-Jerry-RP-FC01/
+product_url: https://github.com/esphome/esphome-devices
+featured_components:
+- id: fan_tuya_1
+  component_id: fan.tuya
+  fields:
+    switch_datapoint: 1
+    speed_datapoint: 3
+    speed_count: 4
+    id: fan_tuya_1
+    name: Ceiling Fan
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 11
+    id: select_tuya_1
+    name: Fan Mode
+source:
+  type: esphome-devices
+  remote_id: Martin-Jerry-RP-FC01
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Martin-Jerry-RP-FC01/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 3d6296740d29d6885b36dcdaf5b94fe7125d08bc57af32b39032a135ddea77fd

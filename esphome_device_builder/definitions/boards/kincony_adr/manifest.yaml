@@ -1,0 +1,53 @@
+id: kincony_adr
+name: KinCony-ADR (AC Dimmer)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/esp32-ac-dimmer-adr-1.jpg
+- images/ADR-lamp.jpg
+- images/ADR-fan.jpg
+pins:
+- gpio: 25
+  available: false
+  occupied_by: output.ac_dimmer (dimmer1)
+- gpio: 33
+  available: false
+  occupied_by: output.ac_dimmer (dimmer1)
+docs_url: https://devices.esphome.io/devices/KinCony-ADR/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: dimmer1
+    default_transition_length: 100ms
+    id: light_monochromatic_1
+    name: adr_lamp
+- id: output_ac_dimmer_1
+  component_id: output.ac_dimmer
+  fields:
+    gate_pin:
+      value: 33
+      locked: true
+    zero_cross_pin:
+      value:
+        number: 25
+        mode:
+          input: true
+        inverted: false
+      locked: true
+    min_power: 35%
+    id: output_ac_dimmer_1
+source:
+  type: esphome-devices
+  remote_id: KinCony-ADR
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-ADR/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 4c3faf789ad481696178569c8c2b4708fb31fadd9a484a1a1261bf8aacbc84f9

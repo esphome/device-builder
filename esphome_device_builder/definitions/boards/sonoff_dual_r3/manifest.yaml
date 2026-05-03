@@ -1,0 +1,118 @@
+id: sonoff_dual_r3
+name: Sonoff Dual R3 & Lite
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/Sonoff-DualR3-Lite-PCB.jpg
+tags:
+- relay
+- sonoff
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 13
+  available: false
+  occupied_by: light.status_led (LED)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (2)
+- gpio: 27
+  available: false
+  occupied_by: switch.gpio (1)
+- gpio: 32
+  available: false
+  occupied_by: binary_sensor.gpio (1)
+- gpio: 33
+  available: false
+  occupied_by: binary_sensor.gpio (2)
+docs_url: https://devices.esphome.io/devices/Sonoff-Dual-R3/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    disabled_by_default: true
+    icon: mdi:radiobox-blank
+    id: binary_sensor_gpio_1
+    name: Button
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 32
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: '1'
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 33
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: '2'
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    internal: true
+    id: light_status_led_1
+    name: LED
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 90s
+    entity_category: diagnostic
+    id: sensor_wifi_signal_1
+    name: RSSI
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 27
+      locked: true
+    id: switch_gpio_1
+    name: '1'
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: switch_gpio_2
+    name: '2'
+source:
+  type: esphome-devices
+  remote_id: Sonoff-Dual-R3
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-Dual-R3/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: d779d48d30fda6b2739cf7928d00072656f29317e1341c994ee33cf6d9afc8da

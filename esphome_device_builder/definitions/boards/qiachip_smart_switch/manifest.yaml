@@ -1,0 +1,38 @@
+id: qiachip_smart_switch
+name: QIACHIP Smart Switch
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/top.jpg
+- images/inside-1.jpg
+- images/inside-2.jpg
+tags:
+- relay
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (${friendly_name})
+docs_url: https://devices.esphome.io/devices/QIACHIP-Smart-Switch/
+featured_components:
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: QIACHIP-Smart-Switch
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/QIACHIP-Smart-Switch/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 3929d7a1c3a0c227272585fdd5637bb5a03b1a1df6fb7a2960d4a903d35aa60e

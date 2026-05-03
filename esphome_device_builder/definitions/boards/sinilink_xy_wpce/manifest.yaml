@@ -1,0 +1,73 @@
+id: sinilink_xy_wpce
+name: Sinilink PCIe Computer Remote (XY-WPCE)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/sinilink_XY-WPCE.webp
+- images/sinilink_XY-WPCE_pinout.webp
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name_short} WiFi Config Button)
+- gpio: 5
+  available: false
+  occupied_by: output.gpio (out_relay)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name_short} Case Button)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name_short} Power Status)
+docs_url: https://devices.esphome.io/devices/Sinilink-XY-WPCE/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 10
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_gpio_1
+source:
+  type: esphome-devices
+  remote_id: Sinilink-XY-WPCE
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sinilink-XY-WPCE/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: abb0dd5d77996a1cbf113c934b899605c183626abd5c9920b1774ce0dc9a6569

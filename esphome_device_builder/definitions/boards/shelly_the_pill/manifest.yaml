@@ -1,0 +1,75 @@
+id: shelly_the_pill
+name: Shelly Pill
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/shelly-pill.png
+- images/PCB_Top.png
+tags:
+- shelly
+pins:
+- gpio: 3
+  available: false
+  occupied_by: switch.gpio (Output 1)
+- gpio: 6
+  available: false
+  occupied_by: switch.gpio (Output 2)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+docs_url: https://devices.esphome.io/devices/Shelly-The-Pill/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 10
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: sensor_dallas_temp_1
+  component_id: sensor.dallas_temp
+  fields:
+    update_interval: 30s
+    id: sensor_dallas_temp_1
+    name: Temperature
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: WiFi Signal
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 3
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Output 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 6
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_2
+    name: Output 2
+source:
+  type: esphome-devices
+  remote_id: Shelly-The-Pill
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-The-Pill/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b58539c8702547e138c9d68d17bd157fbaf4b47c121c75a86e6479687568405c

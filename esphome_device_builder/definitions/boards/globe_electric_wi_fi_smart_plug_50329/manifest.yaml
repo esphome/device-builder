@@ -1,0 +1,42 @@
+id: globe_electric_wi_fi_smart_plug_50329
+name: Globe Electric Wi-Fi Smart Plug 50359
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: wb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/globe1.jpg
+- images/globe2.jpg
+- images/globe3.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    id: light_status_led_1
+    name: led
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    icon: mdi:power-socket-us
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Globe-Electric-Wi-Fi-Smart-Plug-50329
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1253d49929d20ed426586cbdcb92cdf105070a83deda19d5c2c17757fed33df1

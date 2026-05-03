@@ -1,0 +1,491 @@
+id: kincony_kc868_ap
+name: KinCony KC868-AP
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/kc868-ap.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input1)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input2)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input3)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input4)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input5)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input6)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input7)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input8)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (ap-light1)
+- gpio: 34
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input17)
+- gpio: 35
+  available: false
+  occupied_by: binary_sensor.gpio (ap-input18)
+docs_url: https://devices.esphome.io/devices/KinCony-KC868-AP/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: ap-input1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: ap-input2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: ap-input3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: ap-input4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: ap-input5
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: ap-input6
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: ap-input7
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: ap-input8
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: ap-input9
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: ap-input10
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: ap-input11
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: ap-input12
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: ap-input13
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: ap-input14
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: ap-input15
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: ap-input16
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 34
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_17
+    name: ap-input17
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 35
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_18
+    name: ap-input18
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: PWM0
+    id: light_monochromatic_1
+    name: Color-LED-1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: PWM1
+    id: light_monochromatic_2
+    name: Color-LED-2
+- id: light_monochromatic_3
+  component_id: light.monochromatic
+  fields:
+    output: PWM2
+    id: light_monochromatic_3
+    name: Color-LED-3
+- id: light_monochromatic_4
+  component_id: light.monochromatic
+  fields:
+    output: PWM3
+    id: light_monochromatic_4
+    name: Color-LED-4
+- id: light_monochromatic_5
+  component_id: light.monochromatic
+  fields:
+    output: PWM4
+    id: light_monochromatic_5
+    name: Color-LED-5
+- id: light_monochromatic_6
+  component_id: light.monochromatic
+  fields:
+    output: PWM5
+    id: light_monochromatic_6
+    name: Color-LED-6
+- id: light_monochromatic_7
+  component_id: light.monochromatic
+  fields:
+    output: PWM6
+    id: light_monochromatic_7
+    name: Color-LED-7
+- id: light_monochromatic_8
+  component_id: light.monochromatic
+  fields:
+    output: PWM7
+    id: light_monochromatic_8
+    name: Color-LED-8
+- id: light_monochromatic_9
+  component_id: light.monochromatic
+  fields:
+    output: PWM8
+    id: light_monochromatic_9
+    name: Color-LED-9
+- id: light_monochromatic_10
+  component_id: light.monochromatic
+  fields:
+    output: PWM9
+    id: light_monochromatic_10
+    name: Color-LED-10
+- id: light_monochromatic_11
+  component_id: light.monochromatic
+  fields:
+    output: PWM10
+    id: light_monochromatic_11
+    name: Color-LED-11
+- id: light_monochromatic_12
+  component_id: light.monochromatic
+  fields:
+    output: PWM11
+    id: light_monochromatic_12
+    name: Color-LED-12
+- id: light_monochromatic_13
+  component_id: light.monochromatic
+  fields:
+    output: PWM12
+    id: light_monochromatic_13
+    name: Color-LED-13
+- id: light_monochromatic_14
+  component_id: light.monochromatic
+  fields:
+    output: PWM13
+    id: light_monochromatic_14
+    name: Color-LED-14
+- id: light_monochromatic_15
+  component_id: light.monochromatic
+  fields:
+    output: PWM14
+    id: light_monochromatic_15
+    name: Color-LED-15
+- id: light_monochromatic_16
+  component_id: light.monochromatic
+  fields:
+    output: PWM15
+    id: light_monochromatic_16
+    name: Color-LED-16
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    red: PWM1
+    green: PWM2
+    blue: PWM3
+    white: PWM4
+    id: light_rgbw_1
+    name: ap-rgbw
+- id: output_pca9685_1
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 0
+    id: output_pca9685_1
+- id: output_pca9685_2
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 1
+    id: output_pca9685_2
+- id: output_pca9685_3
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 2
+    id: output_pca9685_3
+- id: output_pca9685_4
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 3
+    id: output_pca9685_4
+- id: output_pca9685_5
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 4
+    id: output_pca9685_5
+- id: output_pca9685_6
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 5
+    id: output_pca9685_6
+- id: output_pca9685_7
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 6
+    id: output_pca9685_7
+- id: output_pca9685_8
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 7
+    id: output_pca9685_8
+- id: output_pca9685_9
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 8
+    id: output_pca9685_9
+- id: output_pca9685_10
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 9
+    id: output_pca9685_10
+- id: output_pca9685_11
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 10
+    id: output_pca9685_11
+- id: output_pca9685_12
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 11
+    id: output_pca9685_12
+- id: output_pca9685_13
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 12
+    id: output_pca9685_13
+- id: output_pca9685_14
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 13
+    id: output_pca9685_14
+- id: output_pca9685_15
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 14
+    id: output_pca9685_15
+- id: output_pca9685_16
+  component_id: output.pca9685
+  fields:
+    pca9685_id: pca9685_hub
+    channel: 15
+    id: output_pca9685_16
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_1
+    name: ap-light1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 2
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_2
+    name: ap-light2
+source:
+  type: esphome-devices
+  remote_id: KinCony-KC868-AP
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-AP/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: ca26d1245c004ef0b1a973110b52e3b1cef98c55bf6ce765a3505d756832364a

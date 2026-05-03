@@ -1,0 +1,592 @@
+id: petkit_fresh_element_solo_pet_feeder
+name: Petkit Fresh Element Solo Pet Feeder
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/Petkit-Fresh-Element-Solo-Pet-Feeder-Product.jpg
+- images/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-A.png
+- images/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-B.png
+pins:
+- gpio: 5
+  available: false
+  occupied_by: output.gpio (led_output)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (feed_sensor)
+- gpio: 16
+  available: false
+  occupied_by: output.ledc (rtttl_output)
+- gpio: 17
+  available: false
+  occupied_by: switch.gpio (feed_reverse)
+- gpio: 18
+  available: false
+  occupied_by: switch.gpio (feed_forward)
+- gpio: 19
+  available: false
+  occupied_by: switch.gpio (enable_feeder_motor)
+- gpio: 27
+  available: false
+  occupied_by: binary_sensor.gpio (motor_sensor)
+- gpio: 33
+  available: false
+  occupied_by: switch.gpio (enable_sensors)
+- gpio: 34
+  available: false
+  occupied_by: binary_sensor.gpio (manual_feed_button)
+docs_url: https://devices.esphome.io/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/
+product_url: https://github.com/n6ham/esphome-configs/blob/master/petkit-fresh-element-solo.yaml
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 34
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 27
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 14
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: button_template_1
+  component_id: button.template
+  fields:
+    icon: mdi:food-turkey
+    id: button_template_1
+    name: Dispense food
+- id: button_restart_1
+  component_id: button.restart
+  fields:
+    disabled_by_default: true
+    id: button_restart_1
+    name: Restart
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: led_output
+    internal: true
+    id: light_binary_1
+    name: Binary 1
+- id: number_template_1
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: 1
+    max_value: $max_scoops
+    initial_value: 1
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_1
+    name: Manual dispense scoops
+- id: number_template_2
+  component_id: number.template
+  fields:
+    icon: mdi:cup-outline
+    entity_category: config
+    min_value: 1
+    max_value: 10
+    initial_value: 5
+    optimistic: true
+    step: 1
+    restore_value: true
+    mode: slider
+    id: number_template_2
+    name: Low food threshold
+- id: number_template_3
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_3
+    name: 00:00 cups
+- id: number_template_4
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_4
+    name: 01:00 cups
+- id: number_template_5
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_5
+    name: 02:00 cups
+- id: number_template_6
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_6
+    name: 03:00 cups
+- id: number_template_7
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_7
+    name: 04:00 cups
+- id: number_template_8
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_8
+    name: 05:00 cups
+- id: number_template_9
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_9
+    name: 06:00 cups
+- id: number_template_10
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_10
+    name: 07:00 cups
+- id: number_template_11
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_11
+    name: 08:00 cups
+- id: number_template_12
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_12
+    name: 09:00 cups
+- id: number_template_13
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_13
+    name: 10:00 cups
+- id: number_template_14
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_14
+    name: 11:00 cups
+- id: number_template_15
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_15
+    name: 12:00 cups
+- id: number_template_16
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_16
+    name: 13:00 cups
+- id: number_template_17
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_17
+    name: 14:00 cups
+- id: number_template_18
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_18
+    name: 15:00 cups
+- id: number_template_19
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_19
+    name: 16:00 cups
+- id: number_template_20
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_20
+    name: 17:00 cups
+- id: number_template_21
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_21
+    name: 18:00 cups
+- id: number_template_22
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_22
+    name: 19:00 cups
+- id: number_template_23
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_23
+    name: 20:00 cups
+- id: number_template_24
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_24
+    name: 21:00 cups
+- id: number_template_25
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_25
+    name: 22:00 cups
+- id: number_template_26
+  component_id: number.template
+  fields:
+    icon: mdi:cup
+    entity_category: config
+    min_value: $min_scoops
+    max_value: $max_scoops
+    initial_value: 0
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: scoops
+    mode: slider
+    id: number_template_26
+    name: 23:00 cups
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_gpio_1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 16
+      locked: true
+    id: output_ledc_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Signal
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    icon: mdi:cup
+    entity_category: diagnostic
+    state_class: measurement
+    accuracy_decimals: 0
+    lambda: return id(last_food_sensor_count);
+    id: sensor_template_1
+    name: Dispensed food quantity
+- id: sensor_template_2
+  component_id: sensor.template
+  fields:
+    icon: mdi:cup
+    entity_category: diagnostic
+    state_class: measurement
+    accuracy_decimals: 0
+    lambda: return id(last_food_scoops_count);
+    id: sensor_template_2
+    name: Dispensed food scoops
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 33
+      locked: true
+    restore_mode: ALWAYS_ON
+    disabled_by_default: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 19
+      locked: true
+    restore_mode: ALWAYS_OFF
+    disabled_by_default: true
+    id: switch_gpio_2
+    name: Gpio 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 18
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_3
+    name: Gpio 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 17
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_4
+    name: Gpio 4
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    icon: mdi:volume-off
+    optimistic: true
+    id: switch_template_1
+    name: Mute sounds
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    entity_category: diagnostic
+    id: text_sensor_template_1
+    name: State
+source:
+  type: esphome-devices
+  remote_id: Petkit-Fresh-Element-Solo-Pet-Feeder
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: c35c5bbe258d03e0a17e1237fb164cfb2464c354aad475936377f6491c21c5e7

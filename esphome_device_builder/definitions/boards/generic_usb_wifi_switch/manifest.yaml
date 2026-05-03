@@ -1,0 +1,86 @@
+id: generic_usb_wifi_switch
+name: Generic USB Wifi Switch
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/generic-usb-switch-cbu.jpg
+- images/generic-usb-switch-3out.jpg
+tags:
+- relay
+pins:
+- gpio: 6
+  available: false
+  occupied_by: output.libretiny_pwm (led)
+- gpio: 7
+  available: false
+  occupied_by: switch.gpio (Relay 1)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (Side button)
+- gpio: 24
+  available: false
+  occupied_by: switch.gpio (Relay 3)
+- gpio: 26
+  available: false
+  occupied_by: switch.gpio (Relay 2)
+docs_url: https://devices.esphome.io/devices/Generic-USB-Wifi-Switch/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+        mode: input_pullup
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Side button
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: led
+    id: light_monochromatic_1
+    name: LED
+- id: output_libretiny_pwm_1
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: output_libretiny_pwm_1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: switch_gpio_1
+    name: Relay 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: switch_gpio_2
+    name: Relay 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: switch_gpio_3
+    name: Relay 3
+source:
+  type: esphome-devices
+  remote_id: Generic-USB-Wifi-Switch
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Generic-USB-Wifi-Switch/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e3b7ff961e2bd1f5266843600a8d52ae350ba0f3f47fadd0fb18099f24c29354

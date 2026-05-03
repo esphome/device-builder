@@ -1,0 +1,45 @@
+id: aubess_wifi_smart_switch_with_power_monitoring
+name: Aubess WiFi Smart Switch with Power Monitoring
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Aubess-WiFi-Smart-Switch-with-Power-Monitoring.jpg
+docs_url: https://devices.esphome.io/devices/Aubess-WiFi-Smart-Switch-with-Power-Monitoring/
+featured_components:
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 10s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: sensor_copy_1
+  component_id: sensor.copy
+  fields:
+    source_id: wifi_signal_db
+    unit_of_measurement: '%'
+    id: sensor_copy_1
+    name: WiFi Signal Percent
+- id: sensor_bl0942_1
+  component_id: sensor.bl0942
+  fields:
+    uart_id: uart_bus
+    id: sensor_bl0942_1
+    name: Bl0942 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    icon: mdi:water-boiler
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Geyser
+source:
+  type: esphome-devices
+  remote_id: Aubess-WiFi-Smart-Switch-with-Power-Monitoring
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Aubess-WiFi-Smart-Switch-with-Power-Monitoring/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 463e62b339c7696d2f1c1e7258a42e1fea3f1437055b9329a41291644fda52d0

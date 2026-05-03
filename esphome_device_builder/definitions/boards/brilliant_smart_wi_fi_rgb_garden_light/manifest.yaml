@@ -1,0 +1,59 @@
+id: brilliant_smart_wi_fi_rgb_garden_light
+name: Brilliant Smart Wi-Fi RGB Garden Light
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Brilliant-Smart-Wi-Fi-RGB-Garden-Light.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (output_red)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (output_green)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (output_blue)
+docs_url: https://devices.esphome.io/devices/Brilliant-Smart-Wi-Fi-RGB-Garden-Light/
+featured_components:
+- id: light_rgb_1
+  component_id: light.rgb
+  fields:
+    red: output_red
+    green: output_green
+    blue: output_blue
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: light_rgb_1
+    name: Garden Light
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_3
+source:
+  type: esphome-devices
+  remote_id: Brilliant-Smart-Wi-Fi-RGB-Garden-Light
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Brilliant-Smart-Wi-Fi-RGB-Garden-Light/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: c72ff8d4dafecdd25c20ac94e112a427bb1077d4f3b9f248f1464ba622336203

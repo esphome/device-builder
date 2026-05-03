@@ -1,0 +1,155 @@
+id: citilab_ed1
+name: Citilab ED1
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/ed1-board.jpg
+pins:
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.esp32_touch (Button Left)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.esp32_touch (Button Up)
+- gpio: 5
+  available: false
+  occupied_by: display.st7735 (internal_display)
+- gpio: 9
+  available: false
+  occupied_by: display.st7735 (internal_display)
+- gpio: 10
+  available: false
+  occupied_by: display.st7735 (internal_display)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.esp32_touch (Button Down)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.esp32_touch (Button X)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.esp32_touch (Button OK)
+- gpio: 26
+  available: false
+  occupied_by: output.ledc (buzzer_output)
+- gpio: 27
+  available: false
+  occupied_by: binary_sensor.esp32_touch (Button Right)
+- gpio: 34
+  available: false
+  occupied_by: sensor.adc (Light Level)
+docs_url: https://devices.esphome.io/devices/Citilab-ED1/
+product_url: https://github.com/glifocat/ed1-hoas
+featured_components:
+- id: binary_sensor_esp32_touch_1
+  component_id: binary_sensor.esp32_touch
+  fields:
+    pin:
+      value: 4
+      locked: true
+    threshold: 500
+    id: binary_sensor_esp32_touch_1
+    name: Button Up
+- id: binary_sensor_esp32_touch_2
+  component_id: binary_sensor.esp32_touch
+  fields:
+    pin:
+      value: 13
+      locked: true
+    threshold: 500
+    id: binary_sensor_esp32_touch_2
+    name: Button Down
+- id: binary_sensor_esp32_touch_3
+  component_id: binary_sensor.esp32_touch
+  fields:
+    pin:
+      value: 2
+      locked: true
+    threshold: 500
+    id: binary_sensor_esp32_touch_3
+    name: Button Left
+- id: binary_sensor_esp32_touch_4
+  component_id: binary_sensor.esp32_touch
+  fields:
+    pin:
+      value: 27
+      locked: true
+    threshold: 500
+    id: binary_sensor_esp32_touch_4
+    name: Button Right
+- id: binary_sensor_esp32_touch_5
+  component_id: binary_sensor.esp32_touch
+  fields:
+    pin:
+      value: 15
+      locked: true
+    threshold: 500
+    id: binary_sensor_esp32_touch_5
+    name: Button OK
+- id: binary_sensor_esp32_touch_6
+  component_id: binary_sensor.esp32_touch
+  fields:
+    pin:
+      value: 14
+      locked: true
+    threshold: 900
+    id: binary_sensor_esp32_touch_6
+    name: Button X
+- id: display_st7735_1
+  component_id: display.st7735
+  fields:
+    cs_pin:
+      value: 5
+      locked: true
+    dc_pin:
+      value: 9
+      locked: true
+    reset_pin:
+      value: 10
+      locked: true
+    rotation: 0
+    model: INITR_GREENTAB
+    device_width: 128
+    device_height: 128
+    col_start: 2
+    row_start: 3
+    update_interval: 1s
+    id: display_st7735_1
+    name: St7735 1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: output_ledc_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: WiFi Signal
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 34
+      locked: true
+    attenuation: 12db
+    update_interval: 5s
+    unit_of_measurement: '%'
+    id: sensor_adc_1
+    name: Light Level
+source:
+  type: esphome-devices
+  remote_id: Citilab-ED1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Citilab-ED1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 03c2e58adf8f3a7524e05909124785e2325d12ac8ed0b7aa0afe69ae9d6f204f

@@ -1,0 +1,84 @@
+id: mirabella_genio_wifi_led_strip_light
+name: Mirabella Genio Wi-Fi Strip Light
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Mirabella-Genio-WiFi-LED-Strip-Light.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (strip_light_pushbutton)
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (output_red)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (output_white)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (output_green)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (output_blue)
+docs_url: https://devices.esphome.io/devices/Mirabella-Genio-WiFi-LED-Strip-Light/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: strip_light_pushbutton
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    red: output_red
+    green: output_green
+    blue: output_blue
+    white: output_white
+    id: light_rgbw_1
+    name: Strip Light
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_4
+source:
+  type: esphome-devices
+  remote_id: Mirabella-Genio-WiFi-LED-Strip-Light
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Mirabella-Genio-WiFi-LED-Strip-Light/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 562cb71267461bce508f880bbaeb22aae90289a8b12a20ce6b685436397b16e6

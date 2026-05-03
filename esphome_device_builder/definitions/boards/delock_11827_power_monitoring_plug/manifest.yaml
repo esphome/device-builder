@@ -1,0 +1,85 @@
+id: delock_11827_power_monitoring_plug
+name: Delock 11827 Power Monitoring Smart Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Delock-11827-Power-Monitoring-Smart-Plug-Box.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (${plug_name} Button)
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (led)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (${plug_name} Smart Plug)
+docs_url: https://devices.esphome.io/devices/Delock-11827-Power-Monitoring-Plug/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 3
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 4
+      locked: true
+    cf1_pin:
+      value: 5
+      locked: true
+    change_mode_every: 3
+    update_interval: 3s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: Delock-11827-Power-Monitoring-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Delock-11827-Power-Monitoring-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: faacb8ecf3214f55ec0d0a630459ec483c45b7391cb943556091710e6ee51c56

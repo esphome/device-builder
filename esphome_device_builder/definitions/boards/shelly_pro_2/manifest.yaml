@@ -1,0 +1,192 @@
+id: shelly_pro_2
+name: Shelly Pro 2
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/shelly-pro-2.jpg
+- images/shift-register.jpg
+tags:
+- relay
+- shelly
+pins:
+- gpio: 0
+  available: false
+  occupied_by: switch.gpio (Relay 1)
+- gpio: 1
+  available: false
+  occupied_by: switch.gpio (Relay 2)
+- gpio: 2
+  available: false
+  occupied_by: switch.gpio (wifi_led_blue)
+- gpio: 3
+  available: false
+  occupied_by: switch.gpio (wifi_led_green)
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (wifi_led_red)
+- gpio: 35
+  available: false
+  occupied_by: binary_sensor.gpio (reset_button)
+- gpio: 36
+  available: false
+  occupied_by: sensor.adc (temp_voltage1)
+- gpio: 37
+  available: false
+  occupied_by: sensor.adc (temp_voltage2)
+- gpio: 38
+  available: false
+  occupied_by: binary_sensor.gpio (input1)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (input2)
+docs_url: https://devices.esphome.io/devices/Shelly-Pro-2/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 35
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 38
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 36
+      locked: true
+    attenuation: auto
+    id: sensor_adc_1
+    name: Adc 1
+- id: sensor_resistance_1
+  component_id: sensor.resistance
+  fields:
+    sensor: temp_voltage1
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    id: sensor_resistance_1
+    name: Resistance 1
+- id: sensor_ntc_1
+  component_id: sensor.ntc
+  fields:
+    sensor: temp_resistance1
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    icon: mdi:thermometer
+    id: sensor_ntc_1
+    name: Temperature 1
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 37
+      locked: true
+    attenuation: auto
+    id: sensor_adc_2
+    name: Adc 2
+- id: sensor_resistance_2
+  component_id: sensor.resistance
+  fields:
+    sensor: temp_voltage2
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    id: sensor_resistance_2
+    name: Resistance 2
+- id: sensor_ntc_2
+  component_id: sensor.ntc
+  fields:
+    sensor: temp_resistance2
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    icon: mdi:thermometer
+    id: sensor_ntc_2
+    name: Temperature 2
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 0
+        inverted: false
+      locked: true
+    id: switch_gpio_1
+    name: Relay 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 1
+        inverted: false
+      locked: true
+    id: switch_gpio_2
+    name: Relay 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 2
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: Gpio 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 3
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: Gpio 4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 4
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: Gpio 5
+source:
+  type: esphome-devices
+  remote_id: Shelly-Pro-2
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Pro-2/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 28bd51b8d9ffbdb99e597961f676e54b66c13f9ad99f6fb59fc956524f0d12a0

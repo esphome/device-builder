@@ -1,0 +1,72 @@
+id: m5stack_core2
+name: M5Stack M5Core2
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/core2_01.png
+pins:
+- gpio: 39
+  available: false
+  occupied_by: touchscreen.ft63x6
+docs_url: https://devices.esphome.io/devices/M5Stack-Core2/
+product_url: https://docs.m5stack.com/en/core/core2
+featured_components:
+- id: binary_sensor_touchscreen_1
+  component_id: binary_sensor.touchscreen
+  fields:
+    x_min: 10
+    x_max: 120
+    y_min: 240
+    y_max: 280
+    use_raw: true
+    id: binary_sensor_touchscreen_1
+    name: Button A
+- id: binary_sensor_touchscreen_2
+  component_id: binary_sensor.touchscreen
+  fields:
+    x_min: 130
+    x_max: 200
+    y_min: 240
+    y_max: 280
+    use_raw: true
+    id: binary_sensor_touchscreen_2
+    name: Button B
+- id: binary_sensor_touchscreen_3
+  component_id: binary_sensor.touchscreen
+  fields:
+    x_min: 230
+    x_max: 310
+    y_min: 240
+    y_max: 280
+    use_raw: true
+    id: binary_sensor_touchscreen_3
+    name: Button C
+- id: sensor_mpu6886_1
+  component_id: sensor.mpu6886
+  fields:
+    address: 104
+    update_interval: 1s
+    id: sensor_mpu6886_1
+    name: Mpu6886 1
+- id: touchscreen_ft63x6_1
+  component_id: touchscreen.ft63x6
+  fields:
+    interrupt_pin:
+      value: 39
+      locked: true
+    id: touchscreen_ft63x6_1
+    name: Ft63X6 1
+source:
+  type: esphome-devices
+  remote_id: M5Stack-Core2
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/M5Stack-Core2/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 8fafb5f7ee8ebebfa3c84a1cbd654b0e3a50bae99c36825b6e4d16137882c700

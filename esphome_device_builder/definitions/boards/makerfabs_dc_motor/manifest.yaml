@@ -1,0 +1,84 @@
+id: makerfabs_dc_motor
+name: MAKERFABS-DC-MOTOR
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image_1.jpg
+pins:
+- gpio: 25
+  available: false
+  occupied_by: output.ledc (motor_reverse_pin)
+- gpio: 26
+  available: false
+  occupied_by: output.ledc (motor_forward_pin)
+- gpio: 32
+  available: false
+  occupied_by: binary_sensor.gpio (Endstop 2)
+- gpio: 33
+  available: false
+  occupied_by: binary_sensor.gpio (Endstop 1)
+docs_url: https://devices.esphome.io/devices/Makerfabs-DC-Motor/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 33
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Endstop 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 32
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Endstop 2
+- id: fan_hbridge_1
+  component_id: fan.hbridge
+  fields:
+    pin_a:
+      value: motor_forward_pin
+      locked: true
+    pin_b:
+      value: motor_reverse_pin
+      locked: true
+    decay_mode: slow
+    id: fan_hbridge_1
+    name: DC Motor
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 25
+      locked: true
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: output_ledc_2
+source:
+  type: esphome-devices
+  remote_id: Makerfabs-DC-Motor
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Makerfabs-DC-Motor/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1ae886e1135b70baef983496330b0ef5e24a85c044ec8cff643e430b668d7fe9

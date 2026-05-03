@@ -1,0 +1,38 @@
+id: oyajia_led_ceiling_light_as105
+name: Oyajia LED Ceiling Light (AS105)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/AS105.png
+- images/pinout.png
+docs_url: https://devices.esphome.io/devices/Oyajia-LED-Ceiling-light-AS105/
+featured_components:
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white: output_cw
+    warm_white: output_ww
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2800 K
+    constant_brightness: true
+    id: light_cwww_1
+    name: White Light
+- id: light_beken_spi_led_strip_1
+  component_id: light.beken_spi_led_strip
+  fields:
+    chipset: WS2812
+    num_leds: 60
+    rgb_order: GRB
+    id: light_beken_spi_led_strip_1
+    name: Color Light
+source:
+  type: esphome-devices
+  remote_id: Oyajia-LED-Ceiling-light-AS105
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1d2452f856bc69d6313d72dc6bf1407addcc7c5cd82a5f9c009abc0a8c8e915b

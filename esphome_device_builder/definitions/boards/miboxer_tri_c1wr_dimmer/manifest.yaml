@@ -1,0 +1,74 @@
+id: miboxer_tri_c1wr_dimmer
+name: Miboxer TRI-C1WR Dimmer Module
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/miboxer-tri-c1wr.webp
+- images/miboxer-tri-c1wr-pcb-top.jpg
+- images/miboxer-tri-c1wr-pcb-bottom.jpg
+- images/test_board.jpg
+docs_url: https://devices.esphome.io/devices/Miboxer-TRI-C1WR-Dimmer/
+featured_components:
+- id: button_restart_1
+  component_id: button.restart
+  fields:
+    entity_category: diagnostic
+    id: button_restart_1
+    name: Restart 1
+- id: button_safe_mode_1
+  component_id: button.safe_mode
+  fields:
+    entity_category: diagnostic
+    id: button_safe_mode_1
+    name: Safe Mode 1
+- id: light_tuya_1
+  component_id: light.tuya
+  fields:
+    dimmer_datapoint: 22
+    switch_datapoint: 20
+    min_value: 10
+    max_value: 1000
+    id: light_tuya_1
+    name: Tuya 1
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 103
+    min_value: 0
+    max_value: 255
+    step: 1
+    id: number_tuya_1
+    name: Tuya 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    internal: true
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 102
+    id: switch_tuya_1
+    name: Tuya 1
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:clock-start
+    id: text_sensor_template_1
+    name: Template 1
+source:
+  type: esphome-devices
+  remote_id: Miboxer-TRI-C1WR-Dimmer
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 18865357983f953e9be9bad17595e8e941f3bbc2d1be68e2d404eeab70241fa5

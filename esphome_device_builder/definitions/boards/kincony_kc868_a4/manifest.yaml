@@ -1,0 +1,132 @@
+id: kincony_kc868_a4
+name: KinCony KC868-A4
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/KC868-A4_01.jpg
+tags:
+- relay
+pins:
+- gpio: 2
+  available: false
+  occupied_by: switch.gpio (light1)
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (light4)
+- gpio: 5
+  available: false
+  occupied_by: switch.gpio (light3)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (input4)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (light2)
+- gpio: 27
+  available: false
+  occupied_by: binary_sensor.gpio (input3)
+- gpio: 36
+  available: false
+  occupied_by: binary_sensor.gpio (input1)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (input2)
+docs_url: https://devices.esphome.io/devices/KinCony-KC868-A4/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 36
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: input1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: input2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 27
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: input3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: input4
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 2
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_1
+    name: light1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_2
+    name: light2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_3
+    name: light3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_4
+    name: light4
+source:
+  type: esphome-devices
+  remote_id: KinCony-KC868-A4
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-A4/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 367f57818eb1b3af2b9afab29fed2fdea8c24fdec3899bce9e27ab34a25d9176

@@ -1,0 +1,807 @@
+id: kincony_dm32
+name: KinCony-DM32 (ESP32-S3 32CH Dimmer board)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/DM32-1.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input09)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input10)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input11)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input12)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input13)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input14)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input15)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input16)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input01)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input02)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input03)
+- gpio: 11
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input04)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input05)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input06)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input07)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-input08)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-W1-io21)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-W1-io40)
+- gpio: 47
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-W1-io47)
+- gpio: 48
+  available: false
+  occupied_by: binary_sensor.gpio (dm32-W1-io48)
+docs_url: https://devices.esphome.io/devices/KinCony-DM32/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: dm32-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: dm32-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: dm32-input03
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: dm32-input04
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: dm32-input05
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: dm32-input06
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: dm32-input07
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: dm32-input08
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: dm32-input09
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: dm32-input10
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: dm32-input11
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: dm32-input12
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: dm32-input13
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: dm32-input14
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: dm32-input15
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_1
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: dm32-input16
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_17
+    name: dm32-input17
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_18
+    name: dm32-input18
+- id: binary_sensor_gpio_19
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_19
+    name: dm32-input19
+- id: binary_sensor_gpio_20
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_20
+    name: dm32-input20
+- id: binary_sensor_gpio_21
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_21
+    name: dm32-input21
+- id: binary_sensor_gpio_22
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_22
+    name: dm32-input22
+- id: binary_sensor_gpio_23
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_23
+    name: dm32-input23
+- id: binary_sensor_gpio_24
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_24
+    name: dm32-input24
+- id: binary_sensor_gpio_25
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_25
+    name: dm32-input25
+- id: binary_sensor_gpio_26
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_26
+    name: dm32-input26
+- id: binary_sensor_gpio_27
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_27
+    name: dm32-input27
+- id: binary_sensor_gpio_28
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_28
+    name: dm32-input28
+- id: binary_sensor_gpio_29
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_29
+    name: dm32-input29
+- id: binary_sensor_gpio_30
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_30
+    name: dm32-input30
+- id: binary_sensor_gpio_31
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_31
+    name: dm32-input31
+- id: binary_sensor_gpio_32
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_2
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_32
+    name: dm32-input32
+- id: binary_sensor_gpio_33
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 47
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_33
+    name: dm32-W1-io47
+- id: binary_sensor_gpio_34
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 48
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_34
+    name: dm32-W1-io48
+- id: binary_sensor_gpio_35
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_35
+    name: dm32-W1-io7
+- id: binary_sensor_gpio_36
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_36
+    name: dm32-W1-io40
+- id: binary_sensor_gpio_37
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_37
+    name: dm32-W1-io13
+- id: binary_sensor_gpio_38
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_38
+    name: dm32-W1-io14
+- id: binary_sensor_gpio_39
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 21
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_39
+    name: dm32-W1-io21
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    model: SSD1306 128x64
+    address: 60
+    lambda: 'it.printf(0, 15, id(roboto), "IP: %s", id(eth_ip).state.c_str());'
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch1_out
+    default_transition_length: 0s
+    id: light_monochromatic_1
+    name: DAC CH1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch2_out
+    default_transition_length: 0s
+    id: light_monochromatic_2
+    name: DAC CH2
+- id: light_monochromatic_3
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch3_out
+    default_transition_length: 0s
+    id: light_monochromatic_3
+    name: DAC CH3
+- id: light_monochromatic_4
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch4_out
+    default_transition_length: 0s
+    id: light_monochromatic_4
+    name: DAC CH4
+- id: light_monochromatic_5
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch5_out
+    default_transition_length: 0s
+    id: light_monochromatic_5
+    name: DAC CH5
+- id: light_monochromatic_6
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch6_out
+    default_transition_length: 0s
+    id: light_monochromatic_6
+    name: DAC CH6
+- id: light_monochromatic_7
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch7_out
+    default_transition_length: 0s
+    id: light_monochromatic_7
+    name: DAC CH7
+- id: light_monochromatic_8
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch8_out
+    default_transition_length: 0s
+    id: light_monochromatic_8
+    name: DAC CH8
+- id: light_monochromatic_9
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch9_out
+    default_transition_length: 0s
+    id: light_monochromatic_9
+    name: DAC CH9
+- id: light_monochromatic_10
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch10_out
+    default_transition_length: 0s
+    id: light_monochromatic_10
+    name: DAC CH10
+- id: light_monochromatic_11
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch11_out
+    default_transition_length: 0s
+    id: light_monochromatic_11
+    name: DAC CH11
+- id: light_monochromatic_12
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch12_out
+    default_transition_length: 0s
+    id: light_monochromatic_12
+    name: DAC CH12
+- id: light_monochromatic_13
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch13_out
+    default_transition_length: 0s
+    id: light_monochromatic_13
+    name: DAC CH13
+- id: light_monochromatic_14
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch14_out
+    default_transition_length: 0s
+    id: light_monochromatic_14
+    name: DAC CH14
+- id: light_monochromatic_15
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch15_out
+    default_transition_length: 0s
+    id: light_monochromatic_15
+    name: DAC CH15
+- id: light_monochromatic_16
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch16_out
+    default_transition_length: 0s
+    id: light_monochromatic_16
+    name: DAC CH16
+- id: light_monochromatic_17
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch17_out
+    default_transition_length: 0s
+    id: light_monochromatic_17
+    name: DAC CH17
+- id: light_monochromatic_18
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch18_out
+    default_transition_length: 0s
+    id: light_monochromatic_18
+    name: DAC CH18
+- id: light_monochromatic_19
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch19_out
+    default_transition_length: 0s
+    id: light_monochromatic_19
+    name: DAC CH19
+- id: light_monochromatic_20
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch20_out
+    default_transition_length: 0s
+    id: light_monochromatic_20
+    name: DAC CH20
+- id: light_monochromatic_21
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch21_out
+    default_transition_length: 0s
+    id: light_monochromatic_21
+    name: DAC CH21
+- id: light_monochromatic_22
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch22_out
+    default_transition_length: 0s
+    id: light_monochromatic_22
+    name: DAC CH22
+- id: light_monochromatic_23
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch23_out
+    default_transition_length: 0s
+    id: light_monochromatic_23
+    name: DAC CH23
+- id: light_monochromatic_24
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch24_out
+    default_transition_length: 0s
+    id: light_monochromatic_24
+    name: DAC CH24
+- id: light_monochromatic_25
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch25_out
+    default_transition_length: 0s
+    id: light_monochromatic_25
+    name: DAC CH25
+- id: light_monochromatic_26
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch26_out
+    default_transition_length: 0s
+    id: light_monochromatic_26
+    name: DAC CH26
+- id: light_monochromatic_27
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch27_out
+    default_transition_length: 0s
+    id: light_monochromatic_27
+    name: DAC CH27
+- id: light_monochromatic_28
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch28_out
+    default_transition_length: 0s
+    id: light_monochromatic_28
+    name: DAC CH28
+- id: light_monochromatic_29
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch29_out
+    default_transition_length: 0s
+    id: light_monochromatic_29
+    name: DAC CH29
+- id: light_monochromatic_30
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch30_out
+    default_transition_length: 0s
+    id: light_monochromatic_30
+    name: DAC CH30
+- id: light_monochromatic_31
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch31_out
+    default_transition_length: 0s
+    id: light_monochromatic_31
+    name: DAC CH31
+- id: light_monochromatic_32
+  component_id: light.monochromatic
+  fields:
+    output: dac_ch32_out
+    default_transition_length: 0s
+    id: light_monochromatic_32
+    name: DAC CH32
+- id: sensor_ads1115_1
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A0_GND
+    gain: 6.144
+    resolution: 16_BITS
+    update_interval: 5s
+    id: sensor_ads1115_1
+    name: ADS1115 Channel A0-GND
+- id: sensor_ads1115_2
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A1_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_2
+    name: ADS1115 Channel A1-GND
+- id: sensor_ads1115_3
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A2_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_3
+    name: ADS1115 Channel A2-GND
+- id: sensor_ads1115_4
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A3_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_4
+    name: ADS1115 Channel A3-GND
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_1
+    id: switch_uart_1
+    name: RS485 Button
+source:
+  type: esphome-devices
+  remote_id: KinCony-DM32
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-DM32/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 6e3c80de4e40b4dba62c3f5c784ee38a9c457d71d607f5c1d9b89c0ded754ad0

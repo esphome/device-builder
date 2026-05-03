@@ -1,0 +1,47 @@
+id: tuya_smart_plug_20a_whdz03
+name: Tuya Smart Plug 20A WHDZ03
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/cb2s.jpg
+- images/plugs.jpg
+- images/plug-with-box.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A-WHDZ03/
+featured_components:
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    voltage_divider: 800
+    current_resistor: 0.001 ohm
+    update_interval: 1s
+    change_mode_every: 1
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Tuya-Smart-Plug-20A-WHDZ03
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Smart-Plug-20A-WHDZ03/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 3206a28ce701ca2e5421ccd8243325c038ee334394b3ca7f1871bb189317214c

@@ -1,0 +1,62 @@
+id: tomzn_tob9_vap
+name: TomZN TOB9-VAP
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/device.jpg
+- images/board.jpg
+- images/disassembling.jpg
+pins:
+- gpio: 17
+  available: false
+  occupied_by: binary_sensor.gpio (power_button)
+- gpio: 26
+  available: false
+  occupied_by: switch.hbridge (Switch)
+docs_url: https://devices.esphome.io/devices/Tomzn-TOB9-VAP/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 17
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: red_led_output
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: sensor_bl0942_1
+  component_id: sensor.bl0942
+  fields:
+    line_frequency: 50Hz
+    update_interval: 10s
+    id: sensor_bl0942_1
+    name: Bl0942 1
+- id: switch_hbridge_1
+  component_id: switch.hbridge
+  fields:
+    off_pin:
+      value: 26
+      locked: true
+    pulse_length: 60ms
+    wait_time: 30ms
+    id: switch_hbridge_1
+    name: Switch
+source:
+  type: esphome-devices
+  remote_id: Tomzn-TOB9-VAP
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tomzn-TOB9-VAP/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 8c3e207ced935c0d5b2a6e7b5d2998ed2f12c8bafb49fb8d6dce2dd372b589f5

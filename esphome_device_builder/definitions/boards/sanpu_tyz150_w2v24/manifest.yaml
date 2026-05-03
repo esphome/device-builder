@@ -1,0 +1,34 @@
+id: sanpu_tyz150_w2v24
+name: SANPU TYZ150-W2V24
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3l
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/devices.png
+- images/mechanical.png
+- images/CB3L.png
+- images/extract_from_unit.png
+- images/flashing_points.png
+docs_url: https://devices.esphome.io/devices/SANPU-TYZ150-W2V24/
+featured_components:
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white: output_cold_white
+    warm_white: output_warm_white
+    cold_white_color_temperature: 6500K
+    warm_white_color_temperature: 2700K
+    constant_brightness: true
+    gamma_correct: 1
+    id: light_cwww_1
+    name: LED Strip
+source:
+  type: esphome-devices
+  remote_id: SANPU-TYZ150-W2V24
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/SANPU-TYZ150-W2V24/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 720fd9e8d62289726ad62d6d7060cef3fbc0b79ebd52fcd352e08e221c65f631

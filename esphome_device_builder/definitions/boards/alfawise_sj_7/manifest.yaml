@@ -1,0 +1,119 @@
+id: alfawise_sj_7
+name: Alfawise SJ-7
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/diffuser.png
+- images/lovelace_card_example.png
+docs_url: https://devices.esphome.io/devices/Alfawise-SJ-7/
+featured_components:
+- id: fan_speed_1
+  component_id: fan.speed
+  fields:
+    output: fanoutput
+    speed_count: 2
+    id: fan_speed_1
+    name: Speed 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    accuracy_decimals: 0
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    icon: mdi:timer-sand-empty
+    disabled_by_default: false
+    optimistic: false
+    assumed_state: false
+    id: switch_template_1
+    name: Template 1
+- id: switch_template_2
+  component_id: switch.template
+  fields:
+    icon: mdi:timer-sand-complete
+    disabled_by_default: false
+    optimistic: false
+    assumed_state: false
+    id: switch_template_2
+    name: Template 2
+- id: switch_template_3
+  component_id: switch.template
+  fields:
+    icon: mdi:timer-sand
+    disabled_by_default: false
+    optimistic: false
+    assumed_state: false
+    id: switch_template_3
+    name: Template 3
+- id: switch_template_4
+  component_id: switch.template
+  fields:
+    icon: mdi:fan
+    disabled_by_default: true
+    optimistic: false
+    assumed_state: false
+    id: switch_template_4
+    name: Template 4
+- id: switch_template_5
+  component_id: switch.template
+  fields:
+    disabled_by_default: true
+    icon: mdi:fan
+    optimistic: false
+    assumed_state: false
+    id: switch_template_5
+    name: Template 5
+- id: switch_template_6
+  component_id: switch.template
+  fields:
+    disabled_by_default: true
+    icon: mdi:led-on
+    optimistic: true
+    assumed_state: true
+    id: switch_template_6
+    name: Template 6
+- id: switch_template_7
+  component_id: switch.template
+  fields:
+    icon: mdi:lava-lamp
+    optimistic: false
+    assumed_state: false
+    id: switch_template_7
+    name: Template 7
+- id: switch_template_8
+  component_id: switch.template
+  fields:
+    icon: mdi:lightbulb-multiple
+    optimistic: false
+    assumed_state: false
+    id: switch_template_8
+    name: Template 8
+- id: switch_template_9
+  component_id: switch.template
+  fields:
+    icon: mdi:lightbulb-group
+    optimistic: false
+    assumed_state: false
+    id: switch_template_9
+    name: Template 9
+- id: switch_template_10
+  component_id: switch.template
+  fields:
+    disabled_by_default: true
+    optimistic: true
+    id: switch_template_10
+    name: Template 10
+source:
+  type: esphome-devices
+  remote_id: Alfawise-SJ-7
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Alfawise-SJ-7/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 837539f03a867cf41efd58de05a5e4cb27e25c2b1887bb8efd2fe55444cdf3ff

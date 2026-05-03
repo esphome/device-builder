@@ -1,0 +1,50 @@
+id: brilliant_smart_cct_globe_gu10
+name: Brilliant Smart CCT Globe GU10
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/BL20887.png
+pins:
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (cw_color_temp)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (ww_color_temp)
+docs_url: https://devices.esphome.io/devices/Brilliant-Smart-CCT-Globe-GU10/
+featured_components:
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white: cw_color_temp
+    warm_white: ww_color_temp
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    constant_brightness: true
+    id: light_cwww_1
+    name: Cwww 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_2
+source:
+  type: esphome-devices
+  remote_id: Brilliant-Smart-CCT-Globe-GU10
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Brilliant-Smart-CCT-Globe-GU10/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 49b28670e92bbb8e310279f929466bd5ac9af1c43b7469368a1aaf0ce2170b17

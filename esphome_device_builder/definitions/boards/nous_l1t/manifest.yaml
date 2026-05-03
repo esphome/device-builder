@@ -1,0 +1,71 @@
+id: nous_l1t
+name: Nous L1T
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/nous_L1T.webp
+pins:
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (button_1)
+- gpio: 13
+  available: false
+  occupied_by: output.gpio (relay_1)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (button_led_output)
+docs_url: https://devices.esphome.io/devices/Nous-L1t/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 3
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: relay_1
+    id: light_binary_1
+    name: Binary 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: button_led_output
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: output_gpio_1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_1
+source:
+  type: esphome-devices
+  remote_id: Nous-L1t
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Nous-L1t/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 60a164972a6253e5eba552c07ce7eacfe926f65884d3497a363b40c2cd79dc4c
