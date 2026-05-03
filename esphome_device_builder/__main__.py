@@ -60,12 +60,16 @@ def main() -> None:
     parser.add_argument(
         "--username",
         default="",
-        help="Dashboard username (must be paired with --password; falls back to $USERNAME)",
+        help=(
+            "Dashboard username (must be paired with --password; falls back to $ESPHOME_USERNAME)"
+        ),
     )
     parser.add_argument(
         "--password",
         default="",
-        help="Dashboard password (must be paired with --username; falls back to $PASSWORD)",
+        help=(
+            "Dashboard password (must be paired with --username; falls back to $ESPHOME_PASSWORD)"
+        ),
     )
     parser.add_argument("--ha-addon", action="store_true", help="Running as HA add-on")
     parser.add_argument(
@@ -140,12 +144,12 @@ def main() -> None:
 
 def _validate_credentials(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """Reject mismatched --username / --password (or env equivalents)."""
-    has_user = bool(args.username or os.getenv("USERNAME"))
-    has_pass = bool(args.password or os.getenv("PASSWORD"))
+    has_user = bool(args.username or os.getenv("ESPHOME_USERNAME"))
+    has_pass = bool(args.password or os.getenv("ESPHOME_PASSWORD"))
     if has_user != has_pass:
         parser.error(
             "--username and --password must both be set (or both unset). "
-            "Use $USERNAME / $PASSWORD env vars as alternatives."
+            "Use $ESPHOME_USERNAME / $ESPHOME_PASSWORD env vars as alternatives."
         )
 
 
@@ -162,7 +166,7 @@ def _warn_if_unprotected(settings: DashboardSettings) -> None:
         "\n%s\n"
         " WARNING: Dashboard is running WITHOUT AUTHENTICATION.\n"
         " Anyone with network access to %s:%d can manage your devices.\n"
-        " Set --username and --password (or $USERNAME / $PASSWORD) to enable.\n"
+        " Set --username and --password (or $ESPHOME_USERNAME / $ESPHOME_PASSWORD) to enable.\n"
         "%s",
         banner,
         settings.host,

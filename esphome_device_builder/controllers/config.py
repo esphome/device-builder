@@ -89,8 +89,15 @@ class DashboardSettings:
     def parse_args(self, args: Any) -> None:
         """Parse CLI arguments into settings."""
         self.on_ha_addon = getattr(args, "ha_addon", False)
-        username = getattr(args, "username", None) or os.getenv("USERNAME") or ""
-        password = getattr(args, "password", None) or os.getenv("PASSWORD") or ""
+        # Env-var fallback uses ``ESPHOME_*`` rather than the legacy
+        # dashboard's bare ``USERNAME`` / ``PASSWORD``: the bare names
+        # collide with login-shell / Windows system vars (``$USERNAME``
+        # is the OS user on both), which would silently promote the
+        # OS user to the dashboard username when only ``--password``
+        # / ``$ESPHOME_PASSWORD`` is set. Intentional divergence from
+        # ``esphome/dashboard/settings.py``.
+        username = getattr(args, "username", None) or os.getenv("ESPHOME_USERNAME") or ""
+        password = getattr(args, "password", None) or os.getenv("ESPHOME_PASSWORD") or ""
         self.username = username
         self.using_password = bool(username and password)
         if self.using_password:

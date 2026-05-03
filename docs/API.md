@@ -62,7 +62,7 @@ On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/m
 
 > Controller: [`AuthController`](../esphome_device_builder/controllers/auth.py)
 
-When the dashboard is started with `--username`/`--password` (or `$USERNAME`/`$PASSWORD` env vars), every WebSocket connection on the public port must authenticate before any other command will be accepted.
+When the dashboard is started with `--username`/`--password` (or `$ESPHOME_USERNAME`/`$ESPHOME_PASSWORD` env vars), every WebSocket connection on the public port must authenticate before any other command will be accepted.
 
 The handshake:
 
