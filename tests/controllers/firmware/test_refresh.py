@@ -84,14 +84,13 @@ async def test_reload_rereads_state_and_fires_updated(tmp_path: Path) -> None:
     # Seed the scanner with an initial in-memory snapshot — pre-install
     # state where ``has_pending_changes`` was True.
     initial = _device(has_pending_changes=True)
-    scanner._devices[yaml_path] = initial
-    scanner._cache_keys[yaml_path] = (0, 0, 0.0, 0)
+    scanner._index.set(yaml_path, initial, (0, 0, 0.0, 0))
 
     refreshed = _device(has_pending_changes=False)
     scanner._load_devices = MagicMock(return_value={yaml_path: refreshed})  # type: ignore[method-assign]
 
     assert await scanner.reload("kitchen.yaml") is True
-    assert scanner._devices[yaml_path] is refreshed
+    assert scanner.by_path[yaml_path] is refreshed
     assert changes == [(ScanChange.UPDATED, refreshed)]
 
 

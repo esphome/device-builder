@@ -175,54 +175,6 @@ async def test_reload_swallows_oserror_on_post_load_stat(tmp_path: Path) -> None
 
 
 # ---------------------------------------------------------------------------
-# _unindex_name — early-returns
-# ---------------------------------------------------------------------------
-
-
-def test_unindex_name_is_noop_for_unknown_name(tmp_path: Path) -> None:
-    """A device whose name has no bucket is dropped silently.
-
-    Defensive: the rename path calls ``_unindex_name`` whenever
-    ``previous.name != device.name``. If a future refactor ever
-    invokes it for a name the index never knew about (callback
-    out of order, bucket already pruned, etc.), the helper must
-    not raise — the index is supposed to converge to the right
-    state regardless of arrival order.
-    """
-    cfg = tmp_path / "configs"
-    cfg.mkdir()
-    scanner, _ = _make_scanner(cfg)
-
-    ghost = Device(name="ghost", friendly_name="ghost", configuration="ghost.yaml")
-    # Must not raise.
-    scanner._unindex_name(ghost)
-    assert "ghost" not in scanner._devices_by_name
-
-
-def test_unindex_name_swallows_value_error_for_missing_device(tmp_path: Path) -> None:
-    """A device that's not actually in its name bucket is dropped silently.
-
-    Pre-seed a bucket with one Device, then call ``_unindex_name``
-    with a different Device that shares the name but is not the
-    same object / not equal. ``list.remove`` raises ``ValueError``;
-    the helper swallows it (and leaves the bucket intact), keeping
-    the index converged with the device cache.
-    """
-    cfg = tmp_path / "configs"
-    cfg.mkdir()
-    scanner, _ = _make_scanner(cfg)
-
-    incumbent = Device(name="kitchen", friendly_name="Kitchen", configuration="a.yaml")
-    scanner._devices_by_name["kitchen"] = [incumbent]
-
-    different = Device(name="kitchen", friendly_name="Kitchen", configuration="b.yaml")
-    scanner._unindex_name(different)  # not in the bucket → ValueError swallowed
-
-    # Bucket is unchanged: incumbent still indexed.
-    assert scanner._devices_by_name["kitchen"] == [incumbent]
-
-
-# ---------------------------------------------------------------------------
 # _build_cache_keys — stat OSError fallback
 # ---------------------------------------------------------------------------
 
