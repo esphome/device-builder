@@ -87,9 +87,12 @@ def _capture_inner_lifecycle(controller: DevicesController) -> Iterator[list[str
     contract; the inner controllers have their own dedicated test
     files.
 
-    Context-manager shape so the originals restore on exit (success
-    *or* failure) — sibling tests in the same xdist worker don't
-    see leaked stubs on the shared inner-controller instances.
+    Context-manager shape so the patches restore on exit (success
+    *or* failure). Each test in this module builds its own fresh
+    ``DevicesController``, so there are no shared instances to leak
+    onto — the auto-restore is for *intra-test* hygiene: the
+    captured stubs only intercept calls inside the ``with`` block,
+    which makes the scope of the capture explicit at the call site.
 
     Each stub appends a single label string to the yielded list so
     tests assert on the call sequence in one comparison instead of
