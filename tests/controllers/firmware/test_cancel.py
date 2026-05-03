@@ -35,7 +35,10 @@ from esphome_device_builder.models import (
     JobStatus,
     JobType,
 )
-from tests.controllers.firmware.conftest import FirmwareControllerFactory
+from tests.controllers.firmware.conftest import (
+    FirmwareControllerFactory,
+    capture_firmware_events,
+)
 
 
 def _job(
@@ -99,12 +102,13 @@ async def test_cancel_queued_job_marks_terminal_and_fires_event(
     job = _job("j-q", status=JobStatus.QUEUED)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
     controller._prune_history = MagicMock()
+    captured = capture_firmware_events(controller, EventType.JOB_CANCELLED)
 
     await controller.cancel(job_id="j-q")
 
     assert job.status == JobStatus.CANCELLED
     assert job.completed_at is not None
-    controller._db.bus.fire.assert_called_once_with(EventType.JOB_CANCELLED, {"job": job})
+    assert [(e.event_type, e.data) for e in captured] == [(EventType.JOB_CANCELLED, {"job": job})]
 
 
 @pytest.mark.asyncio
@@ -205,10 +209,11 @@ async def test_cancel_running_job_does_not_fire_event_directly(
     job = _job("j-r", status=JobStatus.RUNNING)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
     controller._current_job = job
+    captured = capture_firmware_events(controller, EventType.JOB_CANCELLED)
 
     await controller.cancel(job_id="j-r")
 
-    controller._db.bus.fire.assert_not_called()
+    assert captured == []
     # Status stays RUNNING — the runner is what flips it CANCELLED.
     assert job.status == JobStatus.RUNNING
 
@@ -278,10 +283,11 @@ async def test_cancel_terminal_job_raises_invalid_args(
     """
     job = _job("j-t", status=status)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
+    captured = capture_firmware_events(controller, EventType.JOB_CANCELLED)
 
     with pytest.raises(CommandError) as exc:
         await controller.cancel(job_id="j-t")
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert f"Cannot cancel a {status.value} job" in exc.value.message
     controller._terminate_current_process.assert_not_called()
-    controller._db.bus.fire.assert_not_called()
+    assert captured == []

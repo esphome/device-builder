@@ -30,7 +30,8 @@ import pytest
 
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.models import FirmwareJob
+from esphome_device_builder.helpers.event_bus import Event, EventBus
+from esphome_device_builder.models import EventType, FirmwareJob
 
 
 class FirmwareControllerFactory(Protocol):
@@ -144,3 +145,28 @@ def firmware_controller_factory(
         return controller
 
     return _make
+
+
+def capture_firmware_events(
+    controller: FirmwareController,
+    *event_types: EventType,
+) -> list[Event]:
+    """Swap the controller's bus for a real ``EventBus`` and return the capture list.
+
+    The conftest factory wires ``self._db.bus`` as a ``MagicMock``;
+    that's fine for tests that ignore events but means assertions on
+    event firing have to walk ``call_args_list``. Replacing with a
+    real bus + listener gives a flat ``[Event, …]`` log that captures
+    both the event type and payload, with no coupling to the
+    handler's internal call shape.
+
+    Pass the ``EventType`` values to subscribe to. The returned list
+    is appended to as events fire — assertion code can read it after
+    the call under test resolves.
+    """
+    bus = EventBus()
+    captured: list[Event] = []
+    for event_type in event_types:
+        bus.add_listener(event_type, captured.append)
+    controller._db.bus = bus
+    return captured
