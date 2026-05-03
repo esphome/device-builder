@@ -77,9 +77,9 @@ def firmware_controller_factory(
 
     - ``with_queue=False`` (default): when set ``True``, install
       an ``AsyncMock`` stub for ``_queue``. The submission handlers
-      (``compile`` / ``upload`` / ``install`` / ``rename`` /
-      ``compile_bulk`` / ``install_bulk`` / ``reset_build_env``)
-      need this kit. The validator-only tests
+      (``compile`` / ``upload`` / ``install`` / ``clean`` /
+      ``rename`` / ``compile_bulk`` / ``install_bulk`` /
+      ``reset_build_env``) need this kit. The validator-only tests
       (``test_traversal_validation`` / ``test_get_binaries`` /
       ``test_download``) do not — leaving ``_queue``
       unattributed makes a regression that suddenly tries to

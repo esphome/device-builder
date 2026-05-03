@@ -20,9 +20,9 @@ the user-visible contract is:
   ``QUEUED`` entry, and immediately cancel it.
 
 Drives through public API only — submit via ``compile`` /
-``install``, assert via ``get_jobs``. The supersede happens
-as a side effect of the second ``_enqueue``; tests don't call
-``_supersede_active_jobs`` directly.
+``reset_build_env``, assert via ``get_jobs``. The supersede
+happens as a side effect of the second ``_enqueue``; tests
+don't call ``_supersede_active_jobs`` directly.
 """
 
 from __future__ import annotations
