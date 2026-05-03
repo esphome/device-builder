@@ -49,13 +49,16 @@ controller pointing at the same config dir and calls
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.models import JobStatus
+from esphome_device_builder.models import FirmwareJob, JobStatus
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
@@ -247,10 +250,6 @@ async def test_resumed_running_job_completes_on_next_run(
     with one that actually schedules so the runner consumes
     the queue.
     """
-    import asyncio
-
-    from esphome_device_builder.models import FirmwareJob
-
     (tmp_path / "kitchen.yaml").write_text("")
     writer = _persistent_controller(firmware_controller_factory)
     queued = await writer.compile(configuration="kitchen.yaml")
@@ -392,9 +391,6 @@ async def test_corrupt_entry_in_metadata_does_not_block_startup(
     corrupt one entry by appending a malformed payload — the
     dashboard should boot with just the good entry.
     """
-    import json
-    import logging
-
     (tmp_path / "kitchen.yaml").write_text("")
     writer = _persistent_controller(firmware_controller_factory)
     good = await writer.compile(configuration="kitchen.yaml")
@@ -436,9 +432,6 @@ async def test_non_dict_entry_in_metadata_does_not_crash_warning_path(
     isinstance guard so a future refactor that drops it shows
     up here.
     """
-    import json
-    import logging
-
     (tmp_path / "kitchen.yaml").write_text("")
     writer = _persistent_controller(firmware_controller_factory)
     good = await writer.compile(configuration="kitchen.yaml")
