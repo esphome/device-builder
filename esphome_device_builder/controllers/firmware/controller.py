@@ -55,7 +55,6 @@ from .helpers import (
     _mark_job_terminal,
     _names_touched_by_job,
     _parse_progress,
-    _reset_job_for_recovery,
     _signal_process_group,
     _terminate_subtree_windows,
     _trim_job_output,
@@ -1379,13 +1378,16 @@ class FirmwareController:
           load into the in-memory map for the recent-jobs panel
           but don't touch ``_queue``.
 
-        ``RUNNING`` jobs go through ``_reset_job_for_recovery``
+        ``RUNNING`` jobs go through ``FirmwareJob.reset()``
         before being re-queued so the rebuild looks like a
         fresh run in the per-run-state fields (``progress`` /
         ``error`` / ``started_at`` / ``completed_at`` /
         ``exit_code``) but keeps the pre-crash ``output`` log
         as diagnostic history with a separator marker showing
-        where the rebuild starts.
+        where the rebuild starts. ``reset`` lives on the model
+        rather than as a free helper here so a future per-run
+        field added to ``FirmwareJob`` lands right next to the
+        method that has to clear it.
 
         See esphome/device-builder#147 for the policy discussion.
         """
@@ -1397,7 +1399,7 @@ class FirmwareController:
                 self._jobs[job.job_id] = job
                 if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
                     if job.status == JobStatus.RUNNING:
-                        _reset_job_for_recovery(job)
+                        job.reset()
                     job.status = JobStatus.QUEUED
                     await self._queue.put(job)
             except Exception:

@@ -194,6 +194,96 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
 
 
 @pytest.mark.asyncio
+async def test_resumed_running_job_completes_on_next_run(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_runtime: None,
+) -> None:
+    """A re-queued ``RUNNING`` carryover gets dequeued + driven to ``COMPLETED``.
+
+    This is the half of the contract the previous test doesn't
+    cover: not just "the job came back ``QUEUED`` with cleared
+    state" but "the queue runner *actually picks it up* and
+    drives it to a terminal state on the next run". Without
+    this the recovery path is half-implemented — ``reset`` could
+    be wrong in a way that blocks ``_execute_job``, and the job
+    would sit in ``QUEUED`` forever after restart.
+
+    Drives a real ``_run_queue`` task with ``_execute_job``
+    mocked to just flip the status (no real ``esphome`` spawn).
+    The ``create_background_task`` stub on ``_db`` is replaced
+    with one that actually schedules so the runner consumes
+    the queue.
+    """
+    import asyncio
+
+    from esphome_device_builder.models import FirmwareJob
+
+    (tmp_path / "kitchen.yaml").write_text("")
+    writer = _persistent_controller(firmware_controller_factory)
+    queued = await writer.compile(configuration="kitchen.yaml")
+    in_flight = writer._jobs[queued.job_id]
+    in_flight.status = JobStatus.RUNNING
+    in_flight.output = ["compile in progress …\n"]
+    in_flight.progress = 47
+    in_flight.started_at = "2026-01-01T00:00:00+00:00"
+    # Persist via a follow-up enqueue (compile of a different config).
+    (tmp_path / "garage.yaml").write_text("")
+    await writer.compile(configuration="garage.yaml")
+
+    reader = _persistent_controller(firmware_controller_factory)
+    # The factory's ``_queue`` is an ``AsyncMock`` — fine for tests
+    # that just assert on calls, but the runner needs a real
+    # ``asyncio.Queue`` so ``_load_jobs``'s ``put`` and
+    # ``_run_queue``'s ``get`` actually exchange jobs.
+    reader._queue = asyncio.Queue()
+
+    # Replace _execute_job with a fast COMPLETED transition so we
+    # don't actually spawn ``esphome``. The runner's loop calls
+    # this, awaits it, then loops back for the next item.
+    async def _fake_execute(job: FirmwareJob) -> None:
+        job.status = JobStatus.COMPLETED
+        job.exit_code = 0
+        job.completed_at = "2026-01-01T01:00:00+00:00"
+        await reader._persist_jobs()
+
+    reader._execute_job = _fake_execute  # type: ignore[method-assign]
+
+    # Schedule the runner for real. Track the task for cleanup.
+    runner_tasks: list[asyncio.Task[None]] = []
+
+    def _real_schedule(coro: Any) -> asyncio.Task[None]:
+        task = asyncio.create_task(coro)
+        runner_tasks.append(task)
+        return task
+
+    reader._db.create_background_task = _real_schedule
+
+    await reader.start()
+    # Wait for the runner to drain both queued jobs.
+    try:
+        async with asyncio.timeout(2.0):
+            while True:
+                statuses = {j.job_id: j.status for j in await reader.get_jobs()}
+                if all(s == JobStatus.COMPLETED for s in statuses.values()):
+                    break
+                await asyncio.sleep(0.01)
+    finally:
+        for task in runner_tasks:
+            task.cancel()
+        await asyncio.gather(*runner_tasks, return_exceptions=True)
+
+    # The carryover and the follow-up both reached COMPLETED.
+    final = {j.job_id: j for j in await reader.get_jobs()}
+    assert final[queued.job_id].status == JobStatus.COMPLETED
+    assert final[queued.job_id].exit_code == 0
+    # The pre-crash log + recovery marker survived the rebuild
+    # (the fake ``_execute_job`` doesn't append, but ``reset``
+    # added the marker on load).
+    assert any("dashboard restarted mid-build" in line for line in final[queued.job_id].output)
+
+
+@pytest.mark.asyncio
 async def test_cancelled_job_survives_restart_without_being_requeued(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,

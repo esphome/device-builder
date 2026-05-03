@@ -66,3 +66,47 @@ class FirmwareJob(DataClassORJSONMixin):
     # yet -- most compile output is opaque, but the heavy phases (PIO
     # build, esptool flash) do emit percentages we can latch onto.
     progress: int | None = None
+
+    def reset(self) -> None:
+        """
+        Reset per-run state so the job is ready to be re-executed.
+
+        Called by the persistence-load path when a ``RUNNING`` job
+        survives a dashboard restart and is being re-queued for a
+        fresh run. Lives on the model (not as a free helper) so
+        every place that adds a per-run-state field is forced to
+        consider whether it should clear here too — without that,
+        a future field that defaults to ``None`` and gets set by
+        the runner would silently leak the crashed run's value
+        into the rebuild's status display.
+
+        Behaviour:
+
+        - **Keeps ``output``** — the pre-crash log is useful
+          diagnostic history. Appends a marker line so a
+          follower tailing the merged buffer can see exactly
+          where the rebuild starts.
+        - **Clears per-run state** — ``progress`` / ``error`` /
+          ``started_at`` / ``completed_at`` / ``exit_code``
+          back to their defaults.
+        - **Doesn't change ``status``** — the caller decides
+          the transition (load path flips ``RUNNING`` →
+          ``QUEUED``; future callers might want a different
+          target).
+        - **Preserves identity** — ``configuration`` /
+          ``job_type`` / ``port`` / ``new_name`` / ``created_at``
+          / ``job_id`` describe the job rather than the run, so
+          they stay intact.
+        """
+        self.output = [*self.output, _RECOVERY_NOTICE]
+        self.progress = None
+        self.error = None
+        self.started_at = None
+        self.completed_at = None
+        self.exit_code = None
+
+
+_RECOVERY_NOTICE = (
+    "... [dashboard restarted mid-build; the previous run's log is above, "
+    "the rebuild begins below] ...\n"
+)
