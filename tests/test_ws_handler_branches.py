@@ -3,8 +3,17 @@
 Two paths the small unit-tests in ``test_ws_dispatch_branches.py``
 can't reach because they live inside the request handler:
 
-- Bearer-token pre-authentication (lines 261-266 of ``api/ws.py``).
-- Invalid-JSON inside the message loop (lines 289-294).
+- Bearer-token pre-authentication: when ``settings.using_password``
+  is on and the request carries an ``Authorization: Bearer ...``
+  header, the handler validates the token via
+  ``device_builder.auth.session_store.validate`` and either marks
+  the connection pre-authenticated (token recorded for later
+  ``auth/refresh`` / ``auth/logout``) or falls through to the
+  in-band ``auth/login`` flow.
+- The WS message loop's invalid-JSON branch: a frame whose body
+  fails ``json.loads`` is answered with an ``INVALID_MESSAGE``
+  error and the loop ``continue``-s — the connection survives so
+  the client can recover instead of getting kicked.
 
 Both require driving ``websocket_handler`` end-to-end through aiohttp,
 so they live in their own file.
