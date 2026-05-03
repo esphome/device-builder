@@ -168,14 +168,16 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
     idempotent, the user pays a couple minutes of compile time,
     no harm done.
 
-    Per-run state from the crashed run is cleared
-    (``output`` / ``progress`` / ``error`` / ``started_at`` /
-    ``completed_at`` / ``exit_code``) so the re-run's log looks
-    like a fresh build instead of being concatenated onto
-    whatever the crash left in the buffer. ``_execute_job``
-    appends rather than resets, so without the load-side clear
-    a user tailing the re-run would see two builds' worth of
-    output stitched together.
+    Per-run *state* from the crashed run is cleared (``progress``
+    / ``error`` / ``started_at`` / ``completed_at`` /
+    ``exit_code``) so the rebuild's status display starts
+    fresh. The pre-crash ``output`` is *retained* as
+    diagnostic history with a recovery-marker line appended —
+    a follower tailing the merged buffer can see exactly
+    where the rebuild starts. The marker is what stops the
+    "two builds glued together with no demarcation" UX
+    problem; without it the rebuild's lines would silently
+    concatenate onto whatever the crash left behind.
 
     Phase 1 has to mutate ``self._jobs[...].status`` directly to
     simulate the runner having picked up the job before the
