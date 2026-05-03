@@ -383,5 +383,9 @@ async def test_import_device_drops_matching_import_result_entry(
 
     assert "apollo-plt-1-983300" not in ctrl.import_result
     # Removal is broadcast so subscribed frontends drop the card.
-    assert captured, "expected IMPORTABLE_DEVICE_REMOVED to fire"
-    assert captured[0].data == {"name": "apollo-plt-1-983300"}
+    # Pin both count and payload so a future double-fire / regression
+    # surfaces here — there's exactly one matching import_result entry,
+    # so exactly one event should land on the bus.
+    assert [(e.event_type, e.data) for e in captured] == [
+        (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-983300"})
+    ]
