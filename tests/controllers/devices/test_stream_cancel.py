@@ -218,9 +218,9 @@ def _make_controller_with_settings(
     """Stand up a controller far enough to exercise ``stream_logs`` / ``validate_config``.
 
     Uses the shared ``make_controller`` factory and overrides
-    ``rel_path`` with the bare ``Path`` constructor — the streaming
-    tests pass absolute-style configuration arguments and don't
-    care which tmp dir they're rooted under.
+    ``rel_path`` with the bare ``Path`` constructor so these tests
+    can assert the raw configuration argument in argv (for example,
+    ``"kitchen.yaml"``) without ``tmp_path`` being prepended.
     """
     ctrl = make_controller(tmp_path, esphome_cmd=esphome_cmd)
     ctrl._db.settings.rel_path = Path
