@@ -52,8 +52,11 @@ every few minutes.
 
 - ✅ Standalone backend with WS-first API, persistent compile queue, mDNS device discovery
 - ✅ Curated board + component catalogs (nightly catalog sync from upstream ESPHome)
+- ✅ Functional parity with the legacy dashboard
+  (one intentional decline: the HA Supervisor `/auth` POST flow —
+  the new backend's HA add-on path is ingress-only by design, see
+  [issue #85](https://github.com/esphome/device-builder/issues/85))
 - 🚧 Beta toggle in the official ESPHome container and Home Assistant add-on
-- 🚧 Full feature parity with the legacy dashboard
 - 🗺️ See the
   [project backlog](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder-dashboard%22)
   for in-progress work and what's planned next

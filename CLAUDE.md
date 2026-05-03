@@ -88,19 +88,22 @@ toggle in the official ESPHome container and Home Assistant add-on.
 
 ## Comparison with the legacy esphome dashboard
 
-The legacy Tornado-based dashboard
-(`esphome/dashboard/` in the upstream `esphome` package) has
-years of accreted behaviour we're still catching up to.
-Periodically re-read `compare_legacy.md` (kept at the repo root
-as a working document) and check the open issue list filtered to
-"legacy parity" before declaring a feature complete.
+The legacy Tornado-based dashboard (`esphome/dashboard/` in the
+upstream `esphome` package) is the upstream-canonical reference
+for shared concerns (mDNS source dispatch, build-info hashes,
+StorageJSON layout, `CORE` lifecycle, `address_cache` semantics).
+Functional parity with it is essentially achieved as of 2026-05;
+the one intentional decline is the HA Supervisor `/auth` POST
+flow (the new backend's HA add-on path is ingress-only by
+design — see issue #85 and the inline comment at
+`device_builder.py:419`). Before declaring a new feature
+complete, check the open issue list filtered to "legacy parity"
+in case anything has resurfaced.
 
 ## Lessons learned about the legacy comparison itself
 
 - The legacy code is the **upstream-canonical** behaviour for
-  shared concerns (mDNS source dispatch, build-info hashes,
-  StorageJSON layout, `CORE` lifecycle, `address_cache`
-  semantics). When we diverge, divergence should be an
+  shared concerns. When we diverge, divergence should be an
   intentional design choice, not an oversight — flag the choice
   in code comments so future readers know it's deliberate.
 - The new dashboard's *cleaner* shape can hide gaps that the
