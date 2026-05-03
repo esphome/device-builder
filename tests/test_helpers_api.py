@@ -11,6 +11,8 @@ that changes the scan rules surfaces.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from esphome_device_builder.helpers.api import api_command, collect_api_commands
@@ -108,8 +110,6 @@ def test_api_command_decorator_attaches_marker() -> None:
     assert handler._api_command == "ns/example"  # type: ignore[attr-defined]
     # And the function still behaves like a plain coroutine function —
     # not wrapped, not transformed.
-    import asyncio
-
     assert asyncio.run(handler()) == "ok"
 
 

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -48,7 +49,11 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
-from esphome_device_builder.models.preferences import UserPreferences
+from esphome_device_builder.models.preferences import (
+    DashboardView,
+    Theme,
+    UserPreferences,
+)
 
 
 def _make_controller(config_dir: Path) -> ConfigController:
@@ -133,7 +138,6 @@ def test_save_metadata_cleans_up_tmpfile_on_failure(tmp_path: Path, monkeypatch:
     ``.device-builder.json.<random>.tmp`` files that nothing
     cleans up.
     """
-    import os
 
     def _boom(*args: Any, **kwargs: Any) -> None:
         raise OSError("rename failed")
@@ -252,8 +256,6 @@ def test_save_preferences_round_trip(tmp_path: Path) -> None:
     use a non-default value (``dashboard_view=TABLE``) to
     actually exercise the marshalling.
     """
-    from esphome_device_builder.models.preferences import DashboardView
-
     prefs = UserPreferences(dashboard_view=DashboardView.TABLE)
     save_preferences(tmp_path, prefs)
     assert load_preferences(tmp_path) == prefs
@@ -278,8 +280,6 @@ async def test_get_prefs_returns_loaded_preferences(tmp_path: Path) -> None:
     ``os.path.abspath`` blocks the event loop, and blockbuster
     flags it from inside an async test.
     """
-    from esphome_device_builder.models.preferences import DashboardView
-
     persisted = UserPreferences(dashboard_view=DashboardView.TABLE)
     await asyncio.to_thread(save_preferences, tmp_path, persisted)
     controller = _make_controller(tmp_path)
@@ -303,11 +303,6 @@ async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
     ``metadata_transaction`` -> ``tempfile.mkstemp`` write
     doesn't trip blockbuster on Linux CI.
     """
-    from esphome_device_builder.models.preferences import (
-        DashboardView,
-        Theme,
-    )
-
     initial = UserPreferences(dashboard_view=DashboardView.TABLE, theme=Theme.DARK)
     await asyncio.to_thread(save_preferences, tmp_path, initial)
     controller = _make_controller(tmp_path)

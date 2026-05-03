@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.api.ws import _origin_matches_host
+from esphome_device_builder.api.ws import WebSocketClient, _origin_matches_host
 from esphome_device_builder.controllers.auth import AuthController, AuthError
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.helpers.auth import (
@@ -610,8 +610,6 @@ def _make_ws_client(
     auth_ctrl: AuthController, *, authenticated: bool = False, remote: str = "127.0.0.1"
 ) -> Any:
     """Build a WebSocketClient with a mocked underlying WebSocket."""
-    from esphome_device_builder.api.ws import WebSocketClient
-
     db = MagicMock()
     db.settings = auth_ctrl._db.settings
     db.auth = auth_ctrl
@@ -719,6 +717,4 @@ async def test_ws_auth_alias_command_works(tmp_path: Path) -> None:
 
 async def _advance_clock(seconds: float) -> None:
     """Block briefly so ``time.time()`` reads a fresh value."""
-    import asyncio
-
     await asyncio.sleep(seconds)

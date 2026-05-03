@@ -23,15 +23,19 @@ def test_friendly_name_slugify_resolves_via_helpers_or_dashboard_shim() -> None:
     both locations fails loudly on import — not at the first
     adoption flow that calls it.
     """
+    # Each import is gated by try/except ImportError to tolerate
+    # whichever esphome release ships the symbol — keeping them inside
+    # the test (PLC0415 noqa) is the point: a top-level failing import
+    # would prevent collection, masking the real test failure.
     sources: list = []
     try:
-        from esphome.helpers import friendly_name_slugify as helpers_impl
+        from esphome.helpers import friendly_name_slugify as helpers_impl  # noqa: PLC0415
 
         sources.append(helpers_impl)
     except ImportError:
         pass
     try:
-        from esphome.dashboard.util.text import (
+        from esphome.dashboard.util.text import (  # noqa: PLC0415
             friendly_name_slugify as dashboard_impl,
         )
 

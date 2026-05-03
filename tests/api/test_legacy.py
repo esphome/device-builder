@@ -37,6 +37,7 @@ exercised — not just the handler bodies.
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,7 @@ import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
+from esphome_device_builder.api import legacy
 from esphome_device_builder.api.legacy import create_legacy_routes
 from esphome_device_builder.controllers.config import DashboardSettings
 
@@ -635,10 +637,6 @@ async def test_spawn_ws_real_subprocess_streams_output(
     # Replace the esphome command with a Python one-liner that
     # prints two lines and exits 0. Using ``compile`` as the
     # command so the existing route mapping doesn't change.
-    import sys
-
-    from esphome_device_builder.api import legacy
-
     original_cmd = legacy._ESPHOME_CMD
     try:
         legacy._ESPHOME_CMD = [

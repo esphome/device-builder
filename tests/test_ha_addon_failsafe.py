@@ -17,6 +17,7 @@ These tests pin the three branches of the fail-secure logic:
 
 from __future__ import annotations
 
+import builtins
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -247,8 +248,6 @@ def test_get_frontend_dir_returns_none_when_package_missing(tmp_path: Path) -> N
 
     # Force an ImportError by clearing the module from sys.modules
     # and patching the import to raise.
-    import builtins
-
     real_import = builtins.__import__
 
     def fake_import(name: str, *args: object, **kwargs: object) -> object:

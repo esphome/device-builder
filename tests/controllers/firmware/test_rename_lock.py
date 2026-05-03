@@ -19,6 +19,8 @@ tests pin down the lock policy:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from esphome_device_builder.helpers.api import CommandError
@@ -151,8 +153,6 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
     should still go ahead for every other selected device. This is
     the regression guard for that.
     """
-    from unittest.mock import AsyncMock
-
     rename = _job(
         "rn1",
         "kitchen.yaml",

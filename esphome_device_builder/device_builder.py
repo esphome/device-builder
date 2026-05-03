@@ -465,8 +465,13 @@ class DeviceBuilder:
     @staticmethod
     def _get_frontend_dir() -> Path | None:
         """Return the path to the built frontend, or None if unavailable."""
+        # Optional companion wheel ``esphome-device-builder-frontend``
+        # ships the prebuilt assets. Keep the import lazy (the
+        # PLC0415 suppression below) so this method can be patched in
+        # tests via ``builtins.__import__`` without re-importing the
+        # module — see test_ha_addon_failsafe's ImportError coverage.
         try:
-            from esphome_device_builder_frontend import where  # type: ignore[import-not-found]
+            from esphome_device_builder_frontend import where  # noqa: PLC0415
 
             return Path(where())
         except ImportError:

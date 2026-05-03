@@ -30,6 +30,9 @@ from typing import Any
 
 import pytest
 
+import esphome_device_builder.controllers.firmware.controller as controller_module
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
@@ -196,9 +199,6 @@ async def test_download_validator_runs_before_ext_storage_path(
     both halves: the handler raises a ``CommandError``, and the
     autouse ``ext_storage_path`` redirect is never invoked.
     """
-    from esphome_device_builder.helpers.api import CommandError
-    from esphome_device_builder.models import ErrorCode
-
     invocations: list[str] = []
 
     def _spy(configuration: str) -> Path:
@@ -206,8 +206,6 @@ async def test_download_validator_runs_before_ext_storage_path(
         return tmp_path / ".esphome" / "storage" / f"{configuration}.json"
 
     # Replace the autouse redirect with our spy for this test.
-    import esphome_device_builder.controllers.firmware.controller as controller_module
-
     controller_module.ext_storage_path = _spy
 
     controller = firmware_controller_factory()

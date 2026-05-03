@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import esphome_device_builder
 from esphome_device_builder.helpers import subprocess as subprocess_helper
 
 
@@ -65,13 +67,7 @@ async def test_no_call_site_uses_asyncio_create_subprocess_exec_directly() -> No
     ``asyncio.create_subprocess_exec`` call (which would skip the
     ``close_fds=False`` optimisation) anywhere outside the helper itself.
     """
-    import esphome_device_builder
-
-    pkg_root = (
-        # Resolve the package's filesystem location without depending on
-        # ``__file__`` typing nuances under from __future__ annotations.
-        __import__("pathlib").Path(esphome_device_builder.__file__).parent
-    )
+    pkg_root = Path(esphome_device_builder.__file__).parent
     helper_path = pkg_root / "helpers" / "subprocess.py"
 
     offenders: list[str] = []

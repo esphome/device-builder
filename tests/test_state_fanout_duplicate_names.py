@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
+from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, DeviceState
 
@@ -181,8 +182,6 @@ def test_apply_state_repairs_stale_sibling_when_first_match_is_in_sync() -> None
     that ``apply()`` looks at *every* matching device's state and
     fires the callback when any one of them is stale.
     """
-    from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-
     primary = _device("kitchen.yaml")
     primary.state = DeviceState.ONLINE  # already in-sync
     sibling = _device("kitchen (1).yaml")  # state=UNKNOWN — was rebuilt

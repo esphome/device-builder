@@ -23,6 +23,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LINES_INFLIGHT
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
 
@@ -235,8 +236,6 @@ async def test_slow_follower_drops_lines_above_queue_cap() -> None:
     hold; the producer stays unblocked because ``put_nowait``
     drops on full instead of awaiting drain capacity.
     """
-    from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LINES_INFLIGHT
-
     job = FirmwareJob(
         job_id="abc",
         configuration="kitchen.yaml",
@@ -304,8 +303,6 @@ async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full() -> No
     output, reach cap, then a JOB_COMPLETED would silently
     no-op and the follower would hang.
     """
-    from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LINES_INFLIGHT
-
     job = FirmwareJob(
         job_id="abc",
         configuration="kitchen.yaml",

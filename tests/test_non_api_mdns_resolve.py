@@ -16,6 +16,7 @@ dashboard's ``async_refresh_hosts`` path
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -348,8 +349,6 @@ async def test_multiple_devices_resolve_in_parallel(monkeypatch: Any) -> None:
         pending += 1
         max_concurrent = max(max_concurrent, pending)
         try:
-            import asyncio
-
             await asyncio.sleep(0)  # let other coroutines start
             return ["10.0.0.1"]
         finally:
