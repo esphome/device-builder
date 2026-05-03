@@ -83,6 +83,20 @@ def test_normalize_host_falls_back_on_malformed() -> None:
     assert _normalize_host("WeirdInput") == "weirdinput"
 
 
+def test_normalize_host_falls_back_on_invalid_ipv6_url() -> None:
+    """An unclosed IPv6 bracket makes ``urlsplit`` raise — falls through to lowercase.
+
+    ``urlsplit("//[invalid")`` raises ``ValueError("Invalid IPv6
+    URL")`` rather than returning a parsed result. The
+    ``except ValueError`` branch sets ``hostname = None`` so the
+    function lands on the bottom fallback (lowercase input
+    verbatim). Without it a malformed ``Host`` header would 500
+    the WS handshake instead of falling through to the
+    allowlist's normal "doesn't match" rejection path.
+    """
+    assert _normalize_host("[invalid") == "[invalid"
+
+
 # ---------------------------------------------------------------------------
 # _host_in_allowlist
 # ---------------------------------------------------------------------------
@@ -197,6 +211,18 @@ def test_origin_in_allowlist_rejects_malformed() -> None:
     """Garbage Origin header -> reject."""
     # Empty hostname after parsing -> not a useful match candidate.
     assert _origin_in_allowlist("not-a-url", ["dashboard.example.com"]) is False
+
+
+def test_origin_in_allowlist_rejects_invalid_ipv6_url() -> None:
+    """An Origin with an unclosed IPv6 bracket makes ``urlparse`` raise.
+
+    ``urlparse("http://[invalid")`` raises ``ValueError("Invalid
+    IPv6 URL")`` rather than returning a parsed result. The
+    ``except ValueError`` branch turns that into a clean rejection
+    so the allowlist check returns ``False`` instead of 500-ing
+    the WS handshake on a malformed Origin header.
+    """
+    assert _origin_in_allowlist("http://[invalid", ["dashboard.example.com"]) is False
 
 
 # ---------------------------------------------------------------------------

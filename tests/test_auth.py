@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from esphome_device_builder.api.ws import _origin_matches_host
 from esphome_device_builder.controllers.auth import AuthController, AuthError
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.helpers.auth import (
@@ -323,24 +324,31 @@ def test_rate_limiter_prune_keeps_locked_out_ips() -> None:
 
 
 def test_origin_matches_host_accepts_same_origin() -> None:
-    from esphome_device_builder.api.ws import _origin_matches_host
-
     assert _origin_matches_host("http://homeassistant.local:6052", "homeassistant.local:6052")
     assert _origin_matches_host("https://esphome.example.com", "esphome.example.com")
 
 
 def test_origin_matches_host_rejects_cross_origin() -> None:
-    from esphome_device_builder.api.ws import _origin_matches_host
-
     assert not _origin_matches_host("https://attacker.com", "homeassistant.local:6052")
     assert not _origin_matches_host("http://homeassistant.local:9999", "homeassistant.local:6052")
 
 
 def test_origin_matches_host_rejects_garbage() -> None:
-    from esphome_device_builder.api.ws import _origin_matches_host
-
     assert not _origin_matches_host("", "homeassistant.local:6052")
     assert not _origin_matches_host("not-a-url", "homeassistant.local:6052")
+
+
+def test_origin_matches_host_rejects_invalid_ipv6_url() -> None:
+    """An Origin with an unclosed IPv6 bracket makes ``urlparse`` raise.
+
+    ``urlparse("http://[invalid")`` raises ``ValueError("Invalid
+    IPv6 URL")`` rather than returning a parsed result. The
+    ``except ValueError`` branch turns that into a clean rejection
+    — without it, the cross-origin gate would 500 on a malformed
+    Origin header instead of returning the 403 the rest of the
+    rejection branches produce.
+    """
+    assert not _origin_matches_host("http://[invalid", "homeassistant.local:6052")
 
 
 # ---------------------------------------------------------------------------
