@@ -103,7 +103,6 @@ async def test_persist_jobs_round_trips_through_load(
     await writer._persist_jobs()
 
     reader = firmware_controller_factory(with_queue=True)
-    reader._load_jobs = reader.__class__._load_jobs.__get__(reader)
     await reader._load_jobs()
 
     assert "j-1" in reader._jobs
@@ -142,7 +141,6 @@ async def test_load_jobs_requeues_queued(
     _seed_jobs_file(tmp_path, job)
 
     controller = firmware_controller_factory(with_queue=True)
-    controller._load_jobs = controller.__class__._load_jobs.__get__(controller)
 
     await controller._load_jobs()
 
@@ -168,7 +166,6 @@ async def test_load_jobs_marks_running_as_failed_with_reason(
     _seed_jobs_file(tmp_path, job)
 
     controller = firmware_controller_factory(with_queue=True)
-    controller._load_jobs = controller.__class__._load_jobs.__get__(controller)
 
     await controller._load_jobs()
 
@@ -201,7 +198,6 @@ async def test_load_jobs_preserves_terminal_history_without_requeueing(
     _seed_jobs_file(tmp_path, job)
 
     controller = firmware_controller_factory(with_queue=True)
-    controller._load_jobs = controller.__class__._load_jobs.__get__(controller)
 
     await controller._load_jobs()
 
@@ -225,7 +221,6 @@ async def test_load_jobs_handles_missing_jobs_key(
     (tmp_path / ".device-builder.json").write_text(json.dumps({"prefs": {}}))
 
     controller = firmware_controller_factory(with_queue=True)
-    controller._load_jobs = controller.__class__._load_jobs.__get__(controller)
 
     await controller._load_jobs()
 
@@ -258,7 +253,6 @@ async def test_load_jobs_skips_corrupt_entry_and_continues(
     (tmp_path / ".device-builder.json").write_text(json.dumps(payload))
 
     controller = firmware_controller_factory(with_queue=True)
-    controller._load_jobs = controller.__class__._load_jobs.__get__(controller)
 
     with caplog.at_level(logging.WARNING):
         await controller._load_jobs()
@@ -283,7 +277,6 @@ async def test_load_jobs_handles_missing_metadata_file(
     and ``_jobs`` stays empty. Nothing should raise.
     """
     controller = firmware_controller_factory(with_queue=True)
-    controller._load_jobs = controller.__class__._load_jobs.__get__(controller)
 
     await controller._load_jobs()
 
