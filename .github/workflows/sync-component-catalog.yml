@@ -155,11 +155,19 @@ jobs:
           old_types = count_types(old_components)
           new_types = count_types(new_components)
           all_types = sorted(set(old_types) | set(new_types))
+          old_total = sum(old_types.values())
+          new_total = sum(new_types.values())
 
+          # Headline includes the config-entry total so a refresh that
+          # leaves the component count stable but adds thousands of
+          # nested fields (e.g. a more complete MQTT_COMPONENT_SCHEMA
+          # bundle landing upstream) doesn't read as "no change".
           lines = [
               f"**Schema version**: `{new_data.get('esphome_schema_version', '?')}`  ",
               f"**Components**: {len(old_components)} → {len(new_components)} "
               f"({len(new_components) - len(old_components):+d})  ",
+              f"**Config entries**: {old_total} → {new_total} "
+              f"({new_total - old_total:+d})  ",
               f"**Added**: {len(added)} · **Removed**: {len(removed)}",
               "",
           ]
