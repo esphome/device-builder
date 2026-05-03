@@ -36,7 +36,6 @@ import pytest
 
 from esphome_device_builder.controllers.config import (
     ConfigController,
-    DashboardSettings,
     _load_metadata,
     _save_metadata,
     get_device_ip,
@@ -54,6 +53,8 @@ from esphome_device_builder.models.preferences import (
     Theme,
     UserPreferences,
 )
+
+from .conftest import MakeSettingsFactory
 
 
 def _make_controller(config_dir: Path) -> ConfigController:
@@ -347,7 +348,7 @@ async def test_get_secrets_returns_sorted_keys(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_info_rejects_path_traversal(tmp_path: Path) -> None:
+async def test_get_info_rejects_path_traversal(make_settings: MakeSettingsFactory) -> None:
     """Traversal-shaped configuration raises ``CommandError(INVALID_ARGS)``.
 
     Wires the controller to the real ``DashboardSettings.rel_path``
@@ -359,9 +360,7 @@ async def test_get_info_rejects_path_traversal(tmp_path: Path) -> None:
     yield. A regression in either side of the boundary breaks the
     test.
     """
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
+    settings = make_settings()
 
     controller = ConfigController.__new__(ConfigController)
     controller._db = MagicMock()
@@ -383,7 +382,9 @@ async def test_get_info_rejects_path_traversal(tmp_path: Path) -> None:
         "..",
     ],
 )
-def test_rel_path_translates_traversal_to_command_error(tmp_path: Path, payload: str) -> None:
+def test_rel_path_translates_traversal_to_command_error(
+    make_settings: MakeSettingsFactory, payload: str
+) -> None:
     """``rel_path`` raises ``CommandError(INVALID_ARGS)`` on every traversal shape.
 
     This is the chokepoint behind issue #107 — every WS handler that
@@ -393,9 +394,7 @@ def test_rel_path_translates_traversal_to_command_error(tmp_path: Path, payload:
     truncated + ``!r``-quoted so a pathological payload can't break
     the JSON error response.
     """
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
+    settings = make_settings()
 
     with pytest.raises(CommandError) as excinfo:
         settings.rel_path(payload)
@@ -403,15 +402,13 @@ def test_rel_path_translates_traversal_to_command_error(tmp_path: Path, payload:
     assert "Invalid configuration filename" in excinfo.value.message
 
 
-def test_rel_path_truncates_long_payload(tmp_path: Path) -> None:
+def test_rel_path_truncates_long_payload(make_settings: MakeSettingsFactory) -> None:
     """A multi-KB ``configuration`` payload is truncated in the error message.
 
     Keeps the JSON error response bounded so a pathological payload
     can't blow up the WS frame.
     """
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
+    settings = make_settings()
 
     payload = "../" + "A" * 5000
     with pytest.raises(CommandError) as excinfo:
@@ -420,7 +417,7 @@ def test_rel_path_truncates_long_payload(tmp_path: Path) -> None:
     assert len(excinfo.value.message) < 200
 
 
-def test_rel_path_bounds_control_byte_payload(tmp_path: Path) -> None:
+def test_rel_path_bounds_control_byte_payload(make_settings: MakeSettingsFactory) -> None:
     r"""Control-heavy payloads stay bounded after ``!r`` expansion.
 
     A single ``\x00`` repr's to 4 chars; a naive "truncate the raw
@@ -429,9 +426,7 @@ def test_rel_path_bounds_control_byte_payload(tmp_path: Path) -> None:
     unbounded-error hazard. ``!r`` runs *before* the bound, so a
     payload of 100 NUL bytes still produces a message ≤ 200 chars.
     """
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
+    settings = make_settings()
 
     payload = "../" + "\x00" * 100
     with pytest.raises(CommandError) as excinfo:

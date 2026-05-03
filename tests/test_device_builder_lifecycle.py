@@ -18,7 +18,6 @@ loads and the command-handler registration walk.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -32,9 +31,10 @@ from esphome_device_builder.controllers._device_state_monitor import (
 )
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
-from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.device_builder import DeviceBuilder
+
+from .conftest import MakeSettingsFactory
 
 
 @pytest.fixture
@@ -103,32 +103,12 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(CORE, "config_path", None)
 
 
-def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DashboardSettings:
-    """Build a ``DashboardSettings`` rooted at ``tmp_path``.
-
-    Matches the shape ``DeviceBuilder.__init__`` expects without
-    going through the CLI parser. ``CORE.config_path`` is patched
-    via ``monkeypatch`` because the production parser sets it as a
-    side effect (see ``DashboardSettings.parse_args``); without it
-    the catalog loaders crash on ``CORE.config_dir.is_dir`` when
-    ``CORE.config_path`` is still the package-default ``None``.
-    Routing through ``monkeypatch`` (instead of a bare assignment)
-    auto-restores the value after the test so sibling tests in the
-    same xdist worker don't see leaked state.
-    """
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
-    monkeypatch.setattr(CORE, "config_path", tmp_path / ".dashboard-sentinel")
-    return settings
-
-
 # ---------------------------------------------------------------------------
 # Pre-start state
 # ---------------------------------------------------------------------------
 
 
-def test_init_leaves_controllers_unset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_init_leaves_controllers_unset(make_settings: MakeSettingsFactory) -> None:
     """``DeviceBuilder()`` instantiates with controllers ``None`` until ``start()``.
 
     Pin the documented "controllers populated in start()" contract
@@ -137,7 +117,7 @@ def test_init_leaves_controllers_unset(tmp_path: Path, monkeypatch: pytest.Monke
     ``settings`` dependency wouldn't crash until first command
     instead of at construction time, which is a worse failure mode.
     """
-    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
+    db = DeviceBuilder(make_settings(with_core_path=True))
 
     assert db.auth is None
     assert db.boards is None
@@ -160,7 +140,7 @@ def test_init_leaves_controllers_unset(tmp_path: Path, monkeypatch: pytest.Monke
 
 @pytest.mark.asyncio
 async def test_start_initialises_all_controllers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _hermetic_lifecycle: None
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
     """``start()`` populates every controller attr.
 
@@ -171,7 +151,7 @@ async def test_start_initialises_all_controllers(
     ``NoneType``. Pin the full set so the regression class can't
     hide.
     """
-    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
+    db = DeviceBuilder(make_settings(with_core_path=True))
     try:
         await db.start()
 
@@ -190,7 +170,7 @@ async def test_start_initialises_all_controllers(
 
 @pytest.mark.asyncio
 async def test_start_registers_command_handlers_from_every_controller(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _hermetic_lifecycle: None
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
     """``command_handlers`` includes one entry per controller's @api_command set.
 
@@ -199,7 +179,7 @@ async def test_start_registers_command_handlers_from_every_controller(
     catch a refactor that dropped a controller from the
     ``collect_api_commands`` loop.
     """
-    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
+    db = DeviceBuilder(make_settings(with_core_path=True))
     try:
         await db.start()
 
@@ -224,7 +204,7 @@ async def test_start_registers_command_handlers_from_every_controller(
 
 @pytest.mark.asyncio
 async def test_start_spawns_background_polling_task(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _hermetic_lifecycle: None
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
     """``_bg_task`` is created and live after ``start``.
 
@@ -233,7 +213,7 @@ async def test_start_spawns_background_polling_task(
     misses; if ``start()`` ever forgot to spawn the task the
     dashboard would silently stop seeing scan changes.
     """
-    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
+    db = DeviceBuilder(make_settings(with_core_path=True))
     try:
         await db.start()
 
@@ -250,7 +230,7 @@ async def test_start_spawns_background_polling_task(
 
 @pytest.mark.asyncio
 async def test_stop_cancels_background_tasks_and_tears_down_controllers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _hermetic_lifecycle: None
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:
     """``stop()`` cancels the background task, drains tracked tasks, stops controllers.
 
@@ -259,7 +239,7 @@ async def test_stop_cancels_background_tasks_and_tears_down_controllers(
     exiting on SIGINT — exactly the class of bug a smoke test
     catches that a per-method test doesn't.
     """
-    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
+    db = DeviceBuilder(make_settings(with_core_path=True))
     await db.start()
     bg_task = db._bg_task
     assert bg_task is not None
@@ -293,7 +273,7 @@ async def test_stop_cancels_background_tasks_and_tears_down_controllers(
 
 
 @pytest.mark.asyncio
-async def test_stop_is_safe_without_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stop_is_safe_without_start(make_settings: MakeSettingsFactory) -> None:
     """``stop()`` on a never-started instance doesn't crash.
 
     Production calls ``stop()`` from the aiohttp ``on_shutdown``
@@ -302,7 +282,7 @@ async def test_stop_is_safe_without_start(tmp_path: Path, monkeypatch: pytest.Mo
     not None`` guards in ``stop()`` are what make that path
     survivable. Pin them.
     """
-    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
+    db = DeviceBuilder(make_settings(with_core_path=True))
 
     # Never called start(); controllers are still ``None``.
     await db.stop()
