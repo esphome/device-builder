@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -37,17 +37,19 @@ from esphome_device_builder.controllers.devices import DevicesController
 from .conftest import MakeControllerFactory
 
 
-def _stub_regenerate(controller: DevicesController) -> MagicMock:
-    """Replace ``_schedule_storage_regenerate`` with a sync MagicMock.
+def _stub_regenerate(controller: DevicesController) -> list[str]:
+    """Replace ``_schedule_storage_regenerate`` with a list-append closure.
 
     The production helper is fire-and-forget that internally schedules
-    a background task; a ``MagicMock`` records the call site without
-    dispatching the subprocess so tests can
-    ``assert_called_once_with(...)``.
+    a background task; capturing into a typed ``list[str]`` records
+    the call site without dispatching the subprocess. Tests assert on
+    the list directly (``regenerated == ["kitchen.yaml"]``) — no
+    ``MagicMock`` attribute to misspell on the assertion side, and a
+    typo'd reference to the helper name surfaces as ``NameError``.
     """
-    stub = MagicMock()
-    controller._schedule_storage_regenerate = stub  # type: ignore[method-assign]
-    return stub
+    regenerated: list[str] = []
+    controller._schedule_storage_regenerate = regenerated.append  # type: ignore[method-assign]
+    return regenerated
 
 
 # ---------------------------------------------------------------------------
@@ -215,13 +217,13 @@ async def test_update_config_schedules_storage_regenerate(
     regression class this prevents.
     """
     controller = make_controller(tmp_path)
-    _stub_regenerate(controller)
+    regenerated = _stub_regenerate(controller)
 
     await controller.update_config(
         configuration="kitchen.yaml", content="esphome:\n  name: kitchen\n"
     )
 
-    controller._schedule_storage_regenerate.assert_called_once_with("kitchen.yaml")
+    assert regenerated == ["kitchen.yaml"]
 
 
 @pytest.mark.asyncio

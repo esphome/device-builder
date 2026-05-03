@@ -198,8 +198,10 @@ def test_added_device_without_hash_triggers_regenerate(
     controller._db = MagicMock()
     controller._regenerate_failed = set()
     controller._state_monitor = RecordingStateMonitor()
-    schedule = MagicMock()
-    monkeypatch.setattr(controller, "_schedule_storage_regenerate", schedule, raising=False)
+    regenerated: list[str] = []
+    monkeypatch.setattr(
+        controller, "_schedule_storage_regenerate", regenerated.append, raising=False
+    )
     captured = capture_devices_events(controller, EventType.DEVICE_ADDED)
 
     device = Device(
@@ -211,7 +213,7 @@ def test_added_device_without_hash_triggers_regenerate(
     )
     controller._on_scan_change(ScanChange.ADDED, device)
 
-    schedule.assert_called_once_with("apollo-r-pro-1.yaml")
+    assert regenerated == ["apollo-r-pro-1.yaml"]
     # Sanity: the bus fire still happens — the trigger is additive,
     # not a replacement.
     assert [(e.event_type, e.data) for e in captured] == [
@@ -235,8 +237,10 @@ def test_added_device_fully_populated_does_not_regenerate(
     controller._db = MagicMock()
     controller._regenerate_failed = set()
     controller._state_monitor = MagicMock()
-    schedule = MagicMock()
-    monkeypatch.setattr(controller, "_schedule_storage_regenerate", schedule, raising=False)
+    regenerated: list[str] = []
+    monkeypatch.setattr(
+        controller, "_schedule_storage_regenerate", regenerated.append, raising=False
+    )
 
     device = Device(
         name="apollo",
@@ -247,7 +251,7 @@ def test_added_device_fully_populated_does_not_regenerate(
     )
     controller._on_scan_change(ScanChange.ADDED, device)
 
-    schedule.assert_not_called()
+    assert regenerated == []
 
 
 def test_board_id_from_sidecar_takes_priority_over_yaml(tmp_path: Path, monkeypatch: Any) -> None:
