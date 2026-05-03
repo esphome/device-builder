@@ -27,19 +27,7 @@ from esphome_device_builder.helpers.event_bus import (
 )
 from esphome_device_builder.models import EventType
 
-
-class _FakeClient:
-    """Minimal WebSocketClient stand-in for the subscribe_events handler."""
-
-    def __init__(self) -> None:
-        self.events: list[tuple[str, str, Any]] = []
-        self.results: list[tuple[str, Any]] = []
-
-    async def send_event(self, message_id: str, event: str, data: Any) -> None:
-        self.events.append((message_id, event, data))
-
-    async def send_result(self, message_id: str, result: Any) -> None:
-        self.results.append((message_id, result))
+from .conftest import FakeWebSocketClient
 
 
 def _make_db() -> DeviceBuilder:
@@ -64,7 +52,7 @@ async def test_subscribe_events_unsubscribes_on_cancellation() -> None:
     left every listener attached forever.
     """
     db = _make_db()
-    client = _FakeClient()
+    client = FakeWebSocketClient()
 
     handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
 
@@ -104,7 +92,7 @@ async def test_subscribe_events_listener_forwards_bus_events() -> None:
     detaches listeners without forwarding.
     """
     db = _make_db()
-    client = _FakeClient()
+    client = FakeWebSocketClient()
 
     handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
 
@@ -156,7 +144,7 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     class YieldingClient:
         """``send_event`` / ``send_result`` actually yield the loop.
 
-        The default ``_FakeClient`` returns synchronously, so the
+        The default ``FakeWebSocketClient`` returns synchronously, so the
         handler's ``send_initial`` would never yield and a fired
         event would arrive *after* parking — turning this from an
         ordering test into a "drain delivers what was fired"

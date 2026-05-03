@@ -16,8 +16,9 @@ regressions, not async hygiene.
 
 from __future__ import annotations
 
+import asyncio
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from blockbuster import blockbuster_ctx
@@ -120,3 +121,55 @@ def session_component_catalog(session_board_catalog: BoardCatalog) -> ComponentC
     container.components = ComponentCatalog(container)
     container.components.load()
     return container.components
+
+
+# ---------------------------------------------------------------------------
+# WebSocketClient stand-in
+#
+# Three test files (``test_subscribe_events_cleanup.py`` and the two
+# ``controllers/firmware/test_follow_job*_race.py`` files) had grown
+# near-identical ``_FakeClient`` shells that capture ``send_event`` /
+# ``send_result`` calls without standing up a real aiohttp WebSocket.
+# Centralising means the next handler-test that needs to record
+# streaming output gets a battle-tested stub for free.
+# ---------------------------------------------------------------------------
+
+
+class FakeWebSocketClient:
+    """Minimal ``WebSocketClient`` stand-in capturing send calls in order.
+
+    ``events`` records ``(message_id, event, data)`` tuples; ``results``
+    records ``(message_id, result)``. Tests inspect those lists directly
+    instead of poking at a real aiohttp WebSocket.
+
+    ``yield_per_event=True`` makes ``send_event`` ``await
+    asyncio.sleep(0)`` before recording. The firmware
+    ``follow_job`` race tests need it: without the yield, a tight
+    history-snapshot loop would drain in a single uninterrupted task
+    slice and the "fire JOB_OUTPUT mid-history" race-window the fix
+    targets would never be observable. Defaults to ``False`` because
+    most callers just want a passive recorder.
+    """
+
+    def __init__(self, *, yield_per_event: bool = False) -> None:
+        self.events: list[tuple[str, str, Any]] = []
+        self.results: list[tuple[str, Any]] = []
+        self._yield_per_event = yield_per_event
+
+    async def send_event(self, message_id: str, event: str, data: Any) -> None:
+        if self._yield_per_event:
+            await asyncio.sleep(0)
+        self.events.append((message_id, event, data))
+
+    async def send_result(self, message_id: str, result: Any) -> None:
+        self.results.append((message_id, result))
+
+    def events_for(self, name: str) -> list[Any]:
+        """Return the ``data`` payloads for every captured ``send_event(name, …)``.
+
+        Most assertions only care about the data attached to a
+        specific event ("show me every ``output`` line"); collapsing
+        the (message_id, event, data) tuple unpack into one helper
+        keeps the test bodies readable.
+        """
+        return [data for (_mid, event, data) in self.events if event == name]

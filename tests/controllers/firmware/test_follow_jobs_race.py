@@ -20,14 +20,7 @@ from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
 
-
-class _FakeClient:
-    def __init__(self) -> None:
-        self.events: list[tuple[str, Any]] = []
-
-    async def send_event(self, _message_id: str, event: str, data: Any) -> None:
-        await asyncio.sleep(0)
-        self.events.append((event, data))
+from ...conftest import FakeWebSocketClient
 
 
 def _make_controller(jobs: list[FirmwareJob]) -> FirmwareController:
@@ -63,7 +56,7 @@ async def test_follow_jobs_replays_snapshot_then_live_events_in_order() -> None:
         output=[],
     )
     controller = _make_controller([job_a, job_b])
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
     follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
@@ -86,23 +79,23 @@ async def test_follow_jobs_replays_snapshot_then_live_events_in_order() -> None:
     # Yield enough that the snapshot + the live event get drained.
     for _ in range(20):
         await asyncio.sleep(0)
-        if any(e == "job_queued" for (e, _d) in client.events):
+        if any(e == "job_queued" for (_mid, e, _d) in client.events):
             break
 
     follow_task.cancel()
     with suppress(asyncio.CancelledError):
         await follow_task
 
-    snapshot_events = [d for (e, d) in client.events if e == "snapshot"]
-    queued_events = [d for (e, d) in client.events if e == "job_queued"]
+    snapshot_events = client.events_for("snapshot")
+    queued_events = client.events_for("job_queued")
     # Both jobs are in the snapshot (sorted by created_at).
     assert {s["job_id"] for s in snapshot_events} == {"a", "b"}
     # The live JOB_QUEUED arrives after the snapshot.
     assert len(queued_events) == 1
     assert queued_events[0]["job_id"] == "c"
     # Strict ordering: every snapshot event precedes the live event.
-    snapshot_indices = [i for i, (e, _d) in enumerate(client.events) if e == "snapshot"]
-    queued_index = next(i for i, (e, _d) in enumerate(client.events) if e == "job_queued")
+    snapshot_indices = [i for i, (_mid, e, _d) in enumerate(client.events) if e == "snapshot"]
+    queued_index = next(i for i, (_mid, e, _d) in enumerate(client.events) if e == "job_queued")
     assert max(snapshot_indices) < queued_index
 
 
@@ -203,7 +196,7 @@ async def test_follow_jobs_unsubscribes_on_cancellation() -> None:
     """
     controller = _make_controller([])
     bus = controller._db.bus
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
 
     follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
     await asyncio.sleep(0)
