@@ -26,7 +26,10 @@ are exercised in their own dedicated tests.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -74,8 +77,9 @@ def test_init_threads_state_monitor_callbacks_to_controller_methods(
 # ---------------------------------------------------------------------------
 
 
-def _capture_inner_lifecycle(controller: DevicesController) -> list[str]:
-    """Replace the real start/stop/scan methods with stubs that record into a flat log.
+@contextmanager
+def _capture_inner_lifecycle(controller: DevicesController) -> Iterator[list[str]]:
+    """Patch the real start/stop/scan methods with stubs that record into a flat log.
 
     ``start()`` and ``stop()`` route through the scanner / state
     monitor / MQTT coordinator. Patching their lifecycle methods
@@ -83,7 +87,11 @@ def _capture_inner_lifecycle(controller: DevicesController) -> list[str]:
     contract; the inner controllers have their own dedicated test
     files.
 
-    Each stub appends a single label string to the returned list so
+    Context-manager shape so the originals restore on exit (success
+    *or* failure) — sibling tests in the same xdist worker don't
+    see leaked stubs on the shared inner-controller instances.
+
+    Each stub appends a single label string to the yielded list so
     tests assert on the call sequence in one comparison instead of
     scattering ``MagicMock.assert_awaited_once`` lines and a parent
     ``attach_mock`` ordering plumbing — same shape as
@@ -106,12 +114,14 @@ def _capture_inner_lifecycle(controller: DevicesController) -> list[str]:
     async def _mqtt_stop() -> None:
         log.append("mqtt.stop")
 
-    controller._scanner.scan = _scan  # type: ignore[method-assign]
-    controller._state_monitor.start = _state_monitor_start  # type: ignore[method-assign]
-    controller._state_monitor.stop = _state_monitor_stop  # type: ignore[method-assign]
-    controller._mqtt_coordinator.reconcile = _mqtt_reconcile  # type: ignore[method-assign]
-    controller._mqtt_coordinator.stop = _mqtt_stop  # type: ignore[method-assign]
-    return log
+    with (
+        patch.multiple(controller._scanner, scan=_scan),
+        patch.multiple(
+            controller._state_monitor, start=_state_monitor_start, stop=_state_monitor_stop
+        ),
+        patch.multiple(controller._mqtt_coordinator, reconcile=_mqtt_reconcile, stop=_mqtt_stop),
+    ):
+        yield log
 
 
 @pytest.mark.asyncio
@@ -140,8 +150,6 @@ async def test_start_runs_full_initialisation_chain(
     )
     db = make_db(tmp_path)
     controller = DevicesController(db)
-    log = _capture_inner_lifecycle(controller)
-
     # Seed an ignored-devices file so ``_load_ignored_devices`` has
     # something real to process — otherwise it's silently a no-op
     # and we wouldn't observe the executor-dispatch call shape.
@@ -153,7 +161,8 @@ async def test_start_runs_full_initialisation_chain(
         b'{"ignored_devices": ["already-ignored"]}',
     )
 
-    await controller.start()
+    with _capture_inner_lifecycle(controller) as log:
+        await controller.start()
 
     assert controller._esphome_cmd == ["python", "-m", "esphome"]
     assert controller.ignored_devices == {"already-ignored"}
@@ -179,7 +188,6 @@ async def test_stop_tears_down_monitors_and_unsubscribes(
     """``stop()`` unsubscribes the bus listener and stops both monitors."""
     db = make_db(tmp_path)
     controller = DevicesController(db)
-    log = _capture_inner_lifecycle(controller)
     # Pretend ``start()`` already ran and registered a listener.
     unsub_calls: list[bool] = []
 
@@ -188,7 +196,8 @@ async def test_stop_tears_down_monitors_and_unsubscribes(
 
     controller._unsub_job_completed = _unsub
 
-    await controller.stop()
+    with _capture_inner_lifecycle(controller) as log:
+        await controller.stop()
 
     assert unsub_calls == [True]
     assert controller._unsub_job_completed is None
@@ -207,11 +216,11 @@ async def test_stop_is_idempotent_without_started_listener(
     """
     db = make_db(tmp_path)
     controller = DevicesController(db)
-    log = _capture_inner_lifecycle(controller)
     # Never started; ``_unsub_job_completed`` is the ``__init__`` default.
     assert controller._unsub_job_completed is None
 
-    await controller.stop()
+    with _capture_inner_lifecycle(controller) as log:
+        await controller.stop()
 
     assert log == ["mqtt.stop", "state_monitor.stop"]
 
@@ -231,8 +240,8 @@ async def test_poll_rescans_and_reconciles_mqtt(tmp_path: Path, make_db: MakeDbF
     """
     db = make_db(tmp_path)
     controller = DevicesController(db)
-    log = _capture_inner_lifecycle(controller)
 
-    await controller.poll()
+    with _capture_inner_lifecycle(controller) as log:
+        await controller.poll()
 
     assert log == ["scan", "mqtt.reconcile"]
