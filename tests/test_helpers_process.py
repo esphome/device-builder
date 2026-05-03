@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import signal
 import sys
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
@@ -19,6 +20,76 @@ from esphome_device_builder.helpers.process import (
     kill_quietly,
     terminate_subtree_with_grace,
 )
+
+# Platform skipif markers — every signal-group test below is POSIX-only,
+# every taskkill test is Windows-only. Naming them once keeps the per-test
+# decorator a one-liner and the reason string in lockstep across the file.
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal-group path")
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Windows taskkill path")
+
+
+@dataclass
+class _FakeProc:
+    """
+    Minimal ``asyncio.subprocess.Process`` stand-in for these tests.
+
+    Only the attributes / methods ``terminate_subtree_with_grace``
+    and ``kill_quietly`` actually touch: ``pid``, ``returncode``,
+    ``kill()``, ``wait()``. ``kill()`` records the call count so a
+    test can assert "the fallback fired" without manual bookkeeping.
+    """
+
+    pid: int = 12345
+    returncode: int | None = None
+    kill_calls: int = 0
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+
+    async def wait(self) -> int:
+        # The real ``Process.wait`` blocks until exit and sets
+        # returncode; mirror that so callers checking
+        # ``proc.returncode is not None`` after the await behave
+        # the same.
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+
+@pytest.fixture
+def fake_proc() -> _FakeProc:
+    """Build a live stub-proc: ``pid`` set, ``returncode=None``, kill() counted."""
+    return _FakeProc()
+
+
+@dataclass
+class _FakeSignalGroup:
+    """Recorder + tunable return value for the patched ``_signal_process_group``.
+
+    Tests assert on ``calls`` to verify which signals were sent in
+    which order; setting ``return_value = False`` simulates the
+    "process group already gone" branch without a separate fixture.
+    """
+
+    calls: list[tuple[int, int]] = field(default_factory=list)
+    return_value: bool = True
+
+
+@pytest.fixture
+def fake_signal_group(monkeypatch: pytest.MonkeyPatch) -> _FakeSignalGroup:
+    """Patch ``_signal_process_group`` with a recorder; return the handle."""
+    fake = _FakeSignalGroup()
+
+    def _impl(pid: int, sig: int) -> bool:
+        fake.calls.append((pid, sig))
+        return fake.return_value
+
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.process._signal_process_group",
+        _impl,
+    )
+    return fake
+
 
 # ---------------------------------------------------------------------------
 # kill_quietly
@@ -41,19 +112,10 @@ def test_kill_quietly_swallows_process_lookup_error() -> None:
     kill_quietly(_DeadProc())  # type: ignore[arg-type]
 
 
-def test_kill_quietly_calls_kill_when_alive() -> None:
+def test_kill_quietly_calls_kill_when_alive(fake_proc: _FakeProc) -> None:
     """A live proc gets ``proc.kill()`` invoked exactly once."""
-
-    class _LiveProc:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def kill(self) -> None:
-            self.calls += 1
-
-    proc = _LiveProc()
-    kill_quietly(proc)  # type: ignore[arg-type]
-    assert proc.calls == 1
+    kill_quietly(fake_proc)  # type: ignore[arg-type]
+    assert fake_proc.kill_calls == 1
 
 
 # ---------------------------------------------------------------------------
@@ -62,23 +124,20 @@ def test_kill_quietly_calls_kill_when_alive() -> None:
 
 
 @pytest.mark.asyncio
-async def test_terminate_subtree_with_grace_no_op_on_already_exited() -> None:
+async def test_terminate_subtree_with_grace_no_op_on_already_exited(
+    fake_proc: _FakeProc,
+) -> None:
     """Already-exited proc returns immediately without trying to signal."""
-
-    class _ExitedProc:
-        returncode = 0
-        pid = 99999
-
-        def kill(self) -> None:  # pragma: no cover — must not be called
-            raise AssertionError("kill() reached on an already-exited proc")
-
-    await terminate_subtree_with_grace(_ExitedProc())  # type: ignore[arg-type]
+    fake_proc.returncode = 0
+    await terminate_subtree_with_grace(fake_proc)  # type: ignore[arg-type]
+    assert fake_proc.kill_calls == 0
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal-group path")
+@posix_only
 @pytest.mark.asyncio
 async def test_terminate_subtree_with_grace_sigterm_then_exit_no_kill(
-    monkeypatch: pytest.MonkeyPatch,
+    fake_proc: _FakeProc,
+    fake_signal_group: _FakeSignalGroup,
 ) -> None:
     """SIGTERM is sent; child exits within grace → no SIGKILL escalation.
 
@@ -88,34 +147,17 @@ async def test_terminate_subtree_with_grace_sigterm_then_exit_no_kill(
     raise (or skipped the wait entirely) would land in the
     SIGKILL branch and assert here.
     """
-    sent: list[tuple[int, int]] = []
+    await terminate_subtree_with_grace(fake_proc)  # type: ignore[arg-type]
 
-    def _fake_signal(pid: int, sig: int) -> bool:
-        sent.append((pid, sig))
-        return True
-
-    monkeypatch.setattr(
-        "esphome_device_builder.helpers.process._signal_process_group",
-        _fake_signal,
-    )
-
-    class _ExitsCleanly:
-        returncode = None
-        pid = 12345
-
-        async def wait(self) -> int:
-            self.returncode = 0
-            return 0
-
-    await terminate_subtree_with_grace(_ExitsCleanly())  # type: ignore[arg-type]
-
-    assert sent == [(12345, signal.SIGTERM)]
+    assert fake_signal_group.calls == [(fake_proc.pid, signal.SIGTERM)]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal-group path")
+@posix_only
 @pytest.mark.asyncio
 async def test_terminate_subtree_with_grace_escalates_to_sigkill_on_timeout(
     monkeypatch: pytest.MonkeyPatch,
+    fake_proc: _FakeProc,
+    fake_signal_group: _FakeSignalGroup,
 ) -> None:
     """SIGTERM ignored past grace → SIGKILL fires.
 
@@ -124,18 +166,13 @@ async def test_terminate_subtree_with_grace_escalates_to_sigkill_on_timeout(
     SIGKILL branch ever drops, the runner loop hangs waiting for
     a process that won't exit and the queue gets wedged.
     """
-    sent: list[tuple[int, int]] = []
 
-    def _fake_signal(pid: int, sig: int) -> bool:
-        sent.append((pid, sig))
-        return True
-
-    monkeypatch.setattr(
-        "esphome_device_builder.helpers.process._signal_process_group",
-        _fake_signal,
-    )
-
-    async def _raise_timeout(*_args: Any, **_kwargs: Any) -> None:
+    async def _raise_timeout(awaitable: Any, *_args: Any, **_kwargs: Any) -> None:
+        # Close the awaitable so a "coroutine was never awaited"
+        # RuntimeWarning doesn't fire when GC reaps the unstarted
+        # ``proc.wait()`` coroutine the helper passed in.
+        if hasattr(awaitable, "close"):
+            awaitable.close()
         raise TimeoutError
 
     monkeypatch.setattr(
@@ -143,41 +180,32 @@ async def test_terminate_subtree_with_grace_escalates_to_sigkill_on_timeout(
         _raise_timeout,
     )
 
-    class _StubProc:
-        returncode = None
-        pid = 12345
-
-        async def wait(self) -> int:  # pragma: no cover — wait_for short-circuits
-            return 0
-
     await terminate_subtree_with_grace(
-        _StubProc(),  # type: ignore[arg-type]
+        fake_proc,  # type: ignore[arg-type]
         grace_seconds=0.01,
         job_label="job test-1",
     )
 
-    assert sent == [(12345, signal.SIGTERM), (12345, signal.SIGKILL)]
+    assert fake_signal_group.calls == [
+        (fake_proc.pid, signal.SIGTERM),
+        (fake_proc.pid, signal.SIGKILL),
+    ]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal-group path")
+@posix_only
 @pytest.mark.asyncio
 async def test_terminate_subtree_with_grace_returns_when_sigterm_undelivered(
     monkeypatch: pytest.MonkeyPatch,
+    fake_proc: _FakeProc,
+    fake_signal_group: _FakeSignalGroup,
 ) -> None:
     """``_signal_process_group`` returning False (proc gone) short-circuits.
 
     No point waiting for a grace window or escalating to SIGKILL
     if the SIGTERM never landed — the pid is already gone.
     """
+    fake_signal_group.return_value = False
     waited = False
-
-    def _fake_signal(_pid: int, _sig: int) -> bool:
-        return False
-
-    monkeypatch.setattr(
-        "esphome_device_builder.helpers.process._signal_process_group",
-        _fake_signal,
-    )
 
     async def _record_wait_for(*_args: Any, **_kwargs: Any) -> None:  # pragma: no cover
         nonlocal waited
@@ -188,22 +216,16 @@ async def test_terminate_subtree_with_grace_returns_when_sigterm_undelivered(
         _record_wait_for,
     )
 
-    class _StubProc:
-        returncode = None
-        pid = 12345
-
-        async def wait(self) -> int:  # pragma: no cover
-            return 0
-
-    await terminate_subtree_with_grace(_StubProc())  # type: ignore[arg-type]
+    await terminate_subtree_with_grace(fake_proc)  # type: ignore[arg-type]
 
     assert waited is False
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows taskkill path")
+@windows_only
 @pytest.mark.asyncio
 async def test_terminate_subtree_with_grace_falls_back_to_proc_kill_on_taskkill_failure(
     monkeypatch: pytest.MonkeyPatch,
+    fake_proc: _FakeProc,
 ) -> None:
     """Windows: taskkill returning False triggers the ``proc.kill()`` fallback.
 
@@ -222,15 +244,6 @@ async def test_terminate_subtree_with_grace_falls_back_to_proc_kill_on_taskkill_
         _fake_terminate_subtree,
     )
 
-    class _StubProc:
-        returncode = None
-        pid = 12345
-        kill_calls = 0
+    await terminate_subtree_with_grace(fake_proc)  # type: ignore[arg-type]
 
-        def kill(self) -> None:
-            self.kill_calls += 1
-
-    proc = _StubProc()
-    await terminate_subtree_with_grace(proc)  # type: ignore[arg-type]
-
-    assert proc.kill_calls == 1
+    assert fake_proc.kill_calls == 1
