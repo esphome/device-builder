@@ -23,7 +23,7 @@ The handler routes by job status:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -122,27 +122,27 @@ async def test_cancel_queued_job_prunes_history_before_persisting(
     sequence could spike disk size between calls. ``_persist_jobs``
     is the executor-wrapped writer.
 
-    Pin the order with a parent ``MagicMock`` whose two attribute
-    children both land on the same ``method_calls`` log; asserting
-    the prune index < persist index catches a refactor that
-    swapped them — the swap would persist stale (pre-prune) state
-    and lose the cap on the very next read.
+    Pin the order with a flat append-only log shared between the
+    two stubs — same idea as ``capture_enqueue_order``. A swap of
+    the two calls would change the log's element order and break
+    the equality assertion below.
     """
     job = _job("j-q", status=JobStatus.QUEUED)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
+    order: list[str] = []
 
-    parent = MagicMock()
-    parent.prune_history = MagicMock()
-    parent.persist_jobs = AsyncMock()
-    controller._prune_history = parent.prune_history
-    controller._persist_jobs = parent.persist_jobs
+    def _prune() -> None:
+        order.append("prune")
+
+    async def _persist() -> None:
+        order.append("persist")
+
+    controller._prune_history = _prune  # type: ignore[method-assign]
+    controller._persist_jobs = _persist  # type: ignore[method-assign]
 
     await controller.cancel(job_id="j-q")
 
-    method_names = [name for name, _, _ in parent.method_calls]
-    prune_idx = method_names.index("prune_history")
-    persist_idx = method_names.index("persist_jobs")
-    assert prune_idx < persist_idx
+    assert order == ["prune", "persist"]
 
 
 @pytest.mark.asyncio
