@@ -416,6 +416,8 @@ def make_state_monitor_with_callbacks(
         get_devices=lambda: devices,
         on_state_change=callbacks.on_state_change,
         on_ip_change=callbacks.on_ip_change,
+        on_importable_added=callbacks.on_importable_added,
+        on_importable_removed=callbacks.on_importable_removed,
         on_version_change=callbacks.on_version_change,
         on_config_hash_change=callbacks.on_config_hash_change,
         on_api_encryption_change=callbacks.on_api_encryption_change,

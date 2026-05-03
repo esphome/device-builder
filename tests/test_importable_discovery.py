@@ -9,13 +9,12 @@ filter, and the ignore flag.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 from esphome.zeroconf import DashboardImportDiscovery, DiscoveredImport
 from zeroconf.asyncio import AsyncServiceInfo
 
-from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.models import AdoptableDevice, Device, DeviceState
+
+from .conftest import make_state_monitor_with_callbacks
 
 
 def _device(name: str) -> Device:
@@ -39,18 +38,22 @@ def _discovered(device_name: str = "kitchen-1a2b3c") -> DiscoveredImport:
     )
 
 
+def _added(callbacks) -> list[AdoptableDevice]:
+    """Pull every ``AdoptableDevice`` argument the recorder saw on importable_added."""
+    return [call[1] for call in callbacks.calls if call[0] == "on_importable_added"]
+
+
+def _removed(callbacks) -> list[str]:
+    """Pull every name argument the recorder saw on importable_removed."""
+    return [call[1] for call in callbacks.calls if call[0] == "on_importable_removed"]
+
+
 def test_on_import_update_translates_to_adoptable_device() -> None:
-    added: list[AdoptableDevice] = []
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])
 
     monitor._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", _discovered())
 
-    assert added == [
+    assert _added(callbacks) == [
         AdoptableDevice(
             name="kitchen-1a2b3c",
             friendly_name="Kitchen",
@@ -64,60 +67,37 @@ def test_on_import_update_translates_to_adoptable_device() -> None:
 
 
 def test_on_import_update_emits_removed_with_device_name() -> None:
-    removed: list[str] = []
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_removed=removed.append,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])
 
     monitor._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", None)
 
     # The mDNS service name is sliced down to the device-name label so
     # the dashboard can index ``import_result`` by ``device.name``.
-    assert removed == ["kitchen-1a2b3c"]
+    assert _removed(callbacks) == ["kitchen-1a2b3c"]
 
 
 def test_on_import_update_skips_already_configured_devices() -> None:
     """Configured devices never surface as importable."""
-    added: list[AdoptableDevice] = []
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [_device("kitchen-1a2b3c")],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([_device("kitchen-1a2b3c")])
 
     monitor._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", _discovered())
-    assert added == []
+    assert _added(callbacks) == []
 
 
 def test_on_import_update_threads_ignored_flag() -> None:
     """The ignored set drives the ``ignored`` flag on the AdoptableDevice."""
-    added: list[AdoptableDevice] = []
     ignored = {"kitchen-1a2b3c"}
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-        is_ignored=ignored.__contains__,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])
+    monitor._is_ignored = ignored.__contains__
 
     monitor._on_import_update("kitchen-1a2b3c._esphomelib._tcp.local.", _discovered())
+    added = _added(callbacks)
     assert len(added) == 1 and added[0].ignored is True
 
 
 def test_on_import_update_friendly_name_none_becomes_empty_string() -> None:
     """``DiscoveredImport.friendly_name`` is Optional; AdoptableDevice expects str."""
-    added: list[AdoptableDevice] = []
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])
 
     discovered = DiscoveredImport(
         friendly_name=None,
@@ -129,20 +109,14 @@ def test_on_import_update_friendly_name_none_becomes_empty_string() -> None:
     )
     monitor._on_import_update("kitchen._esphomelib._tcp.local.", discovered)
 
-    assert added[0].friendly_name == ""
+    assert _added(callbacks)[0].friendly_name == ""
 
 
 def test_get_importable_devices_filters_configured() -> None:
     """``get_importable_devices`` rebuilds the snapshot, dropping configured."""
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [_device("garage")],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        is_ignored=lambda _: False,
-    )
+    monitor, _callbacks = make_state_monitor_with_callbacks([_device("garage")])
     # Stand in for a started DashboardImportDiscovery — populate its
     # ``import_state`` directly so we don't have to spin up zeroconf.
-
     monitor._import_discovery = DashboardImportDiscovery()
     monitor._import_discovery.import_state = {
         "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
@@ -157,11 +131,7 @@ def test_get_importable_devices_filters_configured() -> None:
 
 def test_get_importable_devices_returns_empty_before_browser_start() -> None:
     """Without a started browser the snapshot is just empty (no crash)."""
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-    )
+    monitor, _callbacks = make_state_monitor_with_callbacks([])
     assert monitor.get_importable_devices() == []
 
 
@@ -173,13 +143,7 @@ def test_revisit_importable_refires_added_when_cached() -> None:
     was hiding a discovered entry gets removed, no fresh announcement
     fires; we have to nudge the cache ourselves.
     """
-    added: list[AdoptableDevice] = []
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],  # device just got deleted
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])  # device just got deleted
     monitor._import_discovery = DashboardImportDiscovery()
     monitor._import_discovery.import_state = {
         "kitchen-1a2b3c._esphomelib._tcp.local.": _discovered("kitchen-1a2b3c"),
@@ -187,34 +151,25 @@ def test_revisit_importable_refires_added_when_cached() -> None:
 
     monitor.revisit_importable("kitchen-1a2b3c")
 
+    added = _added(callbacks)
     assert len(added) == 1
     assert added[0].name == "kitchen-1a2b3c"
 
 
 def test_revisit_importable_noop_for_unknown_name() -> None:
     """No cached entry → no callback fires (and no crash)."""
-    added: list[AdoptableDevice] = []
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])
     monitor._import_discovery = DashboardImportDiscovery()
     monitor._import_discovery.import_state = {}
 
     monitor.revisit_importable("unknown")
 
-    assert added == []
+    assert _added(callbacks) == []
 
 
 def test_revisit_importable_noop_when_browser_not_started() -> None:
     """No browser → silent skip (no crash on the optional attr)."""
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-    )
+    monitor, _callbacks = make_state_monitor_with_callbacks([])
     monitor.revisit_importable("kitchen")  # must not raise
 
 
@@ -226,13 +181,7 @@ def test_apply_http_service_info_populates_web_url_and_refires() -> None:
     we store the URL and re-fire ADDED so the frontend updates the
     card's Visit-web-UI link in place.
     """
-    added: list[AdoptableDevice] = []
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])
     monitor._import_discovery = DashboardImportDiscovery()
     monitor._import_discovery.import_state = {
         "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
@@ -245,19 +194,14 @@ def test_apply_http_service_info_populates_web_url_and_refires() -> None:
     monitor._apply_http_service_info("kitchen", info)
 
     assert monitor._http_urls == {"kitchen": "http://kitchen.local"}
+    added = _added(callbacks)
     assert len(added) == 1
     assert added[0].web_url == "http://kitchen.local"
 
 
 def test_apply_http_service_info_includes_non_default_port() -> None:
     """Non-port-80 services build URLs with the explicit ``:port`` suffix."""
-    added: list[AdoptableDevice] = []
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])
     monitor._import_discovery = DashboardImportDiscovery()
     monitor._import_discovery.import_state = {
         "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
@@ -268,18 +212,12 @@ def test_apply_http_service_info_includes_non_default_port() -> None:
     info.port = 8080
 
     monitor._apply_http_service_info("kitchen", info)
-    assert added[0].web_url == "http://kitchen.local:8080"
+    assert _added(callbacks)[0].web_url == "http://kitchen.local:8080"
 
 
 def test_apply_http_service_info_skips_when_unchanged() -> None:
     """Repeat announcements for the same URL don't re-fire ADDED."""
-    added: list[AdoptableDevice] = []
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])
     monitor._import_discovery = DashboardImportDiscovery()
     monitor._import_discovery.import_state = {
         "kitchen._esphomelib._tcp.local.": _discovered("kitchen"),
@@ -293,7 +231,7 @@ def test_apply_http_service_info_skips_when_unchanged() -> None:
     monitor._apply_http_service_info("kitchen", info)
 
     # Single fire — duplicate calls are deduped by URL equality.
-    assert len(added) == 1
+    assert len(_added(callbacks)) == 1
 
 
 def test_revisit_importable_skips_ignored_devices() -> None:
@@ -303,15 +241,9 @@ def test_revisit_importable_skips_ignored_devices() -> None:
     shouldn't unilaterally bring it back into the banner. They can
     unignore through the menu if they change their mind.
     """
-    added: list[AdoptableDevice] = []
     ignored = {"kitchen-1a2b3c"}
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_importable_added=added.append,
-        is_ignored=ignored.__contains__,
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])
+    monitor._is_ignored = ignored.__contains__
     monitor._import_discovery = DashboardImportDiscovery()
     monitor._import_discovery.import_state = {
         "kitchen-1a2b3c._esphomelib._tcp.local.": _discovered("kitchen-1a2b3c"),
@@ -319,4 +251,4 @@ def test_revisit_importable_skips_ignored_devices() -> None:
 
     monitor.revisit_importable("kitchen-1a2b3c")
 
-    assert added == []
+    assert _added(callbacks) == []
