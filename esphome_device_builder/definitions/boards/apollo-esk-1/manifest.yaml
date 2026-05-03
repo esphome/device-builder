@@ -51,6 +51,12 @@ pins:
   features:
   - adc
   available: true
+- gpio: 3
+  label: GPIO3
+  features:
+  - adc
+  available: true
+  notes: Available on FPC connector
 - gpio: 5
   label: RGB_LED
   features:
@@ -58,8 +64,20 @@ pins:
   available: false
   occupied_by: Onboard WS2812 RGB LED
   notes: WS2812 addressable LED, active by default
-- gpio: 4
-  label: GPIO4
+- gpio: 6
+  label: GPIO6
+  features:
+  - adc
+  available: true
+  notes: Available on FPC connector
+- gpio: 7
+  label: GPIO7
+  features:
+  - adc
+  available: true
+  notes: Available on FPC connector
+- gpio: 14
+  label: GPIO14
   features:
   - adc
   available: true
