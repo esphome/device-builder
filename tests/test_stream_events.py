@@ -387,3 +387,99 @@ async def test_push_or_terminate_does_not_raise_when_queue_has_room() -> None:
 
     await asyncio.wait_for(task, timeout=1.0)
     assert received == [("device_updated", 0), ("device_updated", 1)]
+
+
+async def test_force_enqueue_returns_when_get_nowait_finds_empty_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The defensive ``QueueEmpty`` bail in ``_force_enqueue`` returns cleanly.
+
+    ``_force_enqueue`` evicts the oldest item to make room for a
+    must-land sentinel (terminal result, ``end()`` sentinel, the
+    ``terminate`` marker). The eviction loop is::
+
+        while True:
+            try:
+                queue.put_nowait(item)
+                return
+            except asyncio.QueueFull:
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    # Defensive: shouldn't happen given the
+                    # synchronous listener path, but bail rather
+                    # than spin if it does.
+                    return
+
+    In production this branch is unreachable — the queue can't be
+    both full (``put_nowait`` raises ``QueueFull``) and empty
+    (``get_nowait`` raises ``QueueEmpty``) at the same instant
+    because the listener path is synchronous. But the defensive
+    guard exists to prevent an infinite loop if a future refactor
+    (or a peer task on the same loop) ever creates that race.
+
+    Drives the branch by patching ``asyncio.Queue`` in the
+    ``event_bus`` module to a stub that always raises
+    ``QueueFull`` on ``put_nowait`` and ``QueueEmpty`` on
+    ``get_nowait``. The stub's ``get()`` (the awaitable form
+    used by the drain loop) returns the ``None`` sentinel so
+    the drain returns cleanly — without that the test would
+    hang because no terminal item ever lands.
+
+    Pin the contract: ``controls.end()`` (which calls
+    ``_force_enqueue(None)``) returns instead of spinning, the
+    drain finds its sentinel, and ``stream_events`` exits.
+    """
+    from esphome_device_builder.helpers import event_bus
+
+    class _ForeverFullEverEmptyQueue:
+        """Always raises QueueFull on put + QueueEmpty on get_nowait.
+
+        ``await get()`` returns ``None`` so the drain loop's
+        ``while True: item = await queue.get(); if item is None:
+        return`` exits cleanly — otherwise the test would hang
+        waiting for a sentinel that ``put_nowait`` never accepted.
+        """
+
+        def __init__(self, maxsize: int = 0) -> None:
+            pass
+
+        def put_nowait(self, _item: Any) -> None:
+            raise asyncio.QueueFull
+
+        def get_nowait(self) -> Any:
+            raise asyncio.QueueEmpty
+
+        async def get(self) -> Any:
+            return None
+
+    monkeypatch.setattr(event_bus.asyncio, "Queue", _ForeverFullEverEmptyQueue)
+
+    bus = EventBus()
+
+    async def _send_initial(controls: StreamControls) -> None:
+        # ``end()`` invokes ``_force_enqueue(None)``; with the
+        # stub queue, put_nowait raises QueueFull, get_nowait
+        # raises QueueEmpty, and the defensive branch returns.
+        # The test is the absence of an infinite loop here —
+        # ``asyncio.wait_for`` enforces that with a timeout.
+        controls.end()
+
+    def _handle_event(_event: Event, _controls: StreamControls) -> None:
+        pass
+
+    # If the defensive bail were missing, ``_force_enqueue`` would
+    # spin forever and ``wait_for`` would time out. The 2s window
+    # is generous enough for any realistic scheduler hiccup
+    # without giving a regression a place to hide.
+    await asyncio.wait_for(
+        stream_events(
+            client=_FakeClient(),
+            message_id="m1",
+            bus=bus,
+            event_types=[EventType.DEVICE_UPDATED],
+            handle_event=_handle_event,
+            send_initial=_send_initial,
+        ),
+        timeout=2.0,
+    )
