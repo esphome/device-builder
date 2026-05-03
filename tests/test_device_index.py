@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from esphome_device_builder.controllers._device_scanner import _DeviceIndex
 from esphome_device_builder.models import Device
 
@@ -249,3 +251,72 @@ def test_rebuild_in_path_order_drops_paths_no_longer_present() -> None:
 
     assert list(index.by_path.keys()) == [a, b]
     assert index.cache_key(c) is None
+
+
+# ---------------------------------------------------------------------------
+# by_path read-only view contract
+# ---------------------------------------------------------------------------
+
+
+def test_by_path_view_rejects_mutation() -> None:
+    """``by_path`` is a ``MappingProxyType`` — direct mutation raises.
+
+    Returning the underlying ``dict`` would let a careless caller
+    bypass the lockstep mutation API by writing to the path index
+    directly (which would leave the name buckets / cache keys
+    stale). Pin that the view physically rejects mutation so a
+    refactor that handed back the bare dict surfaces here.
+    """
+    index = _DeviceIndex()
+    path = Path("/cfg/kitchen.yaml")
+    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0))
+
+    by_path = index.by_path
+    with pytest.raises(TypeError):
+        by_path[Path("/cfg/ghost.yaml")] = _device("ghost", "ghost.yaml")  # type: ignore[index]
+    with pytest.raises(TypeError):
+        del by_path[path]  # type: ignore[attr-defined]
+
+
+def test_by_path_view_reflects_subsequent_mutations() -> None:
+    """The proxy is *live* — additions / removals show up immediately.
+
+    A caller that captures ``by_path`` once and re-reads later
+    expects to see the current state, not a frozen snapshot.
+    Pin both add and remove flows.
+    """
+    index = _DeviceIndex()
+    by_path = index.by_path
+    assert dict(by_path) == {}
+
+    path = Path("/cfg/kitchen.yaml")
+    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0))
+    assert path in by_path
+    assert by_path[path].name == "kitchen"
+
+    index.pop(path)
+    assert path not in by_path
+
+
+def test_by_path_reflects_rebuild_path_order() -> None:
+    """A fresh ``by_path`` read after ``rebuild_in_path_order`` reflects the new order.
+
+    ``rebuild_in_path_order`` rebinds ``_devices`` to a freshly
+    re-keyed dict; the ``by_path`` property creates a new
+    ``MappingProxyType`` wrapping the current dict on each call,
+    so a post-rebuild read sees the new iteration order. (A
+    proxy *captured* before the rebuild would point at the
+    discarded dict — callers shouldn't cache the view across
+    rebuilds.)
+    """
+    index = _DeviceIndex()
+    paths = [Path(f"/cfg/{n}.yaml") for n in ("zebra", "alpha")]
+    for p in paths:
+        index.set(p, _device(p.stem, p.name), (0, 0, 0.0, 0))
+
+    index.rebuild_in_path_order(sorted(paths))
+
+    # Fresh read sees the new order.
+    assert list(index.by_path.keys()) == sorted(paths)
+    # And ``devices`` (also a fresh snapshot off the same dict) agrees.
+    assert [d.name for d in index.devices] == ["alpha", "zebra"]
