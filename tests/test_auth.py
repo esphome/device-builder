@@ -189,6 +189,48 @@ async def test_session_store_load_handles_top_level_garbage(tmp_path: Path) -> N
     assert store.active_count == 0
 
 
+async def test_session_store_load_handles_corrupt_json(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A truncated / non-JSON sessions file logs a warning and starts fresh.
+
+    Disk-level corruption (interrupted write, accidental edit) shouldn't
+    take the dashboard out — the store should warn and continue with no
+    sessions, the same shape as a missing file.
+    """
+    persisted = tmp_path / ".device-builder-sessions.json"
+    persisted.write_text("{not-valid-json", encoding="utf-8")
+
+    with caplog.at_level("WARNING", logger="esphome_device_builder.helpers.auth"):
+        store = SessionStore(tmp_path)
+
+    assert store.active_count == 0
+    assert any("corrupt" in rec.message.lower() for rec in caplog.records)
+
+
+async def test_session_store_load_handles_unreadable_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-FileNotFoundError ``OSError`` on read is logged and skipped.
+
+    Replacing the sessions file with a directory makes ``read_bytes``
+    raise ``IsADirectoryError`` — a concrete ``OSError`` subclass that
+    isn't ``FileNotFoundError``. The store must catch it, log, and
+    start with no sessions instead of crashing the auth controller.
+    """
+    persisted = tmp_path / ".device-builder-sessions.json"
+    # Directory at the sessions path — ``read_bytes`` raises
+    # ``IsADirectoryError`` (subclass of ``OSError``), exercising the
+    # generic ``except OSError`` arm distinct from the missing-file path.
+    persisted.mkdir()
+
+    with caplog.at_level("WARNING", logger="esphome_device_builder.helpers.auth"):
+        store = SessionStore(tmp_path)
+
+    assert store.active_count == 0
+    assert any("could not read sessions file" in rec.message.lower() for rec in caplog.records)
+
+
 async def test_session_store_validate_debounces_persist(tmp_path: Path) -> None:
     """Validate doesn't rewrite the file on every refresh — only when expiry advances enough."""
     store = SessionStore(tmp_path, ttl_seconds=24 * 3600)
