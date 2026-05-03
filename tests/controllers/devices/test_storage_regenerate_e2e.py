@@ -86,10 +86,18 @@ def _make_controller(tmp_path: Path) -> DevicesController:
 
 
 async def _drain(controller: DevicesController) -> None:
-    """Wait for every background task ``_schedule_storage_regenerate`` queued."""
+    """Wait for every background task ``_schedule_storage_regenerate`` queued.
+
+    Drops ``return_exceptions=True`` so an unexpected crash inside the
+    regenerate coroutine fails the test instead of silently masking
+    as ``None`` in the gather result. Production swallows the error
+    branches in its own ``try/except`` (and asserts on
+    ``_regenerate_failed``); anything reaching the gather here is a
+    bug we want surfaced.
+    """
     pending: list[asyncio.Task] = controller._spawned_tasks  # type: ignore[attr-defined]
     if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
+        await asyncio.gather(*pending)
         pending.clear()
 
 
@@ -124,7 +132,7 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     )
     persist_calls: list[str] = []
 
-    async def _fake_persist(self: Any, configuration: str) -> None:
+    async def _fake_persist(_self: Any, configuration: str) -> None:
         persist_calls.append(configuration)
 
     monkeypatch.setattr(DevicesController, "_persist_expected_config_hash", _fake_persist)
@@ -230,7 +238,7 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     )
     persist_calls: list[str] = []
 
-    async def _fake_persist(self: Any, configuration: str) -> None:
+    async def _fake_persist(_self: Any, configuration: str) -> None:
         persist_calls.append(configuration)
 
     monkeypatch.setattr(DevicesController, "_persist_expected_config_hash", _fake_persist)
