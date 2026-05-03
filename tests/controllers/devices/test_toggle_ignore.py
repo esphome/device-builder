@@ -31,10 +31,14 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import AdoptableDevice, EventType
 
-from .conftest import MakeControllerFactory, capture_devices_events
+from .conftest import CaptureDevicesEventsFactory, MakeControllerFactory
 
 
-def _seed_for_toggle(controller: DevicesController, tmp_path: Path) -> tuple[list[Event], Path]:
+def _seed_for_toggle(
+    controller: DevicesController,
+    tmp_path: Path,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> tuple[list[Event], Path]:
     """Wire ``import_result`` + the events capture for the toggle path.
 
     Returns ``(events, ignored_path)`` so the test can assert
@@ -76,10 +80,11 @@ async def test_toggle_ignore_true_adds_to_set_and_persists(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     _patch_ignored_path: None,
+    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """``ignore=True`` adds the name and writes the updated list to disk."""
     controller = make_controller(tmp_path)
-    _fired, ignored_path = _seed_for_toggle(controller, tmp_path)
+    _fired, ignored_path = _seed_for_toggle(controller, tmp_path, capture_devices_events)
 
     await controller.toggle_ignore(name="kitchen-1a2b3c")
 
@@ -95,6 +100,7 @@ async def test_toggle_ignore_false_removes_and_persists(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     _patch_ignored_path: None,
+    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """``ignore=False`` discards the name and writes the trimmed list.
 
@@ -104,7 +110,7 @@ async def test_toggle_ignore_false_removes_and_persists(
     up.
     """
     controller = make_controller(tmp_path)
-    _fired, ignored_path = _seed_for_toggle(controller, tmp_path)
+    _fired, ignored_path = _seed_for_toggle(controller, tmp_path, capture_devices_events)
     controller.ignored_devices.add("kitchen-1a2b3c")
 
     await controller.toggle_ignore(name="kitchen-1a2b3c", ignore=False)
@@ -122,6 +128,7 @@ async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     _patch_ignored_path: None,
+    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """When an ``AdoptableDevice`` is cached, its ``ignored`` flag is mirrored.
 
@@ -132,7 +139,7 @@ async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
     ``IMPORTABLE_DEVICE_ADDED`` re-fire.
     """
     controller = make_controller(tmp_path)
-    fired, _ignored_path = _seed_for_toggle(controller, tmp_path)
+    fired, _ignored_path = _seed_for_toggle(controller, tmp_path, capture_devices_events)
     controller.import_result["kitchen-1a2b3c"] = AdoptableDevice(
         name="kitchen-1a2b3c",
         friendly_name="Kitchen",
@@ -162,6 +169,7 @@ async def test_toggle_ignore_does_not_fire_when_state_unchanged(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     _patch_ignored_path: None,
+    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """Re-asserting an already-set flag doesn't fire a duplicate event.
 
@@ -171,7 +179,7 @@ async def test_toggle_ignore_does_not_fire_when_state_unchanged(
     and a wasted round-trip for every connected frontend.
     """
     controller = make_controller(tmp_path)
-    fired, _ignored_path = _seed_for_toggle(controller, tmp_path)
+    fired, _ignored_path = _seed_for_toggle(controller, tmp_path, capture_devices_events)
     controller.import_result["kitchen-1a2b3c"] = AdoptableDevice(
         name="kitchen-1a2b3c",
         friendly_name="Kitchen",

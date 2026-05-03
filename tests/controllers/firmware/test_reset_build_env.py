@@ -31,10 +31,10 @@ import pytest
 from esphome_device_builder.controllers.firmware.constants import _RESET_BUILD_ENV_TARGETS
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
+    CaptureEnqueueOrderFactory,
+    CaptureEventsFactory,
     EnqueueStep,
     FirmwareControllerFactory,
-    capture_enqueue_order,
-    capture_firmware_events,
 )
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,9 @@ async def test_reset_build_env_registers_job_in_jobs_map(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_fires_job_queued_after_enqueue(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    capture_enqueue_order: CaptureEnqueueOrderFactory,
 ) -> None:
     """``_queue.put`` runs *before* the ``JOB_QUEUED`` broadcast.
 
@@ -214,7 +216,9 @@ async def test_reset_build_env_runner_marks_job_completed(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_fires_job_completed(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    capture_firmware_events: CaptureEventsFactory,
 ) -> None:
     """``JOB_COMPLETED`` fires with the finished job in its payload.
 
@@ -235,7 +239,9 @@ async def test_reset_build_env_runner_fires_job_completed(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_streams_output_lines(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    capture_firmware_events: CaptureEventsFactory,
 ) -> None:
     """Progress lines hit both ``job.output`` and the bus.
 
@@ -319,7 +325,9 @@ async def test_reset_build_env_runner_no_op_when_esphome_absent(
 
 @pytest.mark.asyncio
 async def test_reset_build_env_runner_honours_cancel_between_targets(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    capture_firmware_events: CaptureEventsFactory,
 ) -> None:
     """Cancellation requested mid-run stops before the next target.
 

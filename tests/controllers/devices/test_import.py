@@ -25,7 +25,11 @@ from esphome_device_builder.controllers.devices import controller as devices_mod
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import AdoptableDevice, DeviceState, ErrorCode, EventType
 
-from .conftest import MakeControllerFactory, RecordingStateMonitor, capture_devices_events
+from .conftest import (
+    CaptureDevicesEventsFactory,
+    MakeControllerFactory,
+    RecordingStateMonitor,
+)
 
 
 def _seed_import_state(controller: DevicesController) -> None:
@@ -360,6 +364,7 @@ async def test_import_device_drops_matching_import_result_entry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """The discovery banner entry disappears the moment adoption finishes.
 

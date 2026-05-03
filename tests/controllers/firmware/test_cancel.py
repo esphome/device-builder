@@ -36,8 +36,8 @@ from esphome_device_builder.models import (
     JobType,
 )
 from tests.controllers.firmware.conftest import (
+    CaptureEventsFactory,
     FirmwareControllerFactory,
-    capture_firmware_events,
 )
 
 
@@ -91,6 +91,7 @@ async def test_cancel_raises_not_found_for_unknown_job_id(
 @pytest.mark.asyncio
 async def test_cancel_queued_job_marks_terminal_and_fires_event(
     firmware_controller_factory: FirmwareControllerFactory,
+    capture_firmware_events: CaptureEventsFactory,
 ) -> None:
     """A queued job flips to ``CANCELLED`` immediately and broadcasts.
 
@@ -197,6 +198,7 @@ async def test_cancel_running_job_records_intent_and_terminates(
 @pytest.mark.asyncio
 async def test_cancel_running_job_does_not_fire_event_directly(
     firmware_controller_factory: FirmwareControllerFactory,
+    capture_firmware_events: CaptureEventsFactory,
 ) -> None:
     """``JOB_CANCELLED`` is fired by the *runner*, not by ``cancel``.
 
@@ -270,7 +272,9 @@ async def test_cancel_running_job_with_mismatched_current_job_raises(
 )
 @pytest.mark.asyncio
 async def test_cancel_terminal_job_raises_invalid_args(
-    status: JobStatus, firmware_controller_factory: FirmwareControllerFactory
+    status: JobStatus,
+    firmware_controller_factory: FirmwareControllerFactory,
+    capture_firmware_events: CaptureEventsFactory,
 ) -> None:
     """A job in any terminal status rejects with ``CommandError(INVALID_ARGS)``.
 

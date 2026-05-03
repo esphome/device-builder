@@ -22,7 +22,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, EventType
 from tests._storage_fixtures import write_storage_json
 
-from .conftest import RecordingStateMonitor, capture_devices_events
+from .conftest import CaptureDevicesEventsFactory, RecordingStateMonitor
 
 
 def _make_controller(monkeypatch: Any, board_id: str = "esp32-c3-devkitm-1") -> Any:
@@ -180,7 +180,9 @@ def test_build_info_hash_used_even_when_sidecar_empty(tmp_path: Path, monkeypatc
     assert metadata.expected_config_hash == "12345678"
 
 
-def test_added_device_without_hash_triggers_regenerate(monkeypatch: Any) -> None:
+def test_added_device_without_hash_triggers_regenerate(
+    monkeypatch: Any, capture_devices_events: CaptureDevicesEventsFactory
+) -> None:
     """An imported device with integrations but no hash gets its hash backfilled.
 
     Symptom from the field: an Apollo R_PRO-1 added before

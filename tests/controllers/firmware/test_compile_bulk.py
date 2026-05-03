@@ -32,8 +32,8 @@ import pytest
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
+    CaptureEventsFactory,
     FirmwareControllerFactory,
-    capture_firmware_events,
 )
 
 
@@ -180,7 +180,9 @@ async def test_compile_bulk_empty_input_returns_empty_list(
 
 @pytest.mark.asyncio
 async def test_compile_bulk_fires_job_queued_per_successful_entry(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    capture_firmware_events: CaptureEventsFactory,
 ) -> None:
     """``JOB_QUEUED`` fires exactly once per queued job — no double-fire, no skip.
 

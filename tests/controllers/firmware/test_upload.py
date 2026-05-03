@@ -30,9 +30,9 @@ import pytest
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, EventType, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
+    CaptureEnqueueOrderFactory,
     EnqueueStep,
     FirmwareControllerFactory,
-    capture_enqueue_order,
 )
 
 
@@ -157,7 +157,9 @@ async def test_upload_rejects_traversal_configuration(
 
 @pytest.mark.asyncio
 async def test_upload_enqueues_before_firing_job_queued(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    capture_enqueue_order: CaptureEnqueueOrderFactory,
 ) -> None:
     """``_queue.put`` runs *before* the ``JOB_QUEUED`` broadcast.
 
