@@ -1,13 +1,15 @@
 """End-to-end coverage for ``FirmwareController._verify_chip``.
 
-Drives the chip-id pre-flight through the public ``firmware/install``
-handler — submitting a serial-port install fires
-``_execute_job`` which calls ``_verify_chip`` for ``UPLOAD`` /
-``INSTALL`` job types. The test never calls ``_verify_chip`` (or
-any other underscore-prefixed method) directly; everything
-observable from a frontend's POV (job status, error message,
-JOB_FAILED payload, JOB_COMPLETED on the happy path) drives the
-assertions.
+Runner-level integration test. Drives the chip-id pre-flight by
+submitting via the public ``firmware/install`` and
+``firmware/upload`` handlers, then ticking the runner via
+``_run_queue`` to pump the queue. The chip-id helper itself is
+never called directly — observable side effects (job status,
+``job.error`` message, JOB_FAILED / JOB_COMPLETED broadcasts,
+and the recorded subprocess invocations) drive the assertions.
+``_run_queue`` is the only underscore-prefixed method this file
+touches; it's the runner entry point and exists to be driven
+in tests this way.
 
 The chip-id check spawns ``[sys.executable, '-m', 'esptool',
 '--port', <port>, 'chip-id']`` via ``create_subprocess_exec``.
@@ -16,17 +18,24 @@ output can be controlled while the real subsequent build still
 runs through the same wrapper (substitute returns a no-op
 success-exit script for non-esptool calls).
 
-Six branches the runner depends on:
+Branches the runner depends on:
 
 - Chip matches → no error, build proceeds, status COMPLETED.
-- Chip mismatch → ``ValueError`` with the chip-mismatch message
-  inside ``_execute_job``'s generic ``except Exception``,
-  status FAILED, JOB_FAILED carries the message.
+- Chip mismatch (parametrised over ``install`` AND ``upload``)
+  → ``ValueError`` with the chip-mismatch message inside
+  ``_execute_job``'s generic ``except Exception``, status
+  FAILED, JOB_FAILED carries the message. Both job types must
+  trigger the check or a regression that drops one would let
+  wrong-chip flashes through.
 - esptool output without "Detecting chip type..." line → falls
   through (logged as warning), build proceeds.
-- ``port='OTA'`` → no esptool call (network upload).
-- ``self._db.devices`` returns no matching device → skip.
-- Device matched but ``target_platform`` empty → skip.
+- Non-serial port shapes (``OTA``, IPv4, hostname, Windows
+  ``COMx``) → no esptool call (the helper only probes
+  ``/dev/*`` paths).
+- ``self._db.devices`` returns no matching device → skip the
+  chip check, build still runs.
+- Device matched but ``target_platform`` empty → skip the chip
+  check, build still runs.
 
 Without these the chip-id pre-flight (~54 lines, the longest
 helper after ``_execute_job``) had zero direct or indirect
@@ -38,9 +47,9 @@ from __future__ import annotations
 import asyncio
 import sys
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -83,17 +92,55 @@ _BUILD_SCRIPT_OK = "import sys\nsys.exit(0)\n"
 # script doesn't need to handle anything special.
 
 
+@dataclass
+class _StubDevice:
+    """Narrow stand-in for ``Device`` — only the attributes ``_verify_chip`` reads.
+
+    Mirrors the conftest's "minimal test doubles fail fast on
+    unexpected attribute access" pattern. A regression that
+    teaches ``_verify_chip`` to read a new field (e.g. ``board``
+    or ``platform``) crashes with ``AttributeError`` here
+    instead of silently conjuring a ``MagicMock`` value.
+    """
+
+    name: str
+    target_platform: str
+
+
+@dataclass
+class _StubDevices:
+    """Narrow ``DevicesController`` stand-in.
+
+    Exposes only the surface ``_verify_chip`` and
+    ``_build_cache_args`` actually read:
+
+    - ``get_devices()`` — for the chip lookup by YAML name.
+    - ``get_address_cache_args(configuration)`` — for the OTA
+      address-cache CLI flags ``_build_cache_args`` adds to
+      install/upload commands when ``port == "OTA"``.
+
+    Returning ``[]`` for the address-cache args keeps the build
+    command shape minimal (``--mdns-address-cache`` / ``--dns-
+    address-cache`` skipped) — orthogonal to the chip-id branches
+    these tests exercise.
+    """
+
+    devices: list[_StubDevice]
+
+    def get_devices(self) -> list[_StubDevice]:
+        return self.devices
+
+    def get_address_cache_args(self, _configuration: str) -> list[str]:
+        return []
+
+
 def _wire_devices(
     controller: FirmwareController, *, name: str = "kitchen", target_platform: str = "esp32-c3"
 ) -> None:
     """Attach a fake ``DevicesController`` whose ``get_devices`` returns one entry."""
-    device = MagicMock()
-    device.name = name
-    device.target_platform = target_platform
-
-    devices = MagicMock()
-    devices.get_devices.return_value = [device]
-    controller._db.devices = devices  # type: ignore[attr-defined]
+    controller._db.devices = _StubDevices(  # type: ignore[attr-defined]
+        devices=[_StubDevice(name=name, target_platform=target_platform)]
+    )
 
 
 def _patch_subprocess(
@@ -236,11 +283,13 @@ async def test_install_serial_chip_match_proceeds_to_completed(
     assert captured["job_failed"] == []
 
 
+@pytest.mark.parametrize("submit_command", ["install", "upload"])
 @pytest.mark.asyncio
-async def test_install_serial_chip_mismatch_marks_failed_with_message(
+async def test_serial_chip_mismatch_marks_failed_with_message(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    submit_command: str,
 ) -> None:
     """Mismatch raises → status FAILED, error message names both sides.
 
@@ -251,9 +300,11 @@ async def test_install_serial_chip_mismatch_marks_failed_with_message(
     ``_execute_job``'s ``except Exception`` and surfaces as
     ``job.error`` + a JOB_FAILED broadcast.
 
-    Pin both halves of the message ("config expects" + "wrong
-    board selected?") so a regression that loses the actionable
-    half of the hint surfaces here.
+    Parametrised over ``install`` AND ``upload`` because
+    ``_execute_job`` triggers ``_verify_chip`` for both
+    ``JobType.INSTALL`` and ``JobType.UPLOAD``. A regression
+    that drops one of the two would let wrong-chip flashes
+    through on that path.
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
@@ -266,7 +317,8 @@ async def test_install_serial_chip_mismatch_marks_failed_with_message(
         chip_id_output=b"esptool.py v4.7.0\nDetecting chip type... ESP32-S3\n",
     )
 
-    job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
+    handler = getattr(controller, submit_command)
+    job = await handler(configuration="kitchen.yaml", port="/dev/ttyUSB0")
     captured = await _run_until_terminal(controller)
 
     assert len(record["esptool_calls"]) == 1
@@ -332,19 +384,44 @@ async def test_install_serial_no_chip_detected_proceeds_to_completed(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "port",
+    [
+        # OTA: the install default, no local serial port at all.
+        "OTA",
+        # Explicit IPv4 OTA target (re-flash by IP).
+        "192.168.1.42",
+        # ``.local`` mDNS hostname.
+        "kitchen.local",
+        # Windows COM port — uses a serial wire but ``_verify_chip``
+        # only probes ``/dev/*`` paths so the COMx case takes the
+        # same skip branch as the network ones above.
+        "COM3",
+    ],
+    ids=["ota", "ipv4", "mdns_hostname", "windows_com"],
+)
 @pytest.mark.asyncio
-async def test_install_ota_does_not_spawn_esptool(
+async def test_install_non_dev_port_skips_chip_check(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    port: str,
 ) -> None:
-    """``port='OTA'`` (the install default) skips the chip-id check entirely.
+    """Any port that isn't a ``/dev/*`` path skips the chip-id probe.
 
-    OTA uploads talk to the device over the network — there's no
-    local serial port to probe. Spawning esptool there would
-    block on a port that doesn't exist locally and stall the
+    ``_verify_chip`` only probes serial ports under ``/dev/`` —
+    OTA / IP / hostname targets reach the device over the network
+    (no local serial bus to read), and Windows ``COMx`` ports use
+    a different prefix that the helper deliberately doesn't
+    handle (the chip-id check is Linux/macOS-only at this point;
+    Windows users are gated out by the prefix check).
+
+    Spawning esptool against a non-serial path would block forever
+    waiting for chip data that never arrives, hanging the user's
     install indefinitely. Pin the early-return so a regression
-    that broadens the chip check to all ports surfaces here.
+    that broadens the chip check to all ports surfaces on every
+    parametrised case (a partial regression covering only one
+    branch would still be caught).
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
@@ -357,10 +434,10 @@ async def test_install_ota_does_not_spawn_esptool(
         chip_id_output=b"should never be invoked",
     )
 
-    job = await controller.install(configuration="kitchen.yaml", port="OTA")
+    job = await controller.install(configuration="kitchen.yaml", port=port)
     await _run_until_terminal(controller)
 
-    assert record["esptool_calls"] == [], "OTA install must not invoke esptool"
+    assert record["esptool_calls"] == [], f"non-/dev/ port {port!r} must not invoke esptool"
     assert record["build_calls"], "build subprocess should still have run"
     assert job.status == JobStatus.COMPLETED
 
@@ -379,13 +456,17 @@ async def test_install_serial_no_matching_device_skips_check(
     the safer default — the user explicitly chose the port and
     we'd rather let the build proceed than fail on a check we
     can't run.
+
+    Pin both halves of the contract: esptool must NOT spawn
+    (would block forever) AND the build subprocess must STILL
+    run (otherwise the install silently no-ops, which would be
+    indistinguishable from a successful run from the dashboard's
+    POV).
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
     # Devices controller is present but has no matching device.
-    devices = MagicMock()
-    devices.get_devices.return_value = []
-    controller._db.devices = devices  # type: ignore[attr-defined]
+    controller._db.devices = _StubDevices(devices=[])  # type: ignore[attr-defined]
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
 
@@ -396,6 +477,11 @@ async def test_install_serial_no_matching_device_skips_check(
 
     # No device match → no platform → early return before esptool spawn.
     assert record["esptool_calls"] == []
+    # The build subprocess MUST still run — a regression that
+    # short-circuited the job entirely on missing-device would
+    # also leave esptool_calls empty + status COMPLETED, but
+    # silently no-op the install.
+    assert record["build_calls"], "build subprocess should still have run"
     assert job.status == JobStatus.COMPLETED
 
 
@@ -407,13 +493,17 @@ async def test_install_serial_device_without_target_platform_skips_check(
 ) -> None:
     """Device matched but ``target_platform`` empty → skip.
 
-    A device that hasn't been compiled yet has no
-    ``target_platform`` recorded (StorageJSON only writes it
-    after a successful compile). Without something to compare
-    against the chip-id check would either fail spuriously or
-    erroneously match. Skip; the build either succeeds (and
-    populates ``target_platform`` for next time) or fails for
-    the real reason.
+    ``Device.target_platform`` carries the chip family
+    (``esp32-c3`` / ``esp8266`` / ...). It can come from a few
+    sources — the StorageJSON sidecar after a successful compile,
+    YAML detection on first scan, or restored monitor state —
+    so empty is uncommon but possible (e.g. a YAML the parser
+    couldn't extract a platform from). Without something to
+    compare against the chip-id check has nothing to act on;
+    skip and let the build proceed for the real reason.
+
+    Pin both halves: esptool skipped AND build still runs (same
+    contract as the no-matching-device case).
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
@@ -427,4 +517,5 @@ async def test_install_serial_device_without_target_platform_skips_check(
     await _run_until_terminal(controller)
 
     assert record["esptool_calls"] == []
+    assert record["build_calls"], "build subprocess should still have run"
     assert job.status == JobStatus.COMPLETED
