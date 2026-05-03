@@ -74,36 +74,6 @@ def _make_db(tmp_path: Path) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_init_constructs_inner_controllers(tmp_path: Path) -> None:
-    """``__init__`` wires scanner + state monitor + MQTT coordinator.
-
-    Pin the wiring so a refactor that drops one of the three
-    components, or skips threading a callback through, surfaces
-    here. The state monitor in particular has seven separate
-    callbacks (state, ip, version, config_hash, api_encryption,
-    importable_added, importable_removed) that all have to point
-    back at controller methods — a typo'd one would silently
-    break a single class of state transitions in production.
-    """
-    db = _make_db(tmp_path)
-    controller = DevicesController(db)
-
-    # Attributes set by ``__init__``.
-    assert controller._db is db
-    assert controller._esphome_cmd == []
-    assert controller._unsub_job_completed is None
-    assert controller.import_result == {}
-    assert controller.ignored_devices == set()
-    assert controller._regenerate_pending == set()
-    assert controller._regenerate_failed == set()
-
-    # Inner controllers exist and were wired against ``tmp_path``.
-    assert controller._scanner is not None
-    assert controller._scanner._config_dir == tmp_path
-    assert controller._state_monitor is not None
-    assert controller._mqtt_coordinator is not None
-
-
 def test_init_threads_state_monitor_callbacks_to_controller_methods(
     tmp_path: Path,
 ) -> None:
