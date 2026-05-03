@@ -51,6 +51,7 @@ from .conftest import (
     CaptureDevicesEventsFactory,
     MakeControllerFactory,
     SeedDeviceFactory,
+    StubBoardLookups,
 )
 
 
@@ -86,10 +87,9 @@ async def test_create_device_writes_file_content_verbatim(
     to choose one manually.
     """
     controller = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
-    matched = MagicMock()
-    matched.id = "esp32-c3-devkitm-1"
-    controller._db.boards.find_by_pio_board = MagicMock(return_value=matched)
-    controller._db.boards.find_by_platform_variant = MagicMock(return_value=None)
+    boards = StubBoardLookups(controller)
+    pio_lookup = boards.find_by_pio_board_returns("esp32-c3-devkitm-1")
+    boards.find_by_platform_variant_returns(None)
 
     yaml_text = (
         "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n  variant: esp32c3\n"
@@ -101,7 +101,7 @@ async def test_create_device_writes_file_content_verbatim(
     # Verbatim — no template generation override.
     assert written == yaml_text
     # Catalog's PIO-board lookup ran against the parsed YAML.
-    controller._db.boards.find_by_pio_board.assert_called_once()
+    pio_lookup.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -120,15 +120,14 @@ async def test_create_device_falls_back_to_platform_variant_lookup(
     """
     controller = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     # PIO miss; platform/variant hit.
-    matched = MagicMock()
-    matched.id = "generic-esp32-c3"
-    controller._db.boards.find_by_pio_board = MagicMock(return_value=None)
-    controller._db.boards.find_by_platform_variant = MagicMock(return_value=matched)
+    boards = StubBoardLookups(controller)
+    boards.find_by_pio_board_returns(None)
+    variant_lookup = boards.find_by_platform_variant_returns("generic-esp32-c3")
 
     yaml_text = "esphome:\n  name: kitchen\nesp32:\n  variant: esp32c3\n"
     await controller.create_device(name="kitchen", file_content=yaml_text)
 
-    controller._db.boards.find_by_platform_variant.assert_called_once()
+    variant_lookup.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
