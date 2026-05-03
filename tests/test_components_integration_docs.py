@@ -13,6 +13,11 @@ import pytest
 
 from esphome_device_builder.controllers.components import ComponentCatalog
 
+# Pin every test in the file onto the same xdist worker as the rest of
+# the catalog-heavy suite so they share one ``ComponentCatalog.load``
+# instead of each worker paying ~2s on Linux CI.
+pytestmark = pytest.mark.xdist_group("catalog")
+
 
 @pytest.fixture
 def catalog(session_component_catalog: ComponentCatalog) -> ComponentCatalog:

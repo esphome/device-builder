@@ -16,6 +16,10 @@ from script.validate_definitions import (  # type: ignore[import-not-found]
     _validate_field_preset,
 )
 
+# Co-locate with the rest of the catalog-heavy suite so we don't burn a
+# second xdist worker re-reading ``components.json``.
+pytestmark = pytest.mark.xdist_group("catalog")
+
 
 @pytest.fixture(scope="module")
 def _index() -> dict | None:
