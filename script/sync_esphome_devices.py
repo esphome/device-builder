@@ -184,7 +184,45 @@ _IMAGE_EXTENSIONS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".webp",
 # component itself; ``id`` is the per-instance variable name our
 # dashboard generates fresh — preserving upstream's would create
 # cross-instance conflicts the moment the user adds a second one.
-_SKIPPED_FIELDS: frozenset[str] = frozenset({"platform", "id"})
+# ``name`` is handled separately: upstream value is used when present,
+# else a derived default is injected (see ``_extract_featured_components``)
+# so the entity always surfaces in Home Assistant without further user
+# editing.
+_SKIPPED_FIELDS: frozenset[str] = frozenset({"platform", "id", "name"})
+
+# HA-entity subset of ``_PLATFORM_LIST_DOMAINS``. Platforms in this set
+# accept a top-level ``name:`` field (it's part of ESPHome's entity-base
+# schema). Non-entity platform-list domains (``output:``) don't — they're
+# referenced by entity wrappers (``light:`` / ``switch:``) and emitting
+# ``name:`` there produces a config ESPHome rejects.
+_HA_ENTITY_DOMAINS: frozenset[str] = frozenset(
+    {
+        "alarm_control_panel",
+        "binary_sensor",
+        "button",
+        "camera",
+        "climate",
+        "cover",
+        "datetime",
+        "display",
+        "event",
+        "fan",
+        "light",
+        "lock",
+        "media_player",
+        "microphone",
+        "number",
+        "select",
+        "sensor",
+        "speaker",
+        "switch",
+        "text",
+        "text_sensor",
+        "touchscreen",
+        "update",
+        "valve",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -602,6 +640,25 @@ def _extract_featured_components(
                 continue
             counters[component_id] = counters.get(component_id, 0) + 1
             local_id = f"{domain}_{platform}_{counters[component_id]}"
+            # Always set ``fields.id`` so the dashboard never has to
+            # auto-derive one at runtime — definitions are the source
+            # of truth for what ends up in the user's YAML.
+            fields["id"] = local_id
+            # For HA entity platforms, also fill ``fields.name`` so the
+            # entity surfaces in Home Assistant. Prefer upstream's name
+            # when the page set one (and it's a simple scalar — skip
+            # ``${friendly_name}`` templates the user can't sensibly
+            # override); otherwise derive a default.
+            if domain in _HA_ENTITY_DOMAINS:
+                upstream_name = item.get("name")
+                if _is_simple_scalar(upstream_name) and isinstance(upstream_name, str):
+                    upstream_name = upstream_name.strip()
+                else:
+                    upstream_name = ""
+                fields["name"] = (
+                    upstream_name
+                    or f"{platform.replace('_', ' ').title()} {counters[component_id]}"
+                )
             entry: dict[str, Any] = {
                 "id": local_id,
                 "component_id": component_id,

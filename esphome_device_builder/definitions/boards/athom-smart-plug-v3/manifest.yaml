@@ -75,10 +75,11 @@ featured_components:
     16 A relay hard-wired to GPIO6. The pin is fixed; the rest of the
     fields are yours to set.
   fields:
+    id: relay
+    name: Relay
     pin:
       value: 6
       locked: true
-    name: Relay
 - id: button
   component_id: binary_sensor.gpio
   name: Front-Panel Button
@@ -86,6 +87,8 @@ featured_components:
     Front-panel push button on GPIO9 (active low — uses internal pull-up
     via the rich pin form).
   fields:
+    id: button
+    name: Front-Panel Button
     pin:
       value:
         number: 9
@@ -101,6 +104,7 @@ featured_components:
     Low-level GPIO output for the onboard blue LED on GPIO7. Pair with
     a ``Status LED Light`` so Home Assistant can toggle it as a light.
   fields:
+    id: status_led_output
     pin:
       value: 7
       locked: true
@@ -112,6 +116,7 @@ featured_components:
     Binary light entity for the onboard status LED. Wire its ``output``
     to the ``status_led_output`` you added.
   fields:
+    id: status_led_light
     name: Status LED
 - id: power_monitor
   component_id: sensor.hlw8012
@@ -120,6 +125,8 @@ featured_components:
     Energy-metering chip wired to GPIO3 (CF), GPIO4 (CF1), and GPIO5
     (SEL). The pins are physically fixed on this board.
   fields:
+    id: power_monitor
+    name: HLW8012 Power Monitor
     cf_pin:
       value: 3
       locked: true

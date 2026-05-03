@@ -139,10 +139,11 @@ featured_components:
     The 10 A AC relay is hard-wired to GPIO12. This recommendation pre-fills
     the GPIO and gives it a sensible default name.
   fields:
+    id: relay
+    name: Relay
     pin:
       value: 12
       locked: true
-    name: Relay
 - id: button
   component_id: binary_sensor.gpio
   name: Front-Panel Button
@@ -150,6 +151,8 @@ featured_components:
     Front-panel push button on GPIO0 (active low — note ``inverted: true``
     plus the internal pull-up).
   fields:
+    id: button
+    name: Front-Panel Button
     pin:
       value:
         number: 0
@@ -165,6 +168,7 @@ featured_components:
     Low-level GPIO output for the onboard blue LED on GPIO13. Pair with
     a ``Status LED Light`` so Home Assistant can toggle it as a light.
   fields:
+    id: status_led_output
     pin:
       value: 13
       locked: true
@@ -176,6 +180,7 @@ featured_components:
     Binary light entity for the onboard status LED. Wire its ``output``
     to the ``status_led_output`` you added.
   fields:
+    id: status_led_light
     name: Status LED
 featured_bundles:
 - id: status_led

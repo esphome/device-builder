@@ -318,8 +318,17 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
 
 
 def _generate_id(component_id: str, name: str | None = None) -> str:
-    """Auto-generate a component ID from the component type and optional name."""
-    if name:
-        slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-        return f"{component_id}_{slug}"
-    return component_id
+    """
+    Auto-generate a component ID from the component type and optional name.
+
+    When the name's slug already starts with the component id (or equals
+    it), drop the redundant prefix — otherwise a featured component
+    whose display name leads with the chip stem produces ids like
+    ``hlw8012_hlw8012_power_monitor`` instead of ``hlw8012_power_monitor``.
+    """
+    if not name:
+        return component_id
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    if slug == component_id or slug.startswith(f"{component_id}_"):
+        return slug
+    return f"{component_id}_{slug}"

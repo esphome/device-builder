@@ -96,6 +96,7 @@ featured_components:
     GPIO1 (SDA). Configure I²C once and any of the swappable sensor
     modules (AHT20, additional I²C breakouts) will work.
   fields:
+    id: i2c_bus
     scl:
       value: 0
       locked: true
@@ -109,6 +110,8 @@ featured_components:
     Sensor module shipped with the kit. Plug into either FPC connector;
     it talks I²C so no per-pin config is needed beyond the bus above.
   fields:
+    id: aht20
+    name: AHT20 Temperature & Humidity
     variant: AHT20
 - id: pir_motion
   component_id: binary_sensor.gpio
@@ -118,6 +121,8 @@ featured_components:
     FPC connector you plug it into — pick GPIO4 for connector A or
     GPIO5 for connector B.
   fields:
+    id: pir_motion
+    name: PIR Motion Module
     pin:
       suggestions: [4, 5]
       value: 4
@@ -130,6 +135,8 @@ featured_components:
     FPC connector (GPIO4 for A, GPIO5 for B). Defaults to 8 LEDs in
     GRB order — adjust to match your strip.
   fields:
+    id: rgb_strip
+    name: RGB LED Strip
     pin:
       suggestions: [4, 5]
       value: 4
@@ -142,6 +149,7 @@ featured_components:
     PWM output driving the piezo buzzer on the RGB+buzzer addon.
     Pick the FPC connector pin not used by the strip — GPIO4 or GPIO5.
   fields:
+    id: buzzer_output
     pin:
       suggestions: [4, 5]
       value: 5
@@ -151,6 +159,8 @@ featured_components:
   description: |
     Plays RTTTL ringtones through the piezo buzzer above. Wire the
     ``output`` field to the buzzer output you just added.
+  fields:
+    id: rtttl_player
 featured_bundles:
 - id: rgb_buzzer_module
   name: RGB LED + Buzzer Module

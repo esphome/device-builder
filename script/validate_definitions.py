@@ -287,6 +287,15 @@ def _validate_featured_component(
 
     for fkey, fval in (entry.get("fields") or {}).items():
         if fkey not in entries_by_key:
+            # ``id`` and ``name`` are entity-base universals — every
+            # ESPHome entity-platform schema accepts them, but the
+            # components.json sync misses ``name`` for a chunk of
+            # entity platforms (binary_sensor.gpio, sensor.aht10, ...)
+            # because of how ENTITY_BASE_SCHEMA inheritance is
+            # surfaced. Allow these through so manifests can be
+            # explicit without tripping the unknown-key gate.
+            if fkey in ("id", "name"):
+                continue
             errors.append(f"{path}.fields.{fkey}: not a config_entry on {component_id}")
             continue
         ce = entries_by_key[fkey]

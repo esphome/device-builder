@@ -22,10 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from esphome_device_builder.controllers.boards import BoardCatalog
-from esphome_device_builder.controllers.components import (
-    ComponentCatalog,
-    _default_id_from_local,
-)
+from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices.helpers import _apply_featured_presets
 from esphome_device_builder.definitions import (
@@ -156,11 +153,8 @@ async def test_get_component_suggestions(catalog: ComponentCatalog) -> None:
     assert pin.suggestions == [4, 5]
 
 
-async def test_get_component_id_default_from_local(catalog: ComponentCatalog) -> None:
-    """Featured components without an explicit ``id`` preset default to the slugified local id."""
-    # ``button`` has no manifest preset for ``id`` — without the
-    # auto-derived default the merge logic would render ``id: gpio``,
-    # colliding with the platform stem.
+async def test_get_component_id_from_manifest_field(catalog: ComponentCatalog) -> None:
+    """A featured component's ``fields.id`` preset surfaces as the materialised id default."""
     entry = await catalog.get_component(component_id="featured.athom-smart-plug-v3.button")
     assert entry is not None
     id_field = next(ce for ce in entry.config_entries if ce.key == "id")
@@ -168,43 +162,18 @@ async def test_get_component_id_default_from_local(catalog: ComponentCatalog) ->
     assert id_field.locked is False
 
 
-async def test_get_component_name_default_from_featured_name(
+async def test_get_component_name_from_manifest_field(
     catalog: ComponentCatalog,
 ) -> None:
-    """The featured component's display name pre-fills the underlying ``name`` field."""
-    # apollo-esk-1.rgb_strip has ``name: RGB LED Strip (addon module)``
-    # at the featured level but no field preset for ``name`` — the
-    # auto-derived default lets the user start with a sensible
-    # HA-visible entity name without having to repeat it in the
-    # manifest's ``fields:`` block.
-    entry = await catalog.get_component(component_id="featured.apollo-esk-1.rgb_strip")
-    assert entry is not None
-    name_field = next(ce for ce in entry.config_entries if ce.key == "name")
-    assert name_field.default_value == "RGB LED Strip (addon module)"
-    assert name_field.locked is False
-
-
-async def test_get_component_explicit_field_preset_wins(catalog: ComponentCatalog) -> None:
-    """An explicit ``fields.name`` preset overrides the auto-derived default."""
-    # sonoff-basic.relay sets ``fields.name: Relay`` in the manifest
-    # while the featured display name is ``Onboard Relay`` — the
-    # explicit preset must win.
+    """A featured component's ``fields.name`` preset surfaces as the materialised name default."""
+    # sonoff-basic.relay has ``fields.name: Relay`` in the manifest;
+    # the materialised view exposes that as the underlying switch.gpio
+    # ``name`` config_entry's default.
     entry = await catalog.get_component(component_id="featured.sonoff-basic.relay")
     assert entry is not None
     name_field = next(ce for ce in entry.config_entries if ce.key == "name")
     assert name_field.default_value == "Relay"
-
-
-def test_default_id_from_local_handles_leading_digit() -> None:
-    """Slugified local ids that start with a digit get prefixed with ``_``."""
-    # ESPHome ids become C++ identifiers downstream — a leading digit
-    # produces an invalid build, so the slugifier must guard against
-    # it.
-    assert _default_id_from_local("3v3-rail") == "_3v3_rail"
-    assert _default_id_from_local("4-channel-relay") == "_4_channel_relay"
-    # Non-digit-leading ids stay untouched.
-    assert _default_id_from_local("status-led-output") == "status_led_output"
-    assert _default_id_from_local("button") == "button"
+    assert name_field.locked is False
 
 
 async def test_get_components_featured_only_with_board_id(
@@ -548,11 +517,15 @@ async def test_add_component_featured_resets_dashed_id(
         },
     )
 
-    assert "id: hlw8012" in response.yaml
+    # Auto-id from the manifest's ``fields.name: HLW8012 Power Monitor``;
+    # ``_generate_id`` dedups the leading chip stem so we get
+    # ``hlw8012_power_monitor`` rather than ``hlw8012_hlw8012_power_monitor``.
+    assert "id: hlw8012_power_monitor" in response.yaml
     assert "featured_athom-smart-plug-v3" not in response.yaml
+    assert "name: HLW8012 Power Monitor" in response.yaml
     # Sub-entity autofill rides through the merge step.
     assert "name: Current" in response.yaml
-    assert "id: hlw8012_current" in response.yaml
+    assert "id: hlw8012_power_monitor_current" in response.yaml
 
 
 async def test_add_component_featured_keeps_user_typed_id(
@@ -583,3 +556,54 @@ async def test_add_component_featured_unknown_id_raises(
             component_id="featured.no-such-board.x",
             fields={},
         )
+
+
+async def test_add_component_featured_emits_explicit_name_and_id(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """
+    Regression: featured ``binary_sensor.gpio`` entries emit ``name:`` and ``id:``.
+
+    The Sonoff Basic's "Front-Panel Button" used to emit a YAML block
+    with neither ``name:`` nor ``id:`` — the resulting entity stayed
+    unnamed in Home Assistant. Now the manifest carries explicit
+    ``fields.id`` / ``fields.name`` presets so the YAML always lands
+    with both, no runtime auto-derivation needed.
+    """
+    (tmp_path / "sonoff.yaml").write_text("esphome:\n  name: sonoff\n", "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="sonoff.yaml",
+        component_id="featured.sonoff-basic.button",
+        fields={},
+    )
+
+    assert "binary_sensor:" in response.yaml
+    assert "platform: gpio" in response.yaml
+    assert "name: Front-Panel Button" in response.yaml
+    assert "id: button" in response.yaml
+
+
+async def test_add_component_featured_non_entity_emits_id_only(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """
+    Non-entity featured components (``output:``, ``i2c:``, ...) get only ``id:``.
+
+    Their manifest entries carry ``fields.id`` but no ``fields.name`` —
+    ESPHome's ``output:`` schema doesn't accept a top-level ``name:``,
+    and the manifest is the only source for what fields land in the YAML.
+    """
+    (tmp_path / "sonoff.yaml").write_text("esphome:\n  name: sonoff\n", "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="sonoff.yaml",
+        component_id="featured.sonoff-basic.status_led_output",
+        fields={},
+    )
+
+    assert "output:" in response.yaml
+    assert "id: status_led_output" in response.yaml
+    assert "name:" not in response.yaml.split("output:")[1]
