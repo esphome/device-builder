@@ -23,7 +23,7 @@ featured_components:
     update_interval: 10s
     id: sensor_aht10_1
     name: Aht10 1
-- id: sensor_pulse_counter_1
+- id: wind_speed_sensor
   component_id: sensor.pulse_counter
   fields:
     pin:
@@ -36,7 +36,7 @@ featured_components:
     unit_of_measurement: m/s
     accuracy_decimals: 2
     update_interval: 5s
-    id: sensor_pulse_counter_1
+    id: wind_speed_sensor
     name: Wind Speed
 - id: sensor_bmp280_i2c_1
   component_id: sensor.bmp280_i2c
@@ -46,11 +46,11 @@ featured_components:
     iir_filter: 16X
     id: sensor_bmp280_i2c_1
     name: Bmp280 I2C 1
-- id: sensor_wifi_signal_1
+- id: wifi_signal_sensor
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
-    id: sensor_wifi_signal_1
+    id: wifi_signal_sensor
     name: WiFi Signal Strength
 source:
   type: esphome-devices

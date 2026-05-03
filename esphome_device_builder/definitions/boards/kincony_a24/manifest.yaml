@@ -365,16 +365,28 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: a24--input24
-- id: output_gp8403_1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: gp8403_output_1
+    id: light_monochromatic_1
+    name: A24-DAC-1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: gp8403_output_2
+    id: light_monochromatic_2
+    name: A24-DAC-2
+- id: gp8403_output_1
   component_id: output.gp8403
   fields:
     channel: 0
-    id: output_gp8403_1
-- id: output_gp8403_2
+    id: gp8403_output_1
+- id: gp8403_output_2
   component_id: output.gp8403
   fields:
     channel: 1
-    id: output_gp8403_2
+    id: gp8403_output_2
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -744,6 +756,17 @@ featured_components:
       locked: true
     id: switch_gpio_24
     name: a24--light24
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: A24-DAC-1 (full setup)
+  component_ids:
+  - gp8403_output_1
+  - light_monochromatic_1
+- id: light_monochromatic_2_setup
+  name: A24-DAC-2 (full setup)
+  component_ids:
+  - gp8403_output_2
+  - light_monochromatic_2
 source:
   type: esphome-devices
   remote_id: KinCony-A24

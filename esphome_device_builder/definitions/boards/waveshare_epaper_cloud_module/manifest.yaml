@@ -35,7 +35,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: button
-- id: sensor_adc_1
+- id: battery_voltage
   component_id: sensor.adc
   fields:
     pin:
@@ -45,7 +45,7 @@ featured_components:
     device_class: voltage
     attenuation: auto
     update_interval: 60s
-    id: sensor_adc_1
+    id: battery_voltage
     name: Battery voltage
 source:
   type: esphome-devices

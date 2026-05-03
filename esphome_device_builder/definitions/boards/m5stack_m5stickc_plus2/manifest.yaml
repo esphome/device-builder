@@ -53,7 +53,19 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Button B
-- id: output_ledc_1
+- id: led1
+  component_id: light.monochromatic
+  fields:
+    output: builtin_led
+    id: led1
+    name: Led
+- id: display_bl
+  component_id: light.monochromatic
+  fields:
+    output: backlight
+    id: display_bl
+    name: Backlight
+- id: builtin_led
   component_id: output.ledc
   fields:
     pin:
@@ -62,8 +74,8 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_ledc_1
-- id: output_ledc_2
+    id: builtin_led
+- id: buzzer
   component_id: output.ledc
   fields:
     pin:
@@ -72,8 +84,8 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_ledc_2
-- id: output_ledc_3
+    id: buzzer
+- id: backlight
   component_id: output.ledc
   fields:
     pin:
@@ -82,7 +94,7 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_ledc_3
+    id: backlight
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -100,6 +112,17 @@ featured_components:
     update_interval: 10s
     id: sensor_mpu6886_1
     name: Mpu6886 1
+featured_bundles:
+- id: led1_setup
+  name: Led (full setup)
+  component_ids:
+  - builtin_led
+  - led1
+- id: display_bl_setup
+  name: Backlight (full setup)
+  component_ids:
+  - backlight
+  - display_bl
 source:
   type: esphome-devices
   remote_id: M5Stack-M5StickC-PLUS2

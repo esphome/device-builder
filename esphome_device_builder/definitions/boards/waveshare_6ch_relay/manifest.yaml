@@ -59,17 +59,17 @@ featured_components:
     disabled_by_default: true
     id: binary_sensor_gpio_1
     name: Boot Button
-- id: button_restart_1
+- id: restart_button
   component_id: button.restart
   fields:
     entity_category: config
-    id: button_restart_1
+    id: restart_button
     name: Restart
-- id: button_factory_reset_1
+- id: reset
   component_id: button.factory_reset
   fields:
     entity_category: config
-    id: button_factory_reset_1
+    id: reset
     name: Factory Reset
 - id: button_safe_mode_1
   component_id: button.safe_mode
@@ -78,7 +78,7 @@ featured_components:
     entity_category: config
     id: button_safe_mode_1
     name: Safe Mode
-- id: light_esp32_rmt_led_strip_1
+- id: rgb_led
   component_id: light.esp32_rmt_led_strip
   fields:
     chipset: ws2812
@@ -87,54 +87,54 @@ featured_components:
       locked: true
     num_leds: 1
     rgb_order: RGB
-    id: light_esp32_rmt_led_strip_1
+    id: rgb_led
     name: RGB LED
-- id: output_ledc_1
+- id: buzzer_output
   component_id: output.ledc
   fields:
     pin:
       value: 21
       locked: true
-    id: output_ledc_1
+    id: buzzer_output
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: WiFi Signal dB
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 1
       locked: true
-    id: switch_gpio_1
+    id: relay1
     name: Relay 1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
       value: 2
       locked: true
-    id: switch_gpio_2
+    id: relay2
     name: Relay 2
-- id: switch_gpio_3
+- id: relay3
   component_id: switch.gpio
   fields:
     pin:
       value: 41
       locked: true
-    id: switch_gpio_3
+    id: relay3
     name: Relay 3
-- id: switch_gpio_4
+- id: relay4
   component_id: switch.gpio
   fields:
     pin:
       value: 42
       locked: true
-    id: switch_gpio_4
+    id: relay4
     name: Relay 4
-- id: switch_gpio_5
+- id: relay5
   component_id: switch.gpio
   fields:
     pin:
@@ -142,9 +142,9 @@ featured_components:
         number: 45
         ignore_strapping_warning: true
       locked: true
-    id: switch_gpio_5
+    id: relay5
     name: Relay 5
-- id: switch_gpio_6
+- id: relay6
   component_id: switch.gpio
   fields:
     pin:
@@ -152,7 +152,7 @@ featured_components:
         number: 46
         ignore_strapping_warning: true
       locked: true
-    id: switch_gpio_6
+    id: relay6
     name: Relay 6
 source:
   type: esphome-devices

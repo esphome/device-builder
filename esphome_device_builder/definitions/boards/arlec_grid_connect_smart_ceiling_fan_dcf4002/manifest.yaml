@@ -13,16 +13,16 @@ images:
 - images/DCF4002_daughterboard.jpg
 docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-Ceiling-Fan-DCF4002/
 featured_components:
-- id: fan_tuya_1
+- id: ceiling_fan
   component_id: fan.tuya
   fields:
     switch_datapoint: 1
     speed_datapoint: 3
     direction_datapoint: 4
     speed_count: 6
-    id: fan_tuya_1
+    id: ceiling_fan
     name: Ceiling Fan
-- id: light_tuya_1
+- id: ceiling_fan_light
   component_id: light.tuya
   fields:
     switch_datapoint: 9
@@ -34,7 +34,7 @@ featured_components:
     color_temperature_invert: false
     cold_white_color_temperature: 6493 K
     warm_white_color_temperature: 4065 K
-    id: light_tuya_1
+    id: ceiling_fan_light
     name: Light
 source:
   type: esphome-devices

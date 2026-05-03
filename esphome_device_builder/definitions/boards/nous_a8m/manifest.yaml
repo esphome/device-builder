@@ -15,17 +15,17 @@ tags:
 docs_url: https://devices.esphome.io/devices/Nous-A8M/
 product_url: https://nous.technology/product/a8m.html
 featured_components:
-- id: binary_sensor_gpio_1
+- id: push_button
   component_id: binary_sensor.gpio
   fields:
     internal: true
-    id: binary_sensor_gpio_1
+    id: push_button
     name: Button
-- id: light_status_led_1
+- id: led
   component_id: light.status_led
   fields:
     internal: true
-    id: light_status_led_1
+    id: led
     name: Switch State LED
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
@@ -34,12 +34,12 @@ featured_components:
     update_interval: 10s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power
-    id: switch_gpio_1
+    id: relay
     name: Relay
 source:
   type: esphome-devices

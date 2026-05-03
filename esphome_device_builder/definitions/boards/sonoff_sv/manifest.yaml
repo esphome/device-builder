@@ -32,14 +32,14 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Button
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
     pin:
       value: 12
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: Outlet
 source:
   type: esphome-devices

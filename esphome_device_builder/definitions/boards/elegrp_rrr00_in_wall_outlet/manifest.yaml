@@ -17,40 +17,42 @@ tags:
 - compact
 docs_url: https://devices.esphome.io/devices/Elegrp-RRR00-in-wall-outlet/
 featured_components:
-- id: button_factory_reset_1
+- id: factory_reset_button
   component_id: button.factory_reset
   fields:
     disabled_by_default: true
     entity_category: config
     icon: mdi:restart-alert
-    id: button_factory_reset_1
+    id: factory_reset_button
     name: Factory Reset
-- id: light_binary_1
+- id: light_upper_white
   component_id: light.binary
   fields:
     internal: true
-    id: light_binary_1
+    output: upper_white_led
+    id: light_upper_white
     name: light_upper_white
-- id: light_binary_2
+- id: light_lower_white
   component_id: light.binary
   fields:
     internal: true
-    id: light_binary_2
+    output: lower_white_led
+    id: light_lower_white
     name: light_lower_white
-- id: output_gpio_1
+- id: upper_white_led
   component_id: output.gpio
   fields:
     inverted:
       value: false
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: upper_white_led
+- id: lower_white_led
   component_id: output.gpio
   fields:
     inverted:
       value: false
       locked: true
-    id: output_gpio_2
+    id: lower_white_led
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -66,18 +68,29 @@ featured_components:
     accuracy_decimals: 3
     id: sensor_total_daily_energy_1
     name: Total Daily Energy
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay_1
     name: Relay 1
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_2
+    id: relay_2
     name: Relay 2
+featured_bundles:
+- id: light_upper_white_setup
+  name: light_upper_white (full setup)
+  component_ids:
+  - upper_white_led
+  - light_upper_white
+- id: light_lower_white_setup
+  name: light_lower_white (full setup)
+  component_ids:
+  - lower_white_led
+  - light_lower_white
 source:
   type: esphome-devices
   remote_id: Elegrp-RRR00-in-wall-outlet

@@ -18,7 +18,7 @@ pins:
   occupied_by: light1
 docs_url: https://devices.esphome.io/devices/KinCony-M30/
 featured_components:
-- id: light_esp32_rmt_led_strip_1
+- id: light1
   component_id: light.esp32_rmt_led_strip
   fields:
     rgb_order: GRB
@@ -27,9 +27,9 @@ featured_components:
       locked: true
     num_leds: 30
     chipset: ws2812
-    id: light_esp32_rmt_led_strip_1
+    id: light1
     name: light1
-- id: sensor_modbus_controller_1
+- id: m30_1_current_1
   component_id: sensor.modbus_controller
   fields:
     address: 100
@@ -37,9 +37,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_1
+    id: m30_1_current_1
     name: m30_1_current_1
-- id: sensor_modbus_controller_2
+- id: m30_1_current_2
   component_id: sensor.modbus_controller
   fields:
     address: 101
@@ -47,9 +47,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_2
+    id: m30_1_current_2
     name: m30_1_current_2
-- id: sensor_modbus_controller_3
+- id: m30_1_current_3
   component_id: sensor.modbus_controller
   fields:
     address: 102
@@ -57,9 +57,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_3
+    id: m30_1_current_3
     name: m30_1_current_3
-- id: sensor_modbus_controller_4
+- id: m30_1_current_4
   component_id: sensor.modbus_controller
   fields:
     address: 103
@@ -67,9 +67,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_4
+    id: m30_1_current_4
     name: m30_1_current_4
-- id: sensor_modbus_controller_5
+- id: m30_1_current_5
   component_id: sensor.modbus_controller
   fields:
     address: 104
@@ -77,9 +77,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_5
+    id: m30_1_current_5
     name: m30_1_current_5
-- id: sensor_modbus_controller_6
+- id: m30_1_current_6
   component_id: sensor.modbus_controller
   fields:
     address: 105
@@ -87,9 +87,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_6
+    id: m30_1_current_6
     name: m30_1_current_6
-- id: sensor_modbus_controller_7
+- id: m30_1_current_7
   component_id: sensor.modbus_controller
   fields:
     address: 106
@@ -97,9 +97,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_7
+    id: m30_1_current_7
     name: m30_1_current_7
-- id: sensor_modbus_controller_8
+- id: m30_1_current_8
   component_id: sensor.modbus_controller
   fields:
     address: 107
@@ -107,9 +107,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_8
+    id: m30_1_current_8
     name: m30_1_current_8
-- id: sensor_modbus_controller_9
+- id: m30_1_current_9
   component_id: sensor.modbus_controller
   fields:
     address: 108
@@ -117,9 +117,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_9
+    id: m30_1_current_9
     name: m30_1_current_9
-- id: sensor_modbus_controller_10
+- id: m30_1_current_10
   component_id: sensor.modbus_controller
   fields:
     address: 109
@@ -127,9 +127,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_10
+    id: m30_1_current_10
     name: m30_1_current_10
-- id: sensor_modbus_controller_11
+- id: m30_1_voltage
   component_id: sensor.modbus_controller
   fields:
     address: 110
@@ -137,9 +137,9 @@ featured_components:
     unit_of_measurement: V
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_11
+    id: m30_1_voltage
     name: m30_1_voltage
-- id: sensor_modbus_controller_12
+- id: m30_1_watt_1
   component_id: sensor.modbus_controller
   fields:
     address: 111
@@ -147,9 +147,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_12
+    id: m30_1_watt_1
     name: m30_1_watt_1
-- id: sensor_modbus_controller_13
+- id: m30_1_watt_2
   component_id: sensor.modbus_controller
   fields:
     address: 112
@@ -157,9 +157,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_13
+    id: m30_1_watt_2
     name: m30_1_watt_2
-- id: sensor_modbus_controller_14
+- id: m30_1_watt_3
   component_id: sensor.modbus_controller
   fields:
     address: 113
@@ -167,9 +167,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_14
+    id: m30_1_watt_3
     name: m30_1_watt_3
-- id: sensor_modbus_controller_15
+- id: m30_1_watt_4
   component_id: sensor.modbus_controller
   fields:
     address: 114
@@ -177,9 +177,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_15
+    id: m30_1_watt_4
     name: m30_1_watt_4
-- id: sensor_modbus_controller_16
+- id: m30_1_watt_5
   component_id: sensor.modbus_controller
   fields:
     address: 115
@@ -187,9 +187,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_16
+    id: m30_1_watt_5
     name: m30_1_watt_5
-- id: sensor_modbus_controller_17
+- id: m30_1_watt_6
   component_id: sensor.modbus_controller
   fields:
     address: 116
@@ -197,9 +197,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_17
+    id: m30_1_watt_6
     name: m30_1_watt_6
-- id: sensor_modbus_controller_18
+- id: m30_1_watt_7
   component_id: sensor.modbus_controller
   fields:
     address: 117
@@ -207,9 +207,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_18
+    id: m30_1_watt_7
     name: m30_1_watt_7
-- id: sensor_modbus_controller_19
+- id: m30_1_watt_8
   component_id: sensor.modbus_controller
   fields:
     address: 118
@@ -217,9 +217,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_19
+    id: m30_1_watt_8
     name: m30_1_watt_8
-- id: sensor_modbus_controller_20
+- id: m30_1_watt_9
   component_id: sensor.modbus_controller
   fields:
     address: 119
@@ -227,9 +227,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_20
+    id: m30_1_watt_9
     name: m30_1_watt_9
-- id: sensor_modbus_controller_21
+- id: m30_1_watt_10
   component_id: sensor.modbus_controller
   fields:
     address: 120
@@ -237,9 +237,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_21
+    id: m30_1_watt_10
     name: m30_1_watt_10
-- id: sensor_modbus_controller_22
+- id: m30_1_energy_1
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -249,9 +249,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_22
+    id: m30_1_energy_1
     name: m30_1_energy_1
-- id: sensor_modbus_controller_23
+- id: m30_1_energy_2
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -261,9 +261,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_23
+    id: m30_1_energy_2
     name: m30_1_energy_2
-- id: sensor_modbus_controller_24
+- id: m30_1_energy_3
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -273,9 +273,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_24
+    id: m30_1_energy_3
     name: m30_1_energy_3
-- id: sensor_modbus_controller_25
+- id: m30_1_energy_4
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -285,9 +285,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_25
+    id: m30_1_energy_4
     name: m30_1_energy_4
-- id: sensor_modbus_controller_26
+- id: m30_1_energy_5
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -297,9 +297,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_26
+    id: m30_1_energy_5
     name: m30_1_energy_5
-- id: sensor_modbus_controller_27
+- id: m30_1_energy_6
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -309,9 +309,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_27
+    id: m30_1_energy_6
     name: m30_1_energy_6
-- id: sensor_modbus_controller_28
+- id: m30_1_energy_7
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -321,9 +321,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_28
+    id: m30_1_energy_7
     name: m30_1_energy_7
-- id: sensor_modbus_controller_29
+- id: m30_1_energy_8
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -333,9 +333,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_29
+    id: m30_1_energy_8
     name: m30_1_energy_8
-- id: sensor_modbus_controller_30
+- id: m30_1_energy_9
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -345,9 +345,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_30
+    id: m30_1_energy_9
     name: m30_1_energy_9
-- id: sensor_modbus_controller_31
+- id: m30_1_energy_10
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -357,9 +357,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_31
+    id: m30_1_energy_10
     name: m30_1_energy_10
-- id: sensor_modbus_controller_32
+- id: m30_1_energy_sum
   component_id: sensor.modbus_controller
   fields:
     address: 131
@@ -367,9 +367,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_32
+    id: m30_1_energy_sum
     name: m30_1_energy_sum
-- id: sensor_modbus_controller_33
+- id: m30_1_period
   component_id: sensor.modbus_controller
   fields:
     address: 132
@@ -377,9 +377,9 @@ featured_components:
     unit_of_measurement: Hz
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_33
+    id: m30_1_period
     name: m30_1_period
-- id: sensor_modbus_controller_34
+- id: m30_1_tps_1
   component_id: sensor.modbus_controller
   fields:
     address: 133
@@ -387,9 +387,9 @@ featured_components:
     unit_of_measurement: °C
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_34
+    id: m30_1_tps_1
     name: m30_1_tps_1
-- id: sensor_modbus_controller_35
+- id: m30_2_current_1
   component_id: sensor.modbus_controller
   fields:
     address: 200
@@ -397,9 +397,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_35
+    id: m30_2_current_1
     name: m30_2_current_1
-- id: sensor_modbus_controller_36
+- id: m30_2_current_2
   component_id: sensor.modbus_controller
   fields:
     address: 201
@@ -407,9 +407,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_36
+    id: m30_2_current_2
     name: m30_2_current_2
-- id: sensor_modbus_controller_37
+- id: m30_2_current_3
   component_id: sensor.modbus_controller
   fields:
     address: 202
@@ -417,9 +417,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_37
+    id: m30_2_current_3
     name: m30_2_current_3
-- id: sensor_modbus_controller_38
+- id: m30_2_current_4
   component_id: sensor.modbus_controller
   fields:
     address: 203
@@ -427,9 +427,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_38
+    id: m30_2_current_4
     name: m30_2_current_4
-- id: sensor_modbus_controller_39
+- id: m30_2_current_5
   component_id: sensor.modbus_controller
   fields:
     address: 204
@@ -437,9 +437,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_39
+    id: m30_2_current_5
     name: m30_2_current_5
-- id: sensor_modbus_controller_40
+- id: m30_2_current_6
   component_id: sensor.modbus_controller
   fields:
     address: 205
@@ -447,9 +447,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_40
+    id: m30_2_current_6
     name: m30_2_current_6
-- id: sensor_modbus_controller_41
+- id: m30_2_current_7
   component_id: sensor.modbus_controller
   fields:
     address: 206
@@ -457,9 +457,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_41
+    id: m30_2_current_7
     name: m30_2_current_7
-- id: sensor_modbus_controller_42
+- id: m30_2_current_8
   component_id: sensor.modbus_controller
   fields:
     address: 207
@@ -467,9 +467,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_42
+    id: m30_2_current_8
     name: m30_2_current_8
-- id: sensor_modbus_controller_43
+- id: m30_2_current_9
   component_id: sensor.modbus_controller
   fields:
     address: 208
@@ -477,9 +477,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_43
+    id: m30_2_current_9
     name: m30_2_current_9
-- id: sensor_modbus_controller_44
+- id: m30_2_current_10
   component_id: sensor.modbus_controller
   fields:
     address: 209
@@ -487,9 +487,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_44
+    id: m30_2_current_10
     name: m30_2_current_10
-- id: sensor_modbus_controller_45
+- id: m30_2_voltage
   component_id: sensor.modbus_controller
   fields:
     address: 210
@@ -497,9 +497,9 @@ featured_components:
     unit_of_measurement: V
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_45
+    id: m30_2_voltage
     name: m30_2_voltage
-- id: sensor_modbus_controller_46
+- id: m30_2_watt_1
   component_id: sensor.modbus_controller
   fields:
     address: 211
@@ -507,9 +507,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_46
+    id: m30_2_watt_1
     name: m30_2_watt_1
-- id: sensor_modbus_controller_47
+- id: m30_2_watt_2
   component_id: sensor.modbus_controller
   fields:
     address: 212
@@ -517,9 +517,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_47
+    id: m30_2_watt_2
     name: m30_2_watt_2
-- id: sensor_modbus_controller_48
+- id: m30_2_watt_3
   component_id: sensor.modbus_controller
   fields:
     address: 213
@@ -527,9 +527,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_48
+    id: m30_2_watt_3
     name: m30_2_watt_3
-- id: sensor_modbus_controller_49
+- id: m30_2_watt_4
   component_id: sensor.modbus_controller
   fields:
     address: 214
@@ -537,9 +537,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_49
+    id: m30_2_watt_4
     name: m30_2_watt_4
-- id: sensor_modbus_controller_50
+- id: m30_2_watt_5
   component_id: sensor.modbus_controller
   fields:
     address: 215
@@ -547,9 +547,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_50
+    id: m30_2_watt_5
     name: m30_2_watt_5
-- id: sensor_modbus_controller_51
+- id: m30_2_watt_6
   component_id: sensor.modbus_controller
   fields:
     address: 216
@@ -557,9 +557,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_51
+    id: m30_2_watt_6
     name: m30_2_watt_6
-- id: sensor_modbus_controller_52
+- id: m30_2_watt_7
   component_id: sensor.modbus_controller
   fields:
     address: 217
@@ -567,9 +567,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_52
+    id: m30_2_watt_7
     name: m30_2_watt_7
-- id: sensor_modbus_controller_53
+- id: m30_2_watt_8
   component_id: sensor.modbus_controller
   fields:
     address: 218
@@ -577,9 +577,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_53
+    id: m30_2_watt_8
     name: m30_2_watt_8
-- id: sensor_modbus_controller_54
+- id: m30_2_watt_9
   component_id: sensor.modbus_controller
   fields:
     address: 219
@@ -587,9 +587,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_54
+    id: m30_2_watt_9
     name: m30_2_watt_9
-- id: sensor_modbus_controller_55
+- id: m30_2_watt_10
   component_id: sensor.modbus_controller
   fields:
     address: 220
@@ -597,9 +597,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_55
+    id: m30_2_watt_10
     name: m30_2_watt_10
-- id: sensor_modbus_controller_56
+- id: m30_2_energy_1
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -609,9 +609,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_56
+    id: m30_2_energy_1
     name: m30_2_energy_1
-- id: sensor_modbus_controller_57
+- id: m30_2_energy_2
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -621,9 +621,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_57
+    id: m30_2_energy_2
     name: m30_2_energy_2
-- id: sensor_modbus_controller_58
+- id: m30_2_energy_3
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -633,9 +633,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_58
+    id: m30_2_energy_3
     name: m30_2_energy_3
-- id: sensor_modbus_controller_59
+- id: m30_2_energy_4
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -645,9 +645,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_59
+    id: m30_2_energy_4
     name: m30_2_energy_4
-- id: sensor_modbus_controller_60
+- id: m30_2_energy_5
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -657,9 +657,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_60
+    id: m30_2_energy_5
     name: m30_2_energy_5
-- id: sensor_modbus_controller_61
+- id: m30_2_energy_6
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -669,9 +669,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_61
+    id: m30_2_energy_6
     name: m30_2_energy_6
-- id: sensor_modbus_controller_62
+- id: m30_2_energy_7
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -681,9 +681,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_62
+    id: m30_2_energy_7
     name: m30_2_energy_7
-- id: sensor_modbus_controller_63
+- id: m30_2_energy_8
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -693,9 +693,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_63
+    id: m30_2_energy_8
     name: m30_2_energy_8
-- id: sensor_modbus_controller_64
+- id: m30_2_energy_9
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -705,9 +705,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_64
+    id: m30_2_energy_9
     name: m30_2_energy_9
-- id: sensor_modbus_controller_65
+- id: m30_2_energy_10
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -717,9 +717,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_65
+    id: m30_2_energy_10
     name: m30_2_energy_10
-- id: sensor_modbus_controller_66
+- id: m30_2_energy_sum
   component_id: sensor.modbus_controller
   fields:
     address: 231
@@ -727,9 +727,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_66
+    id: m30_2_energy_sum
     name: m30_2_energy_sum
-- id: sensor_modbus_controller_67
+- id: m30_2_period
   component_id: sensor.modbus_controller
   fields:
     address: 232
@@ -737,9 +737,9 @@ featured_components:
     unit_of_measurement: Hz
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_67
+    id: m30_2_period
     name: m30_2_period
-- id: sensor_modbus_controller_68
+- id: m30_2_tps_1
   component_id: sensor.modbus_controller
   fields:
     address: 233
@@ -747,9 +747,9 @@ featured_components:
     unit_of_measurement: °C
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_68
+    id: m30_2_tps_1
     name: m30_2_tps_1
-- id: sensor_modbus_controller_69
+- id: m30_3_current_1
   component_id: sensor.modbus_controller
   fields:
     address: 300
@@ -757,9 +757,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_69
+    id: m30_3_current_1
     name: m30_3_current_1
-- id: sensor_modbus_controller_70
+- id: m30_3_current_2
   component_id: sensor.modbus_controller
   fields:
     address: 301
@@ -767,9 +767,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_70
+    id: m30_3_current_2
     name: m30_3_current_2
-- id: sensor_modbus_controller_71
+- id: m30_3_current_3
   component_id: sensor.modbus_controller
   fields:
     address: 302
@@ -777,9 +777,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_71
+    id: m30_3_current_3
     name: m30_3_current_3
-- id: sensor_modbus_controller_72
+- id: m30_3_current_4
   component_id: sensor.modbus_controller
   fields:
     address: 303
@@ -787,9 +787,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_72
+    id: m30_3_current_4
     name: m30_3_current_4
-- id: sensor_modbus_controller_73
+- id: m30_3_current_5
   component_id: sensor.modbus_controller
   fields:
     address: 304
@@ -797,9 +797,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_73
+    id: m30_3_current_5
     name: m30_3_current_5
-- id: sensor_modbus_controller_74
+- id: m30_3_current_6
   component_id: sensor.modbus_controller
   fields:
     address: 305
@@ -807,9 +807,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_74
+    id: m30_3_current_6
     name: m30_3_current_6
-- id: sensor_modbus_controller_75
+- id: m30_3_current_7
   component_id: sensor.modbus_controller
   fields:
     address: 306
@@ -817,9 +817,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_75
+    id: m30_3_current_7
     name: m30_3_current_7
-- id: sensor_modbus_controller_76
+- id: m30_3_current_8
   component_id: sensor.modbus_controller
   fields:
     address: 307
@@ -827,9 +827,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_76
+    id: m30_3_current_8
     name: m30_3_current_8
-- id: sensor_modbus_controller_77
+- id: m30_3_current_9
   component_id: sensor.modbus_controller
   fields:
     address: 308
@@ -837,9 +837,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_77
+    id: m30_3_current_9
     name: m30_3_current_9
-- id: sensor_modbus_controller_78
+- id: m30_3_current_10
   component_id: sensor.modbus_controller
   fields:
     address: 309
@@ -847,9 +847,9 @@ featured_components:
     unit_of_measurement: A
     accuracy_decimals: 3
     value_type: U_WORD
-    id: sensor_modbus_controller_78
+    id: m30_3_current_10
     name: m30_3_current_10
-- id: sensor_modbus_controller_79
+- id: m30_3_voltage
   component_id: sensor.modbus_controller
   fields:
     address: 310
@@ -857,9 +857,9 @@ featured_components:
     unit_of_measurement: V
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_79
+    id: m30_3_voltage
     name: m30_3_voltage
-- id: sensor_modbus_controller_80
+- id: m30_3_watt_1
   component_id: sensor.modbus_controller
   fields:
     address: 311
@@ -867,9 +867,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_80
+    id: m30_3_watt_1
     name: m30_3_watt_1
-- id: sensor_modbus_controller_81
+- id: m30_3_watt_2
   component_id: sensor.modbus_controller
   fields:
     address: 312
@@ -877,9 +877,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_81
+    id: m30_3_watt_2
     name: m30_3_watt_2
-- id: sensor_modbus_controller_82
+- id: m30_3_watt_3
   component_id: sensor.modbus_controller
   fields:
     address: 313
@@ -887,9 +887,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_82
+    id: m30_3_watt_3
     name: m30_3_watt_3
-- id: sensor_modbus_controller_83
+- id: m30_3_watt_4
   component_id: sensor.modbus_controller
   fields:
     address: 314
@@ -897,9 +897,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_83
+    id: m30_3_watt_4
     name: m30_3_watt_4
-- id: sensor_modbus_controller_84
+- id: m30_3_watt_5
   component_id: sensor.modbus_controller
   fields:
     address: 315
@@ -907,9 +907,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_84
+    id: m30_3_watt_5
     name: m30_3_watt_5
-- id: sensor_modbus_controller_85
+- id: m30_3_watt_6
   component_id: sensor.modbus_controller
   fields:
     address: 316
@@ -917,9 +917,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_85
+    id: m30_3_watt_6
     name: m30_3_watt_6
-- id: sensor_modbus_controller_86
+- id: m30_3_watt_7
   component_id: sensor.modbus_controller
   fields:
     address: 317
@@ -927,9 +927,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_86
+    id: m30_3_watt_7
     name: m30_3_watt_7
-- id: sensor_modbus_controller_87
+- id: m30_3_watt_8
   component_id: sensor.modbus_controller
   fields:
     address: 318
@@ -937,9 +937,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_87
+    id: m30_3_watt_8
     name: m30_3_watt_8
-- id: sensor_modbus_controller_88
+- id: m30_3_watt_9
   component_id: sensor.modbus_controller
   fields:
     address: 319
@@ -947,9 +947,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_88
+    id: m30_3_watt_9
     name: m30_3_watt_9
-- id: sensor_modbus_controller_89
+- id: m30_3_watt_10
   component_id: sensor.modbus_controller
   fields:
     address: 320
@@ -957,9 +957,9 @@ featured_components:
     unit_of_measurement: W
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_89
+    id: m30_3_watt_10
     name: m30_3_watt_10
-- id: sensor_modbus_controller_90
+- id: m30_3_energy_1
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -969,9 +969,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_90
+    id: m30_3_energy_1
     name: m30_3_energy_1
-- id: sensor_modbus_controller_91
+- id: m30_3_energy_2
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -981,9 +981,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_91
+    id: m30_3_energy_2
     name: m30_3_energy_2
-- id: sensor_modbus_controller_92
+- id: m30_3_energy_3
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -993,9 +993,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_92
+    id: m30_3_energy_3
     name: m30_3_energy_3
-- id: sensor_modbus_controller_93
+- id: m30_3_energy_4
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -1005,9 +1005,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_93
+    id: m30_3_energy_4
     name: m30_3_energy_4
-- id: sensor_modbus_controller_94
+- id: m30_3_energy_5
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -1017,9 +1017,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_94
+    id: m30_3_energy_5
     name: m30_3_energy_5
-- id: sensor_modbus_controller_95
+- id: m30_3_energy_6
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -1029,9 +1029,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_95
+    id: m30_3_energy_6
     name: m30_3_energy_6
-- id: sensor_modbus_controller_96
+- id: m30_3_energy_7
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -1041,9 +1041,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_96
+    id: m30_3_energy_7
     name: m30_3_energy_7
-- id: sensor_modbus_controller_97
+- id: m30_3_energy_8
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -1053,9 +1053,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_97
+    id: m30_3_energy_8
     name: m30_3_energy_8
-- id: sensor_modbus_controller_98
+- id: m30_3_energy_9
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -1065,9 +1065,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_98
+    id: m30_3_energy_9
     name: m30_3_energy_9
-- id: sensor_modbus_controller_99
+- id: m30_3_energy_10
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -1077,9 +1077,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_99
+    id: m30_3_energy_10
     name: m30_3_energy_10
-- id: sensor_modbus_controller_100
+- id: m30_3_energy_sum
   component_id: sensor.modbus_controller
   fields:
     address: 331
@@ -1087,9 +1087,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_100
+    id: m30_3_energy_sum
     name: m30_3_energy_sum
-- id: sensor_modbus_controller_101
+- id: m30_3_period
   component_id: sensor.modbus_controller
   fields:
     address: 332
@@ -1097,9 +1097,9 @@ featured_components:
     unit_of_measurement: Hz
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_101
+    id: m30_3_period
     name: m30_3_period
-- id: sensor_modbus_controller_102
+- id: m30_3_tps_1
   component_id: sensor.modbus_controller
   fields:
     address: 333
@@ -1107,7 +1107,7 @@ featured_components:
     unit_of_measurement: °C
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_102
+    id: m30_3_tps_1
     name: m30_3_tps_1
 source:
   type: esphome-devices

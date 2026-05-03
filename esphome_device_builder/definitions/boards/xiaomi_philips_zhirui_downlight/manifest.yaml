@@ -24,22 +24,31 @@ featured_components:
   fields:
     cold_white_color_temperature: 5700 K
     warm_white_color_temperature: 3000 K
+    cold_white: out_cw
+    warm_white: out_ww
     id: light_cwww_1
     name: Спот
-- id: output_esp8266_pwm_1
+- id: out_cw
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: out_cw
+- id: out_ww
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 15
       locked: true
-    id: output_esp8266_pwm_2
+    id: out_ww
+featured_bundles:
+- id: light_cwww_1_setup
+  name: Спот (full setup)
+  component_ids:
+  - out_cw
+  - out_ww
+  - light_cwww_1
 source:
   type: esphome-devices
   remote_id: Xiaomi-Philips-Zhirui-Downlight

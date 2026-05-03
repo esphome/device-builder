@@ -59,7 +59,7 @@ pins:
   occupied_by: dm8-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-DM8/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: dm8_input01
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -69,9 +69,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: dm8_input01
     name: dm8-input01
-- id: binary_sensor_gpio_2
+- id: dm8_input02
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -81,9 +81,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: dm8_input02
     name: dm8-input02
-- id: binary_sensor_gpio_3
+- id: dm8_input03
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -93,9 +93,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: dm8_input03
     name: dm8-input03
-- id: binary_sensor_gpio_4
+- id: dm8_input04
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -105,9 +105,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: dm8_input04
     name: dm8-input04
-- id: binary_sensor_gpio_5
+- id: dm8_input05
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -117,9 +117,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_5
+    id: dm8_input05
     name: dm8-input05
-- id: binary_sensor_gpio_6
+- id: dm8_input06
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -129,9 +129,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_6
+    id: dm8_input06
     name: dm8-input06
-- id: binary_sensor_gpio_7
+- id: dm8_input07
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -141,9 +141,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_7
+    id: dm8_input07
     name: dm8-input07
-- id: binary_sensor_gpio_8
+- id: dm8_input08
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -153,7 +153,7 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_8
+    id: dm8_input08
     name: dm8-input08
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio

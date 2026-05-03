@@ -36,16 +36,16 @@ featured_components:
     internal: false
     id: binary_sensor_gpio_1
     name: Button
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
     restore_mode: ALWAYS_OFF
-    id: switch_gpio_1
+    id: relay
     name: relay
-- id: switch_gpio_2
+- id: redled
   component_id: switch.gpio
   fields:
     pin:
@@ -56,7 +56,7 @@ featured_components:
       locked: true
     restore_mode: ALWAYS_ON
     internal: true
-    id: switch_gpio_2
+    id: redled
     name: redLED
 source:
   type: esphome-devices

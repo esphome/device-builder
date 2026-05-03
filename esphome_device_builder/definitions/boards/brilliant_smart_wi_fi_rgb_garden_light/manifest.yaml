@@ -21,33 +21,44 @@ pins:
   occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Brilliant-Smart-Wi-Fi-RGB-Garden-Light/
 featured_components:
-- id: light_rgb_1
+- id: me
   component_id: light.rgb
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
-    id: light_rgb_1
+    red: output_red
+    green: output_green
+    blue: output_blue
+    id: me
     name: Garden Light
-- id: output_esp8266_pwm_1
+- id: output_red
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 4
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: output_red
+- id: output_green
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: output_green
+- id: output_blue
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_3
+    id: output_blue
+featured_bundles:
+- id: me_setup
+  name: Garden Light (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - me
 source:
   type: esphome-devices
   remote_id: Brilliant-Smart-Wi-Fi-RGB-Garden-Light

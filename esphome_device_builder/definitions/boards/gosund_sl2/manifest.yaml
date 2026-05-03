@@ -42,27 +42,35 @@ featured_components:
     internal: true
     id: binary_sensor_gpio_1
     name: Pushbutton
-- id: output_esp8266_pwm_1
+- id: led_strip
+  component_id: light.rgb
+  fields:
+    red: output_red
+    green: output_green
+    blue: output_blue
+    id: led_strip
+    name: led_strip
+- id: output_red
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: output_red
+- id: output_green
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: output_green
+- id: output_blue
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
-    id: output_esp8266_pwm_3
+    id: output_blue
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -70,6 +78,14 @@ featured_components:
     icon: mdi:wifi
     id: sensor_wifi_signal_1
     name: Wifi Signal
+featured_bundles:
+- id: led_strip_setup
+  name: led_strip (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - led_strip
 source:
   type: esphome-devices
   remote_id: Gosund-SL2

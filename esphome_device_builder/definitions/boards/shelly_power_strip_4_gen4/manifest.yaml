@@ -58,7 +58,7 @@ pins:
   occupied_by: Button 3
 docs_url: https://devices.esphome.io/devices/Shelly-Power-Strip-4-Gen4/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_0
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -67,9 +67,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_0
     name: Button 1
-- id: binary_sensor_gpio_2
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -78,9 +78,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: button_1
     name: Button 2
-- id: binary_sensor_gpio_3
+- id: button_2
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -89,9 +89,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: button_2
     name: Button 3
-- id: binary_sensor_gpio_4
+- id: button_3
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -100,9 +100,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: button_3
     name: Button 4
-- id: light_esp32_rmt_led_strip_1
+- id: led_strip
   component_id: light.esp32_rmt_led_strip
   fields:
     pin:
@@ -113,9 +113,9 @@ featured_components:
     rgb_order: GRB
     default_transition_length: 0s
     internal: true
-    id: light_esp32_rmt_led_strip_1
+    id: led_strip
     name: LED Strip
-- id: sensor_ade7953_spi_1
+- id: ade7953_0
   component_id: sensor.ade7953_spi
   fields:
     cs_pin:
@@ -125,9 +125,9 @@ featured_components:
       value: 6
       locked: true
     update_interval: 10s
-    id: sensor_ade7953_spi_1
+    id: ade7953_0
     name: ade7953_0
-- id: sensor_ade7953_spi_2
+- id: ade7953_1
   component_id: sensor.ade7953_spi
   fields:
     cs_pin:
@@ -137,9 +137,9 @@ featured_components:
       value: 7
       locked: true
     update_interval: 10s
-    id: sensor_ade7953_spi_2
+    id: ade7953_1
     name: ade7953_1
-- id: switch_gpio_1
+- id: relay_0
   component_id: switch.gpio
   fields:
     pin:
@@ -147,9 +147,9 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power-socket-eu
-    id: switch_gpio_1
+    id: relay_0
     name: Outlet 1
-- id: switch_gpio_2
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
@@ -157,9 +157,9 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power-socket-eu
-    id: switch_gpio_2
+    id: relay_1
     name: Outlet 2
-- id: switch_gpio_3
+- id: relay_2
   component_id: switch.gpio
   fields:
     pin:
@@ -167,9 +167,9 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power-socket-eu
-    id: switch_gpio_3
+    id: relay_2
     name: Outlet 3
-- id: switch_gpio_4
+- id: relay_3
   component_id: switch.gpio
   fields:
     pin:
@@ -177,7 +177,7 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power-socket-eu
-    id: switch_gpio_4
+    id: relay_3
     name: Outlet 4
 source:
   type: esphome-devices

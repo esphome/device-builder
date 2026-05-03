@@ -20,38 +20,53 @@ featured_components:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     color_interlock: true
+    red: output_red
+    green: output_green
+    blue: output_blue
+    cold_white: output_cold_white
+    warm_white: output_warm_white
     id: light_rgbww_1
     name: Light
-- id: output_bp5758d_1
+- id: output_red
   component_id: output.bp5758d
   fields:
     channel: 3
     current: 40
-    id: output_bp5758d_1
-- id: output_bp5758d_2
+    id: output_red
+- id: output_green
   component_id: output.bp5758d
   fields:
     channel: 2
     current: 40
-    id: output_bp5758d_2
-- id: output_bp5758d_3
+    id: output_green
+- id: output_blue
   component_id: output.bp5758d
   fields:
     channel: 1
     current: 40
-    id: output_bp5758d_3
-- id: output_bp5758d_4
+    id: output_blue
+- id: output_cold_white
   component_id: output.bp5758d
   fields:
     channel: 5
     current: 30
-    id: output_bp5758d_4
-- id: output_bp5758d_5
+    id: output_cold_white
+- id: output_warm_white
   component_id: output.bp5758d
   fields:
     channel: 4
     current: 30
-    id: output_bp5758d_5
+    id: output_warm_white
+featured_bundles:
+- id: light_rgbww_1_setup
+  name: Light (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - output_cold_white
+  - output_warm_white
+  - light_rgbww_1
 source:
   type: esphome-devices
   remote_id: Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb

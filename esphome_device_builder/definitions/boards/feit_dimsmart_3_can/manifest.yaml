@@ -12,14 +12,14 @@ images:
 - images/board.jpg
 docs_url: https://devices.esphome.io/devices/Feit-DIMSMART-3-CAN/
 featured_components:
-- id: light_tuya_1
+- id: dimmer_switch
   component_id: light.tuya
   fields:
     switch_datapoint: 1
     dimmer_datapoint: 2
     min_value_datapoint: 3
     max_value: 1490
-    id: light_tuya_1
+    id: dimmer_switch
     name: Dimmer Switch
 - id: number_tuya_1
   component_id: number.tuya

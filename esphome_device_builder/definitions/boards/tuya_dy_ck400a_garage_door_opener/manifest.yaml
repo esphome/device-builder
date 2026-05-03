@@ -13,17 +13,17 @@ images:
 - images/programming-pins.png
 docs_url: https://devices.esphome.io/devices/Tuya-DY-CK400A-Garage-Door-Opener/
 featured_components:
-- id: binary_sensor_tuya_1
+- id: contact
   component_id: binary_sensor.tuya
   fields:
     sensor_datapoint: 101
-    id: binary_sensor_tuya_1
+    id: contact
     name: contact
-- id: switch_tuya_1
+- id: mcu_cover
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
-    id: switch_tuya_1
+    id: mcu_cover
     name: mcu_cover
 source:
   type: esphome-devices

@@ -175,54 +175,58 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: dm4-0
-- id: light_monochromatic_1
+- id: dm4_dac_1
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
-    id: light_monochromatic_1
+    output: ac_dimmer_1
+    id: dm4_dac_1
     name: DM4 DAC-1
-- id: light_monochromatic_2
+- id: dm4_dac_2
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
-    id: light_monochromatic_2
+    output: ac_dimmer_2
+    id: dm4_dac_2
     name: DM4 DAC-2
-- id: light_monochromatic_3
+- id: dm4_dac_3
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
-    id: light_monochromatic_3
+    output: ac_dimmer_3
+    id: dm4_dac_3
     name: DM4 DAC-3
-- id: light_monochromatic_4
+- id: dm4_dac_4
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
-    id: light_monochromatic_4
+    output: ac_dimmer_4
+    id: dm4_dac_4
     name: DM4 DAC-4
-- id: output_mcp4728_1
+- id: ac_dimmer_1
   component_id: output.mcp4728
   fields:
     channel: A
     vref: internal
-    id: output_mcp4728_1
-- id: output_mcp4728_2
+    id: ac_dimmer_1
+- id: ac_dimmer_2
   component_id: output.mcp4728
   fields:
     channel: B
     vref: internal
-    id: output_mcp4728_2
-- id: output_mcp4728_3
+    id: ac_dimmer_2
+- id: ac_dimmer_3
   component_id: output.mcp4728
   fields:
     channel: C
     vref: internal
-    id: output_mcp4728_3
-- id: output_mcp4728_4
+    id: ac_dimmer_3
+- id: ac_dimmer_4
   component_id: output.mcp4728
   fields:
     channel: D
     vref: internal
-    id: output_mcp4728_4
+    id: ac_dimmer_4
 - id: sensor_ads1115_1
   component_id: sensor.ads1115
   fields:
@@ -256,6 +260,27 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_4
     name: ADS1115 Channel A3-GND
+featured_bundles:
+- id: dm4_dac_1_setup
+  name: DM4 DAC-1 (full setup)
+  component_ids:
+  - ac_dimmer_1
+  - dm4_dac_1
+- id: dm4_dac_2_setup
+  name: DM4 DAC-2 (full setup)
+  component_ids:
+  - ac_dimmer_2
+  - dm4_dac_2
+- id: dm4_dac_3_setup
+  name: DM4 DAC-3 (full setup)
+  component_ids:
+  - ac_dimmer_3
+  - dm4_dac_3
+- id: dm4_dac_4_setup
+  name: DM4 DAC-4 (full setup)
+  component_ids:
+  - ac_dimmer_4
+  - dm4_dac_4
 source:
   type: esphome-devices
   remote_id: KinCony-DM4

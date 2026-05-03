@@ -103,54 +103,70 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: Onboard Button
-- id: output_ledc_1
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    red: pwm_r
+    green: pwm_g
+    blue: pwm_b
+    white: pwm_w
+    id: light_rgbw_1
+    name: Led Stip
+- id: pwm_r
   component_id: output.ledc
   fields:
     pin:
       value: 25
       locked: true
     frequency: 19531
-    id: output_ledc_1
-- id: output_ledc_2
+    id: pwm_r
+- id: pwm_g
   component_id: output.ledc
   fields:
     pin:
       value: 26
       locked: true
     frequency: 19531
-    id: output_ledc_2
-- id: output_ledc_3
+    id: pwm_g
+- id: pwm_b
   component_id: output.ledc
   fields:
     pin:
       value: 27
       locked: true
     frequency: 19531
-    id: output_ledc_3
-- id: output_ledc_4
+    id: pwm_b
+- id: pwm_w
   component_id: output.ledc
   fields:
     pin:
       value: 4
       locked: true
     frequency: 19531
-    id: output_ledc_4
-- id: sensor_adc_1
+    id: pwm_w
+- id: temp_analog_reading
   component_id: sensor.adc
   fields:
     pin:
       value: 33
       locked: true
     attenuation: 12db
-    id: sensor_adc_1
+    id: temp_analog_reading
     name: temp_analog_reading
-- id: sensor_resistance_1
+- id: temp_resistance_reading
   component_id: sensor.resistance
   fields:
     configuration: DOWNSTREAM
     resistor: 10kOhm
-    id: sensor_resistance_1
+    sensor: temp_analog_reading
+    id: temp_resistance_reading
     name: temp_resistance_reading
+- id: sensor_ntc_1
+  component_id: sensor.ntc
+  fields:
+    sensor: temp_resistance_reading
+    id: sensor_ntc_1
+    name: Temperature
 - id: sensor_adc_2
   component_id: sensor.adc
   fields:
@@ -172,6 +188,25 @@ featured_components:
     unit_of_measurement: A
     id: sensor_adc_3
     name: Current
+featured_bundles:
+- id: light_rgbw_1_setup
+  name: Led Stip (full setup)
+  component_ids:
+  - pwm_r
+  - pwm_g
+  - pwm_b
+  - pwm_w
+  - light_rgbw_1
+- id: temp_resistance_reading_setup
+  name: temp_resistance_reading (full setup)
+  component_ids:
+  - temp_analog_reading
+  - temp_resistance_reading
+- id: sensor_ntc_1_setup
+  name: Temperature (full setup)
+  component_ids:
+  - temp_resistance_reading
+  - sensor_ntc_1
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-RGBW-PM

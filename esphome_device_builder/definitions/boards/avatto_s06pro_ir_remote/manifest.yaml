@@ -40,21 +40,21 @@ featured_components:
       locked: true
     id: light_status_led_1
     name: Status LED
-- id: sensor_tuya_1
+- id: temperature
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 101
     unit_of_measurement: °C
     accuracy_decimals: 1
-    id: sensor_tuya_1
+    id: temperature
     name: Temperature
-- id: sensor_tuya_2
+- id: humidity
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 102
     unit_of_measurement: '%'
     accuracy_decimals: 0
-    id: sensor_tuya_2
+    id: humidity
     name: Humidity
 source:
   type: esphome-devices

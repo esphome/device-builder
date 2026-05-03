@@ -18,7 +18,7 @@ pins:
   occupied_by: led
 docs_url: https://devices.esphome.io/devices/Tuya-Generic-IRC03-IR-Blaster/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: btn
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -29,15 +29,27 @@ featured_components:
           pullup: true
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: btn
     name: btn
-- id: output_libretiny_pwm_1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: led
+    id: light_monochromatic_1
+    name: LED
+- id: led
   component_id: output.libretiny_pwm
   fields:
     pin:
       value: 24
       locked: true
-    id: output_libretiny_pwm_1
+    id: led
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: LED (full setup)
+  component_ids:
+  - led
+  - light_monochromatic_1
 source:
   type: esphome-devices
   remote_id: Tuya-Generic-IRC03-IR-Blaster

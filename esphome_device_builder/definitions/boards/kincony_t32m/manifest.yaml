@@ -580,7 +580,7 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_4
     name: t32m A4 Current
-- id: switch_gpio_1
+- id: t32m_output01
   component_id: switch.gpio
   fields:
     pin:
@@ -590,9 +590,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: t32m_output01
     name: t32m-output01
-- id: switch_gpio_2
+- id: t32m_output02
   component_id: switch.gpio
   fields:
     pin:
@@ -602,9 +602,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: t32m_output02
     name: t32m-output02
-- id: switch_gpio_3
+- id: t32m_output03
   component_id: switch.gpio
   fields:
     pin:
@@ -614,9 +614,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: t32m_output03
     name: t32m-output03
-- id: switch_gpio_4
+- id: t32m_output04
   component_id: switch.gpio
   fields:
     pin:
@@ -626,9 +626,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: t32m_output04
     name: t32m-output04
-- id: switch_gpio_5
+- id: t32m_output05
   component_id: switch.gpio
   fields:
     pin:
@@ -638,9 +638,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: t32m_output05
     name: t32m-output05
-- id: switch_gpio_6
+- id: t32m_output06
   component_id: switch.gpio
   fields:
     pin:
@@ -650,9 +650,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: t32m_output06
     name: t32m-output06
-- id: switch_gpio_7
+- id: t32m_output07
   component_id: switch.gpio
   fields:
     pin:
@@ -662,9 +662,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_7
+    id: t32m_output07
     name: t32m-output07
-- id: switch_gpio_8
+- id: t32m_output08
   component_id: switch.gpio
   fields:
     pin:
@@ -674,9 +674,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_8
+    id: t32m_output08
     name: t32m-output08
-- id: switch_gpio_9
+- id: t32m_output09
   component_id: switch.gpio
   fields:
     pin:
@@ -686,9 +686,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_9
+    id: t32m_output09
     name: t32m-output09
-- id: switch_gpio_10
+- id: t32m_output10
   component_id: switch.gpio
   fields:
     pin:
@@ -698,9 +698,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_10
+    id: t32m_output10
     name: t32m-output10
-- id: switch_gpio_11
+- id: t32m_output11
   component_id: switch.gpio
   fields:
     pin:
@@ -710,9 +710,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_11
+    id: t32m_output11
     name: t32m-output11
-- id: switch_gpio_12
+- id: t32m_output12
   component_id: switch.gpio
   fields:
     pin:
@@ -722,9 +722,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_12
+    id: t32m_output12
     name: t32m-output12
-- id: switch_gpio_13
+- id: t32m_output13
   component_id: switch.gpio
   fields:
     pin:
@@ -734,9 +734,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_13
+    id: t32m_output13
     name: t32m-output13
-- id: switch_gpio_14
+- id: t32m_output14
   component_id: switch.gpio
   fields:
     pin:
@@ -746,9 +746,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_14
+    id: t32m_output14
     name: t32m-output14
-- id: switch_gpio_15
+- id: t32m_output15
   component_id: switch.gpio
   fields:
     pin:
@@ -758,9 +758,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_15
+    id: t32m_output15
     name: t32m-output15
-- id: switch_gpio_16
+- id: t32m_output16
   component_id: switch.gpio
   fields:
     pin:
@@ -770,9 +770,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_16
+    id: t32m_output16
     name: t32m-output16
-- id: switch_gpio_17
+- id: t32m_output17
   component_id: switch.gpio
   fields:
     pin:
@@ -782,9 +782,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_17
+    id: t32m_output17
     name: t32m-output17
-- id: switch_gpio_18
+- id: t32m_output18
   component_id: switch.gpio
   fields:
     pin:
@@ -794,9 +794,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_18
+    id: t32m_output18
     name: t32m-output18
-- id: switch_gpio_19
+- id: t32m_output19
   component_id: switch.gpio
   fields:
     pin:
@@ -806,9 +806,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_19
+    id: t32m_output19
     name: t32m-output19
-- id: switch_gpio_20
+- id: t32m_output20
   component_id: switch.gpio
   fields:
     pin:
@@ -818,9 +818,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_20
+    id: t32m_output20
     name: t32m-output20
-- id: switch_gpio_21
+- id: t32m_output21
   component_id: switch.gpio
   fields:
     pin:
@@ -830,9 +830,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_21
+    id: t32m_output21
     name: t32m-output21
-- id: switch_gpio_22
+- id: t32m_output22
   component_id: switch.gpio
   fields:
     pin:
@@ -842,9 +842,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_22
+    id: t32m_output22
     name: t32m-output22
-- id: switch_gpio_23
+- id: t32m_output23
   component_id: switch.gpio
   fields:
     pin:
@@ -854,9 +854,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_23
+    id: t32m_output23
     name: t32m-output23
-- id: switch_gpio_24
+- id: t32m_output24
   component_id: switch.gpio
   fields:
     pin:
@@ -866,9 +866,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_24
+    id: t32m_output24
     name: t32m-output24
-- id: switch_gpio_25
+- id: t32m_output25
   component_id: switch.gpio
   fields:
     pin:
@@ -878,9 +878,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_25
+    id: t32m_output25
     name: t32m-output25
-- id: switch_gpio_26
+- id: t32m_output26
   component_id: switch.gpio
   fields:
     pin:
@@ -890,9 +890,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_26
+    id: t32m_output26
     name: t32m-output26
-- id: switch_gpio_27
+- id: t32m_output27
   component_id: switch.gpio
   fields:
     pin:
@@ -902,9 +902,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_27
+    id: t32m_output27
     name: t32m-output27
-- id: switch_gpio_28
+- id: t32m_output28
   component_id: switch.gpio
   fields:
     pin:
@@ -914,9 +914,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_28
+    id: t32m_output28
     name: t32m-output28
-- id: switch_gpio_29
+- id: t32m_output29
   component_id: switch.gpio
   fields:
     pin:
@@ -926,9 +926,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_29
+    id: t32m_output29
     name: t32m-output29
-- id: switch_gpio_30
+- id: t32m_output30
   component_id: switch.gpio
   fields:
     pin:
@@ -938,9 +938,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_30
+    id: t32m_output30
     name: t32m-output30
-- id: switch_gpio_31
+- id: t32m_output31
   component_id: switch.gpio
   fields:
     pin:
@@ -950,9 +950,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_31
+    id: t32m_output31
     name: t32m-output31
-- id: switch_gpio_32
+- id: t32m_output32
   component_id: switch.gpio
   fields:
     pin:
@@ -962,7 +962,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_32
+    id: t32m_output32
     name: t32m-output32
 source:
   type: esphome-devices

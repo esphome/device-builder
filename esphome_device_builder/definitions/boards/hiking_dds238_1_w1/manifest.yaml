@@ -30,7 +30,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: SET long press
-- id: output_gpio_1
+- id: tuya_led_wifi
   component_id: output.gpio
   fields:
     pin:
@@ -39,7 +39,7 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_gpio_1
+    id: tuya_led_wifi
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -50,7 +50,7 @@ featured_components:
     accuracy_decimals: 2
     id: sensor_tuya_1
     name: Frequency
-- id: sensor_tuya_2
+- id: power_active
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 103
@@ -58,9 +58,9 @@ featured_components:
     unit_of_measurement: kW
     state_class: measurement
     accuracy_decimals: 3
-    id: sensor_tuya_2
+    id: power_active
     name: Power Active
-- id: sensor_tuya_3
+- id: power_reactive
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 110
@@ -68,7 +68,7 @@ featured_components:
     unit_of_measurement: kVAr
     state_class: measurement
     accuracy_decimals: 3
-    id: sensor_tuya_3
+    id: power_reactive
     name: Power Reactive
 - id: sensor_tuya_4
   component_id: sensor.tuya
@@ -109,11 +109,11 @@ featured_components:
     accuracy_decimals: 3
     id: sensor_tuya_7
     name: Energy to Grid
-- id: switch_tuya_1
+- id: sw_relay
   component_id: switch.tuya
   fields:
     switch_datapoint: 16
-    id: switch_tuya_1
+    id: sw_relay
     name: Switch
 - id: switch_tuya_2
   component_id: switch.tuya

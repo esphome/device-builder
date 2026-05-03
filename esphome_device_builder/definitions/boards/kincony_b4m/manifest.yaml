@@ -61,7 +61,7 @@ pins:
   occupied_by: b4m-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-B4M/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: b4_input01
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -71,9 +71,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: b4_input01
     name: b4-input01
-- id: binary_sensor_gpio_2
+- id: b4_input02
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -83,9 +83,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: b4_input02
     name: b4-input02
-- id: binary_sensor_gpio_3
+- id: b4_input03
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -95,9 +95,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: b4_input03
     name: b4-input03
-- id: binary_sensor_gpio_4
+- id: b4_input04
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -107,7 +107,7 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: b4_input04
     name: b4-input04
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
@@ -222,7 +222,7 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_4
     name: ADS1115 Channel A3-GND
-- id: switch_gpio_1
+- id: b4_output01
   component_id: switch.gpio
   fields:
     pin:
@@ -232,9 +232,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: b4_output01
     name: b4-output01
-- id: switch_gpio_2
+- id: b4_output02
   component_id: switch.gpio
   fields:
     pin:
@@ -244,9 +244,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: b4_output02
     name: b4-output02
-- id: switch_gpio_3
+- id: b4_output03
   component_id: switch.gpio
   fields:
     pin:
@@ -256,9 +256,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: b4_output03
     name: b4-output03
-- id: switch_gpio_4
+- id: b4_output04
   component_id: switch.gpio
   fields:
     pin:
@@ -268,7 +268,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: b4_output04
     name: b4-output04
 source:
   type: esphome-devices

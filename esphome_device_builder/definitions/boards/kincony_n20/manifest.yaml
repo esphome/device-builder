@@ -14,7 +14,7 @@ images:
 - images/N20-1.jpg
 docs_url: https://devices.esphome.io/devices/KinCony-N20/
 featured_components:
-- id: sensor_modbus_controller_1
+- id: n20_1_current_1
   component_id: sensor.modbus_controller
   fields:
     address: 100
@@ -23,9 +23,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_1
+    id: n20_1_current_1
     name: bl0910_1_current_1
-- id: sensor_modbus_controller_2
+- id: n20_1_current_2
   component_id: sensor.modbus_controller
   fields:
     address: 102
@@ -34,9 +34,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_2
+    id: n20_1_current_2
     name: bl0910_1_current_2
-- id: sensor_modbus_controller_3
+- id: n20_1_current_3
   component_id: sensor.modbus_controller
   fields:
     address: 104
@@ -45,9 +45,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_3
+    id: n20_1_current_3
     name: bl0910_1_current_3
-- id: sensor_modbus_controller_4
+- id: n20_1_current_4
   component_id: sensor.modbus_controller
   fields:
     address: 106
@@ -56,9 +56,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_4
+    id: n20_1_current_4
     name: bl0910_1_current_4
-- id: sensor_modbus_controller_5
+- id: n20_1_current_5
   component_id: sensor.modbus_controller
   fields:
     address: 108
@@ -67,9 +67,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_5
+    id: n20_1_current_5
     name: bl0910_1_current_5
-- id: sensor_modbus_controller_6
+- id: n20_1_current_6
   component_id: sensor.modbus_controller
   fields:
     address: 110
@@ -78,9 +78,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_6
+    id: n20_1_current_6
     name: bl0910_1_current_6
-- id: sensor_modbus_controller_7
+- id: n20_1_current_7
   component_id: sensor.modbus_controller
   fields:
     address: 112
@@ -89,9 +89,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_7
+    id: n20_1_current_7
     name: bl0910_1_current_7
-- id: sensor_modbus_controller_8
+- id: n20_1_current_8
   component_id: sensor.modbus_controller
   fields:
     address: 114
@@ -100,9 +100,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_8
+    id: n20_1_current_8
     name: bl0910_1_current_8
-- id: sensor_modbus_controller_9
+- id: n20_1_current_9
   component_id: sensor.modbus_controller
   fields:
     address: 116
@@ -111,9 +111,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_9
+    id: n20_1_current_9
     name: bl0910_1_current_9
-- id: sensor_modbus_controller_10
+- id: n20_1_current_10
   component_id: sensor.modbus_controller
   fields:
     address: 118
@@ -122,9 +122,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_10
+    id: n20_1_current_10
     name: bl0910_1_current_10
-- id: sensor_modbus_controller_11
+- id: n20_1_watt_1
   component_id: sensor.modbus_controller
   fields:
     address: 120
@@ -133,9 +133,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_11
+    id: n20_1_watt_1
     name: bl0910_1_power_1
-- id: sensor_modbus_controller_12
+- id: n20_1_watt_2
   component_id: sensor.modbus_controller
   fields:
     address: 122
@@ -144,9 +144,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_12
+    id: n20_1_watt_2
     name: bl0910_1_power_2
-- id: sensor_modbus_controller_13
+- id: n20_1_watt_3
   component_id: sensor.modbus_controller
   fields:
     address: 124
@@ -155,9 +155,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_13
+    id: n20_1_watt_3
     name: bl0910_1_power_3
-- id: sensor_modbus_controller_14
+- id: n20_1_watt_4
   component_id: sensor.modbus_controller
   fields:
     address: 126
@@ -166,9 +166,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_14
+    id: n20_1_watt_4
     name: bl0910_1_power_4
-- id: sensor_modbus_controller_15
+- id: n20_1_watt_5
   component_id: sensor.modbus_controller
   fields:
     address: 128
@@ -177,9 +177,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_15
+    id: n20_1_watt_5
     name: bl0910_1_power_5
-- id: sensor_modbus_controller_16
+- id: n20_1_watt_6
   component_id: sensor.modbus_controller
   fields:
     address: 130
@@ -188,9 +188,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_16
+    id: n20_1_watt_6
     name: bl0910_1_power_6
-- id: sensor_modbus_controller_17
+- id: n20_1_watt_7
   component_id: sensor.modbus_controller
   fields:
     address: 132
@@ -199,9 +199,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_17
+    id: n20_1_watt_7
     name: bl0910_1_power_7
-- id: sensor_modbus_controller_18
+- id: n20_1_watt_8
   component_id: sensor.modbus_controller
   fields:
     address: 134
@@ -210,9 +210,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_18
+    id: n20_1_watt_8
     name: bl0910_1_power_8
-- id: sensor_modbus_controller_19
+- id: n20_1_watt_9
   component_id: sensor.modbus_controller
   fields:
     address: 136
@@ -221,9 +221,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_19
+    id: n20_1_watt_9
     name: bl0910_1_power_9
-- id: sensor_modbus_controller_20
+- id: n20_1_watt_10
   component_id: sensor.modbus_controller
   fields:
     address: 138
@@ -232,9 +232,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_20
+    id: n20_1_watt_10
     name: bl0910_1_power_10
-- id: sensor_modbus_controller_21
+- id: n20_1_energy_1
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -244,9 +244,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_21
+    id: n20_1_energy_1
     name: bl0910_1_energy_1
-- id: sensor_modbus_controller_22
+- id: n20_1_energy_2
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -256,9 +256,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_22
+    id: n20_1_energy_2
     name: bl0910_1_energy_2
-- id: sensor_modbus_controller_23
+- id: n20_1_energy_3
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -268,9 +268,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_23
+    id: n20_1_energy_3
     name: bl0910_1_energy_3
-- id: sensor_modbus_controller_24
+- id: n20_1_energy_4
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -280,9 +280,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_24
+    id: n20_1_energy_4
     name: bl0910_1_energy_4
-- id: sensor_modbus_controller_25
+- id: n20_1_energy_5
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -292,9 +292,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_25
+    id: n20_1_energy_5
     name: bl0910_1_energy_5
-- id: sensor_modbus_controller_26
+- id: n20_1_energy_6
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -304,9 +304,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_26
+    id: n20_1_energy_6
     name: bl0910_1_energy_6
-- id: sensor_modbus_controller_27
+- id: n20_1_energy_7
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -316,9 +316,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_27
+    id: n20_1_energy_7
     name: bl0910_1_energy_7
-- id: sensor_modbus_controller_28
+- id: n20_1_energy_8
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -328,9 +328,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_28
+    id: n20_1_energy_8
     name: bl0910_1_energy_8
-- id: sensor_modbus_controller_29
+- id: n20_1_energy_9
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -340,9 +340,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_29
+    id: n20_1_energy_9
     name: bl0910_1_energy_9
-- id: sensor_modbus_controller_30
+- id: n20_1_energy_10
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -352,9 +352,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_30
+    id: n20_1_energy_10
     name: bl0910_1_energy_10
-- id: sensor_modbus_controller_31
+- id: n20_1_energy_sum
   component_id: sensor.modbus_controller
   fields:
     state_class: total_increasing
@@ -364,9 +364,9 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_31
+    id: n20_1_energy_sum
     name: bl0910_1_energy_sum
-- id: sensor_modbus_controller_32
+- id: n20_1_voltage
   component_id: sensor.modbus_controller
   fields:
     address: 162
@@ -375,9 +375,9 @@ featured_components:
     device_class: voltage
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_32
+    id: n20_1_voltage
     name: bl0910_1_voltage
-- id: sensor_modbus_controller_33
+- id: n20_1_period
   component_id: sensor.modbus_controller
   fields:
     address: 163
@@ -386,9 +386,9 @@ featured_components:
     device_class: frequency
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_33
+    id: n20_1_period
     name: bl0910_1_frequency
-- id: sensor_modbus_controller_34
+- id: n20_1_tps_1
   component_id: sensor.modbus_controller
   fields:
     address: 164
@@ -397,9 +397,9 @@ featured_components:
     device_class: temperature
     accuracy_decimals: 1
     value_type: FP32_R
-    id: sensor_modbus_controller_34
+    id: n20_1_tps_1
     name: bl0910_1_tps1
-- id: sensor_modbus_controller_35
+- id: n20_2_current_1
   component_id: sensor.modbus_controller
   fields:
     address: 200
@@ -408,9 +408,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_35
+    id: n20_2_current_1
     name: bl0910_2_current_1
-- id: sensor_modbus_controller_36
+- id: n20_2_current_2
   component_id: sensor.modbus_controller
   fields:
     address: 202
@@ -419,9 +419,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_36
+    id: n20_2_current_2
     name: bl0910_2_current_2
-- id: sensor_modbus_controller_37
+- id: n20_2_current_3
   component_id: sensor.modbus_controller
   fields:
     address: 204
@@ -430,9 +430,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_37
+    id: n20_2_current_3
     name: bl0910_2_current_3
-- id: sensor_modbus_controller_38
+- id: n20_2_current_4
   component_id: sensor.modbus_controller
   fields:
     address: 206
@@ -441,9 +441,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_38
+    id: n20_2_current_4
     name: bl0910_2_current_4
-- id: sensor_modbus_controller_39
+- id: n20_2_current_5
   component_id: sensor.modbus_controller
   fields:
     address: 208
@@ -452,9 +452,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_39
+    id: n20_2_current_5
     name: bl0910_2_current_5
-- id: sensor_modbus_controller_40
+- id: n20_2_current_6
   component_id: sensor.modbus_controller
   fields:
     address: 210
@@ -463,9 +463,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_40
+    id: n20_2_current_6
     name: bl0910_2_current_6
-- id: sensor_modbus_controller_41
+- id: n20_2_current_7
   component_id: sensor.modbus_controller
   fields:
     address: 212
@@ -474,9 +474,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_41
+    id: n20_2_current_7
     name: bl0910_2_current_7
-- id: sensor_modbus_controller_42
+- id: n20_2_current_8
   component_id: sensor.modbus_controller
   fields:
     address: 214
@@ -485,9 +485,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_42
+    id: n20_2_current_8
     name: bl0910_2_current_8
-- id: sensor_modbus_controller_43
+- id: n20_2_current_9
   component_id: sensor.modbus_controller
   fields:
     address: 216
@@ -496,9 +496,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_43
+    id: n20_2_current_9
     name: bl0910_2_current_9
-- id: sensor_modbus_controller_44
+- id: n20_2_current_10
   component_id: sensor.modbus_controller
   fields:
     address: 218
@@ -507,9 +507,9 @@ featured_components:
     device_class: current
     accuracy_decimals: 3
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_44
+    id: n20_2_current_10
     name: bl0910_2_current_10
-- id: sensor_modbus_controller_45
+- id: n20_2_watt_1
   component_id: sensor.modbus_controller
   fields:
     address: 220
@@ -518,9 +518,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_45
+    id: n20_2_watt_1
     name: bl0910_2_power_1
-- id: sensor_modbus_controller_46
+- id: n20_2_watt_2
   component_id: sensor.modbus_controller
   fields:
     address: 222
@@ -529,9 +529,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_46
+    id: n20_2_watt_2
     name: bl0910_2_power_2
-- id: sensor_modbus_controller_47
+- id: n20_2_watt_3
   component_id: sensor.modbus_controller
   fields:
     address: 224
@@ -540,9 +540,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_47
+    id: n20_2_watt_3
     name: bl0910_2_power_3
-- id: sensor_modbus_controller_48
+- id: n20_2_watt_4
   component_id: sensor.modbus_controller
   fields:
     address: 226
@@ -551,9 +551,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_48
+    id: n20_2_watt_4
     name: bl0910_2_power_4
-- id: sensor_modbus_controller_49
+- id: n20_2_watt_5
   component_id: sensor.modbus_controller
   fields:
     address: 228
@@ -562,9 +562,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_49
+    id: n20_2_watt_5
     name: bl0910_2_power_5
-- id: sensor_modbus_controller_50
+- id: n20_2_watt_6
   component_id: sensor.modbus_controller
   fields:
     address: 230
@@ -573,9 +573,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_50
+    id: n20_2_watt_6
     name: bl0910_2_power_6
-- id: sensor_modbus_controller_51
+- id: n20_2_watt_7
   component_id: sensor.modbus_controller
   fields:
     address: 232
@@ -584,9 +584,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_51
+    id: n20_2_watt_7
     name: bl0910_2_power_7
-- id: sensor_modbus_controller_52
+- id: n20_2_watt_8
   component_id: sensor.modbus_controller
   fields:
     address: 234
@@ -595,9 +595,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_52
+    id: n20_2_watt_8
     name: bl0910_2_power_8
-- id: sensor_modbus_controller_53
+- id: n20_2_watt_9
   component_id: sensor.modbus_controller
   fields:
     address: 236
@@ -606,9 +606,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_53
+    id: n20_2_watt_9
     name: bl0910_2_power_9
-- id: sensor_modbus_controller_54
+- id: n20_2_watt_10
   component_id: sensor.modbus_controller
   fields:
     address: 238
@@ -617,9 +617,9 @@ featured_components:
     device_class: power
     accuracy_decimals: 1
     value_type: U_DWORD_R
-    id: sensor_modbus_controller_54
+    id: n20_2_watt_10
     name: bl0910_2_power_10
-- id: sensor_modbus_controller_55
+- id: n20_2_energy_1
   component_id: sensor.modbus_controller
   fields:
     address: 240
@@ -629,9 +629,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_55
+    id: n20_2_energy_1
     name: bl0910_2_energy_1
-- id: sensor_modbus_controller_56
+- id: n20_2_energy_2
   component_id: sensor.modbus_controller
   fields:
     address: 242
@@ -641,9 +641,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_56
+    id: n20_2_energy_2
     name: bl0910_2_energy_2
-- id: sensor_modbus_controller_57
+- id: n20_2_energy_3
   component_id: sensor.modbus_controller
   fields:
     address: 244
@@ -653,9 +653,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_57
+    id: n20_2_energy_3
     name: bl0910_2_energy_3
-- id: sensor_modbus_controller_58
+- id: n20_2_energy_4
   component_id: sensor.modbus_controller
   fields:
     address: 246
@@ -665,9 +665,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_58
+    id: n20_2_energy_4
     name: bl0910_2_energy_4
-- id: sensor_modbus_controller_59
+- id: n20_2_energy_5
   component_id: sensor.modbus_controller
   fields:
     address: 248
@@ -677,9 +677,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_59
+    id: n20_2_energy_5
     name: bl0910_2_energy_5
-- id: sensor_modbus_controller_60
+- id: n20_2_energy_6
   component_id: sensor.modbus_controller
   fields:
     address: 250
@@ -689,9 +689,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_60
+    id: n20_2_energy_6
     name: bl0910_2_energy_6
-- id: sensor_modbus_controller_61
+- id: n20_2_energy_7
   component_id: sensor.modbus_controller
   fields:
     address: 252
@@ -701,9 +701,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_61
+    id: n20_2_energy_7
     name: bl0910_2_energy_7
-- id: sensor_modbus_controller_62
+- id: n20_2_energy_8
   component_id: sensor.modbus_controller
   fields:
     address: 254
@@ -713,9 +713,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_62
+    id: n20_2_energy_8
     name: bl0910_2_energy_8
-- id: sensor_modbus_controller_63
+- id: n20_2_energy_9
   component_id: sensor.modbus_controller
   fields:
     address: 256
@@ -725,9 +725,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_63
+    id: n20_2_energy_9
     name: bl0910_2_energy_9
-- id: sensor_modbus_controller_64
+- id: n20_2_energy_10
   component_id: sensor.modbus_controller
   fields:
     address: 258
@@ -737,9 +737,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_64
+    id: n20_2_energy_10
     name: bl0910_2_energy_10
-- id: sensor_modbus_controller_65
+- id: n20_2_energy_sum
   component_id: sensor.modbus_controller
   fields:
     address: 260
@@ -749,9 +749,9 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_DWORD_R
     state_class: total_increasing
-    id: sensor_modbus_controller_65
+    id: n20_2_energy_sum
     name: bl0910_2_energy_sum
-- id: sensor_modbus_controller_66
+- id: n20_2_voltage
   component_id: sensor.modbus_controller
   fields:
     address: 262
@@ -760,9 +760,9 @@ featured_components:
     device_class: voltage
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_66
+    id: n20_2_voltage
     name: bl0910_2_voltage
-- id: sensor_modbus_controller_67
+- id: n20_2_period
   component_id: sensor.modbus_controller
   fields:
     address: 263
@@ -771,9 +771,9 @@ featured_components:
     device_class: frequency
     accuracy_decimals: 1
     value_type: U_WORD
-    id: sensor_modbus_controller_67
+    id: n20_2_period
     name: bl0910_2_frequency
-- id: sensor_modbus_controller_68
+- id: n20_2_tps_1
   component_id: sensor.modbus_controller
   fields:
     address: 264
@@ -782,7 +782,7 @@ featured_components:
     device_class: temperature
     accuracy_decimals: 1
     value_type: FP32_R
-    id: sensor_modbus_controller_68
+    id: n20_2_tps_1
     name: bl0910_2_tps1
 source:
   type: esphome-devices

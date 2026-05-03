@@ -33,7 +33,7 @@ pins:
   occupied_by: sensor.hlw8012
 docs_url: https://devices.esphome.io/devices/SUPERNIGHT-Double-Outlet-Plug/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: left_outlet_button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -42,7 +42,7 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: left_outlet_button
     name: left_outlet_button
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
@@ -61,31 +61,31 @@ featured_components:
     update_interval: 60s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: sensor_adc_1
+- id: analog_button
   component_id: sensor.adc
   fields:
     raw: true
     update_interval: 100ms
     unit_of_measurement: ''
-    id: sensor_adc_1
+    id: analog_button
     name: analog_button
-- id: switch_gpio_1
+- id: relay_left_outlet
   component_id: switch.gpio
   fields:
     pin:
       value: 3
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay_left_outlet
     name: Left Outlet
-- id: switch_gpio_2
+- id: relay_right_outlet
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_2
+    id: relay_right_outlet
     name: Right Outlet
 source:
   type: esphome-devices

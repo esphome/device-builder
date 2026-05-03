@@ -27,14 +27,14 @@ pins:
   occupied_by: Temperature
 docs_url: https://devices.esphome.io/devices/refoss-p11-plug/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     pin:
       value:
         number: 5
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_1
     name: button_1
 - id: sensor_total_daily_energy_1
   component_id: sensor.total_daily_energy
@@ -49,7 +49,7 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Wifi Signal
-- id: sensor_adc_1
+- id: temp_analog_reading
   component_id: sensor.adc
   fields:
     unit_of_measurement: °C
@@ -58,9 +58,9 @@ featured_components:
     pin:
       value: 17
       locked: true
-    id: sensor_adc_1
+    id: temp_analog_reading
     name: Temperature
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
@@ -68,9 +68,9 @@ featured_components:
       locked: true
     icon: mdi:power-socket-fr
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay_1
     name: Switch
-- id: switch_gpio_2
+- id: sw_led1
   component_id: switch.gpio
   fields:
     pin:
@@ -78,7 +78,7 @@ featured_components:
         number: 12
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: sw_led1
     name: sw_led1
 source:
   type: esphome-devices

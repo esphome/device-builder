@@ -36,7 +36,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: WiFi Config Button
-- id: binary_sensor_gpio_2
+- id: inp_power_status
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -45,7 +45,7 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: inp_power_status
     name: Power Status
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
@@ -58,13 +58,13 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: Case Button
-- id: output_gpio_1
+- id: out_relay
   component_id: output.gpio
   fields:
     pin:
       value: 5
       locked: true
-    id: output_gpio_1
+    id: out_relay
 source:
   type: esphome-devices
   remote_id: Sinilink-XY-WPCE

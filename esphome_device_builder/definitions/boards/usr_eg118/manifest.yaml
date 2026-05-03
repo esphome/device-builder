@@ -55,13 +55,13 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Reload
-- id: output_gpio_1
+- id: wdt_trigger
   component_id: output.gpio
   fields:
     pin:
       value: 3
       locked: true
-    id: output_gpio_1
+    id: wdt_trigger
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:

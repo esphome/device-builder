@@ -25,7 +25,25 @@ pins:
   occupied_by: pwm_red
 docs_url: https://devices.esphome.io/devices/myStrom-Wifi-Button/
 featured_components:
-- id: output_esp8266_pwm_1
+- id: white_light
+  component_id: light.monochromatic
+  fields:
+    output: pwm_white
+    id: white_light
+    name: White LED
+- id: green_light
+  component_id: light.monochromatic
+  fields:
+    output: pwm_green
+    id: green_light
+    name: Green LED
+- id: red_light
+  component_id: light.monochromatic
+  fields:
+    output: pwm_red
+    id: red_light
+    name: Red LED
+- id: pwm_white
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -34,8 +52,8 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: pwm_white
+- id: pwm_green
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -44,8 +62,8 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: pwm_green
+- id: pwm_red
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -54,14 +72,30 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_gpio_1
+    id: pwm_red
+- id: cap_charge
   component_id: output.gpio
   fields:
     pin:
       value: 4
       locked: true
-    id: output_gpio_1
+    id: cap_charge
+featured_bundles:
+- id: white_light_setup
+  name: White LED (full setup)
+  component_ids:
+  - pwm_white
+  - white_light
+- id: green_light_setup
+  name: Green LED (full setup)
+  component_ids:
+  - pwm_green
+  - green_light
+- id: red_light_setup
+  name: Red LED (full setup)
+  component_ids:
+  - pwm_red
+  - red_light
 source:
   type: esphome-devices
   remote_id: myStrom-Wifi-Button

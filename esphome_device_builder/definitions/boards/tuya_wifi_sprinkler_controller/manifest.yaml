@@ -37,31 +37,31 @@ pins:
   occupied_by: valve_8
 docs_url: https://devices.esphome.io/devices/Tuya-WIFI-Sprinkler-Controller/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: touch_sensor_1
   component_id: binary_sensor.gpio
   fields:
     internal: true
-    id: binary_sensor_gpio_1
+    id: touch_sensor_1
     name: touch_sensor_1
-- id: binary_sensor_gpio_2
+- id: touch_sensor_2
   component_id: binary_sensor.gpio
   fields:
     internal: true
-    id: binary_sensor_gpio_2
+    id: touch_sensor_2
     name: touch_sensor_2
-- id: binary_sensor_gpio_3
+- id: touch_sensor_3
   component_id: binary_sensor.gpio
   fields:
     internal: true
-    id: binary_sensor_gpio_3
+    id: touch_sensor_3
     name: touch_sensor_3
-- id: binary_sensor_gpio_4
+- id: touch_sensor_4
   component_id: binary_sensor.gpio
   fields:
     internal: true
-    id: binary_sensor_gpio_4
+    id: touch_sensor_4
     name: touch_sensor_4
-- id: output_gpio_1
+- id: led_1
   component_id: output.gpio
   fields:
     pin:
@@ -70,8 +70,8 @@ featured_components:
         number: 0
         inverted: true
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: led_1
+- id: led_2
   component_id: output.gpio
   fields:
     pin:
@@ -80,8 +80,8 @@ featured_components:
         number: 1
         inverted: true
       locked: true
-    id: output_gpio_2
-- id: output_gpio_3
+    id: led_2
+- id: led_3
   component_id: output.gpio
   fields:
     pin:
@@ -90,8 +90,8 @@ featured_components:
         number: 2
         inverted: true
       locked: true
-    id: output_gpio_3
-- id: output_gpio_4
+    id: led_3
+- id: led_4
   component_id: output.gpio
   fields:
     pin:
@@ -100,8 +100,8 @@ featured_components:
         number: 3
         inverted: true
       locked: true
-    id: output_gpio_4
-- id: output_gpio_5
+    id: led_4
+- id: led_5
   component_id: output.gpio
   fields:
     pin:
@@ -110,8 +110,8 @@ featured_components:
         number: 4
         inverted: true
       locked: true
-    id: output_gpio_5
-- id: output_gpio_6
+    id: led_5
+- id: led_6
   component_id: output.gpio
   fields:
     pin:
@@ -120,8 +120,8 @@ featured_components:
         number: 5
         inverted: true
       locked: true
-    id: output_gpio_6
-- id: output_gpio_7
+    id: led_6
+- id: led_7
   component_id: output.gpio
   fields:
     pin:
@@ -130,8 +130,8 @@ featured_components:
         number: 6
         inverted: true
       locked: true
-    id: output_gpio_7
-- id: output_gpio_8
+    id: led_7
+- id: led_8
   component_id: output.gpio
   fields:
     pin:
@@ -140,8 +140,8 @@ featured_components:
         number: 7
         inverted: true
       locked: true
-    id: output_gpio_8
-- id: switch_gpio_1
+    id: led_8
+- id: valve_1
   component_id: switch.gpio
   fields:
     pin:
@@ -150,9 +150,9 @@ featured_components:
         number: 0
         inverted: false
       locked: true
-    id: switch_gpio_1
+    id: valve_1
     name: valve_1
-- id: switch_gpio_2
+- id: valve_2
   component_id: switch.gpio
   fields:
     pin:
@@ -161,9 +161,9 @@ featured_components:
         number: 1
         inverted: false
       locked: true
-    id: switch_gpio_2
+    id: valve_2
     name: valve_2
-- id: switch_gpio_3
+- id: valve_3
   component_id: switch.gpio
   fields:
     pin:
@@ -172,9 +172,9 @@ featured_components:
         number: 2
         inverted: false
       locked: true
-    id: switch_gpio_3
+    id: valve_3
     name: valve_3
-- id: switch_gpio_4
+- id: valve_4
   component_id: switch.gpio
   fields:
     pin:
@@ -183,9 +183,9 @@ featured_components:
         number: 3
         inverted: false
       locked: true
-    id: switch_gpio_4
+    id: valve_4
     name: valve_4
-- id: switch_gpio_5
+- id: valve_5
   component_id: switch.gpio
   fields:
     pin:
@@ -194,9 +194,9 @@ featured_components:
         number: 4
         inverted: false
       locked: true
-    id: switch_gpio_5
+    id: valve_5
     name: valve_5
-- id: switch_gpio_6
+- id: valve_6
   component_id: switch.gpio
   fields:
     pin:
@@ -205,9 +205,9 @@ featured_components:
         number: 5
         inverted: false
       locked: true
-    id: switch_gpio_6
+    id: valve_6
     name: valve_6
-- id: switch_gpio_7
+- id: valve_7
   component_id: switch.gpio
   fields:
     pin:
@@ -216,9 +216,9 @@ featured_components:
         number: 6
         inverted: false
       locked: true
-    id: switch_gpio_7
+    id: valve_7
     name: valve_7
-- id: switch_gpio_8
+- id: valve_8
   component_id: switch.gpio
   fields:
     pin:
@@ -227,7 +227,7 @@ featured_components:
         number: 7
         inverted: false
       locked: true
-    id: switch_gpio_8
+    id: valve_8
     name: valve_8
 source:
   type: esphome-devices

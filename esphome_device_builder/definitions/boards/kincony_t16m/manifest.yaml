@@ -76,7 +76,7 @@ pins:
   occupied_by: t16m-W1-io18
 docs_url: https://devices.esphome.io/devices/KinCony-T16M/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: t16m_input01
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -86,9 +86,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: t16m_input01
     name: t16m-input01
-- id: binary_sensor_gpio_2
+- id: t16m_input02
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -98,9 +98,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: t16m_input02
     name: t16m-input02
-- id: binary_sensor_gpio_3
+- id: t16m_input03
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -110,9 +110,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: t16m_input03
     name: t16m-input03
-- id: binary_sensor_gpio_4
+- id: t16m_input04
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -122,9 +122,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: t16m_input04
     name: t16m-input04
-- id: binary_sensor_gpio_5
+- id: t16m_input05
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -134,9 +134,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_5
+    id: t16m_input05
     name: t16m-input05
-- id: binary_sensor_gpio_6
+- id: t16m_input06
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -146,9 +146,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_6
+    id: t16m_input06
     name: t16m-input06
-- id: binary_sensor_gpio_7
+- id: t16m_input07
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -158,9 +158,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_7
+    id: t16m_input07
     name: t16m-input07
-- id: binary_sensor_gpio_8
+- id: t16m_input08
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -170,9 +170,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_8
+    id: t16m_input08
     name: t16m-input08
-- id: binary_sensor_gpio_9
+- id: t16m_input09
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -182,9 +182,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_9
+    id: t16m_input09
     name: t16m-input09
-- id: binary_sensor_gpio_10
+- id: t16m_input10
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -194,9 +194,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_10
+    id: t16m_input10
     name: t16m-input10
-- id: binary_sensor_gpio_11
+- id: t16m_input11
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -206,9 +206,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_11
+    id: t16m_input11
     name: t16m-input11
-- id: binary_sensor_gpio_12
+- id: t16m_input12
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -218,9 +218,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_12
+    id: t16m_input12
     name: t16m-input12
-- id: binary_sensor_gpio_13
+- id: t16m_input13
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -230,9 +230,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_13
+    id: t16m_input13
     name: t16m-input13
-- id: binary_sensor_gpio_14
+- id: t16m_input14
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -242,9 +242,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_14
+    id: t16m_input14
     name: t16m-input14
-- id: binary_sensor_gpio_15
+- id: t16m_input15
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -254,9 +254,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_15
+    id: t16m_input15
     name: t16m-input15
-- id: binary_sensor_gpio_16
+- id: t16m_input16
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -266,7 +266,7 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_16
+    id: t16m_input16
     name: t16m-input16
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
@@ -348,7 +348,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: t16m-io0
-- id: switch_gpio_1
+- id: t16m_output01
   component_id: switch.gpio
   fields:
     pin:
@@ -358,9 +358,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: t16m_output01
     name: t16m-output01
-- id: switch_gpio_2
+- id: t16m_output02
   component_id: switch.gpio
   fields:
     pin:
@@ -370,9 +370,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: t16m_output02
     name: t16m-output02
-- id: switch_gpio_3
+- id: t16m_output03
   component_id: switch.gpio
   fields:
     pin:
@@ -382,9 +382,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: t16m_output03
     name: t16m-output03
-- id: switch_gpio_4
+- id: t16m_output04
   component_id: switch.gpio
   fields:
     pin:
@@ -394,9 +394,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: t16m_output04
     name: t16m-output04
-- id: switch_gpio_5
+- id: t16m_output05
   component_id: switch.gpio
   fields:
     pin:
@@ -406,9 +406,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: t16m_output05
     name: t16m-output05
-- id: switch_gpio_6
+- id: t16m_output06
   component_id: switch.gpio
   fields:
     pin:
@@ -418,9 +418,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: t16m_output06
     name: t16m-output06
-- id: switch_gpio_7
+- id: t16m_output07
   component_id: switch.gpio
   fields:
     pin:
@@ -430,9 +430,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_7
+    id: t16m_output07
     name: t16m-output07
-- id: switch_gpio_8
+- id: t16m_output08
   component_id: switch.gpio
   fields:
     pin:
@@ -442,9 +442,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_8
+    id: t16m_output08
     name: t16m-output08
-- id: switch_gpio_9
+- id: t16m_output09
   component_id: switch.gpio
   fields:
     pin:
@@ -454,9 +454,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_9
+    id: t16m_output09
     name: t16m-output09
-- id: switch_gpio_10
+- id: t16m_output10
   component_id: switch.gpio
   fields:
     pin:
@@ -466,9 +466,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_10
+    id: t16m_output10
     name: t16m-output10
-- id: switch_gpio_11
+- id: t16m_output11
   component_id: switch.gpio
   fields:
     pin:
@@ -478,9 +478,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_11
+    id: t16m_output11
     name: t16m-output11
-- id: switch_gpio_12
+- id: t16m_output12
   component_id: switch.gpio
   fields:
     pin:
@@ -490,9 +490,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_12
+    id: t16m_output12
     name: t16m-output12
-- id: switch_gpio_13
+- id: t16m_output13
   component_id: switch.gpio
   fields:
     pin:
@@ -502,9 +502,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_13
+    id: t16m_output13
     name: t16m-output13
-- id: switch_gpio_14
+- id: t16m_output14
   component_id: switch.gpio
   fields:
     pin:
@@ -514,9 +514,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_14
+    id: t16m_output14
     name: t16m-output14
-- id: switch_gpio_15
+- id: t16m_output15
   component_id: switch.gpio
   fields:
     pin:
@@ -526,9 +526,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_15
+    id: t16m_output15
     name: t16m-output15
-- id: switch_gpio_16
+- id: t16m_output16
   component_id: switch.gpio
   fields:
     pin:
@@ -538,7 +538,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_16
+    id: t16m_output16
     name: t16m-output16
 source:
   type: esphome-devices

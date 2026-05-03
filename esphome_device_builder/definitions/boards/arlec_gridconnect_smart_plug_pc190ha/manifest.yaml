@@ -40,7 +40,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Button
-- id: switch_gpio_1
+- id: blue_led
   component_id: switch.gpio
   fields:
     pin:
@@ -48,9 +48,9 @@ featured_components:
         number: 4
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: blue_led
     name: blue_led
-- id: switch_gpio_2
+- id: red_led
   component_id: switch.gpio
   fields:
     pin:
@@ -58,15 +58,15 @@ featured_components:
         number: 13
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: red_led
     name: red_led
-- id: switch_gpio_3
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
-    id: switch_gpio_3
+    id: relay
     name: Power
 source:
   type: esphome-devices

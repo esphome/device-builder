@@ -72,7 +72,7 @@ pins:
   occupied_by: LED
 docs_url: https://devices.esphome.io/devices/KinCony-A32Pro/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: a32_pro_di01
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -82,9 +82,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: a32_pro_di01
     name: A32 Pro DI01
-- id: binary_sensor_gpio_2
+- id: a32_pro_di02
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -94,9 +94,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: a32_pro_di02
     name: A32 Pro DI02
-- id: binary_sensor_gpio_3
+- id: a32_pro_di03
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -106,9 +106,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: a32_pro_di03
     name: A32 Pro DI03
-- id: binary_sensor_gpio_4
+- id: a32_pro_di04
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -118,7 +118,7 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: a32_pro_di04
     name: A32 Pro DI04
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
@@ -592,28 +592,30 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_44
     name: A32 Pro DI40
-- id: light_monochromatic_1
+- id: a32_pro_dac_0
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
-    id: light_monochromatic_1
+    output: gp8403_output_1
+    id: a32_pro_dac_0
     name: A32 Pro-DAC-0
-- id: light_monochromatic_2
+- id: a32_pro_dac_1
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
-    id: light_monochromatic_2
+    output: gp8403_output_2
+    id: a32_pro_dac_1
     name: A32 Pro-DAC-1
-- id: output_gp8403_1
+- id: gp8403_output_1
   component_id: output.gp8403
   fields:
     channel: 0
-    id: output_gp8403_1
-- id: output_gp8403_2
+    id: gp8403_output_1
+- id: gp8403_output_2
   component_id: output.gp8403
   fields:
     channel: 1
-    id: output_gp8403_2
+    id: gp8403_output_2
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -664,7 +666,7 @@ featured_components:
       locked: true
     id: switch_gpio_1
     name: LED
-- id: switch_gpio_2
+- id: a32_pro_switch01
   component_id: switch.gpio
   fields:
     pin:
@@ -674,9 +676,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: a32_pro_switch01
     name: A32 Pro Switch01
-- id: switch_gpio_3
+- id: a32_pro_switch02
   component_id: switch.gpio
   fields:
     pin:
@@ -686,9 +688,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: a32_pro_switch02
     name: A32 Pro Switch02
-- id: switch_gpio_4
+- id: a32_pro_switch03
   component_id: switch.gpio
   fields:
     pin:
@@ -698,9 +700,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: a32_pro_switch03
     name: A32 Pro Switch03
-- id: switch_gpio_5
+- id: a32_pro_switch04
   component_id: switch.gpio
   fields:
     pin:
@@ -710,9 +712,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: a32_pro_switch04
     name: A32 Pro Switch04
-- id: switch_gpio_6
+- id: a32_pro_switch05
   component_id: switch.gpio
   fields:
     pin:
@@ -722,9 +724,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: a32_pro_switch05
     name: A32 Pro Switch05
-- id: switch_gpio_7
+- id: a32_pro_switch06
   component_id: switch.gpio
   fields:
     pin:
@@ -734,9 +736,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_7
+    id: a32_pro_switch06
     name: A32 Pro Switch06
-- id: switch_gpio_8
+- id: a32_pro_switch07
   component_id: switch.gpio
   fields:
     pin:
@@ -746,9 +748,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_8
+    id: a32_pro_switch07
     name: A32 Pro Switch07
-- id: switch_gpio_9
+- id: a32_pro_switch08
   component_id: switch.gpio
   fields:
     pin:
@@ -758,9 +760,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_9
+    id: a32_pro_switch08
     name: A32 Pro Switch08
-- id: switch_gpio_10
+- id: a32_pro_switch09
   component_id: switch.gpio
   fields:
     pin:
@@ -770,9 +772,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_10
+    id: a32_pro_switch09
     name: A32 Pro Switch09
-- id: switch_gpio_11
+- id: a32_pro_switch10
   component_id: switch.gpio
   fields:
     pin:
@@ -782,9 +784,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_11
+    id: a32_pro_switch10
     name: A32 Pro Switch10
-- id: switch_gpio_12
+- id: a32_pro_switch11
   component_id: switch.gpio
   fields:
     pin:
@@ -794,9 +796,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_12
+    id: a32_pro_switch11
     name: A32 Pro Switch11
-- id: switch_gpio_13
+- id: a32_pro_switch12
   component_id: switch.gpio
   fields:
     pin:
@@ -806,9 +808,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_13
+    id: a32_pro_switch12
     name: A32 Pro Switch12
-- id: switch_gpio_14
+- id: a32_pro_switch13
   component_id: switch.gpio
   fields:
     pin:
@@ -818,9 +820,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_14
+    id: a32_pro_switch13
     name: A32 Pro Switch13
-- id: switch_gpio_15
+- id: a32_pro_switch14
   component_id: switch.gpio
   fields:
     pin:
@@ -830,9 +832,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_15
+    id: a32_pro_switch14
     name: A32 Pro Switch14
-- id: switch_gpio_16
+- id: a32_pro_switch15
   component_id: switch.gpio
   fields:
     pin:
@@ -842,9 +844,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_16
+    id: a32_pro_switch15
     name: A32 Pro Switch15
-- id: switch_gpio_17
+- id: a32_pro_switch16
   component_id: switch.gpio
   fields:
     pin:
@@ -854,9 +856,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_17
+    id: a32_pro_switch16
     name: A32 Pro Switch16
-- id: switch_gpio_18
+- id: a32_pro_switch17
   component_id: switch.gpio
   fields:
     pin:
@@ -866,9 +868,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_18
+    id: a32_pro_switch17
     name: A32 Pro Switch17
-- id: switch_gpio_19
+- id: a32_pro_switch18
   component_id: switch.gpio
   fields:
     pin:
@@ -878,9 +880,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_19
+    id: a32_pro_switch18
     name: A32 Pro Switch18
-- id: switch_gpio_20
+- id: a32_pro_switch19
   component_id: switch.gpio
   fields:
     pin:
@@ -890,9 +892,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_20
+    id: a32_pro_switch19
     name: A32 Pro Switch19
-- id: switch_gpio_21
+- id: a32_pro_switch20
   component_id: switch.gpio
   fields:
     pin:
@@ -902,9 +904,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_21
+    id: a32_pro_switch20
     name: A32 Pro Switch20
-- id: switch_gpio_22
+- id: a32_pro_switch21
   component_id: switch.gpio
   fields:
     pin:
@@ -914,9 +916,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_22
+    id: a32_pro_switch21
     name: A32 Pro Switch21
-- id: switch_gpio_23
+- id: a32_pro_switch22
   component_id: switch.gpio
   fields:
     pin:
@@ -926,9 +928,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_23
+    id: a32_pro_switch22
     name: A32 Pro Switch22
-- id: switch_gpio_24
+- id: a32_pro_switch23
   component_id: switch.gpio
   fields:
     pin:
@@ -938,9 +940,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_24
+    id: a32_pro_switch23
     name: A32 Pro Switch23
-- id: switch_gpio_25
+- id: a32_pro_switch24
   component_id: switch.gpio
   fields:
     pin:
@@ -950,9 +952,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_25
+    id: a32_pro_switch24
     name: A32 Pro Switch24
-- id: switch_gpio_26
+- id: a32_pro_switch25
   component_id: switch.gpio
   fields:
     pin:
@@ -962,9 +964,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_26
+    id: a32_pro_switch25
     name: A32 Pro Switch25
-- id: switch_gpio_27
+- id: a32_pro_switch26
   component_id: switch.gpio
   fields:
     pin:
@@ -974,9 +976,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_27
+    id: a32_pro_switch26
     name: A32 Pro Switch26
-- id: switch_gpio_28
+- id: a32_pro_switch27
   component_id: switch.gpio
   fields:
     pin:
@@ -986,9 +988,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_28
+    id: a32_pro_switch27
     name: A32 Pro Switch27
-- id: switch_gpio_29
+- id: a32_pro_switch28
   component_id: switch.gpio
   fields:
     pin:
@@ -998,9 +1000,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_29
+    id: a32_pro_switch28
     name: A32 Pro Switch28
-- id: switch_gpio_30
+- id: a32_pro_switch29
   component_id: switch.gpio
   fields:
     pin:
@@ -1010,9 +1012,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_30
+    id: a32_pro_switch29
     name: A32 Pro Switch29
-- id: switch_gpio_31
+- id: a32_pro_switch30
   component_id: switch.gpio
   fields:
     pin:
@@ -1022,9 +1024,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_31
+    id: a32_pro_switch30
     name: A32 Pro Switch30
-- id: switch_gpio_32
+- id: a32_pro_switch31
   component_id: switch.gpio
   fields:
     pin:
@@ -1034,9 +1036,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_32
+    id: a32_pro_switch31
     name: A32 Pro Switch31
-- id: switch_gpio_33
+- id: a32_pro_switch32
   component_id: switch.gpio
   fields:
     pin:
@@ -1046,8 +1048,19 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_33
+    id: a32_pro_switch32
     name: A32 Pro Switch32
+featured_bundles:
+- id: a32_pro_dac_0_setup
+  name: A32 Pro-DAC-0 (full setup)
+  component_ids:
+  - gp8403_output_1
+  - a32_pro_dac_0
+- id: a32_pro_dac_1_setup
+  name: A32 Pro-DAC-1 (full setup)
+  component_ids:
+  - gp8403_output_2
+  - a32_pro_dac_1
 source:
   type: esphome-devices
   remote_id: KinCony-A32Pro

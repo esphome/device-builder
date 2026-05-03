@@ -31,7 +31,7 @@ pins:
   occupied_by: button
 docs_url: https://devices.esphome.io/devices/Mi-Desklamp-Pro/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -40,9 +40,9 @@ featured_components:
         inverted: true
         mode: INPUT_PULLDOWN
       locked: true
-    id: binary_sensor_gpio_1
+    id: button
     name: button
-- id: light_cwww_1
+- id: light1
   component_id: light.cwww
   fields:
     default_transition_length: 0s
@@ -51,24 +51,26 @@ featured_components:
     warm_white_color_temperature: 2500 K
     restore_mode: RESTORE_DEFAULT_OFF
     gamma_correct: 1
-    id: light_cwww_1
+    cold_white: output_cw
+    warm_white: output_ww
+    id: light1
     name: Light
-- id: output_ledc_1
+- id: output_cw
   component_id: output.ledc
   fields:
     pin:
       value: 2
       locked: true
     frequency: 100000Hz
-    id: output_ledc_1
-- id: output_ledc_2
+    id: output_cw
+- id: output_ww
   component_id: output.ledc
   fields:
     pin:
       value: 4
       locked: true
     frequency: 100000Hz
-    id: output_ledc_2
+    id: output_ww
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -76,7 +78,7 @@ featured_components:
     icon: mdi:wifi
     id: sensor_wifi_signal_1
     name: WiFi Signal
-- id: sensor_rotary_encoder_1
+- id: rotation
   component_id: sensor.rotary_encoder
   fields:
     pin_a:
@@ -86,7 +88,7 @@ featured_components:
       value: 27
       locked: true
     resolution: 2
-    id: sensor_rotary_encoder_1
+    id: rotation
     name: rotation
 - id: text_sensor_version_1
   component_id: text_sensor.version
@@ -94,6 +96,13 @@ featured_components:
     icon: mdi:cube-outline
     id: text_sensor_version_1
     name: Version
+featured_bundles:
+- id: light1_setup
+  name: Light (full setup)
+  component_ids:
+  - output_cw
+  - output_ww
+  - light1
 source:
   type: esphome-devices
   remote_id: Mi-Desklamp-Pro

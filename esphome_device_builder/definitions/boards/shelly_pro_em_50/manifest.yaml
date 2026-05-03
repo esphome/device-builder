@@ -21,7 +21,7 @@ pins:
   occupied_by: ade7953_reset
 docs_url: https://devices.esphome.io/devices/Shelly-Pro-EM-50/
 featured_components:
-- id: output_gpio_1
+- id: ade7953_reset
   component_id: output.gpio
   fields:
     pin:
@@ -29,7 +29,7 @@ featured_components:
         number: 16
         inverted: true
       locked: true
-    id: output_gpio_1
+    id: ade7953_reset
 source:
   type: esphome-devices
   remote_id: Shelly-Pro-EM-50

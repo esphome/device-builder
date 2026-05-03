@@ -26,36 +26,47 @@ pins:
   occupied_by: blue
 docs_url: https://devices.esphome.io/devices/Hegg-Dongle/
 featured_components:
-- id: light_rgb_1
+- id: status_led
   component_id: light.rgb
   fields:
     internal: true
-    id: light_rgb_1
+    red: red
+    green: green
+    blue: blue
+    id: status_led
     name: Status Led
-- id: output_esp8266_pwm_1
+- id: blue
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
     frequency: 600 Hz
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: blue
+- id: red
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
     frequency: 600 Hz
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: red
+- id: green
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
     frequency: 600 Hz
-    id: output_esp8266_pwm_3
+    id: green
+featured_bundles:
+- id: status_led_setup
+  name: Status Led (full setup)
+  component_ids:
+  - red
+  - green
+  - blue
+  - status_led
 source:
   type: esphome-devices
   remote_id: Hegg-Dongle

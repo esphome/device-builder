@@ -49,7 +49,7 @@ pins:
   occupied_by: input2
 docs_url: https://devices.esphome.io/devices/Shelly-Pro-2/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: reset_button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -57,41 +57,42 @@ featured_components:
         number: 35
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: reset_button
     name: reset_button
-- id: binary_sensor_gpio_2
+- id: input1
   component_id: binary_sensor.gpio
   fields:
     pin:
       value:
         number: 38
       locked: true
-    id: binary_sensor_gpio_2
+    id: input1
     name: input1
-- id: binary_sensor_gpio_3
+- id: input2
   component_id: binary_sensor.gpio
   fields:
     pin:
       value:
         number: 39
       locked: true
-    id: binary_sensor_gpio_3
+    id: input2
     name: input2
-- id: sensor_adc_1
+- id: temp_voltage1
   component_id: sensor.adc
   fields:
     pin:
       value: 36
       locked: true
     attenuation: auto
-    id: sensor_adc_1
+    id: temp_voltage1
     name: temp_voltage1
-- id: sensor_resistance_1
+- id: temp_resistance1
   component_id: sensor.resistance
   fields:
     configuration: DOWNSTREAM
     resistor: 10kOhm
-    id: sensor_resistance_1
+    sensor: temp_voltage1
+    id: temp_resistance1
     name: temp_resistance1
 - id: sensor_ntc_1
   component_id: sensor.ntc
@@ -99,23 +100,25 @@ featured_components:
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
+    sensor: temp_resistance1
     id: sensor_ntc_1
     name: Temperature 1
-- id: sensor_adc_2
+- id: temp_voltage2
   component_id: sensor.adc
   fields:
     pin:
       value: 37
       locked: true
     attenuation: auto
-    id: sensor_adc_2
+    id: temp_voltage2
     name: temp_voltage2
-- id: sensor_resistance_2
+- id: temp_resistance2
   component_id: sensor.resistance
   fields:
     configuration: DOWNSTREAM
     resistor: 10kOhm
-    id: sensor_resistance_2
+    sensor: temp_voltage2
+    id: temp_resistance2
     name: temp_resistance2
 - id: sensor_ntc_2
   component_id: sensor.ntc
@@ -123,9 +126,10 @@ featured_components:
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
+    sensor: temp_resistance2
     id: sensor_ntc_2
     name: Temperature 2
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
@@ -134,9 +138,9 @@ featured_components:
         number: 0
         inverted: false
       locked: true
-    id: switch_gpio_1
+    id: relay1
     name: Relay 1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
@@ -145,9 +149,9 @@ featured_components:
         number: 1
         inverted: false
       locked: true
-    id: switch_gpio_2
+    id: relay2
     name: Relay 2
-- id: switch_gpio_3
+- id: wifi_led_blue
   component_id: switch.gpio
   fields:
     pin:
@@ -156,9 +160,9 @@ featured_components:
         number: 2
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: wifi_led_blue
     name: wifi_led_blue
-- id: switch_gpio_4
+- id: wifi_led_green
   component_id: switch.gpio
   fields:
     pin:
@@ -167,9 +171,9 @@ featured_components:
         number: 3
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: wifi_led_green
     name: wifi_led_green
-- id: switch_gpio_5
+- id: wifi_led_red
   component_id: switch.gpio
   fields:
     pin:
@@ -178,8 +182,29 @@ featured_components:
         number: 4
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: wifi_led_red
     name: wifi_led_red
+featured_bundles:
+- id: temp_resistance1_setup
+  name: temp_resistance1 (full setup)
+  component_ids:
+  - temp_voltage1
+  - temp_resistance1
+- id: sensor_ntc_1_setup
+  name: Temperature 1 (full setup)
+  component_ids:
+  - temp_resistance1
+  - sensor_ntc_1
+- id: temp_resistance2_setup
+  name: temp_resistance2 (full setup)
+  component_ids:
+  - temp_voltage2
+  - temp_resistance2
+- id: sensor_ntc_2_setup
+  name: Temperature 2 (full setup)
+  component_ids:
+  - temp_resistance2
+  - sensor_ntc_2
 source:
   type: esphome-devices
   remote_id: Shelly-Pro-2

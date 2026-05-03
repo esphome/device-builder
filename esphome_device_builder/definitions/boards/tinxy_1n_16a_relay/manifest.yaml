@@ -25,7 +25,7 @@ pins:
   occupied_by: watchdog_heartbeat
 docs_url: https://devices.esphome.io/devices/Tinxy-1N-16A-Relay/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: physical_switch
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -34,24 +34,24 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: physical_switch
     name: Physical Switch Input
-- id: output_esp8266_pwm_1
+- id: watchdog_heartbeat
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
     frequency: 500 Hz
-    id: output_esp8266_pwm_1
-- id: switch_gpio_1
+    id: watchdog_heartbeat
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
       value: 5
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay_1
     name: Smart Switch
 source:
   type: esphome-devices

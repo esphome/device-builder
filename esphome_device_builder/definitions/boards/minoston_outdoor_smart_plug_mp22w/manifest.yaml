@@ -20,17 +20,17 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Signal
-- id: switch_gpio_1
+- id: outlet
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-us
-    id: switch_gpio_1
+    id: outlet
     name: Outlet
-- id: switch_gpio_2
+- id: led
   component_id: switch.gpio
   fields:
     internal: true
-    id: switch_gpio_2
+    id: led
     name: led
 source:
   type: esphome-devices

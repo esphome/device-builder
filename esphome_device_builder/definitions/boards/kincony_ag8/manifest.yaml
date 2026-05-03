@@ -80,11 +80,11 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: IO40
-- id: switch_uart_1
+- id: switch_uart_2
   component_id: switch.uart
   fields:
     data: RS232-test
-    id: switch_uart_1
+    id: switch_uart_2
     name: RS232 Button
 source:
   type: esphome-devices

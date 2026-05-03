@@ -24,7 +24,7 @@ pins:
   occupied_by: Socket
 docs_url: https://devices.esphome.io/devices/Jeeo-TF-SH330/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     internal: true
@@ -34,16 +34,17 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button
     name: button
-- id: light_binary_1
+- id: status_led
   component_id: light.binary
   fields:
     internal: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: light_binary_1
+    output: led
+    id: status_led
     name: Status LED
-- id: output_gpio_1
+- id: led
   component_id: output.gpio
   fields:
     pin:
@@ -52,8 +53,8 @@ featured_components:
         inverted: true
         mode: OUTPUT
       locked: true
-    id: output_gpio_1
-- id: switch_gpio_1
+    id: led
+- id: socket_relay
   component_id: switch.gpio
   fields:
     pin:
@@ -64,8 +65,14 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     interlock_wait_time: 0ms
-    id: switch_gpio_1
+    id: socket_relay
     name: Socket
+featured_bundles:
+- id: status_led_setup
+  name: Status LED (full setup)
+  component_ids:
+  - led
+  - status_led
 source:
   type: esphome-devices
   remote_id: Jeeo-TF-SH330

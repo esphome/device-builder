@@ -28,15 +28,20 @@ pins:
   occupied_by: blue
 docs_url: https://devices.esphome.io/devices/Sinvitron-A19-900lm-RGBCW/
 featured_components:
-- id: light_rgbww_1
+- id: thelight
   component_id: light.rgbww
   fields:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     restore_mode: ALWAYS_ON
-    id: light_rgbww_1
+    red: red
+    green: green
+    blue: blue
+    cold_white: cold_white
+    warm_white: warm_white
+    id: thelight
     name: thelight
-- id: output_esp8266_pwm_1
+- id: red
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -45,8 +50,8 @@ featured_components:
     inverted:
       value: false
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: red
+- id: green
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -55,8 +60,8 @@ featured_components:
     inverted:
       value: false
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: green
+- id: blue
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -65,8 +70,8 @@ featured_components:
     inverted:
       value: false
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: blue
+- id: cold_white
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -75,8 +80,8 @@ featured_components:
     inverted:
       value: false
       locked: true
-    id: output_esp8266_pwm_4
-- id: output_esp8266_pwm_5
+    id: cold_white
+- id: warm_white
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -85,7 +90,17 @@ featured_components:
     inverted:
       value: false
       locked: true
-    id: output_esp8266_pwm_5
+    id: warm_white
+featured_bundles:
+- id: thelight_setup
+  name: thelight (full setup)
+  component_ids:
+  - red
+  - green
+  - blue
+  - cold_white
+  - warm_white
+  - thelight
 source:
   type: esphome-devices
   remote_id: Sinvitron-A19-900lm-RGBCW

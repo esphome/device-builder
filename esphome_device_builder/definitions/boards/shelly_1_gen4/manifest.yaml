@@ -46,14 +46,14 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Device Button
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
       value: 5
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay_1
     name: Relay
 source:
   type: esphome-devices

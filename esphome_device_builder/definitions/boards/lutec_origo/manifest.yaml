@@ -38,48 +38,63 @@ featured_components:
     constant_brightness: true
     default_transition_length: 1s
     gamma_correct: 2.8
+    red: output_red
+    green: output_green
+    blue: output_blue
+    warm_white: output_warm_white
+    cold_white: output_cool_white
     id: light_rgbww_1
     name: WC+RGB Light
-- id: output_ledc_1
+- id: output_red
   component_id: output.ledc
   fields:
     pin:
       value: 25
       locked: true
     frequency: 24000 Hz
-    id: output_ledc_1
-- id: output_ledc_2
+    id: output_red
+- id: output_green
   component_id: output.ledc
   fields:
     pin:
       value: 26
       locked: true
     frequency: 24000 Hz
-    id: output_ledc_2
-- id: output_ledc_3
+    id: output_green
+- id: output_blue
   component_id: output.ledc
   fields:
     pin:
       value: 27
       locked: true
     frequency: 24000 Hz
-    id: output_ledc_3
-- id: output_ledc_4
+    id: output_blue
+- id: output_warm_white
   component_id: output.ledc
   fields:
     pin:
       value: 2
       locked: true
     frequency: 24000 Hz
-    id: output_ledc_4
-- id: output_ledc_5
+    id: output_warm_white
+- id: output_cool_white
   component_id: output.ledc
   fields:
     pin:
       value: 4
       locked: true
     frequency: 24000 Hz
-    id: output_ledc_5
+    id: output_cool_white
+featured_bundles:
+- id: light_rgbww_1_setup
+  name: WC+RGB Light (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - output_warm_white
+  - output_cool_white
+  - light_rgbww_1
 source:
   type: esphome-devices
   remote_id: LUTEC-Origo

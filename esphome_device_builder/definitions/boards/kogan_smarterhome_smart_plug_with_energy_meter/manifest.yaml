@@ -70,7 +70,7 @@ featured_components:
     unit_of_measurement: kWh
     id: sensor_total_daily_energy_1
     name: Kogan Plug 1 Daily Energy
-- id: switch_gpio_1
+- id: green_led
   component_id: switch.gpio
   fields:
     pin:
@@ -79,9 +79,9 @@ featured_components:
         inverted: true
       locked: true
     restore_mode: ALWAYS_OFF
-    id: switch_gpio_1
+    id: green_led
     name: green_led
-- id: switch_gpio_2
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
@@ -89,7 +89,7 @@ featured_components:
       locked: true
     icon: mdi:television
     restore_mode: ALWAYS_OFF
-    id: switch_gpio_2
+    id: relay
     name: Kogan Plug 1
 source:
   type: esphome-devices

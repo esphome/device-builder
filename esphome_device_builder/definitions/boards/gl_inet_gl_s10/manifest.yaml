@@ -53,7 +53,7 @@ featured_components:
     entity_category: diagnostic
     id: button_safe_mode_1
     name: Safe Mode Boot
-- id: output_gpio_1
+- id: power_led
   component_id: output.gpio
   fields:
     pin:
@@ -62,8 +62,8 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: power_led
+- id: bluetooth_led
   component_id: output.gpio
   fields:
     pin:
@@ -72,7 +72,7 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_gpio_2
+    id: bluetooth_led
 source:
   type: esphome-devices
   remote_id: GL-iNet-GL-S10

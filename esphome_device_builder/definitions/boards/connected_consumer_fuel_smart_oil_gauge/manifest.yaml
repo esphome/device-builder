@@ -39,7 +39,7 @@ pins:
   occupied_by: TempSens EN
 docs_url: https://devices.esphome.io/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: ctrl_btn
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -47,9 +47,9 @@ featured_components:
         number: 12
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: ctrl_btn
     name: Control Button
-- id: output_slow_pwm_1
+- id: led_pwm
   component_id: output.slow_pwm
   fields:
     period: 1s
@@ -59,16 +59,16 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_slow_pwm_1
-- id: sensor_adc_1
+    id: led_pwm
+- id: adc_input
   component_id: sensor.adc
   fields:
     accuracy_decimals: 5
     update_interval: 5s
     entity_category: diagnostic
-    id: sensor_adc_1
+    id: adc_input
     name: ADC Input
-- id: sensor_ultrasonic_1
+- id: oil_distance
   component_id: sensor.ultrasonic
   fields:
     trigger_pin:
@@ -81,9 +81,9 @@ featured_components:
       locked: true
     accuracy_decimals: 25
     update_interval: never
-    id: sensor_ultrasonic_1
+    id: oil_distance
     name: Distance to Oil
-- id: switch_gpio_1
+- id: done
   component_id: switch.gpio
   fields:
     pin:
@@ -91,9 +91,9 @@ featured_components:
       locked: true
     entity_category: config
     disabled_by_default: true
-    id: switch_gpio_1
+    id: done
     name: Done
-- id: switch_gpio_2
+- id: tempsens_en
   component_id: switch.gpio
   fields:
     pin:
@@ -101,9 +101,9 @@ featured_components:
       locked: true
     entity_category: config
     disabled_by_default: true
-    id: switch_gpio_2
+    id: tempsens_en
     name: TempSens EN
-- id: switch_gpio_3
+- id: ultrasonic_pwr
   component_id: switch.gpio
   fields:
     pin:
@@ -111,9 +111,9 @@ featured_components:
       locked: true
     entity_category: config
     disabled_by_default: false
-    id: switch_gpio_3
+    id: ultrasonic_pwr
     name: Ultrasonic Pwr
-- id: switch_gpio_4
+- id: sleep_1hr
   component_id: switch.gpio
   fields:
     pin:
@@ -121,7 +121,7 @@ featured_components:
       locked: true
     entity_category: config
     disabled_by_default: true
-    id: switch_gpio_4
+    id: sleep_1hr
     name: Sleep 1hr
 source:
   type: esphome-devices

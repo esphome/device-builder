@@ -39,34 +39,52 @@ featured_components:
     internal: true
     id: binary_sensor_gpio_1
     name: strip_light_pushbutton
-- id: output_esp8266_pwm_1
+- id: strip_light
+  component_id: light.rgbw
+  fields:
+    red: output_red
+    green: output_green
+    blue: output_blue
+    white: output_white
+    id: strip_light
+    name: Strip Light
+- id: output_red
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 4
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: output_red
+- id: output_green
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: output_green
+- id: output_blue
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: output_blue
+- id: output_white
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_4
+    id: output_white
+featured_bundles:
+- id: strip_light_setup
+  name: Strip Light (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - output_white
+  - strip_light
 source:
   type: esphome-devices
   remote_id: Mirabella-Genio-WiFi-LED-Strip-Light

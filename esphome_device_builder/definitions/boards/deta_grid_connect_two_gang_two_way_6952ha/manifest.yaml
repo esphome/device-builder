@@ -12,41 +12,41 @@ images:
 - images/6952HA-manual-flashing.jpg
 docs_url: https://devices.esphome.io/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     internal: true
-    id: binary_sensor_gpio_1
+    id: button_1
     name: button_1
-- id: binary_sensor_gpio_2
+- id: button_2
   component_id: binary_sensor.gpio
   fields:
     internal: true
-    id: binary_sensor_gpio_2
+    id: button_2
     name: button_2
-- id: binary_sensor_gpio_3
+- id: activation_status_1
   component_id: binary_sensor.gpio
   fields:
     internal: true
-    id: binary_sensor_gpio_3
+    id: activation_status_1
     name: activation_status_1
-- id: binary_sensor_gpio_4
+- id: activation_status_2
   component_id: binary_sensor.gpio
   fields:
     internal: true
-    id: binary_sensor_gpio_4
+    id: activation_status_2
     name: activation_status_2
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     internal: true
-    id: switch_gpio_1
+    id: relay_1
     name: relay_1
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     internal: true
-    id: switch_gpio_2
+    id: relay_2
     name: relay_2
 source:
   type: esphome-devices

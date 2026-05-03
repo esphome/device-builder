@@ -37,7 +37,13 @@ featured_components:
     device_class: power
     id: binary_sensor_gpio_1
     name: Button
-- id: output_esp8266_pwm_1
+- id: devicename_red_led
+  component_id: light.monochromatic
+  fields:
+    output: devicename_red_output
+    id: devicename_red_led
+    name: Light
+- id: devicename_red_output
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -45,7 +51,7 @@ featured_components:
         number: 13
         inverted: true
       locked: true
-    id: output_esp8266_pwm_1
+    id: devicename_red_output
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -70,15 +76,21 @@ featured_components:
     update_interval: 10s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
     restore_mode: ALWAYS_OFF
-    id: switch_gpio_1
+    id: relay
     name: relay
+featured_bundles:
+- id: devicename_red_led_setup
+  name: Light (full setup)
+  component_ids:
+  - devicename_red_output
+  - devicename_red_led
 source:
   type: esphome-devices
   remote_id: Maxcio-RMC020

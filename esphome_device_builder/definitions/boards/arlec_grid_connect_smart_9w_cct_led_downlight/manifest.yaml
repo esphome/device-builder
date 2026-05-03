@@ -24,22 +24,31 @@ featured_components:
     cold_white_color_temperature: 5700 K
     warm_white_color_temperature: 3000 K
     constant_brightness: true
+    cold_white: output_cw
+    warm_white: output_ww
     id: light_cwww_1
     name: Cwww 1
-- id: output_esp8266_pwm_1
+- id: output_cw
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 4
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: output_cw
+- id: output_ww
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_2
+    id: output_ww
+featured_bundles:
+- id: light_cwww_1_setup
+  name: Cwww (full setup)
+  component_ids:
+  - output_cw
+  - output_ww
+  - light_cwww_1
 source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight

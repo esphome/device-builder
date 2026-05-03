@@ -43,7 +43,7 @@ pins:
   occupied_by: Relay 1
 docs_url: https://devices.esphome.io/devices/Guition-ESP32-S3-4848S040/
 featured_components:
-- id: display_st7701s_1
+- id: tft_display
   component_id: display.st7701s
   fields:
     spi_mode: MODE3
@@ -75,16 +75,17 @@ featured_components:
     vsync_back_porch: 10
     update_interval: never
     auto_clear_enabled: false
-    id: display_st7701s_1
+    id: tft_display
     name: tft_display
-- id: light_monochromatic_1
+- id: display_backlight
   component_id: light.monochromatic
   fields:
     restore_mode: ALWAYS_ON
     default_transition_length: 1s
-    id: light_monochromatic_1
+    output: backlight_output
+    id: display_backlight
     name: Backlight
-- id: output_ledc_1
+- id: backlight_output
   component_id: output.ledc
   fields:
     pin:
@@ -93,7 +94,7 @@ featured_components:
     frequency: 150Hz
     min_power: 0.01
     zero_means_zero: true
-    id: output_ledc_1
+    id: backlight_output
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -124,6 +125,23 @@ featured_components:
       locked: true
     id: switch_gpio_3
     name: Relay 3
+- id: tft_touch
+  component_id: touchscreen.gt911
+  fields:
+    display: tft_display
+    id: tft_touch
+    name: tft_touch
+featured_bundles:
+- id: display_backlight_setup
+  name: Backlight (full setup)
+  component_ids:
+  - backlight_output
+  - display_backlight
+- id: tft_touch_setup
+  name: tft_touch (full setup)
+  component_ids:
+  - tft_display
+  - tft_touch
 source:
   type: esphome-devices
   remote_id: Guition-ESP32-S3-4848S040

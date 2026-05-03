@@ -24,7 +24,7 @@ pins:
   occupied_by: Relay
 docs_url: https://devices.esphome.io/devices/FrankEver-FK-PW801US/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     device_class: power
@@ -34,9 +34,9 @@ featured_components:
         inverted: true
         mode: INPUT_PULLUP
       locked: true
-    id: binary_sensor_gpio_1
+    id: button
     name: button
-- id: output_gpio_1
+- id: led
   component_id: output.gpio
   fields:
     pin:
@@ -44,14 +44,14 @@ featured_components:
         number: 2
         inverted: true
       locked: true
-    id: output_gpio_1
-- id: switch_gpio_1
+    id: led
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 15
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: Relay
 source:
   type: esphome-devices

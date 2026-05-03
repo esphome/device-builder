@@ -36,7 +36,7 @@ pins:
 docs_url: https://devices.esphome.io/devices/Smart-Plant/
 product_url: https://smart-plant.readthedocs.io
 featured_components:
-- id: display_waveshare_epaper_1
+- id: my_display
   component_id: display.waveshare_epaper
   fields:
     cs_pin:
@@ -55,9 +55,9 @@ featured_components:
     model: 2.90inv2
     update_interval: never
     full_update_every: 1
-    id: display_waveshare_epaper_1
+    id: my_display
     name: my_display
-- id: sensor_adc_1
+- id: batvolt
   component_id: sensor.adc
   fields:
     pin:
@@ -68,7 +68,7 @@ featured_components:
     unit_of_measurement: V
     attenuation: 12db
     icon: mdi:battery-medium
-    id: sensor_adc_1
+    id: batvolt
     name: Battery Voltage
 - id: sensor_aht10_1
   component_id: sensor.aht10
@@ -84,7 +84,7 @@ featured_components:
     update_interval: 1s
     id: sensor_veml7700_1
     name: Veml7700 1
-- id: sensor_adc_2
+- id: soil
   component_id: sensor.adc
   fields:
     pin:
@@ -95,9 +95,9 @@ featured_components:
     unit_of_measurement: '%'
     attenuation: 12db
     accuracy_decimals: 0
-    id: sensor_adc_2
+    id: soil
     name: Soil Moisture
-- id: switch_gpio_1
+- id: exc
   component_id: switch.gpio
   fields:
     pin:
@@ -105,7 +105,7 @@ featured_components:
       locked: true
     icon: mdi:power
     restore_mode: ALWAYS_ON
-    id: switch_gpio_1
+    id: exc
     name: Excitation switch
 source:
   type: esphome-devices

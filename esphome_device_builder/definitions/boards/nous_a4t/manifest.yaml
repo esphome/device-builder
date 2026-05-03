@@ -46,7 +46,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: input
-- id: light_status_led_1
+- id: connection_status_led
   component_id: light.status_led
   fields:
     internal: true
@@ -55,7 +55,7 @@ featured_components:
         number: 3
         inverted: true
       locked: true
-    id: light_status_led_1
+    id: connection_status_led
     name: status_led
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
@@ -76,23 +76,23 @@ featured_components:
     update_interval: 3s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay_1
     name: switch_1
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     pin:
       value: 13
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_2
+    id: relay_2
     name: switch_2
 source:
   type: esphome-devices

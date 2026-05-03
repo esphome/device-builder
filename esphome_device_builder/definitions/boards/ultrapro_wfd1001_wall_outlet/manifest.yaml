@@ -15,19 +15,19 @@ tags:
 - compact
 docs_url: https://devices.esphome.io/devices/UltraPro-WFD1001-Wall-Outlet/
 featured_components:
-- id: light_status_led_1
+- id: blue_led
   component_id: light.status_led
   fields:
     disabled_by_default: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: light_status_led_1
+    id: blue_led
     name: Blue LED
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
     device_class: switch
-    id: switch_gpio_1
+    id: relay
     name: None
 source:
   type: esphome-devices

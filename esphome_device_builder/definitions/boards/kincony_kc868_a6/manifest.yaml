@@ -107,7 +107,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: KC868-A6-IN-6
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
@@ -117,9 +117,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: relay_1
     name: KC868-A6-RELAY-1
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     pin:
@@ -129,9 +129,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: relay_2
     name: KC868-A6-RELAY-2
-- id: switch_gpio_3
+- id: relay_3
   component_id: switch.gpio
   fields:
     pin:
@@ -141,9 +141,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: relay_3
     name: KC868-A6-RELAY-3
-- id: switch_gpio_4
+- id: relay_4
   component_id: switch.gpio
   fields:
     pin:
@@ -153,9 +153,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: relay_4
     name: KC868-A6-RELAY-4
-- id: switch_gpio_5
+- id: relay_5
   component_id: switch.gpio
   fields:
     pin:
@@ -165,9 +165,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: relay_5
     name: KC868-A6-RELAY-5
-- id: switch_gpio_6
+- id: relay_6
   component_id: switch.gpio
   fields:
     pin:
@@ -177,7 +177,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: relay_6
     name: KC868-A6-RELAY-6
 source:
   type: esphome-devices

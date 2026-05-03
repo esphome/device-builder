@@ -32,46 +32,66 @@ pins:
   occupied_by: pwm_r
 docs_url: https://devices.esphome.io/devices/H801-RGBW-LED-Controller/
 featured_components:
-- id: output_esp8266_pwm_1
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    red: pwm_r
+    green: pwm_g
+    blue: pwm_b
+    cold_white: pwm_w1
+    warm_white: pwm_w2
+    id: light_rgbww_1
+    name: H801 Light
+- id: pwm_b
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: pwm_b
+- id: pwm_g
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: pwm_g
+- id: pwm_r
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 15
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: pwm_r
+- id: pwm_w1
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_4
-- id: output_esp8266_pwm_5
+    id: pwm_w1
+- id: pwm_w2
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 4
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_5
+    id: pwm_w2
+featured_bundles:
+- id: light_rgbww_1_setup
+  name: H801 Light (full setup)
+  component_ids:
+  - pwm_r
+  - pwm_g
+  - pwm_b
+  - pwm_w1
+  - pwm_w2
+  - light_rgbww_1
 source:
   type: esphome-devices
   remote_id: H801-RGBW-LED-Controller

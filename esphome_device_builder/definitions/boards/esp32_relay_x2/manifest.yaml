@@ -25,29 +25,41 @@ pins:
   occupied_by: output_led
 docs_url: https://devices.esphome.io/devices/ESP32-Relay-X2/
 featured_components:
-- id: output_gpio_1
+- id: light_led
+  component_id: light.binary
+  fields:
+    output: output_led
+    id: light_led
+    name: LED
+- id: output_led
   component_id: output.gpio
   fields:
     pin:
       value: 23
       locked: true
-    id: output_gpio_1
-- id: switch_gpio_1
+    id: output_led
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
       value: 16
       locked: true
-    id: switch_gpio_1
+    id: relay_1
     name: Relay 1
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     pin:
       value: 17
       locked: true
-    id: switch_gpio_2
+    id: relay_2
     name: Relay 2
+featured_bundles:
+- id: light_led_setup
+  name: LED (full setup)
+  component_ids:
+  - output_led
+  - light_led
 source:
   type: esphome-devices
   remote_id: ESP32-Relay-X2

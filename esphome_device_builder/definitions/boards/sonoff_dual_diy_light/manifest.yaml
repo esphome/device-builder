@@ -21,7 +21,7 @@ pins:
   occupied_by: button_2
 docs_url: https://devices.esphome.io/devices/Sonoff-Dual-DIY-light/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -32,9 +32,9 @@ featured_components:
           pullup: true
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_1
     name: button_1
-- id: binary_sensor_gpio_2
+- id: button_2
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -45,7 +45,7 @@ featured_components:
           pullup: true
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: button_2
     name: button_2
 source:
   type: esphome-devices

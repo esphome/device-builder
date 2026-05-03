@@ -19,7 +19,7 @@ pins:
   occupied_by: relay
 docs_url: https://devices.esphome.io/devices/QIACHIP-Smart-Switch/
 featured_components:
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
@@ -28,7 +28,7 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: relay
 source:
   type: esphome-devices

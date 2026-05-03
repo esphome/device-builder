@@ -33,7 +33,7 @@ pins:
   occupied_by: relay
 docs_url: https://devices.esphome.io/devices/Nous-A1t/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_state
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -41,9 +41,9 @@ featured_components:
         number: 0
         mode: INPUT_PULLUP
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_state
     name: button_state
-- id: light_status_led_1
+- id: led
   component_id: light.status_led
   fields:
     restore_mode: RESTORE_DEFAULT_ON
@@ -52,7 +52,7 @@ featured_components:
         number: 13
         inverted: true
       locked: true
-    id: light_status_led_1
+    id: led
     name: led
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
@@ -92,14 +92,14 @@ featured_components:
     update_interval: 3s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     restore_mode: RESTORE_DEFAULT_ON
     pin:
       value: 14
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: relay
 - id: text_sensor_version_1
   component_id: text_sensor.version

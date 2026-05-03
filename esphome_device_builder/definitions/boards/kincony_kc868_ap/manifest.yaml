@@ -260,86 +260,191 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_18
     name: ap-input18
-- id: output_pca9685_1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: pwm0
+    id: light_monochromatic_1
+    name: Color-LED-1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: pwm1
+    id: light_monochromatic_2
+    name: Color-LED-2
+- id: light_monochromatic_3
+  component_id: light.monochromatic
+  fields:
+    output: pwm2
+    id: light_monochromatic_3
+    name: Color-LED-3
+- id: light_monochromatic_4
+  component_id: light.monochromatic
+  fields:
+    output: pwm3
+    id: light_monochromatic_4
+    name: Color-LED-4
+- id: light_monochromatic_5
+  component_id: light.monochromatic
+  fields:
+    output: pwm4
+    id: light_monochromatic_5
+    name: Color-LED-5
+- id: light_monochromatic_6
+  component_id: light.monochromatic
+  fields:
+    output: pwm5
+    id: light_monochromatic_6
+    name: Color-LED-6
+- id: light_monochromatic_7
+  component_id: light.monochromatic
+  fields:
+    output: pwm6
+    id: light_monochromatic_7
+    name: Color-LED-7
+- id: light_monochromatic_8
+  component_id: light.monochromatic
+  fields:
+    output: pwm7
+    id: light_monochromatic_8
+    name: Color-LED-8
+- id: light_monochromatic_9
+  component_id: light.monochromatic
+  fields:
+    output: pwm8
+    id: light_monochromatic_9
+    name: Color-LED-9
+- id: light_monochromatic_10
+  component_id: light.monochromatic
+  fields:
+    output: pwm9
+    id: light_monochromatic_10
+    name: Color-LED-10
+- id: light_monochromatic_11
+  component_id: light.monochromatic
+  fields:
+    output: pwm10
+    id: light_monochromatic_11
+    name: Color-LED-11
+- id: light_monochromatic_12
+  component_id: light.monochromatic
+  fields:
+    output: pwm11
+    id: light_monochromatic_12
+    name: Color-LED-12
+- id: light_monochromatic_13
+  component_id: light.monochromatic
+  fields:
+    output: pwm12
+    id: light_monochromatic_13
+    name: Color-LED-13
+- id: light_monochromatic_14
+  component_id: light.monochromatic
+  fields:
+    output: pwm13
+    id: light_monochromatic_14
+    name: Color-LED-14
+- id: light_monochromatic_15
+  component_id: light.monochromatic
+  fields:
+    output: pwm14
+    id: light_monochromatic_15
+    name: Color-LED-15
+- id: light_monochromatic_16
+  component_id: light.monochromatic
+  fields:
+    output: pwm15
+    id: light_monochromatic_16
+    name: Color-LED-16
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    red: pwm1
+    green: pwm2
+    blue: pwm3
+    white: pwm4
+    id: light_rgbw_1
+    name: ap-rgbw
+- id: pwm0
   component_id: output.pca9685
   fields:
     channel: 0
-    id: output_pca9685_1
-- id: output_pca9685_2
+    id: pwm0
+- id: pwm1
   component_id: output.pca9685
   fields:
     channel: 1
-    id: output_pca9685_2
-- id: output_pca9685_3
+    id: pwm1
+- id: pwm2
   component_id: output.pca9685
   fields:
     channel: 2
-    id: output_pca9685_3
-- id: output_pca9685_4
+    id: pwm2
+- id: pwm3
   component_id: output.pca9685
   fields:
     channel: 3
-    id: output_pca9685_4
-- id: output_pca9685_5
+    id: pwm3
+- id: pwm4
   component_id: output.pca9685
   fields:
     channel: 4
-    id: output_pca9685_5
-- id: output_pca9685_6
+    id: pwm4
+- id: pwm5
   component_id: output.pca9685
   fields:
     channel: 5
-    id: output_pca9685_6
-- id: output_pca9685_7
+    id: pwm5
+- id: pwm6
   component_id: output.pca9685
   fields:
     channel: 6
-    id: output_pca9685_7
-- id: output_pca9685_8
+    id: pwm6
+- id: pwm7
   component_id: output.pca9685
   fields:
     channel: 7
-    id: output_pca9685_8
-- id: output_pca9685_9
+    id: pwm7
+- id: pwm8
   component_id: output.pca9685
   fields:
     channel: 8
-    id: output_pca9685_9
-- id: output_pca9685_10
+    id: pwm8
+- id: pwm9
   component_id: output.pca9685
   fields:
     channel: 9
-    id: output_pca9685_10
-- id: output_pca9685_11
+    id: pwm9
+- id: pwm10
   component_id: output.pca9685
   fields:
     channel: 10
-    id: output_pca9685_11
-- id: output_pca9685_12
+    id: pwm10
+- id: pwm11
   component_id: output.pca9685
   fields:
     channel: 11
-    id: output_pca9685_12
-- id: output_pca9685_13
+    id: pwm11
+- id: pwm12
   component_id: output.pca9685
   fields:
     channel: 12
-    id: output_pca9685_13
-- id: output_pca9685_14
+    id: pwm12
+- id: pwm13
   component_id: output.pca9685
   fields:
     channel: 13
-    id: output_pca9685_14
-- id: output_pca9685_15
+    id: pwm13
+- id: pwm14
   component_id: output.pca9685
   fields:
     channel: 14
-    id: output_pca9685_15
-- id: output_pca9685_16
+    id: pwm14
+- id: pwm15
   component_id: output.pca9685
   fields:
     channel: 15
-    id: output_pca9685_16
+    id: pwm15
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -362,6 +467,95 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: ap-light2
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: Color-LED-1 (full setup)
+  component_ids:
+  - pwm0
+  - light_monochromatic_1
+- id: light_monochromatic_2_setup
+  name: Color-LED-2 (full setup)
+  component_ids:
+  - pwm1
+  - light_monochromatic_2
+- id: light_monochromatic_3_setup
+  name: Color-LED-3 (full setup)
+  component_ids:
+  - pwm2
+  - light_monochromatic_3
+- id: light_monochromatic_4_setup
+  name: Color-LED-4 (full setup)
+  component_ids:
+  - pwm3
+  - light_monochromatic_4
+- id: light_monochromatic_5_setup
+  name: Color-LED-5 (full setup)
+  component_ids:
+  - pwm4
+  - light_monochromatic_5
+- id: light_monochromatic_6_setup
+  name: Color-LED-6 (full setup)
+  component_ids:
+  - pwm5
+  - light_monochromatic_6
+- id: light_monochromatic_7_setup
+  name: Color-LED-7 (full setup)
+  component_ids:
+  - pwm6
+  - light_monochromatic_7
+- id: light_monochromatic_8_setup
+  name: Color-LED-8 (full setup)
+  component_ids:
+  - pwm7
+  - light_monochromatic_8
+- id: light_monochromatic_9_setup
+  name: Color-LED-9 (full setup)
+  component_ids:
+  - pwm8
+  - light_monochromatic_9
+- id: light_monochromatic_10_setup
+  name: Color-LED-10 (full setup)
+  component_ids:
+  - pwm9
+  - light_monochromatic_10
+- id: light_monochromatic_11_setup
+  name: Color-LED-11 (full setup)
+  component_ids:
+  - pwm10
+  - light_monochromatic_11
+- id: light_monochromatic_12_setup
+  name: Color-LED-12 (full setup)
+  component_ids:
+  - pwm11
+  - light_monochromatic_12
+- id: light_monochromatic_13_setup
+  name: Color-LED-13 (full setup)
+  component_ids:
+  - pwm12
+  - light_monochromatic_13
+- id: light_monochromatic_14_setup
+  name: Color-LED-14 (full setup)
+  component_ids:
+  - pwm13
+  - light_monochromatic_14
+- id: light_monochromatic_15_setup
+  name: Color-LED-15 (full setup)
+  component_ids:
+  - pwm14
+  - light_monochromatic_15
+- id: light_monochromatic_16_setup
+  name: Color-LED-16 (full setup)
+  component_ids:
+  - pwm15
+  - light_monochromatic_16
+- id: light_rgbw_1_setup
+  name: ap-rgbw (full setup)
+  component_ids:
+  - pwm1
+  - pwm2
+  - pwm3
+  - pwm4
+  - light_rgbw_1
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-AP

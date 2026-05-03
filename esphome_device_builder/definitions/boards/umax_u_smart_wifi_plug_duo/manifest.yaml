@@ -36,7 +36,7 @@ pins:
   occupied_by: button1
 docs_url: https://devices.esphome.io/devices/UMAX-U-Smart-Wifi-Plug-Duo/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button1
   component_id: binary_sensor.gpio
   fields:
     internal: true
@@ -46,9 +46,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button1
     name: button1
-- id: binary_sensor_gpio_2
+- id: button2
   component_id: binary_sensor.gpio
   fields:
     internal: true
@@ -58,7 +58,7 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: button2
     name: button2
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
@@ -91,7 +91,7 @@ featured_components:
     icon: mdi:clock-alert
     id: sensor_total_daily_energy_1
     name: daily
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
@@ -99,9 +99,9 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power-socket-eu
-    id: switch_gpio_1
+    id: relay1
     name: Switch1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
@@ -109,7 +109,7 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power-socket-eu
-    id: switch_gpio_2
+    id: relay2
     name: Switch2
 source:
   type: esphome-devices

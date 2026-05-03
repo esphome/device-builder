@@ -63,11 +63,12 @@ featured_components:
     auto_clear_enabled: false
     id: display_st7735_1
     name: St7735 1
-- id: light_monochromatic_1
+- id: lcd_backlight
   component_id: light.monochromatic
   fields:
     restore_mode: ALWAYS_OFF
-    id: light_monochromatic_1
+    output: backlight_output
+    id: lcd_backlight
     name: LCD Backlight
 - id: light_spi_led_strip_1
   component_id: light.spi_led_strip
@@ -76,7 +77,7 @@ featured_components:
     data_rate: 1MHz
     id: light_spi_led_strip_1
     name: FastLED SPI Light
-- id: output_ledc_1
+- id: backlight_output
   component_id: output.ledc
   fields:
     frequency: 2000
@@ -86,7 +87,13 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_ledc_1
+    id: backlight_output
+featured_bundles:
+- id: lcd_backlight_setup
+  name: LCD Backlight (full setup)
+  component_ids:
+  - backlight_output
+  - lcd_backlight
 source:
   type: esphome-devices
   remote_id: Lilygo-TDongle-S3

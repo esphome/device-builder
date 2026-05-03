@@ -113,34 +113,79 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: Push Button
-- id: output_gpio_1
+- id: sw1
+  component_id: light.binary
+  fields:
+    output: relay1
+    id: sw1
+    name: Relay 1
+- id: sw2
+  component_id: light.binary
+  fields:
+    output: relay2
+    id: sw2
+    name: Relay 2
+- id: sw3
+  component_id: light.binary
+  fields:
+    output: relay3
+    id: sw3
+    name: Relay 3
+- id: sw4
+  component_id: light.binary
+  fields:
+    output: relay4
+    id: sw4
+    name: Relay 4
+- id: relay1
   component_id: output.gpio
   fields:
     pin:
       value: 10
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: relay1
+- id: relay2
   component_id: output.gpio
   fields:
     pin:
       value: 24
       locked: true
-    id: output_gpio_2
-- id: output_gpio_3
+    id: relay2
+- id: relay3
   component_id: output.gpio
   fields:
     pin:
       value: 26
       locked: true
-    id: output_gpio_3
-- id: output_gpio_4
+    id: relay3
+- id: relay4
   component_id: output.gpio
   fields:
     pin:
       value: 28
       locked: true
-    id: output_gpio_4
+    id: relay4
+featured_bundles:
+- id: sw1_setup
+  name: Relay 1 (full setup)
+  component_ids:
+  - relay1
+  - sw1
+- id: sw2_setup
+  name: Relay 2 (full setup)
+  component_ids:
+  - relay2
+  - sw2
+- id: sw3_setup
+  name: Relay 3 (full setup)
+  component_ids:
+  - relay3
+  - sw3
+- id: sw4_setup
+  name: Relay 4 (full setup)
+  component_ids:
+  - relay4
+  - sw4
 source:
   type: esphome-devices
   remote_id: Tuya-Mini-W1-4CH

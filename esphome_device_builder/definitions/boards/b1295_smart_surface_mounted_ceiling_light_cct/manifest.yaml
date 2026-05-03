@@ -24,9 +24,11 @@ featured_components:
   fields:
     cold_white_color_temperature: 6000 K
     warm_white_color_temperature: 3000 K
+    color_temperature: output_temperature
+    brightness: output_brightness
     id: light_color_temperature_1
     name: Color Temperature 1
-- id: output_esp8266_pwm_1
+- id: output_temperature
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -35,14 +37,21 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: output_temperature
+- id: output_brightness
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_2
+    id: output_brightness
+featured_bundles:
+- id: light_color_temperature_1_setup
+  name: Color Temperature (full setup)
+  component_ids:
+  - output_temperature
+  - output_brightness
+  - light_color_temperature_1
 source:
   type: esphome-devices
   remote_id: B1295-SMART-Surface-Mounted-Ceiling-Light-CCT

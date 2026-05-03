@@ -12,39 +12,50 @@ images:
 - images/image.png
 docs_url: https://devices.esphome.io/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/
 featured_components:
-- id: light_rgb_1
+- id: rgb_lightstrip1
   component_id: light.rgb
   fields:
     default_transition_length: 1s
     restore_mode: ALWAYS_OFF
-    id: light_rgb_1
+    red: output_red
+    green: output_green
+    blue: output_blue
+    id: rgb_lightstrip1
     name: rgb_strip_01
-- id: output_libretiny_pwm_1
+- id: output_a
   component_id: output.libretiny_pwm
   fields:
     frequency: 1000 Hz
-    id: output_libretiny_pwm_1
-- id: output_libretiny_pwm_2
+    id: output_a
+- id: output_blue
   component_id: output.libretiny_pwm
   fields:
     frequency: 1000 Hz
-    id: output_libretiny_pwm_2
-- id: output_libretiny_pwm_3
+    id: output_blue
+- id: output_green
   component_id: output.libretiny_pwm
   fields:
     frequency: 1000 Hz
-    id: output_libretiny_pwm_3
-- id: output_libretiny_pwm_4
+    id: output_green
+- id: output_red
   component_id: output.libretiny_pwm
   fields:
     frequency: 1000 Hz
-    id: output_libretiny_pwm_4
+    id: output_red
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Wifi Signal Strength
+featured_bundles:
+- id: rgb_lightstrip1_setup
+  name: rgb_strip_01 (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - rgb_lightstrip1
 source:
   type: esphome-devices
   remote_id: RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003

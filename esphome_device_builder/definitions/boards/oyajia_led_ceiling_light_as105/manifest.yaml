@@ -12,21 +12,21 @@ images:
 - images/pinout.png
 docs_url: https://devices.esphome.io/devices/Oyajia-LED-Ceiling-light-AS105/
 featured_components:
-- id: light_cwww_1
+- id: white_light
   component_id: light.cwww
   fields:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2800 K
     constant_brightness: true
-    id: light_cwww_1
+    id: white_light
     name: White Light
-- id: light_beken_spi_led_strip_1
+- id: color_light
   component_id: light.beken_spi_led_strip
   fields:
     chipset: WS2812
     num_leds: 60
     rgb_order: GRB
-    id: light_beken_spi_led_strip_1
+    id: color_light
     name: Color Light
 source:
   type: esphome-devices

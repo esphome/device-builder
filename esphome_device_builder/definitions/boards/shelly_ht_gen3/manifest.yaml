@@ -30,7 +30,7 @@ pins:
   occupied_by: batt_power_en
 docs_url: https://devices.esphome.io/devices/Shelly-HT-Gen3/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: batt_presence
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -39,7 +39,7 @@ featured_components:
         inverted: true
       locked: true
     internal: true
-    id: binary_sensor_gpio_1
+    id: batt_presence
     name: batt_presence
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
@@ -55,13 +55,13 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Button
-- id: output_gpio_1
+- id: batt_power_en
   component_id: output.gpio
   fields:
     pin:
       value: 18
       locked: true
-    id: output_gpio_1
+    id: batt_power_en
 - id: sensor_sht3xd_1
   component_id: sensor.sht3xd
   fields:
@@ -69,13 +69,13 @@ featured_components:
     update_interval: 60s
     id: sensor_sht3xd_1
     name: Sht3Xd 1
-- id: sensor_wifi_signal_1
+- id: wifi_rssi
   component_id: sensor.wifi_signal
   fields:
     update_interval: 120s
-    id: sensor_wifi_signal_1
+    id: wifi_rssi
     name: WiFi Signal
-- id: sensor_adc_1
+- id: batt_adc
   component_id: sensor.adc
   fields:
     pin:
@@ -85,7 +85,7 @@ featured_components:
     update_interval: never
     internal: true
     samples: 15
-    id: sensor_adc_1
+    id: batt_adc
     name: batt_adc
 source:
   type: esphome-devices

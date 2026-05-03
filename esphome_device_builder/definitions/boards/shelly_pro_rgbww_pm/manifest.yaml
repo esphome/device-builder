@@ -66,7 +66,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Reset Button
-- id: binary_sensor_gpio_2
+- id: in36
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -74,9 +74,9 @@ featured_components:
         number: 36
         mode: INPUT
       locked: true
-    id: binary_sensor_gpio_2
+    id: in36
     name: in36
-- id: binary_sensor_gpio_3
+- id: in37
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -84,9 +84,9 @@ featured_components:
         number: 37
         mode: INPUT
       locked: true
-    id: binary_sensor_gpio_3
+    id: in37
     name: in37
-- id: binary_sensor_gpio_4
+- id: in38
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -94,9 +94,9 @@ featured_components:
         number: 38
         mode: INPUT
       locked: true
-    id: binary_sensor_gpio_4
+    id: in38
     name: in38
-- id: binary_sensor_gpio_5
+- id: in39
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -104,57 +104,113 @@ featured_components:
         number: 39
         mode: INPUT
       locked: true
-    id: binary_sensor_gpio_5
+    id: in39
     name: in39
-- id: output_ledc_1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: pwm_1
+    id: light_monochromatic_1
+    name: Channel 1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: pwm_2
+    id: light_monochromatic_2
+    name: Channel 2
+- id: light_monochromatic_3
+  component_id: light.monochromatic
+  fields:
+    output: pwm_3
+    id: light_monochromatic_3
+    name: Channel 3
+- id: light_monochromatic_4
+  component_id: light.monochromatic
+  fields:
+    output: pwm_4
+    id: light_monochromatic_4
+    name: Channel 4
+- id: light_monochromatic_5
+  component_id: light.monochromatic
+  fields:
+    output: pwm_5
+    id: light_monochromatic_5
+    name: Channel 5
+- id: pwm_1
   component_id: output.ledc
   fields:
     pin:
       value: 13
       locked: true
-    id: output_ledc_1
-- id: output_ledc_2
+    id: pwm_1
+- id: pwm_2
   component_id: output.ledc
   fields:
     pin:
       value: 12
       locked: true
-    id: output_ledc_2
-- id: output_ledc_3
+    id: pwm_2
+- id: pwm_3
   component_id: output.ledc
   fields:
     pin:
       value: 14
       locked: true
-    id: output_ledc_3
-- id: output_ledc_4
+    id: pwm_3
+- id: pwm_4
   component_id: output.ledc
   fields:
     pin:
       value: 16
       locked: true
-    id: output_ledc_4
-- id: output_ledc_5
+    id: pwm_4
+- id: pwm_5
   component_id: output.ledc
   fields:
     pin:
       value: 17
       locked: true
-    id: output_ledc_5
-- id: output_gpio_1
+    id: pwm_5
+- id: mux_a
   component_id: output.gpio
   fields:
     pin:
       value: 0
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: mux_a
+- id: mux_b
   component_id: output.gpio
   fields:
     pin:
       value: 2
       locked: true
-    id: output_gpio_2
+    id: mux_b
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: Channel 1 (full setup)
+  component_ids:
+  - pwm_1
+  - light_monochromatic_1
+- id: light_monochromatic_2_setup
+  name: Channel 2 (full setup)
+  component_ids:
+  - pwm_2
+  - light_monochromatic_2
+- id: light_monochromatic_3_setup
+  name: Channel 3 (full setup)
+  component_ids:
+  - pwm_3
+  - light_monochromatic_3
+- id: light_monochromatic_4_setup
+  name: Channel 4 (full setup)
+  component_ids:
+  - pwm_4
+  - light_monochromatic_4
+- id: light_monochromatic_5_setup
+  name: Channel 5 (full setup)
+  component_ids:
+  - pwm_5
+  - light_monochromatic_5
 source:
   type: esphome-devices
   remote_id: Shelly-Pro-RGBWW-PM

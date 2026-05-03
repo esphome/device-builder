@@ -53,7 +53,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: button
-- id: light_status_led_1
+- id: green_led
   component_id: light.status_led
   fields:
     pin:
@@ -61,7 +61,7 @@ featured_components:
         number: 1
         inverted: true
       locked: true
-    id: light_status_led_1
+    id: green_led
     name: green_led
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
@@ -93,37 +93,37 @@ featured_components:
     update_interval: 5min
     id: sensor_wifi_signal_1
     name: rssi
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 13
       locked: true
-    id: switch_gpio_1
+    id: relay1
     name: plug1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
-    id: switch_gpio_2
+    id: relay2
     name: plug2
-- id: switch_gpio_3
+- id: relay3
   component_id: switch.gpio
   fields:
     pin:
       value: 3
       locked: true
-    id: switch_gpio_3
+    id: relay3
     name: plug3
-- id: switch_gpio_4
+- id: relayusb
   component_id: switch.gpio
   fields:
     pin:
       value: 15
       locked: true
-    id: switch_gpio_4
+    id: relayusb
     name: usb
 source:
   type: esphome-devices

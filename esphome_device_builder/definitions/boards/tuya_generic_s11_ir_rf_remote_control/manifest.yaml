@@ -17,12 +17,12 @@ featured_components:
     icon: mdi:button-pointer
     id: binary_sensor_gpio_1
     name: Button
-- id: sensor_wifi_signal_1
+- id: wifi_signal_db
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     entity_category: diagnostic
-    id: sensor_wifi_signal_1
+    id: wifi_signal_db
     name: WiFi Signal dB
 source:
   type: esphome-devices

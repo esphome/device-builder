@@ -50,7 +50,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: AGL 2 Gang Button 2
-- id: light_status_led_1
+- id: blue_led
   component_id: light.status_led
   fields:
     restore_mode: ALWAYS_ON
@@ -60,23 +60,23 @@ featured_components:
         inverted: true
       locked: true
     internal: true
-    id: light_status_led_1
+    id: blue_led
     name: blue_led
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
       value: 13
       locked: true
-    id: switch_gpio_1
+    id: relay_1
     name: AGL 2 Gang Switch 1
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
-    id: switch_gpio_2
+    id: relay_2
     name: AGL 2 Gang Switch 2
 source:
   type: esphome-devices

@@ -12,11 +12,11 @@ images:
 - images/lovelace_card_example.png
 docs_url: https://devices.esphome.io/devices/Alfawise-SJ-7/
 featured_components:
-- id: fan_speed_1
+- id: name_fan
   component_id: fan.speed
   fields:
     speed_count: 2
-    id: fan_speed_1
+    id: name_fan
     name: Fan
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal

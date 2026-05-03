@@ -11,7 +11,7 @@ images:
 - images/moes-ir-thermostat.jpg
 docs_url: https://devices.esphome.io/devices/Moes-IR-Thermostat-S16Pro/
 featured_components:
-- id: climate_tuya_1
+- id: climate_primary
   component_id: climate.tuya
   fields:
     switch_datapoint: 1
@@ -21,15 +21,15 @@ featured_components:
     current_temperature_multiplier: 0.1
     supports_heat: true
     supports_cool: true
-    id: climate_tuya_1
+    id: climate_primary
     name: AC
-- id: climate_climate_ir_lg_1
+- id: climate_secondary
   component_id: climate.climate_ir_lg
   fields:
     header_high: 3265us
     header_low: 9856us
     internal: true
-    id: climate_climate_ir_lg_1
+    id: climate_secondary
     name: IR
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal

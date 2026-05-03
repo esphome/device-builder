@@ -12,16 +12,16 @@ images:
 docs_url: https://devices.esphome.io/devices/TESLA-EDM-01AA-EU/
 product_url: https://www.teslasmart.com/tesla-smart-switch-dimmer-touch
 featured_components:
-- id: light_tuya_1
+- id: dimmer
   component_id: light.tuya
   fields:
     dimmer_datapoint: 2
     switch_datapoint: 1
     min_value: 10
     max_value: 1000
-    id: light_tuya_1
+    id: dimmer
     name: Wall Dimmer
-- id: number_tuya_1
+- id: min_brightness
   component_id: number.tuya
   fields:
     number_datapoint: 3
@@ -29,21 +29,21 @@ featured_components:
     max_value: 1000
     step: 10
     entity_category: config
-    id: number_tuya_1
+    id: min_brightness
     name: Min Brightness
-- id: select_tuya_1
+- id: load_type
   component_id: select.tuya
   fields:
     enum_datapoint: 4
     entity_category: config
-    id: select_tuya_1
+    id: load_type
     name: Load Type
-- id: select_tuya_2
+- id: indicator_led
   component_id: select.tuya
   fields:
     enum_datapoint: 21
     entity_category: config
-    id: select_tuya_2
+    id: indicator_led
     name: Indicator LED
 source:
   type: esphome-devices

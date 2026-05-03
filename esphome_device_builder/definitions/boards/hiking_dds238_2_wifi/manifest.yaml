@@ -15,13 +15,13 @@ pins:
   occupied_by: button
 docs_url: https://devices.esphome.io/devices/Hiking-DDS238-2-WIFI/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 16
       locked: true
-    id: binary_sensor_gpio_1
+    id: button
     name: button
 - id: sensor_tuya_1
   component_id: sensor.tuya
@@ -68,11 +68,11 @@ featured_components:
     icon: mdi:flash
     id: sensor_tuya_5
     name: kWh
-- id: switch_tuya_1
+- id: power
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
-    id: switch_tuya_1
+    id: power
     name: Switch
 source:
   type: esphome-devices

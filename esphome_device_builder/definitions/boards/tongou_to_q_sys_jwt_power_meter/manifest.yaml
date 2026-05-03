@@ -105,7 +105,7 @@ featured_components:
     step: 1
     id: number_tuya_8
     name: Balance Shortage Threshold
-- id: number_tuya_9
+- id: charge_electricity
   component_id: number.tuya
   fields:
     number_datapoint: 14
@@ -115,7 +115,7 @@ featured_components:
     max_value: 9999
     step: 0.1
     multiply: 100
-    id: number_tuya_9
+    id: charge_electricity
     name: Charge Electricity
 - id: select_tuya_1
   component_id: select.tuya
@@ -243,12 +243,12 @@ featured_components:
     switch_datapoint: 11
     id: switch_tuya_5
     name: Prepayment Switch Mode
-- id: switch_tuya_6
+- id: clear_electricity_switch
   component_id: switch.tuya
   fields:
     switch_datapoint: 12
     internal: true
-    id: switch_tuya_6
+    id: clear_electricity_switch
     name: Clear Remaining Electricity
 - id: switch_tuya_7
   component_id: switch.tuya

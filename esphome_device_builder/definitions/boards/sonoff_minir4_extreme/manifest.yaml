@@ -30,36 +30,37 @@ pins:
   occupied_by: s1
 docs_url: https://devices.esphome.io/devices/Sonoff-MiniR4-Extreme/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 0
       locked: true
-    id: binary_sensor_gpio_1
+    id: button
     name: button
-- id: binary_sensor_gpio_2
+- id: s1
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 27
       locked: true
-    id: binary_sensor_gpio_2
+    id: s1
     name: s1
-- id: light_binary_1
+- id: light_1
   component_id: light.binary
   fields:
     icon: mdi:ceiling-light-multiple-outline
     restore_mode: restore_default_off
-    id: light_binary_1
+    output: relay_1
+    id: light_1
     name: light_1
-- id: output_gpio_1
+- id: relay_1
   component_id: output.gpio
   fields:
     pin:
       value: 26
       locked: true
-    id: output_gpio_1
+    id: relay_1
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -67,6 +68,12 @@ featured_components:
     entity_category: diagnostic
     id: sensor_wifi_signal_1
     name: Wifi Signal Strength
+featured_bundles:
+- id: light_1_setup
+  name: light_1 (full setup)
+  component_ids:
+  - relay_1
+  - light_1
 source:
   type: esphome-devices
   remote_id: Sonoff-MiniR4-Extreme

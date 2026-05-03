@@ -13,11 +13,11 @@ images:
 - images/Backside.jpg
 docs_url: https://devices.esphome.io/devices/AVATTO-Tuya-WiFi-Smart-Switch/
 featured_components:
-- id: light_status_led_1
+- id: led
   component_id: light.status_led
   fields:
     internal: true
-    id: light_status_led_1
+    id: led
     name: State
 source:
   type: esphome-devices

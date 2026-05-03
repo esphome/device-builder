@@ -19,20 +19,20 @@ pins:
   occupied_by: gen_pwm_test
 docs_url: https://devices.esphome.io/devices/Tinxy-4N-Fan-Regulator/
 featured_components:
-- id: fan_speed_1
+- id: fan_1
   component_id: fan.speed
   fields:
     speed_count: 3
-    id: fan_speed_1
+    id: fan_1
     name: Fan
-- id: output_esp8266_pwm_1
+- id: gen_pwm_test
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_1
+    id: gen_pwm_test
 source:
   type: esphome-devices
   remote_id: Tinxy-4N-Fan-Regulator

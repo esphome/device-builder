@@ -39,7 +39,7 @@ featured_components:
     device_class: connectivity
     id: binary_sensor_status_1
     name: Status
-- id: binary_sensor_gpio_1
+- id: devicename_button_state
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -48,9 +48,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: devicename_button_state
     name: button_state
-- id: output_gpio_1
+- id: led_red
   component_id: output.gpio
   fields:
     pin:
@@ -59,7 +59,7 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_gpio_1
+    id: led_red
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -98,13 +98,13 @@ featured_components:
     update_interval: 3s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 15
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: relay
 - id: text_sensor_version_1
   component_id: text_sensor.version

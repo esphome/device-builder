@@ -45,7 +45,7 @@ pins:
   occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/Knightsbridge-CU9KW/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -56,9 +56,9 @@ featured_components:
           pullup: false
         inverted: false
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_1
     name: button_1
-- id: binary_sensor_gpio_2
+- id: button_2
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -69,23 +69,23 @@ featured_components:
           pullup: true
         inverted: false
       locked: true
-    id: binary_sensor_gpio_2
+    id: button_2
     name: button_2
-- id: output_gpio_1
+- id: relay_1
   component_id: output.gpio
   fields:
     pin:
       value: 15
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: relay_1
+- id: relay_2
   component_id: output.gpio
   fields:
     pin:
       value: 4
       locked: true
-    id: output_gpio_2
-- id: output_gpio_3
+    id: relay_2
+- id: led_1
   component_id: output.gpio
   fields:
     pin:
@@ -93,8 +93,8 @@ featured_components:
         number: 2
         inverted: true
       locked: true
-    id: output_gpio_3
-- id: output_gpio_4
+    id: led_1
+- id: led_2
   component_id: output.gpio
   fields:
     pin:
@@ -102,7 +102,7 @@ featured_components:
         number: 0
         inverted: true
       locked: true
-    id: output_gpio_4
+    id: led_2
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -121,18 +121,31 @@ featured_components:
     update_interval: 10s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_output_1
+- id: cu9kw_socket_1
   component_id: switch.output
   fields:
     icon: mdi:power-socket-uk
-    id: switch_output_1
+    output: relay_1
+    id: cu9kw_socket_1
     name: Outlet 1
-- id: switch_output_2
+- id: cu9kw_socket_2
   component_id: switch.output
   fields:
     icon: mdi:power-socket-uk
-    id: switch_output_2
+    output: relay_2
+    id: cu9kw_socket_2
     name: Outlet 2
+featured_bundles:
+- id: cu9kw_socket_1_setup
+  name: Outlet 1 (full setup)
+  component_ids:
+  - relay_1
+  - cu9kw_socket_1
+- id: cu9kw_socket_2_setup
+  name: Outlet 2 (full setup)
+  component_ids:
+  - relay_2
+  - cu9kw_socket_2
 source:
   type: esphome-devices
   remote_id: Knightsbridge-CU9KW

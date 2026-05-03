@@ -20,13 +20,13 @@ featured_components:
     restore_mode: RESTORE_DEFAULT_ON
     id: light_beken_spi_led_strip_1
     name: Outer RGB
-- id: light_cwww_1
+- id: light_cwww
   component_id: light.cwww
   fields:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     restore_mode: RESTORE_DEFAULT_ON
-    id: light_cwww_1
+    id: light_cwww
     name: Main
 source:
   type: esphome-devices

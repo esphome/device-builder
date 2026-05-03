@@ -18,14 +18,26 @@ pins:
   occupied_by: pwm_output
 docs_url: https://devices.esphome.io/devices/Arlec-FL052HA-Security-Flood-Light/
 featured_components:
-- id: output_esp8266_pwm_1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: pwm_output
+    id: light_monochromatic_1
+    name: fl052ha_flood_light
+- id: pwm_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_1
+    id: pwm_output
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: fl052ha_flood_light (full setup)
+  component_ids:
+  - pwm_output
+  - light_monochromatic_1
 source:
   type: esphome-devices
   remote_id: Arlec-FL052HA-Security-Flood-Light

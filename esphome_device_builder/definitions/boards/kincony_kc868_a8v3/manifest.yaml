@@ -73,7 +73,7 @@ pins:
   occupied_by: a8v3-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A8v3/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: a8v3_input01
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -83,9 +83,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: a8v3_input01
     name: a8v3-input01
-- id: binary_sensor_gpio_2
+- id: a8v3_input02
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -95,9 +95,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: a8v3_input02
     name: a8v3-input02
-- id: binary_sensor_gpio_3
+- id: a8v3_input03
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -107,9 +107,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: a8v3_input03
     name: a8v3-input03
-- id: binary_sensor_gpio_4
+- id: a8v3_input04
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -119,9 +119,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: a8v3_input04
     name: a8v3-input04
-- id: binary_sensor_gpio_5
+- id: a8v3_input05
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -131,9 +131,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_5
+    id: a8v3_input05
     name: a8v3-input05
-- id: binary_sensor_gpio_6
+- id: a8v3_input06
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -143,9 +143,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_6
+    id: a8v3_input06
     name: a8v3-input06
-- id: binary_sensor_gpio_7
+- id: a8v3_input07
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -155,9 +155,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_7
+    id: a8v3_input07
     name: a8v3-input07
-- id: binary_sensor_gpio_8
+- id: a8v3_input08
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -167,7 +167,7 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_8
+    id: a8v3_input08
     name: a8v3-input08
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
@@ -249,7 +249,7 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_2
     name: A8v3 A2 Voltage
-- id: switch_gpio_1
+- id: a8v3_output01
   component_id: switch.gpio
   fields:
     pin:
@@ -259,9 +259,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: a8v3_output01
     name: a8v3-output01
-- id: switch_gpio_2
+- id: a8v3_output02
   component_id: switch.gpio
   fields:
     pin:
@@ -271,9 +271,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: a8v3_output02
     name: a8v3-output02
-- id: switch_gpio_3
+- id: a8v3_output03
   component_id: switch.gpio
   fields:
     pin:
@@ -283,9 +283,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: a8v3_output03
     name: a8v3-output03
-- id: switch_gpio_4
+- id: a8v3_output04
   component_id: switch.gpio
   fields:
     pin:
@@ -295,9 +295,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: a8v3_output04
     name: a8v3-output04
-- id: switch_gpio_5
+- id: a8v3_output05
   component_id: switch.gpio
   fields:
     pin:
@@ -307,9 +307,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: a8v3_output05
     name: a8v3-output05
-- id: switch_gpio_6
+- id: a8v3_output06
   component_id: switch.gpio
   fields:
     pin:
@@ -319,9 +319,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: a8v3_output06
     name: a8v3-output06
-- id: switch_gpio_7
+- id: a8v3_output07
   component_id: switch.gpio
   fields:
     pin:
@@ -331,9 +331,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_7
+    id: a8v3_output07
     name: a8v3-output07
-- id: switch_gpio_8
+- id: a8v3_output08
   component_id: switch.gpio
   fields:
     pin:
@@ -343,7 +343,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_8
+    id: a8v3_output08
     name: a8v3-output08
 source:
   type: esphome-devices

@@ -36,7 +36,7 @@ pins:
   occupied_by: Switch 2 (external)
 docs_url: https://devices.esphome.io/devices/Nous-B3T/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -48,9 +48,9 @@ featured_components:
         inverted: true
       locked: true
     internal: true
-    id: binary_sensor_gpio_1
+    id: button
     name: button
-- id: binary_sensor_gpio_2
+- id: switch_1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -62,9 +62,9 @@ featured_components:
       locked: true
     icon: mdi:light-switch
     entity_category: diagnostic
-    id: binary_sensor_gpio_2
+    id: switch_1
     name: Switch 1 (external)
-- id: binary_sensor_gpio_3
+- id: switch_2
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -75,9 +75,9 @@ featured_components:
       locked: true
     icon: mdi:light-switch
     entity_category: diagnostic
-    id: binary_sensor_gpio_3
+    id: switch_2
     name: Switch 2 (external)
-- id: light_status_led_1
+- id: default_status_led
   component_id: light.status_led
   fields:
     pin:
@@ -87,9 +87,9 @@ featured_components:
         ignore_strapping_warning: true
       locked: true
     entity_category: config
-    id: light_status_led_1
+    id: default_status_led
     name: Status LED
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
@@ -99,9 +99,9 @@ featured_components:
       locked: true
     device_class: switch
     restore_mode: restore_default_on
-    id: switch_gpio_1
+    id: relay_1
     name: Switch 1
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     pin:
@@ -109,7 +109,7 @@ featured_components:
       locked: true
     device_class: switch
     restore_mode: restore_default_on
-    id: switch_gpio_2
+    id: relay_2
     name: Switch 2
 source:
   type: esphome-devices

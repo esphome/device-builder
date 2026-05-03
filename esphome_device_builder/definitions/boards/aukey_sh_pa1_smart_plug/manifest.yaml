@@ -24,23 +24,35 @@ pins:
   occupied_by: plug_outlet
 docs_url: https://devices.esphome.io/devices/Aukey-SH-PA1-Smart-Plug/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: mini_tree_button
   component_id: binary_sensor.gpio
   fields:
     pin:
       value:
         number: 13
       locked: true
-    id: binary_sensor_gpio_1
+    id: mini_tree_button
     name: mini_tree_button
-- id: output_gpio_1
+- id: mini_tree
+  component_id: light.binary
+  fields:
+    output: plug_outlet
+    id: mini_tree
+    name: Mini Tree
+- id: blue_led
+  component_id: light.binary
+  fields:
+    output: blue_led_output
+    id: blue_led
+    name: blue_led
+- id: plug_outlet
   component_id: output.gpio
   fields:
     pin:
       value: 15
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: plug_outlet
+- id: blue_led_output
   component_id: output.gpio
   fields:
     pin:
@@ -48,7 +60,18 @@ featured_components:
         number: 2
         inverted: true
       locked: true
-    id: output_gpio_2
+    id: blue_led_output
+featured_bundles:
+- id: mini_tree_setup
+  name: Mini Tree (full setup)
+  component_ids:
+  - plug_outlet
+  - mini_tree
+- id: blue_led_setup
+  name: blue_led (full setup)
+  component_ids:
+  - blue_led_output
+  - blue_led
 source:
   type: esphome-devices
   remote_id: Aukey-SH-PA1-Smart-Plug

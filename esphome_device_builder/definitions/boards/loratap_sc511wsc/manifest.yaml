@@ -11,29 +11,29 @@ images:
 - images/image.png
 docs_url: https://devices.esphome.io/devices/LoraTap-SC511WSC/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: open_cover_switch
   component_id: binary_sensor.gpio
   fields:
     disabled_by_default: true
-    id: binary_sensor_gpio_1
+    id: open_cover_switch
     name: S1 switch input
-- id: binary_sensor_gpio_2
+- id: close_cover_switch
   component_id: binary_sensor.gpio
   fields:
     disabled_by_default: true
-    id: binary_sensor_gpio_2
+    id: close_cover_switch
     name: S2 switch input
-- id: binary_sensor_gpio_3
+- id: stop_cover_switch
   component_id: binary_sensor.gpio
   fields:
     disabled_by_default: true
-    id: binary_sensor_gpio_3
+    id: stop_cover_switch
     name: remote stop switch
-- id: cover_time_based_1
+- id: cover1
   component_id: cover.time_based
   fields:
     has_built_in_endstop: true
-    id: cover_time_based_1
+    id: cover1
     name: cover1
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
@@ -41,19 +41,19 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Wifi Signal Strength
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     internal: true
     restore_mode: always off
-    id: switch_gpio_1
+    id: relay1
     name: 'Relay #1'
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     internal: true
     restore_mode: always off
-    id: switch_gpio_2
+    id: relay2
     name: 'Relay #2'
 source:
   type: esphome-devices

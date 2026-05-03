@@ -34,20 +34,43 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Bottom Button
-- id: output_gpio_1
+- id: gpio_12
   component_id: output.gpio
   fields:
     pin:
       value: 12
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: gpio_12
+- id: gpio_13
   component_id: output.gpio
   fields:
     pin:
       value: 13
       locked: true
-    id: output_gpio_2
+    id: gpio_13
+- id: led_top
+  component_id: switch.output
+  fields:
+    output: gpio_12
+    id: led_top
+    name: Top LED
+- id: led_middle
+  component_id: switch.output
+  fields:
+    output: gpio_13
+    id: led_middle
+    name: Middle LED
+featured_bundles:
+- id: led_top_setup
+  name: Top LED (full setup)
+  component_ids:
+  - gpio_12
+  - led_top
+- id: led_middle_setup
+  name: Middle LED (full setup)
+  component_ids:
+  - gpio_13
+  - led_middle
 source:
   type: esphome-devices
   remote_id: Athom-AR01-IR-Controller

@@ -66,7 +66,7 @@ featured_components:
     full_update_every: 1
     id: display_waveshare_epaper_1
     name: Waveshare Epaper 1
-- id: sensor_adc_1
+- id: input_1
   component_id: sensor.adc
   fields:
     pin:
@@ -74,9 +74,9 @@ featured_components:
       locked: true
     attenuation: 12db
     update_interval: 1s
-    id: sensor_adc_1
+    id: input_1
     name: Input_1
-- id: sensor_adc_2
+- id: input_2
   component_id: sensor.adc
   fields:
     pin:
@@ -84,9 +84,9 @@ featured_components:
       locked: true
     attenuation: 12db
     update_interval: 1s
-    id: sensor_adc_2
+    id: input_2
     name: Input_2
-- id: sensor_adc_3
+- id: input_3
   component_id: sensor.adc
   fields:
     pin:
@@ -94,9 +94,9 @@ featured_components:
       locked: true
     attenuation: 12db
     update_interval: 1s
-    id: sensor_adc_3
+    id: input_3
     name: Input_3
-- id: sensor_adc_4
+- id: input_4
   component_id: sensor.adc
   fields:
     pin:
@@ -104,9 +104,9 @@ featured_components:
       locked: true
     attenuation: 12db
     update_interval: 1s
-    id: sensor_adc_4
+    id: input_4
     name: Input_4
-- id: sensor_adc_5
+- id: input_5
   component_id: sensor.adc
   fields:
     pin:
@@ -114,9 +114,9 @@ featured_components:
       locked: true
     attenuation: 12db
     update_interval: 1s
-    id: sensor_adc_5
+    id: input_5
     name: Input_5
-- id: sensor_adc_6
+- id: input_6
   component_id: sensor.adc
   fields:
     pin:
@@ -124,50 +124,87 @@ featured_components:
       locked: true
     attenuation: 12db
     update_interval: 1s
-    id: sensor_adc_6
+    id: input_6
     name: Input_6
-- id: sensor_ct_clamp_1
+- id: probe_1
   component_id: sensor.ct_clamp
   fields:
     sample_duration: 200ms
     update_interval: 1s
-    id: sensor_ct_clamp_1
+    sensor: input_1
+    id: probe_1
     name: Probe 1
-- id: sensor_ct_clamp_2
+- id: probe_2
   component_id: sensor.ct_clamp
   fields:
     sample_duration: 200ms
     update_interval: 1s
-    id: sensor_ct_clamp_2
+    sensor: input_2
+    id: probe_2
     name: Probe 2
-- id: sensor_ct_clamp_3
+- id: probe_3
   component_id: sensor.ct_clamp
   fields:
     sample_duration: 200ms
     update_interval: 1s
-    id: sensor_ct_clamp_3
+    sensor: input_3
+    id: probe_3
     name: Probe 3
-- id: sensor_ct_clamp_4
+- id: probe_4
   component_id: sensor.ct_clamp
   fields:
     sample_duration: 200ms
     update_interval: 1s
-    id: sensor_ct_clamp_4
+    sensor: input_4
+    id: probe_4
     name: Probe 4
-- id: sensor_ct_clamp_5
+- id: probe_5
   component_id: sensor.ct_clamp
   fields:
     sample_duration: 200ms
     update_interval: 1s
-    id: sensor_ct_clamp_5
+    sensor: input_5
+    id: probe_5
     name: Probe 5
-- id: sensor_ct_clamp_6
+- id: probe_6
   component_id: sensor.ct_clamp
   fields:
     sample_duration: 200ms
     update_interval: 1s
-    id: sensor_ct_clamp_6
+    sensor: input_6
+    id: probe_6
     name: Probe 6
+featured_bundles:
+- id: probe_1_setup
+  name: Probe 1 (full setup)
+  component_ids:
+  - input_1
+  - probe_1
+- id: probe_2_setup
+  name: Probe 2 (full setup)
+  component_ids:
+  - input_2
+  - probe_2
+- id: probe_3_setup
+  name: Probe 3 (full setup)
+  component_ids:
+  - input_3
+  - probe_3
+- id: probe_4_setup
+  name: Probe 4 (full setup)
+  component_ids:
+  - input_4
+  - probe_4
+- id: probe_5_setup
+  name: Probe 5 (full setup)
+  component_ids:
+  - input_5
+  - probe_5
+- id: probe_6_setup
+  name: Probe 6 (full setup)
+  component_ids:
+  - input_6
+  - probe_6
 source:
   type: esphome-devices
   remote_id: Smart-Powermeter

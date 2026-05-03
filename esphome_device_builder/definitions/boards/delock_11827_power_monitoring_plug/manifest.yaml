@@ -61,21 +61,21 @@ featured_components:
     update_interval: 3s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: led
   component_id: switch.gpio
   fields:
     pin:
       value: 13
       locked: true
-    id: switch_gpio_1
+    id: led
     name: led
-- id: switch_gpio_2
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
-    id: switch_gpio_2
+    id: relay
     name: Smart Plug
 source:
   type: esphome-devices

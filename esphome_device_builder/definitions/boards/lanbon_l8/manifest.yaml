@@ -37,61 +37,83 @@ pins:
   occupied_by: moodBlue
 docs_url: https://devices.esphome.io/devices/lanbon_l8/
 featured_components:
-- id: light_monochromatic_1
+- id: backlight
   component_id: light.monochromatic
   fields:
     restore_mode: ALWAYS_ON
-    id: light_monochromatic_1
+    output: backlight_pwm
+    id: backlight
     name: Backlight
-- id: output_ledc_1
+- id: light_rgb_1
+  component_id: light.rgb
+  fields:
+    red: moodred
+    green: moodgreen
+    blue: moodblue
+    id: light_rgb_1
+    name: Mood Light
+- id: backlight_pwm
   component_id: output.ledc
   fields:
     pin:
       value: 5
       locked: true
-    id: output_ledc_1
-- id: output_ledc_2
+    id: backlight_pwm
+- id: moodred
   component_id: output.ledc
   fields:
     pin:
       value: 26
       locked: true
-    id: output_ledc_2
-- id: output_ledc_3
+    id: moodred
+- id: moodgreen
   component_id: output.ledc
   fields:
     pin:
       value: 32
       locked: true
-    id: output_ledc_3
-- id: output_ledc_4
+    id: moodgreen
+- id: moodblue
   component_id: output.ledc
   fields:
     pin:
       value: 33
       locked: true
-    id: output_ledc_4
-- id: output_gpio_1
+    id: moodblue
+- id: relay_1
   component_id: output.gpio
   fields:
     pin:
       value: 12
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: relay_1
+- id: relay_2
   component_id: output.gpio
   fields:
     pin:
       value: 14
       locked: true
-    id: output_gpio_2
-- id: output_gpio_3
+    id: relay_2
+- id: relay_3
   component_id: output.gpio
   fields:
     pin:
       value: 27
       locked: true
-    id: output_gpio_3
+    id: relay_3
+featured_bundles:
+- id: backlight_setup
+  name: Backlight (full setup)
+  component_ids:
+  - backlight_pwm
+  - backlight
+- id: light_rgb_1_setup
+  name: Mood Light (full setup)
+  component_ids:
+  - moodred
+  - moodgreen
+  - moodblue
+  - light_rgb_1
 source:
   type: esphome-devices
   remote_id: lanbon_l8

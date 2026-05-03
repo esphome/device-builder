@@ -22,17 +22,17 @@ featured_components:
     device_class: occupancy
     id: binary_sensor_tuya_1
     name: Presence State
-- id: button_restart_1
+- id: restart_device
   component_id: button.restart
   fields:
     entity_category: diagnostic
-    id: button_restart_1
+    id: restart_device
     name: Restart
-- id: button_safe_mode_1
+- id: restart_device_safe_mode
   component_id: button.safe_mode
   fields:
     entity_category: diagnostic
-    id: button_safe_mode_1
+    id: restart_device_safe_mode
     name: Restart (Safe Mode)
 - id: number_tuya_1
   component_id: number.tuya
@@ -106,7 +106,7 @@ featured_components:
     internal: true
     id: sensor_wifi_signal_1
     name: Signal strength
-- id: sensor_tuya_1
+- id: light_intensity
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 104
@@ -114,9 +114,9 @@ featured_components:
     icon: mdi:brightness-5
     device_class: illuminance
     state_class: measurement
-    id: sensor_tuya_1
+    id: light_intensity
     name: Light Intensity
-- id: sensor_tuya_2
+- id: target_distance
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 9
@@ -124,7 +124,7 @@ featured_components:
     icon: mdi:eye
     device_class: distance
     state_class: measurement
-    id: sensor_tuya_2
+    id: target_distance
     name: Target Distance
 source:
   type: esphome-devices

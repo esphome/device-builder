@@ -33,7 +33,7 @@ pins:
   occupied_by: $hostname power
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BW-SHP8-Power-Monitoring-Wall-Outlet/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -42,9 +42,15 @@ featured_components:
         inverted: true
         mode: INPUT_PULLUP
       locked: true
-    id: binary_sensor_gpio_1
+    id: button
     name: button
-- id: output_esp8266_pwm_1
+- id: led
+  component_id: light.monochromatic
+  fields:
+    output: state_led
+    id: led
+    name: led
+- id: state_led
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -52,7 +58,7 @@ featured_components:
         number: 1
         inverted: true
       locked: true
-    id: output_esp8266_pwm_1
+    id: state_led
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -74,7 +80,7 @@ featured_components:
       locked: true
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
@@ -82,8 +88,14 @@ featured_components:
       locked: true
     restore_mode: $restore_mode
     icon: mdi:power-socket-de
-    id: switch_gpio_1
+    id: relay
     name: $hostname power
+featured_bundles:
+- id: led_setup
+  name: led (full setup)
+  component_ids:
+  - state_led
+  - led
 source:
   type: esphome-devices
   remote_id: BlitzWolf-BW-SHP8-Power-Monitoring-Wall-Outlet

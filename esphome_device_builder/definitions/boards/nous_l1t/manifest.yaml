@@ -21,7 +21,7 @@ pins:
   occupied_by: button_led_output
 docs_url: https://devices.esphome.io/devices/Nous-L1t/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -32,16 +32,28 @@ featured_components:
           pullup: true
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_1
     name: button_1
-- id: output_gpio_1
+- id: light_1
+  component_id: light.binary
+  fields:
+    output: relay_1
+    id: light_1
+    name: light_1
+- id: button_led
+  component_id: light.monochromatic
+  fields:
+    output: button_led_output
+    id: button_led
+    name: button_led
+- id: relay_1
   component_id: output.gpio
   fields:
     pin:
       value: 13
       locked: true
-    id: output_gpio_1
-- id: output_esp8266_pwm_1
+    id: relay_1
+- id: button_led_output
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -50,7 +62,18 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_1
+    id: button_led_output
+featured_bundles:
+- id: light_1_setup
+  name: light_1 (full setup)
+  component_ids:
+  - relay_1
+  - light_1
+- id: button_led_setup
+  name: button_led (full setup)
+  component_ids:
+  - button_led_output
+  - button_led
 source:
   type: esphome-devices
   remote_id: Nous-L1t

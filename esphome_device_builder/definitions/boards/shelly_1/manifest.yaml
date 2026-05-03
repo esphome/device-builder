@@ -20,7 +20,7 @@ pins:
   occupied_by: Switch Shelly 1
 docs_url: https://devices.esphome.io/devices/Shelly-1/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: switchid
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -28,15 +28,27 @@ featured_components:
         number: 5
       locked: true
     internal: true
-    id: binary_sensor_gpio_1
+    id: switchid
     name: Switch Shelly 1
-- id: output_gpio_1
+- id: lightid
+  component_id: light.binary
+  fields:
+    output: shelly_1_relay
+    id: lightid
+    name: Shelly 1 Light
+- id: shelly_1_relay
   component_id: output.gpio
   fields:
     pin:
       value: 4
       locked: true
-    id: output_gpio_1
+    id: shelly_1_relay
+featured_bundles:
+- id: lightid_setup
+  name: Shelly 1 Light (full setup)
+  component_ids:
+  - shelly_1_relay
+  - lightid
 source:
   type: esphome-devices
   remote_id: Shelly-1

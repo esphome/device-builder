@@ -20,11 +20,11 @@ featured_components:
     max_value: 1000
     id: light_tuya_1
     name: Lights
-- id: select_tuya_1
+- id: dimmer_mode
   component_id: select.tuya
   fields:
     enum_datapoint: 4
-    id: select_tuya_1
+    id: dimmer_mode
     name: Dimming Mode
 source:
   type: esphome-devices

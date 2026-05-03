@@ -20,11 +20,11 @@ tags:
 - compact
 docs_url: https://devices.esphome.io/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/
 featured_components:
-- id: light_status_led_1
+- id: led
   component_id: light.status_led
   fields:
     internal: true
-    id: light_status_led_1
+    id: led
     name: led
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal

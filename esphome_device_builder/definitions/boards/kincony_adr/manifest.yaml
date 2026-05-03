@@ -27,9 +27,10 @@ featured_components:
   component_id: light.monochromatic
   fields:
     default_transition_length: 100ms
+    output: dimmer1
     id: light_monochromatic_1
     name: adr_lamp
-- id: output_ac_dimmer_1
+- id: dimmer1
   component_id: output.ac_dimmer
   fields:
     gate_pin:
@@ -43,7 +44,13 @@ featured_components:
         inverted: false
       locked: true
     min_power: 35%
-    id: output_ac_dimmer_1
+    id: dimmer1
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: adr_lamp (full setup)
+  component_ids:
+  - dimmer1
+  - light_monochromatic_1
 source:
   type: esphome-devices
   remote_id: KinCony-ADR

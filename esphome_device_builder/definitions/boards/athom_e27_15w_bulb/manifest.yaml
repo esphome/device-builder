@@ -34,37 +34,42 @@ featured_components:
     cold_white_color_temperature: 153 mireds
     warm_white_color_temperature: 500 mireds
     color_interlock: true
+    red: red_output
+    green: green_output
+    blue: blue_output
+    white_brightness: white_output
+    color_temperature: ct_output
     id: light_rgbct_1
     name: Rgbct 1
-- id: output_esp8266_pwm_1
+- id: red_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 4
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: red_output
+- id: green_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: green_output
+- id: blue_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: blue_output
+- id: white_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_4
-- id: output_esp8266_pwm_5
+    id: white_output
+- id: ct_output
   component_id: output.esp8266_pwm
   fields:
     inverted:
@@ -73,7 +78,17 @@ featured_components:
     pin:
       value: 13
       locked: true
-    id: output_esp8266_pwm_5
+    id: ct_output
+featured_bundles:
+- id: light_rgbct_1_setup
+  name: Rgbct (full setup)
+  component_ids:
+  - red_output
+  - green_output
+  - blue_output
+  - white_output
+  - ct_output
+  - light_rgbct_1
 source:
   type: esphome-devices
   remote_id: Athom-E27-15W-Bulb

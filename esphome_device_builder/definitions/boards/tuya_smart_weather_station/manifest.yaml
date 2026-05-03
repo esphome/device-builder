@@ -39,47 +39,47 @@ featured_components:
     enum_datapoint: 110
     id: select_tuya_4
     name: Unit Pressure
-- id: sensor_homeassistant_1
+- id: current_temperature
   component_id: sensor.homeassistant
   fields:
     internal: true
-    id: sensor_homeassistant_1
+    id: current_temperature
     name: current_temperature
-- id: sensor_homeassistant_2
+- id: current_humidity
   component_id: sensor.homeassistant
   fields:
     internal: true
-    id: sensor_homeassistant_2
+    id: current_humidity
     name: current_humidity
-- id: sensor_homeassistant_3
+- id: current_pressure
   component_id: sensor.homeassistant
   fields:
     internal: true
-    id: sensor_homeassistant_3
+    id: current_pressure
     name: current_pressure
-- id: sensor_homeassistant_4
+- id: current_realfeel
   component_id: sensor.homeassistant
   fields:
     internal: true
-    id: sensor_homeassistant_4
+    id: current_realfeel
     name: current_realfeel
-- id: sensor_homeassistant_5
+- id: current_uvi
   component_id: sensor.homeassistant
   fields:
     internal: true
-    id: sensor_homeassistant_5
+    id: current_uvi
     name: current_uvi
-- id: sensor_homeassistant_6
+- id: current_windspeed
   component_id: sensor.homeassistant
   fields:
     internal: true
-    id: sensor_homeassistant_6
+    id: current_windspeed
     name: current_windspeed
-- id: sensor_homeassistant_7
+- id: raw_weathercode
   component_id: sensor.homeassistant
   fields:
     internal: true
-    id: sensor_homeassistant_7
+    id: raw_weathercode
     name: raw_weathercode
 - id: sensor_tuya_1
   component_id: sensor.tuya

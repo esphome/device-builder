@@ -45,7 +45,7 @@ pins:
 docs_url: https://devices.esphome.io/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/
 product_url: https://github.com/n6ham/esphome-configs/blob/master/petkit-fresh-element-solo.yaml
 featured_components:
-- id: binary_sensor_gpio_1
+- id: manual_feed_button
   component_id: binary_sensor.gpio
   fields:
     internal: true
@@ -54,9 +54,9 @@ featured_components:
         number: 34
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: manual_feed_button
     name: manual_feed_button
-- id: binary_sensor_gpio_2
+- id: motor_sensor
   component_id: binary_sensor.gpio
   fields:
     internal: true
@@ -65,9 +65,9 @@ featured_components:
         number: 27
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: motor_sensor
     name: motor_sensor
-- id: binary_sensor_gpio_3
+- id: feed_sensor
   component_id: binary_sensor.gpio
   fields:
     internal: true
@@ -75,7 +75,7 @@ featured_components:
       value:
         number: 14
       locked: true
-    id: binary_sensor_gpio_3
+    id: feed_sensor
     name: feed_sensor
 - id: button_restart_1
   component_id: button.restart
@@ -83,33 +83,34 @@ featured_components:
     disabled_by_default: true
     id: button_restart_1
     name: Restart
-- id: light_binary_1
+- id: led
   component_id: light.binary
   fields:
     internal: true
-    id: light_binary_1
+    output: led_output
+    id: led
     name: led
-- id: output_gpio_1
+- id: led_output
   component_id: output.gpio
   fields:
     pin:
       value: 5
       locked: true
-    id: output_gpio_1
-- id: output_ledc_1
+    id: led_output
+- id: rtttl_output
   component_id: output.ledc
   fields:
     pin:
       value: 16
       locked: true
-    id: output_ledc_1
+    id: rtttl_output
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Signal
-- id: switch_gpio_1
+- id: enable_sensors
   component_id: switch.gpio
   fields:
     internal: true
@@ -119,9 +120,9 @@ featured_components:
       locked: true
     restore_mode: ALWAYS_ON
     disabled_by_default: true
-    id: switch_gpio_1
+    id: enable_sensors
     name: enable_sensors
-- id: switch_gpio_2
+- id: enable_feeder_motor
   component_id: switch.gpio
   fields:
     internal: true
@@ -131,9 +132,9 @@ featured_components:
       locked: true
     restore_mode: ALWAYS_OFF
     disabled_by_default: true
-    id: switch_gpio_2
+    id: enable_feeder_motor
     name: enable_feeder_motor
-- id: switch_gpio_3
+- id: feed_forward
   component_id: switch.gpio
   fields:
     internal: true
@@ -142,9 +143,9 @@ featured_components:
         number: 18
       locked: true
     restore_mode: ALWAYS_OFF
-    id: switch_gpio_3
+    id: feed_forward
     name: feed_forward
-- id: switch_gpio_4
+- id: feed_reverse
   component_id: switch.gpio
   fields:
     internal: true
@@ -153,8 +154,14 @@ featured_components:
         number: 17
       locked: true
     restore_mode: ALWAYS_OFF
-    id: switch_gpio_4
+    id: feed_reverse
     name: feed_reverse
+featured_bundles:
+- id: led_setup
+  name: led (full setup)
+  component_ids:
+  - led_output
+  - led
 source:
   type: esphome-devices
   remote_id: Petkit-Fresh-Element-Solo-Pet-Feeder

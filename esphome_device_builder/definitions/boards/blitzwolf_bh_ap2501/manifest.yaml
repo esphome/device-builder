@@ -13,20 +13,20 @@ images:
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BH-AP2501/
 product_url: https://github.com/wildekek/BlitzHome-BH-AP2501
 featured_components:
-- id: fan_speed_1
+- id: speed_fan
   component_id: fan.speed
   fields:
     speed_count: 3
-    id: fan_speed_1
+    id: speed_fan
     name: Fan
-- id: fan_tuya_1
+- id: tuya_fan
   component_id: fan.tuya
   fields:
     internal: true
     switch_datapoint: 1
     speed_datapoint: 3
     speed_count: 4
-    id: fan_tuya_1
+    id: tuya_fan
     name: Fan
 - id: number_tuya_1
   component_id: number.tuya
@@ -87,12 +87,12 @@ featured_components:
     icon: mdi:sun-wireless
     id: switch_tuya_2
     name: UV sterilization
-- id: switch_tuya_3
+- id: filter_reset
   component_id: switch.tuya
   fields:
     switch_datapoint: 11
     internal: true
-    id: switch_tuya_3
+    id: filter_reset
     name: filter_reset
 source:
   type: esphome-devices

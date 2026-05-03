@@ -101,14 +101,14 @@ featured_components:
     icon: mdi:signal-distance-variant
     id: number_tuya_7
     name: Micro Min Range
-- id: sensor_tuya_1
+- id: light_intensity
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 103
     unit_of_measurement: lux
     icon: mdi:brightness-5
     state_class: measurement
-    id: sensor_tuya_1
+    id: light_intensity
     name: Light Intensity
 source:
   type: esphome-devices

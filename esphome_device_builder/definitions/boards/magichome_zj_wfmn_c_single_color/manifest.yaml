@@ -15,13 +15,25 @@ pins:
   occupied_by: LED_controller
 docs_url: https://devices.esphome.io/devices/MagicHome-ZJ-WFMN-C-Single-Color/
 featured_components:
-- id: output_esp8266_pwm_1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: led_controller
+    id: light_monochromatic_1
+    name: LED
+- id: led_controller
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_1
+    id: led_controller
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: LED (full setup)
+  component_ids:
+  - led_controller
+  - light_monochromatic_1
 source:
   type: esphome-devices
   remote_id: MagicHome-ZJ-WFMN-C-Single-Color

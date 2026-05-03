@@ -18,7 +18,7 @@ pins:
   occupied_by: WS2812B Light
 docs_url: https://devices.esphome.io/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/
 featured_components:
-- id: light_esp32_rmt_led_strip_1
+- id: status_light
   component_id: light.esp32_rmt_led_strip
   fields:
     chipset: WS2812
@@ -28,7 +28,7 @@ featured_components:
     num_leds: 1
     rgb_order: GRB
     restore_mode: ALWAYS_ON
-    id: light_esp32_rmt_led_strip_1
+    id: status_light
     name: WS2812B Light
 source:
   type: esphome-devices

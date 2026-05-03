@@ -148,7 +148,7 @@ featured_components:
     device_class: motion
     id: binary_sensor_gpio_9
     name: PIR1
-- id: switch_gpio_1
+- id: light1
   component_id: switch.gpio
   fields:
     pin:
@@ -158,9 +158,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: light1
     name: light1
-- id: switch_gpio_2
+- id: light2
   component_id: switch.gpio
   fields:
     pin:
@@ -170,9 +170,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: light2
     name: light2
-- id: switch_gpio_3
+- id: light3
   component_id: switch.gpio
   fields:
     pin:
@@ -182,9 +182,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: light3
     name: light3
-- id: switch_gpio_4
+- id: light4
   component_id: switch.gpio
   fields:
     pin:
@@ -194,9 +194,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: light4
     name: light4
-- id: switch_gpio_5
+- id: relay5
   component_id: switch.gpio
   fields:
     pin:
@@ -206,9 +206,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: relay5
     name: curtain1-up
-- id: switch_gpio_6
+- id: relay6
   component_id: switch.gpio
   fields:
     pin:
@@ -218,9 +218,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: relay6
     name: curtain1-down
-- id: switch_gpio_7
+- id: relay7
   component_id: switch.gpio
   fields:
     pin:
@@ -230,9 +230,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_7
+    id: relay7
     name: curtain2-up
-- id: switch_gpio_8
+- id: relay8
   component_id: switch.gpio
   fields:
     pin:
@@ -242,7 +242,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_8
+    id: relay8
     name: curtain2-down
 source:
   type: esphome-devices

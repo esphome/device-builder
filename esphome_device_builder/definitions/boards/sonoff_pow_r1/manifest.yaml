@@ -44,7 +44,13 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: SonOff POW Button
-- id: output_esp8266_pwm_1
+- id: led
+  component_id: light.monochromatic
+  fields:
+    output: pow_blue_led
+    id: led
+    name: SonOff POW Blue LED
+- id: pow_blue_led
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -52,7 +58,7 @@ featured_components:
         number: 15
         inverted: true
       locked: true
-    id: output_esp8266_pwm_1
+    id: pow_blue_led
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -68,14 +74,20 @@ featured_components:
     update_interval: 2s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: relay
+featured_bundles:
+- id: led_setup
+  name: SonOff POW Blue LED (full setup)
+  component_ids:
+  - pow_blue_led
+  - led
 source:
   type: esphome-devices
   remote_id: Sonoff-POW-R1

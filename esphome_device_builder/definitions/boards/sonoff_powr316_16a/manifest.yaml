@@ -44,14 +44,15 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Button
-- id: light_monochromatic_1
+- id: switch_led
   component_id: light.monochromatic
   fields:
     internal: true
     default_transition_length: 0s
-    id: light_monochromatic_1
+    output: led
+    id: switch_led
     name: switch_led
-- id: light_status_led_1
+- id: wifi_status_led
   component_id: light.status_led
   fields:
     internal: true
@@ -60,9 +61,9 @@ featured_components:
         number: 5
         inverted: true
       locked: true
-    id: light_status_led_1
+    id: wifi_status_led
     name: wifi_status_led
-- id: output_ledc_1
+- id: led
   component_id: output.ledc
   fields:
     pin:
@@ -70,21 +71,27 @@ featured_components:
         number: 18
         inverted: true
       locked: true
-    id: output_ledc_1
+    id: led
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 600s
     id: sensor_wifi_signal_1
     name: WiFi Signal
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 13
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: Relay Switch
+featured_bundles:
+- id: switch_led_setup
+  name: switch_led (full setup)
+  component_ids:
+  - led
+  - switch_led
 source:
   type: esphome-devices
   remote_id: Sonoff-POWR316-16a

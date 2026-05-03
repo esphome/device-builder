@@ -69,21 +69,21 @@ featured_components:
     update_interval: 30s
     id: sensor_wifi_signal_1
     name: wifi_signal
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: relay
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
       value: 5
       locked: true
-    id: switch_gpio_2
+    id: relay2
     name: relay2
 source:
   type: esphome-devices

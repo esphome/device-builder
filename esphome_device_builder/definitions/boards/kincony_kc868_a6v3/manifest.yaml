@@ -151,16 +151,28 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_9
     name: A6v3-W1-DW
-- id: output_gp8403_1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: gp8403_output_1
+    id: light_monochromatic_1
+    name: A6v3-DAC-1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: gp8403_output_2
+    id: light_monochromatic_2
+    name: A6v3-DAC-2
+- id: gp8403_output_1
   component_id: output.gp8403
   fields:
     channel: 0
-    id: output_gp8403_1
-- id: output_gp8403_2
+    id: gp8403_output_1
+- id: gp8403_output_2
   component_id: output.gp8403
   fields:
     channel: 1
-    id: output_gp8403_2
+    id: gp8403_output_2
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -203,7 +215,7 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_4
     name: A6v3 A4 Current
-- id: switch_gpio_1
+- id: a6v3_output1
   component_id: switch.gpio
   fields:
     pin:
@@ -213,9 +225,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: a6v3_output1
     name: A6v3-output1
-- id: switch_gpio_2
+- id: a6v3_output2
   component_id: switch.gpio
   fields:
     pin:
@@ -225,9 +237,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: a6v3_output2
     name: A6v3-output2
-- id: switch_gpio_3
+- id: a6v3_output3
   component_id: switch.gpio
   fields:
     pin:
@@ -237,9 +249,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: a6v3_output3
     name: A6v3-output3
-- id: switch_gpio_4
+- id: a6v3_output4
   component_id: switch.gpio
   fields:
     pin:
@@ -249,9 +261,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: a6v3_output4
     name: A6v3-output4
-- id: switch_gpio_5
+- id: a6v3_output5
   component_id: switch.gpio
   fields:
     pin:
@@ -261,9 +273,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: a6v3_output5
     name: A6v3-output5
-- id: switch_gpio_6
+- id: a6v3_output6
   component_id: switch.gpio
   fields:
     pin:
@@ -273,8 +285,19 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: a6v3_output6
     name: A6v3-output6
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: A6v3-DAC-1 (full setup)
+  component_ids:
+  - gp8403_output_1
+  - light_monochromatic_1
+- id: light_monochromatic_2_setup
+  name: A6v3-DAC-2 (full setup)
+  component_ids:
+  - gp8403_output_2
+  - light_monochromatic_2
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-A6v3

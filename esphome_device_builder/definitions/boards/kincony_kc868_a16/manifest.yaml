@@ -272,7 +272,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_19
     name: KC868-A16-X16
-- id: switch_gpio_1
+- id: out_y01
   component_id: switch.gpio
   fields:
     pin:
@@ -282,9 +282,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: out_y01
     name: KC868-A16-Y01
-- id: switch_gpio_2
+- id: out_y02
   component_id: switch.gpio
   fields:
     pin:
@@ -294,9 +294,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: out_y02
     name: KC868-A16-Y02
-- id: switch_gpio_3
+- id: out_y03
   component_id: switch.gpio
   fields:
     pin:
@@ -306,9 +306,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: out_y03
     name: KC868-A16-Y03
-- id: switch_gpio_4
+- id: out_y04
   component_id: switch.gpio
   fields:
     pin:
@@ -318,9 +318,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: out_y04
     name: KC868-A16-Y04
-- id: switch_gpio_5
+- id: out_y05
   component_id: switch.gpio
   fields:
     pin:
@@ -330,9 +330,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: out_y05
     name: KC868-A16-Y05
-- id: switch_gpio_6
+- id: out_y06
   component_id: switch.gpio
   fields:
     pin:
@@ -342,9 +342,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: out_y06
     name: KC868-A16-Y06
-- id: switch_gpio_7
+- id: out_y07
   component_id: switch.gpio
   fields:
     pin:
@@ -354,9 +354,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_7
+    id: out_y07
     name: KC868-A16-Y07
-- id: switch_gpio_8
+- id: out_y08
   component_id: switch.gpio
   fields:
     pin:
@@ -366,9 +366,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_8
+    id: out_y08
     name: KC868-A16-Y08
-- id: switch_gpio_9
+- id: out_y09
   component_id: switch.gpio
   fields:
     pin:
@@ -378,9 +378,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_9
+    id: out_y09
     name: KC868-A16-Y09
-- id: switch_gpio_10
+- id: out_y10
   component_id: switch.gpio
   fields:
     pin:
@@ -390,9 +390,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_10
+    id: out_y10
     name: KC868-A16-Y10
-- id: switch_gpio_11
+- id: out_y11
   component_id: switch.gpio
   fields:
     pin:
@@ -402,9 +402,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_11
+    id: out_y11
     name: KC868-A16-Y11
-- id: switch_gpio_12
+- id: out_y12
   component_id: switch.gpio
   fields:
     pin:
@@ -414,9 +414,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_12
+    id: out_y12
     name: KC868-A16-Y12
-- id: switch_gpio_13
+- id: out_y13
   component_id: switch.gpio
   fields:
     pin:
@@ -426,9 +426,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_13
+    id: out_y13
     name: KC868-A16-Y13
-- id: switch_gpio_14
+- id: out_y14
   component_id: switch.gpio
   fields:
     pin:
@@ -438,9 +438,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_14
+    id: out_y14
     name: KC868-A16-Y14
-- id: switch_gpio_15
+- id: out_y15
   component_id: switch.gpio
   fields:
     pin:
@@ -450,9 +450,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_15
+    id: out_y15
     name: KC868-A16-Y15
-- id: switch_gpio_16
+- id: out_y16
   component_id: switch.gpio
   fields:
     pin:
@@ -462,7 +462,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_16
+    id: out_y16
     name: KC868-A16-Y16
 source:
   type: esphome-devices

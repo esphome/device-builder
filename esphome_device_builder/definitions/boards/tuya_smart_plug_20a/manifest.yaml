@@ -16,11 +16,11 @@ tags:
 - compact
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     icon: mdi:radiobox-blank
-    id: binary_sensor_gpio_1
+    id: button_1
     name: button_1
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012

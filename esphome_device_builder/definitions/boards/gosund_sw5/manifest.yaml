@@ -21,16 +21,22 @@ pins:
   occupied_by: GosundSW5
 docs_url: https://devices.esphome.io/devices/Gosund-SW5/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button1
   component_id: binary_sensor.gpio
   fields:
     pin:
       value:
         number: 0
       locked: true
-    id: binary_sensor_gpio_1
+    id: button1
     name: button1
-- id: output_esp8266_pwm_1
+- id: led
+  component_id: light.monochromatic
+  fields:
+    output: state_led
+    id: led
+    name: led
+- id: state_led
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -38,16 +44,22 @@ featured_components:
         number: 2
         inverted: true
       locked: true
-    id: output_esp8266_pwm_1
-- id: switch_gpio_1
+    id: state_led
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
     icon: mdi:light-switch
-    id: switch_gpio_1
+    id: relay1
     name: GosundSW5
+featured_bundles:
+- id: led_setup
+  name: led (full setup)
+  component_ids:
+  - state_led
+  - led
 source:
   type: esphome-devices
   remote_id: Gosund-SW5

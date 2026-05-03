@@ -19,13 +19,13 @@ pins:
   occupied_by: GPIO Presence
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Presence-Sensor-1/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: gpio_presence_sensor
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 4
       locked: true
-    id: binary_sensor_gpio_1
+    id: gpio_presence_sensor
     name: GPIO Presence
 source:
   type: esphome-devices

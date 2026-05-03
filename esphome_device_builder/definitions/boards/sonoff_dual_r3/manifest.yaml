@@ -35,7 +35,7 @@ pins:
   occupied_by: '2'
 docs_url: https://devices.esphome.io/devices/Sonoff-Dual-R3/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: sensor_button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -48,7 +48,7 @@ featured_components:
       locked: true
     disabled_by_default: true
     icon: mdi:radiobox-blank
-    id: binary_sensor_gpio_1
+    id: sensor_button
     name: Button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
@@ -76,7 +76,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: '2'
-- id: light_status_led_1
+- id: led_status
   component_id: light.status_led
   fields:
     pin:
@@ -85,30 +85,30 @@ featured_components:
         inverted: true
       locked: true
     internal: true
-    id: light_status_led_1
+    id: led_status
     name: LED
-- id: sensor_wifi_signal_1
+- id: sensor_rssi
   component_id: sensor.wifi_signal
   fields:
     update_interval: 90s
     entity_category: diagnostic
-    id: sensor_wifi_signal_1
+    id: sensor_rssi
     name: RSSI
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
       value: 27
       locked: true
-    id: switch_gpio_1
+    id: relay_1
     name: '1'
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
-    id: switch_gpio_2
+    id: relay_2
     name: '2'
 source:
   type: esphome-devices

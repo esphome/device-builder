@@ -11,21 +11,38 @@ images:
 - images/LSC-Smart-Connect-XXL-LED-Stripe-3202086.png
 docs_url: https://devices.esphome.io/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter/
 featured_components:
-- id: light_cwww_1
+- id: white_light
   component_id: light.cwww
   fields:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
-    id: light_cwww_1
+    cold_white: output_cw
+    warm_white: output_ww
+    id: white_light
     name: White Light
-- id: light_beken_spi_led_strip_1
+- id: color_light
   component_id: light.beken_spi_led_strip
   fields:
     chipset: WS2812
     num_leds: 40
     rgb_order: RBG
-    id: light_beken_spi_led_strip_1
+    id: color_light
     name: Color Light
+- id: output_cw
+  component_id: output.libretiny_pwm
+  fields:
+    id: output_cw
+- id: output_ww
+  component_id: output.libretiny_pwm
+  fields:
+    id: output_ww
+featured_bundles:
+- id: white_light_setup
+  name: White Light (full setup)
+  component_ids:
+  - output_cw
+  - output_ww
+  - white_light
 source:
   type: esphome-devices
   remote_id: LSC-Smart-Connect-XXL-LED-Stripe-10Meter

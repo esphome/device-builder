@@ -31,7 +31,7 @@ featured_components:
     icon: mdi:bell
     id: binary_sensor_gpio_1
     name: DoorBell
-- id: switch_gpio_1
+- id: lock
   component_id: switch.gpio
   fields:
     pin:
@@ -39,7 +39,7 @@ featured_components:
       locked: true
     icon: mdi:lock
     restore_mode: ALWAYS_OFF
-    id: switch_gpio_1
+    id: lock
     name: Lock
 source:
   type: esphome-devices

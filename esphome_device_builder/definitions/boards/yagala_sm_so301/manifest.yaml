@@ -36,16 +36,22 @@ pins:
   occupied_by: USB Power
 docs_url: https://devices.esphome.io/devices/Yagala-SM-SO301/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 5
       locked: true
     internal: true
-    id: binary_sensor_gpio_1
+    id: button
     name: Button
-- id: output_esp8266_pwm_1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: output_component_blue
+    id: light_monochromatic_1
+    name: Blue LED
+- id: output_component_blue
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -54,17 +60,17 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_1
-- id: switch_gpio_1
+    id: output_component_blue
+- id: usb_power
   component_id: switch.gpio
   fields:
     pin:
       value:
         number: 16
       locked: true
-    id: switch_gpio_1
+    id: usb_power
     name: USB Power
-- id: switch_gpio_2
+- id: relay1
   component_id: switch.gpio
   fields:
     inverted:
@@ -74,9 +80,9 @@ featured_components:
       value:
         number: 4
       locked: true
-    id: switch_gpio_2
+    id: relay1
     name: Relay 1
-- id: switch_gpio_3
+- id: relay2
   component_id: switch.gpio
   fields:
     inverted:
@@ -86,9 +92,9 @@ featured_components:
       value:
         number: 13
       locked: true
-    id: switch_gpio_3
+    id: relay2
     name: Relay 2
-- id: switch_gpio_4
+- id: relay3
   component_id: switch.gpio
   fields:
     inverted:
@@ -98,9 +104,9 @@ featured_components:
       value:
         number: 12
       locked: true
-    id: switch_gpio_4
+    id: relay3
     name: Relay 3
-- id: switch_gpio_5
+- id: relay4
   component_id: switch.gpio
   fields:
     inverted:
@@ -110,8 +116,14 @@ featured_components:
       value:
         number: 14
       locked: true
-    id: switch_gpio_5
+    id: relay4
     name: Relay 4
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: Blue LED (full setup)
+  component_ids:
+  - output_component_blue
+  - light_monochromatic_1
 source:
   type: esphome-devices
   remote_id: Yagala-SM-SO301

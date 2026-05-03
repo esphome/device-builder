@@ -12,31 +12,31 @@ images:
 - images/unit-disassembled.png
 docs_url: https://devices.esphome.io/devices/EttroIT-ESR35xx/
 featured_components:
-- id: binary_sensor_tuya_1
+- id: mlock
   component_id: binary_sensor.tuya
   fields:
     sensor_datapoint: 102
-    id: binary_sensor_tuya_1
+    id: mlock
     name: Mechanic Lock
-- id: binary_sensor_tuya_2
+- id: llock
   component_id: binary_sensor.tuya
   fields:
     sensor_datapoint: 104
-    id: binary_sensor_tuya_2
+    id: llock
     name: Local Lock
-- id: switch_tuya_1
+- id: mtd
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_tuya_1
+    id: mtd
     name: Switch
-- id: switch_tuya_2
+- id: rlock
   component_id: switch.tuya
   fields:
     switch_datapoint: 103
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_tuya_2
+    id: rlock
     name: Remote Lock
 source:
   type: esphome-devices

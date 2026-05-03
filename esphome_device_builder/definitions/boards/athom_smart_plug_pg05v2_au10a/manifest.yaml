@@ -43,7 +43,7 @@ featured_components:
     internal: false
     id: button_safe_mode_1
     name: Safe Mode
-- id: light_status_led_1
+- id: blue_led
   component_id: light.status_led
   fields:
     disabled_by_default: true
@@ -52,7 +52,7 @@ featured_components:
         inverted: true
         number: 13
       locked: true
-    id: light_status_led_1
+    id: blue_led
     name: Status LED
 - id: sensor_total_daily_energy_1
   component_id: sensor.total_daily_energy
@@ -62,13 +62,13 @@ featured_components:
     accuracy_decimals: 3
     id: sensor_total_daily_energy_1
     name: Total Daily Energy
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: relay
 source:
   type: esphome-devices

@@ -27,47 +27,54 @@ pins:
   occupied_by: pwm4
 docs_url: https://devices.esphome.io/devices/Mi-Smart-LED-Bulb/
 featured_components:
-- id: light_monochromatic_1
+- id: light01
   component_id: light.monochromatic
   fields:
     restore_mode: ALWAYS_ON
     default_transition_length: 0.2s
-    id: light_monochromatic_1
+    output: pwm1
+    id: light01
     name: Light
-- id: output_esp8266_pwm_1
+- id: pwm1
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: pwm1
+- id: pwm2
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: pwm2
+- id: pwm3
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: pwm3
+- id: pwm4
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_4
+    id: pwm4
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: WiFi Signal
+featured_bundles:
+- id: light01_setup
+  name: Light (full setup)
+  component_ids:
+  - pwm1
+  - light01
 source:
   type: esphome-devices
   remote_id: Mi-Smart-LED-Bulb

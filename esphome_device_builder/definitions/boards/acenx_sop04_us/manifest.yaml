@@ -38,7 +38,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Button
-- id: output_gpio_1
+- id: led
   component_id: output.gpio
   fields:
     pin:
@@ -47,14 +47,14 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_gpio_1
+    id: led
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: WiFi signal
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
@@ -63,9 +63,9 @@ featured_components:
     inverted:
       value: false
       locked: true
-    id: switch_gpio_1
+    id: relay1
     name: Relay1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
@@ -74,7 +74,7 @@ featured_components:
     inverted:
       value: false
       locked: true
-    id: switch_gpio_2
+    id: relay2
     name: Relay2
 source:
   type: esphome-devices

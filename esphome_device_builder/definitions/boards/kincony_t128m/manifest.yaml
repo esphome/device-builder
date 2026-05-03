@@ -1732,7 +1732,7 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_4
     name: t128m A4 Current
-- id: switch_gpio_1
+- id: t128m_output01
   component_id: switch.gpio
   fields:
     pin:
@@ -1742,9 +1742,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: t128m_output01
     name: t128m-output01
-- id: switch_gpio_2
+- id: t128m_output02
   component_id: switch.gpio
   fields:
     pin:
@@ -1754,9 +1754,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: t128m_output02
     name: t128m-output02
-- id: switch_gpio_3
+- id: t128m_output03
   component_id: switch.gpio
   fields:
     pin:
@@ -1766,9 +1766,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: t128m_output03
     name: t128m-output03
-- id: switch_gpio_4
+- id: t128m_output04
   component_id: switch.gpio
   fields:
     pin:
@@ -1778,9 +1778,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: t128m_output04
     name: t128m-output04
-- id: switch_gpio_5
+- id: t128m_output05
   component_id: switch.gpio
   fields:
     pin:
@@ -1790,9 +1790,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: t128m_output05
     name: t128m-output05
-- id: switch_gpio_6
+- id: t128m_output06
   component_id: switch.gpio
   fields:
     pin:
@@ -1802,9 +1802,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: t128m_output06
     name: t128m-output06
-- id: switch_gpio_7
+- id: t128m_output07
   component_id: switch.gpio
   fields:
     pin:
@@ -1814,9 +1814,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_7
+    id: t128m_output07
     name: t128m-output07
-- id: switch_gpio_8
+- id: t128m_output08
   component_id: switch.gpio
   fields:
     pin:
@@ -1826,9 +1826,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_8
+    id: t128m_output08
     name: t128m-output08
-- id: switch_gpio_9
+- id: t128m_output09
   component_id: switch.gpio
   fields:
     pin:
@@ -1838,9 +1838,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_9
+    id: t128m_output09
     name: t128m-output09
-- id: switch_gpio_10
+- id: t128m_output10
   component_id: switch.gpio
   fields:
     pin:
@@ -1850,9 +1850,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_10
+    id: t128m_output10
     name: t128m-output10
-- id: switch_gpio_11
+- id: t128m_output11
   component_id: switch.gpio
   fields:
     pin:
@@ -1862,9 +1862,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_11
+    id: t128m_output11
     name: t128m-output11
-- id: switch_gpio_12
+- id: t128m_output12
   component_id: switch.gpio
   fields:
     pin:
@@ -1874,9 +1874,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_12
+    id: t128m_output12
     name: t128m-output12
-- id: switch_gpio_13
+- id: t128m_output13
   component_id: switch.gpio
   fields:
     pin:
@@ -1886,9 +1886,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_13
+    id: t128m_output13
     name: t128m-output13
-- id: switch_gpio_14
+- id: t128m_output14
   component_id: switch.gpio
   fields:
     pin:
@@ -1898,9 +1898,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_14
+    id: t128m_output14
     name: t128m-output14
-- id: switch_gpio_15
+- id: t128m_output15
   component_id: switch.gpio
   fields:
     pin:
@@ -1910,9 +1910,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_15
+    id: t128m_output15
     name: t128m-output15
-- id: switch_gpio_16
+- id: t128m_output16
   component_id: switch.gpio
   fields:
     pin:
@@ -1922,9 +1922,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_16
+    id: t128m_output16
     name: t128m-output16
-- id: switch_gpio_17
+- id: t128m_output17
   component_id: switch.gpio
   fields:
     pin:
@@ -1934,9 +1934,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_17
+    id: t128m_output17
     name: t128m-output17
-- id: switch_gpio_18
+- id: t128m_output18
   component_id: switch.gpio
   fields:
     pin:
@@ -1946,9 +1946,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_18
+    id: t128m_output18
     name: t128m-output18
-- id: switch_gpio_19
+- id: t128m_output19
   component_id: switch.gpio
   fields:
     pin:
@@ -1958,9 +1958,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_19
+    id: t128m_output19
     name: t128m-output19
-- id: switch_gpio_20
+- id: t128m_output20
   component_id: switch.gpio
   fields:
     pin:
@@ -1970,9 +1970,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_20
+    id: t128m_output20
     name: t128m-output20
-- id: switch_gpio_21
+- id: t128m_output21
   component_id: switch.gpio
   fields:
     pin:
@@ -1982,9 +1982,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_21
+    id: t128m_output21
     name: t128m-output21
-- id: switch_gpio_22
+- id: t128m_output22
   component_id: switch.gpio
   fields:
     pin:
@@ -1994,9 +1994,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_22
+    id: t128m_output22
     name: t128m-output22
-- id: switch_gpio_23
+- id: t128m_output23
   component_id: switch.gpio
   fields:
     pin:
@@ -2006,9 +2006,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_23
+    id: t128m_output23
     name: t128m-output23
-- id: switch_gpio_24
+- id: t128m_output24
   component_id: switch.gpio
   fields:
     pin:
@@ -2018,9 +2018,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_24
+    id: t128m_output24
     name: t128m-output24
-- id: switch_gpio_25
+- id: t128m_output25
   component_id: switch.gpio
   fields:
     pin:
@@ -2030,9 +2030,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_25
+    id: t128m_output25
     name: t128m-output25
-- id: switch_gpio_26
+- id: t128m_output26
   component_id: switch.gpio
   fields:
     pin:
@@ -2042,9 +2042,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_26
+    id: t128m_output26
     name: t128m-output26
-- id: switch_gpio_27
+- id: t128m_output27
   component_id: switch.gpio
   fields:
     pin:
@@ -2054,9 +2054,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_27
+    id: t128m_output27
     name: t128m-output27
-- id: switch_gpio_28
+- id: t128m_output28
   component_id: switch.gpio
   fields:
     pin:
@@ -2066,9 +2066,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_28
+    id: t128m_output28
     name: t128m-output28
-- id: switch_gpio_29
+- id: t128m_output29
   component_id: switch.gpio
   fields:
     pin:
@@ -2078,9 +2078,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_29
+    id: t128m_output29
     name: t128m-output29
-- id: switch_gpio_30
+- id: t128m_output30
   component_id: switch.gpio
   fields:
     pin:
@@ -2090,9 +2090,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_30
+    id: t128m_output30
     name: t128m-output30
-- id: switch_gpio_31
+- id: t128m_output31
   component_id: switch.gpio
   fields:
     pin:
@@ -2102,9 +2102,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_31
+    id: t128m_output31
     name: t128m-output31
-- id: switch_gpio_32
+- id: t128m_output32
   component_id: switch.gpio
   fields:
     pin:
@@ -2114,9 +2114,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_32
+    id: t128m_output32
     name: t128m-output32
-- id: switch_gpio_33
+- id: t128m_output33
   component_id: switch.gpio
   fields:
     pin:
@@ -2126,9 +2126,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_33
+    id: t128m_output33
     name: t128m-output33
-- id: switch_gpio_34
+- id: t128m_output34
   component_id: switch.gpio
   fields:
     pin:
@@ -2138,9 +2138,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_34
+    id: t128m_output34
     name: t128m-output34
-- id: switch_gpio_35
+- id: t128m_output35
   component_id: switch.gpio
   fields:
     pin:
@@ -2150,9 +2150,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_35
+    id: t128m_output35
     name: t128m-output35
-- id: switch_gpio_36
+- id: t128m_output36
   component_id: switch.gpio
   fields:
     pin:
@@ -2162,9 +2162,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_36
+    id: t128m_output36
     name: t128m-output36
-- id: switch_gpio_37
+- id: t128m_output37
   component_id: switch.gpio
   fields:
     pin:
@@ -2174,9 +2174,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_37
+    id: t128m_output37
     name: t128m-output37
-- id: switch_gpio_38
+- id: t128m_output38
   component_id: switch.gpio
   fields:
     pin:
@@ -2186,9 +2186,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_38
+    id: t128m_output38
     name: t128m-output38
-- id: switch_gpio_39
+- id: t128m_output39
   component_id: switch.gpio
   fields:
     pin:
@@ -2198,9 +2198,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_39
+    id: t128m_output39
     name: t128m-output39
-- id: switch_gpio_40
+- id: t128m_output40
   component_id: switch.gpio
   fields:
     pin:
@@ -2210,9 +2210,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_40
+    id: t128m_output40
     name: t128m-output40
-- id: switch_gpio_41
+- id: t128m_output41
   component_id: switch.gpio
   fields:
     pin:
@@ -2222,9 +2222,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_41
+    id: t128m_output41
     name: t128m-output41
-- id: switch_gpio_42
+- id: t128m_output42
   component_id: switch.gpio
   fields:
     pin:
@@ -2234,9 +2234,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_42
+    id: t128m_output42
     name: t128m-output42
-- id: switch_gpio_43
+- id: t128m_output43
   component_id: switch.gpio
   fields:
     pin:
@@ -2246,9 +2246,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_43
+    id: t128m_output43
     name: t128m-output43
-- id: switch_gpio_44
+- id: t128m_output44
   component_id: switch.gpio
   fields:
     pin:
@@ -2258,9 +2258,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_44
+    id: t128m_output44
     name: t128m-output44
-- id: switch_gpio_45
+- id: t128m_output45
   component_id: switch.gpio
   fields:
     pin:
@@ -2270,9 +2270,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_45
+    id: t128m_output45
     name: t128m-output45
-- id: switch_gpio_46
+- id: t128m_output46
   component_id: switch.gpio
   fields:
     pin:
@@ -2282,9 +2282,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_46
+    id: t128m_output46
     name: t128m-output46
-- id: switch_gpio_47
+- id: t128m_output47
   component_id: switch.gpio
   fields:
     pin:
@@ -2294,9 +2294,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_47
+    id: t128m_output47
     name: t128m-output47
-- id: switch_gpio_48
+- id: t128m_output48
   component_id: switch.gpio
   fields:
     pin:
@@ -2306,9 +2306,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_48
+    id: t128m_output48
     name: t128m-output48
-- id: switch_gpio_49
+- id: t128m_output49
   component_id: switch.gpio
   fields:
     pin:
@@ -2318,9 +2318,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_49
+    id: t128m_output49
     name: t128m-output49
-- id: switch_gpio_50
+- id: t128m_output50
   component_id: switch.gpio
   fields:
     pin:
@@ -2330,9 +2330,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_50
+    id: t128m_output50
     name: t128m-output50
-- id: switch_gpio_51
+- id: t128m_output51
   component_id: switch.gpio
   fields:
     pin:
@@ -2342,9 +2342,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_51
+    id: t128m_output51
     name: t128m-output51
-- id: switch_gpio_52
+- id: t128m_output52
   component_id: switch.gpio
   fields:
     pin:
@@ -2354,9 +2354,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_52
+    id: t128m_output52
     name: t128m-output52
-- id: switch_gpio_53
+- id: t128m_output53
   component_id: switch.gpio
   fields:
     pin:
@@ -2366,9 +2366,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_53
+    id: t128m_output53
     name: t128m-output53
-- id: switch_gpio_54
+- id: t128m_output54
   component_id: switch.gpio
   fields:
     pin:
@@ -2378,9 +2378,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_54
+    id: t128m_output54
     name: t128m-output54
-- id: switch_gpio_55
+- id: t128m_output55
   component_id: switch.gpio
   fields:
     pin:
@@ -2390,9 +2390,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_55
+    id: t128m_output55
     name: t128m-output55
-- id: switch_gpio_56
+- id: t128m_output56
   component_id: switch.gpio
   fields:
     pin:
@@ -2402,9 +2402,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_56
+    id: t128m_output56
     name: t128m-output56
-- id: switch_gpio_57
+- id: t128m_output57
   component_id: switch.gpio
   fields:
     pin:
@@ -2414,9 +2414,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_57
+    id: t128m_output57
     name: t128m-output57
-- id: switch_gpio_58
+- id: t128m_output58
   component_id: switch.gpio
   fields:
     pin:
@@ -2426,9 +2426,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_58
+    id: t128m_output58
     name: t128m-output58
-- id: switch_gpio_59
+- id: t128m_output59
   component_id: switch.gpio
   fields:
     pin:
@@ -2438,9 +2438,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_59
+    id: t128m_output59
     name: t128m-output59
-- id: switch_gpio_60
+- id: t128m_output60
   component_id: switch.gpio
   fields:
     pin:
@@ -2450,9 +2450,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_60
+    id: t128m_output60
     name: t128m-output60
-- id: switch_gpio_61
+- id: t128m_output61
   component_id: switch.gpio
   fields:
     pin:
@@ -2462,9 +2462,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_61
+    id: t128m_output61
     name: t128m-output61
-- id: switch_gpio_62
+- id: t128m_output62
   component_id: switch.gpio
   fields:
     pin:
@@ -2474,9 +2474,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_62
+    id: t128m_output62
     name: t128m-output62
-- id: switch_gpio_63
+- id: t128m_output63
   component_id: switch.gpio
   fields:
     pin:
@@ -2486,9 +2486,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_63
+    id: t128m_output63
     name: t128m-output63
-- id: switch_gpio_64
+- id: t128m_output64
   component_id: switch.gpio
   fields:
     pin:
@@ -2498,9 +2498,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_64
+    id: t128m_output64
     name: t128m-output64
-- id: switch_gpio_65
+- id: t128m_output65
   component_id: switch.gpio
   fields:
     pin:
@@ -2510,9 +2510,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_65
+    id: t128m_output65
     name: t128m-output65
-- id: switch_gpio_66
+- id: t128m_output66
   component_id: switch.gpio
   fields:
     pin:
@@ -2522,9 +2522,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_66
+    id: t128m_output66
     name: t128m-output66
-- id: switch_gpio_67
+- id: t128m_output67
   component_id: switch.gpio
   fields:
     pin:
@@ -2534,9 +2534,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_67
+    id: t128m_output67
     name: t128m-output67
-- id: switch_gpio_68
+- id: t128m_output68
   component_id: switch.gpio
   fields:
     pin:
@@ -2546,9 +2546,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_68
+    id: t128m_output68
     name: t128m-output68
-- id: switch_gpio_69
+- id: t128m_output69
   component_id: switch.gpio
   fields:
     pin:
@@ -2558,9 +2558,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_69
+    id: t128m_output69
     name: t128m-output69
-- id: switch_gpio_70
+- id: t128m_output70
   component_id: switch.gpio
   fields:
     pin:
@@ -2570,9 +2570,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_70
+    id: t128m_output70
     name: t128m-output70
-- id: switch_gpio_71
+- id: t128m_output71
   component_id: switch.gpio
   fields:
     pin:
@@ -2582,9 +2582,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_71
+    id: t128m_output71
     name: t128m-output71
-- id: switch_gpio_72
+- id: t128m_output72
   component_id: switch.gpio
   fields:
     pin:
@@ -2594,9 +2594,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_72
+    id: t128m_output72
     name: t128m-output72
-- id: switch_gpio_73
+- id: t128m_output73
   component_id: switch.gpio
   fields:
     pin:
@@ -2606,9 +2606,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_73
+    id: t128m_output73
     name: t128m-output73
-- id: switch_gpio_74
+- id: t128m_output74
   component_id: switch.gpio
   fields:
     pin:
@@ -2618,9 +2618,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_74
+    id: t128m_output74
     name: t128m-output74
-- id: switch_gpio_75
+- id: t128m_output75
   component_id: switch.gpio
   fields:
     pin:
@@ -2630,9 +2630,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_75
+    id: t128m_output75
     name: t128m-output75
-- id: switch_gpio_76
+- id: t128m_output76
   component_id: switch.gpio
   fields:
     pin:
@@ -2642,9 +2642,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_76
+    id: t128m_output76
     name: t128m-output76
-- id: switch_gpio_77
+- id: t128m_output77
   component_id: switch.gpio
   fields:
     pin:
@@ -2654,9 +2654,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_77
+    id: t128m_output77
     name: t128m-output77
-- id: switch_gpio_78
+- id: t128m_output78
   component_id: switch.gpio
   fields:
     pin:
@@ -2666,9 +2666,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_78
+    id: t128m_output78
     name: t128m-output78
-- id: switch_gpio_79
+- id: t128m_output79
   component_id: switch.gpio
   fields:
     pin:
@@ -2678,9 +2678,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_79
+    id: t128m_output79
     name: t128m-output79
-- id: switch_gpio_80
+- id: t128m_output80
   component_id: switch.gpio
   fields:
     pin:
@@ -2690,9 +2690,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_80
+    id: t128m_output80
     name: t128m-output80
-- id: switch_gpio_81
+- id: t128m_output81
   component_id: switch.gpio
   fields:
     pin:
@@ -2702,9 +2702,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_81
+    id: t128m_output81
     name: t128m-output81
-- id: switch_gpio_82
+- id: t128m_output82
   component_id: switch.gpio
   fields:
     pin:
@@ -2714,9 +2714,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_82
+    id: t128m_output82
     name: t128m-output82
-- id: switch_gpio_83
+- id: t128m_output83
   component_id: switch.gpio
   fields:
     pin:
@@ -2726,9 +2726,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_83
+    id: t128m_output83
     name: t128m-output83
-- id: switch_gpio_84
+- id: t128m_output84
   component_id: switch.gpio
   fields:
     pin:
@@ -2738,9 +2738,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_84
+    id: t128m_output84
     name: t128m-output84
-- id: switch_gpio_85
+- id: t128m_output85
   component_id: switch.gpio
   fields:
     pin:
@@ -2750,9 +2750,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_85
+    id: t128m_output85
     name: t128m-output85
-- id: switch_gpio_86
+- id: t128m_output86
   component_id: switch.gpio
   fields:
     pin:
@@ -2762,9 +2762,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_86
+    id: t128m_output86
     name: t128m-output86
-- id: switch_gpio_87
+- id: t128m_output87
   component_id: switch.gpio
   fields:
     pin:
@@ -2774,9 +2774,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_87
+    id: t128m_output87
     name: t128m-output87
-- id: switch_gpio_88
+- id: t128m_output88
   component_id: switch.gpio
   fields:
     pin:
@@ -2786,9 +2786,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_88
+    id: t128m_output88
     name: t128m-output88
-- id: switch_gpio_89
+- id: t128m_output89
   component_id: switch.gpio
   fields:
     pin:
@@ -2798,9 +2798,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_89
+    id: t128m_output89
     name: t128m-output89
-- id: switch_gpio_90
+- id: t128m_output90
   component_id: switch.gpio
   fields:
     pin:
@@ -2810,9 +2810,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_90
+    id: t128m_output90
     name: t128m-output90
-- id: switch_gpio_91
+- id: t128m_output91
   component_id: switch.gpio
   fields:
     pin:
@@ -2822,9 +2822,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_91
+    id: t128m_output91
     name: t128m-output91
-- id: switch_gpio_92
+- id: t128m_output92
   component_id: switch.gpio
   fields:
     pin:
@@ -2834,9 +2834,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_92
+    id: t128m_output92
     name: t128m-output92
-- id: switch_gpio_93
+- id: t128m_output93
   component_id: switch.gpio
   fields:
     pin:
@@ -2846,9 +2846,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_93
+    id: t128m_output93
     name: t128m-output93
-- id: switch_gpio_94
+- id: t128m_output94
   component_id: switch.gpio
   fields:
     pin:
@@ -2858,9 +2858,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_94
+    id: t128m_output94
     name: t128m-output94
-- id: switch_gpio_95
+- id: t128m_output95
   component_id: switch.gpio
   fields:
     pin:
@@ -2870,9 +2870,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_95
+    id: t128m_output95
     name: t128m-output95
-- id: switch_gpio_96
+- id: t128m_output96
   component_id: switch.gpio
   fields:
     pin:
@@ -2882,9 +2882,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_96
+    id: t128m_output96
     name: t128m-output96
-- id: switch_gpio_97
+- id: t128m_output97
   component_id: switch.gpio
   fields:
     pin:
@@ -2894,9 +2894,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_97
+    id: t128m_output97
     name: t128m-output97
-- id: switch_gpio_98
+- id: t128m_output98
   component_id: switch.gpio
   fields:
     pin:
@@ -2906,9 +2906,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_98
+    id: t128m_output98
     name: t128m-output98
-- id: switch_gpio_99
+- id: t128m_output99
   component_id: switch.gpio
   fields:
     pin:
@@ -2918,9 +2918,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_99
+    id: t128m_output99
     name: t128m-output99
-- id: switch_gpio_100
+- id: t128m_output100
   component_id: switch.gpio
   fields:
     pin:
@@ -2930,9 +2930,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_100
+    id: t128m_output100
     name: t128m-output100
-- id: switch_gpio_101
+- id: t128m_output101
   component_id: switch.gpio
   fields:
     pin:
@@ -2942,9 +2942,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_101
+    id: t128m_output101
     name: t128m-output101
-- id: switch_gpio_102
+- id: t128m_output102
   component_id: switch.gpio
   fields:
     pin:
@@ -2954,9 +2954,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_102
+    id: t128m_output102
     name: t128m-output102
-- id: switch_gpio_103
+- id: t128m_output103
   component_id: switch.gpio
   fields:
     pin:
@@ -2966,9 +2966,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_103
+    id: t128m_output103
     name: t128m-output103
-- id: switch_gpio_104
+- id: t128m_output104
   component_id: switch.gpio
   fields:
     pin:
@@ -2978,9 +2978,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_104
+    id: t128m_output104
     name: t128m-output104
-- id: switch_gpio_105
+- id: t128m_output105
   component_id: switch.gpio
   fields:
     pin:
@@ -2990,9 +2990,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_105
+    id: t128m_output105
     name: t128m-output105
-- id: switch_gpio_106
+- id: t128m_output106
   component_id: switch.gpio
   fields:
     pin:
@@ -3002,9 +3002,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_106
+    id: t128m_output106
     name: t128m-output106
-- id: switch_gpio_107
+- id: t128m_output107
   component_id: switch.gpio
   fields:
     pin:
@@ -3014,9 +3014,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_107
+    id: t128m_output107
     name: t128m-output107
-- id: switch_gpio_108
+- id: t128m_output108
   component_id: switch.gpio
   fields:
     pin:
@@ -3026,9 +3026,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_108
+    id: t128m_output108
     name: t128m-output108
-- id: switch_gpio_109
+- id: t128m_output109
   component_id: switch.gpio
   fields:
     pin:
@@ -3038,9 +3038,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_109
+    id: t128m_output109
     name: t128m-output109
-- id: switch_gpio_110
+- id: t128m_output110
   component_id: switch.gpio
   fields:
     pin:
@@ -3050,9 +3050,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_110
+    id: t128m_output110
     name: t128m-output110
-- id: switch_gpio_111
+- id: t128m_output111
   component_id: switch.gpio
   fields:
     pin:
@@ -3062,9 +3062,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_111
+    id: t128m_output111
     name: t128m-output111
-- id: switch_gpio_112
+- id: t128m_output112
   component_id: switch.gpio
   fields:
     pin:
@@ -3074,9 +3074,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_112
+    id: t128m_output112
     name: t128m-output112
-- id: switch_gpio_113
+- id: t128m_output113
   component_id: switch.gpio
   fields:
     pin:
@@ -3086,9 +3086,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_113
+    id: t128m_output113
     name: t128m-output113
-- id: switch_gpio_114
+- id: t128m_output114
   component_id: switch.gpio
   fields:
     pin:
@@ -3098,9 +3098,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_114
+    id: t128m_output114
     name: t128m-output114
-- id: switch_gpio_115
+- id: t128m_output115
   component_id: switch.gpio
   fields:
     pin:
@@ -3110,9 +3110,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_115
+    id: t128m_output115
     name: t128m-output115
-- id: switch_gpio_116
+- id: t128m_output116
   component_id: switch.gpio
   fields:
     pin:
@@ -3122,9 +3122,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_116
+    id: t128m_output116
     name: t128m-output116
-- id: switch_gpio_117
+- id: t128m_output117
   component_id: switch.gpio
   fields:
     pin:
@@ -3134,9 +3134,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_117
+    id: t128m_output117
     name: t128m-output117
-- id: switch_gpio_118
+- id: t128m_output118
   component_id: switch.gpio
   fields:
     pin:
@@ -3146,9 +3146,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_118
+    id: t128m_output118
     name: t128m-output118
-- id: switch_gpio_119
+- id: t128m_output119
   component_id: switch.gpio
   fields:
     pin:
@@ -3158,9 +3158,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_119
+    id: t128m_output119
     name: t128m-output119
-- id: switch_gpio_120
+- id: t128m_output120
   component_id: switch.gpio
   fields:
     pin:
@@ -3170,9 +3170,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_120
+    id: t128m_output120
     name: t128m-output120
-- id: switch_gpio_121
+- id: t128m_output121
   component_id: switch.gpio
   fields:
     pin:
@@ -3182,9 +3182,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_121
+    id: t128m_output121
     name: t128m-output121
-- id: switch_gpio_122
+- id: t128m_output122
   component_id: switch.gpio
   fields:
     pin:
@@ -3194,9 +3194,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_122
+    id: t128m_output122
     name: t128m-output122
-- id: switch_gpio_123
+- id: t128m_output123
   component_id: switch.gpio
   fields:
     pin:
@@ -3206,9 +3206,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_123
+    id: t128m_output123
     name: t128m-output123
-- id: switch_gpio_124
+- id: t128m_output124
   component_id: switch.gpio
   fields:
     pin:
@@ -3218,9 +3218,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_124
+    id: t128m_output124
     name: t128m-output124
-- id: switch_gpio_125
+- id: t128m_output125
   component_id: switch.gpio
   fields:
     pin:
@@ -3230,9 +3230,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_125
+    id: t128m_output125
     name: t128m-output125
-- id: switch_gpio_126
+- id: t128m_output126
   component_id: switch.gpio
   fields:
     pin:
@@ -3242,9 +3242,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_126
+    id: t128m_output126
     name: t128m-output126
-- id: switch_gpio_127
+- id: t128m_output127
   component_id: switch.gpio
   fields:
     pin:
@@ -3254,9 +3254,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_127
+    id: t128m_output127
     name: t128m-output127
-- id: switch_gpio_128
+- id: t128m_output128
   component_id: switch.gpio
   fields:
     pin:
@@ -3266,7 +3266,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_128
+    id: t128m_output128
     name: t128m-output128
 source:
   type: esphome-devices

@@ -47,13 +47,13 @@ featured_components:
       locked: true
     id: light_status_led_1
     name: ESP32 Led
-- id: switch_gpio_1
+- id: esp32_relay
   component_id: switch.gpio
   fields:
     pin:
       value: 16
       locked: true
-    id: switch_gpio_1
+    id: esp32_relay
     name: ESP32 Relay
 source:
   type: esphome-devices

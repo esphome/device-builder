@@ -148,7 +148,7 @@ featured_components:
     mode: box
     id: number_modbus_controller_1
     name: Max duration for level 3-4
-- id: number_modbus_controller_2
+- id: genvex_speed_in_1
   component_id: number.modbus_controller
   fields:
     icon: mdi:fan-speed-1
@@ -160,9 +160,9 @@ featured_components:
     max_value: 45
     step: 1
     mode: box
-    id: number_modbus_controller_2
+    id: genvex_speed_in_1
     name: Level 1 supply
-- id: number_modbus_controller_3
+- id: genvex_speed_out_1
   component_id: number.modbus_controller
   fields:
     icon: mdi:fan-speed-1
@@ -174,9 +174,9 @@ featured_components:
     max_value: 45
     step: 1
     mode: box
-    id: number_modbus_controller_3
+    id: genvex_speed_out_1
     name: Level 1 extract
-- id: number_modbus_controller_4
+- id: genvex_speed_in_2
   component_id: number.modbus_controller
   fields:
     icon: mdi:fan-speed-2
@@ -188,9 +188,9 @@ featured_components:
     max_value: 75
     step: 1
     mode: box
-    id: number_modbus_controller_4
+    id: genvex_speed_in_2
     name: Level 2 supply
-- id: number_modbus_controller_5
+- id: genvex_speed_out_2
   component_id: number.modbus_controller
   fields:
     icon: mdi:fan-speed-2
@@ -202,9 +202,9 @@ featured_components:
     max_value: 75
     step: 1
     mode: box
-    id: number_modbus_controller_5
+    id: genvex_speed_out_2
     name: Level 2 extract
-- id: number_modbus_controller_6
+- id: genvex_speed_in_3
   component_id: number.modbus_controller
   fields:
     icon: mdi:fan-speed-3
@@ -216,9 +216,9 @@ featured_components:
     max_value: 85
     step: 1
     mode: box
-    id: number_modbus_controller_6
+    id: genvex_speed_in_3
     name: Level 3 supply
-- id: number_modbus_controller_7
+- id: genvex_speed_out_3
   component_id: number.modbus_controller
   fields:
     icon: mdi:fan-speed-3
@@ -230,7 +230,7 @@ featured_components:
     max_value: 85
     step: 1
     mode: box
-    id: number_modbus_controller_7
+    id: genvex_speed_out_3
     name: Level 3 extract
 - id: number_modbus_controller_8
   component_id: number.modbus_controller
@@ -261,14 +261,14 @@ featured_components:
     disabled_by_default: true
     id: number_modbus_controller_9
     name: Filter change period
-- id: select_modbus_controller_1
+- id: genvex_sel
   component_id: select.modbus_controller
   fields:
     icon: mdi:fan
     address: 0
     value_type: U_WORD
     optimistic: true
-    id: select_modbus_controller_1
+    id: genvex_sel
     name: Speed
 - id: select_modbus_controller_2
   component_id: select.modbus_controller
@@ -292,7 +292,7 @@ featured_components:
     disabled_by_default: true
     id: select_modbus_controller_3
     name: Regulation method
-- id: sensor_modbus_controller_1
+- id: genvex_inlet_fan
   component_id: sensor.modbus_controller
   fields:
     icon: mdi:fan
@@ -300,9 +300,9 @@ featured_components:
     address: 9
     unit_of_measurement: '%'
     value_type: U_WORD
-    id: sensor_modbus_controller_1
+    id: genvex_inlet_fan
     name: Inlet fan
-- id: sensor_modbus_controller_2
+- id: genvex_extract_fan
   component_id: sensor.modbus_controller
   fields:
     icon: mdi:fan
@@ -310,7 +310,7 @@ featured_components:
     address: 10
     unit_of_measurement: '%'
     value_type: U_WORD
-    id: sensor_modbus_controller_2
+    id: genvex_extract_fan
     name: Extract fan
 - id: sensor_modbus_controller_3
   component_id: sensor.modbus_controller
@@ -345,7 +345,7 @@ featured_components:
     accuracy_decimals: 1
     id: sensor_modbus_controller_5
     name: Exhaust air
-- id: sensor_modbus_controller_6
+- id: genvex_temp_t7
   component_id: sensor.modbus_controller
   fields:
     device_class: temperature
@@ -354,7 +354,7 @@ featured_components:
     unit_of_measurement: °C
     value_type: U_WORD
     accuracy_decimals: 1
-    id: sensor_modbus_controller_6
+    id: genvex_temp_t7
     name: Extract air
 - id: sensor_modbus_controller_7
   component_id: sensor.modbus_controller
@@ -366,7 +366,7 @@ featured_components:
     value_type: U_WORD
     id: sensor_modbus_controller_7
     name: Bypass
-- id: sensor_modbus_controller_8
+- id: genvex_hum
   component_id: sensor.modbus_controller
   fields:
     device_class: humidity
@@ -374,9 +374,9 @@ featured_components:
     register_type: read
     address: 13
     value_type: U_WORD
-    id: sensor_modbus_controller_8
+    id: genvex_hum
     name: Humidity
-- id: sensor_modbus_controller_9
+- id: genvex_mode
   component_id: sensor.modbus_controller
   fields:
     icon: mdi:speedometer-slow
@@ -386,7 +386,7 @@ featured_components:
     value_type: U_WORD
     disabled_by_default: true
     bitmask: 2147483647
-    id: sensor_modbus_controller_9
+    id: genvex_mode
     name: Mode (modbus)
 - id: sensor_modbus_controller_10
   component_id: sensor.modbus_controller

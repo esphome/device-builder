@@ -18,7 +18,7 @@ images:
 - images/D.jpg
 docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/
 featured_components:
-- id: light_rgbww_1
+- id: id_name
   component_id: light.rgbww
   fields:
     color_interlock: true
@@ -28,40 +28,55 @@ featured_components:
     restore_mode: RESTORE_DEFAULT_ON
     gamma_correct: 1.5
     default_transition_length: 0.5s
-    id: light_rgbww_1
+    red: output_red
+    green: output_green
+    blue: output_blue
+    cold_white: output_cold
+    warm_white: output_warm
+    id: id_name
     name: None
-- id: output_bp5758d_1
+- id: output_red
   component_id: output.bp5758d
   fields:
     channel: 3
     current: 14
-    id: output_bp5758d_1
-- id: output_bp5758d_2
+    id: output_red
+- id: output_green
   component_id: output.bp5758d
   fields:
     channel: 2
     current: 14
-    id: output_bp5758d_2
-- id: output_bp5758d_3
+    id: output_green
+- id: output_blue
   component_id: output.bp5758d
   fields:
     channel: 1
     current: 14
-    id: output_bp5758d_3
-- id: output_bp5758d_4
+    id: output_blue
+- id: output_cold
   component_id: output.bp5758d
   fields:
     channel: 5
     current: 24
     max_power: 0.8
-    id: output_bp5758d_4
-- id: output_bp5758d_5
+    id: output_cold
+- id: output_warm
   component_id: output.bp5758d
   fields:
     channel: 4
     current: 24
     max_power: 0.8
-    id: output_bp5758d_5
+    id: output_warm
+featured_bundles:
+- id: id_name_setup
+  name: None (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - output_cold
+  - output_warm
+  - id_name
 source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA

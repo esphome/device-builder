@@ -26,38 +26,56 @@ pins:
   occupied_by: pwm_b
 docs_url: https://devices.esphome.io/devices/Shelly-Bulb-Duo-RGBW/
 featured_components:
-- id: output_esp8266_pwm_1
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    red: pwm_r
+    green: pwm_g
+    blue: pwm_b
+    white: pwm_w
+    id: light_rgbw_1
+    name: Rgbw 1
+- id: pwm_r
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: pwm_r
+- id: pwm_g
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: pwm_g
+- id: pwm_b
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: pwm_b
+- id: pwm_w
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
     frequency: 1000 Hz
-    id: output_esp8266_pwm_4
+    id: pwm_w
+featured_bundles:
+- id: light_rgbw_1_setup
+  name: Rgbw (full setup)
+  component_ids:
+  - pwm_r
+  - pwm_g
+  - pwm_b
+  - pwm_w
+  - light_rgbw_1
 source:
   type: esphome-devices
   remote_id: Shelly-Bulb-Duo-RGBW

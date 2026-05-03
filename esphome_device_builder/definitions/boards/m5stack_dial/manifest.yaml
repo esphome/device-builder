@@ -43,13 +43,13 @@ pins:
 docs_url: https://devices.esphome.io/devices/M5Stack-Dial/
 product_url: https://docs.m5stack.com/en/core/M5Dial
 featured_components:
-- id: binary_sensor_gpio_1
+- id: front_button
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 42
       locked: true
-    id: binary_sensor_gpio_1
+    id: front_button
     name: Button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
@@ -59,7 +59,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Hold Button
-- id: display_ili9xxx_1
+- id: round_display
   component_id: display.ili9xxx
   fields:
     model: GC9A01A
@@ -72,29 +72,30 @@ featured_components:
     dc_pin:
       value: 4
       locked: true
-    id: display_ili9xxx_1
+    id: round_display
     name: round_display
-- id: light_monochromatic_1
+- id: display_backlight
   component_id: light.monochromatic
   fields:
     default_transition_length: 0s
-    id: light_monochromatic_1
+    output: backlight_output
+    id: display_backlight
     name: Backlight
-- id: output_ledc_1
+- id: buzzer
   component_id: output.ledc
   fields:
     pin:
       value: 3
       locked: true
-    id: output_ledc_1
-- id: output_ledc_2
+    id: buzzer
+- id: backlight_output
   component_id: output.ledc
   fields:
     pin:
       value: 9
       locked: true
-    id: output_ledc_2
-- id: sensor_rotary_encoder_1
+    id: backlight_output
+- id: encoder
   component_id: sensor.rotary_encoder
   fields:
     pin_a:
@@ -103,14 +104,20 @@ featured_components:
     pin_b:
       value: 41
       locked: true
-    id: sensor_rotary_encoder_1
+    id: encoder
     name: encoder
-- id: touchscreen_ft5x06_1
+- id: touch
   component_id: touchscreen.ft5x06
   fields:
     address: 56
-    id: touchscreen_ft5x06_1
+    id: touch
     name: touch
+featured_bundles:
+- id: display_backlight_setup
+  name: Backlight (full setup)
+  component_ids:
+  - backlight_output
+  - display_backlight
 source:
   type: esphome-devices
   remote_id: M5Stack-Dial

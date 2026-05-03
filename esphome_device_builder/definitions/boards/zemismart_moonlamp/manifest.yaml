@@ -30,49 +30,64 @@ pins:
   occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Zemismart-Moonlamp/
 featured_components:
-- id: light_rgbww_1
+- id: device_name
   component_id: light.rgbww
   fields:
     color_interlock: true
     warm_white_color_temperature: 2800 K
     cold_white_color_temperature: 6200 K
-    id: light_rgbww_1
+    red: output_red
+    green: output_green
+    blue: output_blue
+    warm_white: output_warm_white
+    cold_white: output_cold_white
+    id: device_name
     name: Rgbww 1
-- id: output_esp8266_pwm_1
+- id: output_red
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 4
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: output_red
+- id: output_green
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: output_green
+- id: output_blue
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: output_blue
+- id: output_warm_white
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
-    id: output_esp8266_pwm_4
-- id: output_esp8266_pwm_5
+    id: output_warm_white
+- id: output_cold_white
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_5
+    id: output_cold_white
+featured_bundles:
+- id: device_name_setup
+  name: Rgbww (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - output_warm_white
+  - output_cold_white
+  - device_name
 source:
   type: esphome-devices
   remote_id: Zemismart-Moonlamp

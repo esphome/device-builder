@@ -35,7 +35,7 @@ pins:
   occupied_by: button1
 docs_url: https://devices.esphome.io/devices/Zemismart-Switch-TB22/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -43,9 +43,9 @@ featured_components:
         number: 16
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button1
     name: button1
-- id: binary_sensor_gpio_2
+- id: button2
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -54,9 +54,9 @@ featured_components:
         inverted: true
         mode: INPUT_PULLUP
       locked: true
-    id: binary_sensor_gpio_2
+    id: button2
     name: button2
-- id: binary_sensor_gpio_3
+- id: button3
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -65,9 +65,9 @@ featured_components:
         inverted: true
         mode: INPUT_PULLUP
       locked: true
-    id: binary_sensor_gpio_3
+    id: button3
     name: button3
-- id: light_status_led_1
+- id: led_green
   component_id: light.status_led
   fields:
     restore_mode: ALWAYS_ON
@@ -77,31 +77,31 @@ featured_components:
         number: 0
         inverted: true
       locked: true
-    id: light_status_led_1
+    id: led_green
     name: Backlight
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 13
       locked: true
-    id: switch_gpio_1
+    id: relay1
     name: relay1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
-    id: switch_gpio_2
+    id: relay2
     name: relay2
-- id: switch_gpio_3
+- id: relay3
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
-    id: switch_gpio_3
+    id: relay3
     name: relay3
 source:
   type: esphome-devices

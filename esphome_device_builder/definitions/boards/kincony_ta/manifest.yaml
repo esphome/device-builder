@@ -77,7 +77,7 @@ pins:
   occupied_by: ta-io48
 docs_url: https://devices.esphome.io/devices/KinCony-TA/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: ta_input01
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -87,9 +87,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: ta_input01
     name: ta-input01
-- id: binary_sensor_gpio_2
+- id: ta_input02
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -99,9 +99,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: ta_input02
     name: ta-input02
-- id: binary_sensor_gpio_3
+- id: ta_input03
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -111,9 +111,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: ta_input03
     name: ta-input03
-- id: binary_sensor_gpio_4
+- id: ta_input04
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -123,9 +123,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: ta_input04
     name: ta-input04
-- id: binary_sensor_gpio_5
+- id: ta_input05
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -135,9 +135,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_5
+    id: ta_input05
     name: ta-input05
-- id: binary_sensor_gpio_6
+- id: ta_input06
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -147,9 +147,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_6
+    id: ta_input06
     name: ta-input06
-- id: binary_sensor_gpio_7
+- id: ta_input07
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -159,9 +159,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_7
+    id: ta_input07
     name: ta-input07
-- id: binary_sensor_gpio_8
+- id: ta_input08
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -171,9 +171,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_8
+    id: ta_input08
     name: ta-input08
-- id: binary_sensor_gpio_9
+- id: ta_input09
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -183,9 +183,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_9
+    id: ta_input09
     name: ta-input09
-- id: binary_sensor_gpio_10
+- id: ta_input10
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -195,9 +195,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_10
+    id: ta_input10
     name: ta-input10
-- id: binary_sensor_gpio_11
+- id: ta_input11
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -207,9 +207,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_11
+    id: ta_input11
     name: ta-input11
-- id: binary_sensor_gpio_12
+- id: ta_input12
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -219,7 +219,7 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_12
+    id: ta_input12
     name: ta-input12
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
@@ -361,7 +361,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_26
     name: ta-433M-R
-- id: switch_gpio_1
+- id: ta_output01
   component_id: switch.gpio
   fields:
     pin:
@@ -371,9 +371,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: ta_output01
     name: ta-output01
-- id: switch_gpio_2
+- id: ta_output02
   component_id: switch.gpio
   fields:
     pin:
@@ -383,7 +383,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: ta_output02
     name: ta-output02
 source:
   type: esphome-devices

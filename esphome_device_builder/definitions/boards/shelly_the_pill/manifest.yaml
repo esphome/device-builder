@@ -49,23 +49,23 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: WiFi Signal
-- id: switch_gpio_1
+- id: output_1
   component_id: switch.gpio
   fields:
     pin:
       value: 3
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: output_1
     name: Output 1
-- id: switch_gpio_2
+- id: output_2
   component_id: switch.gpio
   fields:
     pin:
       value: 6
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_2
+    id: output_2
     name: Output 2
 source:
   type: esphome-devices

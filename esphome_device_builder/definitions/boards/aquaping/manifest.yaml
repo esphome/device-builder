@@ -13,17 +13,17 @@ images:
 docs_url: https://devices.esphome.io/devices/AquaPing/
 product_url: https://github.com/microphonon/acoustic-leak-detector/tree/main/Home_Assistant
 featured_components:
-- id: binary_sensor_gpio_1
+- id: noise
   component_id: binary_sensor.gpio
   fields:
     icon: mdi:volume-vibrate
-    id: binary_sensor_gpio_1
+    id: noise
     name: AquaPing Noise Alert
-- id: binary_sensor_gpio_2
+- id: leak
   component_id: binary_sensor.gpio
   fields:
     icon: mdi:water-pump
-    id: binary_sensor_gpio_2
+    id: leak
     name: AquaPing Leak Alert
 source:
   type: esphome-devices

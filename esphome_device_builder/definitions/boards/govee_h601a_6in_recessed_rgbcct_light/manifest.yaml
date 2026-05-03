@@ -18,33 +18,48 @@ featured_components:
     cold_white_color_temperature: 6350 K
     warm_white_color_temperature: 3000 K
     color_interlock: true
+    red: red_pwm_output
+    green: green_pwm_output
+    blue: blue_pwm_output
+    cold_white: cool_pwm_output
+    warm_white: warm_pwm_output
     id: light_rgbww_1
     name: Light
-- id: output_libretiny_pwm_1
+- id: green_pwm_output
   component_id: output.libretiny_pwm
   fields:
     max_power: 80%
-    id: output_libretiny_pwm_1
-- id: output_libretiny_pwm_2
+    id: green_pwm_output
+- id: red_pwm_output
   component_id: output.libretiny_pwm
   fields:
     max_power: 80%
-    id: output_libretiny_pwm_2
-- id: output_libretiny_pwm_3
+    id: red_pwm_output
+- id: blue_pwm_output
   component_id: output.libretiny_pwm
   fields:
     max_power: 80%
-    id: output_libretiny_pwm_3
-- id: output_libretiny_pwm_4
+    id: blue_pwm_output
+- id: warm_pwm_output
   component_id: output.libretiny_pwm
   fields:
     max_power: 80%
-    id: output_libretiny_pwm_4
-- id: output_libretiny_pwm_5
+    id: warm_pwm_output
+- id: cool_pwm_output
   component_id: output.libretiny_pwm
   fields:
     max_power: 80%
-    id: output_libretiny_pwm_5
+    id: cool_pwm_output
+featured_bundles:
+- id: light_rgbww_1_setup
+  name: Light (full setup)
+  component_ids:
+  - red_pwm_output
+  - green_pwm_output
+  - blue_pwm_output
+  - cool_pwm_output
+  - warm_pwm_output
+  - light_rgbww_1
 source:
   type: esphome-devices
   remote_id: Govee-H601A-6in-recessed-RGBCCT-light

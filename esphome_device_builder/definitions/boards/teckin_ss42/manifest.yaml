@@ -48,25 +48,25 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Outdoor SS42 WiFi signal
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay1
     name: Relay 1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_2
+    id: relay2
     name: Relay 2
-- id: switch_gpio_3
+- id: led1
   component_id: switch.gpio
   fields:
     pin:
@@ -74,9 +74,9 @@ featured_components:
         number: 4
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: led1
     name: led1
-- id: switch_gpio_4
+- id: led2
   component_id: switch.gpio
   fields:
     pin:
@@ -84,7 +84,7 @@ featured_components:
         number: 5
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: led2
     name: led2
 source:
   type: esphome-devices

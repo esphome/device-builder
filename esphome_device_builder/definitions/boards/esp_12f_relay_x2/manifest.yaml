@@ -23,21 +23,21 @@ pins:
   occupied_by: Led16
 docs_url: https://devices.esphome.io/devices/ESP-12F-Relay-X2/
 featured_components:
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 5
       locked: true
-    id: switch_gpio_1
+    id: relay1
     name: Relay1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
       value: 4
       locked: true
-    id: switch_gpio_2
+    id: relay2
     name: Relay2
 - id: switch_gpio_3
   component_id: switch.gpio

@@ -25,14 +25,15 @@ pins:
   occupied_by: my_touchscreen
 docs_url: https://devices.esphome.io/devices/Guition-JC4827543C/
 featured_components:
-- id: light_monochromatic_1
+- id: display_backlight
   component_id: light.monochromatic
   fields:
     icon: mdi:lightbulb-on
     restore_mode: ALWAYS_ON
-    id: light_monochromatic_1
+    output: gpio_backlight_pwm
+    id: display_backlight
     name: Display Backlight
-- id: output_ledc_1
+- id: gpio_backlight_pwm
   component_id: output.ledc
   fields:
     pin:
@@ -40,8 +41,8 @@ featured_components:
         number: 1
       locked: true
     frequency: 1000Hz
-    id: output_ledc_1
-- id: touchscreen_gt911_1
+    id: gpio_backlight_pwm
+- id: my_touchscreen
   component_id: touchscreen.gt911
   fields:
     interrupt_pin:
@@ -52,8 +53,14 @@ featured_components:
     reset_pin:
       value: 38
       locked: true
-    id: touchscreen_gt911_1
+    id: my_touchscreen
     name: my_touchscreen
+featured_bundles:
+- id: display_backlight_setup
+  name: Display Backlight (full setup)
+  component_ids:
+  - gpio_backlight_pwm
+  - display_backlight
 source:
   type: esphome-devices
   remote_id: Guition-JC4827543C

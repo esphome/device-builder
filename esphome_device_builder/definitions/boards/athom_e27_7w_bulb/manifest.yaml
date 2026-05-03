@@ -33,43 +33,58 @@ featured_components:
     cold_white_color_temperature: 6000 K
     warm_white_color_temperature: 3000 K
     color_interlock: true
+    red: red_output
+    green: green_output
+    blue: blue_output
+    warm_white: warm_white_output
+    cold_white: white_output
     id: light_rgbww_1
     name: Rgbww 1
-- id: output_esp8266_pwm_1
+- id: red_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 4
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: red_output
+- id: green_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: green_output
+- id: blue_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: blue_output
+- id: warm_white_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
-    id: output_esp8266_pwm_4
-- id: output_esp8266_pwm_5
+    id: warm_white_output
+- id: white_output
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_5
+    id: white_output
+featured_bundles:
+- id: light_rgbww_1_setup
+  name: Rgbww (full setup)
+  component_ids:
+  - red_output
+  - green_output
+  - blue_output
+  - warm_white_output
+  - white_output
+  - light_rgbww_1
 source:
   type: esphome-devices
   remote_id: Athom-E27-7W-Bulb

@@ -69,7 +69,7 @@ def test_extract_emits_explicit_id_for_every_entry() -> None:
         "output": [{"platform": "gpio", "pin": 5}],
         "sensor": [{"platform": "dht", "pin": 14, "model": "DHT22"}],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
 
     by_local = {entry["id"]: entry for entry in featured}
     assert by_local["binary_sensor_gpio_1"]["fields"]["id"] == "binary_sensor_gpio_1"
@@ -82,7 +82,7 @@ def test_extract_uses_upstream_name_for_entities() -> None:
     inline = {
         "binary_sensor": [{"platform": "gpio", "name": "Front Door", "pin": 4}],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
     assert featured[0]["fields"]["name"] == "Front Door"
 
 
@@ -91,7 +91,7 @@ def test_extract_derives_name_default_when_upstream_omits() -> None:
     inline = {
         "sensor": [{"platform": "dht", "pin": 14, "model": "DHT22"}],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
     # ``<Platform> <counter>`` — keeps the entity surfaced in HA without
     # the user having to fill in a name first.
     assert featured[0]["fields"]["name"] == "Dht 1"
@@ -102,7 +102,7 @@ def test_extract_skips_name_for_non_entity_platforms() -> None:
     inline = {
         "output": [{"platform": "gpio", "name": "ignored upstream", "pin": 5}],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
     fields = featured[0]["fields"]
     assert "id" in fields
     assert "name" not in fields
@@ -116,7 +116,7 @@ def test_extract_counter_distinguishes_multiple_instances() -> None:
             {"platform": "gpio", "pin": 5},
         ],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
     ids = [f["fields"]["id"] for f in featured]
     names = [f["fields"]["name"] for f in featured]
     assert ids == ["binary_sensor_gpio_1", "binary_sensor_gpio_2"]
@@ -128,7 +128,7 @@ def test_extract_strips_template_substitution_from_name() -> None:
     inline = {
         "switch": [{"platform": "gpio", "name": "${friendly_name} Relay1", "pin": 12}],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
     assert featured[0]["fields"]["name"] == "Relay1"
 
 
@@ -137,7 +137,7 @@ def test_extract_occupancy_label_strips_template_and_drops_component_prefix() ->
     inline = {
         "switch": [{"platform": "gpio", "name": "${friendly_name} Relay1", "pin": 12}],
     }
-    _, gpio_occupancy = _extract_featured_components(inline, _INDEX)
+    _, _, gpio_occupancy = _extract_featured_components(inline, _INDEX)
     assert gpio_occupancy == {12: "Relay1"}
 
 
@@ -152,7 +152,7 @@ def test_extract_drops_component_with_placeholder_field_value() -> None:
             },
         ],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
     assert featured == []
 
 
@@ -161,7 +161,7 @@ def test_extract_skips_template_platform_entirely() -> None:
     inline = {
         "switch": [{"platform": "template", "name": "Demo", "optimistic": True}],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
     assert featured == []
 
 
@@ -176,19 +176,21 @@ def test_extract_skips_item_with_lambda_top_level_key() -> None:
             },
         ],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
     assert featured == []
 
 
-def test_extract_drops_id_reference_field() -> None:
-    """Cross-component id refs like ``output: red_output`` are dropped — user picks at add time."""
+def test_extract_drops_id_reference_to_skipped_target() -> None:
+    """Refs pointing at a non-kept component are silently omitted."""
     inline = {
-        "light": [{"platform": "binary", "name": "Indicator", "output": "red_output"}],
+        "light": [
+            {"platform": "binary", "id": "indicator", "name": "Indicator", "output": "missing"},
+        ],
     }
-    featured, _ = _extract_featured_components(inline, _INDEX)
-    # No real preset survives — the upstream ``output:`` ref doesn't, and
-    # there's no other hardware-specific field, so the entry is skipped
-    # by the "no useful fields" branch.
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
+    # Without other hardware-specific fields the consumer drops out
+    # entirely — the placeholder ref didn't match any kept sibling so
+    # the entry has no preset value to lock in.
     assert featured == []
 
 
@@ -204,6 +206,78 @@ def test_extract_skips_placeholder_component_without_polluting_pin_block() -> No
         ],
         "switch": [{"platform": "gpio", "name": "Relay", "pin": 12}],
     }
-    _, gpio_occupancy = _extract_featured_components(inline, _INDEX)
+    _, _, gpio_occupancy = _extract_featured_components(inline, _INDEX)
     # Only the surviving switch.gpio's pin lands in the occupancy map.
     assert gpio_occupancy == {12: "Relay"}
+
+
+def test_extract_preserves_upstream_id_as_local_id() -> None:
+    """Sanitized upstream ``id:`` becomes the manifest's local id when valid + free."""
+    inline = {
+        "output": [{"platform": "gpio", "id": "red_output", "pin": 4}],
+    }
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
+    assert featured[0]["id"] == "red_output"
+    assert featured[0]["fields"]["id"] == "red_output"
+
+
+def test_extract_falls_back_when_upstream_id_invalid() -> None:
+    """Upstream ids that can't be sanitized to a valid identifier fall back to default."""
+    inline = {
+        "output": [{"platform": "gpio", "id": "123-not-an-id", "pin": 4}],
+    }
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
+    assert featured[0]["id"] == "output_gpio_1"
+
+
+def test_extract_falls_back_on_local_id_collision() -> None:
+    """Two siblings sharing an upstream id don't collide — second one falls back."""
+    inline = {
+        "output": [
+            {"platform": "gpio", "id": "shared", "pin": 4},
+            {"platform": "gpio", "id": "shared", "pin": 5},
+        ],
+    }
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
+    ids = [f["id"] for f in featured]
+    assert ids == ["shared", "output_gpio_2"]
+
+
+def test_extract_rewrites_id_reference_to_kept_sibling() -> None:
+    """``light.binary.output: red_output`` resolves to the kept output's local id."""
+    inline = {
+        "output": [{"platform": "gpio", "id": "red_output", "pin": 4}],
+        "light": [
+            {"platform": "binary", "id": "indicator", "name": "Indicator", "output": "red_output"},
+        ],
+    }
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
+    light = next(f for f in featured if f["component_id"] == "light.binary")
+    assert light["fields"]["output"] == "red_output"
+
+
+def test_extract_generates_bundle_for_id_referenced_components() -> None:
+    """A consumer with id-ref dependencies emits a bundle adding deps then the consumer."""
+    inline = {
+        "output": [{"platform": "gpio", "id": "red_output", "pin": 4}],
+        "light": [
+            {"platform": "binary", "id": "indicator", "name": "Indicator", "output": "red_output"},
+        ],
+    }
+    _, bundles, _ = _extract_featured_components(inline, _INDEX)
+    assert len(bundles) == 1
+    bundle = bundles[0]
+    # Dependencies first so the consumer's ``output:`` ref already
+    # resolves when the dashboard adds it.
+    assert bundle["component_ids"] == ["red_output", "indicator"]
+    assert bundle["name"] == "Indicator (full setup)"
+    assert bundle["id"] == "indicator_setup"
+
+
+def test_extract_skips_bundle_when_no_dependencies_resolve() -> None:
+    """Standalone components (no id refs) don't get a bundle."""
+    inline = {
+        "switch": [{"platform": "gpio", "name": "Relay", "pin": 12}],
+    }
+    _, bundles, _ = _extract_featured_components(inline, _INDEX)
+    assert bundles == []

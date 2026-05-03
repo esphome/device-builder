@@ -20,7 +20,7 @@ pins:
   occupied_by: on board light
 docs_url: https://devices.esphome.io/devices/KinCony-AS/
 featured_components:
-- id: light_esp32_rmt_led_strip_1
+- id: led_ww
   component_id: light.esp32_rmt_led_strip
   fields:
     rgb_order: RGB
@@ -29,7 +29,7 @@ featured_components:
       locked: true
     num_leds: 1
     chipset: ws2812
-    id: light_esp32_rmt_led_strip_1
+    id: led_ww
     name: on board light
 source:
   type: esphome-devices

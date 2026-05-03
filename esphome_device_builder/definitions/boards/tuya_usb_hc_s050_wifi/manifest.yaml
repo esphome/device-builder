@@ -21,11 +21,11 @@ featured_components:
     entity_category: diagnostic
     id: light_status_led_1
     name: Status LED
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay
     name: Relay
 source:
   type: esphome-devices

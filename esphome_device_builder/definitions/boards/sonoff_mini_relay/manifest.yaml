@@ -27,30 +27,31 @@ pins:
   occupied_by: blue_led
 docs_url: https://devices.esphome.io/devices/Sonoff-Mini-Relay/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: reset
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 0
       locked: true
     internal: true
-    id: binary_sensor_gpio_1
+    id: reset
     name: reset
-- id: binary_sensor_gpio_2
+- id: switch_1
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 4
       locked: true
-    id: binary_sensor_gpio_2
+    id: switch_1
     name: status
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
     internal: true
+    output: blue_led
     id: light_monochromatic_1
     name: blueled
-- id: output_esp8266_pwm_1
+- id: blue_led
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -61,14 +62,14 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_1
+    id: blue_led
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Wifi Signal Strength
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     icon: mdi:lightbulb_outline
@@ -76,8 +77,14 @@ featured_components:
       value: 12
       locked: true
     restore_mode: restore_default_off
-    id: switch_gpio_1
+    id: relay_1
     name: switch
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: blueled (full setup)
+  component_ids:
+  - blue_led
+  - light_monochromatic_1
 source:
   type: esphome-devices
   remote_id: Sonoff-Mini-Relay

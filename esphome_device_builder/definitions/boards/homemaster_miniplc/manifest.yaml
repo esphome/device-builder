@@ -132,13 +132,13 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: 'Button #4'
-- id: output_ledc_1
+- id: buzzer_output
   component_id: output.ledc
   fields:
     pin:
       value: 2
       locked: true
-    id: output_ledc_1
+    id: buzzer_output
 - id: sensor_dallas_temp_1
   component_id: sensor.dallas_temp
   fields:

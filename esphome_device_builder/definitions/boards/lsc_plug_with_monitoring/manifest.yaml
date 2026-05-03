@@ -15,18 +15,18 @@ tags:
 - compact
 docs_url: https://devices.esphome.io/devices/LSC-Plug-With-Monitoring/
 featured_components:
-- id: light_status_led_1
+- id: light_red
   component_id: light.status_led
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
-    id: light_status_led_1
+    id: light_red
     name: Red led
-- id: light_binary_1
+- id: blue_led
   component_id: light.binary
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
     internal: true
-    id: light_binary_1
+    id: blue_led
     name: Status led
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
@@ -35,11 +35,11 @@ featured_components:
     change_mode_every: 2
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: switch_1
   component_id: switch.gpio
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: switch_1
     name: none
 source:
   type: esphome-devices

@@ -77,7 +77,7 @@ pins:
   occupied_by: f32-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-F32/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: f32_input01
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -87,9 +87,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: f32_input01
     name: f32-input01
-- id: binary_sensor_gpio_2
+- id: f32_input02
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -99,9 +99,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: f32_input02
     name: f32-input02
-- id: binary_sensor_gpio_3
+- id: f32_input03
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -111,9 +111,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: f32_input03
     name: f32-input03
-- id: binary_sensor_gpio_4
+- id: f32_input04
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -123,9 +123,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: f32_input04
     name: f32-input04
-- id: binary_sensor_gpio_5
+- id: f32_input05
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -135,9 +135,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_5
+    id: f32_input05
     name: f32-input05
-- id: binary_sensor_gpio_6
+- id: f32_input06
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -147,9 +147,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_6
+    id: f32_input06
     name: f32-input06
-- id: binary_sensor_gpio_7
+- id: f32_input07
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -159,9 +159,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_7
+    id: f32_input07
     name: f32-input07
-- id: binary_sensor_gpio_8
+- id: f32_input08
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -171,9 +171,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_8
+    id: f32_input08
     name: f32-input08
-- id: binary_sensor_gpio_9
+- id: f32_input09
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -183,9 +183,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_9
+    id: f32_input09
     name: f32-input09
-- id: binary_sensor_gpio_10
+- id: f32_input10
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -195,9 +195,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_10
+    id: f32_input10
     name: f32-input10
-- id: binary_sensor_gpio_11
+- id: f32_input11
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -207,9 +207,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_11
+    id: f32_input11
     name: f32-input11
-- id: binary_sensor_gpio_12
+- id: f32_input12
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -219,9 +219,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_12
+    id: f32_input12
     name: f32-input12
-- id: binary_sensor_gpio_13
+- id: f32_input13
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -231,9 +231,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_13
+    id: f32_input13
     name: f32-input13
-- id: binary_sensor_gpio_14
+- id: f32_input14
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -243,9 +243,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_14
+    id: f32_input14
     name: f32-input14
-- id: binary_sensor_gpio_15
+- id: f32_input15
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -255,9 +255,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_15
+    id: f32_input15
     name: f32-input15
-- id: binary_sensor_gpio_16
+- id: f32_input16
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -267,9 +267,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_16
+    id: f32_input16
     name: f32-input16
-- id: binary_sensor_gpio_17
+- id: f32_input17
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -279,9 +279,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_17
+    id: f32_input17
     name: f32-input17
-- id: binary_sensor_gpio_18
+- id: f32_input18
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -291,9 +291,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_18
+    id: f32_input18
     name: f32-input18
-- id: binary_sensor_gpio_19
+- id: f32_input19
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -303,9 +303,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_19
+    id: f32_input19
     name: f32-input19
-- id: binary_sensor_gpio_20
+- id: f32_input20
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -315,9 +315,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_20
+    id: f32_input20
     name: f32-input20
-- id: binary_sensor_gpio_21
+- id: f32_input21
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -327,9 +327,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_21
+    id: f32_input21
     name: f32-input21
-- id: binary_sensor_gpio_22
+- id: f32_input22
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -339,9 +339,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_22
+    id: f32_input22
     name: f32-input22
-- id: binary_sensor_gpio_23
+- id: f32_input23
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -351,9 +351,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_23
+    id: f32_input23
     name: f32-input23
-- id: binary_sensor_gpio_24
+- id: f32_input24
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -363,9 +363,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_24
+    id: f32_input24
     name: f32-input24
-- id: binary_sensor_gpio_25
+- id: f32_input25
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -375,9 +375,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_25
+    id: f32_input25
     name: f32-input25
-- id: binary_sensor_gpio_26
+- id: f32_input26
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -387,9 +387,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_26
+    id: f32_input26
     name: f32-input26
-- id: binary_sensor_gpio_27
+- id: f32_input27
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -399,9 +399,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_27
+    id: f32_input27
     name: f32-input27
-- id: binary_sensor_gpio_28
+- id: f32_input28
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -411,9 +411,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_28
+    id: f32_input28
     name: f32-input28
-- id: binary_sensor_gpio_29
+- id: f32_input29
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -423,9 +423,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_29
+    id: f32_input29
     name: f32-input29
-- id: binary_sensor_gpio_30
+- id: f32_input30
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -435,9 +435,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_30
+    id: f32_input30
     name: f32-input30
-- id: binary_sensor_gpio_31
+- id: f32_input31
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -447,9 +447,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_31
+    id: f32_input31
     name: f32-input31
-- id: binary_sensor_gpio_32
+- id: f32_input32
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -459,7 +459,7 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_32
+    id: f32_input32
     name: f32-input32
 - id: binary_sensor_gpio_33
   component_id: binary_sensor.gpio
@@ -573,7 +573,7 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_4
     name: f32 A4 Current
-- id: switch_gpio_1
+- id: f32_output01
   component_id: switch.gpio
   fields:
     pin:
@@ -583,9 +583,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: f32_output01
     name: f32-output01
-- id: switch_gpio_2
+- id: f32_output02
   component_id: switch.gpio
   fields:
     pin:
@@ -595,9 +595,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: f32_output02
     name: f32-output02
-- id: switch_gpio_3
+- id: f32_output03
   component_id: switch.gpio
   fields:
     pin:
@@ -607,9 +607,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: f32_output03
     name: f32-output03
-- id: switch_gpio_4
+- id: f32_output04
   component_id: switch.gpio
   fields:
     pin:
@@ -619,9 +619,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: f32_output04
     name: f32-output04
-- id: switch_gpio_5
+- id: f32_output05
   component_id: switch.gpio
   fields:
     pin:
@@ -631,9 +631,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: f32_output05
     name: f32-output05
-- id: switch_gpio_6
+- id: f32_output06
   component_id: switch.gpio
   fields:
     pin:
@@ -643,9 +643,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: f32_output06
     name: f32-output06
-- id: switch_gpio_7
+- id: f32_output07
   component_id: switch.gpio
   fields:
     pin:
@@ -655,9 +655,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_7
+    id: f32_output07
     name: f32-output07
-- id: switch_gpio_8
+- id: f32_output08
   component_id: switch.gpio
   fields:
     pin:
@@ -667,9 +667,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_8
+    id: f32_output08
     name: f32-output08
-- id: switch_gpio_9
+- id: f32_output09
   component_id: switch.gpio
   fields:
     pin:
@@ -679,9 +679,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_9
+    id: f32_output09
     name: f32-output09
-- id: switch_gpio_10
+- id: f32_output10
   component_id: switch.gpio
   fields:
     pin:
@@ -691,9 +691,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_10
+    id: f32_output10
     name: f32-output10
-- id: switch_gpio_11
+- id: f32_output11
   component_id: switch.gpio
   fields:
     pin:
@@ -703,9 +703,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_11
+    id: f32_output11
     name: f32-output11
-- id: switch_gpio_12
+- id: f32_output12
   component_id: switch.gpio
   fields:
     pin:
@@ -715,9 +715,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_12
+    id: f32_output12
     name: f32-output12
-- id: switch_gpio_13
+- id: f32_output13
   component_id: switch.gpio
   fields:
     pin:
@@ -727,9 +727,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_13
+    id: f32_output13
     name: f32-output13
-- id: switch_gpio_14
+- id: f32_output14
   component_id: switch.gpio
   fields:
     pin:
@@ -739,9 +739,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_14
+    id: f32_output14
     name: f32-output14
-- id: switch_gpio_15
+- id: f32_output15
   component_id: switch.gpio
   fields:
     pin:
@@ -751,9 +751,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_15
+    id: f32_output15
     name: f32-output15
-- id: switch_gpio_16
+- id: f32_output16
   component_id: switch.gpio
   fields:
     pin:
@@ -763,9 +763,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_16
+    id: f32_output16
     name: f32-output16
-- id: switch_gpio_17
+- id: f32_output17
   component_id: switch.gpio
   fields:
     pin:
@@ -775,9 +775,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_17
+    id: f32_output17
     name: f32-output17
-- id: switch_gpio_18
+- id: f32_output18
   component_id: switch.gpio
   fields:
     pin:
@@ -787,9 +787,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_18
+    id: f32_output18
     name: f32-output18
-- id: switch_gpio_19
+- id: f32_output19
   component_id: switch.gpio
   fields:
     pin:
@@ -799,9 +799,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_19
+    id: f32_output19
     name: f32-output19
-- id: switch_gpio_20
+- id: f32_output20
   component_id: switch.gpio
   fields:
     pin:
@@ -811,9 +811,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_20
+    id: f32_output20
     name: f32-output20
-- id: switch_gpio_21
+- id: f32_output21
   component_id: switch.gpio
   fields:
     pin:
@@ -823,9 +823,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_21
+    id: f32_output21
     name: f32-output21
-- id: switch_gpio_22
+- id: f32_output22
   component_id: switch.gpio
   fields:
     pin:
@@ -835,9 +835,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_22
+    id: f32_output22
     name: f32-output22
-- id: switch_gpio_23
+- id: f32_output23
   component_id: switch.gpio
   fields:
     pin:
@@ -847,9 +847,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_23
+    id: f32_output23
     name: f32-output23
-- id: switch_gpio_24
+- id: f32_output24
   component_id: switch.gpio
   fields:
     pin:
@@ -859,9 +859,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_24
+    id: f32_output24
     name: f32-output24
-- id: switch_gpio_25
+- id: f32_output25
   component_id: switch.gpio
   fields:
     pin:
@@ -871,9 +871,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_25
+    id: f32_output25
     name: f32-output25
-- id: switch_gpio_26
+- id: f32_output26
   component_id: switch.gpio
   fields:
     pin:
@@ -883,9 +883,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_26
+    id: f32_output26
     name: f32-output26
-- id: switch_gpio_27
+- id: f32_output27
   component_id: switch.gpio
   fields:
     pin:
@@ -895,9 +895,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_27
+    id: f32_output27
     name: f32-output27
-- id: switch_gpio_28
+- id: f32_output28
   component_id: switch.gpio
   fields:
     pin:
@@ -907,9 +907,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_28
+    id: f32_output28
     name: f32-output28
-- id: switch_gpio_29
+- id: f32_output29
   component_id: switch.gpio
   fields:
     pin:
@@ -919,9 +919,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_29
+    id: f32_output29
     name: f32-output29
-- id: switch_gpio_30
+- id: f32_output30
   component_id: switch.gpio
   fields:
     pin:
@@ -931,9 +931,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_30
+    id: f32_output30
     name: f32-output30
-- id: switch_gpio_31
+- id: f32_output31
   component_id: switch.gpio
   fields:
     pin:
@@ -943,9 +943,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_31
+    id: f32_output31
     name: f32-output31
-- id: switch_gpio_32
+- id: f32_output32
   component_id: switch.gpio
   fields:
     pin:
@@ -955,7 +955,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_32
+    id: f32_output32
     name: f32-output32
 source:
   type: esphome-devices

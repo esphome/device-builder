@@ -59,7 +59,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Input 2
-- id: light_status_led_1
+- id: led_status
   component_id: light.status_led
   fields:
     pin:
@@ -69,9 +69,9 @@ featured_components:
       locked: true
     internal: true
     restore_mode: ALWAYS_OFF
-    id: light_status_led_1
+    id: led_status
     name: LED
-- id: output_gpio_1
+- id: out_1
   component_id: output.gpio
   fields:
     pin:
@@ -79,8 +79,8 @@ featured_components:
         number: 15
         inverted: false
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: out_1
+- id: out_2
   component_id: output.gpio
   fields:
     pin:
@@ -88,15 +88,15 @@ featured_components:
         number: 4
         inverted: false
       locked: true
-    id: output_gpio_2
-- id: sensor_wifi_signal_1
+    id: out_2
+- id: sensor_rssi
   component_id: sensor.wifi_signal
   fields:
     update_interval: 90s
     entity_category: diagnostic
-    id: sensor_wifi_signal_1
+    id: sensor_rssi
     name: RSSI
-- id: sensor_adc_1
+- id: sensor_voltage
   component_id: sensor.adc
   fields:
     pin:
@@ -104,17 +104,40 @@ featured_components:
       locked: true
     accuracy_decimals: 1
     update_interval: 9s
-    id: sensor_adc_1
+    id: sensor_voltage
     name: Voltage
-- id: switch_gpio_1
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    output: out_1
+    id: switch_output_1
+    name: Output 1
+- id: switch_output_2
+  component_id: switch.output
+  fields:
+    output: out_2
+    id: switch_output_2
+    name: Output 2
+- id: adc_range
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
     restore_mode: RESTORE_DEFAULT_ON
-    id: switch_gpio_1
+    id: adc_range
     name: ADC Range
+featured_bundles:
+- id: switch_output_1_setup
+  name: Output 1 (full setup)
+  component_ids:
+  - out_1
+  - switch_output_1
+- id: switch_output_2_setup
+  name: Output 2 (full setup)
+  component_ids:
+  - out_2
+  - switch_output_2
 source:
   type: esphome-devices
   remote_id: Shelly-Uni

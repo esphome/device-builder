@@ -17,44 +17,51 @@ images:
 - images/mq-7-history.png
 docs_url: https://devices.esphome.io/devices/MQ-7/
 featured_components:
-- id: sensor_homeassistant_1
+- id: temperature_sensor_id
   component_id: sensor.homeassistant
   fields:
     entity_id: sensor.temperature
-    id: sensor_homeassistant_1
+    id: temperature_sensor_id
     name: Homeassistant 1
-- id: sensor_homeassistant_2
+- id: humidity_sensor_id
   component_id: sensor.homeassistant
   fields:
     entity_id: sensor.humidity
-    id: sensor_homeassistant_2
+    id: humidity_sensor_id
     name: Homeassistant 2
-- id: sensor_adc_1
+- id: mq7_id_raw
   component_id: sensor.adc
   fields:
     entity_category: diagnostic
     disabled_by_default: true
     attenuation: auto
     update_interval: never
-    id: sensor_adc_1
+    id: mq7_id_raw
     name: Voltage
-- id: sensor_resistance_1
+- id: mq7_id_resistance
   component_id: sensor.resistance
   fields:
     icon: mdi:omega
     entity_category: diagnostic
     disabled_by_default: true
     configuration: UPSTREAM
-    id: sensor_resistance_1
+    sensor: mq7_id_raw
+    id: mq7_id_resistance
     name: Resistance
-- id: switch_output_1
+- id: mq7_id_heater
   component_id: switch.output
   fields:
     icon: mdi:fire
     entity_category: diagnostic
     disabled_by_default: true
-    id: switch_output_1
+    id: mq7_id_heater
     name: Heater
+featured_bundles:
+- id: mq7_id_resistance_setup
+  name: Resistance (full setup)
+  component_ids:
+  - mq7_id_raw
+  - mq7_id_resistance
 source:
   type: esphome-devices
   remote_id: MQ-7

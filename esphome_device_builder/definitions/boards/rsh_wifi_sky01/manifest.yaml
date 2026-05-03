@@ -36,7 +36,7 @@ pins:
   occupied_by: Button
 docs_url: https://devices.esphome.io/devices/RSH-WiFi-Sky01/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: node_name_button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -45,25 +45,29 @@ featured_components:
         mode: INPUT_PULLDOWN_16
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: node_name_button
     name: Button
-- id: light_rgb_1
+- id: rgb_light
   component_id: light.rgb
   fields:
     icon: mdi:star-shooting
     restore_mode: RESTORE_DEFAULT_OFF
     default_transition_length: 2s
-    id: light_rgb_1
+    red: red
+    green: green
+    blue: blue
+    id: rgb_light
     name: Light
-- id: light_monochromatic_1
+- id: laser
   component_id: light.monochromatic
   fields:
     icon: mdi:laser-pointer
     restore_mode: ALWAYS_OFF
     default_transition_length: 3s
-    id: light_monochromatic_1
+    output: laser_pwm
+    id: laser
     name: Laser
-- id: light_status_led_1
+- id: node_name_status_led
   component_id: light.status_led
   fields:
     icon: mdi:led-outline
@@ -72,17 +76,18 @@ featured_components:
       value: 0
       locked: true
     internal: true
-    id: light_status_led_1
+    id: node_name_status_led
     name: Status Led
-- id: light_monochromatic_2
+- id: btn_led
   component_id: light.monochromatic
   fields:
     icon: mdi:led-outline
     entity_category: diagnostic
     restore_mode: ALWAYS_OFF
-    id: light_monochromatic_2
+    output: btn_led_pwm
+    id: btn_led
     name: Button Led
-- id: output_esp8266_pwm_1
+- id: red
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -91,8 +96,8 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: red
+- id: green
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -101,8 +106,8 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: green
+- id: blue
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -111,8 +116,8 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: blue
+- id: laser_pwm
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -121,16 +126,16 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_4
-- id: output_esp8266_pwm_5
+    id: laser_pwm
+- id: motor_pwm
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
     min_power: 15%
-    id: output_esp8266_pwm_5
-- id: output_esp8266_pwm_6
+    id: motor_pwm
+- id: btn_led_pwm
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -139,7 +144,25 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_6
+    id: btn_led_pwm
+featured_bundles:
+- id: rgb_light_setup
+  name: Light (full setup)
+  component_ids:
+  - red
+  - green
+  - blue
+  - rgb_light
+- id: laser_setup
+  name: Laser (full setup)
+  component_ids:
+  - laser_pwm
+  - laser
+- id: btn_led_setup
+  name: Button Led (full setup)
+  component_ids:
+  - btn_led_pwm
+  - btn_led
 source:
   type: esphome-devices
   remote_id: RSH-WiFi-Sky01

@@ -42,7 +42,7 @@ pins:
   occupied_by: Header GPIO
 docs_url: https://devices.esphome.io/devices/Shelly-EM-Gen3/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: shelly_button_id
   component_id: binary_sensor.gpio
   fields:
     entity_category: diagnostic
@@ -54,9 +54,9 @@ featured_components:
           input: true
           pullup: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: shelly_button_id
     name: Button
-- id: binary_sensor_gpio_2
+- id: binary_sensor_header_gpio_id
   component_id: binary_sensor.gpio
   fields:
     entity_category: diagnostic
@@ -69,9 +69,9 @@ featured_components:
           input: true
           pullup: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: binary_sensor_header_gpio_id
     name: Header GPIO
-- id: light_status_led_1
+- id: status_led_id
   component_id: light.status_led
   fields:
     disabled_by_default: true
@@ -82,50 +82,63 @@ featured_components:
         inverted: true
         ignore_strapping_warning: true
       locked: true
-    id: light_status_led_1
+    id: status_led_id
     name: Status LED
-- id: sensor_ntc_1
+- id: ntc_temperature
   component_id: sensor.ntc
   fields:
     entity_category: diagnostic
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
-    id: sensor_ntc_1
+    sensor: temp_resistance_reading
+    id: ntc_temperature
     name: NTC Temperature
-- id: sensor_resistance_1
+- id: temp_resistance_reading
   component_id: sensor.resistance
   fields:
     configuration: DOWNSTREAM
     resistor: 10kOhm
-    id: sensor_resistance_1
+    sensor: temp_analog_reading
+    id: temp_resistance_reading
     name: temp_resistance_reading
-- id: sensor_adc_1
+- id: temp_analog_reading
   component_id: sensor.adc
   fields:
     pin:
       value: 3
       locked: true
     attenuation: 12db
-    id: sensor_adc_1
+    id: temp_analog_reading
     name: temp_analog_reading
-- id: sensor_ade7953_i2c_1
+- id: ade7953_id
   component_id: sensor.ade7953_i2c
   fields:
     irq_pin:
       value: 4
       locked: true
     use_accumulated_energy_registers: true
-    id: sensor_ade7953_i2c_1
+    id: ade7953_id
     name: ade7953_id
-- id: switch_gpio_1
+- id: relay_id
   component_id: switch.gpio
   fields:
     pin:
       value: 0
       locked: true
-    id: switch_gpio_1
+    id: relay_id
     name: Relay
+featured_bundles:
+- id: ntc_temperature_setup
+  name: NTC Temperature (full setup)
+  component_ids:
+  - temp_resistance_reading
+  - ntc_temperature
+- id: temp_resistance_reading_setup
+  name: temp_resistance_reading (full setup)
+  component_ids:
+  - temp_analog_reading
+  - temp_resistance_reading
 source:
   type: esphome-devices
   remote_id: Shelly-EM-Gen3

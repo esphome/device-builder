@@ -12,28 +12,28 @@ images:
 - images/board_with_holes.png
 docs_url: https://devices.esphome.io/devices/EZAIOT-XYZOO-Thermostat/
 featured_components:
-- id: sensor_homeassistant_1
+- id: ha_weather_temp
   component_id: sensor.homeassistant
   fields:
     entity_id: weather.forecast_casa
     attribute: temperature
     internal: true
-    id: sensor_homeassistant_1
+    id: ha_weather_temp
     name: ha_weather_temp
-- id: sensor_homeassistant_2
+- id: ha_weather_humidity
   component_id: sensor.homeassistant
   fields:
     entity_id: weather.forecast_casa
     attribute: humidity
     internal: true
-    id: sensor_homeassistant_2
+    id: ha_weather_humidity
     name: ha_weather_humidity
-- id: text_sensor_homeassistant_1
+- id: ha_weather_state
   component_id: text_sensor.homeassistant
   fields:
     entity_id: weather.forecast_casa
     internal: true
-    id: text_sensor_homeassistant_1
+    id: ha_weather_state
     name: ha_weather_state
 source:
   type: esphome-devices

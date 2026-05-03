@@ -23,16 +23,18 @@ featured_components:
   fields:
     cold_white_color_temperature: 5700 K
     warm_white_color_temperature: 3000 K
+    color_temperature: color_temp
+    brightness: dimmer
     id: light_color_temperature_1
     name: Arlec GLD112HA
-- id: output_esp8266_pwm_1
+- id: dimmer
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: dimmer
+- id: color_temp
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -41,7 +43,14 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_2
+    id: color_temp
+featured_bundles:
+- id: light_color_temperature_1_setup
+  name: Arlec GLD112HA (full setup)
+  component_ids:
+  - color_temp
+  - dimmer
+  - light_color_temperature_1
 source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-LED-Globe-CWWW

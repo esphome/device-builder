@@ -11,21 +11,28 @@ images:
 - images/anwio-br30-top-down.jpg
 docs_url: https://devices.esphome.io/devices/Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb/
 featured_components:
-- id: light_rgbct_1
+- id: device
   component_id: light.rgbct
   fields:
     color_interlock: true
     cold_white_color_temperature: 6200K
     warm_white_color_temperature: 2000K
-    id: light_rgbct_1
+    color_temperature: output_white_temp
+    id: device
     name: Light
-- id: output_libretiny_pwm_1
+- id: output_white_temp
   component_id: output.libretiny_pwm
   fields:
     inverted:
       value: true
       locked: true
-    id: output_libretiny_pwm_1
+    id: output_white_temp
+featured_bundles:
+- id: device_setup
+  name: Light (full setup)
+  component_ids:
+  - output_white_temp
+  - device
 source:
   type: esphome-devices
   remote_id: Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb

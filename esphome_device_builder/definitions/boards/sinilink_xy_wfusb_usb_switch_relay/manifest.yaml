@@ -25,7 +25,7 @@ pins:
   occupied_by: green_led
 docs_url: https://devices.esphome.io/devices/Sinilink-XY-WFUSB-USB-Switch-Relay/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: hardware_button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -34,7 +34,7 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: hardware_button
     name: hardware_button
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
@@ -42,15 +42,15 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: WiFi Status
-- id: switch_gpio_1
+- id: switch_relay
   component_id: switch.gpio
   fields:
     pin:
       value: 5
       locked: true
-    id: switch_gpio_1
+    id: switch_relay
     name: switch_relay
-- id: switch_gpio_2
+- id: green_led
   component_id: switch.gpio
   fields:
     pin:
@@ -59,7 +59,7 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_2
+    id: green_led
     name: green_led
 source:
   type: esphome-devices

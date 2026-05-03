@@ -18,7 +18,7 @@ pins:
   occupied_by: out_relay
 docs_url: https://devices.esphome.io/devices/eWeLink-SANT-SUD01/
 featured_components:
-- id: output_gpio_1
+- id: out_relay
   component_id: output.gpio
   fields:
     inverted:
@@ -27,22 +27,22 @@ featured_components:
     pin:
       value: 12
       locked: true
-    id: output_gpio_1
-- id: sensor_pulse_meter_1
+    id: out_relay
+- id: power_status_pulses
   component_id: sensor.pulse_meter
   fields:
     pin:
       value: 0
       locked: true
     timeout: 5s
-    id: sensor_pulse_meter_1
+    id: power_status_pulses
     name: power_status_pulses
-- id: sensor_wifi_signal_1
+- id: wifi_signal_db
   component_id: sensor.wifi_signal
   fields:
     update_interval: 600s
     entity_category: diagnostic
-    id: sensor_wifi_signal_1
+    id: wifi_signal_db
     name: WiFi Signal dB
 source:
   type: esphome-devices

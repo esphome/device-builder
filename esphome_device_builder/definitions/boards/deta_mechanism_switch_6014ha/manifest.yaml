@@ -35,13 +35,19 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Button
-- id: button_restart_1
+- id: restart_button
   component_id: button.restart
   fields:
     disabled_by_default: true
-    id: button_restart_1
+    id: restart_button
     name: Restart
-- id: light_status_led_1
+- id: light1
+  component_id: light.binary
+  fields:
+    output: relay1
+    id: light1
+    name: Light
+- id: status1
   component_id: light.status_led
   fields:
     pin:
@@ -49,21 +55,27 @@ featured_components:
         number: 12
         inverted: true
       locked: true
-    id: light_status_led_1
+    id: status1
     name: status1
-- id: output_gpio_1
+- id: relay1
   component_id: output.gpio
   fields:
     pin:
       value: 16
       locked: true
-    id: output_gpio_1
+    id: relay1
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 600s
     id: sensor_wifi_signal_1
     name: wifi signal
+featured_bundles:
+- id: light1_setup
+  name: Light (full setup)
+  component_ids:
+  - relay1
+  - light1
 source:
   type: esphome-devices
   remote_id: DETA-Mechanism-Switch-6014HA

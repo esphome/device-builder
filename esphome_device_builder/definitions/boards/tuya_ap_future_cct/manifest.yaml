@@ -23,22 +23,31 @@ featured_components:
   fields:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
+    cold_white: cold_white_channel
+    warm_white: warm_white_channel
     id: light_cwww_1
     name: CCT Lights
-- id: output_esp8266_pwm_1
+- id: warm_white_channel
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: warm_white_channel
+- id: cold_white_channel
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_2
+    id: cold_white_channel
+featured_bundles:
+- id: light_cwww_1_setup
+  name: CCT Lights (full setup)
+  component_ids:
+  - cold_white_channel
+  - warm_white_channel
+  - light_cwww_1
 source:
   type: esphome-devices
   remote_id: Tuya-AP-Future-CCT

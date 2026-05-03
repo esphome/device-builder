@@ -46,7 +46,13 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Button
-- id: output_esp8266_pwm_1
+- id: devicename_blue_led
+  component_id: light.monochromatic
+  fields:
+    output: devicename_blue_output
+    id: devicename_blue_led
+    name: Light
+- id: devicename_blue_output
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -54,7 +60,7 @@ featured_components:
         number: 2
         inverted: true
       locked: true
-    id: output_esp8266_pwm_1
+    id: devicename_blue_output
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -86,15 +92,21 @@ featured_components:
     unit_of_measurement: kWh
     id: sensor_total_daily_energy_1
     name: Total Daily Energy
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 15
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay
     name: relay
+featured_bundles:
+- id: devicename_blue_led_setup
+  name: Light (full setup)
+  component_ids:
+  - devicename_blue_output
+  - devicename_blue_led
 source:
   type: esphome-devices
   remote_id: Awow-EU3S-Power-Monitoring-Plug

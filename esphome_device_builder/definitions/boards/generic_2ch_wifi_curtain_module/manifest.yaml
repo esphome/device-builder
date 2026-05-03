@@ -12,35 +12,35 @@ images:
 - images/inside.jpg
 docs_url: https://devices.esphome.io/devices/Generic-2CH-Wifi-Curtain-Module/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: s1_open
   component_id: binary_sensor.gpio
   fields:
     device_class: running
     internal: true
-    id: binary_sensor_gpio_1
+    id: s1_open
     name: S1_open
-- id: binary_sensor_gpio_2
+- id: s2_close
   component_id: binary_sensor.gpio
   fields:
     device_class: running
     internal: true
-    id: binary_sensor_gpio_2
+    id: s2_close
     name: S2_close
-- id: binary_sensor_gpio_3
+- id: s3_open
   component_id: binary_sensor.gpio
   fields:
     device_class: running
     internal: true
-    id: binary_sensor_gpio_3
+    id: s3_open
     name: S3_open
-- id: binary_sensor_gpio_4
+- id: s4_close
   component_id: binary_sensor.gpio
   fields:
     device_class: running
     internal: true
-    id: binary_sensor_gpio_4
+    id: s4_close
     name: S4_close
-- id: cover_time_based_1
+- id: left_cover
   component_id: cover.time_based
   fields:
     device_class: shutter
@@ -48,9 +48,9 @@ featured_components:
     open_duration: 40s
     close_duration: 36s
     assumed_state: true
-    id: cover_time_based_1
+    id: left_cover
     name: left-cover
-- id: cover_time_based_2
+- id: right_cover
   component_id: cover.time_based
   fields:
     device_class: shutter
@@ -58,35 +58,35 @@ featured_components:
     open_duration: 40s
     close_duration: 36s
     assumed_state: true
-    id: cover_time_based_2
+    id: right_cover
     name: right-cover
-- id: switch_gpio_1
+- id: l1_open
   component_id: switch.gpio
   fields:
     restore_mode: ALWAYS_OFF
     internal: true
-    id: switch_gpio_1
+    id: l1_open
     name: Cover1_open
-- id: switch_gpio_2
+- id: l2_close
   component_id: switch.gpio
   fields:
     restore_mode: ALWAYS_OFF
     internal: true
-    id: switch_gpio_2
+    id: l2_close
     name: Cover1_close
-- id: switch_gpio_3
+- id: l3_open
   component_id: switch.gpio
   fields:
     restore_mode: ALWAYS_OFF
     internal: true
-    id: switch_gpio_3
+    id: l3_open
     name: Cover2_open
-- id: switch_gpio_4
+- id: l4_close
   component_id: switch.gpio
   fields:
     restore_mode: ALWAYS_OFF
     internal: true
-    id: switch_gpio_4
+    id: l4_close
     name: Cover2_close
 source:
   type: esphome-devices

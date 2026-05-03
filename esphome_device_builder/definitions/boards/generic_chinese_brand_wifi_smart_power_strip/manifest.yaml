@@ -49,7 +49,19 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Button
-- id: output_gpio_1
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: light_1_output
+    id: light_binary_1
+    name: LED 1
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: light_2_output
+    id: light_binary_2
+    name: LED 2
+- id: light_1_output
   component_id: output.gpio
   fields:
     pin:
@@ -57,8 +69,8 @@ featured_components:
         number: 0
         inverted: true
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: light_1_output
+- id: light_2_output
   component_id: output.gpio
   fields:
     pin:
@@ -66,14 +78,14 @@ featured_components:
         number: 3
         inverted: true
       locked: true
-    id: output_gpio_2
+    id: light_2_output
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: WiFi Signal Strength
-- id: switch_gpio_1
+- id: relay_socket_1
   component_id: switch.gpio
   fields:
     pin:
@@ -81,9 +93,9 @@ featured_components:
         number: 4
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: relay_socket_1
     name: socket 1
-- id: switch_gpio_2
+- id: relay_socket_2
   component_id: switch.gpio
   fields:
     pin:
@@ -91,9 +103,9 @@ featured_components:
         number: 13
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: relay_socket_2
     name: socket 2
-- id: switch_gpio_3
+- id: relay_socket_3
   component_id: switch.gpio
   fields:
     pin:
@@ -101,9 +113,9 @@ featured_components:
         number: 12
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: relay_socket_3
     name: socket 3
-- id: switch_gpio_4
+- id: relay_socket_4
   component_id: switch.gpio
   fields:
     pin:
@@ -111,9 +123,9 @@ featured_components:
         number: 14
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: relay_socket_4
     name: socket 4
-- id: switch_gpio_5
+- id: relay_usb
   component_id: switch.gpio
   fields:
     pin:
@@ -121,8 +133,19 @@ featured_components:
         number: 16
         inverted: false
       locked: true
-    id: switch_gpio_5
+    id: relay_usb
     name: USB
+featured_bundles:
+- id: light_binary_1_setup
+  name: LED 1 (full setup)
+  component_ids:
+  - light_1_output
+  - light_binary_1
+- id: light_binary_2_setup
+  name: LED 2 (full setup)
+  component_ids:
+  - light_2_output
+  - light_binary_2
 source:
   type: esphome-devices
   remote_id: Generic-Chinese-Brand-WiFi-Smart-Power-Strip

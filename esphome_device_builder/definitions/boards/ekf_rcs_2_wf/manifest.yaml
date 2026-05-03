@@ -34,11 +34,11 @@ featured_components:
     current_resistor: 0.001 Ohm
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     icon: mdi:electric-switch
-    id: switch_gpio_1
+    id: relay
     name: Relay
 source:
   type: esphome-devices

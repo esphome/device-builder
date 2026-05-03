@@ -45,21 +45,28 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Button 2
-- id: light_monochromatic_1
+- id: led
   component_id: light.monochromatic
   fields:
     restore_mode: ALWAYS_ON
     default_transition_length: 0s
-    id: light_monochromatic_1
+    output: backlight_output
+    id: led
     name: LCD Backlight
-- id: output_ledc_1
+- id: backlight_output
   component_id: output.ledc
   fields:
     frequency: 2000
     pin:
       value: 38
       locked: true
-    id: output_ledc_1
+    id: backlight_output
+featured_bundles:
+- id: led_setup
+  name: LCD Backlight (full setup)
+  component_ids:
+  - backlight_output
+  - led
 source:
   type: esphome-devices
   remote_id: Lilygo-TDisplay-S3

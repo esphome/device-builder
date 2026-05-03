@@ -26,7 +26,7 @@ pins:
   occupied_by: output_cover_open
 docs_url: https://devices.esphome.io/devices/Horus-Blind-Controller/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_open_1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -35,9 +35,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_open_1
     name: button_open_1
-- id: binary_sensor_gpio_2
+- id: button_close_1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -46,16 +46,16 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: button_close_1
     name: button_close_1
-- id: cover_time_based_1
+- id: my_cover_1
   component_id: cover.time_based
   fields:
     open_duration: 23s
     close_duration: 22s
-    id: cover_time_based_1
+    id: my_cover_1
     name: Blinds
-- id: switch_gpio_1
+- id: output_cover_open
   component_id: switch.gpio
   fields:
     pin:
@@ -64,9 +64,9 @@ featured_components:
         mode: OUTPUT
         inverted: false
       locked: true
-    id: switch_gpio_1
+    id: output_cover_open
     name: output_cover_open
-- id: switch_gpio_2
+- id: output_cover_close
   component_id: switch.gpio
   fields:
     pin:
@@ -75,7 +75,7 @@ featured_components:
         mode: OUTPUT
         inverted: false
       locked: true
-    id: switch_gpio_2
+    id: output_cover_close
     name: output_cover_close
 source:
   type: esphome-devices

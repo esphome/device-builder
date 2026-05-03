@@ -60,7 +60,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Right
-- id: light_status_led_1
+- id: led_status
   component_id: light.status_led
   fields:
     pin:
@@ -70,7 +70,7 @@ featured_components:
       locked: true
     internal: true
     restore_mode: ALWAYS_OFF
-    id: light_status_led_1
+    id: led_status
     name: LED
 - id: light_monochromatic_1
   component_id: light.monochromatic
@@ -78,9 +78,10 @@ featured_components:
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:led-outline
     entity_category: config
+    output: pwm_output
     id: light_monochromatic_1
     name: LEDs
-- id: output_gpio_1
+- id: led_2
   component_id: output.gpio
   fields:
     pin:
@@ -88,38 +89,44 @@ featured_components:
         number: 22
         inverted: false
       locked: true
-    id: output_gpio_1
-- id: output_ledc_1
+    id: led_2
+- id: pwm_output
   component_id: output.ledc
   fields:
     pin:
       value: 18
       locked: true
     frequency: 1000 Hz
-    id: output_ledc_1
-- id: sensor_wifi_signal_1
+    id: pwm_output
+- id: sensor_rssi
   component_id: sensor.wifi_signal
   fields:
     update_interval: 90s
     entity_category: diagnostic
-    id: sensor_wifi_signal_1
+    id: sensor_rssi
     name: RSSI
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
       value: 23
       locked: true
-    id: switch_gpio_1
+    id: relay_1
     name: Left
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     pin:
       value: 19
       locked: true
-    id: switch_gpio_2
+    id: relay_2
     name: Right
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: LEDs (full setup)
+  component_ids:
+  - pwm_output
+  - light_monochromatic_1
 source:
   type: esphome-devices
   remote_id: Sonoff-M5

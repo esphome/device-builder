@@ -71,7 +71,13 @@ featured_components:
     show_test_card: true
     id: display_st7789v_1
     name: St7789V 1
-- id: output_ledc_1
+- id: led1
+  component_id: light.monochromatic
+  fields:
+    output: builtin_led
+    id: led1
+    name: Led
+- id: builtin_led
   component_id: output.ledc
   fields:
     pin:
@@ -80,7 +86,13 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_ledc_1
+    id: builtin_led
+featured_bundles:
+- id: led1_setup
+  name: Led (full setup)
+  component_ids:
+  - builtin_led
+  - led1
 source:
   type: esphome-devices
   remote_id: M5Stack-M5StickC-PLUS

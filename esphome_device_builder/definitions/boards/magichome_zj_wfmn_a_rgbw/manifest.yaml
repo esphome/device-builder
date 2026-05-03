@@ -24,34 +24,52 @@ pins:
   occupied_by: white_channel
 docs_url: https://devices.esphome.io/devices/MagicHome-ZJ-WFMN-A-RGBW/
 featured_components:
-- id: output_esp8266_pwm_1
+- id: device_name
+  component_id: light.rgbw
+  fields:
+    red: red_channel
+    green: green_channel
+    blue: blue_channel
+    white: white_channel
+    id: device_name
+    name: Rgbw 1
+- id: red_channel
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: red_channel
+- id: green_channel
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: green_channel
+- id: blue_channel
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: blue_channel
+- id: white_channel
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 15
       locked: true
-    id: output_esp8266_pwm_4
+    id: white_channel
+featured_bundles:
+- id: device_name_setup
+  name: Rgbw (full setup)
+  component_ids:
+  - red_channel
+  - green_channel
+  - blue_channel
+  - white_channel
+  - device_name
 source:
   type: esphome-devices
   remote_id: MagicHome-ZJ-WFMN-A-RGBW

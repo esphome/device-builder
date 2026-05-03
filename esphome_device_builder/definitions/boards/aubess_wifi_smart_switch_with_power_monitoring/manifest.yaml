@@ -11,18 +11,18 @@ images:
 - images/Aubess-WiFi-Smart-Switch-with-Power-Monitoring.jpg
 docs_url: https://devices.esphome.io/devices/Aubess-WiFi-Smart-Switch-with-Power-Monitoring/
 featured_components:
-- id: sensor_wifi_signal_1
+- id: wifi_signal_db
   component_id: sensor.wifi_signal
   fields:
     update_interval: 10s
-    id: sensor_wifi_signal_1
+    id: wifi_signal_db
     name: wifi_signal_db
-- id: switch_gpio_1
+- id: aubespm01
   component_id: switch.gpio
   fields:
     icon: mdi:water-boiler
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: aubespm01
     name: Geyser
 source:
   type: esphome-devices

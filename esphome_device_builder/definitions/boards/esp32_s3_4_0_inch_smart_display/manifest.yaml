@@ -65,43 +65,43 @@ featured_components:
     data_rate: 40MHz
     id: display_st7701s_1
     name: St7701S 1
-- id: output_ledc_1
+- id: backlight
   component_id: output.ledc
   fields:
     pin:
       value: 38
       locked: true
-    id: output_ledc_1
-- id: sensor_wifi_signal_1
+    id: backlight
+- id: sensor_wifi
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     entity_category: diagnostic
-    id: sensor_wifi_signal_1
+    id: sensor_wifi
     name: $device_name WiFi Signal
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 40
       locked: true
-    id: switch_gpio_1
+    id: relay1
     name: $device_name Relay 1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
       value: 2
       locked: true
-    id: switch_gpio_2
+    id: relay2
     name: $device_name Relay 2
-- id: switch_gpio_3
+- id: relay3
   component_id: switch.gpio
   fields:
     pin:
       value: 1
       locked: true
-    id: switch_gpio_3
+    id: relay3
     name: $device_name Relay 3
 source:
   type: esphome-devices

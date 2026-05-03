@@ -30,7 +30,7 @@ pins:
   occupied_by: Relay
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BW-SHP6/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -38,9 +38,9 @@ featured_components:
         number: 13
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button
     name: button
-- id: output_gpio_1
+- id: led
   component_id: output.gpio
   fields:
     pin:
@@ -49,7 +49,7 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_gpio_1
+    id: led
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -72,14 +72,14 @@ featured_components:
     accuracy_decimals: 5
     id: sensor_total_daily_energy_1
     name: daily energy
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 15
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_gpio_1
+    id: relay
     name: Relay
 source:
   type: esphome-devices

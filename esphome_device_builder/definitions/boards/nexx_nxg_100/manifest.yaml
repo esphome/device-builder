@@ -39,7 +39,7 @@ featured_components:
     internal: true
     id: binary_sensor_gpio_1
     name: Reset Button
-- id: binary_sensor_gpio_2
+- id: doorclosed
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -48,7 +48,7 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: doorclosed
     name: Door Closed
 - id: binary_sensor_status_1
   component_id: binary_sensor.status
@@ -62,16 +62,16 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: WiFi Signal
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
     internal: true
-    id: switch_gpio_1
+    id: relay
     name: Door Relay
-- id: switch_gpio_2
+- id: greenled
   component_id: switch.gpio
   fields:
     pin:
@@ -81,7 +81,7 @@ featured_components:
       value: true
       locked: true
     internal: true
-    id: switch_gpio_2
+    id: greenled
     name: Green LED
 source:
   type: esphome-devices

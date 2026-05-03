@@ -27,13 +27,13 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: D3 Input Button
-- id: sensor_pulse_counter_1
+- id: my_doze_meter
   component_id: sensor.pulse_counter
   fields:
     unit_of_measurement: mkSv/Hour
     update_interval: 60s
     accuracy_decimals: 3
-    id: sensor_pulse_counter_1
+    id: my_doze_meter
     name: Ionizing Radiation Power
 - id: sensor_integration_1
   component_id: sensor.integration
@@ -42,8 +42,15 @@ featured_components:
     icon: mdi:radioactive
     accuracy_decimals: 5
     time_unit: min
+    sensor: my_doze_meter
     id: sensor_integration_1
     name: Total Ionizing Radiation Doze
+featured_bundles:
+- id: sensor_integration_1_setup
+  name: Total Ionizing Radiation Doze (full setup)
+  component_ids:
+  - my_doze_meter
+  - sensor_integration_1
 source:
   type: esphome-devices
   remote_id: IoT-devices-GGreg20-V3

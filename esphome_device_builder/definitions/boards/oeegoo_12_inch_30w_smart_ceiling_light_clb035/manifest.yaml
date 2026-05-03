@@ -35,6 +35,9 @@ featured_components:
   component_id: light.rgb
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
+    red: output_pwm1
+    green: output_pwm2
+    blue: output_pwm3
     id: light_rgb_1
     name: RGB Light
 - id: light_cwww_1
@@ -44,17 +47,19 @@ featured_components:
     warm_white_color_temperature: 2700 K
     constant_brightness: true
     restore_mode: RESTORE_DEFAULT_ON
+    cold_white: output_pwm4
+    warm_white: output_pwm5
     id: light_cwww_1
     name: Room Light
-- id: output_ledc_1
+- id: output_pwm1
   component_id: output.ledc
   fields:
     pin:
       value: 10
       locked: true
     zero_means_zero: true
-    id: output_ledc_1
-- id: output_ledc_2
+    id: output_pwm1
+- id: output_pwm2
   component_id: output.ledc
   fields:
     pin:
@@ -62,8 +67,8 @@ featured_components:
       locked: true
     max_power: 70%
     zero_means_zero: true
-    id: output_ledc_2
-- id: output_ledc_3
+    id: output_pwm2
+- id: output_pwm3
   component_id: output.ledc
   fields:
     pin:
@@ -71,29 +76,43 @@ featured_components:
       locked: true
     max_power: 75%
     zero_means_zero: true
-    id: output_ledc_3
-- id: output_ledc_4
+    id: output_pwm3
+- id: output_pwm4
   component_id: output.ledc
   fields:
     pin:
       value: 18
       locked: true
     zero_means_zero: true
-    id: output_ledc_4
-- id: output_ledc_5
+    id: output_pwm4
+- id: output_pwm5
   component_id: output.ledc
   fields:
     pin:
       value: 5
       locked: true
     zero_means_zero: true
-    id: output_ledc_5
+    id: output_pwm5
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: WiFi Signal
+featured_bundles:
+- id: light_rgb_1_setup
+  name: RGB Light (full setup)
+  component_ids:
+  - output_pwm1
+  - output_pwm2
+  - output_pwm3
+  - light_rgb_1
+- id: light_cwww_1_setup
+  name: Room Light (full setup)
+  component_ids:
+  - output_pwm4
+  - output_pwm5
+  - light_cwww_1
 source:
   type: esphome-devices
   remote_id: OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035

@@ -238,7 +238,7 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: KEY4
-- id: output_gpio_1
+- id: a
   component_id: output.gpio
   fields:
     pin:
@@ -247,8 +247,8 @@ featured_components:
         number: 0
         inverted: false
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: a
+- id: b
   component_id: output.gpio
   fields:
     pin:
@@ -257,8 +257,8 @@ featured_components:
         number: 1
         inverted: false
       locked: true
-    id: output_gpio_2
-- id: output_gpio_3
+    id: b
+- id: c
   component_id: output.gpio
   fields:
     pin:
@@ -267,8 +267,8 @@ featured_components:
         number: 2
         inverted: false
       locked: true
-    id: output_gpio_3
-- id: output_gpio_4
+    id: c
+- id: d
   component_id: output.gpio
   fields:
     pin:
@@ -277,8 +277,8 @@ featured_components:
         number: 3
         inverted: false
       locked: true
-    id: output_gpio_4
-- id: output_gpio_5
+    id: d
+- id: e
   component_id: output.gpio
   fields:
     pin:
@@ -287,8 +287,8 @@ featured_components:
         number: 4
         inverted: false
       locked: true
-    id: output_gpio_5
-- id: output_gpio_6
+    id: e
+- id: f
   component_id: output.gpio
   fields:
     pin:
@@ -297,8 +297,8 @@ featured_components:
         number: 5
         inverted: false
       locked: true
-    id: output_gpio_6
-- id: output_gpio_7
+    id: f
+- id: g
   component_id: output.gpio
   fields:
     pin:
@@ -307,8 +307,8 @@ featured_components:
         number: 6
         inverted: false
       locked: true
-    id: output_gpio_7
-- id: output_gpio_8
+    id: g
+- id: dp
   component_id: output.gpio
   fields:
     pin:
@@ -317,8 +317,8 @@ featured_components:
         number: 7
         inverted: false
       locked: true
-    id: output_gpio_8
-- id: output_gpio_9
+    id: dp
+- id: g1
   component_id: output.gpio
   fields:
     pin:
@@ -327,8 +327,8 @@ featured_components:
         number: 8
         inverted: true
       locked: true
-    id: output_gpio_9
-- id: output_gpio_10
+    id: g1
+- id: g2
   component_id: output.gpio
   fields:
     pin:
@@ -337,8 +337,8 @@ featured_components:
         number: 9
         inverted: true
       locked: true
-    id: output_gpio_10
-- id: output_gpio_11
+    id: g2
+- id: g3
   component_id: output.gpio
   fields:
     pin:
@@ -347,8 +347,8 @@ featured_components:
         number: 10
         inverted: true
       locked: true
-    id: output_gpio_11
-- id: output_gpio_12
+    id: g3
+- id: g4
   component_id: output.gpio
   fields:
     pin:
@@ -357,7 +357,7 @@ featured_components:
         number: 11
         inverted: true
       locked: true
-    id: output_gpio_12
+    id: g4
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -511,11 +511,11 @@ featured_components:
       locked: true
     id: switch_gpio_9
     name: status LED
-- id: text_sensor_homeassistant_1
+- id: home_assistant_text
   component_id: text_sensor.homeassistant
   fields:
     entity_id: input_text.test
-    id: text_sensor_homeassistant_1
+    id: home_assistant_text
     name: Text from Home Assistant
 source:
   type: esphome-devices

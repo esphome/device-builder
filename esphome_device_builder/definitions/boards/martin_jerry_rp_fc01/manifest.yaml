@@ -17,19 +17,19 @@ images:
 docs_url: https://devices.esphome.io/devices/Martin-Jerry-RP-FC01/
 product_url: https://github.com/esphome/esphome-devices
 featured_components:
-- id: fan_tuya_1
+- id: mcu_fan
   component_id: fan.tuya
   fields:
     switch_datapoint: 1
     speed_datapoint: 3
     speed_count: 4
-    id: fan_tuya_1
+    id: mcu_fan
     name: Ceiling Fan
-- id: select_tuya_1
+- id: fan_mode_select
   component_id: select.tuya
   fields:
     enum_datapoint: 11
-    id: select_tuya_1
+    id: fan_mode_select
     name: Fan Mode
 source:
   type: esphome-devices

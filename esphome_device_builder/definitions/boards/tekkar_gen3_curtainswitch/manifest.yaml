@@ -12,32 +12,45 @@ images:
 - images/cb3s.png
 docs_url: https://devices.esphome.io/devices/Tekkar-Gen3-CurtainSwitch/
 featured_components:
-- id: light_binary_1
+- id: led_green
   component_id: light.binary
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
-    id: light_binary_1
+    output: led_green_out
+    id: led_green
     name: LED
-- id: light_binary_2
+- id: led_blue
   component_id: light.binary
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
-    id: light_binary_2
+    output: led_blue_out
+    id: led_blue
     name: Backlight
-- id: output_gpio_1
+- id: led_green_out
   component_id: output.gpio
   fields:
     inverted:
       value: true
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: led_green_out
+- id: led_blue_out
   component_id: output.gpio
   fields:
     inverted:
       value: true
       locked: true
-    id: output_gpio_2
+    id: led_blue_out
+featured_bundles:
+- id: led_green_setup
+  name: LED (full setup)
+  component_ids:
+  - led_green_out
+  - led_green
+- id: led_blue_setup
+  name: Backlight (full setup)
+  component_ids:
+  - led_blue_out
+  - led_blue
 source:
   type: esphome-devices
   remote_id: Tekkar-Gen3-CurtainSwitch

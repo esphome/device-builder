@@ -23,16 +23,18 @@ featured_components:
   fields:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
+    color_temperature: color_temp_pwm
+    brightness: brightness_pwm
     id: light_color_temperature_1
     name: wipro-next-cct-batten
-- id: output_esp8266_pwm_1
+- id: brightness_pwm
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: brightness_pwm
+- id: color_temp_pwm
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -41,7 +43,14 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: output_esp8266_pwm_2
+    id: color_temp_pwm
+featured_bundles:
+- id: light_color_temperature_1_setup
+  name: wipro-next-cct-batten (full setup)
+  component_ids:
+  - color_temp_pwm
+  - brightness_pwm
+  - light_color_temperature_1
 source:
   type: esphome-devices
   remote_id: Wipro-Next-20W-Smart-CCT-Batten

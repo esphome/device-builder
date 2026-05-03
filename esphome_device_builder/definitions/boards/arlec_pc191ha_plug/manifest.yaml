@@ -14,17 +14,17 @@ tags:
 - compact
 docs_url: https://devices.esphome.io/devices/Arlec-PC191HA-Plug/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     device_class: window
-    id: binary_sensor_gpio_1
+    id: button
     name: button
-- id: sensor_wifi_signal_1
+- id: device_name_wifi_signal
   component_id: sensor.wifi_signal
   fields:
     update_interval: 30s
-    id: sensor_wifi_signal_1
+    id: device_name_wifi_signal
     name: $name WiFi Signal
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
@@ -37,12 +37,12 @@ featured_components:
     current_resistor: 0.0009
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     restore_mode: always off
     icon: mdi:power-socket-au
-    id: switch_gpio_1
+    id: relay
     name: relay
 source:
   type: esphome-devices

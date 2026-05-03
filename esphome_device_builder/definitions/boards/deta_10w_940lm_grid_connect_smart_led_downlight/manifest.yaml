@@ -33,43 +33,58 @@ featured_components:
     color_interlock: true
     cold_white_color_temperature: 5700 K
     warm_white_color_temperature: 3000 K
+    red: output_r
+    green: output_g
+    blue: output_b
+    warm_white: output_ww
+    cold_white: output_cw
     id: light_rgbww_1
     name: Rgbww 1
-- id: output_esp8266_pwm_1
+- id: output_g
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 4
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: output_g
+- id: output_r
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: output_r
+- id: output_ww
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: output_ww
+- id: output_b
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
-    id: output_esp8266_pwm_4
-- id: output_esp8266_pwm_5
+    id: output_b
+- id: output_cw
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_5
+    id: output_cw
+featured_bundles:
+- id: light_rgbww_1_setup
+  name: Rgbww (full setup)
+  component_ids:
+  - output_r
+  - output_g
+  - output_b
+  - output_ww
+  - output_cw
+  - light_rgbww_1
 source:
   type: esphome-devices
   remote_id: Deta-10W-940lm-Grid-Connect-Smart-LED-Downlight

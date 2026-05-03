@@ -23,35 +23,35 @@ featured_components:
     update_interval: 10s
     id: sensor_bl0942_1
     name: Bl0942 1
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
-    id: switch_gpio_1
+    id: relay_1
     name: '1'
-- id: switch_gpio_2
+- id: relay_2
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
-    id: switch_gpio_2
+    id: relay_2
     name: '2'
-- id: switch_gpio_3
+- id: relay_3
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
-    id: switch_gpio_3
+    id: relay_3
     name: '3'
-- id: switch_gpio_4
+- id: relay_4
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
-    id: switch_gpio_4
+    id: relay_4
     name: '4'
-- id: switch_gpio_5
+- id: relay_5
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
-    id: switch_gpio_5
+    id: relay_5
     name: '5'
 source:
   type: esphome-devices

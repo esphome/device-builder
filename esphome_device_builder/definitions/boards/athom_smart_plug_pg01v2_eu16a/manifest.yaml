@@ -24,14 +24,14 @@ pins:
   occupied_by: sw_led1
 docs_url: https://devices.esphome.io/devices/Athom-Smart-Plug-PG01V2-EU16A/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     pin:
       value:
         number: 5
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_1
     name: button_1
 - id: sensor_total_daily_energy_1
   component_id: sensor.total_daily_energy
@@ -46,22 +46,22 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Wifi Signal
-- id: switch_gpio_1
+- id: relay_1
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
     icon: mdi:power-socket-fr
-    id: switch_gpio_1
+    id: relay_1
     name: Switch
-- id: switch_gpio_2
+- id: sw_led1
   component_id: switch.gpio
   fields:
     pin:
       value: 13
       locked: true
-    id: switch_gpio_2
+    id: sw_led1
     name: sw_led1
 source:
   type: esphome-devices

@@ -37,7 +37,7 @@ featured_components:
     disabled_by_default: true
     id: binary_sensor_gpio_1
     name: Button
-- id: binary_sensor_gpio_2
+- id: pir
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -48,9 +48,9 @@ featured_components:
           pullup: true
       locked: true
     device_class: motion
-    id: binary_sensor_gpio_2
+    id: pir
     name: Pir Sensor
-- id: binary_sensor_gpio_3
+- id: mmwave
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -61,23 +61,23 @@ featured_components:
           pullup: true
       locked: true
     device_class: motion
-    id: binary_sensor_gpio_3
+    id: mmwave
     name: mmWave Sensor
-- id: button_factory_reset_1
+- id: reset
   component_id: button.factory_reset
   fields:
     entity_category: config
     internal: true
-    id: button_factory_reset_1
+    id: reset
     name: Restart with Factory Default Settings
-- id: button_restart_1
+- id: restart_esp
   component_id: button.restart
   fields:
     entity_category: config
     internal: true
-    id: button_restart_1
+    id: restart_esp
     name: Restart_esp
-- id: light_status_led_1
+- id: led
   component_id: light.status_led
   fields:
     pin:
@@ -85,7 +85,7 @@ featured_components:
       locked: true
     disabled_by_default: true
     entity_category: config
-    id: light_status_led_1
+    id: led
     name: Status LED
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal

@@ -19,19 +19,19 @@ featured_components:
     speed_count: 30
     id: fan_tuya_1
     name: None
-- id: select_tuya_1
+- id: horizontally
   component_id: select.tuya
   fields:
     enum_datapoint: 4
     optimistic: true
-    id: select_tuya_1
+    id: horizontally
     name: Oscillate horizontally
-- id: select_tuya_2
+- id: vertically
   component_id: select.tuya
   fields:
     enum_datapoint: 5
     optimistic: true
-    id: select_tuya_2
+    id: vertically
     name: Oscillate vertically
 - id: select_tuya_3
   component_id: select.tuya

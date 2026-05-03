@@ -71,7 +71,7 @@ featured_components:
     disabled_by_default: true
     id: binary_sensor_gpio_1
     name: Boot Button
-- id: binary_sensor_gpio_2
+- id: di1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -80,9 +80,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: di1
     name: DI1
-- id: binary_sensor_gpio_3
+- id: di2
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -91,9 +91,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: di2
     name: DI2
-- id: binary_sensor_gpio_4
+- id: di3
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -102,9 +102,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: di3
     name: DI3
-- id: binary_sensor_gpio_5
+- id: di4
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -113,9 +113,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_5
+    id: di4
     name: DI4
-- id: binary_sensor_gpio_6
+- id: di5
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -124,9 +124,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_6
+    id: di5
     name: DI5
-- id: binary_sensor_gpio_7
+- id: di6
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -135,9 +135,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_7
+    id: di6
     name: DI6
-- id: binary_sensor_gpio_8
+- id: di7
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -146,9 +146,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_8
+    id: di7
     name: DI7
-- id: binary_sensor_gpio_9
+- id: di8
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -157,9 +157,9 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: binary_sensor_gpio_9
+    id: di8
     name: DI8
-- id: light_esp32_rmt_led_strip_1
+- id: rgb_led
   component_id: light.esp32_rmt_led_strip
   fields:
     chipset: WS2812
@@ -168,9 +168,9 @@ featured_components:
       value: 38
       locked: true
     num_leds: 1
-    id: light_esp32_rmt_led_strip_1
+    id: rgb_led
     name: RGB LED
-- id: output_ledc_1
+- id: buzzer
   component_id: output.ledc
   fields:
     pin:
@@ -178,8 +178,8 @@ featured_components:
         number: 46
         ignore_strapping_warning: true
       locked: true
-    id: output_ledc_1
-- id: switch_gpio_1
+    id: buzzer
+- id: do1
   component_id: switch.gpio
   fields:
     pin:
@@ -192,9 +192,9 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_1
+    id: do1
     name: DO1
-- id: switch_gpio_2
+- id: do2
   component_id: switch.gpio
   fields:
     pin:
@@ -207,9 +207,9 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_2
+    id: do2
     name: DO2
-- id: switch_gpio_3
+- id: do3
   component_id: switch.gpio
   fields:
     pin:
@@ -222,9 +222,9 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_3
+    id: do3
     name: DO3
-- id: switch_gpio_4
+- id: do4
   component_id: switch.gpio
   fields:
     pin:
@@ -237,9 +237,9 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_4
+    id: do4
     name: DO4
-- id: switch_gpio_5
+- id: do5
   component_id: switch.gpio
   fields:
     pin:
@@ -252,9 +252,9 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_5
+    id: do5
     name: DO5
-- id: switch_gpio_6
+- id: do6
   component_id: switch.gpio
   fields:
     pin:
@@ -267,9 +267,9 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_6
+    id: do6
     name: DO6
-- id: switch_gpio_7
+- id: do7
   component_id: switch.gpio
   fields:
     pin:
@@ -282,9 +282,9 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_7
+    id: do7
     name: DO7
-- id: switch_gpio_8
+- id: do8
   component_id: switch.gpio
   fields:
     pin:
@@ -297,7 +297,7 @@ featured_components:
     inverted:
       value: true
       locked: true
-    id: switch_gpio_8
+    id: do8
     name: DO8
 source:
   type: esphome-devices

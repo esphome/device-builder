@@ -69,7 +69,7 @@ featured_components:
     unit_of_measurement: kWh
     id: sensor_total_daily_energy_1
     name: $upper_devicename Total Daily Energy
-- id: switch_gpio_1
+- id: blue_led
   component_id: switch.gpio
   fields:
     pin:
@@ -77,15 +77,15 @@ featured_components:
         number: 13
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: blue_led
     name: blue_led
-- id: switch_gpio_2
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
-    id: switch_gpio_2
+    id: relay
     name: $devicename
 source:
   type: esphome-devices

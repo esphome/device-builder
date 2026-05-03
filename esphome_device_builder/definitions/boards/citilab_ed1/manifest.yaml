@@ -39,74 +39,74 @@ pins:
 docs_url: https://devices.esphome.io/devices/Citilab-ED1/
 product_url: https://github.com/glifocat/ed1-hoas
 featured_components:
-- id: binary_sensor_esp32_touch_1
+- id: btn_up
   component_id: binary_sensor.esp32_touch
   fields:
     pin:
       value: 4
       locked: true
     threshold: 500
-    id: binary_sensor_esp32_touch_1
+    id: btn_up
     name: Button Up
-- id: binary_sensor_esp32_touch_2
+- id: btn_down
   component_id: binary_sensor.esp32_touch
   fields:
     pin:
       value: 13
       locked: true
     threshold: 500
-    id: binary_sensor_esp32_touch_2
+    id: btn_down
     name: Button Down
-- id: binary_sensor_esp32_touch_3
+- id: btn_left
   component_id: binary_sensor.esp32_touch
   fields:
     pin:
       value: 2
       locked: true
     threshold: 500
-    id: binary_sensor_esp32_touch_3
+    id: btn_left
     name: Button Left
-- id: binary_sensor_esp32_touch_4
+- id: btn_right
   component_id: binary_sensor.esp32_touch
   fields:
     pin:
       value: 27
       locked: true
     threshold: 500
-    id: binary_sensor_esp32_touch_4
+    id: btn_right
     name: Button Right
-- id: binary_sensor_esp32_touch_5
+- id: btn_ok
   component_id: binary_sensor.esp32_touch
   fields:
     pin:
       value: 15
       locked: true
     threshold: 500
-    id: binary_sensor_esp32_touch_5
+    id: btn_ok
     name: Button OK
-- id: binary_sensor_esp32_touch_6
+- id: btn_x
   component_id: binary_sensor.esp32_touch
   fields:
     pin:
       value: 14
       locked: true
     threshold: 900
-    id: binary_sensor_esp32_touch_6
+    id: btn_x
     name: Button X
-- id: output_ledc_1
+- id: buzzer_output
   component_id: output.ledc
   fields:
     pin:
       value: 26
       locked: true
-    id: output_ledc_1
-- id: sensor_wifi_signal_1
+    id: buzzer_output
+- id: wifi_signal_sensor
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
-    id: sensor_wifi_signal_1
+    id: wifi_signal_sensor
     name: WiFi Signal
-- id: sensor_adc_1
+- id: light_sensor
   component_id: sensor.adc
   fields:
     pin:
@@ -115,7 +115,7 @@ featured_components:
     attenuation: 12db
     update_interval: 5s
     unit_of_measurement: '%'
-    id: sensor_adc_1
+    id: light_sensor
     name: Light Level
 source:
   type: esphome-devices

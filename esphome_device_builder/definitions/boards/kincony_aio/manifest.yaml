@@ -60,7 +60,7 @@ pins:
   occupied_by: AIO_hybrid-433M
 docs_url: https://devices.esphome.io/devices/KinCony-AIO/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: aio_hybrid_input01
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -70,9 +70,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: aio_hybrid_input01
     name: AIO_hybrid-input01
-- id: binary_sensor_gpio_2
+- id: aio_hybrid_input02
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -82,9 +82,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: aio_hybrid_input02
     name: AIO_hybrid-input02
-- id: binary_sensor_gpio_3
+- id: aio_hybrid_input03
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -94,9 +94,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: aio_hybrid_input03
     name: AIO_hybrid-input03
-- id: binary_sensor_gpio_4
+- id: aio_hybrid_input04
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -106,9 +106,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: aio_hybrid_input04
     name: AIO_hybrid-input04
-- id: binary_sensor_gpio_5
+- id: aio_hybrid_input05
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -118,9 +118,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_5
+    id: aio_hybrid_input05
     name: AIO_hybrid-input05
-- id: binary_sensor_gpio_6
+- id: aio_hybrid_input06
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -130,9 +130,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_6
+    id: aio_hybrid_input06
     name: AIO_hybrid-input06
-- id: binary_sensor_gpio_7
+- id: aio_hybrid_input07
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -142,9 +142,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_7
+    id: aio_hybrid_input07
     name: AIO_hybrid-input07
-- id: binary_sensor_gpio_8
+- id: aio_hybrid_input08
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -154,9 +154,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_8
+    id: aio_hybrid_input08
     name: AIO_hybrid-input08
-- id: binary_sensor_gpio_9
+- id: aio_hybrid_input09
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -166,9 +166,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_9
+    id: aio_hybrid_input09
     name: AIO_hybrid-input09
-- id: binary_sensor_gpio_10
+- id: aio_hybrid_input10
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -178,9 +178,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_10
+    id: aio_hybrid_input10
     name: AIO_hybrid-input10
-- id: binary_sensor_gpio_11
+- id: aio_hybrid_input11
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -190,9 +190,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_11
+    id: aio_hybrid_input11
     name: AIO_hybrid-input11
-- id: binary_sensor_gpio_12
+- id: aio_hybrid_input12
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -202,7 +202,7 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_12
+    id: aio_hybrid_input12
     name: AIO_hybrid-input12
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
@@ -228,24 +228,28 @@ featured_components:
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
+    output: dimmer1
     id: light_monochromatic_1
     name: dimmer-1
 - id: light_monochromatic_2
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
+    output: dimmer2
     id: light_monochromatic_2
     name: dimmer-2
 - id: light_monochromatic_3
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
+    output: dimmer3
     id: light_monochromatic_3
     name: dimmer-3
 - id: light_monochromatic_4
   component_id: light.monochromatic
   fields:
     gamma_correct: 1.0
+    output: dimmer4
     id: light_monochromatic_4
     name: dimmer-4
 - id: light_esp32_rmt_led_strip_1
@@ -259,34 +263,34 @@ featured_components:
     chipset: ws2812
     id: light_esp32_rmt_led_strip_1
     name: My Light IO21
-- id: output_mcp4728_1
+- id: dimmer1
   component_id: output.mcp4728
   fields:
     channel: A
     vref: vdd
     power_down: normal
-    id: output_mcp4728_1
-- id: output_mcp4728_2
+    id: dimmer1
+- id: dimmer2
   component_id: output.mcp4728
   fields:
     channel: B
     vref: vdd
     power_down: normal
-    id: output_mcp4728_2
-- id: output_mcp4728_3
+    id: dimmer2
+- id: dimmer3
   component_id: output.mcp4728
   fields:
     channel: C
     vref: vdd
     power_down: normal
-    id: output_mcp4728_3
-- id: output_mcp4728_4
+    id: dimmer3
+- id: dimmer4
   component_id: output.mcp4728
   fields:
     channel: D
     vref: vdd
     power_down: normal
-    id: output_mcp4728_4
+    id: dimmer4
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -329,7 +333,7 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_4
     name: AIO_hybrid A4 Current
-- id: switch_gpio_1
+- id: aio_hybrid_output01
   component_id: switch.gpio
   fields:
     pin:
@@ -339,9 +343,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: aio_hybrid_output01
     name: AIO_hybrid-output01
-- id: switch_gpio_2
+- id: aio_hybrid_output02
   component_id: switch.gpio
   fields:
     pin:
@@ -351,9 +355,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: aio_hybrid_output02
     name: AIO_hybrid-output02
-- id: switch_gpio_3
+- id: aio_hybrid_output03
   component_id: switch.gpio
   fields:
     pin:
@@ -363,9 +367,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: aio_hybrid_output03
     name: AIO_hybrid-output03
-- id: switch_gpio_4
+- id: aio_hybrid_output04
   component_id: switch.gpio
   fields:
     pin:
@@ -375,9 +379,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: aio_hybrid_output04
     name: AIO_hybrid-output04
-- id: switch_gpio_5
+- id: aio_hybrid_output05
   component_id: switch.gpio
   fields:
     pin:
@@ -387,8 +391,29 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: aio_hybrid_output05
     name: AIO_hybrid-output05
+featured_bundles:
+- id: light_monochromatic_1_setup
+  name: dimmer-1 (full setup)
+  component_ids:
+  - dimmer1
+  - light_monochromatic_1
+- id: light_monochromatic_2_setup
+  name: dimmer-2 (full setup)
+  component_ids:
+  - dimmer2
+  - light_monochromatic_2
+- id: light_monochromatic_3_setup
+  name: dimmer-3 (full setup)
+  component_ids:
+  - dimmer3
+  - light_monochromatic_3
+- id: light_monochromatic_4_setup
+  name: dimmer-4 (full setup)
+  component_ids:
+  - dimmer4
+  - light_monochromatic_4
 source:
   type: esphome-devices
   remote_id: KinCony-AIO

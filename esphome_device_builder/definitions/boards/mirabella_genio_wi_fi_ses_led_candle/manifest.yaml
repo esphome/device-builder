@@ -24,28 +24,37 @@ featured_components:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     restore_mode: ALWAYS_ON
+    cold_white: output_daylight
+    warm_white: output_warm_white
     id: light_cwww_1
     name: LED Candle
-- id: output_esp8266_pwm_1
+- id: output_warm_white
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: output_warm_white
+- id: output_daylight
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_2
+    id: output_daylight
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Mirabella LED Candle WiFi Signal
+featured_bundles:
+- id: light_cwww_1_setup
+  name: LED Candle (full setup)
+  component_ids:
+  - output_daylight
+  - output_warm_white
+  - light_cwww_1
 source:
   type: esphome-devices
   remote_id: Mirabella-Genio-Wi-Fi-SES-LED-Candle

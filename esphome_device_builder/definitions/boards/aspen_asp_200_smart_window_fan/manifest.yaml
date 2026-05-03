@@ -20,32 +20,32 @@ featured_components:
     speed_count: 3
     id: fan_tuya_1
     name: Tuya 1
-- id: select_tuya_1
+- id: device_name_u_speed
   component_id: select.tuya
   fields:
     enum_datapoint: 3
     optimistic: true
-    id: select_tuya_1
+    id: device_name_u_speed
     name: Speed
-- id: select_tuya_2
+- id: device_name_u_mode
   component_id: select.tuya
   fields:
     enum_datapoint: 2
     optimistic: true
-    id: select_tuya_2
+    id: device_name_u_mode
     name: Mode
-- id: sensor_tuya_1
+- id: device_name_u_temp
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 19
     unit_of_measurement: °F
-    id: sensor_tuya_1
+    id: device_name_u_temp
     name: Temperature
-- id: switch_tuya_1
+- id: device_name_u_power_switch
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
-    id: switch_tuya_1
+    id: device_name_u_power_switch
     name: Power
 source:
   type: esphome-devices

@@ -21,26 +21,26 @@ featured_components:
     current_temperature_datapoint: 3
     id: climate_tuya_1
     name: Climate
-- id: select_tuya_1
+- id: mode
   component_id: select.tuya
   fields:
     enum_datapoint: 4
     optimistic: true
-    id: select_tuya_1
+    id: mode
     name: Mode
-- id: select_tuya_2
+- id: fanspeed
   component_id: select.tuya
   fields:
     enum_datapoint: 5
     optimistic: true
-    id: select_tuya_2
+    id: fanspeed
     name: Fan Speed
-- id: select_tuya_3
+- id: temperatureunit
   component_id: select.tuya
   fields:
     enum_datapoint: 19
     optimistic: true
-    id: select_tuya_3
+    id: temperatureunit
     name: Temperature Unit
 - id: sensor_tuya_1
   component_id: sensor.tuya

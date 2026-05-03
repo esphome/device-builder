@@ -21,38 +21,38 @@ featured_components:
     step: 1
     id: number_tuya_1
     name: Kettle Custom Temperature
-- id: sensor_tuya_1
+- id: tuya_105
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 105
-    id: sensor_tuya_1
+    id: tuya_105
     name: tuya_105
-- id: sensor_tuya_2
+- id: kettle_remaining
   component_id: sensor.tuya
   fields:
     icon: mdi:clock-time-five-outline
     sensor_datapoint: 107
     unit_of_measurement: min
     accuracy_decimals: 0
-    id: sensor_tuya_2
+    id: kettle_remaining
     name: Kettle Remaining Time
-- id: sensor_tuya_3
+- id: tuya_101
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 101
-    id: sensor_tuya_3
+    id: tuya_101
     name: tuya_101
-- id: sensor_tuya_4
+- id: tuya_106
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 106
-    id: sensor_tuya_4
+    id: tuya_106
     name: tuya_106
-- id: sensor_tuya_5
+- id: tuya_104
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 104
-    id: sensor_tuya_5
+    id: tuya_104
     name: tuya_104
 source:
   type: esphome-devices

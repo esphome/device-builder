@@ -23,22 +23,31 @@ featured_components:
   fields:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
+    cold_white: cw_color_temp
+    warm_white: ww_color_temp
     id: light_cwww_1
     name: $friendly_name
-- id: output_esp8266_pwm_1
+- id: ww_color_temp
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: ww_color_temp
+- id: cw_color_temp
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_2
+    id: cw_color_temp
+featured_bundles:
+- id: light_cwww_1_setup
+  name: $friendly_name (full setup)
+  component_ids:
+  - cw_color_temp
+  - ww_color_temp
+  - light_cwww_1
 source:
   type: esphome-devices
   remote_id: Brilliant-Smart-20696-CCT-light

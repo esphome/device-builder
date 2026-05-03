@@ -29,21 +29,22 @@ pins:
   occupied_by: lcd_backlight_output
 docs_url: https://devices.esphome.io/devices/Lanbon-L9/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: proximity_sensor
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 11
       locked: true
-    id: binary_sensor_gpio_1
+    id: proximity_sensor
     name: Proximity Sensor
-- id: light_monochromatic_1
+- id: display_backlight
   component_id: light.monochromatic
   fields:
     restore_mode: ALWAYS_ON
-    id: light_monochromatic_1
+    output: lcd_backlight_output
+    id: display_backlight
     name: Display Backlight
-- id: output_ledc_1
+- id: lcd_backlight_output
   component_id: output.ledc
   fields:
     pin:
@@ -51,8 +52,8 @@ featured_components:
         number: 42
         inverted: false
       locked: true
-    id: output_ledc_1
-- id: sensor_pulse_meter_1
+    id: lcd_backlight_output
+- id: power_pulse_meter
   component_id: sensor.pulse_meter
   fields:
     pin:
@@ -63,17 +64,23 @@ featured_components:
     state_class: measurement
     internal_filter_mode: PULSE
     accuracy_decimals: 1
-    id: sensor_pulse_meter_1
+    id: power_pulse_meter
     name: Power
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value:
         number: 36
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: Relay
+featured_bundles:
+- id: display_backlight_setup
+  name: Display Backlight (full setup)
+  component_ids:
+  - lcd_backlight_output
+  - display_backlight
 source:
   type: esphome-devices
   remote_id: Lanbon-L9

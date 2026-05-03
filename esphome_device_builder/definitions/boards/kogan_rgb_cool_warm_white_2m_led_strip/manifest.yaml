@@ -41,49 +41,64 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: button
-- id: light_rgbww_1
+- id: device_name
   component_id: light.rgbww
   fields:
     default_transition_length: 0s
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
-    id: light_rgbww_1
+    red: output_red
+    green: output_green
+    blue: output_blue
+    cold_white: output_coldwhite
+    warm_white: output_warmwhite
+    id: device_name
     name: Rgbww 1
-- id: output_esp8266_pwm_1
+- id: output_blue
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 14
       locked: true
-    id: output_esp8266_pwm_1
-- id: output_esp8266_pwm_2
+    id: output_blue
+- id: output_green
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 12
       locked: true
-    id: output_esp8266_pwm_2
-- id: output_esp8266_pwm_3
+    id: output_green
+- id: output_red
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 4
       locked: true
-    id: output_esp8266_pwm_3
-- id: output_esp8266_pwm_4
+    id: output_red
+- id: output_coldwhite
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 5
       locked: true
-    id: output_esp8266_pwm_4
-- id: output_esp8266_pwm_5
+    id: output_coldwhite
+- id: output_warmwhite
   component_id: output.esp8266_pwm
   fields:
     pin:
       value: 13
       locked: true
-    id: output_esp8266_pwm_5
+    id: output_warmwhite
+featured_bundles:
+- id: device_name_setup
+  name: Rgbww (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - output_coldwhite
+  - output_warmwhite
+  - device_name
 source:
   type: esphome-devices
   remote_id: Kogan-RGB-Cool-Warm-White-2m-LED-Strip

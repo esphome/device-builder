@@ -22,13 +22,13 @@ pins:
 docs_url: https://devices.esphome.io/devices/Homemaster-MicroPLC/
 product_url: https://github.com/isystemsautomation/HOMEMASTER/tree/main/MicroPLC
 featured_components:
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 26
       locked: true
-    id: switch_gpio_1
+    id: relay1
     name: Relay
 source:
   type: esphome-devices

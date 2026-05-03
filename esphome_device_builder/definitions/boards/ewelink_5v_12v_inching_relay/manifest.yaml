@@ -24,7 +24,7 @@ pins:
   occupied_by: wifi_led
 docs_url: https://devices.esphome.io/devices/eWelink-5V-12V-Inching-Relay/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button0
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -35,9 +35,9 @@ featured_components:
           pullup: true
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button0
     name: button0
-- id: light_status_led_1
+- id: wifi_led
   component_id: light.status_led
   fields:
     pin:
@@ -45,15 +45,15 @@ featured_components:
         number: 13
         inverted: true
       locked: true
-    id: light_status_led_1
+    id: wifi_led
     name: wifi_led
-- id: switch_gpio_1
+- id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
-    id: switch_gpio_1
+    id: relay
     name: relay
 source:
   type: esphome-devices

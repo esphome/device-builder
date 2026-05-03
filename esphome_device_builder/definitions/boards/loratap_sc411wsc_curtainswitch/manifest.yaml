@@ -11,37 +11,37 @@ images:
 - images/LoraTap-SC411WSC.JPG
 docs_url: https://devices.esphome.io/devices/LoraTap-SC411WSC-CurtainSwitch/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: open_cover_switch
   component_id: binary_sensor.gpio
   fields:
     disabled_by_default: true
-    id: binary_sensor_gpio_1
+    id: open_cover_switch
     name: S1 switch input
-- id: binary_sensor_gpio_2
+- id: close_cover_switch
   component_id: binary_sensor.gpio
   fields:
     disabled_by_default: true
-    id: binary_sensor_gpio_2
+    id: close_cover_switch
     name: S2 switch input
-- id: binary_sensor_gpio_3
+- id: stop_cover_switch
   component_id: binary_sensor.gpio
   fields:
     disabled_by_default: true
-    id: binary_sensor_gpio_3
+    id: stop_cover_switch
     name: remote stop switch
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     internal: true
     restore_mode: always off
-    id: switch_gpio_1
+    id: relay1
     name: 'Relay #1'
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     internal: true
     restore_mode: always off
-    id: switch_gpio_2
+    id: relay2
     name: 'Relay #2'
 source:
   type: esphome-devices

@@ -41,7 +41,7 @@ pins:
   occupied_by: a8-relay8
 docs_url: https://devices.esphome.io/devices/Hankerila-EA8/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: input1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -51,9 +51,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: input1
     name: a8-input1
-- id: binary_sensor_gpio_2
+- id: input2
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -63,9 +63,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_2
+    id: input2
     name: a8-input2
-- id: binary_sensor_gpio_3
+- id: input3
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -75,9 +75,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_3
+    id: input3
     name: a8-input3
-- id: binary_sensor_gpio_4
+- id: input4
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -87,9 +87,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_4
+    id: input4
     name: a8-input4
-- id: binary_sensor_gpio_5
+- id: input5
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -99,9 +99,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_5
+    id: input5
     name: a8-input5
-- id: binary_sensor_gpio_6
+- id: input6
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -111,9 +111,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_6
+    id: input6
     name: a8-input6
-- id: binary_sensor_gpio_7
+- id: input7
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -123,9 +123,9 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_7
+    id: input7
     name: a8-input7
-- id: binary_sensor_gpio_8
+- id: input8
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -135,15 +135,15 @@ featured_components:
         mode: INPUT
         inverted: true
       locked: true
-    id: binary_sensor_gpio_8
+    id: input8
     name: a8-input8
-- id: output_mcp4725_1
+- id: dac_output
   component_id: output.mcp4725
   fields:
     address: 96
     min_power: 0
     max_power: 1
-    id: output_mcp4725_1
+    id: dac_output
 - id: sensor_ads1115_1
   component_id: sensor.ads1115
   fields:
@@ -152,22 +152,22 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_1
     name: SCT013-30A-1V
-- id: sensor_ads1115_2
+- id: ads1115_02
   component_id: sensor.ads1115
   fields:
     multiplexer: A2_GND
     gain: 6.144
     update_interval: 2s
-    id: sensor_ads1115_2
+    id: ads1115_02
     name: 0-5V
-- id: sensor_ads1115_3
+- id: ads1115_03_raw
   component_id: sensor.ads1115
   fields:
     multiplexer: A3_GND
     gain: 6.144
     update_interval: 2s
     internal: true
-    id: sensor_ads1115_3
+    id: ads1115_03_raw
     name: ads1115_03_raw
 - id: sensor_dallas_temp_1
   component_id: sensor.dallas_temp
@@ -175,7 +175,7 @@ featured_components:
     address: 2017612637948700553
     id: sensor_dallas_temp_1
     name: ds18b20-1
-- id: switch_gpio_1
+- id: relay1
   component_id: switch.gpio
   fields:
     pin:
@@ -185,9 +185,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_1
+    id: relay1
     name: a8-relay1
-- id: switch_gpio_2
+- id: relay2
   component_id: switch.gpio
   fields:
     pin:
@@ -197,9 +197,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_2
+    id: relay2
     name: a8-relay2
-- id: switch_gpio_3
+- id: relay3
   component_id: switch.gpio
   fields:
     pin:
@@ -209,9 +209,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_3
+    id: relay3
     name: a8-relay3
-- id: switch_gpio_4
+- id: relay4
   component_id: switch.gpio
   fields:
     pin:
@@ -221,9 +221,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_4
+    id: relay4
     name: a8-relay4
-- id: switch_gpio_5
+- id: relay5
   component_id: switch.gpio
   fields:
     pin:
@@ -233,9 +233,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_5
+    id: relay5
     name: a8-relay5
-- id: switch_gpio_6
+- id: relay6
   component_id: switch.gpio
   fields:
     pin:
@@ -245,9 +245,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_6
+    id: relay6
     name: a8-relay6
-- id: switch_gpio_7
+- id: relay7
   component_id: switch.gpio
   fields:
     pin:
@@ -257,9 +257,9 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_7
+    id: relay7
     name: a8-relay7
-- id: switch_gpio_8
+- id: relay8
   component_id: switch.gpio
   fields:
     pin:
@@ -269,7 +269,7 @@ featured_components:
         mode: OUTPUT
         inverted: true
       locked: true
-    id: switch_gpio_8
+    id: relay8
     name: a8-relay8
 source:
   type: esphome-devices

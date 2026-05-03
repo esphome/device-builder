@@ -25,7 +25,7 @@ pins:
   occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/Sonoff-S60TPF/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     internal: true
@@ -34,16 +34,16 @@ featured_components:
         number: 9
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_1
     name: button_1
-- id: switch_gpio_1
+- id: switch_1
   component_id: switch.gpio
   fields:
     pin:
       value: 4
       locked: true
     restore_mode: ALWAYS_ON
-    id: switch_gpio_1
+    id: switch_1
     name: Relay
 source:
   type: esphome-devices

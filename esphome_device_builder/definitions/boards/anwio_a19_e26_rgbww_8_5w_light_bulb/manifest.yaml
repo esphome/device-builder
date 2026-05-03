@@ -13,39 +13,54 @@ images:
 - images/anwio-a19-board-view-2.jpg
 docs_url: https://devices.esphome.io/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/
 featured_components:
-- id: light_rgbww_1
+- id: device
   component_id: light.rgbww
   fields:
     color_interlock: true
     cold_white_color_temperature: 6200K
     warm_white_color_temperature: 2000K
-    id: light_rgbww_1
+    red: output_red
+    green: output_green
+    blue: output_blue
+    warm_white: warm_white
+    cold_white: cold_white
+    id: device
     name: Light
-- id: output_sm2135_1
+- id: output_blue
   component_id: output.sm2135
   fields:
     channel: 0
-    id: output_sm2135_1
-- id: output_sm2135_2
+    id: output_blue
+- id: output_green
   component_id: output.sm2135
   fields:
     channel: 1
-    id: output_sm2135_2
-- id: output_sm2135_3
+    id: output_green
+- id: output_red
   component_id: output.sm2135
   fields:
     channel: 2
-    id: output_sm2135_3
-- id: output_sm2135_4
+    id: output_red
+- id: warm_white
   component_id: output.sm2135
   fields:
     channel: 3
-    id: output_sm2135_4
-- id: output_sm2135_5
+    id: warm_white
+- id: cold_white
   component_id: output.sm2135
   fields:
     channel: 4
-    id: output_sm2135_5
+    id: cold_white
+featured_bundles:
+- id: device_setup
+  name: Light (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - warm_white
+  - cold_white
+  - device
 source:
   type: esphome-devices
   remote_id: Anwio-A19-E26-RGBWW-8.5W-Light-Bulb

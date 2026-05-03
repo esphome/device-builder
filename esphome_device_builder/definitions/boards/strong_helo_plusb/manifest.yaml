@@ -36,16 +36,16 @@ pins:
   occupied_by: relay2
 docs_url: https://devices.esphome.io/devices/Strong-Helo-PLUSB/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button
   component_id: binary_sensor.gpio
   fields:
     pin:
       value: 0
       locked: true
     internal: true
-    id: binary_sensor_gpio_1
+    id: button
     name: button
-- id: light_status_led_1
+- id: onboard_led
   component_id: light.status_led
   fields:
     internal: true
@@ -54,22 +54,22 @@ featured_components:
         number: 13
         inverted: true
       locked: true
-    id: light_status_led_1
+    id: onboard_led
     name: onboard_led
-- id: output_gpio_1
+- id: relay1
   component_id: output.gpio
   fields:
     pin:
       value: 14
       locked: true
-    id: output_gpio_1
-- id: output_gpio_2
+    id: relay1
+- id: relay2
   component_id: output.gpio
   fields:
     pin:
       value: 15
       locked: true
-    id: output_gpio_2
+    id: relay2
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -89,20 +89,33 @@ featured_components:
     update_interval: 10s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_output_1
+- id: switch_skt
   component_id: switch.output
   fields:
     icon: mdi:power-socket-de
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_output_1
+    output: relay1
+    id: switch_skt
     name: Socket
-- id: switch_output_2
+- id: switch_usb
   component_id: switch.output
   fields:
     icon: mdi:usb-port
     restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_output_2
+    output: relay2
+    id: switch_usb
     name: USB
+featured_bundles:
+- id: switch_skt_setup
+  name: Socket (full setup)
+  component_ids:
+  - relay1
+  - switch_skt
+- id: switch_usb_setup
+  name: USB (full setup)
+  component_ids:
+  - relay2
+  - switch_usb
 source:
   type: esphome-devices
   remote_id: Strong-Helo-PLUSB

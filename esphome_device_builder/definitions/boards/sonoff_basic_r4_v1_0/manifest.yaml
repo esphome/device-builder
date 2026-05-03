@@ -26,7 +26,7 @@ pins:
   occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/Sonoff-BASIC-R4-v1.0/
 featured_components:
-- id: binary_sensor_gpio_1
+- id: button_1
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -37,9 +37,9 @@ featured_components:
           pullup: true
         inverted: true
       locked: true
-    id: binary_sensor_gpio_1
+    id: button_1
     name: button_1
-- id: switch_gpio_1
+- id: switch_1
   component_id: switch.gpio
   fields:
     pin:
@@ -47,7 +47,7 @@ featured_components:
         number: 4
       locked: true
     restore_mode: ALWAYS_OFF
-    id: switch_gpio_1
+    id: switch_1
     name: Tomada
 source:
   type: esphome-devices
