@@ -178,7 +178,12 @@ async def test_cors_middleware_attaches_headers_to_non_get_methods(
 
     assert resp.status == 200
     assert await resp.text() == "payload"
+    # Pin all three headers — a regression that conditionally
+    # attached only Origin (or only the GET-shaped subset)
+    # would still pass a single-header check.
     assert resp.headers["Access-Control-Allow-Origin"] == "*"
+    assert resp.headers["Access-Control-Allow-Methods"] == "GET, POST, PUT, DELETE, OPTIONS"
+    assert resp.headers["Access-Control-Allow-Headers"] == "Content-Type, Authorization"
 
 
 async def test_cors_middleware_attaches_headers_to_handler_error_response(
@@ -214,5 +219,12 @@ async def test_cors_middleware_attaches_headers_to_handler_error_response(
 
     assert resp.status == 500
     assert await resp.text() == "boom"
+    # Pin all three headers — a regression that made
+    # ``Access-Control-Allow-Headers`` conditional on a 2xx
+    # status code would silently break the
+    # browser's ability to read the error response cross-origin
+    # (preflight would still pass but the actual fetch would
+    # surface as a generic network error).
     assert resp.headers["Access-Control-Allow-Origin"] == "*"
     assert resp.headers["Access-Control-Allow-Methods"] == "GET, POST, PUT, DELETE, OPTIONS"
+    assert resp.headers["Access-Control-Allow-Headers"] == "Content-Type, Authorization"
