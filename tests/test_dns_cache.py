@@ -6,7 +6,7 @@ import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import ClassVar
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -23,9 +23,10 @@ from esphome_device_builder.controllers.config import (
     get_device_ip,
     set_device_metadata,
 )
-from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.models import Device, DeviceState
+
+from .conftest import make_devices_controller_with_bus
 
 
 @pytest.fixture
@@ -589,18 +590,30 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
     assert device.address == "kitchen.lan"
 
 
-def test_on_ip_change_persists_non_empty_value(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def _record_scheduled(coros: list[object]) -> Callable[[object], object]:
+    """Build a ``create_background_task`` side-effect that records + closes coroutines.
+
+    Each scheduled coroutine lands in *coros* and is immediately
+    closed so it doesn't leak as ``RuntimeWarning: coroutine was
+    never awaited``.
+    """
+
+    def _impl(coro: object) -> object:
+        coros.append(coro)
+        if hasattr(coro, "close"):
+            coro.close()
+        return coro
+
+    return _impl
+
+
+def test_on_ip_change_persists_non_empty_value() -> None:
     """``_on_ip_change`` schedules a metadata write for non-empty IPs."""
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
-    db = MagicMock()
     scheduled: list[object] = []
-    db.create_background_task.side_effect = lambda coro: scheduled.append(coro) or coro.close()
-
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, _captured = make_devices_controller_with_bus(
+        [device], create_background_task=_record_scheduled(scheduled)
+    )
 
     controller._on_ip_change("kitchen", "10.0.0.1")
 
@@ -613,18 +626,15 @@ def test_on_ip_change_skips_persist_for_empty_value() -> None:
     device = Device(
         name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml", ip="10.0.0.1"
     )
-    db = MagicMock()
-
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    scheduled: list[object] = []
+    controller, _captured = make_devices_controller_with_bus(
+        [device], create_background_task=_record_scheduled(scheduled)
+    )
 
     controller._on_ip_change("kitchen", "")
 
     assert device.ip == ""
-    db.create_background_task.assert_not_called()
+    assert scheduled == []
 
 
 def test_metadata_transaction_serialises_concurrent_writers(tmp_path) -> None:  # type: ignore[no-untyped-def]
