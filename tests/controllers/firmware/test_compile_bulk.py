@@ -31,7 +31,10 @@ import pytest
 
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType
-from tests.controllers.firmware.conftest import FirmwareControllerFactory
+from tests.controllers.firmware.conftest import (
+    FirmwareControllerFactory,
+    capture_firmware_events,
+)
 
 
 @pytest.mark.asyncio
@@ -188,14 +191,8 @@ async def test_compile_bulk_fires_job_queued_per_successful_entry(
     for name in ("kitchen.yaml", "garage.yaml"):
         (tmp_path / name).write_text("")
     controller = firmware_controller_factory(with_queue=True)
+    captured = capture_firmware_events(controller, EventType.JOB_QUEUED)
 
     jobs = await controller.compile_bulk(configurations=["kitchen.yaml", "garage.yaml"])
 
-    fire_calls = [
-        call
-        for call in controller._db.bus.fire.call_args_list
-        if call.args[0] == EventType.JOB_QUEUED
-    ]
-    assert len(fire_calls) == len(jobs)
-    fired_jobs = [call.args[1]["job"] for call in fire_calls]
-    assert fired_jobs == jobs
+    assert [event.data["job"] for event in captured] == jobs

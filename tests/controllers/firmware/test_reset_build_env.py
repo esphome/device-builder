@@ -31,7 +31,10 @@ import pytest
 
 from esphome_device_builder.controllers.firmware.constants import _RESET_BUILD_ENV_TARGETS
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
-from tests.controllers.firmware.conftest import FirmwareControllerFactory
+from tests.controllers.firmware.conftest import (
+    FirmwareControllerFactory,
+    capture_firmware_events,
+)
 
 # ---------------------------------------------------------------------------
 # Handler wiring
@@ -227,12 +230,13 @@ async def test_reset_build_env_runner_fires_job_completed(
     flipped to COMPLETED.
     """
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    captured = capture_firmware_events(controller, EventType.JOB_COMPLETED)
     _seed_targets(tmp_path)
     job = _make_job()
 
     await controller._reset_build_env(job)
 
-    controller._db.bus.fire.assert_any_call(EventType.JOB_COMPLETED, {"job": job})
+    assert [(e.event_type, e.data) for e in captured] == [(EventType.JOB_COMPLETED, {"job": job})]
 
 
 @pytest.mark.asyncio
@@ -248,6 +252,7 @@ async def test_reset_build_env_runner_streams_output_lines(
     so a refactor that drops one of the two writes surfaces here.
     """
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    captured = capture_firmware_events(controller, EventType.JOB_OUTPUT)
     _seed_targets(tmp_path)
     job = _make_job()
 
@@ -262,13 +267,8 @@ async def test_reset_build_env_runner_streams_output_lines(
 
     # Bus side: every line that landed in ``job.output`` was also
     # fired as a ``JOB_OUTPUT`` event so live followers see it.
-    output_calls = [
-        call
-        for call in controller._db.bus.fire.call_args_list
-        if call.args and call.args[0] == EventType.JOB_OUTPUT
-    ]
-    assert output_calls, "expected at least one JOB_OUTPUT broadcast"
-    fired_lines = [call.args[1]["line"] for call in output_calls]
+    assert captured, "expected at least one JOB_OUTPUT broadcast"
+    fired_lines = [event.data["line"] for event in captured]
     assert any("Resetting build environment" in line for line in fired_lines)
 
 
@@ -343,6 +343,7 @@ async def test_reset_build_env_runner_honours_cancel_between_targets(
       id wouldn't auto-cancel.
     """
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    captured = capture_firmware_events(controller, EventType.JOB_CANCELLED)
     _seed_targets(tmp_path)
     job = _make_job()
     controller._cancel_requested.add(job.job_id)
@@ -350,7 +351,7 @@ async def test_reset_build_env_runner_honours_cancel_between_targets(
     await controller._reset_build_env(job)
 
     assert job.status == JobStatus.CANCELLED
-    controller._db.bus.fire.assert_any_call(EventType.JOB_CANCELLED, {"job": job})
+    assert [(e.event_type, e.data) for e in captured] == [(EventType.JOB_CANCELLED, {"job": job})]
     assert job.job_id not in controller._cancel_requested
     # All targets still present — runner bailed before the first rmtree.
     for name in _RESET_BUILD_ENV_TARGETS:
