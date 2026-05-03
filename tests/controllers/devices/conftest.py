@@ -25,6 +25,7 @@ import pytest
 
 from esphome_device_builder.controllers.config import set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.models import EventType
 
 
@@ -373,6 +374,33 @@ def make_controller() -> MakeControllerFactory:
         return controller
 
     return _make
+
+
+def capture_devices_events(
+    controller: DevicesController,
+    *event_types: EventType,
+) -> list[Event]:
+    """Swap the controller's bus for a real ``EventBus`` and return the capture list.
+
+    Devices-side sibling of ``capture_firmware_events`` from the
+    firmware conftest. The ``make_controller`` factory wires
+    ``self._db`` as a ``MagicMock`` so ``_db.bus.fire`` is a
+    ``MagicMock`` auto-attribute; assertions on it have to walk
+    ``mock_calls`` or use ``assert_called_with``. Replacing with a
+    real bus + listener gives a flat ``[Event, …]`` log that
+    captures both event type and payload, with no coupling to the
+    handler's internal call shape.
+
+    Pass the ``EventType`` values to subscribe to. The returned list
+    is appended to as events fire — assertion code can read it after
+    the call under test resolves.
+    """
+    bus = EventBus()
+    captured: list[Event] = []
+    for event_type in event_types:
+        bus.add_listener(event_type, captured.append)
+    controller._db.bus = bus
+    return captured
 
 
 @pytest.fixture

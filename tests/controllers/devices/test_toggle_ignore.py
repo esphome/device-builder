@@ -28,15 +28,14 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import AdoptableDevice, EventType
 
-from .conftest import MakeControllerFactory
+from .conftest import MakeControllerFactory, capture_devices_events
 
 
-def _seed_for_toggle(
-    controller: DevicesController, tmp_path: Path
-) -> tuple[list[tuple[EventType, dict[str, object]]], Path]:
-    """Wire ``import_result`` + a recording bus stub for the toggle path.
+def _seed_for_toggle(controller: DevicesController, tmp_path: Path) -> tuple[list[Event], Path]:
+    """Wire ``import_result`` + the events capture for the toggle path.
 
     Returns ``(events, ignored_path)`` so the test can assert
     against fired events and the on-disk state of the ignored
@@ -45,13 +44,12 @@ def _seed_for_toggle(
     monkeypatching it onto a known location under ``tmp_path``
     is what lets the test inspect what landed on disk without
     spinning up a full ``DashboardSettings``.
+
+    The events list is the live capture from
+    ``capture_devices_events`` — only ``IMPORTABLE_DEVICE_ADDED``
+    is subscribed since that's the toggle path's only broadcast.
     """
-    fired: list[tuple[EventType, dict[str, object]]] = []
-
-    def _fire(event_type: EventType, data: dict[str, object]) -> None:
-        fired.append((event_type, data))
-
-    controller._db.bus.fire = _fire  # type: ignore[method-assign]
+    fired = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_ADDED)
     controller.import_result = {}
     controller.ignored_devices = set()
     return fired, tmp_path / "ignored-devices.json"
@@ -155,9 +153,8 @@ async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
 
     # Exactly one IMPORTABLE_DEVICE_ADDED event fired with the updated model.
     assert len(fired) == 1
-    event_type, payload = fired[0]
-    assert event_type == EventType.IMPORTABLE_DEVICE_ADDED
-    assert payload == {"device": cached}
+    assert fired[0].event_type == EventType.IMPORTABLE_DEVICE_ADDED
+    assert fired[0].data == {"device": cached}
 
 
 @pytest.mark.asyncio

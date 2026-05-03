@@ -25,7 +25,7 @@ from esphome_device_builder.controllers.devices import controller as devices_mod
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import AdoptableDevice, DeviceState, ErrorCode, EventType
 
-from .conftest import MakeControllerFactory
+from .conftest import MakeControllerFactory, capture_devices_events
 
 
 def _seed_import_state(controller: DevicesController) -> None:
@@ -362,6 +362,7 @@ async def test_import_device_drops_matching_import_result_entry(
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
+    captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
     discovered = AdoptableDevice(
         name="apollo-plt-1-983300",
         friendly_name="Apollo PLT-1",
@@ -382,9 +383,5 @@ async def test_import_device_drops_matching_import_result_entry(
 
     assert "apollo-plt-1-983300" not in ctrl.import_result
     # Removal is broadcast so subscribed frontends drop the card.
-    fired = list(ctrl._db.bus.fire.mock_calls)
-    removed_events = [
-        c for c in fired if c.args and c.args[0] == EventType.IMPORTABLE_DEVICE_REMOVED
-    ]
-    assert removed_events, "expected IMPORTABLE_DEVICE_REMOVED to fire"
-    assert removed_events[0].args[1] == {"name": "apollo-plt-1-983300"}
+    assert captured, "expected IMPORTABLE_DEVICE_REMOVED to fire"
+    assert captured[0].data == {"name": "apollo-plt-1-983300"}

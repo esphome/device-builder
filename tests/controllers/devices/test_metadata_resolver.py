@@ -21,6 +21,8 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, EventType
 
+from .conftest import capture_devices_events
+
 
 def _make_controller(monkeypatch: Any, board_id: str = "esp32-c3-devkitm-1") -> Any:
     """Build a controller with the YAML-parsing path stubbed out.
@@ -214,6 +216,7 @@ def test_added_device_without_hash_triggers_regenerate(monkeypatch: Any) -> None
     controller._state_monitor = MagicMock()
     schedule = MagicMock()
     monkeypatch.setattr(controller, "_schedule_storage_regenerate", schedule, raising=False)
+    captured = capture_devices_events(controller, EventType.DEVICE_ADDED)
 
     device = Device(
         name="apollo",
@@ -227,7 +230,9 @@ def test_added_device_without_hash_triggers_regenerate(monkeypatch: Any) -> None
     schedule.assert_called_once_with("apollo-r-pro-1.yaml")
     # Sanity: the bus fire still happens — the trigger is additive,
     # not a replacement.
-    controller._db.bus.fire.assert_called_with(EventType.DEVICE_ADDED, {"device": device})
+    assert [(e.event_type, e.data) for e in captured] == [
+        (EventType.DEVICE_ADDED, {"device": device})
+    ]
     # Probe fires too — the eager mDNS probe on ADDED is what catches
     # YAMLs dropped on disk outside the API path.
     controller._state_monitor.probe_device.assert_called_once_with("apollo")
