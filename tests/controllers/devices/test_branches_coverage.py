@@ -136,18 +136,8 @@ async def test_create_device_falls_back_to_platform_variant_lookup(
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def _patch_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Redirect ``ext_storage_path`` so ``_delete_single`` reads tmp sidecars."""
-    fake = lambda configuration: tmp_path / ".esphome" / "storage" / f"{configuration}.json"  # noqa: E731
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.ext_storage_path", fake
-    )
-    monkeypatch.setattr("esphome_device_builder.controllers.devices.helpers.ext_storage_path", fake)
-
-
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_patch_ext_storage")
+@pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_device_unlinks_yaml_then_scans(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -171,7 +161,7 @@ async def test_delete_device_unlinks_yaml_then_scans(
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_patch_ext_storage")
+@pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_bulk_returns_per_device_success_with_mixed_outcomes(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
