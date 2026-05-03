@@ -30,6 +30,8 @@ from esphome_device_builder.controllers._device_mqtt_coordinator import (
 from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
 )
+from esphome_device_builder.controllers.boards import BoardCatalog
+from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.device_builder import DeviceBuilder
@@ -49,6 +51,14 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
       picks them up.
     - ``DeviceMqttCoordinator.reconcile/stop`` are AsyncMocks for the
       same reason — production opens a paho broker connection.
+    - ``BoardCatalog.load`` / ``ComponentCatalog.load`` are no-oped
+      because they do synchronous ``Path.glob`` walks of the
+      bundled definitions tree — under blockbuster (Linux CI) the
+      ``ScandirIterator`` calls fail event-loop checks. Wiring
+      (``BoardCatalog()`` construction + ``@api_command`` decorator
+      collection) still runs, so the tests still pin the
+      controller-attr and command-handler contract; the catalog's
+      *contents* are exercised in the catalog-specific tests.
     """
     fake_cmd = ["python", "-m", "esphome"]
     for module in (
@@ -77,6 +87,14 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(DeviceStateMonitor, "stop", AsyncMock())
     monkeypatch.setattr(DeviceMqttCoordinator, "reconcile", AsyncMock())
     monkeypatch.setattr(DeviceMqttCoordinator, "stop", AsyncMock())
+
+    # Skip the disk walks. The catalog instances still get
+    # constructed (so ``boards`` / ``components`` controller attrs
+    # are populated) and their ``@api_command`` methods are still
+    # picked up by ``collect_api_commands``; the only thing we lose
+    # is the YAML/JSON loading work, which is covered separately.
+    monkeypatch.setattr(BoardCatalog, "load", lambda self: None)
+    monkeypatch.setattr(ComponentCatalog, "load", lambda self: None)
 
 
 def _make_settings(tmp_path: Path) -> DashboardSettings:
