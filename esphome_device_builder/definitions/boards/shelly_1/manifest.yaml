@@ -1,0 +1,51 @@
+id: shelly_1
+name: Shelly 1
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/shelly1.png
+tags:
+- shelly
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.gpio (shelly_1_relay)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (Switch Shelly 1)
+docs_url: https://devices.esphome.io/devices/Shelly-1/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Switch Shelly 1
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: shelly_1_relay
+    id: light_binary_1
+    name: Shelly 1 Light
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_gpio_1
+source:
+  type: esphome-devices
+  remote_id: Shelly-1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: ed50ae5cb6e99ae46b812dfcdacb2de8a5146c8b6f35942254f0766c6fd57c3b

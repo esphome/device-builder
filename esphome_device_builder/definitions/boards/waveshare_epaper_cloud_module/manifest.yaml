@@ -1,0 +1,89 @@
+id: waveshare_epaper_cloud_module
+name: Waveshare E-Paper Cloud module
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/waveshare213_front.jpg
+- images/waveshare213_back.jpg
+pins:
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (${devicename} button)
+- gpio: 15
+  available: false
+  occupied_by: display.waveshare_epaper
+- gpio: 25
+  available: false
+  occupied_by: display.waveshare_epaper
+- gpio: 26
+  available: false
+  occupied_by: display.waveshare_epaper
+- gpio: 27
+  available: false
+  occupied_by: display.waveshare_epaper
+- gpio: 36
+  available: false
+  occupied_by: sensor.adc (${devicename} Battery voltage)
+docs_url: https://devices.esphome.io/devices/Waveshare-epaper-cloud-module/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: display_waveshare_epaper_1
+  component_id: display.waveshare_epaper
+  fields:
+    cs_pin:
+      value: 15
+      locked: true
+    dc_pin:
+      value: 27
+      locked: true
+    busy_pin:
+      value: 25
+      locked: true
+    reset_pin:
+      value: 26
+      locked: true
+    model: 2.13in-ttgo-dke
+    rotation: 270
+    full_update_every: 12
+    update_interval: 60s
+    lambda: it.print(0, 0, id(roboto), "Hello World!");
+    id: display_waveshare_epaper_1
+    name: Waveshare Epaper 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 36
+      locked: true
+    icon: mdi:battery
+    device_class: voltage
+    attenuation: auto
+    update_interval: 60s
+    id: sensor_adc_1
+    name: Adc 1
+source:
+  type: esphome-devices
+  remote_id: Waveshare-epaper-cloud-module
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Waveshare-epaper-cloud-module/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 27caa0edd34b5bf5c8fe82760625fe8462304b6e451336811555a837e1b0346d

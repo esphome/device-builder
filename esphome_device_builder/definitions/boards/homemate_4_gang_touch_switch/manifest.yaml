@@ -1,0 +1,131 @@
+id: homemate_4_gang_touch_switch
+name: HomeMate 4 Gang Touch Switch
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/closeup.jpg
+- images/connection.jpg
+pins:
+- gpio: 20
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button 3)
+- gpio: 22
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button 4)
+- gpio: 24
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button 2)
+- gpio: 26
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button 1)
+docs_url: https://devices.esphome.io/devices/HomeMate-4-Gang-Touch-Switch/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        mode: INPUT_PULLUP
+      locked: true
+    entity_category: diagnostic
+    disabled_by_default: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 24
+        mode: INPUT_PULLUP
+      locked: true
+    entity_category: diagnostic
+    disabled_by_default: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 20
+        mode: INPUT_PULLUP
+      locked: true
+    entity_category: diagnostic
+    disabled_by_default: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 22
+        mode: INPUT_PULLUP
+      locked: true
+    entity_category: diagnostic
+    disabled_by_default: true
+    id: binary_sensor_gpio_4
+    name: Gpio 4
+- id: binary_sensor_status_1
+  component_id: binary_sensor.status
+  fields:
+    entity_category: diagnostic
+    id: binary_sensor_status_1
+    name: Status 1
+- id: select_template_1
+  component_id: select.template
+  fields:
+    icon: mdi:power-settings
+    restore_value: true
+    optimistic: true
+    entity_category: config
+    id: select_template_1
+    name: Template 1
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    icon: mdi:lightbulb-night
+    lambda: return id(status_led_when_off);
+    id: switch_template_1
+    name: Template 1
+- id: switch_template_2
+  component_id: switch.template
+  fields:
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_template_2
+    name: Template 2
+- id: switch_template_3
+  component_id: switch.template
+  fields:
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_template_3
+    name: Template 3
+- id: switch_template_4
+  component_id: switch.template
+  fields:
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_template_4
+    name: Template 4
+- id: switch_template_5
+  component_id: switch.template
+  fields:
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_template_5
+    name: Template 5
+source:
+  type: esphome-devices
+  remote_id: HomeMate-4-Gang-Touch-Switch
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/HomeMate-4-Gang-Touch-Switch/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1f5c8d688bf091c5dd33138c68fb9ad1ee89bb54970c0caca75bf592a8911200

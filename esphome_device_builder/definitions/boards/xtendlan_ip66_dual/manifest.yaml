@@ -1,0 +1,85 @@
+id: xtendlan_ip66_dual
+name: XtendLan chytrá venkovní zásuvka/ IP66/ dvojitá
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Whole.jpg
+- images/ESP-Pinout.jpg
+- images/ESP-Pinout2.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button 1)
+- gpio: 5
+  available: false
+  occupied_by: switch.gpio (${friendly_name} rele 2)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button 2)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${friendly_name} rele 1)
+docs_url: https://devices.esphome.io/devices/XtendLan-IP66-Dual/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 9
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: XtendLan-IP66-Dual
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/XtendLan-IP66-Dual/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 7fe0eb898bad0019b05055bc90ed3183722e014ed1331b3594c27233dd171bf0

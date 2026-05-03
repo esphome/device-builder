@@ -1,0 +1,110 @@
+id: ningbo_fuda_5250b_dehumidifier
+name: Ningbo Fuda 5250B Dehumidifier
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp_wroom_02
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/5250B.webp
+docs_url: https://devices.esphome.io/devices/Ningbo-Fuda-5250B-Dehumidifier/
+featured_components:
+- id: binary_sensor_template_1
+  component_id: binary_sensor.template
+  fields:
+    device_class: problem
+    icon: mdi:water-alert
+    id: binary_sensor_template_1
+    name: Water tank
+- id: binary_sensor_tuya_1
+  component_id: binary_sensor.tuya
+  fields:
+    sensor_datapoint: 101
+    internal: true
+    id: binary_sensor_tuya_1
+    name: Unknown 101
+- id: binary_sensor_tuya_2
+  component_id: binary_sensor.tuya
+  fields:
+    sensor_datapoint: 105
+    internal: true
+    id: binary_sensor_tuya_2
+    name: Unknown 105
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 4
+    unit_of_measurement: '%'
+    device_class: humidity
+    min_value: 30
+    max_value: 80
+    step: 5
+    id: number_tuya_1
+    name: Target humidity
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    icon: mdi:cog
+    enum_datapoint: 2
+    id: select_tuya_1
+    name: Mode
+- id: select_tuya_2
+  component_id: select.tuya
+  fields:
+    icon: mdi:fan
+    enum_datapoint: 6
+    id: select_tuya_2
+    name: Fan speed
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 103
+    unit_of_measurement: °C
+    device_class: temperature
+    accuracy_decimals: 0
+    id: sensor_tuya_1
+    name: Temperature
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 104
+    unit_of_measurement: '%'
+    device_class: humidity
+    accuracy_decimals: 0
+    id: sensor_tuya_2
+    name: Humidity
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 1
+    id: switch_tuya_1
+    name: Power
+- id: switch_tuya_2
+  component_id: switch.tuya
+  fields:
+    icon: mdi:leaf
+    switch_datapoint: 5
+    id: switch_tuya_2
+    name: Air clean
+- id: switch_tuya_3
+  component_id: switch.tuya
+  fields:
+    icon: mdi:lock
+    switch_datapoint: 7
+    id: switch_tuya_3
+    name: Child lock
+- id: switch_tuya_4
+  component_id: switch.tuya
+  fields:
+    icon: mdi:sleep
+    switch_datapoint: 102
+    id: switch_tuya_4
+    name: Sleep
+source:
+  type: esphome-devices
+  remote_id: Ningbo-Fuda-5250B-Dehumidifier
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Ningbo-Fuda-5250B-Dehumidifier/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 9e4bddcda02fc6617cbfef2310ded2f31a2b6cba2e219495171e1ee1ef7e5e75

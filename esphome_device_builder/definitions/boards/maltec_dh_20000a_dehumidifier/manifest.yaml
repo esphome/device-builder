@@ -1,0 +1,115 @@
+id: maltec_dh_20000a_dehumidifier
+name: Maltec DH-20000A Dehumidifier
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/header.jpg
+- images/board.jpg
+- images/boardcnwifi.jpg
+- images/jstxh.jpg
+docs_url: https://devices.esphome.io/devices/Maltec-DH-20000A-Dehumidifier/
+featured_components:
+- id: binary_sensor_template_1
+  component_id: binary_sensor.template
+  fields:
+    device_class: problem
+    icon: mdi:water-alert
+    id: binary_sensor_template_1
+    name: Water tank full
+- id: button_restart_1
+  component_id: button.restart
+  fields:
+    icon: mdi:restart
+    internal: false
+    id: button_restart_1
+    name: Restart
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 2
+    unit_of_measurement: '%'
+    device_class: humidity
+    min_value: 30
+    max_value: 80
+    step: 5
+    icon: mdi:water
+    id: number_tuya_1
+    name: Target humidity
+- id: number_tuya_2
+  component_id: number.tuya
+  fields:
+    number_datapoint: 17
+    min_value: 0
+    max_value: 20
+    step: 5
+    icon: mdi:timer-cog
+    id: number_tuya_2
+    name: Timer
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    icon: mdi:cog
+    enum_datapoint: 5
+    id: select_tuya_1
+    name: Mode
+- id: select_tuya_2
+  component_id: select.tuya
+  fields:
+    icon: mdi:fan
+    enum_datapoint: 4
+    id: select_tuya_2
+    name: Fan speed
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 7
+    unit_of_measurement: °C
+    device_class: temperature
+    accuracy_decimals: 0
+    id: sensor_tuya_1
+    name: Current Temperature
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 6
+    unit_of_measurement: '%'
+    device_class: humidity
+    accuracy_decimals: 0
+    icon: mdi:water-percent
+    id: sensor_tuya_2
+    name: Humidity
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 1
+    icon: mdi:power
+    id: switch_tuya_1
+    name: Power
+- id: switch_tuya_2
+  component_id: switch.tuya
+  fields:
+    icon: mdi:lock
+    switch_datapoint: 16
+    id: switch_tuya_2
+    name: Child lock
+- id: switch_tuya_3
+  component_id: switch.tuya
+  fields:
+    icon: mdi:sleep
+    switch_datapoint: 14
+    id: switch_tuya_3
+    name: Sleep
+source:
+  type: esphome-devices
+  remote_id: Maltec-DH-20000A-Dehumidifier
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 35ad032827095d82ea8a4209b5a6193ba5b51567bc10bfd067a5b3eb18e41fed

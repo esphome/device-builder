@@ -1,0 +1,117 @@
+id: shelly_plus_0_10v_dimmer
+name: Shelly Plus 0-10V
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/shelly_plus_0-10v_dimmer.jpeg
+tags:
+- shelly
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Switch 1)
+- gpio: 18
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Switch 2)
+- gpio: 25
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Button)
+- gpio: 26
+  available: false
+  occupied_by: output.ledc (led_output)
+- gpio: 32
+  available: false
+  occupied_by: sensor.adc (temp_analog_reading)
+docs_url: https://devices.esphome.io/devices/Shelly-Plus-0-10V-Dimmer/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 18
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 25
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: led_output
+    default_transition_length: 100ms
+    restore_mode: ALWAYS_ON
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 26
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    frequency: 1220Hz
+    channel: 0
+    min_power: 0.6
+    zero_means_zero: true
+    id: output_ledc_1
+- id: sensor_ntc_1
+  component_id: sensor.ntc
+  fields:
+    sensor: temp_resistance_reading
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    icon: mdi:thermometer
+    id: sensor_ntc_1
+    name: Ntc 1
+- id: sensor_resistance_1
+  component_id: sensor.resistance
+  fields:
+    sensor: temp_analog_reading
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    id: sensor_resistance_1
+    name: Resistance 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 32
+      locked: true
+    attenuation: 12db
+    id: sensor_adc_1
+    name: Adc 1
+source:
+  type: esphome-devices
+  remote_id: Shelly-Plus-0-10V-Dimmer
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-0-10V-Dimmer/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 356a87b31d4b59e3c4e41899ad037d3100d6830d35dbad5dc7c05e68613aff8e

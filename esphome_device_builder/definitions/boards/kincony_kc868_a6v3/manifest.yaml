@@ -1,0 +1,318 @@
+id: kincony_kc868_a6v3
+name: KinCony KC868-A6v3 (ESP32-S3 LoRa Relay)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/KC868-A6v3-1.jpg
+- images/KC868-A6v3-2.jpg
+- images/KC868-A6v3-3.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (A6v3-input1)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (A6v3-input2)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (A6v3-input3)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (A6v3-input4)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (A6v3-input5)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (A6v3-input6)
+- gpio: 6
+  available: false
+  occupied_by: sensor.adc (A6v3 A3 Current)
+- gpio: 7
+  available: false
+  occupied_by: sensor.adc (A6v3 A4 Current)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (A6v3-W1-io15)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (A6v3-W1-io16)
+docs_url: https://devices.esphome.io/devices/KinCony-KC868-A6v3/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: A6v3-input1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: A6v3-input2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: A6v3-input3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: A6v3-input4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: A6v3-input5
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: A6v3-input6
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: A6v3-W1-io15
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: A6v3-W1-io16
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: A6v3-W1-DW
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    i2c_id: bus_a
+    model: SSD1306 128x64
+    address: 60
+    lambda: it.printf(0, 0, id(roboto), "KinCony A6v3");
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: gp8403_output_1
+    id: light_monochromatic_1
+    name: A6v3-DAC-1
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: gp8403_output_2
+    id: light_monochromatic_2
+    name: A6v3-DAC-2
+- id: output_gp8403_1
+  component_id: output.gp8403
+  fields:
+    gp8403_id: my_gp8403
+    channel: 0
+    id: output_gp8403_1
+- id: output_gp8403_2
+  component_id: output.gp8403
+  fields:
+    gp8403_id: my_gp8403
+    channel: 1
+    id: output_gp8403_2
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_1
+    name: A6v3 A1 Voltage
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 5
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_2
+    name: A6v3 A2 Voltage
+- id: sensor_adc_3
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 6
+      locked: true
+    update_interval: 5s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_3
+    name: A6v3 A3 Current
+- id: sensor_adc_4
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 7
+      locked: true
+    update_interval: 5s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_4
+    name: A6v3 A4 Current
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: A6v3-output1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: A6v3-output2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: A6v3-output3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: A6v3-output4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: A6v3-output5
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_6
+    name: A6v3-output6
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_1
+    id: switch_uart_1
+    name: RS485 Button
+- id: switch_uart_2
+  component_id: switch.uart
+  fields:
+    uart_id: uart_2
+    id: switch_uart_2
+    name: RS232 Button
+source:
+  type: esphome-devices
+  remote_id: KinCony-KC868-A6v3
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-A6v3/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: fdbac473c5f70613fa7572d77d28a77a6b816ef4200ad309c2cda043307dbdd3

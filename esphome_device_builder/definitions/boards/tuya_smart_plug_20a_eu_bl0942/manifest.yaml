@@ -1,0 +1,37 @@
+id: tuya_smart_plug_20a_eu_bl0942
+name: Tuya Smart Plug 20A with BL0942 Power Monitoring IC
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Tuya_plug_EU.png
+- images/Tuya_plug_aliexpress.png
+- images/Tuya_PCB.png
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A-EU_BL0942/
+featured_components:
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: led_output
+    id: light_binary_1
+    name: Status LED
+- id: sensor_bl0942_1
+  component_id: sensor.bl0942
+  fields:
+    uart_id: bl0942_uart
+    line_frequency: 50Hz
+    id: sensor_bl0942_1
+    name: Bl0942 1
+source:
+  type: esphome-devices
+  remote_id: Tuya-Smart-Plug-20A-EU_BL0942
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Smart-Plug-20A-EU_BL0942/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: da909b7e086760b77ebdad47047f210ad147b8448e79f7a76f49bb7c5f3c172c

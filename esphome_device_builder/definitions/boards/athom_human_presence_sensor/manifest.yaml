@@ -1,0 +1,224 @@
+id: athom_human_presence_sensor
+name: Athom Human Presence Sensor (PS01)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Athom-Human-Presence-Sensor.webp
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (mmWave Sensor)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (Pir Sensor)
+- gpio: 16
+  available: false
+  occupied_by: light.status_led (Status LED)
+docs_url: https://devices.esphome.io/devices/Athom-Human-Presence-Sensor/
+product_url: https://github.com/athom-tech/athom-configs/blob/main/athom-presence-sensor.yaml
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    disabled_by_default: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    device_class: motion
+    id: binary_sensor_gpio_2
+    name: Pir Sensor
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    device_class: motion
+    id: binary_sensor_gpio_3
+    name: mmWave Sensor
+- id: binary_sensor_template_1
+  component_id: binary_sensor.template
+  fields:
+    device_class: occupancy
+    id: binary_sensor_template_1
+    name: Occupancy
+- id: button_factory_reset_1
+  component_id: button.factory_reset
+  fields:
+    entity_category: config
+    internal: true
+    id: button_factory_reset_1
+    name: Restart with Factory Default Settings
+- id: button_template_1
+  component_id: button.template
+  fields:
+    entity_category: config
+    id: button_template_1
+    name: Reset device
+- id: button_restart_1
+  component_id: button.restart
+  fields:
+    entity_category: config
+    internal: true
+    id: button_restart_1
+    name: Restart_esp
+- id: button_template_2
+  component_id: button.template
+  fields:
+    entity_category: config
+    internal: true
+    id: button_template_2
+    name: Restart_mmWave
+- id: button_template_3
+  component_id: button.template
+  fields:
+    entity_category: config
+    id: button_template_3
+    name: Restart device
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value: 16
+      locked: true
+    disabled_by_default: true
+    entity_category: config
+    id: light_status_led_1
+    name: Status LED
+- id: number_template_1
+  component_id: number.template
+  fields:
+    entity_category: config
+    min_value: 1.9
+    max_value: 12
+    initial_value: 6
+    optimistic: true
+    step: 0.1
+    restore_value: true
+    unit_of_measurement: m
+    mode: slider
+    id: number_template_1
+    name: Farthest Detection
+- id: number_template_2
+  component_id: number.template
+  fields:
+    entity_category: config
+    min_value: 0
+    max_value: 9
+    initial_value: 7
+    optimistic: true
+    step: 1
+    restore_value: true
+    mode: slider
+    id: number_template_2
+    name: Maintain Sensitivity
+- id: number_template_3
+  component_id: number.template
+  fields:
+    entity_category: config
+    min_value: 0
+    max_value: 9
+    initial_value: 5
+    optimistic: true
+    step: 1
+    restore_value: true
+    mode: slider
+    id: number_template_3
+    name: Trigger Sensitivity
+- id: number_template_4
+  component_id: number.template
+  fields:
+    entity_category: config
+    min_value: 0.1
+    max_value: 60
+    initial_value: 0.1
+    optimistic: true
+    step: 0.1
+    restore_value: true
+    unit_of_measurement: seconds
+    mode: slider
+    id: number_template_4
+    name: Detection Delay
+- id: number_template_5
+  component_id: number.template
+  fields:
+    entity_category: config
+    min_value: 1
+    max_value: 300
+    initial_value: 15
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: seconds
+    mode: auto
+    id: number_template_5
+    name: Fading Time
+- id: number_template_6
+  component_id: number.template
+  fields:
+    entity_category: config
+    min_value: 1
+    max_value: 255
+    initial_value: 1
+    optimistic: true
+    step: 1
+    restore_value: true
+    unit_of_measurement: seconds
+    mode: slider
+    id: number_template_6
+    name: Blockade Time
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: WiFi Signal Sensor
+- id: sensor_bh1750_1
+  component_id: sensor.bh1750
+  fields:
+    address: 35
+    update_interval: 5s
+    id: sensor_bh1750_1
+    name: Light Sensor
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    internal: true
+    entity_category: config
+    optimistic: true
+    restore_mode: DISABLED
+    id: switch_template_1
+    name: mmWave Status
+source:
+  type: esphome-devices
+  remote_id: Athom-Human-Presence-Sensor
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-Human-Presence-Sensor/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1d88ce5c5392f31ee0bb1ee51f84057b890f2922ead6a9a5d9b763ab0edc8b55

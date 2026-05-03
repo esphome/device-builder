@@ -1,0 +1,49 @@
+id: connect_smarthome_10w_cct_bulb_csh_b22ww10w
+name: Connect SmartHome 10W CCT Smart White LED Bulb B22 (CSH-B22WW10W)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/connect_smarthome_CSH-B22WW10W.jpg
+pins:
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (cw_color_temp)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (ww_color_temp)
+docs_url: https://devices.esphome.io/devices/Connect-SmartHome-10W-CCT-Bulb-CSH-B22WW10W/
+featured_components:
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white: cw_color_temp
+    warm_white: ww_color_temp
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    id: light_cwww_1
+    name: Cwww 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: output_esp8266_pwm_2
+source:
+  type: esphome-devices
+  remote_id: Connect-SmartHome-10W-CCT-Bulb-CSH-B22WW10W
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Connect-SmartHome-10W-CCT-Bulb-CSH-B22WW10W/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b2424a8b4e66acb6f8d2c69454eefe3658c569845346d4c21f732579b4ec80e3

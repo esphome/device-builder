@@ -1,0 +1,62 @@
+id: bauhn_5_way_powerboard
+name: Bauhn (Aldi) 5-way Powerboard AP5W-0624
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/20240712_102440.jpg
+- images/20240712_102657.jpg
+- images/20240712_102703.jpg
+- images/cbu_module_pinout.png
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/bauhn-5-way-powerboard/
+featured_components:
+- id: sensor_bl0942_1
+  component_id: sensor.bl0942
+  fields:
+    uart_id: uart_bus
+    update_interval: 10s
+    id: sensor_bl0942_1
+    name: Bl0942 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    icon: mdi:power-socket-au
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    icon: mdi:power-socket-au
+    id: switch_gpio_2
+    name: Gpio 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    icon: mdi:power-socket-au
+    id: switch_gpio_3
+    name: Gpio 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    icon: mdi:power-socket-au
+    id: switch_gpio_4
+    name: Gpio 4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    icon: mdi:power-socket-au
+    id: switch_gpio_5
+    name: Gpio 5
+source:
+  type: esphome-devices
+  remote_id: bauhn-5-way-powerboard
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/bauhn-5-way-powerboard/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 8dcef732e1b47c1b0bda56485d1bff6fc5a098e77188df2ab34c079915e8c746

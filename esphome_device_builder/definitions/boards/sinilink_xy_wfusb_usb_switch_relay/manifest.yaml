@@ -1,0 +1,69 @@
+id: sinilink_xy_wfusb_usb_switch_relay
+name: Sinilink XY-WFUSB USB Switch Relay
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Sinilink.png
+- images/Sinilink_bare.png
+- images/wfusb_pinout.jpg
+tags:
+- relay
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (hardware_button)
+- gpio: 5
+  available: false
+  occupied_by: switch.gpio (switch_relay)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (green_led)
+docs_url: https://devices.esphome.io/devices/Sinilink-XY-WFUSB-USB-Switch-Relay/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: WiFi Status
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: Sinilink-XY-WFUSB-USB-Switch-Relay
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sinilink-XY-WFUSB-USB-Switch-Relay/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 7df574f2097b9ea9afabd1372f525c4be48aea5d6234453b0c7bde098f13b85a

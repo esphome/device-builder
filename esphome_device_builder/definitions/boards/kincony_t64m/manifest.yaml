@@ -1,0 +1,1740 @@
+id: kincony_t64m
+name: KinCony-T64M (ESP32-S3 64CH Mosfet board)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/T64M-1.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input01)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input02)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input03)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input04)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input05)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input06)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input07)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input08)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input09)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input10)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input11)
+- gpio: 11
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input12)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input13)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input14)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input15)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-input16)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-W1-io16)
+- gpio: 17
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-W1-io17)
+- gpio: 18
+  available: false
+  occupied_by: binary_sensor.gpio (t64m-W1-io18)
+docs_url: https://devices.esphome.io/devices/KinCony-T64M/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: t64m-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: t64m-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: t64m-input03
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: t64m-input04
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: t64m-input05
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: t64m-input06
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: t64m-input07
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: t64m-input08
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: t64m-input09
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: t64m-input10
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: t64m-input11
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: t64m-input12
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: t64m-input13
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: t64m-input14
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: t64m-input15
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: t64m-input16
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_17
+    name: t64m-input17
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_18
+    name: t64m-input18
+- id: binary_sensor_gpio_19
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_19
+    name: t64m-input19
+- id: binary_sensor_gpio_20
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_20
+    name: t64m-input20
+- id: binary_sensor_gpio_21
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_21
+    name: t64m-input21
+- id: binary_sensor_gpio_22
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_22
+    name: t64m-input22
+- id: binary_sensor_gpio_23
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_23
+    name: t64m-input23
+- id: binary_sensor_gpio_24
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_24
+    name: t64m-input24
+- id: binary_sensor_gpio_25
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_25
+    name: t64m-input25
+- id: binary_sensor_gpio_26
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_26
+    name: t64m-input26
+- id: binary_sensor_gpio_27
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_27
+    name: t64m-input27
+- id: binary_sensor_gpio_28
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_28
+    name: t64m-input28
+- id: binary_sensor_gpio_29
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_29
+    name: t64m-input29
+- id: binary_sensor_gpio_30
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_30
+    name: t64m-input30
+- id: binary_sensor_gpio_31
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_31
+    name: t64m-input31
+- id: binary_sensor_gpio_32
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_32
+    name: t64m-input32
+- id: binary_sensor_gpio_33
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_33
+    name: t64m-input33
+- id: binary_sensor_gpio_34
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_34
+    name: t64m-input34
+- id: binary_sensor_gpio_35
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_35
+    name: t64m-input35
+- id: binary_sensor_gpio_36
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_36
+    name: t64m-input36
+- id: binary_sensor_gpio_37
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_37
+    name: t64m-input37
+- id: binary_sensor_gpio_38
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_38
+    name: t64m-input38
+- id: binary_sensor_gpio_39
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_39
+    name: t64m-input39
+- id: binary_sensor_gpio_40
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_40
+    name: t64m-input40
+- id: binary_sensor_gpio_41
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_41
+    name: t64m-input41
+- id: binary_sensor_gpio_42
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_42
+    name: t64m-input42
+- id: binary_sensor_gpio_43
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_43
+    name: t64m-input43
+- id: binary_sensor_gpio_44
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_44
+    name: t64m-input44
+- id: binary_sensor_gpio_45
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_45
+    name: t64m-input45
+- id: binary_sensor_gpio_46
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_46
+    name: t64m-input46
+- id: binary_sensor_gpio_47
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_47
+    name: t64m-input47
+- id: binary_sensor_gpio_48
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_48
+    name: t64m-input48
+- id: binary_sensor_gpio_49
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_49
+    name: t64m-input49
+- id: binary_sensor_gpio_50
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_50
+    name: t64m-input50
+- id: binary_sensor_gpio_51
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_51
+    name: t64m-input51
+- id: binary_sensor_gpio_52
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_52
+    name: t64m-input52
+- id: binary_sensor_gpio_53
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_53
+    name: t64m-input53
+- id: binary_sensor_gpio_54
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_54
+    name: t64m-input54
+- id: binary_sensor_gpio_55
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_55
+    name: t64m-input55
+- id: binary_sensor_gpio_56
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_56
+    name: t64m-input56
+- id: binary_sensor_gpio_57
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_57
+    name: t64m-input57
+- id: binary_sensor_gpio_58
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_58
+    name: t64m-input58
+- id: binary_sensor_gpio_59
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_59
+    name: t64m-input59
+- id: binary_sensor_gpio_60
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_60
+    name: t64m-input60
+- id: binary_sensor_gpio_61
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_61
+    name: t64m-input61
+- id: binary_sensor_gpio_62
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_62
+    name: t64m-input62
+- id: binary_sensor_gpio_63
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_63
+    name: t64m-input63
+- id: binary_sensor_gpio_64
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_64
+    name: t64m-input64
+- id: binary_sensor_gpio_65
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_65
+    name: t64m-W1-io15
+- id: binary_sensor_gpio_66
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_66
+    name: t64m-W1-io16
+- id: binary_sensor_gpio_67
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 17
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_67
+    name: t64m-W1-io17
+- id: binary_sensor_gpio_68
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 18
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_68
+    name: t64m-W1-io18
+- id: binary_sensor_gpio_69
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_69
+    name: t64m-io0
+- id: binary_sensor_gpio_70
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_70
+    name: t64m-io8
+- id: binary_sensor_gpio_71
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 9
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_71
+    name: t64m-io9
+- id: binary_sensor_gpio_72
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 10
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_72
+    name: t64m-io10
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 7
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_1
+    name: t64m A1 Voltage
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 6
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_2
+    name: t64m A2 Voltage
+- id: sensor_adc_3
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 5
+      locked: true
+    update_interval: 5s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_3
+    name: t64m A3 Current
+- id: sensor_adc_4
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    update_interval: 5s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_4
+    name: t64m A4 Current
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: t64m-output01
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: t64m-output02
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: t64m-output03
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: t64m-output04
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: t64m-output05
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_6
+    name: t64m-output06
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_7
+    name: t64m-output07
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_8
+    name: t64m-output08
+- id: switch_gpio_9
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_9
+    name: t64m-output09
+- id: switch_gpio_10
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_10
+    name: t64m-output10
+- id: switch_gpio_11
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_11
+    name: t64m-output11
+- id: switch_gpio_12
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_12
+    name: t64m-output12
+- id: switch_gpio_13
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_13
+    name: t64m-output13
+- id: switch_gpio_14
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_14
+    name: t64m-output14
+- id: switch_gpio_15
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_15
+    name: t64m-output15
+- id: switch_gpio_16
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_16
+    name: t64m-output16
+- id: switch_gpio_17
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_17
+    name: t64m-output17
+- id: switch_gpio_18
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_18
+    name: t64m-output18
+- id: switch_gpio_19
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_19
+    name: t64m-output19
+- id: switch_gpio_20
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_20
+    name: t64m-output20
+- id: switch_gpio_21
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_21
+    name: t64m-output21
+- id: switch_gpio_22
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_22
+    name: t64m-output22
+- id: switch_gpio_23
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_23
+    name: t64m-output23
+- id: switch_gpio_24
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_24
+    name: t64m-output24
+- id: switch_gpio_25
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_25
+    name: t64m-output25
+- id: switch_gpio_26
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_26
+    name: t64m-output26
+- id: switch_gpio_27
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_27
+    name: t64m-output27
+- id: switch_gpio_28
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_28
+    name: t64m-output28
+- id: switch_gpio_29
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_29
+    name: t64m-output29
+- id: switch_gpio_30
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_30
+    name: t64m-output30
+- id: switch_gpio_31
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_31
+    name: t64m-output31
+- id: switch_gpio_32
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_32
+    name: t64m-output32
+- id: switch_gpio_33
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_33
+    name: t64m-output33
+- id: switch_gpio_34
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_34
+    name: t64m-output34
+- id: switch_gpio_35
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_35
+    name: t64m-output35
+- id: switch_gpio_36
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_36
+    name: t64m-output36
+- id: switch_gpio_37
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_37
+    name: t64m-output37
+- id: switch_gpio_38
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_38
+    name: t64m-output38
+- id: switch_gpio_39
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_39
+    name: t64m-output39
+- id: switch_gpio_40
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_40
+    name: t64m-output40
+- id: switch_gpio_41
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_41
+    name: t64m-output41
+- id: switch_gpio_42
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_42
+    name: t64m-output42
+- id: switch_gpio_43
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_43
+    name: t64m-output43
+- id: switch_gpio_44
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_44
+    name: t64m-output44
+- id: switch_gpio_45
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_45
+    name: t64m-output45
+- id: switch_gpio_46
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_46
+    name: t64m-output46
+- id: switch_gpio_47
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_47
+    name: t64m-output47
+- id: switch_gpio_48
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_48
+    name: t64m-output48
+- id: switch_gpio_49
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_49
+    name: t64m-output49
+- id: switch_gpio_50
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_50
+    name: t64m-output50
+- id: switch_gpio_51
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_51
+    name: t64m-output51
+- id: switch_gpio_52
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_52
+    name: t64m-output52
+- id: switch_gpio_53
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_53
+    name: t64m-output53
+- id: switch_gpio_54
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_54
+    name: t64m-output54
+- id: switch_gpio_55
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_55
+    name: t64m-output55
+- id: switch_gpio_56
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_56
+    name: t64m-output56
+- id: switch_gpio_57
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_57
+    name: t64m-output57
+- id: switch_gpio_58
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_58
+    name: t64m-output58
+- id: switch_gpio_59
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_59
+    name: t64m-output59
+- id: switch_gpio_60
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_60
+    name: t64m-output60
+- id: switch_gpio_61
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_61
+    name: t64m-output61
+- id: switch_gpio_62
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_62
+    name: t64m-output62
+- id: switch_gpio_63
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_63
+    name: t64m-output63
+- id: switch_gpio_64
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_64
+    name: t64m-output64
+source:
+  type: esphome-devices
+  remote_id: KinCony-T64M
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-T64M/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e5ae3e3a96563e71267913d180d99b303b814ad8ca73975cb78fbf7ca75d2c73

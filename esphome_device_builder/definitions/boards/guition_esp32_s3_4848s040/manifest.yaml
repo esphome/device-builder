@@ -1,0 +1,139 @@
+id: guition_esp32_s3_4848s040
+name: Guition ESP32-S3-4848S040 480*480 Smart Screen
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/guition-esp32-s3-4848s040.jpg
+- images/guition-esp32-s3-4848s040-connector.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: switch.gpio (Relay 3)
+- gpio: 2
+  available: false
+  occupied_by: switch.gpio (Relay 2)
+- gpio: 16
+  available: false
+  occupied_by: display.st7701s (tft_display)
+- gpio: 17
+  available: false
+  occupied_by: display.st7701s (tft_display)
+- gpio: 18
+  available: false
+  occupied_by: display.st7701s (tft_display)
+- gpio: 21
+  available: false
+  occupied_by: display.st7701s (tft_display)
+- gpio: 38
+  available: false
+  occupied_by: output.ledc (backlight_output)
+- gpio: 39
+  available: false
+  occupied_by: display.st7701s (tft_display)
+- gpio: 40
+  available: false
+  occupied_by: switch.gpio (Relay 1)
+docs_url: https://devices.esphome.io/devices/Guition-ESP32-S3-4848S040/
+featured_components:
+- id: display_st7701s_1
+  component_id: display.st7701s
+  fields:
+    spi_mode: MODE3
+    data_rate: 2MHz
+    color_order: RGB
+    invert_colors: false
+    cs_pin:
+      value: 39
+      locked: true
+    de_pin:
+      value: 18
+      locked: true
+    hsync_pin:
+      value: 16
+      locked: true
+    vsync_pin:
+      value: 17
+      locked: true
+    pclk_pin:
+      value: 21
+      locked: true
+    pclk_frequency: 12MHz
+    pclk_inverted: false
+    hsync_pulse_width: 8
+    hsync_front_porch: 10
+    hsync_back_porch: 20
+    vsync_pulse_width: 8
+    vsync_front_porch: 10
+    vsync_back_porch: 10
+    update_interval: never
+    auto_clear_enabled: false
+    id: display_st7701s_1
+    name: St7701S 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: backlight_output
+    restore_mode: ALWAYS_ON
+    default_transition_length: 1s
+    id: light_monochromatic_1
+    name: Backlight
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 38
+      locked: true
+    frequency: 150Hz
+    min_power: 0.01
+    zero_means_zero: true
+    id: output_ledc_1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: Relay 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 2
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: Relay 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 1
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: Relay 3
+- id: touchscreen_gt911_1
+  component_id: touchscreen.gt911
+  fields:
+    display: tft_display
+    id: touchscreen_gt911_1
+    name: Gt911 1
+source:
+  type: esphome-devices
+  remote_id: Guition-ESP32-S3-4848S040
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Guition-ESP32-S3-4848S040/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: d15d6903a503e70eceda2bc4922387111bb60a9b235944054bf30ca3bfe5ba4a

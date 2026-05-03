@@ -1,0 +1,26 @@
+id: aubess_wifi_smart_switch
+name: Aubess WiFi Smart Switch (CB2S)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Aubess-WiFi-Smart-Switch.jpg
+docs_url: https://devices.esphome.io/devices/Aubess-WiFi-Smart-Switch/
+featured_components:
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    output: relayoutput
+    restore_mode: ALWAYS_OFF
+    id: switch_output_1
+    name: Output 1
+source:
+  type: esphome-devices
+  remote_id: Aubess-WiFi-Smart-Switch
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Aubess-WiFi-Smart-Switch/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 3a77d5dc6e3a2add815606648b571e6502518c8588152ece6177e7fcad72f212

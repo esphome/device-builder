@@ -1,0 +1,125 @@
+id: smart_plant
+name: Smart Plant
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s2-saola-1
+  variant: esp32s2
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Smart-Plant.png
+pins:
+- gpio: 1
+  available: false
+  occupied_by: sensor.adc (Soil Moisture)
+- gpio: 2
+  available: false
+  occupied_by: sensor.adc (Battery Voltage)
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (Excitation switch)
+- gpio: 10
+  available: false
+  occupied_by: display.waveshare_epaper (my_display)
+- gpio: 13
+  available: false
+  occupied_by: display.waveshare_epaper (my_display)
+- gpio: 14
+  available: false
+  occupied_by: display.waveshare_epaper (my_display)
+- gpio: 15
+  available: false
+  occupied_by: display.waveshare_epaper (my_display)
+docs_url: https://devices.esphome.io/devices/Smart-Plant/
+product_url: https://smart-plant.readthedocs.io
+featured_components:
+- id: display_waveshare_epaper_1
+  component_id: display.waveshare_epaper
+  fields:
+    cs_pin:
+      value: 10
+      locked: true
+    dc_pin:
+      value: 13
+      locked: true
+    busy_pin:
+      value: 14
+      locked: true
+    reset_pin:
+      value: 15
+      locked: true
+    rotation: 270
+    model: 2.90inv2
+    update_interval: never
+    full_update_every: 1
+    id: display_waveshare_epaper_1
+    name: Waveshare Epaper 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 2
+      locked: true
+    accuracy_decimals: 2
+    update_interval: 1s
+    unit_of_measurement: V
+    attenuation: 12db
+    icon: mdi:battery-medium
+    id: sensor_adc_1
+    name: Battery Voltage
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    lambda: return id(batvolt).state;
+    accuracy_decimals: 0
+    unit_of_measurement: '%'
+    icon: mdi:battery-medium
+    id: sensor_template_1
+    name: Battery %
+- id: sensor_aht10_1
+  component_id: sensor.aht10
+  fields:
+    variant: AHT20
+    i2c_id: bus_a
+    update_interval: 3s
+    id: sensor_aht10_1
+    name: Aht10 1
+- id: sensor_veml7700_1
+  component_id: sensor.veml7700
+  fields:
+    address: 16
+    update_interval: 1s
+    id: sensor_veml7700_1
+    name: Veml7700 1
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 1
+      locked: true
+    icon: mdi:cup-water
+    update_interval: 1s
+    unit_of_measurement: '%'
+    attenuation: 12db
+    accuracy_decimals: 0
+    id: sensor_adc_2
+    name: Soil Moisture
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    icon: mdi:power
+    restore_mode: ALWAYS_ON
+    id: switch_gpio_1
+    name: Excitation switch
+source:
+  type: esphome-devices
+  remote_id: Smart-Plant
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Smart-Plant/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: da591d5bb015028ebe1719c8ad3f194a1c947686bcd4b3921d7e91c1bb8c0040

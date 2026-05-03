@@ -1,0 +1,107 @@
+id: kogan_smarterhome_smart_plug_energy_meter_5v_24a_usb_ports
+name: Kogan SmarterHome Smart Plug With Energy Meter and 5V 2.4A USB Ports
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/kogan-smarterhome-smart-plug-energy-meter-5v-24a-usb-ports.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name}_button)
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (led)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (${device_name}_plug)
+docs_url: https://devices.esphome.io/devices/Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 3
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 4
+      locked: true
+    cf1_pin:
+      value: 5
+      locked: true
+    change_mode_every: 8
+    update_interval: 15s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    unit_of_measurement: kWh
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 5min
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    entity_category: diagnostic
+    icon: mdi:clock-start
+    id: text_sensor_template_1
+    name: Template 1
+source:
+  type: esphome-devices
+  remote_id: Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 56d577bdb879abef3aa060f5a0bd5c43cd95633f5217ec1d668431632175a882

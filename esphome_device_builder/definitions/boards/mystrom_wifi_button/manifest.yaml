@@ -1,0 +1,88 @@
+id: mystrom_wifi_button
+name: myStrom WiFi Button
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp_wroom_02
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/header.png
+- images/pins.png
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.gpio (cap_charge)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_white)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_green)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_red)
+docs_url: https://devices.esphome.io/devices/myStrom-Wifi-Button/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: pwm_white
+    id: light_monochromatic_1
+    name: White LED
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: pwm_green
+    id: light_monochromatic_2
+    name: Green LED
+- id: light_monochromatic_3
+  component_id: light.monochromatic
+  fields:
+    output: pwm_red
+    id: light_monochromatic_3
+    name: Red LED
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_3
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_gpio_1
+source:
+  type: esphome-devices
+  remote_id: myStrom-Wifi-Button
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/myStrom-Wifi-Button/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 3f1e84cf59b1bd6edd7216596aa3fa98e49ff3681347292515e27daf2940a7a6

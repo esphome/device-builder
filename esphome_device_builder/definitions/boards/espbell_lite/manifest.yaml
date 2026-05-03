@@ -1,0 +1,49 @@
+id: espbell_lite
+name: ESPBell-LITE Intercom and Doorbell module
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp12e
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/espbell.jpg
+- images/notification.jpg
+- images/ha.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (DoorBell)
+- gpio: 5
+  available: false
+  occupied_by: switch.gpio (Lock)
+docs_url: https://devices.esphome.io/devices/ESPBell-LITE/
+product_url: https://github.com/PricelessToolkit/ESPBell-LITE/tree/main
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+      locked: true
+    icon: mdi:bell
+    id: binary_sensor_gpio_1
+    name: DoorBell
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    icon: mdi:lock
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_1
+    name: Lock
+source:
+  type: esphome-devices
+  remote_id: ESPBell-LITE
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESPBell-LITE/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: d6541565ad81645ed51f470fc7afd7226e14e80d27d85bff3f79bad1d5e654b3

@@ -1,0 +1,99 @@
+id: sinvitron_a19_900lm_rgbcw
+name: Sinvitron A19 900lm RGBCW
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/sinvitron-outside.jpg
+- images/sinvitron-inside.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (red)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (cold_white)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (green)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (warm_white)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (blue)
+docs_url: https://devices.esphome.io/devices/Sinvitron-A19-900lm-RGBCW/
+featured_components:
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    red: red
+    green: green
+    blue: blue
+    cold_white: cold_white
+    warm_white: warm_white
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    restore_mode: ALWAYS_ON
+    id: light_rgbww_1
+    name: Rgbww 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_4
+- id: output_esp8266_pwm_5
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: output_esp8266_pwm_5
+source:
+  type: esphome-devices
+  remote_id: Sinvitron-A19-900lm-RGBCW
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: efffbd8019ab363a9fc57a5f6d214bc1f3e22123c4859ba02d8fafdcfc84ad21

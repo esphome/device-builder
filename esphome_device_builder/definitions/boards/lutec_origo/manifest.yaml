@@ -1,0 +1,93 @@
+id: lutec_origo
+name: LUTEC Origo WiZ ceiling/wall lamp
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/LUTEC-Origo.jpg
+pins:
+- gpio: 2
+  available: false
+  occupied_by: output.ledc (output_warm_white)
+- gpio: 4
+  available: false
+  occupied_by: output.ledc (output_cool_white)
+- gpio: 25
+  available: false
+  occupied_by: output.ledc (output_red)
+- gpio: 26
+  available: false
+  occupied_by: output.ledc (output_green)
+- gpio: 27
+  available: false
+  occupied_by: output.ledc (output_blue)
+docs_url: https://devices.esphome.io/devices/LUTEC-Origo/
+featured_components:
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    red: output_red
+    green: output_green
+    blue: output_blue
+    warm_white: output_warm_white
+    cold_white: output_cool_white
+    cold_white_color_temperature: 6500K
+    warm_white_color_temperature: 2700K
+    constant_brightness: true
+    default_transition_length: 1s
+    gamma_correct: 2.8
+    id: light_rgbww_1
+    name: WC+RGB Light
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 25
+      locked: true
+    frequency: 24000 Hz
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 26
+      locked: true
+    frequency: 24000 Hz
+    id: output_ledc_2
+- id: output_ledc_3
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 27
+      locked: true
+    frequency: 24000 Hz
+    id: output_ledc_3
+- id: output_ledc_4
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 2
+      locked: true
+    frequency: 24000 Hz
+    id: output_ledc_4
+- id: output_ledc_5
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    frequency: 24000 Hz
+    id: output_ledc_5
+source:
+  type: esphome-devices
+  remote_id: LUTEC-Origo
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LUTEC-Origo/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 6e00543b296353a46731dbb399887a0a351007bf08f4dee4965f07651b038e9b

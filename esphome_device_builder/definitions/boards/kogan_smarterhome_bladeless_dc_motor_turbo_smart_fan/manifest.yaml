@@ -1,0 +1,28 @@
+id: kogan_smarterhome_bladeless_dc_motor_turbo_smart_fan
+name: Kogan SmarterHome Bladeless DC Motor Turbo Smart Fan
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan.jpg
+docs_url: https://devices.esphome.io/devices/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan/
+featured_components:
+- id: fan_tuya_1
+  component_id: fan.tuya
+  fields:
+    switch_datapoint: 1
+    speed_datapoint: 2
+    speed_count: 9
+    oscillation_datapoint: 8
+    id: fan_tuya_1
+    name: Your Fan Name
+source:
+  type: esphome-devices
+  remote_id: Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 772fbb29e615c1d4c12618ea9e95812ea3295e5e88ca2a00674913729d149db9

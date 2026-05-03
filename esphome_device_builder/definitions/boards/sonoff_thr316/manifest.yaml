@@ -1,0 +1,133 @@
+id: sonoff_thr316
+name: Sonoff THR316
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/SonoffTHR316.jpg
+tags:
+- relay
+- sonoff
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (reset)
+- gpio: 13
+  available: false
+  occupied_by: light.status_led (auto_led)
+- gpio: 15
+  available: false
+  occupied_by: light.status_led (wifi_status_led)
+- gpio: 16
+  available: false
+  occupied_by: light.status_led (switch_led)
+- gpio: 21
+  available: false
+  occupied_by: switch.gpio ($friendly_name)
+- gpio: 27
+  available: false
+  occupied_by: switch.gpio (sensor_power)
+docs_url: https://devices.esphome.io/devices/Sonoff-THR316/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: climate_thermostat_1
+  component_id: climate.thermostat
+  fields:
+    sensor: temp
+    min_heating_off_time: 5s
+    min_heating_run_time: 5s
+    min_idle_time: 5s
+    heat_deadband: 2
+    default_preset: Home
+    id: climate_thermostat_1
+    name: $friendly_name Climate Control
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 16
+        inverted: true
+      locked: true
+    id: light_status_led_1
+    name: Status Led 1
+- id: light_status_led_2
+  component_id: light.status_led
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 15
+        inverted: true
+      locked: true
+    id: light_status_led_2
+    name: Status Led 2
+- id: light_status_led_3
+  component_id: light.status_led
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: light_status_led_3
+    name: Status Led 3
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: $friendly_name Wifi RSSI
+- id: sensor_dallas_temp_1
+  component_id: sensor.dallas_temp
+  fields:
+    index: 0
+    id: sensor_dallas_temp_1
+    name: $friendly_name Temperature
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 21
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: $friendly_name
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 27
+      locked: true
+    restore_mode: ALWAYS_ON
+    id: switch_gpio_2
+    name: Gpio 2
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:clock-start
+    id: text_sensor_template_1
+    name: $friendly_name Uptime
+source:
+  type: esphome-devices
+  remote_id: Sonoff-THR316
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-THR316/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: a3614e703d23aeb669975b754a6aaeb79d820cc2804cd2663ee2ebd1ffa49472

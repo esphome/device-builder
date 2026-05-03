@@ -1,0 +1,270 @@
+id: tuya_smart_weather_station
+name: Tuya Smart Weather Station
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: rtl87xx
+  board: generic-rtl8720cf-2mb-992k
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/device.jpg
+docs_url: https://devices.esphome.io/devices/Tuya-Smart-Weather-Station/
+featured_components:
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    entity_category: CONFIG
+    enum_datapoint: 106
+    id: select_tuya_1
+    name: Display Brightness
+- id: select_tuya_2
+  component_id: select.tuya
+  fields:
+    entity_category: CONFIG
+    enum_datapoint: 105
+    id: select_tuya_2
+    name: Unit Temperature
+- id: select_tuya_3
+  component_id: select.tuya
+  fields:
+    entity_category: CONFIG
+    enum_datapoint: 109
+    id: select_tuya_3
+    name: Unit Wind Speed
+- id: select_tuya_4
+  component_id: select.tuya
+  fields:
+    entity_category: CONFIG
+    enum_datapoint: 110
+    id: select_tuya_4
+    name: Unit Pressure
+- id: sensor_homeassistant_1
+  component_id: sensor.homeassistant
+  fields:
+    internal: true
+    id: sensor_homeassistant_1
+    name: Homeassistant 1
+- id: sensor_homeassistant_2
+  component_id: sensor.homeassistant
+  fields:
+    internal: true
+    id: sensor_homeassistant_2
+    name: Homeassistant 2
+- id: sensor_homeassistant_3
+  component_id: sensor.homeassistant
+  fields:
+    internal: true
+    id: sensor_homeassistant_3
+    name: Homeassistant 3
+- id: sensor_homeassistant_4
+  component_id: sensor.homeassistant
+  fields:
+    internal: true
+    id: sensor_homeassistant_4
+    name: Homeassistant 4
+- id: sensor_homeassistant_5
+  component_id: sensor.homeassistant
+  fields:
+    internal: true
+    id: sensor_homeassistant_5
+    name: Homeassistant 5
+- id: sensor_homeassistant_6
+  component_id: sensor.homeassistant
+  fields:
+    internal: true
+    id: sensor_homeassistant_6
+    name: Homeassistant 6
+- id: sensor_homeassistant_7
+  component_id: sensor.homeassistant
+  fields:
+    internal: true
+    id: sensor_homeassistant_7
+    name: Homeassistant 7
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 131
+    device_class: temperature
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    id: sensor_tuya_1
+    name: Local Temperature
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 132
+    device_class: humidity
+    unit_of_measurement: '%'
+    accuracy_decimals: 0
+    id: sensor_tuya_2
+    name: Local Humidity
+- id: sensor_tuya_3
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 133
+    device_class: temperature
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    id: sensor_tuya_3
+    name: Sub1 Temperature
+- id: sensor_tuya_4
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 134
+    device_class: humidity
+    unit_of_measurement: '%'
+    accuracy_decimals: 0
+    id: sensor_tuya_4
+    name: Sub1 Humidity
+- id: sensor_tuya_5
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 135
+    device_class: temperature
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    id: sensor_tuya_5
+    name: Sub2 Temperature
+- id: sensor_tuya_6
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 136
+    device_class: humidity
+    unit_of_measurement: '%'
+    accuracy_decimals: 0
+    id: sensor_tuya_6
+    name: Sub2 Humidity
+- id: sensor_tuya_7
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 137
+    device_class: temperature
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    id: sensor_tuya_7
+    name: Sub3 Temperature
+- id: sensor_tuya_8
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 138
+    device_class: humidity
+    unit_of_measurement: '%'
+    accuracy_decimals: 0
+    id: sensor_tuya_8
+    name: Sub3 Humidity
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    entity_category: CONFIG
+    switch_datapoint: 129
+    id: switch_tuya_1
+    name: Night Mode Enable
+- id: switch_tuya_2
+  component_id: switch.tuya
+  fields:
+    entity_category: CONFIG
+    switch_datapoint: 102
+    id: switch_tuya_2
+    name: Display 24h Format
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_1
+    name: Display UV Index
+- id: switch_template_2
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_2
+    name: Display Wind Speed
+- id: switch_template_3
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_3
+    name: Display Pressure
+- id: switch_template_4
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_4
+    name: Display Temperature
+- id: switch_template_5
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_5
+    name: Display Humidity
+- id: switch_template_6
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_6
+    name: Display Feels Like
+- id: switch_template_7
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_7
+    name: Display Local T&H
+- id: switch_template_8
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_8
+    name: Display Sub T&H
+- id: switch_template_9
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_9
+    name: Display Date
+- id: switch_template_10
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_10
+    name: Display Week
+- id: switch_template_11
+  component_id: switch.template
+  fields:
+    entity_category: CONFIG
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_template_11
+    name: Display Weather
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    internal: true
+    update_interval: never
+    id: text_sensor_template_1
+    name: Template 1
+source:
+  type: esphome-devices
+  remote_id: Tuya-Smart-Weather-Station
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Smart-Weather-Station/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: de824936d1c465512bf4f1d81279f62a4361e0470215672845ea53170cd18beb

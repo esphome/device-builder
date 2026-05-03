@@ -1,0 +1,33 @@
+id: avatto_tuya_wifi_smart_switch
+name: AVATTO Tuya WiFi Smart Switch Modul
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/AVATTOTuyaWiFiSmartSwitch.jpg
+- images/Frontside.jpg
+- images/Backside.jpg
+docs_url: https://devices.esphome.io/devices/AVATTO-Tuya-WiFi-Smart-Switch/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    id: light_status_led_1
+    name: State
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    output: relayoutput
+    id: switch_output_1
+    name: Output 1
+source:
+  type: esphome-devices
+  remote_id: AVATTO-Tuya-WiFi-Smart-Switch
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 78fed0455ee3ef73fbc1fd14354ce15e73360411fc6cd5ef52b3d9d01f2cd392

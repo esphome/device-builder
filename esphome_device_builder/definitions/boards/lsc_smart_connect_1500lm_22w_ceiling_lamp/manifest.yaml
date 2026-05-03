@@ -1,0 +1,38 @@
+id: lsc_smart_connect_1500lm_22w_ceiling_lamp
+name: LSC Smart Connect 1500lm 22W Ceiling Lamp 3206306
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/image.png
+docs_url: https://devices.esphome.io/devices/LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp/
+featured_components:
+- id: light_beken_spi_led_strip_1
+  component_id: light.beken_spi_led_strip
+  fields:
+    chipset: SM16703
+    num_leds: 120
+    rgb_order: RGB
+    restore_mode: RESTORE_DEFAULT_ON
+    id: light_beken_spi_led_strip_1
+    name: Outer RGB
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    cold_white: output_cold
+    warm_white: output_warm
+    restore_mode: RESTORE_DEFAULT_ON
+    id: light_cwww_1
+    name: Main
+source:
+  type: esphome-devices
+  remote_id: LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: bb98761bc03b4d21242e7ca588767491ed14fe45498aaed8546b15085ae10050

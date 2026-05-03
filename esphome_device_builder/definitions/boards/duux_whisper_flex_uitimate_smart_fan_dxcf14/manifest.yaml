@@ -1,0 +1,69 @@
+id: duux_whisper_flex_uitimate_smart_fan_dxcf14
+name: Duux Whisper Flex Ultimate Smart Fan (DXCF14)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp07
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/duux_DXCF14.png
+docs_url: https://devices.esphome.io/devices/Duux-Whisper-Flex-UItimate-Smart-Fan-DXCF14/
+featured_components:
+- id: fan_tuya_1
+  component_id: fan.tuya
+  fields:
+    switch_datapoint: 1
+    speed_datapoint: 3
+    speed_count: 30
+    id: fan_tuya_1
+    name: None
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 4
+    optimistic: true
+    id: select_tuya_1
+    name: Oscillate horizontally
+- id: select_tuya_2
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 5
+    optimistic: true
+    id: select_tuya_2
+    name: Oscillate vertically
+- id: select_tuya_3
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 2
+    optimistic: true
+    id: select_tuya_3
+    name: Mode
+- id: select_tuya_4
+  component_id: select.tuya
+  fields:
+    icon: mdi:fan-clock
+    enum_datapoint: 6
+    optimistic: true
+    id: select_tuya_4
+    name: Timer
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    icon: mdi:wifi
+    id: sensor_wifi_signal_1
+    name: Wifi Signal
+- id: text_sensor_version_1
+  component_id: text_sensor.version
+  fields:
+    hide_timestamp: true
+    id: text_sensor_version_1
+    name: ESPHome Version
+source:
+  type: esphome-devices
+  remote_id: Duux-Whisper-Flex-UItimate-Smart-Fan-DXCF14
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Duux-Whisper-Flex-UItimate-Smart-Fan-DXCF14/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 586489ae8c0d8297a624965bcc384dac787e2d57d8bfdb094c2067368e35c229

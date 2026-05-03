@@ -1,0 +1,790 @@
+id: kincony_f24
+name: KinCony-F24 (ESP32-S3 16A Removable Relay)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/F24-1.jpg
+- images/F24-2.jpg
+- images/F24-3.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input01)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input02)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input03)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input04)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input05)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input06)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input07)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input08)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input09)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input10)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input11)
+- gpio: 11
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input12)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input13)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input14)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input15)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (f24-input16)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (f24-W1-io21)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (f24-433M)
+- gpio: 47
+  available: false
+  occupied_by: binary_sensor.gpio (f24-W1-io47)
+- gpio: 48
+  available: false
+  occupied_by: binary_sensor.gpio (f24-W1-io48)
+docs_url: https://devices.esphome.io/devices/KinCony-F24/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: f24-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: f24-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: f24-input03
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: f24-input04
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: f24-input05
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: f24-input06
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: f24-input07
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: f24-input08
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: f24-input09
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: f24-input10
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: f24-input11
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: f24-input12
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: f24-input13
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: f24-input14
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: f24-input15
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: f24-input16
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_17
+    name: f24-input17
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_18
+    name: f24-input18
+- id: binary_sensor_gpio_19
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_19
+    name: f24-input19
+- id: binary_sensor_gpio_20
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_20
+    name: f24-input20
+- id: binary_sensor_gpio_21
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_21
+    name: f24-input21
+- id: binary_sensor_gpio_22
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_22
+    name: f24-input22
+- id: binary_sensor_gpio_23
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_23
+    name: f24-input23
+- id: binary_sensor_gpio_24
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_24
+    name: f24-input24
+- id: binary_sensor_gpio_25
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 48
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_25
+    name: f24-W1-io48
+- id: binary_sensor_gpio_26
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 47
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_26
+    name: f24-W1-io47
+- id: binary_sensor_gpio_27
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 21
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_27
+    name: f24-W1-io21
+- id: binary_sensor_gpio_28
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_28
+    name: f24-W1-io15
+- id: binary_sensor_gpio_29
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_29
+    name: f24-W1-io13
+- id: binary_sensor_gpio_30
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_30
+    name: f24-W1-io14
+- id: binary_sensor_gpio_31
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_31
+    name: f24-433M
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    i2c_id: bus_a
+    model: SSD1306 128x64
+    address: 60
+    lambda: it.printf(0, 0, id(roboto), "KinCony F24");
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 5
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_1
+    name: f24 A1 Voltage
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 7
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_2
+    name: f24 A2 Voltage
+- id: sensor_adc_3
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 6
+      locked: true
+    update_interval: 5s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_3
+    name: f24 A3 Current
+- id: sensor_adc_4
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    update_interval: 5s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_4
+    name: f24 A4 Current
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_1
+    id: switch_uart_1
+    name: RS485 Button
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: f24-output01
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: f24-output02
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: f24-output03
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: f24-output04
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: f24-output05
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_6
+    name: f24-output06
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_7
+    name: f24-output07
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_in_2
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_8
+    name: f24-output08
+- id: switch_gpio_9
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_9
+    name: f24-output09
+- id: switch_gpio_10
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_10
+    name: f24-output10
+- id: switch_gpio_11
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_11
+    name: f24-output11
+- id: switch_gpio_12
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_12
+    name: f24-output12
+- id: switch_gpio_13
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_13
+    name: f24-output13
+- id: switch_gpio_14
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_14
+    name: f24-output14
+- id: switch_gpio_15
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_15
+    name: f24-output15
+- id: switch_gpio_16
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_16
+    name: f24-output16
+- id: switch_gpio_17
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_17
+    name: f24-output17
+- id: switch_gpio_18
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_18
+    name: f24-output18
+- id: switch_gpio_19
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_19
+    name: f24-output19
+- id: switch_gpio_20
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_20
+    name: f24-output20
+- id: switch_gpio_21
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_21
+    name: f24-output21
+- id: switch_gpio_22
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_22
+    name: f24-output22
+- id: switch_gpio_23
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_23
+    name: f24-output23
+- id: switch_gpio_24
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_24
+    name: f24-output24
+source:
+  type: esphome-devices
+  remote_id: KinCony-F24
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-F24/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 04ea7568cbc050d91fe77a54f13f77119906a6e24a0aa0f08f971afb11f1d7c0

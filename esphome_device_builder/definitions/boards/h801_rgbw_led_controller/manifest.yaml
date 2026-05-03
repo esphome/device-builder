@@ -1,0 +1,90 @@
+id: h801_rgbw_led_controller
+name: H801/H802 RGBW LED controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/h801.jpg
+- images/h801-board-front.jpg
+- images/h801-board-back.jpg
+- images/h801-pir_sensor.jpg
+- images/H802WiFi-1.jpg
+- images/h802-board-photo-annotated.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_w2)
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_b)
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_g)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_w1)
+- gpio: 15
+  available: false
+  occupied_by: output.esp8266_pwm (pwm_r)
+docs_url: https://devices.esphome.io/devices/H801-RGBW-LED-Controller/
+featured_components:
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    red: pwm_r
+    green: pwm_g
+    blue: pwm_b
+    cold_white: pwm_w1
+    warm_white: pwm_w2
+    id: light_rgbww_1
+    name: H801 Light
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 13
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_2
+- id: output_esp8266_pwm_3
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 15
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_3
+- id: output_esp8266_pwm_4
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_4
+- id: output_esp8266_pwm_5
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    frequency: 1000 Hz
+    id: output_esp8266_pwm_5
+source:
+  type: esphome-devices
+  remote_id: H801-RGBW-LED-Controller
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/H801-RGBW-LED-Controller/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: bf2b2d3cc4c83f7849bc3f0d949522615158d35352e6a50eb31a755de5e21204

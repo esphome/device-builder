@@ -1,0 +1,168 @@
+id: waveshare_6ch_relay
+name: WAVESHARE-6CH-RELAY
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image1.jpg
+- images/image2.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Boot Button)
+- gpio: 1
+  available: false
+  occupied_by: switch.gpio (Relay 1)
+- gpio: 2
+  available: false
+  occupied_by: switch.gpio (Relay 2)
+- gpio: 21
+  available: false
+  occupied_by: output.ledc (buzzer_output)
+- gpio: 38
+  available: false
+  occupied_by: light.esp32_rmt_led_strip (RGB LED)
+- gpio: 41
+  available: false
+  occupied_by: switch.gpio (Relay 3)
+- gpio: 42
+  available: false
+  occupied_by: switch.gpio (Relay 4)
+- gpio: 45
+  available: false
+  occupied_by: switch.gpio (Relay 5)
+- gpio: 46
+  available: false
+  occupied_by: switch.gpio (Relay 6)
+docs_url: https://devices.esphome.io/devices/waveshare-6ch-relay/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        ignore_strapping_warning: true
+        mode:
+          input: true
+        inverted: true
+      locked: true
+    disabled_by_default: true
+    id: binary_sensor_gpio_1
+    name: Boot Button
+- id: button_restart_1
+  component_id: button.restart
+  fields:
+    entity_category: config
+    id: button_restart_1
+    name: Restart
+- id: button_factory_reset_1
+  component_id: button.factory_reset
+  fields:
+    entity_category: config
+    id: button_factory_reset_1
+    name: Factory Reset
+- id: button_safe_mode_1
+  component_id: button.safe_mode
+  fields:
+    internal: false
+    entity_category: config
+    id: button_safe_mode_1
+    name: Safe Mode
+- id: light_esp32_rmt_led_strip_1
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    chipset: ws2812
+    pin:
+      value: 38
+      locked: true
+    num_leds: 1
+    rgb_order: RGB
+    id: light_esp32_rmt_led_strip_1
+    name: RGB LED
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 21
+      locked: true
+    id: output_ledc_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: WiFi Signal dB
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 1
+      locked: true
+    id: switch_gpio_1
+    name: Relay 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 2
+      locked: true
+    id: switch_gpio_2
+    name: Relay 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 41
+      locked: true
+    id: switch_gpio_3
+    name: Relay 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 42
+      locked: true
+    id: switch_gpio_4
+    name: Relay 4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 45
+        ignore_strapping_warning: true
+      locked: true
+    id: switch_gpio_5
+    name: Relay 5
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 46
+        ignore_strapping_warning: true
+      locked: true
+    id: switch_gpio_6
+    name: Relay 6
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    icon: mdi:volume-high
+    id: switch_template_1
+    name: Buzzer
+source:
+  type: esphome-devices
+  remote_id: waveshare-6ch-relay
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/waveshare-6ch-relay/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 4c2219eb416df132e458c20e58399d5cec7b27f92c65ab8ffe311fb4a8342e81

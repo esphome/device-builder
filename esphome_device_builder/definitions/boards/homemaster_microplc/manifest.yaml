@@ -1,0 +1,38 @@
+id: homemaster_microplc
+name: Homemaster-MicroPLC
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/MicroPLC.png
+- images/pinout_MicroPLC.png
+- images/diagram.png
+tags:
+- relay
+pins:
+- gpio: 26
+  available: false
+  occupied_by: switch.gpio (Relay)
+docs_url: https://devices.esphome.io/devices/Homemaster-MicroPLC/
+product_url: https://github.com/isystemsautomation/HOMEMASTER/tree/main/MicroPLC
+featured_components:
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: switch_gpio_1
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: Homemaster-MicroPLC
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Homemaster-MicroPLC/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: c1dcdfb24f96200915da88f97c8514ed44d81689e912cad9769f99a2a1c45504

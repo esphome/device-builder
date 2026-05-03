@@ -1,0 +1,472 @@
+id: kincony_kc868_a16
+name: KinCony KC868-A16
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/kc868-a16.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-X01)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-X02)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-X03)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-X04)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-X05)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-X06)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-X07)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-X08)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-HT3)
+- gpio: 32
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-HT1)
+- gpio: 33
+  available: false
+  occupied_by: binary_sensor.gpio (KC868-A16-HT2)
+docs_url: https://devices.esphome.io/devices/KinCony-KC868-A16/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 32
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: KC868-A16-HT1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 33
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: KC868-A16-HT2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: KC868-A16-HT3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_1_8
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: KC868-A16-X01
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_1_8
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: KC868-A16-X02
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_1_8
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: KC868-A16-X03
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_1_8
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: KC868-A16-X04
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_1_8
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: KC868-A16-X05
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_1_8
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: KC868-A16-X06
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_1_8
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: KC868-A16-X07
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_1_8
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: KC868-A16-X08
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_9_16
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: KC868-A16-X09
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_9_16
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: KC868-A16-X10
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_9_16
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: KC868-A16-X11
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_9_16
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: KC868-A16-X12
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_9_16
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: KC868-A16-X13
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_9_16
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_17
+    name: KC868-A16-X14
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_9_16
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_18
+    name: KC868-A16-X15
+- id: binary_sensor_gpio_19
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: inputs_9_16
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_19
+    name: KC868-A16-X16
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_1_8
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: KC868-A16-Y01
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_1_8
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: KC868-A16-Y02
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_1_8
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: KC868-A16-Y03
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_1_8
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: KC868-A16-Y04
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_1_8
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: KC868-A16-Y05
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_1_8
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_6
+    name: KC868-A16-Y06
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_1_8
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_7
+    name: KC868-A16-Y07
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_1_8
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_8
+    name: KC868-A16-Y08
+- id: switch_gpio_9
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_9_16
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_9
+    name: KC868-A16-Y09
+- id: switch_gpio_10
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_9_16
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_10
+    name: KC868-A16-Y10
+- id: switch_gpio_11
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_9_16
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_11
+    name: KC868-A16-Y11
+- id: switch_gpio_12
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_9_16
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_12
+    name: KC868-A16-Y12
+- id: switch_gpio_13
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_9_16
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_13
+    name: KC868-A16-Y13
+- id: switch_gpio_14
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_9_16
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_14
+    name: KC868-A16-Y14
+- id: switch_gpio_15
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_9_16
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_15
+    name: KC868-A16-Y15
+- id: switch_gpio_16
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: outputs_9_16
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_16
+    name: KC868-A16-Y16
+source:
+  type: esphome-devices
+  remote_id: KinCony-KC868-A16
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-A16/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: aa7e216737518ffa1dbe9bffc6bacb5c9024cc5afe3f3448231cc479f7db2449

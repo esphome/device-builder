@@ -1,0 +1,90 @@
+id: tuya_dy_rq400a_combustible_gas_alarm
+name: DY-RQ400A Tuya Combustible Gas Alarm
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: wb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/rq400a.png
+- images/pcb-front-wifi-back.webp
+- images/pcb-front-wifi-front.webp
+- images/runjet-mcu.webp
+- images/gas-sensor-closeup.webp
+- images/uart1-attach-a.webp
+- images/uart1-attach-b1.webp
+- images/uart1-attach-b2.webp
+docs_url: https://devices.esphome.io/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/
+product_url: https://github.com/dshcherb/DY-RQ400A-gas-alarm-esphome
+featured_components:
+- id: binary_sensor_tuya_1
+  component_id: binary_sensor.tuya
+  fields:
+    sensor_datapoint: 2
+    id: binary_sensor_tuya_1
+    name: Gas Alarm
+- id: binary_sensor_tuya_2
+  component_id: binary_sensor.tuya
+  fields:
+    sensor_datapoint: 10
+    id: binary_sensor_tuya_2
+    name: Sensor Preheat
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 3
+    min_value: 0
+    max_value: 180
+    step: 1
+    id: number_tuya_1
+    name: Alarm Period
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 8
+    optimistic: true
+    id: select_tuya_1
+    name: Alarm Melody
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 5
+    unit_of_measurement: '%'
+    state_class: measurement
+    id: sensor_tuya_1
+    name: Gas Threshold Level
+- id: switch_tuya_1
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 9
+    restore_mode: DISABLED
+    id: switch_tuya_1
+    name: Alarm Self-test
+- id: switch_tuya_2
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 12
+    restore_mode: DISABLED
+    id: switch_tuya_2
+    name: Alarm Sound
+- id: switch_tuya_3
+  component_id: switch.tuya
+  fields:
+    switch_datapoint: 14
+    restore_mode: DISABLED
+    id: switch_tuya_3
+    name: Silence the Alarm
+- id: text_sensor_tuya_1
+  component_id: text_sensor.tuya
+  fields:
+    sensor_datapoint: 1
+    id: text_sensor_tuya_1
+    name: Self-test Result
+source:
+  type: esphome-devices
+  remote_id: Tuya-DY-RQ400A-Combustible-Gas-Alarm
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: bd1009aa94b5c15dfb1bbb0f2e7a8f862b4356ddc96faedf2723a6df81248b4b

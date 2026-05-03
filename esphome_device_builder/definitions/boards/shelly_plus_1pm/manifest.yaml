@@ -1,0 +1,132 @@
+id: shelly_plus_1pm
+name: Shelly Plus 1PM
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/shelly_plus_1pm_pinout.jpg
+tags:
+- relay
+- shelly
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Switch)
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 18
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 23
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 26
+  available: false
+  occupied_by: output.gpio (relay_output)
+- gpio: 32
+  available: false
+  occupied_by: sensor.adc (temp_analog_reading)
+- gpio: 33
+  available: false
+  occupied_by: sensor.adc (${device_name} Relay Supply Voltage)
+docs_url: https://devices.esphome.io/devices/Shelly-Plus-1PM/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: output_gpio_1
+- id: sensor_ntc_1
+  component_id: sensor.ntc
+  fields:
+    sensor: temp_resistance_reading
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    icon: mdi:thermometer
+    id: sensor_ntc_1
+    name: Ntc 1
+- id: sensor_resistance_1
+  component_id: sensor.resistance
+  fields:
+    sensor: temp_analog_reading
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    id: sensor_resistance_1
+    name: Resistance 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 32
+      locked: true
+    attenuation: 12db
+    id: sensor_adc_1
+    name: Adc 1
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 33
+      locked: true
+    attenuation: 12db
+    id: sensor_adc_2
+    name: Adc 2
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    sel_pin:
+      value:
+        number: 23
+        inverted: true
+      locked: true
+    cf_pin:
+      value:
+        number: 5
+        ignore_strapping_warning: true
+      locked: true
+    cf1_pin:
+      value: 18
+      locked: true
+    change_mode_every: 2
+    update_interval: 10s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    power_id: power
+    unit_of_measurement: kWh
+    icon: mdi:clock-alert
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy 1
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    output: relay_output
+    id: switch_output_1
+    name: Output 1
+source:
+  type: esphome-devices
+  remote_id: Shelly-Plus-1PM
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-1PM/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f27f751d688e2f5f3333007c620b62c13af34c5dee1b163285563a0eaf5e8c44

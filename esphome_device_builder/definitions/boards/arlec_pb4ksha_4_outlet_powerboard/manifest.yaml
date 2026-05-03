@@ -1,0 +1,28 @@
+id: arlec_pb4ksha_4_outlet_powerboard
+name: Arlec PB4KSHA 4 outlet powerboard
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231t-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/arlec_PB4KSHA.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Arlec-PB4KSHA-4-outlet-powerboard/
+featured_components:
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: relay_status_led_output
+    id: light_binary_1
+    name: Binary 1
+source:
+  type: esphome-devices
+  remote_id: Arlec-PB4KSHA-4-outlet-powerboard
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-PB4KSHA-4-outlet-powerboard/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 07dd45cde5ec809035f372ff823eac6c250652f445064c4851f2143b5b61c17f

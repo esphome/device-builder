@@ -1,0 +1,87 @@
+id: xiaomi_gateway_3
+name: Xiaomi Smart Multi Mode Gateway 3
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image.jpg
+pins:
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${name} Zigbee Download Mode)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (${name} Zigbee nRST)
+- gpio: 14
+  available: false
+  occupied_by: output.ledc (output0)
+- gpio: 34
+  available: false
+  occupied_by: binary_sensor.gpio (${name} Enable Pairing Mode)
+docs_url: https://devices.esphome.io/devices/Xiaomi-Gateway-3/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 34
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: output0
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_ledc_1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    internal: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: Xiaomi-Gateway-3
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Xiaomi-Gateway-3/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 378db1df646e07188fa892708988bde29d28ec107d670625b444c4517f2d1c1f

@@ -1,0 +1,349 @@
+id: homemaster_miniplc
+name: Homemaster-MiniPLC
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/MiniPLC.png
+- images/pinout.png
+- images/system_block_diagram.png
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: 'binary_sensor.gpio (Button #1)'
+- gpio: 1
+  available: false
+  occupied_by: 'binary_sensor.gpio (Button #2)'
+- gpio: 2
+  available: false
+  occupied_by: 'binary_sensor.gpio (Button #3)'
+- gpio: 3
+  available: false
+  occupied_by: 'binary_sensor.gpio (Button #4)'
+- gpio: 4
+  available: false
+  occupied_by: 'switch.gpio (RELAY #6)'
+- gpio: 5
+  available: false
+  occupied_by: 'switch.gpio (RELAY #5)'
+- gpio: 6
+  available: false
+  occupied_by: 'switch.gpio (RELAY #4)'
+- gpio: 34
+  available: false
+  occupied_by: 'binary_sensor.gpio (DI #3)'
+- gpio: 35
+  available: false
+  occupied_by: 'binary_sensor.gpio (DI #4)'
+- gpio: 36
+  available: false
+  occupied_by: 'binary_sensor.gpio (DI #1)'
+- gpio: 39
+  available: false
+  occupied_by: 'binary_sensor.gpio (DI #2)'
+docs_url: https://devices.esphome.io/devices/Homemaster-MiniPLC/
+product_url: https://github.com/isystemsautomation/HOMEMASTER/tree/main/MiniPLC
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 36
+      locked: true
+    id: binary_sensor_gpio_1
+    name: 'DI #1'
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+      locked: true
+    id: binary_sensor_gpio_2
+    name: 'DI #2'
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 34
+      locked: true
+    id: binary_sensor_gpio_3
+    name: 'DI #3'
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 35
+      locked: true
+    id: binary_sensor_gpio_4
+    name: 'DI #4'
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_a
+        number: 0
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: 'Button #1'
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_a
+        number: 1
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: 'Button #2'
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_a
+        number: 2
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: 'Button #3'
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_a
+        number: 3
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: 'Button #4'
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    model: SH1106 128x64
+    address: 60
+    rotation: 180
+    contrast: 100%
+    update_interval: 1s
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: fan_speed_1
+  component_id: fan.speed
+  fields:
+    output: dac_output
+    id: fan_speed_1
+    name: DAC 0-10V Output
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 2
+      locked: true
+    id: output_ledc_1
+- id: sensor_dallas_temp_1
+  component_id: sensor.dallas_temp
+  fields:
+    one_wire_id: hub_1
+    address: 8033444170748420392
+    update_interval: 60s
+    id: sensor_dallas_temp_1
+    name: 1-WIRE Dallas temperature BUS1
+- id: sensor_dallas_temp_2
+  component_id: sensor.dallas_temp
+  fields:
+    one_wire_id: hub_2
+    address: 13563718172574175528
+    update_interval: 60s
+    id: sensor_dallas_temp_2
+    name: 1-WIRE Dallas temperature BUS2
+- id: sensor_max31865_1
+  component_id: sensor.max31865
+  fields:
+    cs_pin:
+      value: 1
+      locked: true
+    reference_resistance: 400 Ω
+    rtd_nominal_resistance: 100 Ω
+    update_interval: 60s
+    id: sensor_max31865_1
+    name: MAX 31856 Temperature 1
+- id: sensor_max31865_2
+  component_id: sensor.max31865
+  fields:
+    cs_pin:
+      value: 3
+      locked: true
+    reference_resistance: 4000 Ω
+    rtd_nominal_resistance: 1000 Ω
+    update_interval: 60s
+    id: sensor_max31865_2
+    name: MAX 31856 Temperature 2
+- id: sensor_ads1115_1
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A0_GND
+    gain: 6.144
+    update_interval: 60s
+    id: sensor_ads1115_1
+    name: ADC AI4
+- id: sensor_ads1115_2
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A1_GND
+    gain: 6.144
+    update_interval: 60s
+    id: sensor_ads1115_2
+    name: ADC AI3
+- id: sensor_ads1115_3
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A2_GND
+    gain: 6.144
+    update_interval: 60s
+    id: sensor_ads1115_3
+    name: ADC AI2
+- id: sensor_ads1115_4
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A3_GND
+    gain: 6.144
+    update_interval: 60s
+    id: sensor_ads1115_4
+    name: ADC AI1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_b
+        number: 2
+        mode:
+          output: true
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: 'RELAY #1'
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_b
+        number: 1
+        mode:
+          output: true
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: 'RELAY #2'
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_b
+        number: 0
+        mode:
+          output: true
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: 'RELAY #3'
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_a
+        number: 6
+        mode:
+          output: true
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: 'RELAY #4'
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_a
+        number: 5
+        mode:
+          output: true
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: 'RELAY #5'
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_a
+        number: 4
+        mode:
+          output: true
+        inverted: true
+      locked: true
+    id: switch_gpio_6
+    name: 'RELAY #6'
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_b
+        number: 3
+        mode:
+          output: true
+        inverted: true
+      locked: true
+    id: switch_gpio_7
+    name: 'LED #2'
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_b
+        number: 4
+        mode:
+          output: true
+        inverted: true
+      locked: true
+    id: switch_gpio_8
+    name: 'LED #3'
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    optimistic: true
+    id: switch_template_1
+    name: Switch buzzer
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    update_interval: 60s
+    id: text_sensor_template_1
+    name: Current time
+source:
+  type: esphome-devices
+  remote_id: Homemaster-MiniPLC
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Homemaster-MiniPLC/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 130c022bb16f8b1949bff6ea1ce8abe497fa87960cf0758f40394d62a05d4efd

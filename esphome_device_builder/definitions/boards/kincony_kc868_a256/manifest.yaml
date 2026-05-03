@@ -1,0 +1,6680 @@
+id: kincony_kc868_a256
+name: KinCony KC868-A256
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/kc868-a256.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input1)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input2)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input3)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input4)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input5)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input6)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input7)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input8)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input9)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input10)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input11)
+- gpio: 11
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input12)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input13)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input14)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input15)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input16)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input17)
+- gpio: 17
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input18)
+- gpio: 18
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input19)
+- gpio: 19
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input20)
+- gpio: 20
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input21)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input22)
+- gpio: 22
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input23)
+- gpio: 23
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input24)
+- gpio: 24
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input25)
+- gpio: 25
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input26)
+- gpio: 26
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input27)
+- gpio: 27
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input28)
+- gpio: 28
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input29)
+- gpio: 29
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input30)
+- gpio: 30
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input31)
+- gpio: 31
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input32)
+- gpio: 32
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input33)
+- gpio: 33
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input34)
+- gpio: 34
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input35)
+- gpio: 35
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input36)
+- gpio: 36
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input37)
+- gpio: 37
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input38)
+- gpio: 38
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input39)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input40)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input41)
+- gpio: 41
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input42)
+- gpio: 42
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input43)
+- gpio: 43
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input44)
+- gpio: 44
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input45)
+- gpio: 45
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input46)
+- gpio: 46
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input47)
+- gpio: 47
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input48)
+- gpio: 48
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input49)
+- gpio: 49
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input50)
+- gpio: 50
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input51)
+- gpio: 51
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input52)
+- gpio: 52
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input53)
+- gpio: 53
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input54)
+- gpio: 54
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input55)
+- gpio: 55
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input56)
+- gpio: 56
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input57)
+- gpio: 57
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input58)
+- gpio: 58
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input59)
+- gpio: 59
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input60)
+- gpio: 60
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input61)
+- gpio: 61
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input62)
+- gpio: 62
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input63)
+- gpio: 63
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input64)
+- gpio: 64
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input65)
+- gpio: 65
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input66)
+- gpio: 66
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input67)
+- gpio: 67
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input68)
+- gpio: 68
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input69)
+- gpio: 69
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input70)
+- gpio: 70
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input71)
+- gpio: 71
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input72)
+- gpio: 72
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input73)
+- gpio: 73
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input74)
+- gpio: 74
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input75)
+- gpio: 75
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input76)
+- gpio: 76
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input77)
+- gpio: 77
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input78)
+- gpio: 78
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input79)
+- gpio: 79
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input80)
+- gpio: 80
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input81)
+- gpio: 81
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input82)
+- gpio: 82
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input83)
+- gpio: 83
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input84)
+- gpio: 84
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input85)
+- gpio: 85
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input86)
+- gpio: 86
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input87)
+- gpio: 87
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input88)
+- gpio: 88
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input89)
+- gpio: 89
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input90)
+- gpio: 90
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input91)
+- gpio: 91
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input92)
+- gpio: 92
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input93)
+- gpio: 93
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input94)
+- gpio: 94
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input95)
+- gpio: 95
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input96)
+- gpio: 96
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input97)
+- gpio: 97
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input98)
+- gpio: 98
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input99)
+- gpio: 99
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input100)
+- gpio: 100
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input101)
+- gpio: 101
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input102)
+- gpio: 102
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input103)
+- gpio: 103
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input104)
+- gpio: 104
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input105)
+- gpio: 105
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input106)
+- gpio: 106
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input107)
+- gpio: 107
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input108)
+- gpio: 108
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input109)
+- gpio: 109
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input110)
+- gpio: 110
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input111)
+- gpio: 111
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input112)
+- gpio: 112
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input113)
+- gpio: 113
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input114)
+- gpio: 114
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input115)
+- gpio: 115
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input116)
+- gpio: 116
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input117)
+- gpio: 117
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input118)
+- gpio: 118
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input119)
+- gpio: 119
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input120)
+- gpio: 120
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input121)
+- gpio: 121
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input122)
+- gpio: 122
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input123)
+- gpio: 123
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input124)
+- gpio: 124
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input125)
+- gpio: 125
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input126)
+- gpio: 126
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input127)
+- gpio: 127
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input128)
+- gpio: 128
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input129)
+- gpio: 129
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input130)
+- gpio: 130
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input131)
+- gpio: 131
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input132)
+- gpio: 132
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input133)
+- gpio: 133
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input134)
+- gpio: 134
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input135)
+- gpio: 135
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input136)
+- gpio: 136
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input137)
+- gpio: 137
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input138)
+- gpio: 138
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input139)
+- gpio: 139
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input140)
+- gpio: 140
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input141)
+- gpio: 141
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input142)
+- gpio: 142
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input143)
+- gpio: 143
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input144)
+- gpio: 144
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input145)
+- gpio: 145
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input146)
+- gpio: 146
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input147)
+- gpio: 147
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input148)
+- gpio: 148
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input149)
+- gpio: 149
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input150)
+- gpio: 150
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input151)
+- gpio: 151
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input152)
+- gpio: 152
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input153)
+- gpio: 153
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input154)
+- gpio: 154
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input155)
+- gpio: 155
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input156)
+- gpio: 156
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input157)
+- gpio: 157
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input158)
+- gpio: 158
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input159)
+- gpio: 159
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input160)
+- gpio: 160
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input161)
+- gpio: 161
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input162)
+- gpio: 162
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input163)
+- gpio: 163
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input164)
+- gpio: 164
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input165)
+- gpio: 165
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input166)
+- gpio: 166
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input167)
+- gpio: 167
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input168)
+- gpio: 168
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input169)
+- gpio: 169
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input170)
+- gpio: 170
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input171)
+- gpio: 171
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input172)
+- gpio: 172
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input173)
+- gpio: 173
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input174)
+- gpio: 174
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input175)
+- gpio: 175
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input176)
+- gpio: 176
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input177)
+- gpio: 177
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input178)
+- gpio: 178
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input179)
+- gpio: 179
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input180)
+- gpio: 180
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input181)
+- gpio: 181
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input182)
+- gpio: 182
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input183)
+- gpio: 183
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input184)
+- gpio: 184
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input185)
+- gpio: 185
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input186)
+- gpio: 186
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input187)
+- gpio: 187
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input188)
+- gpio: 188
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input189)
+- gpio: 189
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input190)
+- gpio: 190
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input191)
+- gpio: 191
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input192)
+- gpio: 192
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input193)
+- gpio: 193
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input194)
+- gpio: 194
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input195)
+- gpio: 195
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input196)
+- gpio: 196
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input197)
+- gpio: 197
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input198)
+- gpio: 198
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input199)
+- gpio: 199
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input200)
+- gpio: 200
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input201)
+- gpio: 201
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input202)
+- gpio: 202
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input203)
+- gpio: 203
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input204)
+- gpio: 204
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input205)
+- gpio: 205
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input206)
+- gpio: 206
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input207)
+- gpio: 207
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input208)
+- gpio: 208
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input209)
+- gpio: 209
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input210)
+- gpio: 210
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input211)
+- gpio: 211
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input212)
+- gpio: 212
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input213)
+- gpio: 213
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input214)
+- gpio: 214
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input215)
+- gpio: 215
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input216)
+- gpio: 216
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input217)
+- gpio: 217
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input218)
+- gpio: 218
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input219)
+- gpio: 219
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input220)
+- gpio: 220
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input221)
+- gpio: 221
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input222)
+- gpio: 222
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input223)
+- gpio: 223
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input224)
+- gpio: 224
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input225)
+- gpio: 225
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input226)
+- gpio: 226
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input227)
+- gpio: 227
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input228)
+- gpio: 228
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input229)
+- gpio: 229
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input230)
+- gpio: 230
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input231)
+- gpio: 231
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input232)
+- gpio: 232
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input233)
+- gpio: 233
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input234)
+- gpio: 234
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input235)
+- gpio: 235
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input236)
+- gpio: 236
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input237)
+- gpio: 237
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input238)
+- gpio: 238
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input239)
+- gpio: 239
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input240)
+- gpio: 240
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input241)
+- gpio: 241
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input242)
+- gpio: 242
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input243)
+- gpio: 243
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input244)
+- gpio: 244
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input245)
+- gpio: 245
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input246)
+- gpio: 246
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input247)
+- gpio: 247
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input248)
+- gpio: 248
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input249)
+- gpio: 249
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input250)
+- gpio: 250
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input251)
+- gpio: 251
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input252)
+- gpio: 252
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input253)
+- gpio: 253
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input254)
+- gpio: 254
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input255)
+- gpio: 255
+  available: false
+  occupied_by: binary_sensor.gpio (a256-input256)
+docs_url: https://devices.esphome.io/devices/KinCony-KC868-A256/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 0
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: a256-input1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 1
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: a256-input2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 2
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: a256-input3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 3
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: a256-input4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 4
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: a256-input5
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 5
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: a256-input6
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 6
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: a256-input7
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 7
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: a256-input8
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 8
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: a256-input9
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 9
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: a256-input10
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 10
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: a256-input11
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 11
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: a256-input12
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 12
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: a256-input13
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 13
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: a256-input14
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 14
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: a256-input15
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 15
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: a256-input16
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 16
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_17
+    name: a256-input17
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 17
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_18
+    name: a256-input18
+- id: binary_sensor_gpio_19
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 18
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_19
+    name: a256-input19
+- id: binary_sensor_gpio_20
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 19
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_20
+    name: a256-input20
+- id: binary_sensor_gpio_21
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 20
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_21
+    name: a256-input21
+- id: binary_sensor_gpio_22
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 21
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_22
+    name: a256-input22
+- id: binary_sensor_gpio_23
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 22
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_23
+    name: a256-input23
+- id: binary_sensor_gpio_24
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 23
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_24
+    name: a256-input24
+- id: binary_sensor_gpio_25
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 24
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_25
+    name: a256-input25
+- id: binary_sensor_gpio_26
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 25
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_26
+    name: a256-input26
+- id: binary_sensor_gpio_27
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 26
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_27
+    name: a256-input27
+- id: binary_sensor_gpio_28
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 27
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_28
+    name: a256-input28
+- id: binary_sensor_gpio_29
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 28
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_29
+    name: a256-input29
+- id: binary_sensor_gpio_30
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 29
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_30
+    name: a256-input30
+- id: binary_sensor_gpio_31
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 30
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_31
+    name: a256-input31
+- id: binary_sensor_gpio_32
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 31
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_32
+    name: a256-input32
+- id: binary_sensor_gpio_33
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 32
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_33
+    name: a256-input33
+- id: binary_sensor_gpio_34
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 33
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_34
+    name: a256-input34
+- id: binary_sensor_gpio_35
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 34
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_35
+    name: a256-input35
+- id: binary_sensor_gpio_36
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 35
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_36
+    name: a256-input36
+- id: binary_sensor_gpio_37
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 36
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_37
+    name: a256-input37
+- id: binary_sensor_gpio_38
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 37
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_38
+    name: a256-input38
+- id: binary_sensor_gpio_39
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 38
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_39
+    name: a256-input39
+- id: binary_sensor_gpio_40
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 39
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_40
+    name: a256-input40
+- id: binary_sensor_gpio_41
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 40
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_41
+    name: a256-input41
+- id: binary_sensor_gpio_42
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 41
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_42
+    name: a256-input42
+- id: binary_sensor_gpio_43
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 42
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_43
+    name: a256-input43
+- id: binary_sensor_gpio_44
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 43
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_44
+    name: a256-input44
+- id: binary_sensor_gpio_45
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 44
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_45
+    name: a256-input45
+- id: binary_sensor_gpio_46
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 45
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_46
+    name: a256-input46
+- id: binary_sensor_gpio_47
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 46
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_47
+    name: a256-input47
+- id: binary_sensor_gpio_48
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 47
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_48
+    name: a256-input48
+- id: binary_sensor_gpio_49
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 48
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_49
+    name: a256-input49
+- id: binary_sensor_gpio_50
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 49
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_50
+    name: a256-input50
+- id: binary_sensor_gpio_51
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 50
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_51
+    name: a256-input51
+- id: binary_sensor_gpio_52
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 51
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_52
+    name: a256-input52
+- id: binary_sensor_gpio_53
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 52
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_53
+    name: a256-input53
+- id: binary_sensor_gpio_54
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 53
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_54
+    name: a256-input54
+- id: binary_sensor_gpio_55
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 54
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_55
+    name: a256-input55
+- id: binary_sensor_gpio_56
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 55
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_56
+    name: a256-input56
+- id: binary_sensor_gpio_57
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 56
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_57
+    name: a256-input57
+- id: binary_sensor_gpio_58
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 57
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_58
+    name: a256-input58
+- id: binary_sensor_gpio_59
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 58
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_59
+    name: a256-input59
+- id: binary_sensor_gpio_60
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 59
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_60
+    name: a256-input60
+- id: binary_sensor_gpio_61
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 60
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_61
+    name: a256-input61
+- id: binary_sensor_gpio_62
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 61
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_62
+    name: a256-input62
+- id: binary_sensor_gpio_63
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 62
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_63
+    name: a256-input63
+- id: binary_sensor_gpio_64
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 63
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_64
+    name: a256-input64
+- id: binary_sensor_gpio_65
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 64
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_65
+    name: a256-input65
+- id: binary_sensor_gpio_66
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 65
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_66
+    name: a256-input66
+- id: binary_sensor_gpio_67
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 66
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_67
+    name: a256-input67
+- id: binary_sensor_gpio_68
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 67
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_68
+    name: a256-input68
+- id: binary_sensor_gpio_69
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 68
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_69
+    name: a256-input69
+- id: binary_sensor_gpio_70
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 69
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_70
+    name: a256-input70
+- id: binary_sensor_gpio_71
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 70
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_71
+    name: a256-input71
+- id: binary_sensor_gpio_72
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 71
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_72
+    name: a256-input72
+- id: binary_sensor_gpio_73
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 72
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_73
+    name: a256-input73
+- id: binary_sensor_gpio_74
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 73
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_74
+    name: a256-input74
+- id: binary_sensor_gpio_75
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 74
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_75
+    name: a256-input75
+- id: binary_sensor_gpio_76
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 75
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_76
+    name: a256-input76
+- id: binary_sensor_gpio_77
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 76
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_77
+    name: a256-input77
+- id: binary_sensor_gpio_78
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 77
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_78
+    name: a256-input78
+- id: binary_sensor_gpio_79
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 78
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_79
+    name: a256-input79
+- id: binary_sensor_gpio_80
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 79
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_80
+    name: a256-input80
+- id: binary_sensor_gpio_81
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 80
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_81
+    name: a256-input81
+- id: binary_sensor_gpio_82
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 81
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_82
+    name: a256-input82
+- id: binary_sensor_gpio_83
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 82
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_83
+    name: a256-input83
+- id: binary_sensor_gpio_84
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 83
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_84
+    name: a256-input84
+- id: binary_sensor_gpio_85
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 84
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_85
+    name: a256-input85
+- id: binary_sensor_gpio_86
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 85
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_86
+    name: a256-input86
+- id: binary_sensor_gpio_87
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 86
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_87
+    name: a256-input87
+- id: binary_sensor_gpio_88
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 87
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_88
+    name: a256-input88
+- id: binary_sensor_gpio_89
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 88
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_89
+    name: a256-input89
+- id: binary_sensor_gpio_90
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 89
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_90
+    name: a256-input90
+- id: binary_sensor_gpio_91
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 90
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_91
+    name: a256-input91
+- id: binary_sensor_gpio_92
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 91
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_92
+    name: a256-input92
+- id: binary_sensor_gpio_93
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 92
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_93
+    name: a256-input93
+- id: binary_sensor_gpio_94
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 93
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_94
+    name: a256-input94
+- id: binary_sensor_gpio_95
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 94
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_95
+    name: a256-input95
+- id: binary_sensor_gpio_96
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 95
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_96
+    name: a256-input96
+- id: binary_sensor_gpio_97
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 96
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_97
+    name: a256-input97
+- id: binary_sensor_gpio_98
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 97
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_98
+    name: a256-input98
+- id: binary_sensor_gpio_99
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 98
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_99
+    name: a256-input99
+- id: binary_sensor_gpio_100
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 99
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_100
+    name: a256-input100
+- id: binary_sensor_gpio_101
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 100
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_101
+    name: a256-input101
+- id: binary_sensor_gpio_102
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 101
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_102
+    name: a256-input102
+- id: binary_sensor_gpio_103
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 102
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_103
+    name: a256-input103
+- id: binary_sensor_gpio_104
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 103
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_104
+    name: a256-input104
+- id: binary_sensor_gpio_105
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 104
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_105
+    name: a256-input105
+- id: binary_sensor_gpio_106
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 105
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_106
+    name: a256-input106
+- id: binary_sensor_gpio_107
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 106
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_107
+    name: a256-input107
+- id: binary_sensor_gpio_108
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 107
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_108
+    name: a256-input108
+- id: binary_sensor_gpio_109
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 108
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_109
+    name: a256-input109
+- id: binary_sensor_gpio_110
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 109
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_110
+    name: a256-input110
+- id: binary_sensor_gpio_111
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 110
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_111
+    name: a256-input111
+- id: binary_sensor_gpio_112
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 111
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_112
+    name: a256-input112
+- id: binary_sensor_gpio_113
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 112
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_113
+    name: a256-input113
+- id: binary_sensor_gpio_114
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 113
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_114
+    name: a256-input114
+- id: binary_sensor_gpio_115
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 114
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_115
+    name: a256-input115
+- id: binary_sensor_gpio_116
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 115
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_116
+    name: a256-input116
+- id: binary_sensor_gpio_117
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 116
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_117
+    name: a256-input117
+- id: binary_sensor_gpio_118
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 117
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_118
+    name: a256-input118
+- id: binary_sensor_gpio_119
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 118
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_119
+    name: a256-input119
+- id: binary_sensor_gpio_120
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 119
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_120
+    name: a256-input120
+- id: binary_sensor_gpio_121
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 120
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_121
+    name: a256-input121
+- id: binary_sensor_gpio_122
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 121
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_122
+    name: a256-input122
+- id: binary_sensor_gpio_123
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 122
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_123
+    name: a256-input123
+- id: binary_sensor_gpio_124
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 123
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_124
+    name: a256-input124
+- id: binary_sensor_gpio_125
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 124
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_125
+    name: a256-input125
+- id: binary_sensor_gpio_126
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 125
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_126
+    name: a256-input126
+- id: binary_sensor_gpio_127
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 126
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_127
+    name: a256-input127
+- id: binary_sensor_gpio_128
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 127
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_128
+    name: a256-input128
+- id: binary_sensor_gpio_129
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 128
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_129
+    name: a256-input129
+- id: binary_sensor_gpio_130
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 129
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_130
+    name: a256-input130
+- id: binary_sensor_gpio_131
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 130
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_131
+    name: a256-input131
+- id: binary_sensor_gpio_132
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 131
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_132
+    name: a256-input132
+- id: binary_sensor_gpio_133
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 132
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_133
+    name: a256-input133
+- id: binary_sensor_gpio_134
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 133
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_134
+    name: a256-input134
+- id: binary_sensor_gpio_135
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 134
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_135
+    name: a256-input135
+- id: binary_sensor_gpio_136
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 135
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_136
+    name: a256-input136
+- id: binary_sensor_gpio_137
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 136
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_137
+    name: a256-input137
+- id: binary_sensor_gpio_138
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 137
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_138
+    name: a256-input138
+- id: binary_sensor_gpio_139
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 138
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_139
+    name: a256-input139
+- id: binary_sensor_gpio_140
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 139
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_140
+    name: a256-input140
+- id: binary_sensor_gpio_141
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 140
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_141
+    name: a256-input141
+- id: binary_sensor_gpio_142
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 141
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_142
+    name: a256-input142
+- id: binary_sensor_gpio_143
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 142
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_143
+    name: a256-input143
+- id: binary_sensor_gpio_144
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 143
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_144
+    name: a256-input144
+- id: binary_sensor_gpio_145
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 144
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_145
+    name: a256-input145
+- id: binary_sensor_gpio_146
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 145
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_146
+    name: a256-input146
+- id: binary_sensor_gpio_147
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 146
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_147
+    name: a256-input147
+- id: binary_sensor_gpio_148
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 147
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_148
+    name: a256-input148
+- id: binary_sensor_gpio_149
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 148
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_149
+    name: a256-input149
+- id: binary_sensor_gpio_150
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 149
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_150
+    name: a256-input150
+- id: binary_sensor_gpio_151
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 150
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_151
+    name: a256-input151
+- id: binary_sensor_gpio_152
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 151
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_152
+    name: a256-input152
+- id: binary_sensor_gpio_153
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 152
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_153
+    name: a256-input153
+- id: binary_sensor_gpio_154
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 153
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_154
+    name: a256-input154
+- id: binary_sensor_gpio_155
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 154
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_155
+    name: a256-input155
+- id: binary_sensor_gpio_156
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 155
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_156
+    name: a256-input156
+- id: binary_sensor_gpio_157
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 156
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_157
+    name: a256-input157
+- id: binary_sensor_gpio_158
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 157
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_158
+    name: a256-input158
+- id: binary_sensor_gpio_159
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 158
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_159
+    name: a256-input159
+- id: binary_sensor_gpio_160
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 159
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_160
+    name: a256-input160
+- id: binary_sensor_gpio_161
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 160
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_161
+    name: a256-input161
+- id: binary_sensor_gpio_162
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 161
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_162
+    name: a256-input162
+- id: binary_sensor_gpio_163
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 162
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_163
+    name: a256-input163
+- id: binary_sensor_gpio_164
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 163
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_164
+    name: a256-input164
+- id: binary_sensor_gpio_165
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 164
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_165
+    name: a256-input165
+- id: binary_sensor_gpio_166
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 165
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_166
+    name: a256-input166
+- id: binary_sensor_gpio_167
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 166
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_167
+    name: a256-input167
+- id: binary_sensor_gpio_168
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 167
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_168
+    name: a256-input168
+- id: binary_sensor_gpio_169
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 168
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_169
+    name: a256-input169
+- id: binary_sensor_gpio_170
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 169
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_170
+    name: a256-input170
+- id: binary_sensor_gpio_171
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 170
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_171
+    name: a256-input171
+- id: binary_sensor_gpio_172
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 171
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_172
+    name: a256-input172
+- id: binary_sensor_gpio_173
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 172
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_173
+    name: a256-input173
+- id: binary_sensor_gpio_174
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 173
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_174
+    name: a256-input174
+- id: binary_sensor_gpio_175
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 174
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_175
+    name: a256-input175
+- id: binary_sensor_gpio_176
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 175
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_176
+    name: a256-input176
+- id: binary_sensor_gpio_177
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 176
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_177
+    name: a256-input177
+- id: binary_sensor_gpio_178
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 177
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_178
+    name: a256-input178
+- id: binary_sensor_gpio_179
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 178
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_179
+    name: a256-input179
+- id: binary_sensor_gpio_180
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 179
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_180
+    name: a256-input180
+- id: binary_sensor_gpio_181
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 180
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_181
+    name: a256-input181
+- id: binary_sensor_gpio_182
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 181
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_182
+    name: a256-input182
+- id: binary_sensor_gpio_183
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 182
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_183
+    name: a256-input183
+- id: binary_sensor_gpio_184
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 183
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_184
+    name: a256-input184
+- id: binary_sensor_gpio_185
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 184
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_185
+    name: a256-input185
+- id: binary_sensor_gpio_186
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 185
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_186
+    name: a256-input186
+- id: binary_sensor_gpio_187
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 186
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_187
+    name: a256-input187
+- id: binary_sensor_gpio_188
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 187
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_188
+    name: a256-input188
+- id: binary_sensor_gpio_189
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 188
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_189
+    name: a256-input189
+- id: binary_sensor_gpio_190
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 189
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_190
+    name: a256-input190
+- id: binary_sensor_gpio_191
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 190
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_191
+    name: a256-input191
+- id: binary_sensor_gpio_192
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 191
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_192
+    name: a256-input192
+- id: binary_sensor_gpio_193
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 192
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_193
+    name: a256-input193
+- id: binary_sensor_gpio_194
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 193
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_194
+    name: a256-input194
+- id: binary_sensor_gpio_195
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 194
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_195
+    name: a256-input195
+- id: binary_sensor_gpio_196
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 195
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_196
+    name: a256-input196
+- id: binary_sensor_gpio_197
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 196
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_197
+    name: a256-input197
+- id: binary_sensor_gpio_198
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 197
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_198
+    name: a256-input198
+- id: binary_sensor_gpio_199
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 198
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_199
+    name: a256-input199
+- id: binary_sensor_gpio_200
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 199
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_200
+    name: a256-input200
+- id: binary_sensor_gpio_201
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 200
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_201
+    name: a256-input201
+- id: binary_sensor_gpio_202
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 201
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_202
+    name: a256-input202
+- id: binary_sensor_gpio_203
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 202
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_203
+    name: a256-input203
+- id: binary_sensor_gpio_204
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 203
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_204
+    name: a256-input204
+- id: binary_sensor_gpio_205
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 204
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_205
+    name: a256-input205
+- id: binary_sensor_gpio_206
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 205
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_206
+    name: a256-input206
+- id: binary_sensor_gpio_207
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 206
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_207
+    name: a256-input207
+- id: binary_sensor_gpio_208
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 207
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_208
+    name: a256-input208
+- id: binary_sensor_gpio_209
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 208
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_209
+    name: a256-input209
+- id: binary_sensor_gpio_210
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 209
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_210
+    name: a256-input210
+- id: binary_sensor_gpio_211
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 210
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_211
+    name: a256-input211
+- id: binary_sensor_gpio_212
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 211
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_212
+    name: a256-input212
+- id: binary_sensor_gpio_213
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 212
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_213
+    name: a256-input213
+- id: binary_sensor_gpio_214
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 213
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_214
+    name: a256-input214
+- id: binary_sensor_gpio_215
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 214
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_215
+    name: a256-input215
+- id: binary_sensor_gpio_216
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 215
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_216
+    name: a256-input216
+- id: binary_sensor_gpio_217
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 216
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_217
+    name: a256-input217
+- id: binary_sensor_gpio_218
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 217
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_218
+    name: a256-input218
+- id: binary_sensor_gpio_219
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 218
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_219
+    name: a256-input219
+- id: binary_sensor_gpio_220
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 219
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_220
+    name: a256-input220
+- id: binary_sensor_gpio_221
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 220
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_221
+    name: a256-input221
+- id: binary_sensor_gpio_222
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 221
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_222
+    name: a256-input222
+- id: binary_sensor_gpio_223
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 222
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_223
+    name: a256-input223
+- id: binary_sensor_gpio_224
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 223
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_224
+    name: a256-input224
+- id: binary_sensor_gpio_225
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 224
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_225
+    name: a256-input225
+- id: binary_sensor_gpio_226
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 225
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_226
+    name: a256-input226
+- id: binary_sensor_gpio_227
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 226
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_227
+    name: a256-input227
+- id: binary_sensor_gpio_228
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 227
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_228
+    name: a256-input228
+- id: binary_sensor_gpio_229
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 228
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_229
+    name: a256-input229
+- id: binary_sensor_gpio_230
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 229
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_230
+    name: a256-input230
+- id: binary_sensor_gpio_231
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 230
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_231
+    name: a256-input231
+- id: binary_sensor_gpio_232
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 231
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_232
+    name: a256-input232
+- id: binary_sensor_gpio_233
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 232
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_233
+    name: a256-input233
+- id: binary_sensor_gpio_234
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 233
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_234
+    name: a256-input234
+- id: binary_sensor_gpio_235
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 234
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_235
+    name: a256-input235
+- id: binary_sensor_gpio_236
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 235
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_236
+    name: a256-input236
+- id: binary_sensor_gpio_237
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 236
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_237
+    name: a256-input237
+- id: binary_sensor_gpio_238
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 237
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_238
+    name: a256-input238
+- id: binary_sensor_gpio_239
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 238
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_239
+    name: a256-input239
+- id: binary_sensor_gpio_240
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 239
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_240
+    name: a256-input240
+- id: binary_sensor_gpio_241
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 240
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_241
+    name: a256-input241
+- id: binary_sensor_gpio_242
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 241
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_242
+    name: a256-input242
+- id: binary_sensor_gpio_243
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 242
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_243
+    name: a256-input243
+- id: binary_sensor_gpio_244
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 243
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_244
+    name: a256-input244
+- id: binary_sensor_gpio_245
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 244
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_245
+    name: a256-input245
+- id: binary_sensor_gpio_246
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 245
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_246
+    name: a256-input246
+- id: binary_sensor_gpio_247
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 246
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_247
+    name: a256-input247
+- id: binary_sensor_gpio_248
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 247
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_248
+    name: a256-input248
+- id: binary_sensor_gpio_249
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 248
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_249
+    name: a256-input249
+- id: binary_sensor_gpio_250
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 249
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_250
+    name: a256-input250
+- id: binary_sensor_gpio_251
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 250
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_251
+    name: a256-input251
+- id: binary_sensor_gpio_252
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 251
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_252
+    name: a256-input252
+- id: binary_sensor_gpio_253
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 252
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_253
+    name: a256-input253
+- id: binary_sensor_gpio_254
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 253
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_254
+    name: a256-input254
+- id: binary_sensor_gpio_255
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 254
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_255
+    name: a256-input255
+- id: binary_sensor_gpio_256
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 255
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_256
+    name: a256-input256
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 0
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_1
+    name: a256-light1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 1
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_2
+    name: a256-light2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 2
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_3
+    name: a256-light3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 3
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_4
+    name: a256-light4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 4
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_5
+    name: a256-light5
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 5
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_6
+    name: a256-light6
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 6
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_7
+    name: a256-light7
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 7
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_8
+    name: a256-light8
+- id: switch_gpio_9
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 8
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_9
+    name: a256-light9
+- id: switch_gpio_10
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 9
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_10
+    name: a256-light10
+- id: switch_gpio_11
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 10
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_11
+    name: a256-light11
+- id: switch_gpio_12
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 11
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_12
+    name: a256-light12
+- id: switch_gpio_13
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 12
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_13
+    name: a256-light13
+- id: switch_gpio_14
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 13
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_14
+    name: a256-light14
+- id: switch_gpio_15
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 14
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_15
+    name: a256-light15
+- id: switch_gpio_16
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 15
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_16
+    name: a256-light16
+- id: switch_gpio_17
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 16
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_17
+    name: a256-light17
+- id: switch_gpio_18
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 17
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_18
+    name: a256-light18
+- id: switch_gpio_19
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 18
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_19
+    name: a256-light19
+- id: switch_gpio_20
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 19
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_20
+    name: a256-light20
+- id: switch_gpio_21
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 20
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_21
+    name: a256-light21
+- id: switch_gpio_22
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 21
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_22
+    name: a256-light22
+- id: switch_gpio_23
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 22
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_23
+    name: a256-light23
+- id: switch_gpio_24
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 23
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_24
+    name: a256-light24
+- id: switch_gpio_25
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 24
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_25
+    name: a256-light25
+- id: switch_gpio_26
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 25
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_26
+    name: a256-light26
+- id: switch_gpio_27
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 26
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_27
+    name: a256-light27
+- id: switch_gpio_28
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 27
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_28
+    name: a256-light28
+- id: switch_gpio_29
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 28
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_29
+    name: a256-light29
+- id: switch_gpio_30
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 29
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_30
+    name: a256-light30
+- id: switch_gpio_31
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 30
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_31
+    name: a256-light31
+- id: switch_gpio_32
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 31
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_32
+    name: a256-light32
+- id: switch_gpio_33
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 32
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_33
+    name: a256-light33
+- id: switch_gpio_34
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 33
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_34
+    name: a256-light34
+- id: switch_gpio_35
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 34
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_35
+    name: a256-light35
+- id: switch_gpio_36
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 35
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_36
+    name: a256-light36
+- id: switch_gpio_37
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 36
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_37
+    name: a256-light37
+- id: switch_gpio_38
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 37
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_38
+    name: a256-light38
+- id: switch_gpio_39
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 38
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_39
+    name: a256-light39
+- id: switch_gpio_40
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 39
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_40
+    name: a256-light40
+- id: switch_gpio_41
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 40
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_41
+    name: a256-light41
+- id: switch_gpio_42
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 41
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_42
+    name: a256-light42
+- id: switch_gpio_43
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 42
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_43
+    name: a256-light43
+- id: switch_gpio_44
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 43
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_44
+    name: a256-light44
+- id: switch_gpio_45
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 44
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_45
+    name: a256-light45
+- id: switch_gpio_46
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 45
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_46
+    name: a256-light46
+- id: switch_gpio_47
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 46
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_47
+    name: a256-light47
+- id: switch_gpio_48
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 47
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_48
+    name: a256-light48
+- id: switch_gpio_49
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 48
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_49
+    name: a256-light49
+- id: switch_gpio_50
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 49
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_50
+    name: a256-light50
+- id: switch_gpio_51
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 50
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_51
+    name: a256-light51
+- id: switch_gpio_52
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 51
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_52
+    name: a256-light52
+- id: switch_gpio_53
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 52
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_53
+    name: a256-light53
+- id: switch_gpio_54
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 53
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_54
+    name: a256-light54
+- id: switch_gpio_55
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 54
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_55
+    name: a256-light55
+- id: switch_gpio_56
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 55
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_56
+    name: a256-light56
+- id: switch_gpio_57
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 56
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_57
+    name: a256-light57
+- id: switch_gpio_58
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 57
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_58
+    name: a256-light58
+- id: switch_gpio_59
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 58
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_59
+    name: a256-light59
+- id: switch_gpio_60
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 59
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_60
+    name: a256-light60
+- id: switch_gpio_61
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 60
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_61
+    name: a256-light61
+- id: switch_gpio_62
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 61
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_62
+    name: a256-light62
+- id: switch_gpio_63
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 62
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_63
+    name: a256-light63
+- id: switch_gpio_64
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 63
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_64
+    name: a256-light64
+- id: switch_gpio_65
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 64
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_65
+    name: a256-light65
+- id: switch_gpio_66
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 65
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_66
+    name: a256-light66
+- id: switch_gpio_67
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 66
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_67
+    name: a256-light67
+- id: switch_gpio_68
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 67
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_68
+    name: a256-light68
+- id: switch_gpio_69
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 68
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_69
+    name: a256-light69
+- id: switch_gpio_70
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 69
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_70
+    name: a256-light70
+- id: switch_gpio_71
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 70
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_71
+    name: a256-light71
+- id: switch_gpio_72
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 71
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_72
+    name: a256-light72
+- id: switch_gpio_73
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 72
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_73
+    name: a256-light73
+- id: switch_gpio_74
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 73
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_74
+    name: a256-light74
+- id: switch_gpio_75
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 74
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_75
+    name: a256-light75
+- id: switch_gpio_76
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 75
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_76
+    name: a256-light76
+- id: switch_gpio_77
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 76
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_77
+    name: a256-light77
+- id: switch_gpio_78
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 77
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_78
+    name: a256-light78
+- id: switch_gpio_79
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 78
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_79
+    name: a256-light79
+- id: switch_gpio_80
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 79
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_80
+    name: a256-light80
+- id: switch_gpio_81
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 80
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_81
+    name: a256-light81
+- id: switch_gpio_82
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 81
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_82
+    name: a256-light82
+- id: switch_gpio_83
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 82
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_83
+    name: a256-light83
+- id: switch_gpio_84
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 83
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_84
+    name: a256-light84
+- id: switch_gpio_85
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 84
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_85
+    name: a256-light85
+- id: switch_gpio_86
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 85
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_86
+    name: a256-light86
+- id: switch_gpio_87
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 86
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_87
+    name: a256-light87
+- id: switch_gpio_88
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 87
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_88
+    name: a256-light88
+- id: switch_gpio_89
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 88
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_89
+    name: a256-light89
+- id: switch_gpio_90
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 89
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_90
+    name: a256-light90
+- id: switch_gpio_91
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 90
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_91
+    name: a256-light91
+- id: switch_gpio_92
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 91
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_92
+    name: a256-light92
+- id: switch_gpio_93
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 92
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_93
+    name: a256-light93
+- id: switch_gpio_94
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 93
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_94
+    name: a256-light94
+- id: switch_gpio_95
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 94
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_95
+    name: a256-light95
+- id: switch_gpio_96
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 95
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_96
+    name: a256-light96
+- id: switch_gpio_97
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 96
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_97
+    name: a256-light97
+- id: switch_gpio_98
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 97
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_98
+    name: a256-light98
+- id: switch_gpio_99
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 98
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_99
+    name: a256-light99
+- id: switch_gpio_100
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 99
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_100
+    name: a256-light100
+- id: switch_gpio_101
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 100
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_101
+    name: a256-light101
+- id: switch_gpio_102
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 101
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_102
+    name: a256-light102
+- id: switch_gpio_103
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 102
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_103
+    name: a256-light103
+- id: switch_gpio_104
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 103
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_104
+    name: a256-light104
+- id: switch_gpio_105
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 104
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_105
+    name: a256-light105
+- id: switch_gpio_106
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 105
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_106
+    name: a256-light106
+- id: switch_gpio_107
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 106
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_107
+    name: a256-light107
+- id: switch_gpio_108
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 107
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_108
+    name: a256-light108
+- id: switch_gpio_109
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 108
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_109
+    name: a256-light109
+- id: switch_gpio_110
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 109
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_110
+    name: a256-light110
+- id: switch_gpio_111
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 110
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_111
+    name: a256-light111
+- id: switch_gpio_112
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 111
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_112
+    name: a256-light112
+- id: switch_gpio_113
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 112
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_113
+    name: a256-light113
+- id: switch_gpio_114
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 113
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_114
+    name: a256-light114
+- id: switch_gpio_115
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 114
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_115
+    name: a256-light115
+- id: switch_gpio_116
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 115
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_116
+    name: a256-light116
+- id: switch_gpio_117
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 116
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_117
+    name: a256-light117
+- id: switch_gpio_118
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 117
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_118
+    name: a256-light118
+- id: switch_gpio_119
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 118
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_119
+    name: a256-light119
+- id: switch_gpio_120
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 119
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_120
+    name: a256-light120
+- id: switch_gpio_121
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 120
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_121
+    name: a256-light121
+- id: switch_gpio_122
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 121
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_122
+    name: a256-light122
+- id: switch_gpio_123
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 122
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_123
+    name: a256-light123
+- id: switch_gpio_124
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 123
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_124
+    name: a256-light124
+- id: switch_gpio_125
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 124
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_125
+    name: a256-light125
+- id: switch_gpio_126
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 125
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_126
+    name: a256-light126
+- id: switch_gpio_127
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 126
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_127
+    name: a256-light127
+- id: switch_gpio_128
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 127
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_128
+    name: a256-light128
+- id: switch_gpio_129
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 128
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_129
+    name: a256-light129
+- id: switch_gpio_130
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 129
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_130
+    name: a256-light130
+- id: switch_gpio_131
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 130
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_131
+    name: a256-light131
+- id: switch_gpio_132
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 131
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_132
+    name: a256-light132
+- id: switch_gpio_133
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 132
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_133
+    name: a256-light133
+- id: switch_gpio_134
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 133
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_134
+    name: a256-light134
+- id: switch_gpio_135
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 134
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_135
+    name: a256-light135
+- id: switch_gpio_136
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 135
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_136
+    name: a256-light136
+- id: switch_gpio_137
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 136
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_137
+    name: a256-light137
+- id: switch_gpio_138
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 137
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_138
+    name: a256-light138
+- id: switch_gpio_139
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 138
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_139
+    name: a256-light139
+- id: switch_gpio_140
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 139
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_140
+    name: a256-light140
+- id: switch_gpio_141
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 140
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_141
+    name: a256-light141
+- id: switch_gpio_142
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 141
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_142
+    name: a256-light142
+- id: switch_gpio_143
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 142
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_143
+    name: a256-light143
+- id: switch_gpio_144
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 143
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_144
+    name: a256-light144
+- id: switch_gpio_145
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 144
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_145
+    name: a256-light145
+- id: switch_gpio_146
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 145
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_146
+    name: a256-light146
+- id: switch_gpio_147
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 146
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_147
+    name: a256-light147
+- id: switch_gpio_148
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 147
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_148
+    name: a256-light148
+- id: switch_gpio_149
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 148
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_149
+    name: a256-light149
+- id: switch_gpio_150
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 149
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_150
+    name: a256-light150
+- id: switch_gpio_151
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 150
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_151
+    name: a256-light151
+- id: switch_gpio_152
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 151
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_152
+    name: a256-light152
+- id: switch_gpio_153
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 152
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_153
+    name: a256-light153
+- id: switch_gpio_154
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 153
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_154
+    name: a256-light154
+- id: switch_gpio_155
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 154
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_155
+    name: a256-light155
+- id: switch_gpio_156
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 155
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_156
+    name: a256-light156
+- id: switch_gpio_157
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 156
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_157
+    name: a256-light157
+- id: switch_gpio_158
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 157
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_158
+    name: a256-light158
+- id: switch_gpio_159
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 158
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_159
+    name: a256-light159
+- id: switch_gpio_160
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 159
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_160
+    name: a256-light160
+- id: switch_gpio_161
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 160
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_161
+    name: a256-light161
+- id: switch_gpio_162
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 161
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_162
+    name: a256-light162
+- id: switch_gpio_163
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 162
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_163
+    name: a256-light163
+- id: switch_gpio_164
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 163
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_164
+    name: a256-light164
+- id: switch_gpio_165
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 164
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_165
+    name: a256-light165
+- id: switch_gpio_166
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 165
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_166
+    name: a256-light166
+- id: switch_gpio_167
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 166
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_167
+    name: a256-light167
+- id: switch_gpio_168
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 167
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_168
+    name: a256-light168
+- id: switch_gpio_169
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 168
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_169
+    name: a256-light169
+- id: switch_gpio_170
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 169
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_170
+    name: a256-light170
+- id: switch_gpio_171
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 170
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_171
+    name: a256-light171
+- id: switch_gpio_172
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 171
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_172
+    name: a256-light172
+- id: switch_gpio_173
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 172
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_173
+    name: a256-light173
+- id: switch_gpio_174
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 173
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_174
+    name: a256-light174
+- id: switch_gpio_175
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 174
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_175
+    name: a256-light175
+- id: switch_gpio_176
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 175
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_176
+    name: a256-light176
+- id: switch_gpio_177
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 176
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_177
+    name: a256-light177
+- id: switch_gpio_178
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 177
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_178
+    name: a256-light178
+- id: switch_gpio_179
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 178
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_179
+    name: a256-light179
+- id: switch_gpio_180
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 179
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_180
+    name: a256-light180
+- id: switch_gpio_181
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 180
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_181
+    name: a256-light181
+- id: switch_gpio_182
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 181
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_182
+    name: a256-light182
+- id: switch_gpio_183
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 182
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_183
+    name: a256-light183
+- id: switch_gpio_184
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 183
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_184
+    name: a256-light184
+- id: switch_gpio_185
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 184
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_185
+    name: a256-light185
+- id: switch_gpio_186
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 185
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_186
+    name: a256-light186
+- id: switch_gpio_187
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 186
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_187
+    name: a256-light187
+- id: switch_gpio_188
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 187
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_188
+    name: a256-light188
+- id: switch_gpio_189
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 188
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_189
+    name: a256-light189
+- id: switch_gpio_190
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 189
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_190
+    name: a256-light190
+- id: switch_gpio_191
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 190
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_191
+    name: a256-light191
+- id: switch_gpio_192
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 191
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_192
+    name: a256-light192
+- id: switch_gpio_193
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 192
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_193
+    name: a256-light193
+- id: switch_gpio_194
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 193
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_194
+    name: a256-light194
+- id: switch_gpio_195
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 194
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_195
+    name: a256-light195
+- id: switch_gpio_196
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 195
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_196
+    name: a256-light196
+- id: switch_gpio_197
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 196
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_197
+    name: a256-light197
+- id: switch_gpio_198
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 197
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_198
+    name: a256-light198
+- id: switch_gpio_199
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 198
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_199
+    name: a256-light199
+- id: switch_gpio_200
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 199
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_200
+    name: a256-light200
+- id: switch_gpio_201
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 200
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_201
+    name: a256-light201
+- id: switch_gpio_202
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 201
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_202
+    name: a256-light202
+- id: switch_gpio_203
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 202
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_203
+    name: a256-light203
+- id: switch_gpio_204
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 203
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_204
+    name: a256-light204
+- id: switch_gpio_205
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 204
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_205
+    name: a256-light205
+- id: switch_gpio_206
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 205
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_206
+    name: a256-light206
+- id: switch_gpio_207
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 206
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_207
+    name: a256-light207
+- id: switch_gpio_208
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 207
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_208
+    name: a256-light208
+- id: switch_gpio_209
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 208
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_209
+    name: a256-light209
+- id: switch_gpio_210
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 209
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_210
+    name: a256-light210
+- id: switch_gpio_211
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 210
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_211
+    name: a256-light211
+- id: switch_gpio_212
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 211
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_212
+    name: a256-light212
+- id: switch_gpio_213
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 212
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_213
+    name: a256-light213
+- id: switch_gpio_214
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 213
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_214
+    name: a256-light214
+- id: switch_gpio_215
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 214
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_215
+    name: a256-light215
+- id: switch_gpio_216
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 215
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_216
+    name: a256-light216
+- id: switch_gpio_217
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 216
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_217
+    name: a256-light217
+- id: switch_gpio_218
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 217
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_218
+    name: a256-light218
+- id: switch_gpio_219
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 218
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_219
+    name: a256-light219
+- id: switch_gpio_220
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 219
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_220
+    name: a256-light220
+- id: switch_gpio_221
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 220
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_221
+    name: a256-light221
+- id: switch_gpio_222
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 221
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_222
+    name: a256-light222
+- id: switch_gpio_223
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 222
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_223
+    name: a256-light223
+- id: switch_gpio_224
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 223
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_224
+    name: a256-light224
+- id: switch_gpio_225
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 224
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_225
+    name: a256-light225
+- id: switch_gpio_226
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 225
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_226
+    name: a256-light226
+- id: switch_gpio_227
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 226
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_227
+    name: a256-light227
+- id: switch_gpio_228
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 227
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_228
+    name: a256-light228
+- id: switch_gpio_229
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 228
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_229
+    name: a256-light229
+- id: switch_gpio_230
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 229
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_230
+    name: a256-light230
+- id: switch_gpio_231
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 230
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_231
+    name: a256-light231
+- id: switch_gpio_232
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 231
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_232
+    name: a256-light232
+- id: switch_gpio_233
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 232
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_233
+    name: a256-light233
+- id: switch_gpio_234
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 233
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_234
+    name: a256-light234
+- id: switch_gpio_235
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 234
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_235
+    name: a256-light235
+- id: switch_gpio_236
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 235
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_236
+    name: a256-light236
+- id: switch_gpio_237
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 236
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_237
+    name: a256-light237
+- id: switch_gpio_238
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 237
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_238
+    name: a256-light238
+- id: switch_gpio_239
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 238
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_239
+    name: a256-light239
+- id: switch_gpio_240
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 239
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_240
+    name: a256-light240
+- id: switch_gpio_241
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 240
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_241
+    name: a256-light241
+- id: switch_gpio_242
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 241
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_242
+    name: a256-light242
+- id: switch_gpio_243
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 242
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_243
+    name: a256-light243
+- id: switch_gpio_244
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 243
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_244
+    name: a256-light244
+- id: switch_gpio_245
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 244
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_245
+    name: a256-light245
+- id: switch_gpio_246
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 245
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_246
+    name: a256-light246
+- id: switch_gpio_247
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 246
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_247
+    name: a256-light247
+- id: switch_gpio_248
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 247
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_248
+    name: a256-light248
+- id: switch_gpio_249
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 248
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_249
+    name: a256-light249
+- id: switch_gpio_250
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 249
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_250
+    name: a256-light250
+- id: switch_gpio_251
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 250
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_251
+    name: a256-light251
+- id: switch_gpio_252
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 251
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_252
+    name: a256-light252
+- id: switch_gpio_253
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 252
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_253
+    name: a256-light253
+- id: switch_gpio_254
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 253
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_254
+    name: a256-light254
+- id: switch_gpio_255
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 254
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_255
+    name: a256-light255
+- id: switch_gpio_256
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 255
+        inverted: false
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_256
+    name: a256-light256
+source:
+  type: esphome-devices
+  remote_id: KinCony-KC868-A256
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-A256/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: be98cc73b2b8503cdc9918363eae2a3a3cc815edeea5e671020e547d9e9737e1

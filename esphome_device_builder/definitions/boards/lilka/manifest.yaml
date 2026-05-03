@@ -1,0 +1,163 @@
+id: lilka
+name: Lilka
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/lilka.jpeg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (button_select)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (button_start)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (button_a)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (button_b)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (button_d)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (button_c)
+- gpio: 38
+  available: false
+  occupied_by: binary_sensor.gpio (button_up)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (button_left)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (button_right)
+- gpio: 41
+  available: false
+  occupied_by: binary_sensor.gpio (button_down)
+docs_url: https://devices.esphome.io/devices/Lilka/
+product_url: https://docs.lilka.dev/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 38
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 41
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: Gpio 4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: Gpio 5
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: Gpio 6
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 10
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: Gpio 7
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 9
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: Gpio 8
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: Gpio 9
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: Gpio 10
+source:
+  type: esphome-devices
+  remote_id: Lilka
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Lilka/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 582d9b5114eec3ed9f633eedaa665eba652ee51ca26ef4c452ef87b90d4c30b4

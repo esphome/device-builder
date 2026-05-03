@@ -1,0 +1,140 @@
+id: tuya_zy_m100_human_presence_sensor
+name: Tuya ZY-M100 Human Presence Sensor
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/tuya-zy-m100.jpg
+- images/test_board.jpg
+docs_url: https://devices.esphome.io/devices/Tuya-ZY-M100-Human-Presence-Sensor/
+featured_components:
+- id: binary_sensor_tuya_1
+  component_id: binary_sensor.tuya
+  fields:
+    sensor_datapoint: 1
+    device_class: occupancy
+    id: binary_sensor_tuya_1
+    name: Tuya 1
+- id: button_restart_1
+  component_id: button.restart
+  fields:
+    entity_category: diagnostic
+    id: button_restart_1
+    name: Restart 1
+- id: button_safe_mode_1
+  component_id: button.safe_mode
+  fields:
+    entity_category: diagnostic
+    id: button_safe_mode_1
+    name: Safe Mode 1
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 2
+    min_value: 0
+    max_value: 9
+    step: 1
+    icon: mdi:ray-vertex
+    id: number_tuya_1
+    name: Tuya 1
+- id: number_tuya_2
+  component_id: number.tuya
+  fields:
+    number_datapoint: 3
+    min_value: 0
+    max_value: 1000
+    step: 1
+    mode: slider
+    unit_of_measurement: cm
+    icon: mdi:signal-distance-variant
+    id: number_tuya_2
+    name: Tuya 2
+- id: number_tuya_3
+  component_id: number.tuya
+  fields:
+    number_datapoint: 4
+    min_value: 0
+    max_value: 1000
+    step: 1
+    mode: slider
+    unit_of_measurement: cm
+    icon: mdi:signal-distance-variant
+    id: number_tuya_3
+    name: Tuya 3
+- id: number_tuya_4
+  component_id: number.tuya
+  fields:
+    number_datapoint: 101
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: s
+    mode: slider
+    icon: mdi:clock
+    id: number_tuya_4
+    name: Tuya 4
+- id: number_tuya_5
+  component_id: number.tuya
+  fields:
+    number_datapoint: 102
+    min_value: 0
+    max_value: 1500
+    step: 1
+    unit_of_measurement: s
+    mode: slider
+    icon: mdi:clock
+    id: number_tuya_5
+    name: Tuya 5
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    icon: mdi:eye
+    enum_datapoint: 6
+    id: select_tuya_1
+    name: Tuya 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    internal: true
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 104
+    unit_of_measurement: lux
+    icon: mdi:brightness-5
+    device_class: illuminance
+    state_class: measurement
+    id: sensor_tuya_1
+    name: Tuya 1
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 9
+    unit_of_measurement: cm
+    icon: mdi:eye
+    device_class: distance
+    state_class: measurement
+    id: sensor_tuya_2
+    name: Tuya 2
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:clock-start
+    id: text_sensor_template_1
+    name: Template 1
+source:
+  type: esphome-devices
+  remote_id: Tuya-ZY-M100-Human-Presence-Sensor
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-ZY-M100-Human-Presence-Sensor/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 047d8e517b31c4c5cb96c8fb256f6a2cf6924e7ffdede16cb5813991a3e549e9

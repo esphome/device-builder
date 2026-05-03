@@ -1,0 +1,68 @@
+id: athom_ar01_ir_controller
+name: Athom AR01 IR Controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/ar01-01-enclosure_front.jpg
+- images/ar01-06-top_pcb_removed_from_enclosure.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Bottom Button)
+- gpio: 12
+  available: false
+  occupied_by: output.gpio (gpio_12)
+- gpio: 13
+  available: false
+  occupied_by: output.gpio (gpio_13)
+docs_url: https://devices.esphome.io/devices/Athom-AR01-IR-Controller/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode:
+          input: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Bottom Button
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: output_gpio_2
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    output: gpio_12
+    id: switch_output_1
+    name: Top LED
+- id: switch_output_2
+  component_id: switch.output
+  fields:
+    output: gpio_13
+    id: switch_output_2
+    name: Middle LED
+source:
+  type: esphome-devices
+  remote_id: Athom-AR01-IR-Controller
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Athom-AR01-IR-Controller/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 631ee24e94cc3d43a7d6a9fb0068d0680268c767e026f74cc2efd1cfb6b23fc4

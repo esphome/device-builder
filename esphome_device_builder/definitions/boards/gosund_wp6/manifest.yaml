@@ -1,0 +1,67 @@
+id: gosund_wp6
+name: Gosund WP6
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/gosund_WP6.jpeg
+tags:
+- relay
+- compact
+pins:
+- gpio: 1
+  available: false
+  occupied_by: output.gpio (led)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (${friendly_name} Relay)
+docs_url: https://devices.esphome.io/devices/Gosund-WP6/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 3
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 1
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Gosund-WP6
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gosund-WP6/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 4f1bbafd00a79dbee46423f9d427137d2fbdf7d568778febc01bbe4ffd87f80a

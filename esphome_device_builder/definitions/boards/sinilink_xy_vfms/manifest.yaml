@@ -1,0 +1,63 @@
+id: sinilink_xy_vfms
+name: Sinilink XY-WFMS
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/sinilink-xy-wfms.png
+tags:
+- relay
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (relay)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (green_led)
+docs_url: https://devices.esphome.io/devices/Sinilink-XY-VFMS/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: Sinilink-XY-VFMS
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sinilink-XY-VFMS/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 75ba05686a47e7dcfb62e0aa75d9daab98649e0b5319a278875c50e252b9f5a5

@@ -1,0 +1,66 @@
+id: sonoff_basic_r2_v1_4
+name: Sonoff BASIC R2 v1.4
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Sonoff-BASIC-R2-v1.4_pcb.jpg
+- images/Sonoff-BASIC-R2-v1.4_pcb_rear.jpg
+- images/SonoffBasicR2-2023-Top.jpg
+- images/SonoffBasicR2-2023-Bottom.jpg
+tags:
+- relay
+- sonoff
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (push_button)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (Sonoff Basic Relay)
+- gpio: 13
+  available: false
+  occupied_by: light.status_led (blue_led)
+docs_url: https://devices.esphome.io/devices/Sonoff-BASIC-R2-v1.4/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: light_status_led_1
+    name: Status Led 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_1
+    name: Sonoff Basic Relay
+source:
+  type: esphome-devices
+  remote_id: Sonoff-BASIC-R2-v1.4
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f4a78fada84f8b5d02ba0f17b8a04ab5852d2eb93410d195fd47b0cc864e393c

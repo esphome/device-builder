@@ -1,0 +1,104 @@
+id: tuya_smart_star_projector_sk20
+name: Tuya Smart Star Projector SK20
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: wb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/SK20.jpg
+docs_url: https://devices.esphome.io/devices/Tuya-Smart-Star-Projector-SK20/
+featured_components:
+- id: light_rgb_1
+  component_id: light.rgb
+  fields:
+    restore_mode: ALWAYS_OFF
+    red: red
+    green: green
+    blue: blue
+    id: light_rgb_1
+    name: Light
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    icon: mdi:laser-pointer
+    output: laser_pwm
+    restore_mode: ALWAYS_OFF
+    id: light_monochromatic_1
+    name: Laser
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    output: button_led0_gpio
+    restore_mode: ALWAYS_OFF
+    internal: true
+    id: light_status_led_1
+    name: Button Status LED
+- id: light_monochromatic_2
+  component_id: light.monochromatic
+  fields:
+    output: button_led1_pwm
+    restore_mode: ALWAYS_OFF
+    id: light_monochromatic_2
+    name: Button LED1
+- id: output_libretiny_pwm_1
+  component_id: output.libretiny_pwm
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_libretiny_pwm_1
+- id: output_libretiny_pwm_2
+  component_id: output.libretiny_pwm
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_libretiny_pwm_2
+- id: output_libretiny_pwm_3
+  component_id: output.libretiny_pwm
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_libretiny_pwm_3
+- id: output_libretiny_pwm_4
+  component_id: output.libretiny_pwm
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_libretiny_pwm_4
+- id: output_libretiny_pwm_5
+  component_id: output.libretiny_pwm
+  fields:
+    min_power: 15%
+    id: output_libretiny_pwm_5
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: output_libretiny_pwm_6
+  component_id: output.libretiny_pwm
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_libretiny_pwm_6
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Signal
+source:
+  type: esphome-devices
+  remote_id: Tuya-Smart-Star-Projector-SK20
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Smart-Star-Projector-SK20/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 9fa6cd590480f8e82332c792187636a1142fc5fc68fe113681770c90416133b3

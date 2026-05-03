@@ -1,0 +1,138 @@
+id: sonoff_m5
+name: Sonoff M5 Wall Switch 1/2/3-gang
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/Sonoff_M5_2gang_MB.jpg
+tags:
+- sonoff
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (Left)
+- gpio: 5
+  available: false
+  occupied_by: light.status_led (LED)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (Right)
+- gpio: 18
+  available: false
+  occupied_by: output.ledc (pwm_output)
+- gpio: 19
+  available: false
+  occupied_by: switch.gpio (Right)
+- gpio: 22
+  available: false
+  occupied_by: output.gpio (led_2)
+- gpio: 23
+  available: false
+  occupied_by: switch.gpio (Left)
+docs_url: https://devices.esphome.io/devices/Sonoff-M5/
+featured_components:
+- id: binary_sensor_template_1
+  component_id: binary_sensor.template
+  fields:
+    internal: true
+    entity_category: diagnostic
+    device_class: connectivity
+    lambda: return global_api_server->is_connected();
+    id: binary_sensor_template_1
+    name: API connected
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode: INPUT_PULLUP
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Left
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+        mode: INPUT_PULLUP
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Right
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 5
+        inverted: true
+      locked: true
+    internal: true
+    restore_mode: ALWAYS_OFF
+    id: light_status_led_1
+    name: LED
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: pwm_output
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:led-outline
+    entity_category: config
+    id: light_monochromatic_1
+    name: LEDs
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 22
+        inverted: false
+      locked: true
+    id: output_gpio_1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 18
+      locked: true
+    frequency: 1000 Hz
+    id: output_ledc_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 90s
+    entity_category: diagnostic
+    id: sensor_wifi_signal_1
+    name: RSSI
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 23
+      locked: true
+    id: switch_gpio_1
+    name: Left
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 19
+      locked: true
+    id: switch_gpio_2
+    name: Right
+source:
+  type: esphome-devices
+  remote_id: Sonoff-M5
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-M5/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b9d450759ca1b24809faf449f176acb634c30cfc6feab3232b331416c2a45a21

@@ -1,0 +1,40 @@
+id: geeni_6w8007_smart_wi_fi_outlet
+name: Geeni 6W8007 Smart Wi-Fi Outlet
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/geeni-6w8007-product-image.jpg
+- images/geeni-6w8007-1-back.jpg
+- images/geeni-6w8007-2-cover-off.jpg
+- images/geeni-6w8007-3-cover-off-front.jpg
+- images/geeni-6w8007-4-prying-out.jpg
+- images/geeni-6w8007-5-CB2S.jpg
+- images/geeni-6w8007-6-CB2S-pins.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    id: light_status_led_1
+    name: led
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+source:
+  type: esphome-devices
+  remote_id: Geeni-6W8007-Smart-Wi-Fi-Outlet
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e61aac30459a4d6d7da2e1f04983293c8dd752f797f2c1e51c33aaaea1218d3f

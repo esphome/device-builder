@@ -1,0 +1,143 @@
+id: knightsbridge_cu9kw
+name: Knightsbridge CU9KW Smart Wall Socket
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/knightsbridge-cu9kw.jpg
+- images/knightsbridge-op9kw.jpg
+- images/knightsbridge-cu9kw-disassembly.jpg
+- images/knightsbridge-cu9kw-ESP-board.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 0
+  available: false
+  occupied_by: output.gpio (led_2)
+- gpio: 2
+  available: false
+  occupied_by: output.gpio (led_1)
+- gpio: 4
+  available: false
+  occupied_by: output.gpio (relay_2)
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (button_2)
+- gpio: 14
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 15
+  available: false
+  occupied_by: output.gpio (relay_1)
+- gpio: 16
+  available: false
+  occupied_by: binary_sensor.gpio (button_1)
+docs_url: https://devices.esphome.io/devices/Knightsbridge-CU9KW/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        mode:
+          input: true
+          pullup: false
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        mode:
+          input: true
+          pullup: true
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_gpio_2
+- id: output_gpio_3
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 2
+        inverted: true
+      locked: true
+    id: output_gpio_3
+- id: output_gpio_4
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: true
+      locked: true
+    id: output_gpio_4
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 5
+      locked: true
+    cf1_pin:
+      value: 14
+      locked: true
+    update_interval: 10s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    output: relay_1
+    icon: mdi:power-socket-uk
+    id: switch_output_1
+    name: Outlet 1
+- id: switch_output_2
+  component_id: switch.output
+  fields:
+    output: relay_2
+    icon: mdi:power-socket-uk
+    id: switch_output_2
+    name: Outlet 2
+source:
+  type: esphome-devices
+  remote_id: Knightsbridge-CU9KW
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Knightsbridge-CU9KW/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: fac3211801887b58fe4a0a0423f636cadf44e5a18b0bae4787ff8c4edb5e28b0

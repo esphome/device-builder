@@ -1,0 +1,36 @@
+id: magichome_zj_wfmn_c_single_color
+name: MagicHome-ZJ-WFMN-C-Single Color V1.1 LED Controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/magichome_single_color.png
+pins:
+- gpio: 12
+  available: false
+  occupied_by: output.esp8266_pwm (LED_controller)
+docs_url: https://devices.esphome.io/devices/MagicHome-ZJ-WFMN-C-Single-Color/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: LED_controller
+    id: light_monochromatic_1
+    name: LED
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_esp8266_pwm_1
+source:
+  type: esphome-devices
+  remote_id: MagicHome-ZJ-WFMN-C-Single-Color
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/MagicHome-ZJ-WFMN-C-Single-Color/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 286af7f21800840f54f702b0600016ffd5dbfe4656aa56393d1b93e14ad9711d

@@ -1,0 +1,56 @@
+id: zemismart_bulb_br30
+name: Zemismart 7W BR30 Bulb
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/inside.jpg
+docs_url: https://devices.esphome.io/devices/Zemismart-Bulb-BR30/
+featured_components:
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    default_transition_length: 0s
+    restore_mode: ALWAYS_ON
+    red: output_red
+    green: output_green
+    blue: output_blue
+    white: output_white
+    id: light_rgbw_1
+    name: Rgbw 1
+- id: output_my9231_1
+  component_id: output.my9231
+  fields:
+    channel: 0
+    id: output_my9231_1
+- id: output_my9231_2
+  component_id: output.my9231
+  fields:
+    channel: 1
+    id: output_my9231_2
+- id: output_my9231_3
+  component_id: output.my9231
+  fields:
+    channel: 2
+    id: output_my9231_3
+- id: output_my9231_4
+  component_id: output.my9231
+  fields:
+    channel: 3
+    id: output_my9231_4
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 30s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+source:
+  type: esphome-devices
+  remote_id: Zemismart-Bulb-BR30
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Zemismart-Bulb-BR30/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 0921cffe63546e0658a79783b707cafb5992b2c491a3810b0e7b016541cc0a62

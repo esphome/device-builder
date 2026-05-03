@@ -1,0 +1,115 @@
+id: esp32e_relay_x8
+name: ESP32 Relay Board x8
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image.jpg
+tags:
+- relay
+pins:
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (Relay7)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (Relay8)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (Relay6)
+- gpio: 25
+  available: false
+  occupied_by: switch.gpio (Relay3)
+- gpio: 26
+  available: false
+  occupied_by: switch.gpio (Relay4)
+- gpio: 27
+  available: false
+  occupied_by: switch.gpio (Relay5)
+- gpio: 32
+  available: false
+  occupied_by: switch.gpio (Relay1)
+- gpio: 33
+  available: false
+  occupied_by: switch.gpio (Relay2)
+docs_url: https://devices.esphome.io/devices/ESP32E-Relay-X8/
+featured_components:
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 32
+      locked: true
+    id: switch_gpio_1
+    name: Relay1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 33
+      locked: true
+    id: switch_gpio_2
+    name: Relay2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 25
+      locked: true
+    id: switch_gpio_3
+    name: Relay3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: switch_gpio_4
+    name: Relay4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 27
+      locked: true
+    id: switch_gpio_5
+    name: Relay5
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: switch_gpio_6
+    name: Relay6
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        ignore_strapping_warning: true
+      locked: true
+    id: switch_gpio_7
+    name: Relay7
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: switch_gpio_8
+    name: Relay8
+source:
+  type: esphome-devices
+  remote_id: ESP32E-Relay-X8
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32E-Relay-X8/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b32129130884012a296ff196e9a192c0395bab84549494ba0ddc80d5e30b0b35

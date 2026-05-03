@@ -1,0 +1,525 @@
+id: es32a08
+name: ES32A08
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/ES32A08.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (I1)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (I2)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (I3)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (I4)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (I5)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (I6)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (I7)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (I8)
+- gpio: 8
+  available: false
+  occupied_by: output.gpio (G1)
+- gpio: 9
+  available: false
+  occupied_by: output.gpio (G2)
+- gpio: 10
+  available: false
+  occupied_by: output.gpio (G3)
+- gpio: 11
+  available: false
+  occupied_by: output.gpio (G4)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (status LED)
+- gpio: 16
+  available: false
+  occupied_by: switch.gpio (O1)
+- gpio: 17
+  available: false
+  occupied_by: switch.gpio (O2)
+- gpio: 18
+  available: false
+  occupied_by: binary_sensor.gpio (KEY1)
+- gpio: 19
+  available: false
+  occupied_by: binary_sensor.gpio (KEY2)
+- gpio: 20
+  available: false
+  occupied_by: switch.gpio (O5)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (KEY3)
+- gpio: 22
+  available: false
+  occupied_by: switch.gpio (O7)
+- gpio: 23
+  available: false
+  occupied_by: binary_sensor.gpio (KEY4)
+- gpio: 32
+  available: false
+  occupied_by: sensor.adc (ADC5 (0-10V))
+- gpio: 33
+  available: false
+  occupied_by: sensor.adc (ADC6 (0-10V))
+- gpio: 34
+  available: false
+  occupied_by: sensor.adc (ADC3 (0-20ma))
+- gpio: 35
+  available: false
+  occupied_by: sensor.adc (ADC4 (0-20ma))
+- gpio: 36
+  available: false
+  occupied_by: sensor.adc (ADC1 (0-20ma))
+- gpio: 39
+  available: false
+  occupied_by: sensor.adc (ADC2 (0-20ma))
+docs_url: https://devices.esphome.io/devices/ES32A08/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 0
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: I1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 1
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: I2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 2
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: I3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 3
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: I4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 4
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: I5
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 5
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: I6
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 6
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: I7
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        sn74hc165: sn74hc165_hub
+        number: 7
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: I8
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 18
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: KEY1
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 19
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: KEY2
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 21
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: KEY3
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 23
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: KEY4
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 0
+        inverted: false
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 1
+        inverted: false
+      locked: true
+    id: output_gpio_2
+- id: output_gpio_3
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 2
+        inverted: false
+      locked: true
+    id: output_gpio_3
+- id: output_gpio_4
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 3
+        inverted: false
+      locked: true
+    id: output_gpio_4
+- id: output_gpio_5
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 4
+        inverted: false
+      locked: true
+    id: output_gpio_5
+- id: output_gpio_6
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 5
+        inverted: false
+      locked: true
+    id: output_gpio_6
+- id: output_gpio_7
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 6
+        inverted: false
+      locked: true
+    id: output_gpio_7
+- id: output_gpio_8
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 7
+        inverted: false
+      locked: true
+    id: output_gpio_8
+- id: output_gpio_9
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 8
+        inverted: true
+      locked: true
+    id: output_gpio_9
+- id: output_gpio_10
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 9
+        inverted: true
+      locked: true
+    id: output_gpio_10
+- id: output_gpio_11
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 10
+        inverted: true
+      locked: true
+    id: output_gpio_11
+- id: output_gpio_12
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 11
+        inverted: true
+      locked: true
+    id: output_gpio_12
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 36
+      locked: true
+    update_interval: 60s
+    id: sensor_adc_1
+    name: ADC1 (0-20ma)
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 39
+      locked: true
+    update_interval: 60s
+    id: sensor_adc_2
+    name: ADC2 (0-20ma)
+- id: sensor_adc_3
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 34
+      locked: true
+    update_interval: 60s
+    id: sensor_adc_3
+    name: ADC3 (0-20ma)
+- id: sensor_adc_4
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 35
+      locked: true
+    update_interval: 60s
+    id: sensor_adc_4
+    name: ADC4 (0-20ma)
+- id: sensor_adc_5
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 32
+      locked: true
+    update_interval: 60s
+    id: sensor_adc_5
+    name: ADC5 (0-10V)
+- id: sensor_adc_6
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 33
+      locked: true
+    update_interval: 60s
+    id: sensor_adc_6
+    name: ADC6 (0-10V)
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 16
+        inverted: false
+      locked: true
+    id: switch_gpio_1
+    name: O1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 17
+        inverted: false
+      locked: true
+    id: switch_gpio_2
+    name: O2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 18
+        inverted: false
+      locked: true
+    id: switch_gpio_3
+    name: O3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 19
+        inverted: false
+      locked: true
+    id: switch_gpio_4
+    name: O4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 20
+        inverted: false
+      locked: true
+    id: switch_gpio_5
+    name: O5
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 21
+        inverted: false
+      locked: true
+    id: switch_gpio_6
+    name: O6
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 22
+        inverted: false
+      locked: true
+    id: switch_gpio_7
+    name: O7
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        sn74hc595: sn74hc595_hub
+        number: 23
+        inverted: false
+      locked: true
+    id: switch_gpio_8
+    name: O8
+- id: switch_gpio_9
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_9
+    name: status LED
+- id: text_sensor_homeassistant_1
+  component_id: text_sensor.homeassistant
+  fields:
+    entity_id: input_text.test
+    id: text_sensor_homeassistant_1
+    name: Text from Home Assistant
+source:
+  type: esphome-devices
+  remote_id: ES32A08
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ES32A08/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f8b62b7122fb6c20f888f3e996474b079acf4197e6d89df36ad87f007549ec4d

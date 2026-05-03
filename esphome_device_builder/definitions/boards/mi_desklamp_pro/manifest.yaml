@@ -1,0 +1,118 @@
+id: mi_desklamp_pro
+name: Xiaomi Mi Smart LED Desk Lamp Pro
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/screws_Image.jpg
+- images/board_Image.jpg
+pins:
+- gpio: 2
+  available: false
+  occupied_by: output.ledc (output_cw)
+- gpio: 4
+  available: false
+  occupied_by: output.ledc (output_ww)
+- gpio: 26
+  available: false
+  occupied_by: sensor.rotary_encoder (rotation)
+- gpio: 27
+  available: false
+  occupied_by: sensor.rotary_encoder (rotation)
+- gpio: 33
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+docs_url: https://devices.esphome.io/devices/Mi-Desklamp-Pro/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 33
+        inverted: true
+        mode: INPUT_PULLDOWN
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    default_transition_length: 0s
+    constant_brightness: true
+    cold_white: output_cw
+    warm_white: output_ww
+    cold_white_color_temperature: 4800 K
+    warm_white_color_temperature: 2500 K
+    restore_mode: RESTORE_DEFAULT_OFF
+    gamma_correct: 1
+    id: light_cwww_1
+    name: Light
+- id: number_template_1
+  component_id: number.template
+  fields:
+    icon: mdi:sine-wave
+    unit_of_measurement: Hz
+    min_value: 0
+    max_value: 100000
+    initial_value: 100000
+    mode: box
+    step: 1
+    id: number_template_1
+    name: Flicker Frequency
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 2
+      locked: true
+    power_supply: power
+    frequency: 100000Hz
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    power_supply: power
+    frequency: 100000Hz
+    id: output_ledc_2
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    icon: mdi:wifi
+    id: sensor_wifi_signal_1
+    name: WiFi Signal
+- id: sensor_rotary_encoder_1
+  component_id: sensor.rotary_encoder
+  fields:
+    pin_a:
+      value: 26
+      locked: true
+    pin_b:
+      value: 27
+      locked: true
+    resolution: 2
+    id: sensor_rotary_encoder_1
+    name: Rotary Encoder 1
+- id: text_sensor_version_1
+  component_id: text_sensor.version
+  fields:
+    icon: mdi:cube-outline
+    id: text_sensor_version_1
+    name: Version
+source:
+  type: esphome-devices
+  remote_id: Mi-Desklamp-Pro
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Mi-Desklamp-Pro/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: ee90a7965984ed12527f8c7286eebefe7359fe7da97051a4a16851f0d6ac4340

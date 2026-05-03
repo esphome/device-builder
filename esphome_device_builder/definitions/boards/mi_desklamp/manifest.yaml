@@ -1,0 +1,89 @@
+id: mi_desklamp
+name: Xiaomi Mi Desklamp
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/pcb-labeled.jpg
+pins:
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (output_cold)
+- gpio: 5
+  available: false
+  occupied_by: output.esp8266_pwm (output_warm)
+- gpio: 12
+  available: false
+  occupied_by: sensor.rotary_encoder (rotation)
+- gpio: 13
+  available: false
+  occupied_by: sensor.rotary_encoder (rotation)
+docs_url: https://devices.esphome.io/devices/Mi-Desklamp/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 2
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    default_transition_length: 0s
+    constant_brightness: true
+    cold_white: output_cold
+    warm_white: output_warm
+    cold_white_color_temperature: 6500K
+    warm_white_color_temperature: 2650K
+    gamma_correct: 0
+    id: light_cwww_1
+    name: Cwww 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: output_esp8266_pwm_1
+- id: output_esp8266_pwm_2
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: output_esp8266_pwm_2
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: sensor_rotary_encoder_1
+  component_id: sensor.rotary_encoder
+  fields:
+    pin_a:
+      value: 13
+      locked: true
+    pin_b:
+      value: 12
+      locked: true
+    resolution: 2
+    id: sensor_rotary_encoder_1
+    name: Rotary Encoder 1
+source:
+  type: esphome-devices
+  remote_id: Mi-Desklamp
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Mi-Desklamp/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: abe05f7740ba7fbaac902f1859b982c0500e157c64da9acdcc11c9eeab189f73

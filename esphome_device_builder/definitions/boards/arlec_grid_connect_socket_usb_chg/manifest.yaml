@@ -1,0 +1,76 @@
+id: arlec_grid_connect_socket_usb_chg
+name: Arlec Grid Connect Smart Plug In Socket With 2.1A USB Charger
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/brilliant-mirabella-genio-smart-plugs.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (blue_led)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${friendly_name} Power)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (red_led)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Socket-USB-Chg/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_3
+    name: Gpio 3
+source:
+  type: esphome-devices
+  remote_id: Arlec-Grid-Connect-Socket-USB-Chg
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-Grid-Connect-Socket-USB-Chg/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 90c8ccd0f3e8f6056b902e012d0504a539e2b0b35894900a191c9cd1c5ccaafb

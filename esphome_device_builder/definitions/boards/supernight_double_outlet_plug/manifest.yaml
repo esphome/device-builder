@@ -1,0 +1,95 @@
+id: supernight_double_outlet_plug
+name: SUPERNIGHT Double Outlet Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/SUPERNIGHT-Double-Outlet-Plug.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (left_outlet_button)
+- gpio: 3
+  available: false
+  occupied_by: switch.gpio (Left Outlet)
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (Right Outlet)
+- gpio: 13
+  available: false
+  occupied_by: sensor.hlw8012
+docs_url: https://devices.esphome.io/devices/SUPERNIGHT-Double-Outlet-Plug/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 1
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 5
+      locked: true
+    cf1_pin:
+      value: 4
+      locked: true
+    update_interval: 60s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    raw: true
+    update_interval: 100ms
+    unit_of_measurement: ''
+    id: sensor_adc_1
+    name: Adc 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 3
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Left Outlet
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_2
+    name: Right Outlet
+source:
+  type: esphome-devices
+  remote_id: SUPERNIGHT-Double-Outlet-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/SUPERNIGHT-Double-Outlet-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 65c1d6cb40fa850d6d6a5e05e2401209c4e7db045a44b4060e01043e9cebd187

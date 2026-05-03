@@ -1,0 +1,67 @@
+id: awp02l2
+name: Avatar AWP02L2
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/AWP02L2.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 2
+  available: false
+  occupied_by: output.gpio (led)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (${friendly_name} Relay)
+docs_url: https://devices.esphome.io/devices/AWP02L2/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 2
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: AWP02L2
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AWP02L2/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 0a88e49c9495b769936c75f88cd36ea0e292a4b2625c44ae63d06074019b7b9a

@@ -1,0 +1,98 @@
+id: shelly_plus_1_mini
+name: Shelly Plus 1 Mini
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/shelly_plus_1_mini_pinout.png
+tags:
+- relay
+- shelly
+pins:
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Button)
+- gpio: 3
+  available: false
+  occupied_by: sensor.adc (temp_analog_reading)
+- gpio: 7
+  available: false
+  occupied_by: output.gpio (relay_output)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Switch)
+docs_url: https://devices.esphome.io/devices/Shelly-Plus-1-Mini/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 10
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 1
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: output_gpio_1
+- id: sensor_ntc_1
+  component_id: sensor.ntc
+  fields:
+    sensor: temp_resistance_reading
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    icon: mdi:thermometer
+    id: sensor_ntc_1
+    name: Ntc 1
+- id: sensor_resistance_1
+  component_id: sensor.resistance
+  fields:
+    sensor: temp_analog_reading
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    id: sensor_resistance_1
+    name: Resistance 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 3
+      locked: true
+    attenuation: 12db
+    id: sensor_adc_1
+    name: Adc 1
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    output: relay_output
+    id: switch_output_1
+    name: Output 1
+source:
+  type: esphome-devices
+  remote_id: Shelly-Plus-1-Mini
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-1-Mini/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 35ef4da155e50482e0d46e414f515a1ef6cd02883f6227f2ca6f462d85b683b7

@@ -1,0 +1,45 @@
+id: esp_01_4_channel_relay_lc_technology
+name: ESP-01 4 Channel Relay LC Technology
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/ESP-01-4-Channel-Relay-LC-Technology.jpg
+tags:
+- relay
+docs_url: https://devices.esphome.io/devices/ESP-01-4-Channel-Relay-LC-Technology/
+featured_components:
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    optimistic: true
+    id: switch_template_1
+    name: relay1
+- id: switch_template_2
+  component_id: switch.template
+  fields:
+    optimistic: true
+    id: switch_template_2
+    name: relay2
+- id: switch_template_3
+  component_id: switch.template
+  fields:
+    optimistic: true
+    id: switch_template_3
+    name: relay3
+- id: switch_template_4
+  component_id: switch.template
+  fields:
+    optimistic: true
+    id: switch_template_4
+    name: relay4
+source:
+  type: esphome-devices
+  remote_id: ESP-01-4-Channel-Relay-LC-Technology
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP-01-4-Channel-Relay-LC-Technology/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 64a527cfe67da47225fc2dc915437d8c3ed997da6c73806276f89ff9cf191803

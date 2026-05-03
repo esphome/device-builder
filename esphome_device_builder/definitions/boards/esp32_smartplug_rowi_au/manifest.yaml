@@ -1,0 +1,98 @@
+id: esp32_smartplug_rowi_au
+name: Rowi ESP32 Smart Plug AU and NZ
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/rowi.png
+tags:
+- relay
+- compact
+pins:
+- gpio: 2
+  available: false
+  occupied_by: switch.gpio (${friendly_name})
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+- gpio: 18
+  available: false
+  occupied_by: output.ledc (red)
+- gpio: 19
+  available: false
+  occupied_by: output.ledc (green)
+- gpio: 21
+  available: false
+  occupied_by: output.ledc (blue)
+docs_url: https://devices.esphome.io/devices/ESP32-SmartPlug-Rowi-AU/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    disabled_by_default: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_rgb_1
+  component_id: light.rgb
+  fields:
+    disabled_by_default: true
+    red: red
+    green: green
+    blue: blue
+    id: light_rgb_1
+    name: Rgb 1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value:
+        number: 18
+        inverted: true
+      locked: true
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value:
+        number: 19
+        inverted: true
+      locked: true
+    id: output_ledc_2
+- id: output_ledc_3
+  component_id: output.ledc
+  fields:
+    pin:
+      value:
+        number: 21
+        inverted: true
+      locked: true
+    id: output_ledc_3
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 2
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: ESP32-SmartPlug-Rowi-AU
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32-SmartPlug-Rowi-AU/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: d665c36df9a303e6d3fbb2c5c16ca6c34d5017303c29d0139a56baee3af96770

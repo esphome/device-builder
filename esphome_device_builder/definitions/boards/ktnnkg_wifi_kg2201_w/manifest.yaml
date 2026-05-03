@@ -1,0 +1,64 @@
+id: ktnnkg_wifi_kg2201_w
+name: KTNNKG Wifi-KG2201-W
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/top.jpg
+- images/inside-top.jpg
+- images/inside-bottom.jpg
+tags:
+- relay
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (${friendly_name})
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (redLED)
+docs_url: https://devices.esphome.io/devices/KTNNKG-Wifi-KG2201-W/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    internal: true
+    pin:
+      value: 13
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_2
+    name: redLED
+source:
+  type: esphome-devices
+  remote_id: KTNNKG-Wifi-KG2201-W
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KTNNKG-Wifi-KG2201-W/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 7bf8cb899b1bf2372360fa3d6bf4373150545cc306159f34e8a16ddc25c3215e

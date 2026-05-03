@@ -1,0 +1,94 @@
+id: teckin_ss42
+name: Teckin SS42
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/teckin-ss42.webp
+tags:
+- relay
+- compact
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (led1)
+- gpio: 5
+  available: false
+  occupied_by: switch.gpio (led2)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (Relay 1)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (Teckin SS42 Button)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (Relay 2)
+docs_url: https://devices.esphome.io/devices/Teckin-SS42/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Teckin SS42 Button
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Outdoor SS42 WiFi signal
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Relay 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_2
+    name: Relay 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: Gpio 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: Gpio 4
+source:
+  type: esphome-devices
+  remote_id: Teckin-SS42
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Teckin-SS42/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 15bd580619b2fc5b4b22175d53924c869bb8c0db2e53a2120669da1d0761a3b9

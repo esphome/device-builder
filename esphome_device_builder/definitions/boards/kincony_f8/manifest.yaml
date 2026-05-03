@@ -1,0 +1,406 @@
+id: kincony_f8
+name: KinCony-F8 (ESP32-S3 16A Removable Relay)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/F8-1.jpg
+- images/F8-2.jpg
+- images/F8-3.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (f8-input01)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (f8-input02)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (f8-input03)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (f8-input04)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (f8-input05)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (f8-input06)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (f8-input07)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (f8-input08)
+- gpio: 8
+  available: false
+  occupied_by: switch.gpio (f8-output01)
+- gpio: 9
+  available: false
+  occupied_by: switch.gpio (f8-output02)
+- gpio: 10
+  available: false
+  occupied_by: switch.gpio (f8-output03)
+- gpio: 11
+  available: false
+  occupied_by: switch.gpio (f8-output04)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (f8-output05)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (f8-output06)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (f8-W1-io14)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (f8-W1-io15)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (f8-W1-io21)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (f8-433M)
+- gpio: 47
+  available: false
+  occupied_by: binary_sensor.gpio (f8-W1-io47)
+- gpio: 48
+  available: false
+  occupied_by: binary_sensor.gpio (f8-W1-io48)
+docs_url: https://devices.esphome.io/devices/KinCony-F8/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: f8-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: f8-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: f8-input03
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: f8-input04
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: f8-input05
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: f8-input06
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: f8-input07
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: f8-input08
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 48
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: f8-W1-io48
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 47
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: f8-W1-io47
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 21
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: f8-W1-io21
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: f8-W1-io15
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_13
+    name: f8-W1-io14
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_14
+    name: f8-433M
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_15
+    name: f8-io0
+- id: display_ssd1306_i2c_1
+  component_id: display.ssd1306_i2c
+  fields:
+    i2c_id: bus_a
+    model: SSD1306 128x64
+    address: 60
+    lambda: it.printf(0, 0, id(roboto), "KinCony F8");
+    id: display_ssd1306_i2c_1
+    name: Ssd1306 I2C 1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 5
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_1
+    name: f8 A1 Voltage
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 7
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_2
+    name: f8 A2 Voltage
+- id: sensor_adc_3
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 6
+      locked: true
+    update_interval: 5s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_3
+    name: f8 A3 Current
+- id: sensor_adc_4
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    update_interval: 5s
+    unit_of_measurement: mA
+    attenuation: 11db
+    id: sensor_adc_4
+    name: f8 A4 Current
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_1
+    id: switch_uart_1
+    name: RS485 Button
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: f8-output01
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: f8-output02
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: f8-output03
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: f8-output04
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: f8-output05
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_6
+    name: f8-output06
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_7
+    name: f8-output07
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_8
+    name: f8-output08
+source:
+  type: esphome-devices
+  remote_id: KinCony-F8
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-F8/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 6f3a30a47e42f5cf9aef77994441b1f1793402253b11ad2a50550bea6c3b573d

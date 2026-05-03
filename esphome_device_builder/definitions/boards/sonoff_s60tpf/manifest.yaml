@@ -1,0 +1,53 @@
+id: sonoff_s60tpf
+name: Sonoff S60TPF
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/sonoff-iplug-wi-fi-smart-plug-s60-type-e-f.png
+tags:
+- relay
+- compact
+- sonoff
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (Relay)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (button_1)
+docs_url: https://devices.esphome.io/devices/Sonoff-S60TPF/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 9
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    restore_mode: ALWAYS_ON
+    id: switch_gpio_1
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: Sonoff-S60TPF
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-S60TPF/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b9e6d57c92b4fe51ef0b958b79e54e49a3a0f32edf6e13b899b5b8e44bc9eee8

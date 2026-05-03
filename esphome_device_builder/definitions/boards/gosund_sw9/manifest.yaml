@@ -1,0 +1,109 @@
+id: gosund_sw9
+name: Gosund SW9
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/gosund_sw9.jpg
+- images/gosund_sw9_int.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Button 1)
+- gpio: 2
+  available: false
+  occupied_by: light.status_led (Switch 1 state LED)
+- gpio: 4
+  available: false
+  occupied_by: light.status_led (Switch 2 state LED)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (Button 2)
+- gpio: 12
+  available: false
+  occupied_by: output.gpio (relay2)
+- gpio: 14
+  available: false
+  occupied_by: output.gpio (relay1)
+docs_url: https://devices.esphome.io/devices/Gosund-SW9/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Button 2
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value: 2
+      locked: true
+    id: light_status_led_1
+    name: Switch 1 state LED
+- id: light_status_led_2
+  component_id: light.status_led
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: light_status_led_2
+    name: Switch 2 state LED
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: relay1
+    id: light_binary_1
+    name: $entity_name_1
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: relay2
+    id: light_binary_2
+    name: $entity_name_2
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: output_gpio_2
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: $name WiFi signal
+source:
+  type: esphome-devices
+  remote_id: Gosund-SW9
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Gosund-SW9/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 38ed2dd319765f51b818c58dcb67adf78a887e7a5cae7f5191348d7d0b1b02fc

@@ -1,0 +1,95 @@
+id: m5stack_m5stickc_plus
+name: M5Stack M5StickC PLUS
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/m5stickcplus.png
+pins:
+- gpio: 5
+  available: false
+  occupied_by: display.st7789v
+- gpio: 10
+  available: false
+  occupied_by: output.ledc (builtin_led)
+- gpio: 18
+  available: false
+  occupied_by: display.st7789v
+- gpio: 23
+  available: false
+  occupied_by: display.st7789v
+- gpio: 37
+  available: false
+  occupied_by: binary_sensor.gpio (${upper_devicename} Button A)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (${upper_devicename} Button B)
+docs_url: https://devices.esphome.io/devices/M5Stack-M5StickC-PLUS/
+product_url: https://docs.m5stack.com/en/core/m5stickc_plus
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 37
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: display_st7789v_1
+  component_id: display.st7789v
+  fields:
+    model: TTGO TDisplay 135x240
+    cs_pin:
+      value: 5
+      locked: true
+    dc_pin:
+      value: 23
+      locked: true
+    reset_pin:
+      value: 18
+      locked: true
+    rotation: 270
+    show_test_card: true
+    id: display_st7789v_1
+    name: St7789V 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: builtin_led
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 10
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_ledc_1
+source:
+  type: esphome-devices
+  remote_id: M5Stack-M5StickC-PLUS
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/M5Stack-M5StickC-PLUS/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 6c0a12b453d60118a60bb4e0a55c2e57c5a05c123407eccba4b2c698da714753

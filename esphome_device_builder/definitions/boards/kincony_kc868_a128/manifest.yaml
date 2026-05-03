@@ -1,0 +1,3144 @@
+id: kincony_kc868_a128
+name: KinCony KC868-A128
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/kc868-a128.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input1)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input2)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input3)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input4)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input5)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input6)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input7)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input8)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input9)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input10)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input11)
+- gpio: 11
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input12)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input13)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input14)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input15)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (a128-input16)
+docs_url: https://devices.esphome.io/devices/KinCony-KC868-A128/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: a128-input1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: a128-input2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: a128-input3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: a128-input4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: a128-input5
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: a128-input6
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: a128-input7
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: a128-input8
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: a128-input9
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: a128-input10
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: a128-input11
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: a128-input12
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: a128-input13
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: a128-input14
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: a128-input15
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: a128-input16
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_17
+    name: a128-input17
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_18
+    name: a128-input18
+- id: binary_sensor_gpio_19
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_19
+    name: a128-input19
+- id: binary_sensor_gpio_20
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_20
+    name: a128-input20
+- id: binary_sensor_gpio_21
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_21
+    name: a128-input21
+- id: binary_sensor_gpio_22
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_22
+    name: a128-input22
+- id: binary_sensor_gpio_23
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_23
+    name: a128-input23
+- id: binary_sensor_gpio_24
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_24
+    name: a128-input24
+- id: binary_sensor_gpio_25
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_25
+    name: a128-input25
+- id: binary_sensor_gpio_26
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_26
+    name: a128-input26
+- id: binary_sensor_gpio_27
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_27
+    name: a128-input27
+- id: binary_sensor_gpio_28
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_28
+    name: a128-input28
+- id: binary_sensor_gpio_29
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_29
+    name: a128-input29
+- id: binary_sensor_gpio_30
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_30
+    name: a128-input30
+- id: binary_sensor_gpio_31
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_31
+    name: a128-input31
+- id: binary_sensor_gpio_32
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_2
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_32
+    name: a128-input32
+- id: binary_sensor_gpio_33
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_33
+    name: a128-input33
+- id: binary_sensor_gpio_34
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_34
+    name: a128-input34
+- id: binary_sensor_gpio_35
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_35
+    name: a128-input35
+- id: binary_sensor_gpio_36
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_36
+    name: a128-input36
+- id: binary_sensor_gpio_37
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_37
+    name: a128-input37
+- id: binary_sensor_gpio_38
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_38
+    name: a128-input38
+- id: binary_sensor_gpio_39
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_39
+    name: a128-input39
+- id: binary_sensor_gpio_40
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_40
+    name: a128-input40
+- id: binary_sensor_gpio_41
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_41
+    name: a128-input41
+- id: binary_sensor_gpio_42
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_42
+    name: a128-input42
+- id: binary_sensor_gpio_43
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_43
+    name: a128-input43
+- id: binary_sensor_gpio_44
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_44
+    name: a128-input44
+- id: binary_sensor_gpio_45
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_45
+    name: a128-input45
+- id: binary_sensor_gpio_46
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_46
+    name: a128-input46
+- id: binary_sensor_gpio_47
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_47
+    name: a128-input47
+- id: binary_sensor_gpio_48
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_3
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_48
+    name: a128-input48
+- id: binary_sensor_gpio_49
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_49
+    name: a128-input49
+- id: binary_sensor_gpio_50
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_50
+    name: a128-input50
+- id: binary_sensor_gpio_51
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_51
+    name: a128-input51
+- id: binary_sensor_gpio_52
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_52
+    name: a128-input52
+- id: binary_sensor_gpio_53
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_53
+    name: a128-input53
+- id: binary_sensor_gpio_54
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_54
+    name: a128-input54
+- id: binary_sensor_gpio_55
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_55
+    name: a128-input55
+- id: binary_sensor_gpio_56
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_56
+    name: a128-input56
+- id: binary_sensor_gpio_57
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_57
+    name: a128-input57
+- id: binary_sensor_gpio_58
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_58
+    name: a128-input58
+- id: binary_sensor_gpio_59
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_59
+    name: a128-input59
+- id: binary_sensor_gpio_60
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_60
+    name: a128-input60
+- id: binary_sensor_gpio_61
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_61
+    name: a128-input61
+- id: binary_sensor_gpio_62
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_62
+    name: a128-input62
+- id: binary_sensor_gpio_63
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_63
+    name: a128-input63
+- id: binary_sensor_gpio_64
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_4
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_64
+    name: a128-input64
+- id: binary_sensor_gpio_65
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_65
+    name: a128-input65
+- id: binary_sensor_gpio_66
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_66
+    name: a128-input66
+- id: binary_sensor_gpio_67
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_67
+    name: a128-input67
+- id: binary_sensor_gpio_68
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_68
+    name: a128-input68
+- id: binary_sensor_gpio_69
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_69
+    name: a128-input69
+- id: binary_sensor_gpio_70
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_70
+    name: a128-input70
+- id: binary_sensor_gpio_71
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_71
+    name: a128-input71
+- id: binary_sensor_gpio_72
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_72
+    name: a128-input72
+- id: binary_sensor_gpio_73
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_73
+    name: a128-input73
+- id: binary_sensor_gpio_74
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_74
+    name: a128-input74
+- id: binary_sensor_gpio_75
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_75
+    name: a128-input75
+- id: binary_sensor_gpio_76
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_76
+    name: a128-input76
+- id: binary_sensor_gpio_77
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_77
+    name: a128-input77
+- id: binary_sensor_gpio_78
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_78
+    name: a128-input78
+- id: binary_sensor_gpio_79
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_79
+    name: a128-input79
+- id: binary_sensor_gpio_80
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_5
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_80
+    name: a128-input80
+- id: binary_sensor_gpio_81
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_81
+    name: a128-input81
+- id: binary_sensor_gpio_82
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_82
+    name: a128-input82
+- id: binary_sensor_gpio_83
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_83
+    name: a128-input83
+- id: binary_sensor_gpio_84
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_84
+    name: a128-input84
+- id: binary_sensor_gpio_85
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_85
+    name: a128-input85
+- id: binary_sensor_gpio_86
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_86
+    name: a128-input86
+- id: binary_sensor_gpio_87
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_87
+    name: a128-input87
+- id: binary_sensor_gpio_88
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_88
+    name: a128-input88
+- id: binary_sensor_gpio_89
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_89
+    name: a128-input89
+- id: binary_sensor_gpio_90
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_90
+    name: a128-input90
+- id: binary_sensor_gpio_91
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_91
+    name: a128-input91
+- id: binary_sensor_gpio_92
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_92
+    name: a128-input92
+- id: binary_sensor_gpio_93
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_93
+    name: a128-input93
+- id: binary_sensor_gpio_94
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_94
+    name: a128-input94
+- id: binary_sensor_gpio_95
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_95
+    name: a128-input95
+- id: binary_sensor_gpio_96
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_6
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_96
+    name: a128-input96
+- id: binary_sensor_gpio_97
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_97
+    name: a128-input97
+- id: binary_sensor_gpio_98
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_98
+    name: a128-input98
+- id: binary_sensor_gpio_99
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_99
+    name: a128-input99
+- id: binary_sensor_gpio_100
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_100
+    name: a128-input100
+- id: binary_sensor_gpio_101
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_101
+    name: a128-input101
+- id: binary_sensor_gpio_102
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_102
+    name: a128-input102
+- id: binary_sensor_gpio_103
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_103
+    name: a128-input103
+- id: binary_sensor_gpio_104
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_104
+    name: a128-input104
+- id: binary_sensor_gpio_105
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_105
+    name: a128-input105
+- id: binary_sensor_gpio_106
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_106
+    name: a128-input106
+- id: binary_sensor_gpio_107
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_107
+    name: a128-input107
+- id: binary_sensor_gpio_108
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_108
+    name: a128-input108
+- id: binary_sensor_gpio_109
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_109
+    name: a128-input109
+- id: binary_sensor_gpio_110
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_110
+    name: a128-input110
+- id: binary_sensor_gpio_111
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_111
+    name: a128-input111
+- id: binary_sensor_gpio_112
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_7
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_112
+    name: a128-input112
+- id: binary_sensor_gpio_113
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_113
+    name: a128-input113
+- id: binary_sensor_gpio_114
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_114
+    name: a128-input114
+- id: binary_sensor_gpio_115
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_115
+    name: a128-input115
+- id: binary_sensor_gpio_116
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_116
+    name: a128-input116
+- id: binary_sensor_gpio_117
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_117
+    name: a128-input117
+- id: binary_sensor_gpio_118
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_118
+    name: a128-input118
+- id: binary_sensor_gpio_119
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_119
+    name: a128-input119
+- id: binary_sensor_gpio_120
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_120
+    name: a128-input120
+- id: binary_sensor_gpio_121
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_121
+    name: a128-input121
+- id: binary_sensor_gpio_122
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_122
+    name: a128-input122
+- id: binary_sensor_gpio_123
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_123
+    name: a128-input123
+- id: binary_sensor_gpio_124
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_124
+    name: a128-input124
+- id: binary_sensor_gpio_125
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_125
+    name: a128-input125
+- id: binary_sensor_gpio_126
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_126
+    name: a128-input126
+- id: binary_sensor_gpio_127
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_127
+    name: a128-input127
+- id: binary_sensor_gpio_128
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_8
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_128
+    name: a128-input128
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: a128-light1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: a128-light2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: a128-light3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: a128-light4
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: a128-light5
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_6
+    name: a128-light6
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_7
+    name: a128-light7
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_8
+    name: a128-light8
+- id: switch_gpio_9
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_9
+    name: a128-light9
+- id: switch_gpio_10
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_10
+    name: a128-light10
+- id: switch_gpio_11
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_11
+    name: a128-light11
+- id: switch_gpio_12
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_12
+    name: a128-light12
+- id: switch_gpio_13
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_13
+    name: a128-light13
+- id: switch_gpio_14
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_14
+    name: a128-light14
+- id: switch_gpio_15
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_15
+    name: a128-light15
+- id: switch_gpio_16
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_16
+    name: a128-light16
+- id: switch_gpio_17
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_17
+    name: a128-light17
+- id: switch_gpio_18
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_18
+    name: a128-light18
+- id: switch_gpio_19
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_19
+    name: a128-light19
+- id: switch_gpio_20
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_20
+    name: a128-light20
+- id: switch_gpio_21
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_21
+    name: a128-light21
+- id: switch_gpio_22
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_22
+    name: a128-light22
+- id: switch_gpio_23
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_23
+    name: a128-light23
+- id: switch_gpio_24
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_24
+    name: a128-light24
+- id: switch_gpio_25
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_25
+    name: a128-light25
+- id: switch_gpio_26
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_26
+    name: a128-light26
+- id: switch_gpio_27
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_27
+    name: a128-light27
+- id: switch_gpio_28
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_28
+    name: a128-light28
+- id: switch_gpio_29
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_29
+    name: a128-light29
+- id: switch_gpio_30
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_30
+    name: a128-light30
+- id: switch_gpio_31
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_31
+    name: a128-light31
+- id: switch_gpio_32
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_2
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_32
+    name: a128-light32
+- id: switch_gpio_33
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_33
+    name: a128-light33
+- id: switch_gpio_34
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_34
+    name: a128-light34
+- id: switch_gpio_35
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_35
+    name: a128-light35
+- id: switch_gpio_36
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_36
+    name: a128-light36
+- id: switch_gpio_37
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_37
+    name: a128-light37
+- id: switch_gpio_38
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_38
+    name: a128-light38
+- id: switch_gpio_39
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_39
+    name: a128-light39
+- id: switch_gpio_40
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_40
+    name: a128-light40
+- id: switch_gpio_41
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_41
+    name: a128-light41
+- id: switch_gpio_42
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_42
+    name: a128-light42
+- id: switch_gpio_43
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_43
+    name: a128-light43
+- id: switch_gpio_44
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_44
+    name: a128-light44
+- id: switch_gpio_45
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_45
+    name: a128-light45
+- id: switch_gpio_46
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_46
+    name: a128-light46
+- id: switch_gpio_47
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_47
+    name: a128-light47
+- id: switch_gpio_48
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_3
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_48
+    name: a128-light48
+- id: switch_gpio_49
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_49
+    name: a128-light49
+- id: switch_gpio_50
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_50
+    name: a128-light50
+- id: switch_gpio_51
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_51
+    name: a128-light51
+- id: switch_gpio_52
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_52
+    name: a128-light52
+- id: switch_gpio_53
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_53
+    name: a128-light53
+- id: switch_gpio_54
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_54
+    name: a128-light54
+- id: switch_gpio_55
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_55
+    name: a128-light55
+- id: switch_gpio_56
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_56
+    name: a128-light56
+- id: switch_gpio_57
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_57
+    name: a128-light57
+- id: switch_gpio_58
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_58
+    name: a128-light58
+- id: switch_gpio_59
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_59
+    name: a128-light59
+- id: switch_gpio_60
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_60
+    name: a128-light60
+- id: switch_gpio_61
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_61
+    name: a128-light61
+- id: switch_gpio_62
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_62
+    name: a128-light62
+- id: switch_gpio_63
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_63
+    name: a128-light63
+- id: switch_gpio_64
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_4
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_64
+    name: a128-light64
+- id: switch_gpio_65
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_65
+    name: a128-light65
+- id: switch_gpio_66
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_66
+    name: a128-light66
+- id: switch_gpio_67
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_67
+    name: a128-light67
+- id: switch_gpio_68
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_68
+    name: a128-light68
+- id: switch_gpio_69
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_69
+    name: a128-light69
+- id: switch_gpio_70
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_70
+    name: a128-light70
+- id: switch_gpio_71
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_71
+    name: a128-light71
+- id: switch_gpio_72
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_72
+    name: a128-light72
+- id: switch_gpio_73
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_73
+    name: a128-light73
+- id: switch_gpio_74
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_74
+    name: a128-light74
+- id: switch_gpio_75
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_75
+    name: a128-light75
+- id: switch_gpio_76
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_76
+    name: a128-light76
+- id: switch_gpio_77
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_77
+    name: a128-light77
+- id: switch_gpio_78
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_78
+    name: a128-light78
+- id: switch_gpio_79
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_79
+    name: a128-light79
+- id: switch_gpio_80
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_5
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_80
+    name: a128-light80
+- id: switch_gpio_81
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_81
+    name: a128-light81
+- id: switch_gpio_82
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_82
+    name: a128-light82
+- id: switch_gpio_83
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_83
+    name: a128-light83
+- id: switch_gpio_84
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_84
+    name: a128-light84
+- id: switch_gpio_85
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_85
+    name: a128-light85
+- id: switch_gpio_86
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_86
+    name: a128-light86
+- id: switch_gpio_87
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_87
+    name: a128-light87
+- id: switch_gpio_88
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_88
+    name: a128-light88
+- id: switch_gpio_89
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_89
+    name: a128-light89
+- id: switch_gpio_90
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_90
+    name: a128-light90
+- id: switch_gpio_91
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_91
+    name: a128-light91
+- id: switch_gpio_92
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_92
+    name: a128-light92
+- id: switch_gpio_93
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_93
+    name: a128-light93
+- id: switch_gpio_94
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_94
+    name: a128-light94
+- id: switch_gpio_95
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_95
+    name: a128-light95
+- id: switch_gpio_96
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_6
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_96
+    name: a128-light96
+- id: switch_gpio_97
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_97
+    name: a128-light97
+- id: switch_gpio_98
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_98
+    name: a128-light98
+- id: switch_gpio_99
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_99
+    name: a128-light99
+- id: switch_gpio_100
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_100
+    name: a128-light100
+- id: switch_gpio_101
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_101
+    name: a128-light101
+- id: switch_gpio_102
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_102
+    name: a128-light102
+- id: switch_gpio_103
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_103
+    name: a128-light103
+- id: switch_gpio_104
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_104
+    name: a128-light104
+- id: switch_gpio_105
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_105
+    name: a128-light105
+- id: switch_gpio_106
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_106
+    name: a128-light106
+- id: switch_gpio_107
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_107
+    name: a128-light107
+- id: switch_gpio_108
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_108
+    name: a128-light108
+- id: switch_gpio_109
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_109
+    name: a128-light109
+- id: switch_gpio_110
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_110
+    name: a128-light110
+- id: switch_gpio_111
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_111
+    name: a128-light111
+- id: switch_gpio_112
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_7
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_112
+    name: a128-light112
+- id: switch_gpio_113
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_113
+    name: a128-light113
+- id: switch_gpio_114
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_114
+    name: a128-light114
+- id: switch_gpio_115
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_115
+    name: a128-light115
+- id: switch_gpio_116
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_116
+    name: a128-light116
+- id: switch_gpio_117
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_117
+    name: a128-light117
+- id: switch_gpio_118
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_118
+    name: a128-light118
+- id: switch_gpio_119
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_119
+    name: a128-light119
+- id: switch_gpio_120
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_120
+    name: a128-light120
+- id: switch_gpio_121
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_121
+    name: a128-light121
+- id: switch_gpio_122
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_122
+    name: a128-light122
+- id: switch_gpio_123
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_123
+    name: a128-light123
+- id: switch_gpio_124
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_124
+    name: a128-light124
+- id: switch_gpio_125
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_125
+    name: a128-light125
+- id: switch_gpio_126
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_126
+    name: a128-light126
+- id: switch_gpio_127
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_127
+    name: a128-light127
+- id: switch_gpio_128
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_8
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_128
+    name: a128-light128
+source:
+  type: esphome-devices
+  remote_id: KinCony-KC868-A128
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-A128/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: c3d1c24cd8943e2169e2069600adbaefcfdf4ea5bc4e422c5cd60bbf0b257210

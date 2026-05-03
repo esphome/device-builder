@@ -1,0 +1,30 @@
+id: aubess_mini_smart_switch_cb2s_v_2022
+name: Aubess WiFi Smart Switch (CB2S) V.2022
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Aubess-Mini-Smart-Switch-V2022-Product-image.jpg
+- images/Aubess-Mini-Smart-Switch-V2022-General-View.jpg
+- images/Aubess-Mini-Smart-Switch-V2022-bottom.jpg
+- images/Aubess-Mini-Smart-Switch-V2022-Pinout1.jpg
+- images/Aubess-Mini-Smart-Switch-V2022-Pinout2.jpg
+docs_url: https://devices.esphome.io/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/
+featured_components:
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    output: relayoutput
+    restore_mode: ALWAYS_OFF
+    id: switch_output_1
+    name: Output 1
+source:
+  type: esphome-devices
+  remote_id: Aubess-Mini-Smart-Switch-CB2S-V-2022
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 9bf660a416cda83d9bed050e4fee4b58bb124aa73c7c0b9409e66d71458612d5

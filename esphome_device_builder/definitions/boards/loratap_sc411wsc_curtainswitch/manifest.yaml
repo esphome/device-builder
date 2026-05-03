@@ -1,0 +1,51 @@
+id: loratap_sc411wsc_curtainswitch
+name: LoraTap In-Wall SC411WSC
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/LoraTap-SC411WSC.JPG
+docs_url: https://devices.esphome.io/devices/LoraTap-SC411WSC-CurtainSwitch/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    disabled_by_default: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    disabled_by_default: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    disabled_by_default: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    internal: true
+    restore_mode: always off
+    id: switch_gpio_1
+    name: 'Relay #1'
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    internal: true
+    restore_mode: always off
+    id: switch_gpio_2
+    name: 'Relay #2'
+source:
+  type: esphome-devices
+  remote_id: LoraTap-SC411WSC-CurtainSwitch
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LoraTap-SC411WSC-CurtainSwitch/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f8e66f46f66096df79279becd6a95881001f216b42adee75b5f70f56860fa277

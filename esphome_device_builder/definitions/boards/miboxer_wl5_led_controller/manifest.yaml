@@ -1,0 +1,42 @@
+id: miboxer_wl5_led_controller
+name: MiBoxer WL5 WiFi 5 in 1 LED Strip Controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: rtl87xx
+  board: wr3
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/MiBoxer-WL5.jpg
+- images/MiBoxer-WL5-board.jpg
+docs_url: https://devices.esphome.io/devices/MiBoxer-WL5-LED-Controller/
+featured_components:
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 26
+    min_value: 0
+    max_value: 86400
+    step: 1
+    multiply: 60
+    unit_of_measurement: min.
+    entity_category: config
+    icon: mdi:timer
+    id: number_tuya_1
+    name: Auto-off timer
+- id: select_tuya_1
+  component_id: select.tuya
+  fields:
+    enum_datapoint: 104
+    optimistic: true
+    icon: mdi:menu-open
+    entity_category: config
+    id: select_tuya_1
+    name: Mode
+source:
+  type: esphome-devices
+  remote_id: MiBoxer-WL5-LED-Controller
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/MiBoxer-WL5-LED-Controller/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 262a83ac174349ea6a4dde72eade501cdeb0bd37f811d9e30f6d28722568512f

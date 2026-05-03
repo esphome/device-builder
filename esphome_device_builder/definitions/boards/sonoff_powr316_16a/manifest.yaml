@@ -1,0 +1,94 @@
+id: sonoff_powr316_16a
+name: Sonoff POW Origin 16Amp (POWR316)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/sonoff-POWR316-external.png
+- images/sonoff-POWR316-internal-labels.png
+tags:
+- relay
+- sonoff
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} - Button)
+- gpio: 5
+  available: false
+  occupied_by: light.status_led (wifi_status_led)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (${friendly_name} - Relay Switch)
+- gpio: 18
+  available: false
+  occupied_by: output.ledc (led)
+docs_url: https://devices.esphome.io/devices/Sonoff-POWR316-16a/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: led
+    internal: true
+    default_transition_length: 0s
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 5
+        inverted: true
+      locked: true
+    id: light_status_led_1
+    name: Status Led 1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value:
+        number: 18
+        inverted: true
+      locked: true
+    id: output_ledc_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 600s
+    id: sensor_wifi_signal_1
+    name: WiFi Signal
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Sonoff-POWR316-16a
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-POWR316-16a/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 9511aea98abba3c75181d7414646f231ceb1e6a1b8c8bb18a71df526259e1e2a

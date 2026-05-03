@@ -1,0 +1,54 @@
+id: tuya_wifi_mini_sensor_pir_motion_alarm
+name: Tuya Wifi Mini Sensor PIR Motion Alarm
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cbu
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/tuya-pir-motion-alarm.jpg
+docs_url: https://devices.esphome.io/devices/Tuya-Wifi-Mini-Sensor-PIR-Motion-Alarm/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    device_class: motion
+    id: binary_sensor_gpio_1
+    name: PIR Motion Sensor P22
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    device_class: light
+    id: binary_sensor_gpio_2
+    name: PIR Button P16
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: buzzer
+    id: light_binary_1
+    name: Delete PIR Alarm Output P6
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: output_p14
+    id: light_binary_2
+    name: PIR Button Enabler P14
+- id: light_binary_3
+  component_id: light.binary
+  fields:
+    output: internal_led
+    id: light_binary_3
+    name: PIR Internal LED P20
+- id: output_libretiny_pwm_1
+  component_id: output.libretiny_pwm
+  fields:
+    frequency: 1000 Hz
+    id: output_libretiny_pwm_1
+source:
+  type: esphome-devices
+  remote_id: Tuya-Wifi-Mini-Sensor-PIR-Motion-Alarm
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Wifi-Mini-Sensor-PIR-Motion-Alarm/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: c08f773cc9ffbd03735f7b6a18b8b1c8d98192e4385fbfe04b015bb4c406fd53

@@ -1,0 +1,76 @@
+id: unexpectedmaker_feathers3d
+name: Unexpected Maker FeatherS3D
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/main_features_feathers3d.jpg
+- images/pins_feathers3d.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: sensor.adc (ambient_light)
+- gpio: 13
+  available: false
+  occupied_by: output.gpio (led_blue)
+- gpio: 39
+  available: false
+  occupied_by: switch.gpio (LDO2)
+- gpio: 40
+  available: false
+  occupied_by: light.esp32_rmt_led_strip (NeoPixel Light)
+docs_url: https://devices.esphome.io/devices/UnexpectedMaker-FeatherS3D/
+featured_components:
+- id: light_esp32_rmt_led_strip_1
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    rgb_order: GRB
+    chipset: ws2812
+    pin:
+      value: 40
+      locked: true
+    num_leds: 1
+    id: light_esp32_rmt_led_strip_1
+    name: NeoPixel Light
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: led_blue
+    id: light_binary_1
+    name: Binary 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: output_gpio_1
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: sensor_adc_1
+    name: Adc 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 39
+      locked: true
+    restore_mode: ALWAYS_ON
+    id: switch_gpio_1
+    name: LDO2
+source:
+  type: esphome-devices
+  remote_id: UnexpectedMaker-FeatherS3D
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/UnexpectedMaker-FeatherS3D/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 97df3f4c8bbc734c8049403f0ae641f89475ad42b08b8deaff7253f62e0e1460

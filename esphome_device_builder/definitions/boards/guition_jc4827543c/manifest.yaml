@@ -1,0 +1,78 @@
+id: guition_jc4827543c
+name: Guition JC4827W543C 4.3" 480*272
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/guition-jc4827w543c.jpg
+- images/guition-jc4827w543c-connector.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: output.ledc (gpio_backlight_pwm)
+- gpio: 3
+  available: false
+  occupied_by: touchscreen.gt911 (my_touchscreen)
+- gpio: 38
+  available: false
+  occupied_by: touchscreen.gt911 (my_touchscreen)
+docs_url: https://devices.esphome.io/devices/Guition-JC4827543C/
+featured_components:
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: gpio_backlight_pwm
+    icon: mdi:lightbulb-on
+    restore_mode: ALWAYS_ON
+    id: light_monochromatic_1
+    name: Display Backlight
+- id: number_template_1
+  component_id: number.template
+  fields:
+    optimistic: true
+    initial_value: 15
+    restore_value: true
+    unit_of_measurement: s
+    device_class: duration
+    mode: box
+    min_value: 5
+    max_value: 600
+    step: 1
+    id: number_template_1
+    name: Sleep time
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value:
+        number: 1
+      locked: true
+    frequency: 1000Hz
+    id: output_ledc_1
+- id: touchscreen_gt911_1
+  component_id: touchscreen.gt911
+  fields:
+    i2c_id: bus_a
+    interrupt_pin:
+      value:
+        number: 3
+        ignore_strapping_warning: true
+      locked: true
+    reset_pin:
+      value: 38
+      locked: true
+    id: touchscreen_gt911_1
+    name: Gt911 1
+source:
+  type: esphome-devices
+  remote_id: Guition-JC4827543C
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Guition-JC4827543C/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f61b99705fabd2c67e3690942e0c05cdf72b3d60742d963d7c5c21db188d3cb3

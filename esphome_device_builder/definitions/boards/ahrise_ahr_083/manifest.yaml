@@ -1,0 +1,102 @@
+id: ahrise_ahr_083
+name: AHRise AHR-083
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/ahrise_ahr-083.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.esp8266_pwm (output_component_blue)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (${displayname} Button)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${displayname} Relay 2)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (${displayname} Relay 1)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (${displayname} Relay 3)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (${displayname} Relay 4)
+docs_url: https://devices.esphome.io/devices/AHRise-AHR-083/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: output_component_blue
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_esp8266_pwm_1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+      locked: true
+    id: switch_gpio_3
+    name: Gpio 3
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+      locked: true
+    id: switch_gpio_4
+    name: Gpio 4
+source:
+  type: esphome-devices
+  remote_id: AHRise-AHR-083
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AHRise-AHR-083/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e70c9474ba5830b33a7987b9d87e44b997b883c4eda38d1f4d0c484c864aeed2

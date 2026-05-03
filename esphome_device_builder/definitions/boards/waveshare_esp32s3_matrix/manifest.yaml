@@ -1,0 +1,35 @@
+id: waveshare_esp32s3_matrix
+name: Waveshare ESP32-S3 Matrix
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/esp32-s3-matrix-1.jpg
+- images/esp32-s3-matrix-2.jpg
+docs_url: https://devices.esphome.io/devices/Waveshare-ESP32S3-Matrix/
+product_url: https://github.com/dala318/esphome-qmi8658/blob/main/led8x8-qmi8658.yaml
+featured_components:
+- id: display_addressable_light_1
+  component_id: display.addressable_light
+  fields:
+    addressable_light_id: pixel_matrix
+    width: 8
+    height: 8
+    rotation: 180°
+    update_interval: 1000ms
+    auto_clear_enabled: true
+    id: display_addressable_light_1
+    name: Addressable Light 1
+source:
+  type: esphome-devices
+  remote_id: Waveshare-ESP32S3-Matrix
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Waveshare-ESP32S3-Matrix/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: a625f1034c4edcd3b46d7d0b57a65347a58e609fdd3d7294c09ec94eae094ff0

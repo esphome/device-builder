@@ -1,0 +1,84 @@
+id: acenx_sop04_us
+name: Acenx SOP04-US
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/sop04-us.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 5
+  available: false
+  occupied_by: output.gpio (led)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${friendly_name} Relay1)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (${friendly_name} Relay2)
+docs_url: https://devices.esphome.io/devices/Acenx-SOP04-US/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: Acenx-SOP04-US
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Acenx-SOP04-US/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e0338729cd9b45e17a23c4583ed758d92d8c31d18d482f05c67ed88cf12c97fe

@@ -1,0 +1,48 @@
+id: ekf_rcs_2_wf
+name: EKF Сonnect PRO Wi-Fi (RCS-2-WF) Smart Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/0.jpg
+- images/1.jpg
+- images/3.jpg
+- images/4.jpg
+- images/5.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/EKF-RCS-2-WF/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    icon: mdi:gesture-tap-button
+    id: binary_sensor_gpio_1
+    name: Button
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    update_interval: 10s
+    voltage_divider: 800
+    change_mode_every: 1
+    current_resistor: 0.001 Ohm
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    icon: mdi:electric-switch
+    id: switch_gpio_1
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: EKF-RCS-2-WF
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/EKF-RCS-2-WF/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 3019789105f2900d6086843ae567f8e66aea2c6088558ac1874b024e33729701

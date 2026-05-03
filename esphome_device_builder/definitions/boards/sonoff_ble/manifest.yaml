@@ -1,0 +1,33 @@
+id: sonoff_ble
+name: Sonoff BLE - SwitchMan R5, S-Mate, S-Mate2
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: <REPLACEME>
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/sonoff_switchman_r5.jpg
+- images/sonoff_s-mate.jpg
+- images/sonoff_s-mate2.jpg
+tags:
+- sonoff
+docs_url: https://devices.esphome.io/devices/Sonoff-BLE/
+featured_components:
+- id: binary_sensor_template_1
+  component_id: binary_sensor.template
+  fields:
+    internal: true
+    entity_category: diagnostic
+    device_class: connectivity
+    lambda: return global_api_server->is_connected();
+    id: binary_sensor_template_1
+    name: Template 1
+source:
+  type: esphome-devices
+  remote_id: Sonoff-BLE
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-BLE/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 5a069d0ad8343db7c57be649e221517276f3329da5571a122a958dfd692f72cb

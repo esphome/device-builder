@@ -1,0 +1,85 @@
+id: horus_blind_controller
+name: Horus - Blind Controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/module.png
+- images/bottom-top-vew.png
+- images/Wire-diagram.png
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (button_open_1)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (button_close_1)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (output_cover_close)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (output_cover_open)
+docs_url: https://devices.esphome.io/devices/Horus-Blind-Controller/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: cover_time_based_1
+  component_id: cover.time_based
+  fields:
+    open_duration: 23s
+    close_duration: 22s
+    id: cover_time_based_1
+    name: Blinds
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        mode: OUTPUT
+        inverted: false
+      locked: true
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        mode: OUTPUT
+        inverted: false
+      locked: true
+    id: switch_gpio_2
+    name: Gpio 2
+source:
+  type: esphome-devices
+  remote_id: Horus-Blind-Controller
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Horus-Blind-Controller/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 5724028cf005532c2e617d71f3785af67188a6817aea78306d4525b26311afe8

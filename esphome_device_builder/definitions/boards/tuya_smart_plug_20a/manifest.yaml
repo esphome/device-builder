@@ -1,0 +1,40 @@
+id: tuya_smart_plug_20a
+name: Tuya Smart Plug 16/20A with Power Monitoring
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/tuya-smart-plug-20.jpg
+- images/hardware-closeup.jpg
+- images/programming.jpg
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    icon: mdi:radiobox-blank
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    voltage_divider: 760
+    initial_mode: CURRENT
+    update_interval: 15s
+    change_mode_every: 4
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+source:
+  type: esphome-devices
+  remote_id: Tuya-Smart-Plug-20A
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Smart-Plug-20A/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 986d64fb1c916b99c96ba6a495ab182349d853cf185e4bdd68864fd9750bd3e8

@@ -1,0 +1,52 @@
+id: tuya_generic_irc03_ir_blaster
+name: Tuya Generic IRC03 IR Blaster
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/IRC03.jpg
+pins:
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (btn)
+- gpio: 24
+  available: false
+  occupied_by: output.libretiny_pwm (led)
+docs_url: https://devices.esphome.io/devices/Tuya-Generic-IRC03-IR-Blaster/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 9
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: led
+    id: light_monochromatic_1
+    name: LED
+- id: output_libretiny_pwm_1
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: output_libretiny_pwm_1
+source:
+  type: esphome-devices
+  remote_id: Tuya-Generic-IRC03-IR-Blaster
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Generic-IRC03-IR-Blaster/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 09744531f232eb35103123929f8df04e2bb469c89060d2d19da8e80289337a3f

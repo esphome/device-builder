@@ -1,0 +1,113 @@
+id: strong_helo_plusb
+name: Strong Helo PLUSB 2x USB Power Monitoring Plug (HELO-PLUSB-EU)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/strong_HELO-PLUSB-EU.webp
+- images/mcu_pinout.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (button)
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: light.status_led (onboard_led)
+- gpio: 14
+  available: false
+  occupied_by: output.gpio (relay1)
+- gpio: 15
+  available: false
+  occupied_by: output.gpio (relay2)
+docs_url: https://devices.esphome.io/devices/Strong-Helo-PLUSB/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 0
+      locked: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: light_status_led_1
+    name: Status Led 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: output_gpio_2
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 4
+      locked: true
+    cf1_pin:
+      value: 5
+      locked: true
+    change_mode_every: 4
+    update_interval: 10s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    icon: mdi:power-socket-de
+    restore_mode: RESTORE_DEFAULT_OFF
+    output: relay1
+    id: switch_output_1
+    name: Output 1
+- id: switch_output_2
+  component_id: switch.output
+  fields:
+    icon: mdi:usb-port
+    restore_mode: RESTORE_DEFAULT_OFF
+    output: relay2
+    id: switch_output_2
+    name: Output 2
+source:
+  type: esphome-devices
+  remote_id: Strong-Helo-PLUSB
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Strong-Helo-PLUSB/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 2bfa925fc6ae942ca9d465d64df977783ebce983160d25db0266a404bda58e3b

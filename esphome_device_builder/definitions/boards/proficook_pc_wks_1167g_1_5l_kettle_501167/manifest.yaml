@@ -1,0 +1,87 @@
+id: proficook_pc_wks_1167g_1_5l_kettle_501167
+name: ProfiCook PC-WKS 1167G 1.5L Kettle (501167)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/device.jpg
+docs_url: https://devices.esphome.io/devices/ProfiCook-PC-WKS-1167G-1.5L-Kettle-501167/
+featured_components:
+- id: number_tuya_1
+  component_id: number.tuya
+  fields:
+    number_datapoint: 102
+    icon: mdi:oil-temperature
+    min_value: 35
+    max_value: 100
+    step: 1
+    id: number_tuya_1
+    name: Kettle Custom Temperature
+- id: select_template_1
+  component_id: select.template
+  fields:
+    optimistic: true
+    id: select_template_1
+    name: Kettle mode
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: °C
+    accuracy_decimals: 0
+    id: sensor_template_1
+    name: Kettle Temperature
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 105
+    id: sensor_tuya_1
+    name: Tuya 1
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    icon: mdi:clock-time-five-outline
+    sensor_datapoint: 107
+    unit_of_measurement: min
+    accuracy_decimals: 0
+    id: sensor_tuya_2
+    name: Kettle Remaining Time
+- id: sensor_tuya_3
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 101
+    id: sensor_tuya_3
+    name: Tuya 3
+- id: sensor_tuya_4
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 106
+    id: sensor_tuya_4
+    name: Tuya 4
+- id: sensor_tuya_5
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 104
+    id: sensor_tuya_5
+    name: Tuya 5
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:kettle
+    id: text_sensor_template_1
+    name: Kettle State
+- id: text_sensor_template_2
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:alert-circle-outline
+    id: text_sensor_template_2
+    name: Kettle Error
+source:
+  type: esphome-devices
+  remote_id: ProfiCook-PC-WKS-1167G-1.5L-Kettle-501167
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ProfiCook-PC-WKS-1167G-1.5L-Kettle-501167/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 65bbff79e0d48ed63d91252949ea2165874ac346e44530a3eafc455c49ed4932

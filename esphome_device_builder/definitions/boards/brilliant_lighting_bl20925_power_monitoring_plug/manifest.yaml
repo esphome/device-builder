@@ -1,0 +1,107 @@
+id: brilliant_lighting_bl20925_power_monitoring_plug
+name: Brilliant Lighting BL20925 Power Monitoring Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Brilliant-Lighting-BL20925-Power-Monitoring-Plug.jpeg
+tags:
+- relay
+- compact
+pins:
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+- gpio: 4
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 13
+  available: false
+  occupied_by: output.esp8266_pwm (brilliant_smartplug_1_blue_output)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (${friendly_name})
+docs_url: https://devices.esphome.io/devices/Brilliant-Lighting-BL20925-Power-Monitoring-Plug/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    device_class: power
+    pin:
+      value:
+        number: 3
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_monochromatic_1
+  component_id: light.monochromatic
+  fields:
+    output: brilliant_smartplug_1_blue_output
+    id: light_monochromatic_1
+    name: Monochromatic 1
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: output_esp8266_pwm_1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 4
+      locked: true
+    cf1_pin:
+      value: 5
+      locked: true
+    change_mode_every: 3
+    update_interval: 3s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    power_id: wattage
+    unit_of_measurement: kWh
+    id: sensor_total_daily_energy_1
+    name: Total Daily Energy 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Brilliant-Lighting-BL20925-Power-Monitoring-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Brilliant-Lighting-BL20925-Power-Monitoring-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1a727c82d5217e6f66f47ce9ef7dc0eb222960996ec0ec34faa45c45ea588ac6

@@ -1,0 +1,66 @@
+id: zentec_smart_plug
+name: Zentec Smart Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/zentec-outside.jpg
+- images/zentec-inside.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (redLED)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (${friendly_name})
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+docs_url: https://devices.esphome.io/devices/Zentec-Smart-Plug/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    internal: false
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    restore_mode: ALWAYS_ON
+    internal: true
+    id: switch_gpio_2
+    name: redLED
+source:
+  type: esphome-devices
+  remote_id: Zentec-Smart-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Zentec-Smart-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1548c92d08cdfa9762a10ed6c9ac2914a85e83a2c9bea415f73e24d6f2425c1d

@@ -1,0 +1,196 @@
+id: shelly_plus_rgbw_pm
+name: Shelly Plus RGBW PM
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/Shelly-Plus-RGBW-PM.png
+- images/Plus-addon-interface.png
+tags:
+- shelly
+pins:
+- gpio: 4
+  available: false
+  occupied_by: output.ledc (pwm_w)
+- gpio: 22
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Onboard Button)
+- gpio: 25
+  available: false
+  occupied_by: output.ledc (pwm_r)
+- gpio: 26
+  available: false
+  occupied_by: output.ledc (pwm_g)
+- gpio: 27
+  available: false
+  occupied_by: output.ledc (pwm_b)
+- gpio: 33
+  available: false
+  occupied_by: sensor.adc (temp_analog_reading)
+- gpio: 34
+  available: false
+  occupied_by: sensor.adc (${device_name} Voltage)
+- gpio: 35
+  available: false
+  occupied_by: sensor.adc (${device_name} Current)
+- gpio: 36
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Input 1)
+- gpio: 37
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Input 2)
+- gpio: 38
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Input 3)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (${device_name} Input 4)
+docs_url: https://devices.esphome.io/devices/Shelly-Plus-RGBW-PM/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 36
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 37
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Gpio 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 38
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Gpio 3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: Gpio 4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 22
+      locked: true
+    id: binary_sensor_gpio_5
+    name: Gpio 5
+- id: light_rgbw_1
+  component_id: light.rgbw
+  fields:
+    red: pwm_r
+    green: pwm_g
+    blue: pwm_b
+    white: pwm_w
+    id: light_rgbw_1
+    name: Rgbw 1
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 25
+      locked: true
+    frequency: 19531
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 26
+      locked: true
+    frequency: 19531
+    id: output_ledc_2
+- id: output_ledc_3
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 27
+      locked: true
+    frequency: 19531
+    id: output_ledc_3
+- id: output_ledc_4
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    frequency: 19531
+    id: output_ledc_4
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 33
+      locked: true
+    attenuation: 12db
+    id: sensor_adc_1
+    name: Adc 1
+- id: sensor_resistance_1
+  component_id: sensor.resistance
+  fields:
+    sensor: temp_analog_reading
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    id: sensor_resistance_1
+    name: Resistance 1
+- id: sensor_ntc_1
+  component_id: sensor.ntc
+  fields:
+    sensor: temp_resistance_reading
+    id: sensor_ntc_1
+    name: Ntc 1
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 34
+      locked: true
+    attenuation: 12db
+    accuracy_decimals: 1
+    id: sensor_adc_2
+    name: Adc 2
+- id: sensor_adc_3
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 35
+      locked: true
+    attenuation: 12db
+    accuracy_decimals: 2
+    unit_of_measurement: A
+    id: sensor_adc_3
+    name: Adc 3
+source:
+  type: esphome-devices
+  remote_id: Shelly-Plus-RGBW-PM
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-RGBW-PM/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 49300e9e1e7e1fd888123f9415abc0f53dd3942edc9fa6766f5f0395a24ffb34

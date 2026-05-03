@@ -1,0 +1,90 @@
+id: mq_7
+name: MQ-7 Carbon Monoxide Sensor
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/mq-7.png
+- images/mq-7-heater-mod.webp
+- images/mq-7-device.png
+- images/mq-7-history.png
+docs_url: https://devices.esphome.io/devices/MQ-7/
+featured_components:
+- id: sensor_homeassistant_1
+  component_id: sensor.homeassistant
+  fields:
+    entity_id: sensor.temperature
+    id: sensor_homeassistant_1
+    name: Homeassistant 1
+- id: sensor_homeassistant_2
+  component_id: sensor.homeassistant
+  fields:
+    entity_id: sensor.humidity
+    id: sensor_homeassistant_2
+    name: Homeassistant 2
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    entity_category: diagnostic
+    disabled_by_default: true
+    attenuation: auto
+    update_interval: never
+    id: sensor_adc_1
+    name: Adc 1
+- id: sensor_resistance_1
+  component_id: sensor.resistance
+  fields:
+    icon: mdi:omega
+    entity_category: diagnostic
+    disabled_by_default: true
+    configuration: UPSTREAM
+    id: sensor_resistance_1
+    name: Resistance 1
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    icon: mdi:omega
+    entity_category: diagnostic
+    unit_of_measurement: Ω
+    update_interval: never
+    id: sensor_template_1
+    name: Template 1
+- id: sensor_template_2
+  component_id: sensor.template
+  fields:
+    icon: mdi:percent
+    entity_category: diagnostic
+    disabled_by_default: true
+    unit_of_measurement: '%'
+    update_interval: never
+    id: sensor_template_2
+    name: Template 2
+- id: sensor_template_3
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: ppm
+    device_class: carbon_monoxide
+    update_interval: never
+    id: sensor_template_3
+    name: Template 3
+- id: switch_output_1
+  component_id: switch.output
+  fields:
+    icon: mdi:fire
+    entity_category: diagnostic
+    disabled_by_default: true
+    id: switch_output_1
+    name: Output 1
+source:
+  type: esphome-devices
+  remote_id: MQ-7
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/MQ-7/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: e35968370228cd3d9112ae670e2f82f3570b94956fbccdc3f39a614a5b349d17

@@ -1,0 +1,59 @@
+id: anwio_a19_e26_rgbww_8_5w_light_bulb
+name: Anwio A19 E26 RGBWW 8.5 Watt Light Bulb
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: wb3l
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/anwio-a19-top-down.jpg
+- images/anwio-a19-board-view.jpg
+- images/anwio-a19-board-view-2.jpg
+docs_url: https://devices.esphome.io/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/
+featured_components:
+- id: light_rgbww_1
+  component_id: light.rgbww
+  fields:
+    color_interlock: true
+    red: output_red
+    green: output_green
+    blue: output_blue
+    warm_white: warm_white
+    cold_white: cold_white
+    cold_white_color_temperature: 6200K
+    warm_white_color_temperature: 2000K
+    id: light_rgbww_1
+    name: Light
+- id: output_sm2135_1
+  component_id: output.sm2135
+  fields:
+    channel: 0
+    id: output_sm2135_1
+- id: output_sm2135_2
+  component_id: output.sm2135
+  fields:
+    channel: 1
+    id: output_sm2135_2
+- id: output_sm2135_3
+  component_id: output.sm2135
+  fields:
+    channel: 2
+    id: output_sm2135_3
+- id: output_sm2135_4
+  component_id: output.sm2135
+  fields:
+    channel: 3
+    id: output_sm2135_4
+- id: output_sm2135_5
+  component_id: output.sm2135
+  fields:
+    channel: 4
+    id: output_sm2135_5
+source:
+  type: esphome-devices
+  remote_id: Anwio-A19-E26-RGBWW-8.5W-Light-Bulb
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 8b33eec52fc8b450b2019ba168472c5c5cd271d6d082bad79f4fca484f520143

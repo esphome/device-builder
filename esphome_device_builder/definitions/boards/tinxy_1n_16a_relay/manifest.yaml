@@ -1,0 +1,70 @@
+id: tinxy_1n_16a_relay
+name: Tinxy 1 Node 16A Relay
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/closeup.jpg
+- images/connection-jumper.jpg
+- images/connection-serial.jpg
+tags:
+- relay
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (Physical Switch Input)
+- gpio: 5
+  available: false
+  occupied_by: switch.gpio (Smart Switch)
+- gpio: 14
+  available: false
+  occupied_by: output.esp8266_pwm (watchdog_heartbeat)
+docs_url: https://devices.esphome.io/devices/Tinxy-1N-16A-Relay/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Physical Switch Input
+- id: output_esp8266_pwm_1
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 14
+      locked: true
+    frequency: 500 Hz
+    id: output_esp8266_pwm_1
+- id: select_template_1
+  component_id: select.template
+  fields:
+    icon: mdi:power-settings
+    restore_value: true
+    optimistic: true
+    entity_category: config
+    id: select_template_1
+    name: Template 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: switch_gpio_1
+    name: Smart Switch
+source:
+  type: esphome-devices
+  remote_id: Tinxy-1N-16A-Relay
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tinxy-1N-16A-Relay/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 52d7dfa0b94a1df8b0f935d56fb860aaa799b08c24313975366afdb41d09753d

@@ -1,0 +1,102 @@
+id: currysmarter_16a_v1_1_plug
+name: CurrySmarter 16A v1.1 Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp8285
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/currysmarter.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 3
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (Button)
+- gpio: 12
+  available: false
+  occupied_by: switch.gpio (Relay)
+- gpio: 13
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 14
+  available: false
+  occupied_by: sensor.hlw8012
+docs_url: https://devices.esphome.io/devices/CurrySmarter-16A-v1.1-Plug/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 4
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    disabled_by_default: true
+    internal: true
+    id: binary_sensor_gpio_1
+    name: Button
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    voltage_divider: 1670
+    sel_pin:
+      value:
+        number: 3
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 13
+      locked: true
+    cf1_pin:
+      value: 14
+      locked: true
+    update_interval: 10s
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_total_daily_energy_1
+  component_id: sensor.total_daily_energy
+  fields:
+    power_id: power
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: kWh
+    id: sensor_total_daily_energy_1
+    name: Energy
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    internal: true
+    id: sensor_wifi_signal_1
+    name: WiFi Strength
+- id: sensor_copy_1
+  component_id: sensor.copy
+  fields:
+    source_id: signal_strength
+    unit_of_measurement: '%'
+    entity_category: diagnostic
+    id: sensor_copy_1
+    name: WiFi Strength
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    id: switch_gpio_1
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: CurrySmarter-16A-v1.1-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/CurrySmarter-16A-v1.1-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 614c43f54990e3ee6dbfc8cfff8fa805c4d29303935192560ed8de7f1f4fc67f

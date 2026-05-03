@@ -1,0 +1,54 @@
+id: tekkar_gen3_curtainswitch
+name: Tekkar (Teepao) 3rd generation
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Tekkar-Gen3.png
+- images/cb3s.png
+docs_url: https://devices.esphome.io/devices/Tekkar-Gen3-CurtainSwitch/
+featured_components:
+- id: cover_template_1
+  component_id: cover.template
+  fields:
+    optimistic: true
+    id: cover_template_1
+    name: Curtain Bedroom
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: led_green_out
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: light_binary_1
+    name: LED
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: led_blue_out
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: light_binary_2
+    name: Backlight
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    inverted:
+      value: true
+      locked: true
+    id: output_gpio_2
+source:
+  type: esphome-devices
+  remote_id: Tekkar-Gen3-CurtainSwitch
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tekkar-Gen3-CurtainSwitch/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 1a91b95f839359282e17ea3508caa2b0338b3ebfe9d332b82f4b8aef473f2c43

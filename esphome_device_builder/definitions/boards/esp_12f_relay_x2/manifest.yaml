@@ -1,0 +1,58 @@
+id: esp_12f_relay_x2
+name: ESP-12F_Relay_X2
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp12e
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/image.jpg
+tags:
+- relay
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (Relay2)
+- gpio: 5
+  available: false
+  occupied_by: switch.gpio (Relay1)
+- gpio: 16
+  available: false
+  occupied_by: switch.gpio (Led16)
+docs_url: https://devices.esphome.io/devices/ESP-12F-Relay-X2/
+featured_components:
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id: switch_gpio_1
+    name: Relay1
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: switch_gpio_2
+    name: Relay2
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 16
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: switch_gpio_3
+    name: Led16
+source:
+  type: esphome-devices
+  remote_id: ESP-12F-Relay-X2
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP-12F-Relay-X2/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: bce91f0e018979562c734e0bc8fc20cd6012f7f55831bc08179d3fc3cc247707

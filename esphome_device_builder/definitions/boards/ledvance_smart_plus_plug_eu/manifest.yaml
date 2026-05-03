@@ -1,0 +1,59 @@
+id: ledvance_smart_plus_plug_eu
+name: LEDVANCE SMART PLUS PLUG EU
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: wb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/image.webp
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/LEDVANCE-SMART-PLUS-PLUG-EU/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    internal: true
+    id: light_status_led_1
+    name: led
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    model: BL0937
+    update_interval: $update_interval_seconds
+    initial_mode: VOLTAGE
+    change_mode_every: '4294967295'
+    voltage_divider: '4456'
+    current_resistor: '0.00045'
+    id: sensor_hlw8012_1
+    name: Hlw8012 1
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    update_interval: $update_interval_seconds
+    id: sensor_template_1
+    name: $friendly_name Current
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    icon: mdi:power-socket-eu
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: LEDVANCE-SMART-PLUS-PLUG-EU
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LEDVANCE-SMART-PLUS-PLUG-EU/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: fdae9d547face7c179dcf148bd54482d06c49ebb6b8a772e913ef6e18b46c926

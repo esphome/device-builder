@@ -1,0 +1,101 @@
+id: kincony_ag8
+name: KinCony-AG8 (ESP32-S3 Smart IR Controller)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/AG8-3.jpg
+- images/AG8_Smart_Controller_diagram.jpg
+pins:
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (IO15)
+- gpio: 38
+  available: false
+  occupied_by: binary_sensor.gpio (IO38)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (IO39)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (IO40)
+docs_url: https://devices.esphome.io/devices/KinCony-AG8/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: IO15
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 38
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: IO38
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 39
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: IO39
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: IO40
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_485
+    id: switch_uart_1
+    name: RS485 Button
+- id: switch_uart_2
+  component_id: switch.uart
+  fields:
+    uart_id: uart_232
+    data: RS232-test
+    id: switch_uart_2
+    name: RS232 Button
+source:
+  type: esphome-devices
+  remote_id: KinCony-AG8
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-AG8/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 92084be9d3bc2b09ba144392cb9189c357807c3c348e7463309afba66f863233

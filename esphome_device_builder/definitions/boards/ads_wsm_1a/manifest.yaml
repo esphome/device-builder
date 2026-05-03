@@ -1,0 +1,67 @@
+id: ads_wsm_1a
+name: Advanced Detection Solutions Wi-Fi Temperature Monitor (WSM-1A)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/WSM-1A_cover.jpg
+- images/WSM-1A_ports.jpg
+- images/WSM-1A_Board.jpg
+pins:
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (Orange_LED)
+docs_url: https://devices.esphome.io/devices/ADS-WSM-1A/
+product_url: https://detection-solutions.com/technical-overview
+featured_components:
+- id: sensor_dallas_temp_1
+  component_id: sensor.dallas_temp
+  fields:
+    update_interval: 30s
+    address: (FILL IN ONE-WIRE BUS ADDRESS)
+    unit_of_measurement: °C
+    device_class: temperature
+    accuracy_decimals: 1
+    state_class: measurement
+    icon: mdi:thermometer
+    id: sensor_dallas_temp_1
+    name: Temperature_1
+- id: sensor_dallas_temp_2
+  component_id: sensor.dallas_temp
+  fields:
+    update_interval: 30s
+    address: (FILL IN ONE-WIRE BUS ADDRESS)
+    unit_of_measurement: °C
+    device_class: temperature
+    accuracy_decimals: 1
+    state_class: measurement
+    icon: mdi:thermometer
+    id: sensor_dallas_temp_2
+    name: Temperature_2
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    unit_of_measurement: dBm
+    accuracy_decimals: 0
+    update_interval: 30s
+    id: sensor_wifi_signal_1
+    name: WiFi Signal Strength
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    restore_mode: ALWAYS_OFF
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: ADS-WSM-1A
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ADS-WSM-1A/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: c662c97ca9727e9e02678513c0423003511f6d447ca3196ae72433da32a46199

@@ -1,0 +1,111 @@
+id: makerfabs_8ch_button_controller
+name: MAKERFABS-8CH-BUTTON-CONTROLLER
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/image_1.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (BUTTON8)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (BUTTON7)
+- gpio: 23
+  available: false
+  occupied_by: binary_sensor.gpio (BUTTON4)
+- gpio: 26
+  available: false
+  occupied_by: binary_sensor.gpio (BUTTON5)
+- gpio: 27
+  available: false
+  occupied_by: binary_sensor.gpio (BUTTON6)
+- gpio: 34
+  available: false
+  occupied_by: binary_sensor.gpio (BUTTON2)
+- gpio: 35
+  available: false
+  occupied_by: binary_sensor.gpio (BUTTON1)
+- gpio: 39
+  available: false
+  occupied_by: binary_sensor.gpio (BUTTON3)
+docs_url: https://devices.esphome.io/devices/Makerfabs-8CH-Button-Controller/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 35
+      locked: true
+    id: binary_sensor_gpio_1
+    name: BUTTON1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 34
+      locked: true
+    id: binary_sensor_gpio_2
+    name: BUTTON2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 39
+      locked: true
+    id: binary_sensor_gpio_3
+    name: BUTTON3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 23
+      locked: true
+    id: binary_sensor_gpio_4
+    name: BUTTON4
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: binary_sensor_gpio_5
+    name: BUTTON5
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 27
+      locked: true
+    id: binary_sensor_gpio_6
+    name: BUTTON6
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: binary_sensor_gpio_7
+    name: BUTTON7
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id: binary_sensor_gpio_8
+    name: BUTTON8
+source:
+  type: esphome-devices
+  remote_id: Makerfabs-8CH-Button-Controller
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Makerfabs-8CH-Button-Controller/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 47096f84e4f87d57429e319b96ef7ddebb3c525626007e6af0c6d7747d31f1e7

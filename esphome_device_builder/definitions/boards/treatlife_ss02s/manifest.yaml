@@ -1,0 +1,32 @@
+id: treatlife_ss02s
+name: Treatlife SS02S 2-Way Wall Switch
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231t-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/BK7231S.jpg
+- images/BK7231N-flashing.jpg
+docs_url: https://devices.esphome.io/devices/Treatlife-SS02S/
+featured_components:
+- id: light_binary_1
+  component_id: light.binary
+  fields:
+    output: switch_output
+    id: light_binary_1
+    name: Binary 1
+- id: light_binary_2
+  component_id: light.binary
+  fields:
+    output: white_led_output
+    id: light_binary_2
+    name: Binary 2
+source:
+  type: esphome-devices
+  remote_id: Treatlife-SS02S
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Treatlife-SS02S/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 128aecebaf91e002d4623e80adcc0b66f8043862e888b7e9d332aa8386af6554

@@ -1,0 +1,250 @@
+id: m5stack_airq
+name: M5Stack AirQ
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/M5stack-AirQsensorDisplay.jpeg
+- images/M5stack-AirQ.webp
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (Button A)
+- gpio: 1
+  available: false
+  occupied_by: display.waveshare_epaper (disp)
+- gpio: 2
+  available: false
+  occupied_by: display.waveshare_epaper (disp)
+- gpio: 3
+  available: false
+  occupied_by: display.waveshare_epaper (disp)
+- gpio: 4
+  available: false
+  occupied_by: display.waveshare_epaper (disp)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (Button B)
+- gpio: 10
+  available: false
+  occupied_by: output.gpio (enable)
+- gpio: 21
+  available: false
+  occupied_by: light.esp32_rmt_led_strip (LED)
+- gpio: 42
+  available: false
+  occupied_by: binary_sensor.gpio (Button Power)
+- gpio: 46
+  available: false
+  occupied_by: binary_sensor.gpio (Button Hold)
+docs_url: https://devices.esphome.io/devices/M5Stack-AirQ/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+        ignore_strapping_warning: true
+        mode:
+          input: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button A
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Button B
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 46
+        ignore_strapping_warning: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: Button Hold
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 42
+      locked: true
+    id: binary_sensor_gpio_4
+    name: Button Power
+- id: button_template_1
+  component_id: button.template
+  fields:
+    entity_category: config
+    id: button_template_1
+    name: CO2 Force Manual Calibration
+- id: button_template_2
+  component_id: button.template
+  fields:
+    entity_category: config
+    id: button_template_2
+    name: SEN55 Force Manual Clean
+- id: display_waveshare_epaper_1
+  component_id: display.waveshare_epaper
+  fields:
+    model: 1.54inv2
+    cs_pin:
+      value: 4
+      locked: true
+    dc_pin:
+      value: 3
+      locked: true
+    reset_pin:
+      value: 2
+      locked: true
+    busy_pin:
+      value:
+        number: 1
+        inverted: false
+      locked: true
+    full_update_every: 5
+    reset_duration: 2ms
+    update_interval: $sensor_interval
+    id: display_waveshare_epaper_1
+    name: Waveshare Epaper 1
+- id: light_esp32_rmt_led_strip_1
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    rgb_order: GRB
+    pin:
+      value: 21
+      locked: true
+    num_leds: 1
+    chipset: SK6812
+    restore_mode: RESTORE_AND_OFF
+    id: light_esp32_rmt_led_strip_1
+    name: LED
+- id: number_template_1
+  component_id: number.template
+  fields:
+    optimistic: true
+    min_value: 400
+    max_value: 1000
+    step: 5
+    icon: mdi:molecule-co2
+    entity_category: config
+    id: number_template_1
+    name: CO2 Calibration Value
+- id: number_template_2
+  component_id: number.template
+  fields:
+    restore_value: true
+    initial_value: 0.0
+    min_value: -70.0
+    max_value: 70.0
+    entity_category: CONFIG
+    unit_of_measurement: '%'
+    optimistic: true
+    update_interval: never
+    step: 0.1
+    mode: box
+    id: number_template_2
+    name: Humidity Offset
+- id: number_template_3
+  component_id: number.template
+  fields:
+    restore_value: true
+    initial_value: 0.0
+    min_value: -70.0
+    max_value: 70.0
+    entity_category: CONFIG
+    unit_of_measurement: °C
+    optimistic: true
+    update_interval: never
+    step: 0.1
+    mode: box
+    id: number_template_3
+    name: Temperature Offset
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 10
+      locked: true
+    id: output_gpio_1
+- id: sensor_scd4x_1
+  component_id: sensor.scd4x
+  fields:
+    address: 98
+    update_interval: $sensor_interval
+    id: sensor_scd4x_1
+    name: Scd4X 1
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    entity_category: diagnostic
+    id: sensor_wifi_signal_1
+    name: Wifi Signal dB
+- id: sensor_sen5x_1
+  component_id: sensor.sen5x
+  fields:
+    acceleration_mode: low
+    store_baseline: true
+    address: 105
+    update_interval: $sensor_interval
+    id: sensor_sen5x_1
+    name: Sen5X 1
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: °C
+    icon: mdi:thermometer
+    device_class: temperature
+    state_class: measurement
+    update_interval: $sensor_interval
+    accuracy_decimals: 2
+    id: sensor_template_1
+    name: Temperature
+- id: sensor_template_2
+  component_id: sensor.template
+  fields:
+    unit_of_measurement: '%'
+    icon: mdi:water-percent
+    device_class: humidity
+    state_class: measurement
+    update_interval: $sensor_interval
+    accuracy_decimals: 2
+    id: sensor_template_2
+    name: Humidity
+- id: text_sensor_template_1
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:checkbox-marked-circle-outline
+    id: text_sensor_template_1
+    name: VOC IAQ Classification
+- id: text_sensor_template_2
+  component_id: text_sensor.template
+  fields:
+    icon: mdi:checkbox-marked-circle-outline
+    id: text_sensor_template_2
+    name: NOX IAQ Classification
+source:
+  type: esphome-devices
+  remote_id: M5Stack-AirQ
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/M5Stack-AirQ/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 6c48045b8b8337fe2fa0faa419997bf8eda2f2a667e9117e8b99bf29205ccc97

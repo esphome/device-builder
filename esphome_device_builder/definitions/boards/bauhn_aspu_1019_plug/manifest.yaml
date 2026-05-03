@@ -1,0 +1,73 @@
+id: bauhn_aspu_1019_plug
+name: Bauhn (ALDI) ASPU-1019 Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/bauhn_ASPU-1019.webp
+tags:
+- relay
+- compact
+pins:
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (${upper_devicename} Socket)
+- gpio: 5
+  available: false
+  occupied_by: output.gpio (relay2)
+- gpio: 13
+  available: false
+  occupied_by: output.gpio (button_led)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (${upper_devicename} Button)
+docs_url: https://devices.esphome.io/devices/Bauhn-ASPU-1019-Plug/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: output_gpio_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: output_gpio_1
+- id: output_gpio_2
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 5
+      locked: true
+    id: output_gpio_2
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    restore_mode: always on
+    icon: mdi:power-socket-au
+    id: switch_gpio_1
+    name: Gpio 1
+source:
+  type: esphome-devices
+  remote_id: Bauhn-ASPU-1019-Plug
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Bauhn-ASPU-1019-Plug/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: d509d061811ea5ed6e8e85090656d1c536afe09d319b76712936d09ac1579b18

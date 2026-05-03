@@ -1,0 +1,64 @@
+id: kincony_kc868_uair
+name: KinCony KC868-Uair
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/kc868-uair.jpg
+pins:
+- gpio: 32
+  available: false
+  occupied_by: light.esp32_rmt_led_strip (Uair-Bottom-LED)
+- gpio: 33
+  available: false
+  occupied_by: light.esp32_rmt_led_strip (Uair-VVertical-LED)
+docs_url: https://devices.esphome.io/devices/KinCony-KC868-Uair/
+featured_components:
+- id: light_esp32_rmt_led_strip_1
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    chipset: ws2812
+    pin:
+      value: 32
+      locked: true
+    num_leds: 4
+    rgb_order: GRB
+    id: light_esp32_rmt_led_strip_1
+    name: Uair-Bottom-LED
+- id: light_esp32_rmt_led_strip_2
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    chipset: ws2812
+    pin:
+      value: 33
+      locked: true
+    num_leds: 1
+    rgb_order: RGB
+    id: light_esp32_rmt_led_strip_2
+    name: Uair-VVertical-LED
+- id: sensor_dallas_temp_1
+  component_id: sensor.dallas_temp
+  fields:
+    address: 13835058055363433768
+    id: sensor_dallas_temp_1
+    name: internal Temperature
+- id: sensor_sht3xd_1
+  component_id: sensor.sht3xd
+  fields:
+    address: 68
+    update_interval: 15s
+    id: sensor_sht3xd_1
+    name: Sht3Xd 1
+source:
+  type: esphome-devices
+  remote_id: KinCony-KC868-Uair
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-KC868-Uair/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 2ef361ba63f8c1ee72ce3a6fe2e2114d0149ca6d0bfc03553aee5cc68b73dc3f

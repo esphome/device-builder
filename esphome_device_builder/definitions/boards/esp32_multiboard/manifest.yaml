@@ -1,0 +1,73 @@
+id: esp32_multiboard
+name: ESP32 Multiboard
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/MultiBoard.png
+- images/Multiboard_Pinout.png
+pins:
+- gpio: 25
+  available: false
+  occupied_by: switch.gpio (Grove Digital Output (GPIO25))
+- gpio: 26
+  available: false
+  occupied_by: binary_sensor.gpio (Grove Digital Input (GPIO26))
+- gpio: 34
+  available: false
+  occupied_by: sensor.adc (Grove Analog (GPIO34))
+- gpio: 35
+  available: false
+  occupied_by: sensor.adc (Grove Analog (GPIO35))
+docs_url: https://devices.esphome.io/devices/ESP32-Multiboard/
+product_url: https://github.com/thebeaverdam/ESP32_MultiBoard
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Grove Digital Input (GPIO26)
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 35
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_1
+    name: Grove Analog (GPIO35)
+- id: sensor_adc_2
+  component_id: sensor.adc
+  fields:
+    pin:
+      value: 34
+      locked: true
+    update_interval: 5s
+    attenuation: 11db
+    id: sensor_adc_2
+    name: Grove Analog (GPIO34)
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 25
+      locked: true
+    id: switch_gpio_1
+    name: Grove Digital Output (GPIO25)
+source:
+  type: esphome-devices
+  remote_id: ESP32-Multiboard
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP32-Multiboard/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 3814c448903357f223e7c95441b8bba20ccc9f94ba6ccf29169306b5c3a5270f

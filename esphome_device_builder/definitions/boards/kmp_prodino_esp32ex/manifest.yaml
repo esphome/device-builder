@@ -1,0 +1,179 @@
+id: kmp_prodino_esp32ex
+name: KMP PRODINo ESP32EX
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/ProDinoESP32Ex_2.jpg
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (INPUT4)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (INPUT3)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (INPUT2)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (INPUT1)
+- gpio: 4
+  available: false
+  occupied_by: switch.gpio (RELAY4)
+- gpio: 5
+  available: false
+  occupied_by: switch.gpio (RELAY3)
+- gpio: 6
+  available: false
+  occupied_by: switch.gpio (RELAY2)
+- gpio: 7
+  available: false
+  occupied_by: switch.gpio (RELAY1)
+- gpio: 21
+  available: false
+  occupied_by: sensor.dht
+- gpio: 22
+  available: false
+  occupied_by: sensor.dht
+docs_url: https://devices.esphome.io/devices/KMP-PRODINo-ESP32EX/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        mcp23s08: mcp23s08_hub
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: INPUT1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        mcp23s08: mcp23s08_hub
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: INPUT2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        mcp23s08: mcp23s08_hub
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: INPUT3
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        mcp23s08: mcp23s08_hub
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: INPUT4
+- id: light_esp32_rmt_led_strip_1
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    chipset: ws2812
+    pin:
+      value: 0
+      locked: true
+    num_leds: 1
+    rgb_order: GRB
+    id: light_esp32_rmt_led_strip_1
+    name: LED WS2812B
+- id: sensor_dht_1
+  component_id: sensor.dht
+  fields:
+    model: AM2302
+    pin:
+      value: 21
+      locked: true
+    update_interval: 30s
+    id: sensor_dht_1
+    name: Dht 1
+- id: sensor_dht_2
+  component_id: sensor.dht
+  fields:
+    model: AM2302
+    pin:
+      value: 22
+      locked: true
+    update_interval: 30s
+    id: sensor_dht_2
+    name: Dht 2
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        mcp23s08: mcp23s08_hub
+        number: 4
+        mode: OUTPUT
+        inverted: false
+      locked: true
+    id: switch_gpio_1
+    name: RELAY4
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        mcp23s08: mcp23s08_hub
+        number: 5
+        mode: OUTPUT
+        inverted: false
+      locked: true
+    id: switch_gpio_2
+    name: RELAY3
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        mcp23s08: mcp23s08_hub
+        number: 6
+        mode: OUTPUT
+        inverted: false
+      locked: true
+    id: switch_gpio_3
+    name: RELAY2
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        mcp23s08: mcp23s08_hub
+        number: 7
+        mode: OUTPUT
+        inverted: false
+      locked: true
+    id: switch_gpio_4
+    name: RELAY1
+source:
+  type: esphome-devices
+  remote_id: KMP-PRODINo-ESP32EX
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KMP-PRODINo-ESP32EX/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: cd682661c9a8a4d33b0b5ed58b6bb8699ec5b44152c25ecaac2dce259f0dd7ca

@@ -1,0 +1,44 @@
+id: arlec_grid_connect_smart_ceiling_fan_dcf4002
+name: Arlec DCF4002WHA/DCF4002BHA Ceiling Fan+Light
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/DCF4002WHA.jpeg
+- images/DCF4002_controller.jpg
+- images/DCF4002_daughterboard.jpg
+docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-Ceiling-Fan-DCF4002/
+featured_components:
+- id: fan_tuya_1
+  component_id: fan.tuya
+  fields:
+    switch_datapoint: 1
+    speed_datapoint: 3
+    direction_datapoint: 4
+    speed_count: 6
+    id: fan_tuya_1
+    name: Ceiling Fan
+- id: light_tuya_1
+  component_id: light.tuya
+  fields:
+    switch_datapoint: 9
+    dimmer_datapoint: 10
+    min_value: 10
+    max_value: 100
+    color_temperature_datapoint: 11
+    color_temperature_max_value: 100
+    color_temperature_invert: false
+    cold_white_color_temperature: 6493 K
+    warm_white_color_temperature: 4065 K
+    id: light_tuya_1
+    name: Light
+source:
+  type: esphome-devices
+  remote_id: Arlec-Grid-Connect-Smart-Ceiling-Fan-DCF4002
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-Ceiling-Fan-DCF4002/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 22c9360ff95f368e52cc48076c9c2521b1fdd8cca6dfa3414c5071a123761024

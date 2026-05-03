@@ -1,0 +1,107 @@
+id: oeegoo_12_inch_30w_smart_ceiling_light_clb035
+name: OeeGoo 12 Inch 30W Smart Ceiling Light (RGB/CW)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/Oeegoo_light.png
+- images/IMG_20230415_sm.jpg
+- images/IMG_20230807_sm.jpg
+pins:
+- gpio: 3
+  available: false
+  occupied_by: output.ledc (output_pwm2)
+- gpio: 4
+  available: false
+  occupied_by: output.ledc (output_pwm3)
+- gpio: 5
+  available: false
+  occupied_by: output.ledc (output_pwm5)
+- gpio: 10
+  available: false
+  occupied_by: output.ledc (output_pwm1)
+- gpio: 18
+  available: false
+  occupied_by: output.ledc (output_pwm4)
+docs_url: https://devices.esphome.io/devices/OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035/
+featured_components:
+- id: light_rgb_1
+  component_id: light.rgb
+  fields:
+    red: output_pwm1
+    green: output_pwm2
+    blue: output_pwm3
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: light_rgb_1
+    name: RGB Light
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white: output_pwm4
+    warm_white: output_pwm5
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    constant_brightness: true
+    restore_mode: RESTORE_DEFAULT_ON
+    id: light_cwww_1
+    name: Room Light
+- id: output_ledc_1
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 10
+      locked: true
+    zero_means_zero: true
+    id: output_ledc_1
+- id: output_ledc_2
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 3
+      locked: true
+    max_power: 70%
+    zero_means_zero: true
+    id: output_ledc_2
+- id: output_ledc_3
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    max_power: 75%
+    zero_means_zero: true
+    id: output_ledc_3
+- id: output_ledc_4
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 18
+      locked: true
+    zero_means_zero: true
+    id: output_ledc_4
+- id: output_ledc_5
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 5
+      locked: true
+    zero_means_zero: true
+    id: output_ledc_5
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 60s
+    id: sensor_wifi_signal_1
+    name: Wifi Signal 1
+source:
+  type: esphome-devices
+  remote_id: OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: f74f7398ffa45827f3170b8d00299d8f099541604608589cd951282899ee20e0

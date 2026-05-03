@@ -1,0 +1,579 @@
+id: kincony_b16m
+name: KinCony-B16M (ESP32-S3 16CH MOSFET)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- images/ESP32-B16M-2.jpg
+- images/B16M-diagram.jpg
+tags:
+- relay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input01)
+- gpio: 1
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input02)
+- gpio: 2
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input03)
+- gpio: 3
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input04)
+- gpio: 4
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input05)
+- gpio: 5
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input06)
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input07)
+- gpio: 7
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input08)
+- gpio: 8
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input09)
+- gpio: 9
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input10)
+- gpio: 10
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input11)
+- gpio: 11
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input12)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input13)
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input14)
+- gpio: 14
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input15)
+- gpio: 15
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-input16)
+- gpio: 21
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-W1-io21)
+- gpio: 40
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-W1-io40)
+- gpio: 47
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-W1-io47)
+- gpio: 48
+  available: false
+  occupied_by: binary_sensor.gpio (b16m-W1-io48)
+docs_url: https://devices.esphome.io/devices/KinCony-B16M/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: b16m-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: b16m-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: b16m-input03
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: b16m-input04
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: b16m-input05
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: b16m-input06
+- id: binary_sensor_gpio_7
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_7
+    name: b16m-input07
+- id: binary_sensor_gpio_8
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_8
+    name: b16m-input08
+- id: binary_sensor_gpio_9
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_9
+    name: b16m-input09
+- id: binary_sensor_gpio_10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_10
+    name: b16m-input10
+- id: binary_sensor_gpio_11
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_11
+    name: b16m-input11
+- id: binary_sensor_gpio_12
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_12
+    name: b16m-input12
+- id: binary_sensor_gpio_13
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_13
+    name: b16m-input13
+- id: binary_sensor_gpio_14
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_14
+    name: b16m-input14
+- id: binary_sensor_gpio_15
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_15
+    name: b16m-input15
+- id: binary_sensor_gpio_16
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_in_1
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_16
+    name: b16m-input16
+- id: binary_sensor_gpio_17
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_17
+    name: b16m-W1-io40
+- id: binary_sensor_gpio_18
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 15
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_18
+    name: b16m-W1-io15
+- id: binary_sensor_gpio_19
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 48
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_19
+    name: b16m-W1-io48
+- id: binary_sensor_gpio_20
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 47
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_20
+    name: b16m-W1-io47
+- id: binary_sensor_gpio_21
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_21
+    name: b16m-W1-io13
+- id: binary_sensor_gpio_22
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_22
+    name: b16m-W1-io14
+- id: binary_sensor_gpio_23
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 21
+        inverted: false
+      locked: true
+    id: binary_sensor_gpio_23
+    name: b16m-W1-io21
+- id: sensor_ads1115_1
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A0_GND
+    gain: 6.144
+    resolution: 16_BITS
+    update_interval: 5s
+    id: sensor_ads1115_1
+    name: ADS1115 Channel A0-GND
+- id: sensor_ads1115_2
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A1_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_2
+    name: ADS1115 Channel A1-GND
+- id: sensor_ads1115_3
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A2_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_3
+    name: ADS1115 Channel A2-GND
+- id: sensor_ads1115_4
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A3_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_4
+    name: ADS1115 Channel A3-GND
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    uart_id: uart_1
+    id: switch_uart_1
+    name: RS485 Button
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_1
+    name: b16m-output01
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_2
+    name: b16m-output02
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_3
+    name: b16m-output03
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_4
+    name: b16m-output04
+- id: switch_gpio_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_5
+    name: b16m-output05
+- id: switch_gpio_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_6
+    name: b16m-output06
+- id: switch_gpio_7
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_7
+    name: b16m-output07
+- id: switch_gpio_8
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_8
+    name: b16m-output08
+- id: switch_gpio_9
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_9
+    name: b16m-output09
+- id: switch_gpio_10
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_10
+    name: b16m-output10
+- id: switch_gpio_11
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_11
+    name: b16m-output11
+- id: switch_gpio_12
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_12
+    name: b16m-output12
+- id: switch_gpio_13
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_13
+    name: b16m-output13
+- id: switch_gpio_14
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_14
+    name: b16m-output14
+- id: switch_gpio_15
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_15
+    name: b16m-output15
+- id: switch_gpio_16
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        pcf8574: pcf8574_hub_out_1
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: switch_gpio_16
+    name: b16m-output16
+source:
+  type: esphome-devices
+  remote_id: KinCony-B16M
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-B16M/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: b5813c8f84ab35c876ca5b86bd6990bfcdbf98aac0fd48ffb3a59cb2a3f05275

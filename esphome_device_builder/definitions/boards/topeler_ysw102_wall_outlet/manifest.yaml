@@ -1,0 +1,46 @@
+id: topeler_ysw102_wall_outlet
+name: Topeler YSW102 Wall Outlet
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/topeler-ysw102-front.png
+- images/topeler-ysw102-back.png
+- images/topeler-ysw102-cb2s.png
+tags:
+- relay
+- compact
+docs_url: https://devices.esphome.io/devices/Topeler-YSW102-Wall-Outlet/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    output: output_green_led
+    disabled_by_default: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id: light_status_led_1
+    name: Green LED
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    device_class: outlet
+    id: switch_gpio_1
+    name: Upper Socket
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    restore_mode: RESTORE_DEFAULT_OFF
+    device_class: outlet
+    id: switch_gpio_2
+    name: Lower Socket
+source:
+  type: esphome-devices
+  remote_id: Topeler-YSW102-Wall-Outlet
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: ac3b103123e72f7452a27affb49b2ee5b962b4a86b43a9f4ccc34e62b97c80c0

@@ -1,0 +1,42 @@
+id: smartpoint_wifi_smart_remote_controller
+name: Smartpoint Wifi Smart Remote Controller
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp01_1m
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/smartpoint_wifi_smart_remote_controller.jpeg
+- images/top-removed.jpg
+- images/underside.jpg
+pins:
+- gpio: 13
+  available: false
+  occupied_by: binary_sensor.gpio (Underside Button)
+docs_url: https://devices.esphome.io/devices/Smartpoint-Wifi-Smart-Remote-Controller/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 13
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Underside Button
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    optimistic: true
+    assumed_state: true
+    id: switch_template_1
+    name: TV Power
+source:
+  type: esphome-devices
+  remote_id: Smartpoint-Wifi-Smart-Remote-Controller
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: 0fb7d283335a2dc1a03a7616aaed43dde769482f9dd09f1abb0043101c096e5b

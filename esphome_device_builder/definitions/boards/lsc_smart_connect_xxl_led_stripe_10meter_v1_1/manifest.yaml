@@ -1,0 +1,49 @@
+id: lsc_smart_connect_xxl_led_stripe_10meter_v1_1
+name: LSC Smart Connect 10 meter XXL-LED-Strip 320208
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Led-strip-photo.webp
+- images/oldboard.png
+- images/newboard.jpg
+docs_url: https://devices.esphome.io/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/
+featured_components:
+- id: light_cwww_1
+  component_id: light.cwww
+  fields:
+    cold_white: output_cw
+    warm_white: output_ww
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    id: light_cwww_1
+    name: White Light
+- id: light_beken_spi_led_strip_1
+  component_id: light.beken_spi_led_strip
+  fields:
+    chipset: WS2812
+    num_leds: 40
+    rgb_order: RBG
+    power_supply: led_power
+    id: light_beken_spi_led_strip_1
+    name: Color Light
+- id: output_libretiny_pwm_1
+  component_id: output.libretiny_pwm
+  fields:
+    power_supply: led_power
+    id: output_libretiny_pwm_1
+- id: output_libretiny_pwm_2
+  component_id: output.libretiny_pwm
+  fields:
+    power_supply: led_power
+    id: output_libretiny_pwm_2
+source:
+  type: esphome-devices
+  remote_id: LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: bf88529865c3a10917618f0a0c3cacb7d9f17abdc76ff4b7bc10f098c42d6981

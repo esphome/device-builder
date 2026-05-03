@@ -1,0 +1,205 @@
+id: connected_consumer_fuel_smart_oil_gauge
+name: Smart Oil Gauge
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp8266
+  board: esp_wroom_02
+hardware:
+  connectivity:
+  - wifi
+images:
+- images/Product-Image.jpg
+- images/Connections-Front.jpg
+- images/Connections-Back.jpg
+- images/Flashing-Front.jpg
+- images/Flashing-Edge.jpg
+- images/Ultrasonic.jpg
+- images/IC-Locations.jpg
+pins:
+- gpio: 2
+  available: false
+  occupied_by: output.slow_pwm (LED_pwm)
+- gpio: 4
+  available: false
+  occupied_by: sensor.ultrasonic (Distance to Oil)
+- gpio: 5
+  available: false
+  occupied_by: sensor.ultrasonic (Distance to Oil)
+- gpio: 12
+  available: false
+  occupied_by: binary_sensor.gpio (Control Button)
+- gpio: 13
+  available: false
+  occupied_by: switch.gpio (Done)
+- gpio: 14
+  available: false
+  occupied_by: switch.gpio (Ultrasonic Pwr)
+- gpio: 15
+  available: false
+  occupied_by: switch.gpio (TempSens EN)
+docs_url: https://devices.esphome.io/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Control Button
+- id: output_slow_pwm_1
+  component_id: output.slow_pwm
+  fields:
+    period: 1s
+    pin:
+      value: 2
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: output_slow_pwm_1
+- id: sensor_template_1
+  component_id: sensor.template
+  fields:
+    device_class: volume_storage
+    state_class: measurement
+    unit_of_measurement: gal
+    accuracy_decimals: 4
+    id: sensor_template_1
+    name: Oil In Tank
+- id: sensor_template_2
+  component_id: sensor.template
+  fields:
+    device_class: volume
+    state_class: total
+    unit_of_measurement: gal
+    accuracy_decimals: 4
+    id: sensor_template_2
+    name: Max Fill
+- id: sensor_adc_1
+  component_id: sensor.adc
+  fields:
+    accuracy_decimals: 5
+    update_interval: 5s
+    entity_category: diagnostic
+    id: sensor_adc_1
+    name: ADC Input
+- id: sensor_template_3
+  component_id: sensor.template
+  fields:
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 3
+    unit_of_measurement: °C
+    id: sensor_template_3
+    name: Temperature
+- id: sensor_template_4
+  component_id: sensor.template
+  fields:
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 4
+    unit_of_measurement: V
+    id: sensor_template_4
+    name: Battery Voltage
+- id: sensor_template_5
+  component_id: sensor.template
+  fields:
+    update_interval: never
+    device_class: pressure
+    unit_of_measurement: kPa
+    entity_category: diagnostic
+    accuracy_decimals: 8
+    lambda: return id(TempC).state;
+    id: sensor_template_5
+    name: Vapor Pressure Oil
+- id: sensor_ultrasonic_1
+  component_id: sensor.ultrasonic
+  fields:
+    trigger_pin:
+      value:
+        number: 4
+        inverted: true
+      locked: true
+    echo_pin:
+      value: 5
+      locked: true
+    accuracy_decimals: 25
+    update_interval: never
+    id: sensor_ultrasonic_1
+    name: Distance to Oil
+- id: switch_template_1
+  component_id: switch.template
+  fields:
+    entity_category: config
+    disabled_by_default: true
+    optimistic: true
+    id: switch_template_1
+    name: Ultrasonic EN
+- id: switch_template_2
+  component_id: switch.template
+  fields:
+    optimistic: true
+    id: switch_template_2
+    name: Deep Sleep Trigger
+- id: switch_template_3
+  component_id: switch.template
+  fields:
+    optimistic: true
+    id: switch_template_3
+    name: Auto Sleep Disable
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    entity_category: config
+    disabled_by_default: true
+    id: switch_gpio_1
+    name: Done
+- id: switch_template_4
+  component_id: switch.template
+  fields:
+    entity_category: config
+    optimistic: true
+    id: switch_template_4
+    name: Variable Check
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    entity_category: config
+    disabled_by_default: true
+    id: switch_gpio_2
+    name: TempSens EN
+- id: switch_gpio_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    entity_category: config
+    disabled_by_default: false
+    id: switch_gpio_3
+    name: Ultrasonic Pwr
+- id: switch_gpio_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    entity_category: config
+    disabled_by_default: true
+    id: switch_gpio_4
+    name: Sleep 1hr
+source:
+  type: esphome-devices
+  remote_id: Connected-Consumer-Fuel-Smart-Oil-Gauge
+  upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/index.md
+  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  content_hash: ae7339c7490ada5d43e6f2ff03973325fb566bd7a4961e7d7371f9c253738f6a
