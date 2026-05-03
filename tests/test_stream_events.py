@@ -33,15 +33,7 @@ from esphome_device_builder.helpers.event_bus import (
 )
 from esphome_device_builder.models import EventType
 
-
-class _FakeClient:
-    def __init__(self) -> None:
-        self.events: list[tuple[str, str, Any]] = []
-
-    async def send_event(self, message_id: str, event: str, data: Any) -> None:
-        # Yield so concurrent fires can interleave with the drain.
-        await asyncio.sleep(0)
-        self.events.append((message_id, event, data))
+from .conftest import FakeWebSocketClient
 
 
 async def test_send_initial_runs_inside_listening_block() -> None:
@@ -53,7 +45,7 @@ async def test_send_initial_runs_inside_listening_block() -> None:
     after the seed.
     """
     bus = EventBus()
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
 
     async def _send_initial(_controls: StreamControls) -> None:
         # Fire a live event during the seed — this MUST queue, not
@@ -98,7 +90,7 @@ async def test_cancellation_unsubscribes_every_listener() -> None:
     forever.
     """
     bus = EventBus()
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
 
     def _handle_event(_event: Event, _controls: StreamControls) -> None:
         pass
@@ -135,7 +127,7 @@ async def test_end_breaks_drain_loop() -> None:
     helper exits instead of parking forever on ``queue.get``.
     """
     bus = EventBus()
-    client = _FakeClient()
+    client = FakeWebSocketClient(yield_per_event=True)
 
     def _handle_event(event: Event, controls: StreamControls) -> None:
         controls.push(event.event_type.value, event.data)
@@ -474,7 +466,7 @@ async def test_force_enqueue_returns_when_get_nowait_finds_empty_queue(
     # without giving a regression a place to hide.
     await asyncio.wait_for(
         stream_events(
-            client=_FakeClient(),
+            client=FakeWebSocketClient(yield_per_event=True),
             message_id="m1",
             bus=bus,
             event_types=[EventType.DEVICE_UPDATED],
