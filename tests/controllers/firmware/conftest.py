@@ -76,8 +76,7 @@ def firmware_controller_factory(
       silently use a stub.
 
     - ``with_queue=False`` (default): when set ``True``, install
-      ``AsyncMock`` stubs for ``_queue`` and
-      ``_supersede_active_jobs``. The submission handlers
+      an ``AsyncMock`` stub for ``_queue``. The submission handlers
       (``compile`` / ``upload`` / ``install`` / ``rename`` /
       ``compile_bulk`` / ``install_bulk`` / ``reset_build_env``)
       need this kit. The validator-only tests
@@ -135,7 +134,6 @@ def firmware_controller_factory(
 
         if with_queue:
             controller._queue = AsyncMock()
-            controller._supersede_active_jobs = AsyncMock()
 
         if with_terminate:
             controller._current_job = None
