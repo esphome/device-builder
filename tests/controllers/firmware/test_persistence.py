@@ -456,3 +456,54 @@ async def test_non_dict_entry_in_metadata_does_not_crash_warning_path(
         "Failed to restore job" in rec.message and "non-dict entry" in rec.message
         for rec in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# Startup sanity-check log surface
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_logs_error_when_esphome_cli_sanity_check_fails(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed ``_verify_esphome_importable`` surfaces an actionable error log.
+
+    The log line is the only signal a user has that their
+    install will fail on first compile — every job will FAIL
+    the same way otherwise. Pin both the ``ERROR`` level (so a
+    future "downgrade to warning" refactor surfaces here) and
+    the install-hint substring so the message stays
+    actionable.
+    """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
+        lambda: ["fake-esphome"],
+    )
+
+    async def _verify_fail(_cmd: list[str]) -> tuple[bool, str]:
+        return False, "No module named esphome"
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.controller._verify_esphome_importable",
+        _verify_fail,
+    )
+
+    controller = _persistent_controller(firmware_controller_factory)
+    with caplog.at_level(
+        logging.ERROR,
+        logger="esphome_device_builder.controllers.firmware.controller",
+    ):
+        await controller.start()
+
+    failures = [
+        rec
+        for rec in caplog.records
+        if rec.levelno == logging.ERROR and "sanity check FAILED" in rec.getMessage()
+    ]
+    assert len(failures) == 1
+    msg = failures[0].getMessage()
+    assert "No module named esphome" in msg
+    assert "pip install" in msg
