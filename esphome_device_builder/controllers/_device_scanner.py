@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import NamedTuple
 
 from esphome import util
@@ -101,9 +102,15 @@ class _DeviceIndex:
         return list(self._devices.values())
 
     @property
-    def by_path(self) -> dict[Path, Device]:
-        """Live mapping ``path → Device``. Treat as read-only."""
-        return self._devices
+    def by_path(self) -> Mapping[Path, Device]:
+        """Live read-only mapping ``path → Device``.
+
+        Returns a ``MappingProxyType`` view so callers iterate / look
+        up but cannot mutate the index out of lockstep with the
+        name buckets / cache keys. Mutations must go through
+        :meth:`set` / :meth:`pop` / :meth:`rebuild_in_path_order`.
+        """
+        return MappingProxyType(self._devices)
 
     def get_by_name(self, name: str) -> list[Device]:
         """Return a fresh-list snapshot of every Device whose ``name`` matches."""
@@ -208,8 +215,14 @@ class DeviceScanner:
         return self._index.devices
 
     @property
-    def by_path(self) -> dict[Path, Device]:
-        """Live mapping ``path → Device``. Treat as read-only."""
+    def by_path(self) -> Mapping[Path, Device]:
+        """Live read-only mapping ``path → Device``.
+
+        Forwards to :attr:`_DeviceIndex.by_path`, which returns a
+        ``MappingProxyType`` view so external callers can iterate
+        / look up but can't mutate the index out of lockstep with
+        the name buckets / cache keys.
+        """
         return self._index.by_path
 
     def get_by_name(self, name: str) -> list[Device]:
