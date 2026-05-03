@@ -1364,16 +1364,38 @@ class FirmwareController:
     # ------------------------------------------------------------------
 
     async def _load_jobs(self) -> None:
-        """Load persisted jobs and re-queue any incomplete ones."""
+        """
+        Load persisted jobs and decide what to do with each by status.
+
+        - ``QUEUED``: re-queue. The job hadn't started before the
+          dashboard went down; resuming is the user's expectation.
+        - ``RUNNING``: finalise as ``FAILED`` with a "dashboard
+          restarted" reason. The subprocess died with the
+          dashboard, so there's no live build to resume — silently
+          re-queueing would re-run a build the user didn't ask
+          for. Surfacing the failure lets the user decide whether
+          to retry.
+        - Terminal (``COMPLETED`` / ``FAILED`` / ``CANCELLED``):
+          load into the in-memory map for the recent-jobs panel
+          but don't touch ``_queue``.
+
+        See esphome/device-builder#147 for the policy discussion
+        behind the ``RUNNING`` → ``FAILED`` choice.
+        """
         loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(None, _load_metadata, self._db.settings.config_dir)
         for job_data in data.get(_JOBS_KEY, []):
             try:
                 job = FirmwareJob.from_dict(job_data)
                 self._jobs[job.job_id] = job
-                if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
-                    job.status = JobStatus.QUEUED
+                if job.status == JobStatus.QUEUED:
                     await self._queue.put(job)
+                elif job.status == JobStatus.RUNNING:
+                    job.error = (
+                        "Dashboard restarted mid-build; the subprocess didn't "
+                        "survive. Re-trigger the operation if you still want it."
+                    )
+                    _mark_job_terminal(job, JobStatus.FAILED)
             except Exception:
                 _LOGGER.warning("Failed to restore job: %s", job_data.get("job_id", "?"))
 
