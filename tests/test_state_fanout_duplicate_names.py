@@ -17,8 +17,9 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.controllers.devices import DevicesController
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.models import Device, DeviceState, EventType
+
+from .conftest import make_devices_controller_with_bus
 
 
 def _device(configuration: str, **overrides: Any) -> Device:
@@ -46,25 +47,7 @@ def _close_coro(coro: Any) -> Any:
     return MagicMock()
 
 
-def _make_controller(devices: list[Device]) -> DevicesController:
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = MagicMock()
-    controller._db.create_background_task = MagicMock(side_effect=_close_coro)
-    controller._db.bus = MagicMock()
-    controller._scanner = MagicMock()
-    controller._scanner.devices = devices
-    # ``_devices_by_name`` now reads the scanner's name index. Mirror
-    # the same name-keyed grouping the real scanner maintains.
-    by_name: dict[str, list[Device]] = {}
-    for device in devices:
-        by_name.setdefault(device.name, []).append(device)
-    controller._scanner.get_by_name = lambda name: by_name.get(name, [])
-    return controller
-
-
-def _fired_events(controller: DevicesController) -> list[tuple[Any, dict[str, Any]]]:
-    """All ``(event_type, data)`` pairs forwarded to the event bus."""
-    return [call.args for call in controller._db.bus.fire.call_args_list]
+_FANOUT_EVENT_TYPES = (EventType.DEVICE_STATE_CHANGED, EventType.DEVICE_UPDATED)
 
 
 def test_state_change_fans_out_to_every_matching_device() -> None:
@@ -76,30 +59,36 @@ def test_state_change_fans_out_to_every_matching_device() -> None:
     """
     a = _device("kitchen.yaml")
     b = _device("kitchen (1).yaml")
-    controller = _make_controller([a, b])
+    controller, captured = make_devices_controller_with_bus(
+        [a, b],
+        capture_event_types=_FANOUT_EVENT_TYPES,
+        create_background_task=_close_coro,
+    )
 
     controller._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
 
     assert a.state == DeviceState.ONLINE
     assert b.state == DeviceState.ONLINE
-    fired = _fired_events(controller)
-    assert len(fired) == 2
-    targeted = sorted(data["configuration"] for _et, data in fired)
+    assert len(captured) == 2
+    targeted = sorted(e.data["configuration"] for e in captured)
     assert targeted == ["kitchen (1).yaml", "kitchen.yaml"]
 
 
 def test_ip_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", ip="")
     b = _device("kitchen (1).yaml", ip="")
-    controller = _make_controller([a, b])
+    controller, captured = make_devices_controller_with_bus(
+        [a, b],
+        capture_event_types=_FANOUT_EVENT_TYPES,
+        create_background_task=_close_coro,
+    )
 
     controller._on_ip_change("kitchen", "10.0.0.5")
 
     assert a.ip == "10.0.0.5"
     assert b.ip == "10.0.0.5"
-    fired = _fired_events(controller)
-    assert len(fired) == 2
-    assert sorted(data["device"].configuration for _et, data in fired) == [
+    assert len(captured) == 2
+    assert sorted(e.data["device"].configuration for e in captured) == [
         "kitchen (1).yaml",
         "kitchen.yaml",
     ]
@@ -108,15 +97,18 @@ def test_ip_change_fans_out_to_every_matching_device() -> None:
 def test_version_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", current_version="2026.5.0", deployed_version="")
     b = _device("kitchen (1).yaml", current_version="2026.5.0", deployed_version="")
-    controller = _make_controller([a, b])
+    controller, captured = make_devices_controller_with_bus(
+        [a, b],
+        capture_event_types=_FANOUT_EVENT_TYPES,
+        create_background_task=_close_coro,
+    )
 
     controller._on_version_change("kitchen", "2026.5.0")
 
     assert a.deployed_version == "2026.5.0"
     assert b.deployed_version == "2026.5.0"
-    fired = _fired_events(controller)
-    assert len(fired) == 2
-    assert sorted(data["device"].configuration for _et, data in fired) == [
+    assert len(captured) == 2
+    assert sorted(e.data["device"].configuration for e in captured) == [
         "kitchen (1).yaml",
         "kitchen.yaml",
     ]
@@ -129,7 +121,11 @@ def test_config_hash_change_fans_out_to_every_matching_device() -> None:
         expected_config_hash="abcd1234",
         deployed_config_hash="",
     )
-    controller = _make_controller([a, b])
+    controller, captured = make_devices_controller_with_bus(
+        [a, b],
+        capture_event_types=_FANOUT_EVENT_TYPES,
+        create_background_task=_close_coro,
+    )
 
     controller._on_config_hash_change("kitchen", "abcd1234")
 
@@ -138,36 +134,41 @@ def test_config_hash_change_fans_out_to_every_matching_device() -> None:
     # Both devices' has_pending_changes should reflect the match.
     assert a.has_pending_changes is False
     assert b.has_pending_changes is False
-    fired = _fired_events(controller)
-    assert len(fired) == 2
+    assert len(captured) == 2
 
 
 def test_api_encryption_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", api_encryption_active=None)
     b = _device("kitchen (1).yaml", api_encryption_active=None)
-    controller = _make_controller([a, b])
+    controller, captured = make_devices_controller_with_bus(
+        [a, b],
+        capture_event_types=_FANOUT_EVENT_TYPES,
+        create_background_task=_close_coro,
+    )
 
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
     assert a.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
     assert b.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
-    fired = _fired_events(controller)
-    assert len(fired) == 2
+    assert len(captured) == 2
 
 
 def test_unrelated_devices_are_not_touched() -> None:
     """Devices with a different ``name`` field stay UNKNOWN."""
     kitchen = _device("kitchen.yaml")
     garage = _device("garage.yaml", name="garage", address="garage.local")
-    controller = _make_controller([kitchen, garage])
+    controller, captured = make_devices_controller_with_bus(
+        [kitchen, garage],
+        capture_event_types=_FANOUT_EVENT_TYPES,
+        create_background_task=_close_coro,
+    )
 
     controller._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
 
     assert kitchen.state == DeviceState.ONLINE
     assert garage.state == DeviceState.UNKNOWN
-    fired = _fired_events(controller)
-    assert len(fired) == 1
-    assert fired[0][1]["configuration"] == "kitchen.yaml"
+    assert len(captured) == 1
+    assert captured[0].data["configuration"] == "kitchen.yaml"
 
 
 def test_apply_state_repairs_stale_sibling_when_first_match_is_in_sync() -> None:

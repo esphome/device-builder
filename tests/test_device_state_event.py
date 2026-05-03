@@ -10,22 +10,9 @@ other source) flipped a device online — exactly the bug from the
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, DeviceState, EventType
 
-
-def _make_controller(devices: list[Device]) -> tuple[DevicesController, MagicMock]:
-    """Stand up enough of a controller to exercise ``_on_state_change``."""
-    db = MagicMock()
-    db.bus.fire = MagicMock()
-    ctrl = DevicesController.__new__(DevicesController)
-    ctrl._db = db  # type: ignore[attr-defined]
-    ctrl._scanner = MagicMock()
-    ctrl._scanner.devices = devices
-    ctrl._scanner.get_by_name = lambda name, _d=devices: [d for d in _d if d.name == name]
-    return ctrl, db
+from .conftest import make_devices_controller_with_bus
 
 
 def test_state_change_event_uses_flat_configuration_state_payload() -> None:
@@ -36,14 +23,13 @@ def test_state_change_event_uses_flat_configuration_state_payload() -> None:
     that swaps them back makes every state transition no-op the UI.
     """
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
-    ctrl, db = _make_controller([device])
+    ctrl, captured = make_devices_controller_with_bus([device])
 
     ctrl._on_state_change("kitchen", DeviceState.ONLINE, "ping")
 
-    db.bus.fire.assert_called_once_with(
-        EventType.DEVICE_STATE_CHANGED,
-        {"configuration": "kitchen.yaml", "state": "online"},
-    )
+    assert [(e.event_type, e.data) for e in captured] == [
+        (EventType.DEVICE_STATE_CHANGED, {"configuration": "kitchen.yaml", "state": "online"})
+    ]
 
 
 def test_state_change_state_value_is_serialised_string() -> None:
@@ -56,19 +42,19 @@ def test_state_change_state_value_is_serialised_string() -> None:
     plain string.
     """
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
-    ctrl, db = _make_controller([device])
+    ctrl, captured = make_devices_controller_with_bus([device])
 
     ctrl._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
 
-    payload = db.bus.fire.call_args.args[1]
-    assert payload["state"] == "offline"
-    assert isinstance(payload["state"], str)
+    assert len(captured) == 1
+    assert captured[0].data["state"] == "offline"
+    assert isinstance(captured[0].data["state"], str)
 
 
 def test_state_change_unknown_device_does_not_fire() -> None:
     """A name not in the catalog is dropped — no spurious event."""
-    ctrl, db = _make_controller([])
+    ctrl, captured = make_devices_controller_with_bus([])
 
     ctrl._on_state_change("ghost", DeviceState.ONLINE, "mdns")
 
-    db.bus.fire.assert_not_called()
+    assert captured == []

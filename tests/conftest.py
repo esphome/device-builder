@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
+from unittest.mock import MagicMock
 
 import pytest
 from blockbuster import blockbuster_ctx
@@ -27,11 +30,11 @@ from esphome.core import CORE
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.helpers.event_bus import Event, EventBus
+from esphome_device_builder.models import Device, EventType
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-    from pathlib import Path
-
     from blockbuster import BlockBuster
 
 # Call sites known to do bounded blocking I/O during one-time server
@@ -249,3 +252,60 @@ def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MakeSettin
         return settings
 
     return _make
+
+
+# ---------------------------------------------------------------------------
+# Bypass-init DevicesController + real EventBus + captured listener
+#
+# The handler-test-style ``make_controller`` factory in
+# ``tests/controllers/devices/conftest.py`` is the right tool for handler-
+# level coverage. The shape this helper builds is for the *callback* tests
+# at the top of the tree (``test_device_state_event.py`` /
+# ``test_state_fanout_duplicate_names.py``) — they exercise
+# ``_on_state_change`` / ``_on_ip_change`` etc. against a minimal scanner +
+# real EventBus, and were each carrying a near-identical ``_make_controller``
+# helper before this lived in one place.
+# ---------------------------------------------------------------------------
+
+
+def make_devices_controller_with_bus(
+    devices: list[Device],
+    *,
+    capture_event_types: tuple[EventType, ...] = (EventType.DEVICE_STATE_CHANGED,),
+    create_background_task: Callable[[Any], Any] | None = None,
+) -> tuple[DevicesController, list[Event]]:
+    """Bypass-init a ``DevicesController`` wired to a real ``EventBus``.
+
+    Returns the controller and a live ``list[Event]`` capture for
+    every subscribed ``EventType``. Tests assert on the flat list
+    instead of poking ``MagicMock.assert_called_once_with`` /
+    ``call_args_list`` — the contract being tested is "what fanned
+    out to the bus", not the call shape of the mock that recorded
+    it.
+
+    The scanner is a ``MagicMock`` exposing ``devices`` and a
+    ``get_by_name(name)`` lambda derived from *devices*; mirrors
+    the production ``DeviceScanner``'s name-keyed grouping closely
+    enough for the callback paths these tests exercise.
+
+    ``create_background_task`` lets callers wire a side-effect
+    function (e.g. closing the coroutine to avoid
+    ``RuntimeWarning: coroutine was never awaited``) for the
+    persist-async branches.
+    """
+    bus = EventBus()
+    captured: list[Event] = []
+    for event_type in capture_event_types:
+        bus.add_listener(event_type, captured.append)
+    controller = DevicesController.__new__(DevicesController)
+    controller._db = MagicMock()
+    if create_background_task is not None:
+        controller._db.create_background_task = MagicMock(side_effect=create_background_task)
+    controller._db.bus = bus
+    controller._scanner = MagicMock()
+    controller._scanner.devices = devices
+    by_name: dict[str, list[Device]] = {}
+    for device in devices:
+        by_name.setdefault(device.name, []).append(device)
+    controller._scanner.get_by_name = lambda name: by_name.get(name, [])
+    return controller, captured
