@@ -607,3 +607,50 @@ async def test_add_component_featured_non_entity_emits_id_only(
     assert "output:" in response.yaml
     assert "id: status_led_output" in response.yaml
     assert "name:" not in response.yaml.split("output:")[1]
+
+
+async def test_add_component_strips_mqtt_fields_when_no_mqtt_block(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """
+    Drop MQTT-only fields when the device YAML has no ``mqtt:`` block.
+
+    Featured components target the dashboard's native-API setup, but the
+    frontend can still pass MQTT defaults through (form auto-fill,
+    programmatic adds). Each field's ``depends_on_component`` gate is
+    honoured against the device YAML so the resulting block stays clean.
+    """
+    (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\napi:\n", "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="plug.yaml",
+        component_id="featured.athom-smart-plug-v3.relay",
+        fields={
+            "availability": {"payload_available": "online"},
+            "qos": "0",
+            "discovery": True,
+        },
+    )
+
+    assert "availability" not in response.yaml
+    assert "qos" not in response.yaml
+    assert "discovery" not in response.yaml
+
+
+async def test_add_component_keeps_mqtt_fields_when_mqtt_block_present(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """When the device already has an ``mqtt:`` block, MQTT fields ride through."""
+    existing = "esphome:\n  name: plug\napi:\nmqtt:\n  broker: mqtt.local\n"
+    (tmp_path / "plug.yaml").write_text(existing, "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="plug.yaml",
+        component_id="featured.athom-smart-plug-v3.relay",
+        fields={"availability": {"payload_available": "online"}},
+    )
+
+    assert "availability:" in response.yaml
+    assert "payload_available: online" in response.yaml

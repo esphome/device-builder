@@ -15,6 +15,8 @@ import shutil
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
 try:
     # ``friendly_name_slugify`` lives in ``esphome.helpers`` from
     # esphome/esphome#16206 onwards so it survives the legacy
@@ -36,6 +38,7 @@ from ..config import clear_volatile_device_metadata, remove_device_metadata
 from .constants import _CONCEALED_SECRET_RE
 
 if TYPE_CHECKING:
+    from ...models import ComponentCatalogEntry, ConfigEntry
     from .._device_state_monitor import DeviceStateMonitor
     from ..components import _FeaturedRecord
 
@@ -43,6 +46,7 @@ __all__ = [
     "_apply_featured_presets",
     "_archive_clear_device_sidecars",
     "_build_address_cache_args",
+    "_drop_unconfigured_dependent_fields",
     "_normalize_pin_value",
     "_redact_concealed_secrets",
     "_remove_device_sidecars",
@@ -253,6 +257,56 @@ def _apply_featured_presets(
         if not user_supplied and preset.value is not None:
             merged[key] = preset.value
     return merged
+
+
+def _drop_unconfigured_dependent_fields(
+    fields: dict[str, Any],
+    component: ComponentCatalogEntry,
+    existing_yaml: str,
+) -> dict[str, Any]:
+    """
+    Strip fields whose ``depends_on_component`` block isn't in *existing_yaml*.
+
+    Returns a new field map with fields that gate on a separate
+    top-level component (``mqtt:``, ``web_server:``, ``zigbee:``, ...)
+    removed when that block isn't configured on the device. Featured
+    components target the dashboard's native-API setup, which doesn't
+    carry an ``mqtt:`` block — emitting ``availability:`` /
+    ``state_topic:`` / ``qos:`` defaults the frontend pre-fills would
+    produce a YAML config ESPHome rejects (or silently ignores).
+
+    Mirrors the gate the frontend already applies via
+    ``ConfigEntry.depends_on_component``.
+    """
+    try:
+        parsed = yaml.safe_load(existing_yaml) or {}
+    except yaml.YAMLError:
+        # An unparsable existing YAML means we can't tell which blocks
+        # are configured — strip nothing rather than silently dropping
+        # fields the user might rely on. The downstream YAML merger
+        # surfaces the parse error separately.
+        return dict(fields)
+    if not isinstance(parsed, dict):
+        return dict(fields)
+    configured_blocks: set[str] = set(parsed.keys())
+
+    entries_by_key = {ce.key: ce for ce in component.config_entries}
+    return {
+        key: value
+        for key, value in fields.items()
+        if not _gates_on_unconfigured_block(entries_by_key.get(key), configured_blocks)
+    }
+
+
+def _gates_on_unconfigured_block(
+    entry: ConfigEntry | None,
+    configured_blocks: set[str],
+) -> bool:
+    """Return True when *entry* depends on a top-level block not in *configured_blocks*."""
+    if entry is None:
+        return False
+    gate = entry.depends_on_component
+    return bool(gate) and gate not in configured_blocks
 
 
 def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None) -> list[str]:

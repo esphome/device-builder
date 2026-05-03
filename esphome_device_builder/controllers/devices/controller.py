@@ -61,6 +61,7 @@ from .helpers import (
     _apply_featured_presets,
     _archive_clear_device_sidecars,
     _build_address_cache_args,
+    _drop_unconfigured_dependent_fields,
     _redact_concealed_secrets,
     _remove_device_sidecars,
     _validate_archive_configuration,
@@ -786,6 +787,12 @@ class DevicesController:
         config_path = self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
         existing = await loop.run_in_executor(None, config_path.read_text, "utf-8")
+        # Honour each field's ``depends_on_component`` gate against
+        # what's actually in the device YAML — drops MQTT-only options
+        # (``availability:``, ``state_topic:``, ...) when the device
+        # has no ``mqtt:`` block, mirroring what the frontend already
+        # does field-by-field on the input form.
+        fields = _drop_unconfigured_dependent_fields(fields, component, existing)
         new_yaml = merge_component_yaml(existing, component, fields)
         await loop.run_in_executor(None, config_path.write_text, new_yaml, "utf-8")
         await self._scanner.scan()
