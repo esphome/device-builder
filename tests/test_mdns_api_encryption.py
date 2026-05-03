@@ -18,14 +18,12 @@ Three states matter for the apply path:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, DeviceState, EventType
 
-from .conftest import make_state_monitor_with_callbacks
+from .conftest import make_devices_controller_with_bus, make_state_monitor_with_callbacks
 
 
 def _device(**overrides: Any) -> Device:
@@ -111,21 +109,12 @@ def test_apply_api_encryption_dedupes_repeated_empty() -> None:
 async def test_on_api_encryption_change_updates_device_and_fires_event() -> None:
     """Callback writes the value onto the in-memory device + fires DEVICE_UPDATED."""
     device = _device(api_encryption_active=None)
-
-    db = MagicMock()
-    fired_events: list[tuple[EventType, dict]] = []
-    db.bus.fire.side_effect = lambda event_type, data: fired_events.append((event_type, data))
-
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, captured = make_devices_controller_with_bus([device])
 
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
     assert device.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
-    assert any(et == EventType.DEVICE_UPDATED for et, _ in fired_events)
+    assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
 
 
 @pytest.mark.asyncio
@@ -139,47 +128,30 @@ async def test_on_api_encryption_change_records_empty_string() -> None:
     plaintext device).
     """
     device = _device(api_encryption_active=None)
-
-    db = MagicMock()
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, captured = make_devices_controller_with_bus([device])
 
     controller._on_api_encryption_change("kitchen", "")
 
     assert device.api_encryption_active == ""
-    db.bus.fire.assert_called_once()
+    assert len(captured) == 1
 
 
 @pytest.mark.asyncio
 async def test_on_api_encryption_change_skips_when_same() -> None:
     """No-op when the in-memory device already has the announced value."""
     device = _device(api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256")
-
-    db = MagicMock()
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, captured = make_devices_controller_with_bus([device])
 
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
-    db.bus.fire.assert_not_called()
+    assert captured == []
 
 
 @pytest.mark.asyncio
 async def test_on_api_encryption_change_unknown_device_is_noop() -> None:
     """A stray callback for a name we don't track must not raise or fire."""
-    db = MagicMock()
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = []
-    controller._scanner.get_by_name = lambda name, _d=[]: [d for d in _d if d.name == name]
+    controller, captured = make_devices_controller_with_bus([])
 
     controller._on_api_encryption_change("ghost", "anything")
 
-    db.bus.fire.assert_not_called()
+    assert captured == []

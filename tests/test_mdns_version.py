@@ -20,7 +20,7 @@ from esphome_device_builder.controllers._device_state_monitor import DeviceState
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, DeviceState, EventType
 
-from .conftest import make_state_monitor_with_callbacks
+from .conftest import make_devices_controller_with_bus, make_state_monitor_with_callbacks
 
 
 def _device(**overrides: Any) -> Device:
@@ -161,28 +161,26 @@ def test_persist_storage_version_handles_missing_storage(monkeypatch: Any, tmp_p
 # ----------------------------------------------------------------------
 
 
+def _close_coro(coro: object) -> object:
+    """Close any scheduled coroutine to silence the un-awaited warning."""
+    if hasattr(coro, "close"):
+        coro.close()
+    return coro
+
+
 @pytest.mark.asyncio
 async def test_on_version_change_updates_device_and_fires_event(monkeypatch: Any) -> None:
     """The full pipe: callback updates the in-memory device + fires DEVICE_UPDATED."""
     device = _device(deployed_version="2026.4.0")
-
-    db = MagicMock()
-
-    fired_events: list[tuple[EventType, dict]] = []
-    db.bus.fire.side_effect = lambda event_type, data: fired_events.append((event_type, data))
+    controller, captured = make_devices_controller_with_bus(
+        [device], create_background_task=_close_coro
+    )
 
     persisted: list[tuple[str, str]] = []
 
     async def _fake_persist(configuration: str, version: str) -> None:
         persisted.append((configuration, version))
 
-    db.create_background_task.side_effect = lambda coro: coro.close() or MagicMock()
-
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
     monkeypatch.setattr(controller, "_persist_storage_version_async", _fake_persist, raising=False)
 
     controller._on_version_change("kitchen", "2026.5.0")
@@ -190,41 +188,36 @@ async def test_on_version_change_updates_device_and_fires_event(monkeypatch: Any
     assert device.deployed_version == "2026.5.0"
     # current_version is "2026.5.0" too, so update_available should be False.
     assert device.update_available is False
-    assert any(et == EventType.DEVICE_UPDATED for et, _ in fired_events)
+    assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
 
 
 @pytest.mark.asyncio
-async def test_on_version_change_skips_when_same(monkeypatch: Any) -> None:
+async def test_on_version_change_skips_when_same() -> None:
     """No-op when in-memory device already has the announced version."""
     device = _device(deployed_version="2026.5.0")
+    scheduled: list[object] = []
 
-    db = MagicMock()
+    def _record(coro: object) -> object:
+        scheduled.append(coro)
+        return _close_coro(coro)
 
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, captured = make_devices_controller_with_bus(
+        [device], create_background_task=_record
+    )
 
     controller._on_version_change("kitchen", "2026.5.0")
 
-    db.bus.fire.assert_not_called()
-    db.create_background_task.assert_not_called()
+    assert captured == []
+    assert scheduled == []
 
 
 @pytest.mark.asyncio
 async def test_on_version_change_marks_update_available_when_behind() -> None:
     """A device on an older version than the dashboard → ``update_available`` flips on."""
     device = _device(current_version="2026.5.0", deployed_version="2026.4.0")
-
-    db = MagicMock()
-    db.create_background_task.side_effect = lambda coro: coro.close() or MagicMock()
-
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, _captured = make_devices_controller_with_bus(
+        [device], create_background_task=_close_coro
+    )
 
     # Simulate mDNS reporting an even older version than the previous
     # deployed_version — the dashboard's installed esphome is newer

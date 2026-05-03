@@ -17,10 +17,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, DeviceState, EventType
 
-from .conftest import make_state_monitor_with_callbacks
+from .conftest import make_devices_controller_with_bus, make_state_monitor_with_callbacks
 
 
 def _device(**overrides: Any) -> Device:
@@ -144,53 +143,33 @@ def test_apply_config_hash_no_callback_silently_drops() -> None:
 async def test_on_config_hash_change_updates_device_and_fires_event() -> None:
     """The full pipe: callback updates the in-memory device + fires DEVICE_UPDATED."""
     device = _device(deployed_config_hash="")
-
-    db = MagicMock()
-    fired_events: list[tuple[EventType, dict]] = []
-    db.bus.fire.side_effect = lambda event_type, data: fired_events.append((event_type, data))
-
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, captured = make_devices_controller_with_bus([device])
 
     controller._on_config_hash_change("kitchen", "1a2b3c4d")
 
     assert device.deployed_config_hash == "1a2b3c4d"
-    assert any(et == EventType.DEVICE_UPDATED for et, _ in fired_events)
+    assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
 
 
 @pytest.mark.asyncio
 async def test_on_config_hash_change_skips_when_same() -> None:
     """No-op when in-memory device already has the announced hash."""
     device = _device(deployed_config_hash="1a2b3c4d")
-
-    db = MagicMock()
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, captured = make_devices_controller_with_bus([device])
 
     controller._on_config_hash_change("kitchen", "1a2b3c4d")
 
-    db.bus.fire.assert_not_called()
+    assert captured == []
 
 
 @pytest.mark.asyncio
 async def test_on_config_hash_change_unknown_device_is_noop() -> None:
     """A stray callback for an unknown device must not raise or fire events."""
-    db = MagicMock()
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = []
-    controller._scanner.get_by_name = lambda name, _d=[]: [d for d in _d if d.name == name]
+    controller, captured = make_devices_controller_with_bus([])
 
     controller._on_config_hash_change("ghost", "1a2b3c4d")
 
-    db.bus.fire.assert_not_called()
+    assert captured == []
 
 
 @pytest.mark.asyncio
@@ -201,13 +180,7 @@ async def test_on_config_hash_change_flips_pending_when_hashes_diverge() -> None
         deployed_config_hash="",
         has_pending_changes=False,
     )
-
-    db = MagicMock()
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, _captured = make_devices_controller_with_bus([device])
 
     controller._on_config_hash_change("kitchen", "deadbeef")
 
@@ -223,13 +196,7 @@ async def test_on_config_hash_change_marks_in_sync_when_hashes_match() -> None:
         deployed_config_hash="",
         has_pending_changes=True,
     )
-
-    db = MagicMock()
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, _captured = make_devices_controller_with_bus([device])
 
     controller._on_config_hash_change("kitchen", "abc12345")
 
@@ -245,13 +212,7 @@ async def test_on_config_hash_change_leaves_pending_alone_without_expected_hash(
         deployed_config_hash="",
         has_pending_changes=True,
     )
-
-    db = MagicMock()
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.devices = [device]
-    controller._scanner.get_by_name = lambda name, _d=[device]: [d for d in _d if d.name == name]
+    controller, _captured = make_devices_controller_with_bus([device])
 
     controller._on_config_hash_change("kitchen", "deadbeef")
 
