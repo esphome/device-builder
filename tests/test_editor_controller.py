@@ -305,3 +305,443 @@ async def test_stop_terminates_all_sessions(tmp_path: Path) -> None:
 
     assert controller._sessions == {}
     assert controller._terminate_subprocess.await_count == 2
+
+
+# ---------------------------------------------------------------------------
+# __init__ + start
+# ---------------------------------------------------------------------------
+
+
+def test_init_sets_default_state() -> None:
+    """Constructor wires the device builder, no sessions, empty cmd."""
+    db = MagicMock()
+    controller = EditorController(db)
+    assert controller._db is db
+    assert controller._sessions == {}
+    assert controller._esphome_cmd == []
+
+
+@pytest.mark.asyncio
+async def test_start_resolves_esphome_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``start()`` populates ``_esphome_cmd`` via ``_find_esphome_cmd``.
+
+    The cmd is later spliced with ``vscode <config_dir> --ace`` to
+    spawn the validator. Pin the lookup so a refactor that moved
+    the resolution elsewhere (or skipped it) surfaces here rather
+    than at the first ``editor/validate_yaml`` call.
+    """
+    controller = _make_controller(tmp_path)
+    controller._esphome_cmd = []  # ensure start() actually populates it
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor._find_esphome_cmd",
+        lambda: ["python", "-m", "esphome"],
+    )
+
+    await controller.start()
+
+    assert controller._esphome_cmd == ["python", "-m", "esphome"]
+
+
+# ---------------------------------------------------------------------------
+# _ensure_subprocess
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ensure_subprocess_no_op_when_proc_already_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live proc on the session → no respawn.
+
+    Sessions are warm: a single ``esphome vscode`` subprocess
+    serves every validate call for that configuration. A respawn
+    would lose the validator's component-import cache and double
+    every validation's wall-clock cost.
+    """
+    controller = _make_controller(tmp_path)
+    session = _EditorSession()
+    proc, *_ = _make_fake_proc([])
+    session.proc = proc
+    spawned = False
+
+    async def _no_spawn(*_args: Any, **_kwargs: Any) -> Any:
+        nonlocal spawned
+        spawned = True
+        return MagicMock()
+
+    # Patch the spawn entry point — should never be reached.
+    # Use ``monkeypatch.setattr`` so the override is restored after
+    # the test; direct module-attribute assignment would leak to
+    # subsequent tests and produce order-dependent failures.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.create_subprocess_exec",
+        _no_spawn,
+    )
+
+    await controller._ensure_subprocess(session)
+
+    assert spawned is False
+    assert session.proc is proc
+
+
+@pytest.mark.asyncio
+async def test_ensure_subprocess_spawns_and_drains_version_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cold-start: spawn the subprocess and drain the initial version line.
+
+    Without the drain, the next ``validate`` call would land on the
+    stale version line and never reach the real result — pinning
+    this branch protects against a refactor that drops the readline.
+    """
+    controller = _make_controller(tmp_path)
+    session = _EditorSession()
+    proc, reader, _ = _make_fake_proc([dumps({"type": "version", "version": "1.0"}) + b"\n"])
+
+    async def _fake_spawn(*_args: Any, **_kwargs: Any) -> Any:
+        return proc
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    await controller._ensure_subprocess(session)
+
+    assert session.proc is proc
+    # The version line should already have been consumed — feed_eof
+    # on the reader and a follow-up readline returns nothing.
+    reader.feed_eof()
+    assert await proc.stdout.readline() == b""
+
+
+@pytest.mark.asyncio
+async def test_ensure_subprocess_terminates_session_and_raises_on_startup_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Subprocess never emits version line within ``_STARTUP_TIMEOUT``.
+
+    The validator hung before printing its handshake. Tear down the
+    session and raise so the dispatcher surfaces a clear error
+    instead of leaving a half-initialised subprocess pinned. Verify
+    both: ``RuntimeError`` propagates, and ``_terminate_subprocess``
+    runs.
+    """
+    controller = _make_controller(tmp_path)
+    session = _EditorSession()
+    proc, _reader, _ = _make_fake_proc([])  # no lines → readline blocks
+
+    async def _fake_spawn(*_args: Any, **_kwargs: Any) -> Any:
+        return proc
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    async def _raise_timeout(awaitable: Any, *_args: Any, **_kwargs: Any) -> None:
+        # Close the awaitable so a "coroutine was never awaited"
+        # warning doesn't fire on the never-consumed readline.
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        raise TimeoutError
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.asyncio.wait_for",
+        _raise_timeout,
+    )
+
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="did not start in time"):
+        await controller._ensure_subprocess(session)
+
+    terminated.assert_awaited_once_with(session)
+
+
+# ---------------------------------------------------------------------------
+# _terminate_subprocess
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_terminate_subprocess_no_op_when_session_proc_is_none(
+    tmp_path: Path,
+) -> None:
+    """No proc → return immediately, no surprise calls."""
+    controller = _make_controller(tmp_path)
+    session = _EditorSession()
+    session.proc = None
+    await controller._terminate_subprocess(session)
+
+
+@pytest.mark.asyncio
+async def test_terminate_subprocess_no_op_when_proc_already_exited(
+    tmp_path: Path,
+) -> None:
+    """Already-exited proc skips the exit/terminate/kill ladder."""
+    controller = _make_controller(tmp_path)
+    session = _EditorSession()
+    proc, *_ = _make_fake_proc([])
+    proc.returncode = 0
+    session.proc = proc
+
+    await controller._terminate_subprocess(session)
+
+    proc.terminate.assert_not_called()
+    proc.kill.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_terminate_subprocess_sends_exit_and_waits(tmp_path: Path) -> None:
+    """Happy path: write ``{"type": "exit"}``, drain, close stdin, wait."""
+    controller = _make_controller(tmp_path)
+    session = _EditorSession()
+    proc, _reader, stdin_capture = _make_fake_proc([])
+    session.proc = proc
+
+    await controller._terminate_subprocess(session)
+
+    # Exit message went out.
+    assert any(b'"type":"exit"' in chunk for chunk in stdin_capture)
+    # No escalation needed — proc.wait() returned cleanly.
+    proc.terminate.assert_not_called()
+    proc.kill.assert_not_called()
+    # Session's reference cleared so the next ensure() respawns.
+    assert session.proc is None
+
+
+@pytest.mark.asyncio
+async def test_terminate_subprocess_escalates_through_terminate_then_kill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Subprocess ignores exit + terminate → final ``kill_quietly`` fires.
+
+    Pin the full ladder. The validator may be wedged in C extension
+    code that doesn't honour the ``exit`` message or SIGTERM (rare,
+    but the branch exists for it); the SIGKILL fallback is what
+    keeps shutdown from hanging.
+    """
+    controller = _make_controller(tmp_path)
+    session = _EditorSession()
+    proc, _reader, _ = _make_fake_proc([])
+    session.proc = proc
+
+    timeouts = [True, True, False]  # exit-wait, terminate-wait, kill-wait
+
+    async def _wait_for(awaitable: Any, *_args: Any, **_kwargs: Any) -> Any:
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        if timeouts.pop(0):
+            raise TimeoutError
+        return 0
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.asyncio.wait_for",
+        _wait_for,
+    )
+
+    kill_quietly_calls: list[Any] = []
+
+    def _track_kill_quietly(p: Any) -> None:
+        kill_quietly_calls.append(p)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.kill_quietly",
+        _track_kill_quietly,
+    )
+
+    await controller._terminate_subprocess(session)
+
+    proc.terminate.assert_called_once()
+    assert kill_quietly_calls == [proc]
+
+
+@pytest.mark.asyncio
+async def test_terminate_subprocess_swallows_stdin_write_failure(
+    tmp_path: Path,
+) -> None:
+    """A broken stdin doesn't abort termination — fall through to wait/kill.
+
+    Production trigger: the validator died between the wedge check
+    and the exit-message write, so ``proc.stdin.write`` raises
+    ``BrokenPipeError``. We need to keep going and still ``wait()``
+    so the session reference clears; the ``except Exception`` is
+    what makes that work.
+    """
+    controller = _make_controller(tmp_path)
+    session = _EditorSession()
+    proc, _reader, _ = _make_fake_proc([])
+
+    def _broken_write(_data: bytes) -> None:
+        raise BrokenPipeError
+
+    proc.stdin.write = _broken_write
+    session.proc = proc
+
+    await controller._terminate_subprocess(session)
+
+    # Cleared the session reference even after the write failure.
+    assert session.proc is None
+
+
+# ---------------------------------------------------------------------------
+# _resolve_file — OSError on Path.resolve
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_file_falls_back_when_requested_path_unresolvable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``Path.resolve()`` raising on the requested path → use the unresolved Path.
+
+    macOS / Linux with a long enough path (or a path through a
+    broken symlink) can fault ``resolve()`` even when ``read_text``
+    later succeeds against the unresolved form. The except branch
+    keeps the read-from-disk fallback usable in that case rather
+    than 500-ing the validator round-trip.
+    """
+    controller = _make_controller(tmp_path)
+    include = tmp_path / "common.yaml"
+    include.write_text("ok\n", encoding="utf-8")
+
+    real_resolve = Path.resolve
+
+    def _raise_for_requested(self: Path, *args: Any, **kwargs: Any) -> Path:
+        # Only fault for the requested file — the controller resolves
+        # the config_dir too, which has to keep working for the
+        # main_path comparison.
+        if self.name == "common.yaml":
+            raise OSError("simulated resolve failure")
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", _raise_for_requested)
+
+    result = controller._resolve_file(str(include), "kitchen.yaml", "")
+
+    assert result == "ok\n"
+
+
+# ---------------------------------------------------------------------------
+# _validate_locked — JSON-decoding tolerance
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_validate_locked_skips_unparseable_lines(tmp_path: Path) -> None:
+    """A malformed JSON line is dropped; the loop reads the next line.
+
+    The validator may emit a stray non-JSON line (debug log, version
+    banner that escaped the startup drain). The loop's
+    ``except JSONDecodeError`` keeps reading instead of raising —
+    pin the branch so a refactor that moved the loads outside the
+    try/except surfaces here.
+    """
+    controller = _make_controller(tmp_path)
+    session = _EditorSession()
+    proc, _reader, _ = _make_fake_proc(
+        [
+            b"this is not json\n",
+            dumps({"type": "result", "yaml_errors": [], "validation_errors": []}) + b"\n",
+        ]
+    )
+    session.proc = proc
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+
+    result = await controller._validate_locked(session, "kitchen.yaml", "")
+
+    assert result == {"yaml_errors": [], "validation_errors": []}
+
+
+# ---------------------------------------------------------------------------
+# validate_yaml — public api_command entrypoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_validate_yaml_creates_session_and_delegates(
+    tmp_path: Path,
+) -> None:
+    """First call for a config creates a session and forwards to ``_validate_locked``.
+
+    Each configuration gets exactly one ``_EditorSession`` (so
+    concurrent edits on the same YAML are serialised through
+    ``session.lock``). Pin both halves: the session lands in
+    ``_sessions``, and ``_validate_locked`` receives the same
+    instance.
+    """
+    controller = _make_controller(tmp_path)
+
+    async def _fake_validate(session: _EditorSession, configuration: str, content: str) -> dict:
+        # Stash the session on the controller so the test can
+        # confirm it's the same instance the registry holds.
+        controller._captured_session = session  # type: ignore[attr-defined]
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _fake_validate  # type: ignore[method-assign]
+
+    result = await controller.validate_yaml(configuration="kitchen.yaml", content="esphome:\n")
+
+    assert result == {"yaml_errors": [], "validation_errors": []}
+    assert "kitchen.yaml" in controller._sessions
+    assert controller._captured_session is controller._sessions["kitchen.yaml"]  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_validate_yaml_terminates_session_on_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Timeout from ``_validate_locked`` → session torn down + re-raise.
+
+    Subprocess wedged or unreachable — kill it so the next call
+    spawns fresh. Without the teardown, the next validate call
+    would hit the same wedged process and block forever.
+    """
+    controller = _make_controller(tmp_path)
+
+    async def _hangs(*_args: Any, **_kwargs: Any) -> dict:  # pragma: no cover
+        return {}
+
+    controller._validate_locked = _hangs  # type: ignore[method-assign]
+
+    async def _raise_timeout(awaitable: Any, *_args: Any, **_kwargs: Any) -> None:
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        raise TimeoutError
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.asyncio.wait_for",
+        _raise_timeout,
+    )
+
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    with pytest.raises(TimeoutError):
+        await controller.validate_yaml(configuration="kitchen.yaml", content="")
+
+    terminated.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_validate_yaml_terminates_session_on_runtime_error(
+    tmp_path: Path,
+) -> None:
+    """``_validate_locked`` raising ``RuntimeError`` (subprocess died) → teardown + re-raise."""
+    controller = _make_controller(tmp_path)
+
+    async def _raise_runtime(*_args: Any, **_kwargs: Any) -> dict:
+        raise RuntimeError("subprocess closed stdout")
+
+    controller._validate_locked = _raise_runtime  # type: ignore[method-assign]
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="closed stdout"):
+        await controller.validate_yaml(configuration="kitchen.yaml", content="")
+
+    terminated.assert_awaited_once()

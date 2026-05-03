@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.helpers.yaml import (
+    generate_component_yaml,
     merge_component_yaml,
     rewrite_esphome_name,
 )
@@ -259,3 +260,169 @@ def test_merge_component_yaml_splices_other_platform_categories(
     assert result.count(f"{category.value}:\n") == 1
     assert "- platform: ledc" in result
     assert "- platform: gpio" in result
+
+
+# ---------------------------------------------------------------------------
+# generate_component_yaml — value formatting
+# ---------------------------------------------------------------------------
+# These tests pin the YAML literal that each Python value type
+# renders to, by driving ``generate_component_yaml`` end-to-end.
+# Going through the public function (rather than the private
+# ``_format_yaml_value`` helper) anchors the contract on what the
+# frontend actually sees in the generated block — a future refactor
+# that swaps the internal helper out for orjson / PyYAML / a real
+# emitter shouldn't need to rewrite any of these.
+
+
+def test_generate_component_yaml_emits_bool_true_lowercase() -> None:
+    """``True`` renders as bare ``true`` — ESPHome's canonical bool literal.
+
+    YAML 1.2 also accepts ``True`` / ``TRUE``; ESPHome itself only
+    emits the lowercase forms, so pin that. The Python ``str(True)``
+    repr would write ``True`` and disagree with every other emitter
+    in the toolchain.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"enabled": True})
+    assert "  enabled: true" in out
+
+
+def test_generate_component_yaml_emits_bool_false_lowercase() -> None:
+    """``False`` renders as bare ``false``, not ``False``.
+
+    Pinned separately from ``True`` because the ``_format_yaml_value``
+    branch is a single ternary — a regression that swapped the
+    branches (``"false" if value else "true"``) would still pass a
+    True-only test.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"enabled": False})
+    assert "  enabled: false" in out
+
+
+@pytest.mark.parametrize("keyword", ["true", "false", "null", "yes", "no", "on", "off"])
+def test_generate_component_yaml_quotes_yaml_keyword_strings(keyword: str) -> None:
+    """Strings whose value is a YAML 1.1 boolean keyword get quoted.
+
+    Without quoting, ``state: on`` parses back as ``True``, not the
+    string ``"on"`` — the classic YAML 1.1 footgun. ESPHome accepts
+    these as enum values for several components (e.g. light states),
+    so the helper has to disambiguate. ``null`` / ``yes`` / ``no``
+    follow the same logic; pin every keyword in the helper's
+    allowlist so a regression that drops one shows up here.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"state": keyword})
+    assert f'  state: "{keyword}"' in out
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["foo:bar", "foo#bar", "!secret api_key"],
+    ids=["colon", "hash", "tag-prefix"],
+)
+def test_generate_component_yaml_quotes_strings_with_special_chars(value: str) -> None:
+    """Strings containing ``:`` / ``#`` or starting with ``!`` get quoted.
+
+    Each of these is YAML structural punctuation: ``:`` opens a
+    mapping value, ``#`` opens a comment, and ``!`` introduces a tag.
+    Emitting any of them unquoted either breaks the parse or
+    silently changes the meaning (``key: foo#bar`` becomes ``key:
+    foo`` with a trailing comment). Pin all three so a refactor that
+    drops one of the disjuncts surfaces here.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"v": value})
+    assert f'  v: "{value}"' in out
+
+
+def test_generate_component_yaml_emits_plain_string_unquoted() -> None:
+    """Plain strings render unquoted — the helper only quotes when needed.
+
+    A regression that "just always quotes" produces correct YAML but
+    reads nothing like what a human writes by hand and makes diffs
+    against pre-existing files unreviewable. Pin the bare-pin case
+    (``GPIO4``) so the quoting decision stays selective.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"pin": "GPIO4"})
+    assert "  pin: GPIO4" in out
+    assert '"GPIO4"' not in out
+
+
+@pytest.mark.parametrize("value", [42, 3.14])
+def test_generate_component_yaml_emits_numeric_value_via_str(value: int | float) -> None:
+    """Numbers render via ``str()`` — ints stay ints, floats keep the dot.
+
+    A regression that quoted numbers (``priority: "0"``) changes the
+    YAML type — ESPHome would either reject the cast or accept the
+    string and silently re-parse it, depending on the field. Pin
+    both shapes so the unquoted-numeric path is locked in.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"v": value})
+    assert f"  v: {value}" in out
+    assert f'"{value}"' not in out
+
+
+# ---------------------------------------------------------------------------
+# generate_component_yaml — nested fields (_emit_field branches)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_component_yaml_emits_nested_dict_as_indented_mapping() -> None:
+    """A dict value renders as ``key:`` plus deeper-indented entries.
+
+    The frontend submits the structure of a NESTED config-entry as a
+    dict (e.g. ``scan_parameters: {duration: 90s, active: true}``).
+    Pin that the helper recurses with deeper block-style indent
+    rather than emitting flow style ``{...}`` — ESPHome accepts
+    both, but every other tool in the codebase emits block style and
+    flow would diff badly against a hand-written file.
+    """
+    component = _component(component_id="esp32_ble_tracker", category=ComponentCategory.MISC)
+    out = generate_component_yaml(
+        component,
+        {"scan_parameters": {"duration": "90s", "active": True}},
+    )
+    assert "  scan_parameters:\n" in out
+    assert "    duration: 90s" in out
+    assert "    active: true" in out
+
+
+def test_generate_component_yaml_recurses_through_nested_dict_indent() -> None:
+    """Two-deep nesting indents twice — recursion keeps the spacing right.
+
+    ``_emit_field`` calls itself with ``indent + "  "`` per level.
+    A regression that hardcoded the indent would land second-level
+    keys under the wrong parent and ESPHome would reject the file
+    with a confusing column-mismatch error.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"outer": {"inner": {"leaf": "v"}}})
+    assert "  outer:\n" in out
+    assert "    inner:\n" in out
+    assert "      leaf: v" in out
+
+
+def test_generate_component_yaml_emits_list_of_dicts_as_block_sequence() -> None:
+    """A list of dicts renders as ``- mapping`` block-sequence items.
+
+    Used for fields whose value is an array of structured entries
+    (e.g. ``on_...:`` automations, ``triggers:`` lists). Each item
+    gets a ``-`` prefix on its first key, and continuation keys
+    indent under it. Pin all four lines (two items, two keys each)
+    so a regression that emits the second item without a fresh
+    ``-`` prefix — collapsing the sequence into a single mapping —
+    shows up here.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(
+        component,
+        {"items": [{"a": 1, "b": "x"}, {"a": 2, "b": "y"}]},
+    )
+    assert "  items:\n" in out
+    assert "    - a: 1" in out
+    assert "      b: x" in out
+    assert "    - a: 2" in out
+    assert "      b: y" in out
