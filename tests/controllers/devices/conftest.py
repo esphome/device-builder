@@ -16,7 +16,6 @@ wraps it in ``asyncio.to_thread`` so callers don't have to remember.
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
@@ -28,6 +27,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.hostname import normalize_hostname
 from esphome_device_builder.models import AdoptableDevice, DeviceState, EventType
+from tests._storage_fixtures import write_storage_json
 
 
 class RecordingStateMonitor:
@@ -324,34 +324,19 @@ def seed_device() -> SeedDeviceFactory:
             (build_path / "src").mkdir()
             (build_path / "src" / "main.cpp").write_text("// fake\n", encoding="utf-8")
 
-        storage_dir = config_dir / ".esphome" / "storage"
-        storage_dir.mkdir(parents=True, exist_ok=True)
-        (storage_dir / f"{configuration}.json").write_text(
-            json.dumps(
-                {
-                    "storage_version": 1,
-                    "name": name,
-                    "friendly_name": (storage_friendly if storage_friendly is not None else name),
-                    "comment": None,
-                    "esphome_version": "2026.5.0-dev",
-                    "src_version": 1,
-                    "address": address if address is not None else f"{name}.local",
-                    "web_port": None,
-                    "esp_platform": "esp32",
-                    "board": "esp32-c3-devkitm-1",
-                    "build_path": str(build_path),
-                    "firmware_bin_path": str(build_path / ".pioenvs" / "firmware.bin"),
-                    "loaded_integrations": loaded_integrations
-                    if loaded_integrations is not None
-                    else ["api"],
-                    "loaded_platforms": ["esp32"],
-                    "no_mdns": False,
-                    "framework": "esp-idf",
-                    "core_platform": "esp32",
-                    "target_platform": "esp32",
-                }
-            ),
-            encoding="utf-8",
+        write_storage_json(
+            config_dir,
+            configuration,
+            firmware_bin_path=build_path / ".pioenvs" / "firmware.bin",
+            build_path=build_path,
+            overrides={
+                "friendly_name": (storage_friendly if storage_friendly is not None else name),
+                "address": address if address is not None else f"{name}.local",
+                "loaded_integrations": (
+                    loaded_integrations if loaded_integrations is not None else ["api"]
+                ),
+                "loaded_platforms": ["esp32"],
+            },
         )
 
         # ``metadata_transaction`` reaches into ``tempfile.mkstemp``

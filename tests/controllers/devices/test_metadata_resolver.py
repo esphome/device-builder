@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, EventType
+from tests._storage_fixtures import write_storage_json
 
 from .conftest import RecordingStateMonitor, capture_devices_events
 
@@ -58,30 +59,11 @@ def _write_storage_pointer(config_dir: Path, filename: str, build_path: Path) ->
     write a real sidecar (instead of mocking) so the resolver
     exercises the same disk path it does in production.
     """
-    storage_dir = config_dir / ".esphome" / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    (storage_dir / f"{filename}.json").write_text(
-        json.dumps(
-            {
-                "storage_version": 1,
-                "name": filename.removesuffix(".yaml"),
-                "comment": None,
-                "esphome_version": "2026.5.0-dev",
-                "src_version": 1,
-                "address": "",
-                "web_port": None,
-                "esp_platform": "esp32",
-                "board": "esp32-c3-devkitm-1",
-                "build_path": str(build_path),
-                "firmware_bin_path": str(build_path / ".pioenvs" / "firmware.bin"),
-                "loaded_integrations": [],
-                "loaded_platforms": [],
-                "no_mdns": False,
-                "framework": "esp-idf",
-                "core_platform": "esp32",
-            }
-        ),
-        encoding="utf-8",
+    write_storage_json(
+        config_dir,
+        filename,
+        firmware_bin_path=build_path / ".pioenvs" / "firmware.bin",
+        build_path=build_path,
     )
 
 

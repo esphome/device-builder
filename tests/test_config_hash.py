@@ -23,6 +23,7 @@ from esphome_device_builder.helpers.config_hash import (
     compute_yaml_config_hash,
     read_build_info_hash,
 )
+from tests._storage_fixtures import write_storage_json
 
 
 def _write_storage_pointer(yaml_path: Path, build_path: Path | None) -> None:
@@ -34,30 +35,11 @@ def _write_storage_pointer(yaml_path: Path, build_path: Path | None) -> None:
     """
     if build_path is None:
         return
-    storage_dir = yaml_path.parent / ".esphome" / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    (storage_dir / f"{yaml_path.name}.json").write_text(
-        json.dumps(
-            {
-                "storage_version": 1,
-                "name": yaml_path.stem,
-                "comment": None,
-                "esphome_version": "2026.5.0-dev",
-                "src_version": 1,
-                "address": "",
-                "web_port": None,
-                "esp_platform": "esp32",
-                "board": "esp32-c3-devkitm-1",
-                "build_path": str(build_path),
-                "firmware_bin_path": str(build_path / ".pioenvs" / "firmware.bin"),
-                "loaded_integrations": [],
-                "loaded_platforms": [],
-                "no_mdns": False,
-                "framework": "esp-idf",
-                "core_platform": "esp32",
-            }
-        ),
-        encoding="utf-8",
+    write_storage_json(
+        yaml_path.parent,
+        yaml_path.name,
+        firmware_bin_path=build_path / ".pioenvs" / "firmware.bin",
+        build_path=build_path,
     )
 
 

@@ -13,11 +13,12 @@ to retry.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+from tests._storage_fixtures import write_storage_json
 
 from .conftest import MakeControllerFactory
 
@@ -43,30 +44,11 @@ def _seed_device(
         (build_path / "src").mkdir()
         (build_path / "src" / "main.cpp").write_text("// fake\n", encoding="utf-8")
 
-    storage_dir = config_dir / ".esphome" / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    (storage_dir / f"{configuration}.json").write_text(
-        json.dumps(
-            {
-                "storage_version": 1,
-                "name": Path(configuration).stem,
-                "comment": None,
-                "esphome_version": "2026.5.0-dev",
-                "src_version": 1,
-                "address": "",
-                "web_port": None,
-                "esp_platform": "esp32",
-                "board": "esp32-c3-devkitm-1",
-                "build_path": str(build_path),
-                "firmware_bin_path": str(build_path / ".pioenvs" / "firmware.bin"),
-                "loaded_integrations": [],
-                "loaded_platforms": [],
-                "no_mdns": False,
-                "framework": "esp-idf",
-                "core_platform": "esp32",
-            }
-        ),
-        encoding="utf-8",
+    write_storage_json(
+        config_dir,
+        configuration,
+        firmware_bin_path=build_path / ".pioenvs" / "firmware.bin",
+        build_path=build_path,
     )
     return yaml_path, build_path
 

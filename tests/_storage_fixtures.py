@@ -4,15 +4,10 @@ Shared StorageJSON sidecar fixtures for tests that touch the build-output cache.
 Several tests stand up a fake ``<config_dir>/.esphome/storage/<configuration>.json``
 sidecar to exercise paths that read it (``firmware/download``,
 ``DevicesController._delete_single`` / ``_archive_single``, the
-metadata resolver). They were each writing the same JSON shape
-inline; centralising the layout here keeps them in sync when
-upstream esphome bumps ``StorageJSON``'s schema.
-
-Currently consumed by ``tests/controllers/firmware/test_download.py``.
-The duplicates in ``tests/test_archive_device.py`` and
-``tests/test_delete_device.py`` will migrate over once
-``device-builder#132`` lands (those files are renamed by that PR
-and editing them in parallel would conflict).
+metadata resolver, the config-hash helpers, and the device archive
+listing). They were each writing the same JSON shape inline;
+centralising the layout here keeps them in sync when upstream
+esphome bumps ``StorageJSON``'s schema.
 """
 
 from __future__ import annotations
@@ -29,6 +24,7 @@ from typing import Any
 _STORAGE_DEFAULTS: dict[str, Any] = {
     "storage_version": 1,
     "name": None,  # filled from ``configuration`` stem when omitted
+    "friendly_name": None,  # filled from stem when omitted
     "comment": None,
     "esphome_version": "2026.5.0-dev",
     "src_version": 1,
@@ -43,6 +39,7 @@ _STORAGE_DEFAULTS: dict[str, Any] = {
     "no_mdns": False,
     "framework": "esp-idf",
     "core_platform": "esp32",
+    "target_platform": "esp32",
 }
 
 
@@ -79,6 +76,7 @@ def write_storage_json(
     stem = Path(configuration).stem
     payload = dict(_STORAGE_DEFAULTS)
     payload["name"] = stem
+    payload["friendly_name"] = stem
     payload["build_path"] = str(build_path or (tmp_path / ".esphome" / "build" / stem))
     payload["firmware_bin_path"] = str(firmware_bin_path) if firmware_bin_path else None
     if overrides:

@@ -17,7 +17,6 @@ Mirrors the legacy dashboard's ``ArchiveRequestHandler`` /
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -38,6 +37,7 @@ from esphome_device_builder.controllers.devices.helpers import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
+from tests._storage_fixtures import write_storage_json
 
 from .conftest import MakeControllerFactory, SeedDeviceFactory
 
@@ -849,31 +849,17 @@ def test_list_archived_falls_back_to_storage_json_when_yaml_meta_sparse(
         "esphome:\n  name: kitchen\n",
         encoding="utf-8",
     )
-    storage_dir = tmp_path / ".esphome" / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    (storage_dir / "kitchen.yaml.json").write_text(
-        json.dumps(
-            {
-                "storage_version": 1,
-                "name": "kitchen",
-                "friendly_name": "Kitchen Sensor",
-                "comment": "by the sink",
-                "esphome_version": "2026.5.0-dev",
-                "src_version": 1,
-                "address": "",
-                "web_port": None,
-                "esp_platform": "esp32",
-                "board": "esp32-c3-devkitm-1",
-                "build_path": None,
-                "firmware_bin_path": None,
-                "loaded_integrations": [],
-                "loaded_platforms": [],
-                "no_mdns": False,
-                "framework": "esp-idf",
-                "core_platform": "esp32",
-            }
-        ),
-        encoding="utf-8",
+    # Storage build_path explicitly None — the device has never been
+    # compiled, so the archive lister falls back to YAML + sidecar
+    # alone for friendly_name / comment.
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        overrides={
+            "friendly_name": "Kitchen Sensor",
+            "comment": "by the sink",
+            "build_path": None,
+        },
     )
 
     rows = make_controller(tmp_path)._list_archived_sync()
