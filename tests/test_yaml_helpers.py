@@ -126,8 +126,8 @@ def test_rewrite_esphome_name_no_match_walks_past_sibling_top_level_blocks() -> 
     """A no-op rename still walks the whole file without crashing.
 
     Pin the two post-esphome branches that only fire when the
-    function reaches the end without finding a match (i.e. doesn't
-    ``break`` at line 102):
+    function runs to EOF without finding a match (no early
+    ``break`` after the first rewrite):
 
     - sibling top-level header (``wifi:``) flips ``in_esphome``
       back off (the block-exit branch);
@@ -500,16 +500,21 @@ def test_splice_rejects_block_without_matching_domain_header() -> None:
     assert _splice_into_domain_block("sensor:\n  - platform: dht\n", "switch", "logger:\n") is None
 
 
-def test_splice_rejects_single_line_block() -> None:
-    """A block with no body (one line) returns ``None``.
+def test_splice_rejects_new_block_with_no_body() -> None:
+    r"""A *new_block* that's just a header (one line, no list item) returns ``None``.
 
-    Defensive: ``merge_component_yaml`` always passes a header +
-    list-item pair, but a future caller that constructs a block
-    directly could hand in just the header. Pin the early-return so
-    the splice never produces a header-without-body insertion that
-    would silently corrupt the file.
+    The guard fires on ``len(block_lines) < 2`` — the splice
+    needs at least one body line below the header to insert.
+    Defensive against a future caller that constructs a
+    block via ``"\n".join([header])`` and forgets the body;
+    pin the early-return so a header-without-item splice can't
+    silently corrupt the file by appending a bare ``sensor:`` to
+    an existing block that already has one.
     """
-    assert _splice_into_domain_block("sensor:\n", "sensor", "sensor:") is None
+    existing = "sensor:\n  - platform: dht\n"
+    # ``new_block`` is just the header — exactly one line after
+    # ``splitlines()``, which is the precondition for the guard.
+    assert _splice_into_domain_block(existing, "sensor", "sensor:") is None
 
 
 def test_splice_appends_newline_when_existing_lacks_trailing_lf() -> None:
