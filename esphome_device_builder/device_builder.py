@@ -11,27 +11,27 @@ import asyncio
 import contextlib
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from aiohttp import web
 
-from .controllers.config import DashboardSettings
+from .api.legacy import create_legacy_routes
+from .api.ws import create_ws_routes
+from .controllers.auth import AuthController
+from .controllers.automations import AutomationsController
+from .controllers.boards import BoardCatalog
+from .controllers.components import ComponentCatalog
+from .controllers.config import ConfigController, DashboardSettings
+from .controllers.devices import DevicesController
+from .controllers.editor import EditorController
+from .controllers.firmware import FirmwareController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
-from .helpers.event_bus import EventBus
+from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
 from .models import EventType
-
-if TYPE_CHECKING:
-    from .controllers.auth import AuthController
-    from .controllers.automations import AutomationsController
-    from .controllers.boards import BoardCatalog
-    from .controllers.components import ComponentCatalog
-    from .controllers.config import ConfigController
-    from .controllers.devices import DevicesController
-    from .controllers.editor import EditorController
-    from .controllers.firmware import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,8 +66,6 @@ class DeviceBuilder:
 
     def __init__(self, settings: DashboardSettings) -> None:
         """Initialize the Device Builder."""
-        from concurrent.futures import ThreadPoolExecutor
-
         self.settings = settings
         self.bus = EventBus()
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -120,15 +118,6 @@ class DeviceBuilder:
 
     async def start(self) -> None:
         """Start the application — load catalogs, initialize controllers."""
-        from .controllers.auth import AuthController
-        from .controllers.automations import AutomationsController
-        from .controllers.boards import BoardCatalog
-        from .controllers.components import ComponentCatalog
-        from .controllers.config import ConfigController
-        from .controllers.devices import DevicesController
-        from .controllers.editor import EditorController
-        from .controllers.firmware import FirmwareController
-
         self.loop = asyncio.get_running_loop()
         # Pool itself was constructed in ``__init__`` (so callers
         # probing ``self._executor`` pre-start see the right value);
@@ -276,8 +265,6 @@ class DeviceBuilder:
         an overflow doesn't actually leave the UI in a usable
         state — the connection is fucked either way.
         """
-        from .helpers.event_bus import Event, StreamControls, stream_events
-
         if client is None:
             return
 
@@ -368,13 +355,9 @@ class DeviceBuilder:
         app["trusted_site"] = trusted
 
         # WebSocket API
-        from .api.ws import create_ws_routes
-
         app.router.add_routes(create_ws_routes())
 
         # Legacy REST endpoints (HA backward compat)
-        from .api.legacy import create_legacy_routes
-
         app.router.add_routes(create_legacy_routes())
 
         # Static file serving for board images
