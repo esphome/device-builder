@@ -285,6 +285,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     await client.send(info.to_dict())
 
     try:
+        # CLOSE/ERROR exit via aiohttp's __anext__ → StopAsyncIteration; no explicit branch needed.
         async for msg in ws:
             if msg.type in (WSMsgType.TEXT, WSMsgType.BINARY):
                 try:
@@ -293,8 +294,6 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                     await client.send_error("", ErrorCode.INVALID_MESSAGE, "Invalid JSON")
                     continue
                 client.create_task(client._handle_command(raw))
-            elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE):
-                break
     finally:
         await client.cleanup()
         _LOGGER.debug("WebSocket client disconnected")
