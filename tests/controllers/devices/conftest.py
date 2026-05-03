@@ -16,6 +16,7 @@ wraps it in ``asyncio.to_thread`` so callers don't have to remember.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
@@ -522,11 +523,12 @@ def make_controller() -> MakeControllerFactory:
     return _make
 
 
-def capture_devices_events(
-    controller: DevicesController,
-    *event_types: EventType,
-) -> list[Event]:
-    """Swap the controller's bus for a real ``EventBus`` and return the capture list.
+CaptureDevicesEventsFactory = Callable[..., list[Event]]
+
+
+@pytest.fixture
+def capture_devices_events() -> Iterator[CaptureDevicesEventsFactory]:
+    """Yield a factory that swaps a controller's bus for a real ``EventBus``.
 
     Devices-side sibling of ``capture_firmware_events`` from the
     firmware conftest. The ``make_controller`` factory wires
@@ -537,16 +539,32 @@ def capture_devices_events(
     captures both event type and payload, with no coupling to the
     handler's internal call shape.
 
-    Pass the ``EventType`` values to subscribe to. The returned list
-    is appended to as events fire — assertion code can read it after
-    the call under test resolves.
+    Tests pull the fixture in by adding ``capture_devices_events``
+    to their signature and call it as a factory:
+    ``captured = capture_devices_events(controller, EventType.X, ...)``.
+    The fixture wrapper tracks every swap and restores
+    ``controller._db.bus`` to its original value on teardown so a
+    test that holds a controller reference past the assertion sees
+    the original bus, not a stale fake.
     """
-    bus = EventBus()
-    captured: list[Event] = []
-    for event_type in event_types:
-        bus.add_listener(event_type, captured.append)
-    controller._db.bus = bus
-    return captured
+    swaps: list[tuple[DevicesController, Any]] = []
+
+    def _factory(
+        controller: DevicesController,
+        *event_types: EventType,
+    ) -> list[Event]:
+        bus = EventBus()
+        captured: list[Event] = []
+        for event_type in event_types:
+            bus.add_listener(event_type, captured.append)
+        swaps.append((controller, controller._db.bus))
+        controller._db.bus = bus
+        return captured
+
+    yield _factory
+
+    for controller, original_bus in swaps:
+        controller._db.bus = original_bus
 
 
 @pytest.fixture

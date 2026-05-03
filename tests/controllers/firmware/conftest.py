@@ -23,6 +23,7 @@ silently absorbing into a stub.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Iterator
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -176,36 +177,47 @@ def firmware_controller_factory(
     return _make
 
 
-def capture_firmware_events(
-    controller: FirmwareController,
-    *event_types: EventType,
-) -> list[Event]:
-    """Swap the controller's bus for a real ``EventBus`` and return the capture list.
+CaptureEventsFactory = Callable[..., list[Event]]
+CaptureEnqueueOrderFactory = Callable[..., list[tuple[EnqueueStep, Any]]]
 
-    The conftest factory wires ``self._db.bus`` as a ``MagicMock``;
-    that's fine for tests that ignore events but means assertions on
-    event firing have to walk ``call_args_list``. Replacing with a
-    real bus + listener gives a flat ``[Event, …]`` log that captures
-    both the event type and payload, with no coupling to the
-    handler's internal call shape.
 
-    Pass the ``EventType`` values to subscribe to. The returned list
-    is appended to as events fire — assertion code can read it after
-    the call under test resolves.
+@pytest.fixture
+def capture_firmware_events() -> Iterator[CaptureEventsFactory]:
+    """Yield a factory that swaps a controller's bus for a real ``EventBus``.
+
+    Same shape as the previous function-style helper — tests call
+    ``capture_firmware_events(controller, EventType.X, ...)`` and
+    get a live ``list[Event]``. The fixture wrapper tracks every
+    swap and restores ``controller._db.bus`` to its original value
+    on teardown so a test that holds a controller reference past
+    the assertion sees the original bus, not a stale fake.
+
+    Tests pull the fixture in by adding ``capture_firmware_events``
+    to their signature; no ``with`` block needed.
     """
-    bus = EventBus()
-    captured: list[Event] = []
-    for event_type in event_types:
-        bus.add_listener(event_type, captured.append)
-    controller._db.bus = bus
-    return captured
+    swaps: list[tuple[FirmwareController, Any]] = []
+
+    def _factory(
+        controller: FirmwareController,
+        *event_types: EventType,
+    ) -> list[Event]:
+        bus = EventBus()
+        captured: list[Event] = []
+        for event_type in event_types:
+            bus.add_listener(event_type, captured.append)
+        swaps.append((controller, controller._db.bus))
+        controller._db.bus = bus
+        return captured
+
+    yield _factory
+
+    for controller, original_bus in swaps:
+        controller._db.bus = original_bus
 
 
-def capture_enqueue_order(
-    controller: FirmwareController,
-    *event_types: EventType,
-) -> list[tuple[EnqueueStep, Any]]:
-    """Trace ``_queue.put`` calls and ``bus.fire`` events into one ordered log.
+@pytest.fixture
+def capture_enqueue_order() -> Iterator[CaptureEnqueueOrderFactory]:
+    """Yield a factory that traces ``_queue.put`` + ``bus.fire`` into one ordered log.
 
     Each ``await self._queue.put(job)`` appends ``(EnqueueStep.PUT, job)``
     and each broadcast for a subscribed ``EventType`` appends
@@ -216,24 +228,39 @@ def capture_enqueue_order(
     a ``parent.bus.fire.assert_any_call(...)`` follow-up.
 
     The internal queue is a real ``asyncio.Queue`` so a runner can
-    still dequeue if the test exercises that path.
+    still dequeue if the test exercises that path. Auto-restore on
+    teardown reinstates the original ``_queue`` and ``_db.bus`` so
+    sibling tests in the same xdist worker don't see leaked stubs.
     """
-    log: list[tuple[EnqueueStep, Any]] = []
-    inner_queue: asyncio.Queue[FirmwareJob] = asyncio.Queue()
+    swaps: list[tuple[FirmwareController, Any, Any]] = []
 
-    async def _trace_put(item: FirmwareJob) -> None:
-        log.append((EnqueueStep.PUT, item))
-        await inner_queue.put(item)
+    def _factory(
+        controller: FirmwareController,
+        *event_types: EventType,
+    ) -> list[tuple[EnqueueStep, Any]]:
+        log: list[tuple[EnqueueStep, Any]] = []
+        inner_queue: asyncio.Queue[FirmwareJob] = asyncio.Queue()
 
-    queue_proxy = MagicMock()
-    queue_proxy.put = _trace_put
-    queue_proxy.get = inner_queue.get
-    queue_proxy.qsize = inner_queue.qsize
-    controller._queue = queue_proxy
+        async def _trace_put(item: FirmwareJob) -> None:
+            log.append((EnqueueStep.PUT, item))
+            await inner_queue.put(item)
 
-    bus = EventBus()
-    for event_type in event_types:
-        bus.add_listener(event_type, lambda event: log.append((EnqueueStep.FIRE, event)))
-    controller._db.bus = bus
+        queue_proxy = MagicMock()
+        queue_proxy.put = _trace_put
+        queue_proxy.get = inner_queue.get
+        queue_proxy.qsize = inner_queue.qsize
 
-    return log
+        bus = EventBus()
+        for event_type in event_types:
+            bus.add_listener(event_type, lambda event: log.append((EnqueueStep.FIRE, event)))
+
+        swaps.append((controller, controller._queue, controller._db.bus))
+        controller._queue = queue_proxy
+        controller._db.bus = bus
+        return log
+
+    yield _factory
+
+    for controller, original_queue, original_bus in swaps:
+        controller._queue = original_queue
+        controller._db.bus = original_bus

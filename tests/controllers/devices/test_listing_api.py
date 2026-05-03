@@ -37,7 +37,7 @@ from esphome_device_builder.models import (
     EventType,
 )
 
-from .conftest import MakeControllerFactory, capture_devices_events
+from .conftest import CaptureDevicesEventsFactory, MakeControllerFactory
 
 
 def _device(name: str, *, state: DeviceState = DeviceState.ONLINE) -> Device:
@@ -163,7 +163,9 @@ async def test_list_devices_filters_importable_already_configured(
 
 
 def test_on_importable_added_stashes_and_fires_event(
-    tmp_path: Path, make_controller: MakeControllerFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """``import_result`` is keyed by ``device.name`` and fires DEVICE_ADDED.
 
@@ -188,7 +190,9 @@ def test_on_importable_added_stashes_and_fires_event(
 
 
 def test_on_importable_removed_drops_entry_and_fires_event(
-    tmp_path: Path, make_controller: MakeControllerFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """``IMPORTABLE_DEVICE_REMOVED`` carries just the name, not the full record.
 
@@ -209,7 +213,9 @@ def test_on_importable_removed_drops_entry_and_fires_event(
 
 
 def test_on_importable_removed_ignores_unknown_name(
-    tmp_path: Path, make_controller: MakeControllerFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """An unknown name is a no-op — no cache pop, no event.
 

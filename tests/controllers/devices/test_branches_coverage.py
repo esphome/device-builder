@@ -48,9 +48,9 @@ from esphome_device_builder.models import (
 from tests._storage_fixtures import write_storage_json
 
 from .conftest import (
+    CaptureDevicesEventsFactory,
     MakeControllerFactory,
     SeedDeviceFactory,
-    capture_devices_events,
 )
 
 
@@ -314,7 +314,9 @@ async def test_add_component_missing_required_field_raises(
 
 
 def test_on_ip_change_skips_when_ip_unchanged(
-    tmp_path: Path, make_controller: MakeControllerFactory
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """A duplicate IP broadcast is a no-op — no event, no persist task.
 

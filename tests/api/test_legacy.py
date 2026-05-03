@@ -600,6 +600,26 @@ async def test_spawn_ws_skips_non_spawn_message_type(
     assert msg == {"event": "exit", "code": 0}
 
 
+async def test_spawn_ws_breaks_on_non_text_frame(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """A binary frame breaks out of the message loop without spawning anything.
+
+    Defensive: a buggy client sending binary frames over a
+    text-only protocol shouldn't trigger ``loads`` on a non-text
+    payload (which would raise a confusing decode error). The
+    handler bails immediately so the next request opens a clean
+    connection. Pin the break so a regression that fell through
+    to ``loads(msg.data)`` would surface here as a malformed
+    error frame instead of a clean break.
+    """
+    client = await aiohttp_client(_make_app(tmp_path))
+    async with client.ws_connect("/compile") as ws:
+        await ws.send_bytes(b"not-text")
+    # No exit frame, no error — the handler returns the empty WS
+    # response on the break and the close handshake completes.
+
+
 async def test_spawn_ws_breaks_on_close(tmp_path: Path, aiohttp_client: AiohttpClient) -> None:
     """Client closing without sending spawn → handler exits cleanly.
 
