@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -45,6 +45,7 @@ from esphome_device_builder.models import (
     JobStatus,
     JobType,
 )
+from tests.controllers.devices.conftest import RecordingScanner
 
 
 def _device(name: str = "kitchen", **overrides: Any) -> Device:
@@ -269,13 +270,12 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
 
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.reload = AsyncMock(return_value=True)
+    controller._scanner = RecordingScanner()
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
     assert persisted == [{"filename": "kitchen.yaml", "expected_config_hash": "1a2b3c4d"}]
-    controller._scanner.reload.assert_awaited_once_with("kitchen.yaml")
+    assert controller._scanner.calls == [("reload", "kitchen.yaml")]
 
 
 @pytest.mark.asyncio
@@ -306,13 +306,12 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
 
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.reload = AsyncMock(return_value=True)
+    controller._scanner = RecordingScanner()
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
     assert persisted == []  # don't overwrite with garbage
-    controller._scanner.reload.assert_awaited_once_with("kitchen.yaml")  # reload still happens
+    assert controller._scanner.calls == [("reload", "kitchen.yaml")]  # reload still happens
 
 
 @pytest.mark.asyncio
@@ -335,13 +334,12 @@ async def test_refresh_after_upload_skips_hash_compute(tmp_path: Path, monkeypat
 
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
-    controller._scanner = MagicMock()
-    controller._scanner.reload = AsyncMock(return_value=True)
+    controller._scanner = RecordingScanner()
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=False, flashed=True)
 
     assert compute_calls == []
-    controller._scanner.reload.assert_awaited_once_with("kitchen.yaml")
+    assert controller._scanner.calls == [("reload", "kitchen.yaml")]
 
 
 # ----------------------------------------------------------------------
