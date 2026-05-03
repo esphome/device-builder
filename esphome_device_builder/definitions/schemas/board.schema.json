@@ -223,7 +223,7 @@
         "id": {
           "type": "string",
           "description": "Local id, unique within this board (e.g. 'relay', 'pir_motion'). Lowercase letters / digits / underscores; must not equal the domain of component_id.",
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          "pattern": "^[a-z][a-z0-9_]*$"
         },
         "component_id": {
           "type": "string",
@@ -253,8 +253,8 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Local id, unique within this board.",
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          "description": "Local id, unique within this board. Lowercase letters / digits / underscores.",
+          "pattern": "^[a-z][a-z0-9_]*$"
         },
         "name": {
           "type": "string",
@@ -270,7 +270,7 @@
           "minItems": 1,
           "items": {
             "type": "string",
-            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+            "pattern": "^[a-z][a-z0-9_]*$"
           }
         }
       }
