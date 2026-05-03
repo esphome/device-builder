@@ -387,6 +387,81 @@ async def test_compile_mid_run_cancel_marks_cancelled(
     assert job.job_id not in controller._cancel_requested
 
 
+@pytest.mark.asyncio
+async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+) -> None:
+    """Cancelling the runner task mid-run hits the ``CancelledError`` branch.
+
+    Distinct from the user-cancel path above: here nothing populates
+    ``_cancel_requested``. The runner is awaiting on the subprocess's
+    stdout when the task is cancelled (e.g. dashboard shutdown), so
+    ``_execute_job``'s ``except asyncio.CancelledError`` is what fires
+    JOB_CANCELLED, terminates the live process, and re-raises so the
+    surrounding runner loop unwinds.
+
+    Sequencing: wait for the first JOB_OUTPUT (proves the subprocess
+    is up *and* ``_current_process`` has been assigned) before
+    cancelling, otherwise we'd race the subprocess spawn and either
+    leak the process or hit the cancel before the try-block had
+    entered.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _fake_esphome(
+        controller,
+        # Print one line so the runner enters the line-reading loop,
+        # then block forever on stdin so the test controls the exit.
+        "import sys\nprint('starting...', flush=True)\nsys.stdin.read()\n",
+    )
+    _seed_yaml(tmp_path)
+
+    job = await controller.compile(configuration="kitchen.yaml")
+
+    proc_alive = asyncio.Event()
+    captured: list[dict] = []
+    real_fire = controller._db.bus.fire
+
+    def _watch(event_type: EventType, data: dict) -> None:
+        captured.append({"type": event_type, "data": data})
+        if event_type == EventType.JOB_OUTPUT:
+            proc_alive.set()
+        real_fire(event_type, data)
+
+    controller._db.bus.fire = _watch
+
+    runner_task = asyncio.create_task(controller._run_queue())
+    try:
+        await asyncio.wait_for(proc_alive.wait(), timeout=10.0)
+        assert controller._current_process is not None
+        proc = controller._current_process
+
+        # Cancel the runner task itself — this is the shutdown shape,
+        # not the user-cancel one. Nothing is added to
+        # ``_cancel_requested`` so the post-``proc.wait()`` branch
+        # can't be the one that finalises the job.
+        runner_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await runner_task
+    finally:
+        # Defensive cleanup if the assertion path above bailed early.
+        if not runner_task.done():
+            runner_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await runner_task
+
+    assert job.status == JobStatus.CANCELLED
+    assert any(c["type"] == EventType.JOB_CANCELLED for c in captured)
+    # ``proc.terminate()`` on POSIX puts the subprocess on a path to
+    # exit; wait briefly so the assertion below isn't racy.
+    with suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(proc.wait(), timeout=5.0)
+    assert proc.returncode is not None, "runner-shutdown branch should have terminated the proc"
+    # The discard is unconditional — it's a no-op when the id wasn't
+    # in the set, which is exactly the shutdown case.
+    assert job.job_id not in controller._cancel_requested
+
+
 # ---------------------------------------------------------------------------
 # Progress parsing
 # ---------------------------------------------------------------------------
