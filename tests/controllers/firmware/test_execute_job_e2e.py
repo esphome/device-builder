@@ -35,6 +35,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware.constants import (
+    _INFLIGHT_TRIM_KEEP,
+    _MAX_OUTPUT_LINES_INFLIGHT,
+)
 from esphome_device_builder.models import EventType, JobStatus
 
 if TYPE_CHECKING:
@@ -510,3 +514,121 @@ async def test_compile_progress_lines_fire_job_progress(
     # a 0% line clobber the bar).
     assert job.progress == 100
     assert job.status == JobStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------------
+# RESET_BUILD_ENV — early-return branch in _execute_job
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_queue_routes_reset_build_env_through_inline_handler(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+) -> None:
+    """A RESET_BUILD_ENV job runs inline and never spawns a subprocess.
+
+    ``_execute_job``'s first action after marking RUNNING is a
+    type-switch on RESET_BUILD_ENV that delegates to
+    ``_reset_build_env`` and returns. Pin the dispatch via the
+    public submission API so a regression that fell through to
+    the spawn path would (loudly) try to ``create_subprocess_exec``
+    a non-existent command and fail visibly.
+    """
+    # Esphome cmd would only be needed if we fell through to the
+    # spawn path — an empty list makes that fall-through fail
+    # immediately, which is the exact behaviour we want if the
+    # RESET_BUILD_ENV branch ever drops out.
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    _wire_real_queue(controller)
+    controller._esphome_cmd = []
+    # Seed a target dir so the RESET_BUILD_ENV runner has work to do.
+    (tmp_path / ".esphome" / "build").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".esphome" / "build" / "sentinel").write_text("x", encoding="utf-8")
+
+    job = await controller.reset_build_env()
+    captured = await _run_until_terminal(controller)
+
+    assert job.status == JobStatus.COMPLETED
+    assert job.progress == 100
+    assert captured["job_completed"]
+    # The build dir was wiped — proves the inline RESET handler ran,
+    # not just that the runner exited cleanly.
+    assert not (tmp_path / ".esphome" / "build").exists()
+
+
+# ---------------------------------------------------------------------------
+# Mid-run output trim + repeated error-pattern hit
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_compile_inflight_output_trims_when_cap_exceeded(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+) -> None:
+    """Builds that stream past the in-flight cap have ``output`` trimmed mid-run.
+
+    Without the in-flight trim a chatty build (PlatformIO retry
+    loop, esptool stuck on a repeating message) holds every line
+    in memory until the subprocess exits — only the post-exit
+    ``finally``-block trim ever runs. The dashboard process OOMs
+    first.
+
+    Pin: after streaming N+excess lines past the cap, ``job.output``
+    is back at or below ``_INFLIGHT_TRIM_KEEP + 1`` (the +1 is the
+    elided-notice the trim prepends). A regression that dropped the
+    mid-run trim leaves ``job.output`` at the full N+excess length.
+    """
+    excess = 200
+    total = _MAX_OUTPUT_LINES_INFLIGHT + excess
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _fake_esphome(
+        controller,
+        f"import sys\nfor i in range({total}):\n    print(f'INFO line {{i}}')\nsys.exit(0)\n",
+    )
+    _seed_yaml(tmp_path)
+
+    job = await controller.compile(configuration="kitchen.yaml")
+    await _run_until_terminal(controller)
+
+    assert job.status == JobStatus.COMPLETED
+    # Trimmed: the in-flight trim brought it down to KEEP (+1 for
+    # the elided notice the trim prepends) before the post-exit
+    # ``_trim_job_output`` ran. Either way it must be well below
+    # the total streamed.
+    assert len(job.output) <= _INFLIGHT_TRIM_KEEP + 1
+    assert len(job.output) < total
+
+
+@pytest.mark.asyncio
+async def test_compile_repeats_error_pattern_short_circuits_check(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+) -> None:
+    """Once an error pattern is seen, subsequent lines bypass the pattern scan.
+
+    ``_check_error`` flips ``has_error_in_output`` on the first
+    match and short-circuits on every subsequent call so a build
+    spamming error lines doesn't pay an O(patterns) loop per line.
+    Drive two error-pattern lines then a clean exit; the FAILED
+    verdict still lands and the second line follows the
+    short-circuit branch (line 803 in controller.py).
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _fake_esphome(
+        controller,
+        "import sys\n"
+        "print('Traceback (most recent call last):')\n"
+        # First error pattern — flips the flag.
+        "print(\"ModuleNotFoundError: No module named 'cryptography'\")\n"
+        # Second error pattern — hits the short-circuit branch.
+        "print(\"ImportError: cannot import name 'foo'\")\n"
+        "sys.exit(0)\n",
+    )
+    _seed_yaml(tmp_path)
+
+    job = await controller.compile(configuration="kitchen.yaml")
+    await _run_until_terminal(controller)
+
+    assert job.status == JobStatus.FAILED
+    assert job.exit_code == 0
