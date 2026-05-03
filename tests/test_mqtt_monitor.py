@@ -493,16 +493,20 @@ async def test_listen_processes_fresh_discover_messages() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_is_available_true_when_paho_importable() -> None:
-    """``is_available`` checks whether ``paho_mqtt`` was importable.
+def test_is_available_tracks_paho_module_presence() -> None:
+    """``is_available`` is exactly ``paho_mqtt is not None``.
 
-    Production tests run with paho-mqtt installed (it's a hard dep
-    of the [esphome] extra), so this branch is true. The companion
-    ``False`` test below patches the module attribute to simulate
-    a missing wheel.
+    Bidirectional contract — locks the predicate regardless of
+    whether the test environment actually has paho-mqtt installed.
+    The CI matrix that includes the [esphome] extra exercises the
+    True branch; a stripped install (e.g. a minimal Docker image
+    without the extra) running this same test would exercise the
+    False branch. The ``test_is_available_false_when_paho_missing``
+    test below pins the False branch unconditionally via
+    monkeypatch.
     """
-    assert monitor_module.paho_mqtt is not None  # production import worked
-    assert DeviceMqttMonitor.is_available() is True
+    expected = monitor_module.paho_mqtt is not None
+    assert DeviceMqttMonitor.is_available() is expected
 
 
 def test_is_available_false_when_paho_missing(monkeypatch: pytest.MonkeyPatch) -> None:
