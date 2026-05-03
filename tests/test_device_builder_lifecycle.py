@@ -96,21 +96,30 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(BoardCatalog, "load", lambda self: None)
     monkeypatch.setattr(ComponentCatalog, "load", lambda self: None)
 
+    # ``CORE`` is a process-global; without restoration via
+    # monkeypatch a leaked ``config_path`` poisons sibling tests in
+    # the same xdist worker (e.g. anything that probes
+    # ``CORE.config_dir`` to discriminate "set up" from "fresh").
+    monkeypatch.setattr(CORE, "config_path", None)
 
-def _make_settings(tmp_path: Path) -> DashboardSettings:
+
+def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DashboardSettings:
     """Build a ``DashboardSettings`` rooted at ``tmp_path``.
 
     Matches the shape ``DeviceBuilder.__init__`` expects without
-    going through the CLI parser. ``CORE.config_path`` is also set
-    here because the production parser does it as a side effect
-    (see ``DashboardSettings.parse_args``); without it the
-    catalog loaders crash on ``CORE.config_dir.is_dir`` when
+    going through the CLI parser. ``CORE.config_path`` is patched
+    via ``monkeypatch`` because the production parser sets it as a
+    side effect (see ``DashboardSettings.parse_args``); without it
+    the catalog loaders crash on ``CORE.config_dir.is_dir`` when
     ``CORE.config_path`` is still the package-default ``None``.
+    Routing through ``monkeypatch`` (instead of a bare assignment)
+    auto-restores the value after the test so sibling tests in the
+    same xdist worker don't see leaked state.
     """
     settings = DashboardSettings()
     settings.config_dir = tmp_path
     settings.absolute_config_dir = tmp_path.resolve()
-    CORE.config_path = tmp_path / ".dashboard-sentinel"
+    monkeypatch.setattr(CORE, "config_path", tmp_path / ".dashboard-sentinel")
     return settings
 
 
@@ -119,7 +128,7 @@ def _make_settings(tmp_path: Path) -> DashboardSettings:
 # ---------------------------------------------------------------------------
 
 
-def test_init_leaves_controllers_unset(tmp_path: Path) -> None:
+def test_init_leaves_controllers_unset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """``DeviceBuilder()`` instantiates with controllers ``None`` until ``start()``.
 
     Pin the documented "controllers populated in start()" contract
@@ -128,7 +137,7 @@ def test_init_leaves_controllers_unset(tmp_path: Path) -> None:
     ``settings`` dependency wouldn't crash until first command
     instead of at construction time, which is a worse failure mode.
     """
-    db = DeviceBuilder(_make_settings(tmp_path))
+    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
 
     assert db.auth is None
     assert db.boards is None
@@ -150,7 +159,9 @@ def test_init_leaves_controllers_unset(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_initialises_all_controllers(tmp_path: Path, _hermetic_lifecycle: None) -> None:
+async def test_start_initialises_all_controllers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _hermetic_lifecycle: None
+) -> None:
     """``start()`` populates every controller attr.
 
     A new controller added to ``__init__`` (the documented
@@ -160,7 +171,7 @@ async def test_start_initialises_all_controllers(tmp_path: Path, _hermetic_lifec
     ``NoneType``. Pin the full set so the regression class can't
     hide.
     """
-    db = DeviceBuilder(_make_settings(tmp_path))
+    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
     try:
         await db.start()
 
@@ -179,7 +190,7 @@ async def test_start_initialises_all_controllers(tmp_path: Path, _hermetic_lifec
 
 @pytest.mark.asyncio
 async def test_start_registers_command_handlers_from_every_controller(
-    tmp_path: Path, _hermetic_lifecycle: None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _hermetic_lifecycle: None
 ) -> None:
     """``command_handlers`` includes one entry per controller's @api_command set.
 
@@ -188,7 +199,7 @@ async def test_start_registers_command_handlers_from_every_controller(
     catch a refactor that dropped a controller from the
     ``collect_api_commands`` loop.
     """
-    db = DeviceBuilder(_make_settings(tmp_path))
+    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
     try:
         await db.start()
 
@@ -213,7 +224,7 @@ async def test_start_registers_command_handlers_from_every_controller(
 
 @pytest.mark.asyncio
 async def test_start_spawns_background_polling_task(
-    tmp_path: Path, _hermetic_lifecycle: None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _hermetic_lifecycle: None
 ) -> None:
     """``_bg_task`` is created and live after ``start``.
 
@@ -222,7 +233,7 @@ async def test_start_spawns_background_polling_task(
     misses; if ``start()`` ever forgot to spawn the task the
     dashboard would silently stop seeing scan changes.
     """
-    db = DeviceBuilder(_make_settings(tmp_path))
+    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
     try:
         await db.start()
 
@@ -239,7 +250,7 @@ async def test_start_spawns_background_polling_task(
 
 @pytest.mark.asyncio
 async def test_stop_cancels_background_tasks_and_tears_down_controllers(
-    tmp_path: Path, _hermetic_lifecycle: None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _hermetic_lifecycle: None
 ) -> None:
     """``stop()`` cancels the background task, drains tracked tasks, stops controllers.
 
@@ -248,7 +259,7 @@ async def test_stop_cancels_background_tasks_and_tears_down_controllers(
     exiting on SIGINT — exactly the class of bug a smoke test
     catches that a per-method test doesn't.
     """
-    db = DeviceBuilder(_make_settings(tmp_path))
+    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
     await db.start()
     bg_task = db._bg_task
     assert bg_task is not None
@@ -271,9 +282,10 @@ async def test_stop_cancels_background_tasks_and_tears_down_controllers(
     assert bg_task.done()
     # Tracked task observed cancellation.
     assert drained.is_set()
-    # Devices and editor controllers had ``stop()`` invoked — they
-    # set ``_unsub_job_completed`` to ``None`` on stop, which is
-    # the externally-observable signal.
+    # ``DevicesController.stop()`` clears its ``_unsub_job_completed``
+    # back to ``None``, which is the externally-observable signal
+    # that the controller-stop branch ran. ``EditorController.stop()``
+    # has its own teardown path but no equivalent attr to inspect.
     assert db.devices is not None
     assert db.devices._unsub_job_completed is None  # type: ignore[attr-defined]
     # Executor pool drained.
@@ -281,7 +293,7 @@ async def test_stop_cancels_background_tasks_and_tears_down_controllers(
 
 
 @pytest.mark.asyncio
-async def test_stop_is_safe_without_start(tmp_path: Path) -> None:
+async def test_stop_is_safe_without_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """``stop()`` on a never-started instance doesn't crash.
 
     Production calls ``stop()`` from the aiohttp ``on_shutdown``
@@ -290,7 +302,7 @@ async def test_stop_is_safe_without_start(tmp_path: Path) -> None:
     not None`` guards in ``stop()`` are what make that path
     survivable. Pin them.
     """
-    db = DeviceBuilder(_make_settings(tmp_path))
+    db = DeviceBuilder(_make_settings(tmp_path, monkeypatch))
 
     # Never called start(); controllers are still ``None``.
     await db.stop()
