@@ -375,15 +375,35 @@ def test_find_by_pio_board_prefers_generic_when_multiple_match(
 def test_find_by_pio_board_returns_first_when_no_generic(
     catalog: BoardCatalog,
 ) -> None:
-    """Without a generic among the matches, fall back to the first match."""
-    # Drop the generics so only vendor entries remain.
+    """Without a generic among the matches, fall back to the first match.
+
+    Pin the iteration-order fallback by giving the catalog *two*
+    non-generic entries with the same ``pio_board``: a regression
+    that swapped the fallback to "any match" rather than "first
+    match" would surface here. The fixture-as-shipped only has one
+    non-generic for ``esp32-c3-devkitm-1`` once the generics are
+    dropped, so we add a second to make the order check meaningful.
+    """
     catalog._boards = [b for b in catalog._boards if not b.is_generic]
+    # Insert a second vendor entry with the same pio_board *after*
+    # the existing Seeed XIAO so iteration order is observable.
+    catalog._boards.append(
+        _board(
+            board_id="zzz-second-vendor-c3",
+            name="ZZZ Second Vendor C3",
+            platform=Platform.ESP32,
+            variant=Esp32Variant.ESP32C3,
+            pio_board="esp32-c3-devkitm-1",
+        )
+    )
 
     board = catalog.find_by_pio_board("esp32-c3-devkitm-1")
 
     assert board is not None
     assert board.is_generic is False
-    assert board.esphome.board == "esp32-c3-devkitm-1"
+    # First in iteration order wins — Seeed XIAO was added before the
+    # ZZZ stand-in.
+    assert board.id == "seeed-xiao-esp32c3"
 
 
 def test_find_by_pio_board_prefers_matching_variant(catalog: BoardCatalog) -> None:
