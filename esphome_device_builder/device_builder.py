@@ -465,9 +465,11 @@ class DeviceBuilder:
     @staticmethod
     def _get_frontend_dir() -> Path | None:
         """Return the path to the built frontend, or None if unavailable."""
-        # Optional companion wheel ``esphome-device-builder-frontend``
-        # ships the prebuilt assets. Keep the import lazy (the
-        # PLC0415 suppression below) so this method can be patched in
+        # The companion wheel ``esphome-device-builder-frontend``
+        # normally ships the prebuilt assets for dependency-managed
+        # installs, but keep the import lazy (the PLC0415
+        # suppression below) so this method still handles runtime
+        # environments where it is unavailable and can be patched in
         # tests via ``builtins.__import__`` without re-importing the
         # module — see test_ha_addon_failsafe's ImportError coverage.
         try:
