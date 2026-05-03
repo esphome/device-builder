@@ -179,6 +179,27 @@ class FakeWebSocketClient:
         """
         return [data for (_mid, event, data) in self.events if event == name]
 
+    def indices_for(self, name: str) -> list[int]:
+        """Return the positional indices where ``send_event`` was called with ``event=name``.
+
+        Pair with :meth:`events_for` when a test needs to assert
+        relative ordering between events of different names —
+        e.g. "the snapshot frame landed before the first
+        ``job_queued`` event" — without re-doing the (_mid, event,
+        data) unpack at every call site.
+        """
+        return [i for i, (_mid, event, _data) in enumerate(self.events) if event == name]
+
+    def first_index_for(self, name: str) -> int:
+        """Return the first index where ``send_event`` was called with ``event=name``.
+
+        Raises ``StopIteration`` if no match — the contract mirrors
+        ``next(iter(...))`` so a missing event produces a clear
+        traceback at the assertion site rather than a confusing
+        ``IndexError`` later.
+        """
+        return next(i for i, (_mid, event, _data) in enumerate(self.events) if event == name)
+
 
 # ---------------------------------------------------------------------------
 # DashboardSettings factory

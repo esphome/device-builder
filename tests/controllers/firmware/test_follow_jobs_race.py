@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.helpers.event_bus import EventBus
-from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
+from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType, StreamEvent
 
 from ...conftest import FakeWebSocketClient
 
@@ -79,23 +79,23 @@ async def test_follow_jobs_replays_snapshot_then_live_events_in_order() -> None:
     # Yield enough that the snapshot + the live event get drained.
     for _ in range(20):
         await asyncio.sleep(0)
-        if any(e == "job_queued" for (_mid, e, _d) in client.events):
+        if any(e == EventType.JOB_QUEUED for (_mid, e, _d) in client.events):
             break
 
     follow_task.cancel()
     with suppress(asyncio.CancelledError):
         await follow_task
 
-    snapshot_events = client.events_for("snapshot")
-    queued_events = client.events_for("job_queued")
+    snapshot_events = client.events_for(StreamEvent.SNAPSHOT)
+    queued_events = client.events_for(EventType.JOB_QUEUED)
     # Both jobs are in the snapshot (sorted by created_at).
     assert {s["job_id"] for s in snapshot_events} == {"a", "b"}
     # The live JOB_QUEUED arrives after the snapshot.
     assert len(queued_events) == 1
     assert queued_events[0]["job_id"] == "c"
     # Strict ordering: every snapshot event precedes the live event.
-    snapshot_indices = [i for i, (_mid, e, _d) in enumerate(client.events) if e == "snapshot"]
-    queued_index = next(i for i, (_mid, e, _d) in enumerate(client.events) if e == "job_queued")
+    snapshot_indices = client.indices_for(StreamEvent.SNAPSHOT)
+    queued_index = client.first_index_for(EventType.JOB_QUEUED)
     assert max(snapshot_indices) < queued_index
 
 
@@ -146,7 +146,7 @@ async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation(
             received.append((event, data))
             # Park after delivering snapshot[0] so the test can
             # mutate job_b before the helper iterates to it.
-            if event == "snapshot" and data["job_id"] == "a":
+            if event == StreamEvent.SNAPSHOT and data["job_id"] == "a":
                 await block.wait()
 
     follow_task = asyncio.create_task(controller.follow_jobs(client=GatedClient(), message_id="m1"))
@@ -156,7 +156,7 @@ async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation(
         await asyncio.sleep(0)
         if received:
             break
-    assert received[0][0] == "snapshot"
+    assert received[0][0] == StreamEvent.SNAPSHOT
     assert received[0][1]["job_id"] == "a"
 
     # Mutate job_b AND fire the matching JOB_OUTPUT — the same
@@ -169,15 +169,15 @@ async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation(
     block.set()
     for _ in range(20):
         await asyncio.sleep(0)
-        if any(e == "job_output" for (e, _d) in received):
+        if any(e == EventType.JOB_OUTPUT for (e, _d) in received):
             break
 
     follow_task.cancel()
     with suppress(asyncio.CancelledError):
         await follow_task
 
-    snapshots = {d["job_id"]: d for (e, d) in received if e == "snapshot"}
-    job_outputs = [d for (e, d) in received if e == "job_output"]
+    snapshots = {d["job_id"]: d for (e, d) in received if e == StreamEvent.SNAPSHOT}
+    job_outputs = [d for (e, d) in received if e == EventType.JOB_OUTPUT]
 
     # snapshot[b] was frozen synchronously up front (before any
     # await), so the mid-snapshot mutation isn't reflected.

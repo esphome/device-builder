@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LINES_INFLIGHT
 from esphome_device_builder.helpers.event_bus import EventBus
-from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
+from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType, StreamEvent
 
 from ...conftest import FakeWebSocketClient
 
@@ -60,8 +60,8 @@ async def test_terminal_job_replays_full_history_and_returns() -> None:
 
     await controller.follow_job(job_id="abc", client=client, message_id="m1")
 
-    output_events = [("output", d) for d in client.events_for("output")]
-    result_events = [("result", d) for d in client.events_for("result")]
+    output_events = [(StreamEvent.OUTPUT, d) for d in client.events_for(StreamEvent.OUTPUT)]
+    result_events = [(StreamEvent.RESULT, d) for d in client.events_for(StreamEvent.RESULT)]
     assert [d for _e, d in output_events] == ["line a\n", "line b\n", "line c\n"]
     assert len(result_events) == 1
     assert result_events[0][1] == {"status": "completed", "exit_code": 0}
@@ -109,7 +109,7 @@ async def test_history_lines_arrive_before_live_lines_in_order() -> None:
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    output_lines = client.events_for("output")
+    output_lines = client.events_for(StreamEvent.OUTPUT)
     # Strict ordering: every history line strictly precedes every
     # live line, and within each group the original order is
     # preserved.
@@ -150,7 +150,7 @@ async def test_live_events_for_other_jobs_are_filtered_out() -> None:
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    output_lines = client.events_for("output")
+    output_lines = client.events_for(StreamEvent.OUTPUT)
     assert output_lines == ["from us\n"]
 
 
@@ -197,7 +197,7 @@ async def test_streaming_loop_cannot_append_between_snapshot_and_subscribe() -> 
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    output_lines = client.events_for("output")
+    output_lines = client.events_for(StreamEvent.OUTPUT)
     # Exactly one of each — no duplication of pre-snapshot, no
     # missing post-snapshot.
     assert output_lines == ["pre-snapshot\n", "post-snapshot\n"]
@@ -246,7 +246,7 @@ async def test_slow_follower_drops_lines_above_queue_cap() -> None:
     # in the queue.
     bus.fire(EventType.JOB_OUTPUT, {"job_id": "abc", "line": "first\n"})
     await asyncio.sleep(0)
-    assert received == [("output", "first\n")]
+    assert received == [(StreamEvent.OUTPUT, "first\n")]
 
     # Fire well past the cap. Without the bound this would grow the
     # queue unboundedly; with it the queue caps at maxsize and the
@@ -263,12 +263,12 @@ async def test_slow_follower_drops_lines_above_queue_cap() -> None:
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    output_count = sum(1 for (e, _) in received if e == "output")
+    output_count = sum(1 for (e, _) in received if e == StreamEvent.OUTPUT)
     # The follower must have lost some lines — the bound was the
     # whole point. The first line + at most the queue cap delivered.
     assert output_count <= 1 + _MAX_OUTPUT_LINES_INFLIGHT
     # And a result still arrives even with output dropped.
-    result_events = [d for (e, d) in received if e == "result"]
+    result_events = [d for (e, d) in received if e == StreamEvent.RESULT]
     assert len(result_events) == 1
 
 
@@ -300,7 +300,7 @@ async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full() -> No
             received.append((event, data))
             # Only block on output; let result/sentinel through so
             # the test can observe completion.
-            if event == "output":
+            if event == StreamEvent.OUTPUT:
                 await block.wait()
 
     follow_task = asyncio.create_task(
@@ -329,7 +329,7 @@ async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full() -> No
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    result_events = [d for (e, d) in received if e == "result"]
+    result_events = [d for (e, d) in received if e == StreamEvent.RESULT]
     assert len(result_events) == 1
     assert result_events[0]["status"] == "completed"
 
@@ -366,8 +366,8 @@ async def test_cancelled_terminal_event_returns_with_status() -> None:
 
     await asyncio.wait_for(follow_task, timeout=2.0)
 
-    output_lines = client.events_for("output")
-    result_events = client.events_for("result")
+    output_lines = client.events_for(StreamEvent.OUTPUT)
+    result_events = client.events_for(StreamEvent.RESULT)
     assert output_lines == ["pre-cancel\n"]
     assert len(result_events) == 1
     assert result_events[0]["status"] == "cancelled"
