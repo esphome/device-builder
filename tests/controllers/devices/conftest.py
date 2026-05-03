@@ -28,6 +28,60 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import EventType
 
 
+def _make_board_stub(board_id: str) -> MagicMock:
+    """Build a catalog-result stub with the right ``id`` shape.
+
+    The catalog lookup methods (``find_by_pio_board`` /
+    ``find_by_platform_variant`` / ``get_board``) return
+    ``BoardCatalogEntry``-shaped objects; tests only ever read
+    ``.id`` off the result, so a ``MagicMock`` with that one attr
+    set is enough.
+    """
+    matched = MagicMock()
+    matched.id = board_id
+    return matched
+
+
+class StubBoardLookups:
+    """Stub the ``controller._db.boards`` lookup methods without poking the mock directly.
+
+    Centralises the ``MagicMock(return_value=...)`` /
+    ``AsyncMock(return_value=...)`` boilerplate that
+    ``test_derive_board_id``, ``test_create``, and any future
+    catalog-driven test would otherwise repeat. Each ``*_returns``
+    method takes a board id (string → return a
+    ``BoardCatalogEntry``-shaped stub with that id) or ``None``
+    (the lookup misses), and returns the underlying mock so a
+    test can later ``assert_called_once_with(...)`` on it.
+
+    For tests that need a specific catalog entry passed back
+    (e.g. with custom platform/template fields), assign directly
+    to ``controller._db.boards.<method>``; this helper is for the
+    common id-only shape that 90% of catalog-driven tests want.
+    """
+
+    def __init__(self, controller: DevicesController) -> None:
+        self._boards = controller._db.boards
+
+    def find_by_pio_board_returns(self, board_id: str | None) -> MagicMock:
+        """Stub the PIO-board lookup. ``None`` → miss; ``str`` → match with that id."""
+        mock = MagicMock(return_value=_make_board_stub(board_id) if board_id else None)
+        self._boards.find_by_pio_board = mock
+        return mock
+
+    def find_by_platform_variant_returns(self, board_id: str | None) -> MagicMock:
+        """Stub the platform-variant fallback lookup."""
+        mock = MagicMock(return_value=_make_board_stub(board_id) if board_id else None)
+        self._boards.find_by_platform_variant = mock
+        return mock
+
+    def get_board_returns(self, board_id: str | None) -> AsyncMock:
+        """Stub the async ``get_board(board_id)`` lookup the create path uses."""
+        mock = AsyncMock(return_value=_make_board_stub(board_id) if board_id else None)
+        self._boards.get_board = mock
+        return mock
+
+
 class StubBus:
     """Minimal event-bus stand-in for tests that exercise the listener wiring.
 

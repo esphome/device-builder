@@ -25,13 +25,12 @@ Six branches to pin:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.config import get_device_metadata
 
-from .conftest import MakeControllerFactory
+from .conftest import MakeControllerFactory, StubBoardLookups
 
 
 def _write_yaml(tmp_path: Path, filename: str, *, platform: str, board: str = "") -> Path:
@@ -42,13 +41,6 @@ def _write_yaml(tmp_path: Path, filename: str, *, platform: str, board: str = ""
     path = tmp_path / filename
     path.write_text(body, encoding="utf-8")
     return path
-
-
-def _stub_match(board_id: str) -> MagicMock:
-    """Build a catalog-result stub with the right ``id`` shape."""
-    matched = MagicMock()
-    matched.id = board_id
-    return matched
 
 
 def test_derive_returns_empty_when_boards_catalog_unloaded(
@@ -98,17 +90,18 @@ def test_derive_uses_pio_board_match_first(
     the persist-to-sidecar step.
     """
     controller = make_controller(tmp_path, with_boards=True)
-    controller._db.boards.find_by_pio_board = MagicMock(return_value=_stub_match("generic-esp32c3"))
-    controller._db.boards.find_by_platform_variant = MagicMock()
+    boards = StubBoardLookups(controller)
+    pio_lookup = boards.find_by_pio_board_returns("generic-esp32c3")
+    platform_lookup = boards.find_by_platform_variant_returns(None)
     _write_yaml(tmp_path, "kitchen.yaml", platform="esp32", board="esp32-c3-devkitm-1")
 
     result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
 
     assert result == "generic-esp32c3"
     # PlatformIO match was tried.
-    controller._db.boards.find_by_pio_board.assert_called_once_with("esp32-c3-devkitm-1", "")
+    pio_lookup.assert_called_once_with("esp32-c3-devkitm-1", "")
     # Platform fallback wasn't reached.
-    controller._db.boards.find_by_platform_variant.assert_not_called()
+    platform_lookup.assert_not_called()
     # Sidecar got backfilled so the next scan skips the YAML parse.
     meta = get_device_metadata(tmp_path, "kitchen.yaml")
     assert meta == {"board_id": "generic-esp32c3"}
@@ -129,18 +122,17 @@ def test_derive_falls_back_to_platform_when_pio_board_misses(
     about.
     """
     controller = make_controller(tmp_path, with_boards=True)
-    controller._db.boards.find_by_pio_board = MagicMock(return_value=None)
-    controller._db.boards.find_by_platform_variant = MagicMock(
-        return_value=_stub_match("generic-esp32")
-    )
+    boards = StubBoardLookups(controller)
+    pio_lookup = boards.find_by_pio_board_returns(None)
+    platform_lookup = boards.find_by_platform_variant_returns("generic-esp32")
     _write_yaml(tmp_path, "kitchen.yaml", platform="esp32", board="unknown-board")
 
     result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
 
     assert result == "generic-esp32"
     # Both lookups ran in order: PIO first, then platform fallback.
-    controller._db.boards.find_by_pio_board.assert_called_once_with("unknown-board", "")
-    controller._db.boards.find_by_platform_variant.assert_called_once_with("esp32", "")
+    pio_lookup.assert_called_once_with("unknown-board", "")
+    platform_lookup.assert_called_once_with("esp32", "")
     meta = get_device_metadata(tmp_path, "kitchen.yaml")
     assert meta == {"board_id": "generic-esp32"}
 
@@ -156,18 +148,17 @@ def test_derive_skips_pio_board_when_yaml_omits_board_field(
     straight to the platform fallback.
     """
     controller = make_controller(tmp_path, with_boards=True)
-    controller._db.boards.find_by_pio_board = MagicMock(return_value=None)
-    controller._db.boards.find_by_platform_variant = MagicMock(
-        return_value=_stub_match("generic-esp32")
-    )
+    boards = StubBoardLookups(controller)
+    pio_lookup = boards.find_by_pio_board_returns(None)
+    platform_lookup = boards.find_by_platform_variant_returns("generic-esp32")
     _write_yaml(tmp_path, "kitchen.yaml", platform="esp32")
 
     result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
 
     assert result == "generic-esp32"
     # PIO lookup was skipped — pio_board was empty.
-    controller._db.boards.find_by_pio_board.assert_not_called()
-    controller._db.boards.find_by_platform_variant.assert_called_once_with("esp32", "")
+    pio_lookup.assert_not_called()
+    platform_lookup.assert_called_once_with("esp32", "")
 
 
 def test_derive_returns_empty_when_no_catalog_entry_matches(
@@ -180,8 +171,9 @@ def test_derive_returns_empty_when_no_catalog_entry_matches(
     catalog was reloaded with new entries in the meantime).
     """
     controller = make_controller(tmp_path, with_boards=True)
-    controller._db.boards.find_by_pio_board = MagicMock(return_value=None)
-    controller._db.boards.find_by_platform_variant = MagicMock(return_value=None)
+    boards = StubBoardLookups(controller)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
     _write_yaml(tmp_path, "kitchen.yaml", platform="esp32", board="nonexistent-board")
 
     result = controller._derive_board_id_from_yaml(tmp_path, "kitchen.yaml")
@@ -213,7 +205,7 @@ def test_derive_swallows_persist_failure_and_still_returns_id(
     sync I/O even though production is fine.
     """
     controller = make_controller(tmp_path, with_boards=True)
-    controller._db.boards.find_by_pio_board = MagicMock(return_value=_stub_match("generic-esp32c3"))
+    StubBoardLookups(controller).find_by_pio_board_returns("generic-esp32c3")
     _write_yaml(tmp_path, "kitchen.yaml", platform="esp32", board="esp32-c3-devkitm-1")
 
     def _boom(*args: object, **kwargs: object) -> None:

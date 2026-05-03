@@ -24,7 +24,7 @@ from esphome_device_builder.controllers.devices import controller as devices_mod
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
-from .conftest import MakeControllerFactory
+from .conftest import MakeControllerFactory, StubBoardLookups
 
 
 async def test_create_device_translates_file_exists_to_command_error(
@@ -68,7 +68,7 @@ async def test_create_device_rejects_unknown_board_id(
 ) -> None:
     """An unknown ``board_id`` produces ``INVALID_ARGS`` and names the bad id."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
-    ctrl._db.boards.get_board = AsyncMock(return_value=None)
+    StubBoardLookups(ctrl).get_board_returns(None)
 
     with pytest.raises(CommandError) as excinfo:
         await ctrl.create_device(name="kitchen", board_id="bogus-board")
@@ -92,8 +92,9 @@ async def test_create_device_writes_stub_yaml_and_scans(
     # Catalog lookups must return ``None`` so the derive-from-yaml
     # branch leaves ``board`` unset; otherwise ``StorageJSON``'s
     # ``target_platform`` would receive a ``MagicMock``.
-    ctrl._db.boards.find_by_pio_board = MagicMock(return_value=None)
-    ctrl._db.boards.find_by_platform_variant = MagicMock(return_value=None)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
 
     result = await ctrl.create_device(name="kitchen")
 
@@ -140,8 +141,9 @@ async def test_create_device_clears_residual_metadata_from_archived_same_name(
 
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     ctrl._db.settings.config_dir = config_dir
-    ctrl._db.boards.find_by_pio_board = MagicMock(return_value=None)
-    ctrl._db.boards.find_by_platform_variant = MagicMock(return_value=None)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
 
     await ctrl.create_device(name="kitchen")
 
