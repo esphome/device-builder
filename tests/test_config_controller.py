@@ -54,6 +54,7 @@ from esphome_device_builder.models.preferences import (
     UserPreferences,
 )
 
+from ._storage_fixtures import write_storage_json
 from .conftest import MakeSettingsFactory
 
 
@@ -345,6 +346,90 @@ async def test_get_secrets_returns_sorted_keys(tmp_path: Path) -> None:
 
     keys = await controller.get_secrets()
     assert keys == ["api_key", "wifi_password", "wifi_ssid"]
+
+
+@pytest.mark.asyncio
+async def test_get_info_returns_storage_metadata_dict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Happy path: ``StorageJSON.load`` hits → handler returns the metadata dict.
+
+    Pin the field-by-field projection (StorageJSON has more
+    fields than we surface; the handler whitelists the
+    drawer-relevant subset). A regression that returned
+    ``storage.to_dict()`` directly would leak internal fields
+    onto the wire and force the frontend to re-derive its UI
+    contract from upstream's StorageJSON shape.
+    """
+    sidecar = write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=Path("/firmware/kitchen.bin"),
+        overrides={
+            "name": "kitchen",
+            "friendly_name": "Kitchen",
+            "comment": "By the toaster",
+            "address": "kitchen.local",
+            "web_port": 80,
+            "loaded_integrations": ["api", "wifi", "ota"],
+            "target_platform": "esp32",
+        },
+    )
+    # ``ext_storage_path`` keys off ``CORE.config_path`` in production;
+    # redirect it onto our seeded sidecar so the handler's read lands
+    # there without a real CORE setup.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config.ext_storage_path",
+        lambda configuration: sidecar.parent / f"{configuration}.json",
+    )
+    controller = _make_controller(tmp_path)
+
+    result = await controller.get_info(configuration="kitchen.yaml")
+
+    # ``firmware_bin_path`` deserialises into a ``Path`` upstream, so
+    # the projection passes that through to the frontend as a Path.
+    # The frontend stringifies with JSON.stringify so the wire shape
+    # is the same string either way; assert against the Path here so
+    # a refactor that started coercing to ``str`` is visible.
+    assert result == {
+        "name": "kitchen",
+        "friendly_name": "Kitchen",
+        "comment": "By the toaster",
+        "address": "kitchen.local",
+        "web_port": 80,
+        "target_platform": "esp32",
+        "current_version": "2026.5.0-dev",
+        "deployed_version": Path("/firmware/kitchen.bin"),
+        # ``StorageJSON`` deserialises ``loaded_integrations`` as
+        # a ``set`` (mashumaro's default for list[str] fields when
+        # the upstream dataclass declares it that way). The handler
+        # passes it through untouched so JSON serialisation at the
+        # WS layer turns it into an array on the wire.
+        "loaded_integrations": {"api", "wifi", "ota"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_info_returns_none_when_storage_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No StorageJSON sidecar on disk → handler returns ``None``.
+
+    The drawer treats ``None`` as "device hasn't been compiled
+    yet" and renders a CTA to compile. A regression that raised
+    or returned an empty dict would fail open in the wrong
+    direction — either crashing the drawer or showing stale-
+    looking blank fields instead of the compile prompt.
+    """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config.ext_storage_path",
+        lambda configuration: tmp_path / "missing-storage.json",
+    )
+    controller = _make_controller(tmp_path)
+
+    result = await controller.get_info(configuration="kitchen.yaml")
+
+    assert result is None
 
 
 @pytest.mark.asyncio
