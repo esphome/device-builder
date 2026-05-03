@@ -167,7 +167,12 @@ async def test_terminate_subtree_with_grace_escalates_to_sigkill_on_timeout(
     a process that won't exit and the queue gets wedged.
     """
 
-    async def _raise_timeout(*_args: Any, **_kwargs: Any) -> None:
+    async def _raise_timeout(awaitable: Any, *_args: Any, **_kwargs: Any) -> None:
+        # Close the awaitable so a "coroutine was never awaited"
+        # RuntimeWarning doesn't fire when GC reaps the unstarted
+        # ``proc.wait()`` coroutine the helper passed in.
+        if hasattr(awaitable, "close"):
+            awaitable.close()
         raise TimeoutError
 
     monkeypatch.setattr(
