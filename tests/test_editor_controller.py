@@ -352,7 +352,7 @@ async def test_start_resolves_esphome_command(
 
 @pytest.mark.asyncio
 async def test_ensure_subprocess_no_op_when_proc_already_running(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A live proc on the session → no respawn.
 
@@ -373,9 +373,13 @@ async def test_ensure_subprocess_no_op_when_proc_already_running(
         return MagicMock()
 
     # Patch the spawn entry point — should never be reached.
-    import esphome_device_builder.controllers.editor as _editor_mod
-
-    _editor_mod.create_subprocess_exec = _no_spawn  # type: ignore[assignment]
+    # Use ``monkeypatch.setattr`` so the override is restored after
+    # the test; direct module-attribute assignment would leak to
+    # subsequent tests and produce order-dependent failures.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.create_subprocess_exec",
+        _no_spawn,
+    )
 
     await controller._ensure_subprocess(session)
 
@@ -559,7 +563,7 @@ async def test_terminate_subprocess_escalates_through_terminate_then_kill(
 
 @pytest.mark.asyncio
 async def test_terminate_subprocess_swallows_stdin_write_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """A broken stdin doesn't abort termination — fall through to wait/kill.
 
