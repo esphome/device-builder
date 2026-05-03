@@ -14,7 +14,6 @@ HA uses:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import sys
 from typing import Any
@@ -24,7 +23,13 @@ from aiohttp import web
 from esphome import yaml_util
 
 from ..helpers.api import CommandError
-from ..helpers.json import JSONDecodeError, dumps_str, json_response, loads
+from ..helpers.json import (
+    JSONDecodeError,
+    dumps_str,
+    dumps_str_subclass_keys,
+    json_response,
+    loads,
+)
 from ..helpers.subprocess import create_subprocess_exec
 
 _LOGGER = logging.getLogger(__name__)
@@ -141,13 +146,10 @@ def create_legacy_routes() -> web.RouteTableDef:
 
         # ESPHome's ``yaml_util.load_yaml`` returns an ``OrderedDict``
         # whose keys are ``EStr`` (a ``str`` subclass that carries
-        # source-position info). orjson rejects non-exact-``str``
-        # keys, so route around our orjson-based ``json_response``
-        # helper and use stdlib ``json`` for this one endpoint —
-        # it accepts ``str``-subclass keys cleanly. HA's
-        # ``esphome-dashboard-api`` consumes whatever JSON we
-        # produce; the wire format is identical either way.
-        return web.json_response(config, dumps=json.dumps)
+        # source-position info). orjson's strict default rejects
+        # non-exact-``str`` keys; ``dumps_str_subclass_keys`` flips
+        # the ``OPT_NON_STR_KEYS`` option just for this endpoint.
+        return web.json_response(config, dumps=dumps_str_subclass_keys)
 
     @routes.get("/compile")
     async def legacy_compile(request: web.Request) -> web.WebSocketResponse:
