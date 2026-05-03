@@ -8,8 +8,8 @@ Three contracts to pin:
 1. The persist call lands on disk via ``set_device_metadata``
    (routed through the executor so blockbuster doesn't fault).
 2. The response carries the values that just landed, with the
-   sidecar acting as the source of truth (so the next ``device/list``
-   sees the same values).
+   sidecar acting as the source of truth (so the next
+   ``devices/list`` sees the same values).
 3. ``friendly_name`` defaults to the device's name when the
    metadata doesn't carry one — that way the dashboard never
    renders an empty label even on a fresh device.
@@ -34,14 +34,17 @@ from .conftest import MakeControllerFactory
 async def test_update_device_writes_full_metadata(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """All four user-facing fields land in the sidecar and round-trip back.
+    """The three sidecar-stored fields land on disk and round-trip back.
 
-    Pin the persist + read-back contract end-to-end. The previous
-    shape was a tight feedback loop where the response was built
-    from the *input* args; that drifted out of sync with the
-    on-disk state when a future call with partial fields would
-    inherit stale values. Reading from the sidecar after the
-    write is what keeps the response authoritative.
+    ``name`` is the entry's filename key (``<name>.yaml``), not a
+    sidecar field; ``friendly_name`` / ``comment`` / ``board_id``
+    are the three values actually written into
+    ``.device-builder.json``. Pin the persist + read-back contract
+    end-to-end. The previous shape was a tight feedback loop where
+    the response was built from the *input* args; that drifted out
+    of sync with the on-disk state when a future call with partial
+    fields would inherit stale values. Reading from the sidecar
+    after the write is what keeps the response authoritative.
     """
     controller = make_controller(tmp_path)
 
@@ -80,7 +83,7 @@ async def test_update_device_partial_keeps_unrelated_fields(
     """
     controller = make_controller(tmp_path)
 
-    # Seed an existing entry with all four fields.
+    # Seed an existing entry with all three sidecar-stored fields.
     await asyncio.to_thread(
         set_device_metadata,
         tmp_path,

@@ -370,7 +370,12 @@ class DevicesController:
             comment=comment,
         )
 
-        meta = get_device_metadata(self._db.settings.config_dir, filename)
+        # ``get_device_metadata`` reads ``.device-builder.json`` via
+        # ``Path.read_bytes()``; route it through the executor so the
+        # sync I/O doesn't stall the event loop (and doesn't trip
+        # blockbuster on Linux CI).
+        config_dir = self._db.settings.config_dir
+        meta = await asyncio.to_thread(get_device_metadata, config_dir, filename)
         return UpdateDeviceResponse(
             name=name,
             friendly_name=meta.get("friendly_name", name),
