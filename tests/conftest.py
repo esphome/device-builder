@@ -206,8 +206,9 @@ def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MakeSettin
     ``config_dir`` and ``absolute_config_dir``.
 
     ``with_core_path=True`` additionally patches ``CORE.config_path``
-    to ``tmp_path / ".dashboard-sentinel"``. Production sets this in
-    ``DashboardSettings.parse_args``; without it, code paths that
+    to the same sentinel filename ``DashboardSettings.parse_args``
+    writes in production (``_DASHBOARD_SENTINEL_FILE`` in
+    ``controllers/config.py``). Without it, code paths that
     reach into the catalog loaders crash on
     ``CORE.config_dir.is_dir`` because ``CORE.config_path`` is the
     package-default ``None``. Routing through ``monkeypatch``
@@ -220,7 +221,7 @@ def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MakeSettin
         settings.config_dir = tmp_path
         settings.absolute_config_dir = tmp_path.resolve()
         if with_core_path:
-            monkeypatch.setattr(CORE, "config_path", tmp_path / ".dashboard-sentinel")
+            monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
         return settings
 
     return _make
