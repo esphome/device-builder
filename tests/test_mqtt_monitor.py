@@ -14,7 +14,7 @@ import asyncio
 import contextlib
 import json
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 
@@ -483,3 +483,367 @@ async def test_listen_processes_fresh_discover_messages() -> None:
 
     assert state_calls == [("kitchen", DeviceState.ONLINE)]
     assert ip_calls == [("kitchen", "10.0.0.5")]
+
+
+# ---------------------------------------------------------------------------
+# DeviceMqttMonitor — start / stop / running / is_available / _ping_loop
+# ---------------------------------------------------------------------------
+
+
+def test_is_available_true_when_paho_importable() -> None:
+    """``is_available`` checks whether ``paho_mqtt`` was importable.
+
+    Production tests run with paho-mqtt installed (it's a hard dep
+    of the [esphome] extra), so this branch is true. The companion
+    ``False`` test below patches the module attribute to simulate
+    a missing wheel.
+    """
+    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
+
+    assert monitor_module.paho_mqtt is not None  # production import worked
+    assert DeviceMqttMonitor.is_available() is True
+
+
+def test_is_available_false_when_paho_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``is_available`` returns ``False`` when paho-mqtt isn't importable.
+
+    The dashboard ships with the import wrapped in ``try / except
+    ImportError`` so a stripped install (e.g. a Docker image without
+    the [esphome] extra) doesn't crash at import time. ``start()``
+    consults ``is_available()`` and skips the listener with a
+    helpful warning when paho is gone.
+    """
+    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", None)
+    assert DeviceMqttMonitor.is_available() is False
+
+
+async def test_running_reflects_task_state() -> None:
+    """``running`` is True between ``start`` and ``stop``, False outside.
+
+    Exposed for the coordinator's idempotency check ("is this
+    monitor already up?") so a duplicate ``start`` doesn't spawn
+    a second connect loop.
+    """
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    assert monitor.running is False  # before start
+
+    # Stand-in for the listener task — never resolves so the
+    # monitor stays in the "running" state until we cancel it.
+    parked = asyncio.Event()
+    monitor._task = asyncio.create_task(parked.wait())
+    try:
+        assert monitor.running is True
+    finally:
+        monitor._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await monitor._task
+
+    # A done task no longer counts as running.
+    assert monitor.running is False
+
+
+async def test_start_warns_and_returns_when_paho_missing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No paho → log warning, don't spawn the listener task.
+
+    Without this early return ``_run`` would crash on the very
+    first ``paho_mqtt.Client(...)`` call. The warning is the
+    user-facing breadcrumb pointing at the optional ``[esphome]``
+    extra.
+    """
+    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", None)
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    with caplog.at_level("WARNING"):
+        await monitor.start()
+
+    assert monitor._task is None
+    assert any("paho-mqtt not installed" in rec.message for rec in caplog.records)
+
+
+async def test_start_is_idempotent_when_already_running() -> None:
+    """A second ``start`` while running is a no-op — doesn't replace the task.
+
+    Pin the contract so a regression that always re-creates the
+    task would orphan the original (which keeps holding the
+    paho client + thread) and double-publish discover messages.
+    """
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    parked = asyncio.Event()
+    monitor._task = asyncio.create_task(parked.wait())
+    original_task = monitor._task
+    try:
+        await monitor.start()
+        assert monitor._task is original_task  # no replacement
+    finally:
+        monitor._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await monitor._task
+
+
+async def test_stop_cancels_task_and_clears_last_seen() -> None:
+    """``stop`` cancels the runner and forgets every observation.
+
+    Last-seen entries are paired with a live broker subscription;
+    keeping them after stop would feed the next ``start`` stale
+    timestamps and immediately mark the device offline (they're
+    older than ``_OFFLINE_TIMEOUT``).
+    """
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    parked = asyncio.Event()
+    monitor._task = asyncio.create_task(parked.wait())
+    monitor._last_seen["kitchen"] = 12345.0
+
+    await monitor.stop()
+
+    assert monitor._task is None
+    assert monitor._last_seen == {}
+
+
+async def test_stop_is_no_op_when_never_started() -> None:
+    """``stop`` on a never-started monitor is a clean no-op.
+
+    Pairs with the coordinator's "drop a broker that no devices
+    use" path — it calls ``stop`` unconditionally, which mustn't
+    crash on a monitor that never reached ``start``.
+    """
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    await monitor.stop()
+    assert monitor._task is None
+
+
+async def test_ping_loop_marks_stale_devices_offline_and_republishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stale ``_last_seen`` entries flip OFFLINE; broker gets a re-publish each tick.
+
+    The ping loop is the failsafe that fires when MQTT silently
+    stops delivering — devices' last-seen ages past
+    ``_OFFLINE_TIMEOUT`` and they switch to OFFLINE without a
+    fresh subscribe-side signal. The re-publish on every tick
+    pokes the broker so any device that quietly came back gets
+    a chance to announce again.
+
+    Speed up the loop by patching ``_PING_INTERVAL`` and
+    ``_OFFLINE_TIMEOUT`` — the production values (2s / 10s)
+    would make this test wait ten seconds for an offline flip.
+    """
+    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
+
+    # 50ms / 100ms: well under any plausible test-host scheduler
+    # jitter while still letting "stale" form between ticks.
+    monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
+    monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 0.1)
+
+    state_calls: list[tuple[str, DeviceState]] = []
+    offline_seen = asyncio.Event()
+
+    def on_state(name: str, state: DeviceState) -> None:
+        state_calls.append((name, state))
+        if state == DeviceState.OFFLINE:
+            offline_seen.set()
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=on_state,
+        on_ip_change=lambda *_: None,
+    )
+
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.publishes: list[tuple[str, Any, bool]] = []
+
+        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> None:
+            self.publishes.append((topic, payload, retain))
+
+    fake = _FakeClient()
+
+    # Seed a stale entry that's already past the (patched) offline
+    # timeout. The first tick should sweep it.
+    loop = asyncio.get_running_loop()
+    monitor._last_seen["ghost"] = loop.time() - 1.0
+
+    ping_task = asyncio.create_task(monitor._ping_loop(fake))
+    try:
+        await asyncio.wait_for(offline_seen.wait(), timeout=2.0)
+    finally:
+        ping_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await ping_task
+
+    assert ("ghost", DeviceState.OFFLINE) in state_calls
+    assert "ghost" not in monitor._last_seen
+    # Each tick republishes the discover trigger.
+    assert fake.publishes
+    topic, _payload, retain = fake.publishes[0]
+    assert topic == "esphome/discover"
+    assert retain is False
+
+
+# ---------------------------------------------------------------------------
+# DeviceMqttMonitor._run — reconnect-on-error loop
+# ---------------------------------------------------------------------------
+
+
+async def test_run_reconnects_on_connect_and_listen_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broker error in ``_connect_and_listen`` triggers a delayed retry.
+
+    ``_run``'s reconnect loop is what survives transient broker
+    blips (network glitch, broker restart). A bare exception
+    inside ``_connect_and_listen`` would otherwise kill the
+    monitor permanently. The test patches the underlying
+    coroutine to raise once, then succeed — and asserts the
+    second call happened.
+
+    Speed up via ``_RECONNECT_DELAY = 0`` so the test doesn't
+    wait the production 5s between attempts.
+    """
+    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
+
+    monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    # Seed last_seen so we can verify it gets cleared on error
+    # (production keeps device state alone — only ``_last_seen``
+    # is reset — so a brief blip doesn't trigger an offline storm).
+    monitor._last_seen["kitchen"] = 0.0
+
+    call_count = 0
+    second_call = asyncio.Event()
+
+    async def _fake_connect(_client_id: str) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            msg = "broker rejected"
+            raise ConnectionError(msg)
+        second_call.set()
+        # Park to keep the runner alive until cancelled.
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(monitor, "_connect_and_listen", _fake_connect)
+
+    run_task = asyncio.create_task(monitor._run())
+    try:
+        await asyncio.wait_for(second_call.wait(), timeout=2.0)
+    finally:
+        run_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await run_task
+
+    assert call_count >= 2
+    # First-attempt error cleared last_seen — pin the contract
+    # so a regression that leaves stale entries (which would
+    # then immediately mark the device offline on the next ping
+    # tick) surfaces here.
+    assert monitor._last_seen == {}
+
+
+# ---------------------------------------------------------------------------
+# Pure helpers — _extract_ip / _decode_payload
+# ---------------------------------------------------------------------------
+
+
+def test_extract_ip_returns_first_present_address() -> None:
+    """``_extract_ip`` returns the first ``ip``/``ip0``/``ip1``/``ip2`` set.
+
+    Some ESPHome firmwares expose multiple IPs (Wi-Fi + Ethernet,
+    Wi-Fi + AP). The dashboard only needs one to dial back; the
+    first is the canonical primary, secondaries are fallbacks
+    when it's unreachable. Pin the iteration order ``ip`` →
+    ``ip0`` → ``ip1`` → ``ip2`` so a regression that flips it
+    surfaces here.
+    """
+    from esphome_device_builder.controllers._device_mqtt_monitor import _extract_ip
+
+    # ``ip`` wins when present.
+    assert _extract_ip({"ip": "10.0.0.1", "ip0": "192.168.1.1", "ip1": "172.16.0.1"}) == "10.0.0.1"
+    # Falls through to ``ip0`` when ``ip`` missing.
+    assert _extract_ip({"ip0": "192.168.1.1", "ip1": "172.16.0.1"}) == "192.168.1.1"
+    # And to ``ip1`` / ``ip2`` in turn.
+    assert _extract_ip({"ip1": "172.16.0.1", "ip2": "10.10.10.10"}) == "172.16.0.1"
+    assert _extract_ip({"ip2": "10.10.10.10"}) == "10.10.10.10"
+
+
+def test_extract_ip_skips_empty_and_non_string_values() -> None:
+    """Empty strings / non-strings are skipped; missing all → ``""``.
+
+    Defensive: a misbehaving firmware that publishes ``"ip": null``
+    or ``"ip": ""`` shouldn't shadow the next address candidate.
+    """
+    from esphome_device_builder.controllers._device_mqtt_monitor import _extract_ip
+
+    # Empty + non-string ``ip`` skipped, falls through to ``ip1``.
+    assert _extract_ip({"ip": "", "ip0": None, "ip1": "172.16.0.1"}) == "172.16.0.1"
+    # Numeric-shaped non-string skipped (devices shouldn't do this
+    # but the helper guards against it anyway).
+    assert _extract_ip({"ip": 12345}) == ""
+    # Nothing present at all.
+    assert _extract_ip({}) == ""
+    assert _extract_ip({"name": "kitchen", "version": "2026.5.0"}) == ""
+
+
+def test_decode_payload_handles_str_bytes_and_garbage() -> None:
+    """``_decode_payload`` accepts ``str`` / ``bytes`` / ``bytearray`` / ``memoryview``.
+
+    paho-mqtt's payload type isn't strictly typed at the wire —
+    the helper has to tolerate every shape paho might produce.
+    Malformed UTF-8 falls back to ``backslashreplace`` so the
+    debug log line stays readable.
+    """
+    from esphome_device_builder.controllers._device_mqtt_monitor import _decode_payload
+
+    assert _decode_payload("already-text") == "already-text"
+    assert _decode_payload(b"raw bytes") == "raw bytes"
+    assert _decode_payload(bytearray(b"mutable")) == "mutable"
+    assert _decode_payload(memoryview(b"viewed")) == "viewed"
+    # Malformed UTF-8: the leading 0x80 isn't a valid start byte;
+    # ``backslashreplace`` keeps it visible without raising.
+    decoded = _decode_payload(b"\x80hello")
+    assert "hello" in decoded
+
+
+def test_decode_payload_returns_empty_for_unsupported_types() -> None:
+    """``None`` and other unsupported payload shapes return ``""``.
+
+    The caller guards against a falsy return so an empty string
+    safely short-circuits the JSON parse without raising.
+    """
+    from esphome_device_builder.controllers._device_mqtt_monitor import _decode_payload
+
+    assert _decode_payload(None) == ""
+    assert _decode_payload(12345) == ""
+    assert _decode_payload({"not": "supported"}) == ""
+    assert _decode_payload(["nope"]) == ""
