@@ -358,10 +358,10 @@ async def test_manual_rename_moves_sidecar_metadata(
     )
 
     # Old entry gone.
-    assert get_device_metadata(tmp_path, "kitchen.yaml") == {}
+    assert await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml") == {}
     # New entry carries the same board_id and the rewritten
     # friendly_name (since it equalled the old name).
-    new_meta = get_device_metadata(tmp_path, "livingroom.yaml")
+    new_meta = await asyncio.to_thread(get_device_metadata, tmp_path, "livingroom.yaml")
     assert new_meta != {}
     assert new_meta["board_id"] == "generic-esp32c3"
     assert new_meta["friendly_name"] == "livingroom"
@@ -387,7 +387,7 @@ async def test_manual_rename_keeps_unrelated_metadata_friendly_name(
         controller, monkeypatch, configuration="kitchen.yaml", new_name="livingroom"
     )
 
-    new_meta = get_device_metadata(tmp_path, "livingroom.yaml")
+    new_meta = await asyncio.to_thread(get_device_metadata, tmp_path, "livingroom.yaml")
     assert new_meta != {}
     assert new_meta["friendly_name"] == "My Kitchen Sensor"
 
@@ -496,7 +496,7 @@ async def test_manual_rename_full_round_trip(
     assert storage["name"] == "livingroom"
     assert storage["address"] == "livingroom.local"
     # Sidecar metadata moved.
-    assert get_device_metadata(tmp_path, "kitchen.yaml") == {}
-    assert get_device_metadata(tmp_path, "livingroom.yaml") != {}
+    assert await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml") == {}
+    assert await asyncio.to_thread(get_device_metadata, tmp_path, "livingroom.yaml") != {}
     # Scanner kicked.
     controller._scanner.scan.assert_awaited_once()
