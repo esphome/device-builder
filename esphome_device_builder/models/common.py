@@ -74,8 +74,9 @@ class StreamEvent(StrEnum):
     The wire bytes coincide with some ``EventType`` values
     (``"job_output"``, ``"job_progress"``) for the all-jobs
     follower path, where the stream simply forwards the bus event
-    name through. Those call sites use ``EventType.X.value``
-    directly rather than redeclaring the constant here.
+    name through. Those call sites pass the ``EventType`` member
+    directly (it's a ``StrEnum``, so it serialises to the same
+    string) rather than redeclaring the constant here.
     """
 
     # Per-line subprocess output (``follow_job`` / ``stream_logs`` /
