@@ -25,6 +25,8 @@ from esphome_device_builder.controllers._device_state_monitor import (
 )
 from esphome_device_builder.models import Device, DeviceState
 
+from .conftest import make_state_monitor_with_callbacks
+
 
 def _device(name: str) -> Device:
     return Device(
@@ -123,13 +125,7 @@ async def test_handler_marks_hyphenated_device_online(monkeypatch: pytest.Monkey
     the device stayed Unknown until the 60s ping sweep.
     """
     devices = [_device("apollo-r-pro-1-eth-5938e0")]
-    on_state = MagicMock()
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: devices,
-        on_state_change=on_state,
-        on_ip_change=MagicMock(),
-        on_version_change=MagicMock(),
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks(devices)
 
     handler = await _capture_handler(monitor, monkeypatch)
 
@@ -140,7 +136,12 @@ async def test_handler_marks_hyphenated_device_online(monkeypatch: pytest.Monkey
         ServiceStateChange.Added,
     )
 
-    on_state.assert_any_call("apollo-r-pro-1-eth-5938e0", DeviceState.ONLINE, "mdns")
+    assert (
+        "on_state_change",
+        "apollo-r-pro-1-eth-5938e0",
+        DeviceState.ONLINE,
+        "mdns",
+    ) in callbacks.calls
 
 
 async def test_handler_does_not_substitute_hyphens(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,25 +153,12 @@ async def test_handler_does_not_substitute_hyphens(monkeypatch: pytest.MonkeyPat
     into ``my_device`` before lookup.
     """
     devices = [_device("my-device")]
-
-    # Mirror production: the real ``on_state_change`` callback flips
-    # ``device.state`` so the eager ``apply(ONLINE)`` in the browser
-    # callback and the redundant claim in ``_apply_service_info``
-    # short-circuit on the second call. Without this side-effect the
-    # MagicMock leaves ``device.state`` at UNKNOWN forever and we'd
-    # see a misleading double-fire.
-    def _flip_state(name: str, state: DeviceState, _source: str) -> None:
-        for device in devices:
-            if device.name == name:
-                device.state = state
-
-    on_state = MagicMock(side_effect=_flip_state)
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: devices,
-        on_state_change=on_state,
-        on_ip_change=MagicMock(),
-        on_version_change=MagicMock(),
-    )
+    # The recorder's per-device state-flip mirrors production —
+    # without it, ``device.state`` stays UNKNOWN forever and the
+    # eager ``apply(ONLINE)`` in the browser callback plus the
+    # redundant claim in ``_apply_service_info`` would each re-fire
+    # against the still-stale state, yielding a misleading double-call.
+    monitor, callbacks = make_state_monitor_with_callbacks(devices)
 
     handler = await _capture_handler(monitor, monkeypatch)
     handler(
@@ -180,7 +168,8 @@ async def test_handler_does_not_substitute_hyphens(monkeypatch: pytest.MonkeyPat
         ServiceStateChange.Added,
     )
 
-    on_state.assert_called_once_with("my-device", DeviceState.ONLINE, "mdns")
+    state_calls = [c for c in callbacks.calls if c[0] == "on_state_change"]
+    assert state_calls == [("on_state_change", "my-device", DeviceState.ONLINE, "mdns")]
 
 
 async def test_handler_short_circuits_unknown_device(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,13 +179,7 @@ async def test_handler_short_circuits_unknown_device(monkeypatch: pytest.MonkeyP
     cache for every unrelated ESPHome device on the LAN — wasted
     work that scales with the size of the user's network.
     """
-    on_state = MagicMock()
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: [],  # empty catalog
-        on_state_change=on_state,
-        on_ip_change=MagicMock(),
-        on_version_change=MagicMock(),
-    )
+    monitor, callbacks = make_state_monitor_with_callbacks([])  # empty catalog
 
     handler = await _capture_handler(monitor, monkeypatch)
     handler(
@@ -206,7 +189,7 @@ async def test_handler_short_circuits_unknown_device(monkeypatch: pytest.MonkeyP
         ServiceStateChange.Added,
     )
 
-    on_state.assert_not_called()
+    assert not any(c[0] == "on_state_change" for c in callbacks.calls)
 
 
 async def test_mdns_takes_ownership_after_ping_set_online(
@@ -221,12 +204,7 @@ async def test_mdns_takes_ownership_after_ping_set_online(
     """
     devices = [_device("kitchen")]
     devices[0].state = DeviceState.ONLINE  # ping already saw it
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: devices,
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_version_change=MagicMock(),
-    )
+    monitor, _callbacks = make_state_monitor_with_callbacks(devices)
     monitor._state_source["kitchen"] = "ping"
 
     handler = await _capture_handler(monitor, monkeypatch)
