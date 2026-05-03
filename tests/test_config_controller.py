@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -388,10 +389,18 @@ async def test_get_info_returns_storage_metadata_dict(
     result = await controller.get_info(configuration="kitchen.yaml")
 
     # ``firmware_bin_path`` deserialises into a ``Path`` upstream, so
-    # the projection passes that through to the frontend as a Path.
-    # The frontend stringifies with JSON.stringify so the wire shape
-    # is the same string either way; assert against the Path here so
-    # a refactor that started coercing to ``str`` is visible.
+    # the projection passes that through unchanged. The server's
+    # ``send_json`` (orjson) serialises the ``Path`` to its string
+    # form on the wire — this in-process assertion checks the
+    # pre-serialisation shape, where the handler hasn't coerced.
+    # Assert the integration set separately so the test doesn't
+    # over-constrain ``loaded_integrations`` to a specific
+    # collection type — the upstream ``StorageJSON`` could
+    # legitimately switch between ``set`` / ``list`` / ``tuple``
+    # without changing the JSON shape on the wire (an unordered
+    # collection of strings).
+    integrations = result.pop("loaded_integrations")
+    assert set(integrations) == {"api", "wifi", "ota"}
     assert result == {
         "name": "kitchen",
         "friendly_name": "Kitchen",
@@ -401,12 +410,6 @@ async def test_get_info_returns_storage_metadata_dict(
         "target_platform": "esp32",
         "current_version": "2026.5.0-dev",
         "deployed_version": Path("/firmware/kitchen.bin"),
-        # ``StorageJSON`` deserialises ``loaded_integrations`` as
-        # a ``set`` (mashumaro's default for list[str] fields when
-        # the upstream dataclass declares it that way). The handler
-        # passes it through untouched so JSON serialisation at the
-        # WS layer turns it into an array on the wire.
-        "loaded_integrations": {"api", "wifi", "ota"},
     }
 
 
@@ -531,12 +534,13 @@ async def test_get_serial_ports_returns_path_and_desc(
 ) -> None:
     """Each upstream ``SerialPort`` round-trips as ``{port, desc}``.
 
-    Pin both the field renaming (``path`` → ``port``,
-    ``description`` → ``desc``) and the executor-route shape
-    (``run_in_executor(None, get_serial_ports)``) — production
-    needs the executor wrap because pyserial's port-listing
-    walks ``/dev`` synchronously and would stall the loop on a
-    busy host.
+    Pin the field renaming (``path`` → ``port``,
+    ``description`` → ``desc``). The executor-route is asserted
+    separately in ``test_get_serial_ports_runs_in_executor`` —
+    monkeypatching ``get_serial_ports`` to a sync lambda here
+    means a regression that dropped ``run_in_executor`` would
+    still pass this test, so the contract gets its own dedicated
+    pin.
     """
     fake_ports = [
         SerialPort(path="/dev/ttyUSB0", description="USB Serial"),
@@ -554,6 +558,45 @@ async def test_get_serial_ports_returns_path_and_desc(
         {"port": "/dev/ttyUSB0", "desc": "USB Serial"},
         {"port": "/dev/ttyACM0", "desc": "Arduino Uno"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_get_serial_ports_runs_in_executor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``get_serial_ports`` runs in a worker thread, not the event loop.
+
+    Capture the calling thread inside the monkeypatched lookup
+    and assert it isn't the loop's thread. Pyserial's
+    ``list_ports`` walks ``/dev`` synchronously on a busy host,
+    so dropping ``run_in_executor`` would stall the dashboard
+    until the scan finished — the failure mode this test catches
+    is silent and platform-dependent (only shows up under load),
+    which is exactly what blockbuster's per-frame check can't
+    catch from a sync stub. Direct thread-identity assertion is
+    what makes the executor route observable.
+    """
+    loop_thread = threading.get_ident()
+    captured_thread: dict[str, int] = {}
+
+    def _record_thread() -> list[SerialPort]:
+        captured_thread["tid"] = threading.get_ident()
+        return [SerialPort(path="/dev/ttyUSB0", description="USB Serial")]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config.get_serial_ports",
+        _record_thread,
+    )
+    controller = _make_controller(tmp_path)
+
+    await controller.get_serial_ports_cmd()
+
+    assert captured_thread.get("tid") is not None, "get_serial_ports was never invoked"
+    assert captured_thread["tid"] != loop_thread, (
+        "get_serial_ports ran on the event-loop thread — production needs "
+        "run_in_executor so pyserial's /dev walk doesn't stall the loop on "
+        "a busy host."
+    )
 
 
 @pytest.mark.asyncio
