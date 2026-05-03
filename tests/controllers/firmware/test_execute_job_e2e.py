@@ -169,7 +169,8 @@ async def test_compile_runs_subprocess_to_completion(
 
     assert job.status == JobStatus.COMPLETED
     assert job.exit_code == 0
-    assert captured["job_started"] and captured["job_started"][0]["job"].job_id == job.job_id
+    assert captured["job_started"]
+    assert captured["job_started"][0]["job"].job_id == job.job_id
     # Both stdout lines reach the live stream.
     output_lines = [d["line"] for d in captured["job_output"]]
     assert any("Reading configuration" in line for line in output_lines)
@@ -212,7 +213,8 @@ async def test_compile_nonzero_exit_marks_failed(
 
     assert job.status == JobStatus.FAILED
     assert job.exit_code == 7
-    assert captured["job_failed"] and captured["job_failed"][0]["job"] is job
+    assert captured["job_failed"]
+    assert captured["job_failed"][0]["job"] is job
     assert captured["job_completed"] == []
 
 
@@ -303,10 +305,22 @@ async def test_compile_mid_run_cancel_marks_cancelled(
     red FAILED row in the dashboard's job table, confusing the
     user about whether their cancel was respected.
 
-    Sequencing: the script blocks on stdin so the subprocess only
-    exits after we kill it. We submit the job, wait for
-    JOB_STARTED, register the cancel + terminate the proc, then
-    let ``_run_until_terminal`` drain the JOB_CANCELLED.
+    Sequencing matters here:
+
+    - JOB_STARTED fires *before* the subprocess spawn (the runner
+      flips the status before it ``await``s ``create_subprocess_exec``).
+      Synchronising on it would race the spawn and we'd terminate
+      a process that hasn't been assigned to ``_current_process``
+      yet. So we wait for the first JOB_OUTPUT instead — that's
+      the earliest signal the subprocess is alive AND the
+      ``_current_process`` attribute has been written.
+    - We must wait for JOB_CANCELLED to fire *before* cancelling
+      the runner task. Otherwise ``runner_task.cancel()`` triggers
+      ``_execute_job``'s own ``except asyncio.CancelledError``
+      branch (which also fires JOB_CANCELLED + marks the job
+      CANCELLED), and the assertions below would pass even if the
+      genuine post-``proc.wait()`` user-cancel branch we're
+      supposed to be testing was broken.
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
@@ -321,18 +335,19 @@ async def test_compile_mid_run_cancel_marks_cancelled(
     job = await controller.compile(configuration="kitchen.yaml")
 
     proc_alive = asyncio.Event()
+    cancelled_fired = asyncio.Event()
     captured: list[dict] = []
     real_fire = controller._db.bus.fire
 
     def _watch(event_type: EventType, data: dict) -> None:
         captured.append({"type": event_type, "data": data})
-        # The first JOB_OUTPUT line means the subprocess is up,
+        # First JOB_OUTPUT line means the subprocess is up,
         # streaming through ``iter_lines_with_progress``, and
         # ``self._current_process`` has been assigned.
-        # Synchronising on JOB_STARTED would race the spawn (it
-        # fires before ``create_subprocess_exec`` returns).
         if event_type == EventType.JOB_OUTPUT:
             proc_alive.set()
+        elif event_type == EventType.JOB_CANCELLED:
+            cancelled_fired.set()
         real_fire(event_type, data)
 
     controller._db.bus.fire = _watch
@@ -348,19 +363,24 @@ async def test_compile_mid_run_cancel_marks_cancelled(
         assert controller._current_process is not None
         controller._current_process.terminate()
 
-        async def _has_cancel() -> bool:
-            return any(c["type"] == EventType.JOB_CANCELLED for c in captured)
-
-        for _ in range(200):
-            await asyncio.sleep(0.05)
-            if await _has_cancel():
-                break
+        # Wait for the cancel event from the runner's natural
+        # post-``proc.wait()`` path, NOT from ``runner_task.cancel()``
+        # below. If we cancelled the task here without waiting,
+        # ``_execute_job``'s ``except CancelledError`` branch would
+        # fire JOB_CANCELLED too and the test couldn't distinguish
+        # "user-cancel path worked" from "task-cancel path worked".
+        await asyncio.wait_for(cancelled_fired.wait(), timeout=10.0)
     finally:
         runner_task.cancel()
         with suppress(asyncio.CancelledError):
             await runner_task
 
     assert job.status == JobStatus.CANCELLED
+    # Subprocess actually exited (the user-cancel branch awaits
+    # ``proc.wait()`` before deciding the verdict). A regression
+    # that bailed on the cancel-flag check before the await would
+    # leave ``exit_code`` as ``None``.
+    assert job.exit_code is not None
     assert any(c["type"] == EventType.JOB_CANCELLED for c in captured)
     assert not any(c["type"] == EventType.JOB_FAILED for c in captured)
     # Cancel id is consumed so a re-queue with the same id wouldn't auto-cancel.
