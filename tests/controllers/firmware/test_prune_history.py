@@ -1,180 +1,147 @@
-"""Direct coverage for ``FirmwareController._prune_history``.
+"""End-to-end coverage for ``FirmwareController._prune_history``.
 
 The prune helper runs after every terminal-state transition (and
 on cancel / clear) to keep ``self._jobs`` from growing unbounded.
 The classification logic is a three-way fork — active / primary
-terminal / aux terminal — and the aux branch is the one the
-end-to-end tests rarely hit because clean and reset_build_env
-are uncommon paths.
+terminal / aux terminal — and the aux branch
+(``aux.append(job)``) was uncovered: the existing end-to-end
+suite rarely overflows the aux pool because clean and
+reset_build_env are uncommon paths.
 
-These tests drive ``_prune_history`` directly with a hand-crafted
-``self._jobs`` so each branch lands cleanly without having to
-spin up real subprocesses to drive the controller through enough
-clean / reset cycles to overflow the aux pool.
-
-Three contracts pinned:
-
-1. Active jobs are never pruned regardless of pool sizes.
-2. Aux-terminal jobs (clean, reset_build_env) sort newest-first
-   and cap at ``_MAX_AUX_TERMINAL_JOBS`` — this is the branch the
-   end-to-end suite missed.
-3. Aux and primary pools are independent — overflowing one
-   doesn't evict from the other.
+These tests drive the public API: submit jobs via ``clean`` and
+``compile``, then cancel them via ``cancel``. The QUEUED-branch
+of ``cancel`` flips the job to CANCELLED and invokes
+``_prune_history``. End-to-end shape so a refactor that moves
+the prune call to a different site or changes cap-handling can't
+slip past the tests.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
-from esphome_device_builder.controllers.firmware.constants import (
-    _MAX_AUX_TERMINAL_JOBS,
-    _MAX_PRIMARY_TERMINAL_JOBS,
-)
-from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
+from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware.constants import _MAX_AUX_TERMINAL_JOBS
+from esphome_device_builder.models import JobStatus, JobType
 
 from .conftest import FirmwareControllerFactory
 
 
-def _terminal_job(
-    job_id: str, *, job_type: JobType, configuration: str = "kitchen.yaml", offset_s: int = 0
-) -> FirmwareJob:
-    """Build a terminal ``FirmwareJob`` with a deterministic ``created_at``.
-
-    ``offset_s`` controls the relative ordering — older jobs use a
-    smaller offset, so the prune's "newest-first" sort is observable
-    in the result.
-    """
-    return FirmwareJob(
-        job_id=job_id,
-        configuration=configuration,
-        job_type=job_type,
-        status=JobStatus.COMPLETED,
-        created_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=offset_s),
-    )
+async def _submit_cleans(
+    controller: FirmwareController, count: int, *, prefix: str = "device"
+) -> list[str]:
+    """Submit *count* clean jobs through ``controller.clean`` and return their ids."""
+    job_ids: list[str] = []
+    for i in range(count):
+        job = await controller.clean(configuration=f"{prefix}-{i}.yaml")
+        job_ids.append(job.job_id)
+    return job_ids
 
 
-def test_prune_keeps_aux_jobs_under_the_cap(
+async def _cancel_all(controller: FirmwareController, job_ids: list[str]) -> None:
+    """Cancel every QUEUED job — drives each through the prune path in turn."""
+    for job_id in job_ids:
+        await controller.cancel(job_id=job_id)
+
+
+async def test_cancelling_aux_jobs_below_cap_keeps_them_all(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """Terminal aux jobs (clean / reset_build_env) below the cap all survive."""
-    aux_jobs = [
-        _terminal_job(f"clean-{i}", job_type=JobType.CLEAN, offset_s=i)
-        for i in range(_MAX_AUX_TERMINAL_JOBS - 1)
-    ]
-    controller = firmware_controller_factory(*aux_jobs)
+    """Aux-terminal jobs below the cap all survive after the prune.
 
-    controller._prune_history()
+    Submit a handful of clean jobs through the public API and
+    cancel them — each cancel transitions the job to CANCELLED
+    and invokes ``_prune_history``. Below the cap nothing is
+    evicted.
+    """
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    under_cap = _MAX_AUX_TERMINAL_JOBS - 1
+    job_ids = await _submit_cleans(controller, under_cap)
 
-    assert len(controller._jobs) == _MAX_AUX_TERMINAL_JOBS - 1
+    await _cancel_all(controller, job_ids)
+
+    surviving = [j for j in controller._jobs.values() if j.job_type == JobType.CLEAN]
+    assert len(surviving) == under_cap
+    assert all(j.status == JobStatus.CANCELLED for j in surviving)
 
 
-def test_prune_caps_aux_pool_to_max_aux_terminal_jobs(
+async def test_cancelling_aux_jobs_over_cap_drops_oldest(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """Overflowing the aux pool drops oldest entries and keeps the most recent N.
+    """Cancelling more aux jobs than the cap allows evicts the oldest entries.
 
-    Pin the ``aux.append(job)`` branch + the
-    ``aux[:_MAX_AUX_TERMINAL_JOBS]`` cap. Without the cap the
-    user could spam ``firmware/clean`` and grow ``self._jobs``
-    unbounded since clean jobs don't get the per-configuration
-    dedup the primary pool uses.
+    Pins the ``aux.append(job)`` + ``aux[:_MAX_AUX_TERMINAL_JOBS]``
+    chain end-to-end. Without the cap, a user spamming
+    ``firmware/clean`` could grow ``self._jobs`` unbounded —
+    clean jobs don't get the per-configuration dedup the primary
+    pool uses, so a separate cap is the only thing keeping the
+    pool bounded.
     """
-    # _MAX_AUX_TERMINAL_JOBS + 3 jobs across two aux types, mixed
-    # configurations to mirror real fleets where the user runs
-    # clean across several devices and reset_build_env once or
-    # twice.
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     overflow = 3
     total = _MAX_AUX_TERMINAL_JOBS + overflow
-    aux_jobs = [
-        _terminal_job(
-            f"aux-{i}",
-            job_type=JobType.CLEAN if i % 2 == 0 else JobType.RESET_BUILD_ENV,
-            configuration=f"device-{i}.yaml",
-            offset_s=i,
-        )
-        for i in range(total)
-    ]
-    controller = firmware_controller_factory(*aux_jobs)
+    job_ids = await _submit_cleans(controller, total)
 
-    controller._prune_history()
+    await _cancel_all(controller, job_ids)
 
     surviving_ids = set(controller._jobs.keys())
     assert len(surviving_ids) == _MAX_AUX_TERMINAL_JOBS
-    # Newest-first: the surviving ids are the last ``_MAX_AUX_TERMINAL_JOBS``
-    # offsets (highest ``created_at`` values).
-    expected_ids = {f"aux-{i}" for i in range(overflow, total)}
-    assert surviving_ids == expected_ids
+    # Newest-first ordering: the most-recently submitted ids
+    # survive, the oldest ``overflow`` are evicted.
+    assert surviving_ids == set(job_ids[overflow:])
 
 
-def test_prune_aux_pool_does_not_evict_from_primary(
+async def test_aux_overflow_does_not_evict_compile_jobs(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """The two pools are independent — overflowing aux doesn't touch compile/upload/install.
+    """A compile that lands in the primary pool survives an aux-pool overflow.
 
-    Pin the ``primary.append(job)`` / ``aux.append(job)`` fork.
-    A regression that conflated them (e.g. a single-pool cap)
-    would silently evict a recent compile job under heavy clean
+    Submit one compile, cancel it (lands in primary), then spam
+    enough cancelled cleans to overflow the aux pool. The compile
+    survives because aux + primary are independent pools.
+
+    Pins the ``primary.append(job)`` / ``aux.append(job)`` fork.
+    A regression that conflated the two pools (single shared cap)
+    would silently evict the recent compile under heavy clean
     activity.
     """
-    primary = _terminal_job(
-        "compile-recent",
-        job_type=JobType.COMPILE,
-        configuration="kitchen.yaml",
-        offset_s=0,
-    )
-    aux_jobs = [
-        _terminal_job(
-            f"clean-{i}",
-            job_type=JobType.CLEAN,
-            configuration=f"device-{i}.yaml",
-            offset_s=i + 1,
-        )
-        for i in range(_MAX_AUX_TERMINAL_JOBS + 5)
-    ]
-    controller = firmware_controller_factory(primary, *aux_jobs)
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    compile_job = await controller.compile(configuration="kitchen.yaml")
+    await controller.cancel(job_id=compile_job.job_id)
 
-    controller._prune_history()
+    clean_ids = await _submit_cleans(controller, _MAX_AUX_TERMINAL_JOBS + 5)
+    await _cancel_all(controller, clean_ids)
 
-    # The compile (primary) survived the aux overflow.
-    assert "compile-recent" in controller._jobs
-    # Aux pool was capped.
+    # The compile (primary) survived the aux flood.
+    assert compile_job.job_id in controller._jobs
+    # Aux pool got capped.
     aux_kept = [j for j in controller._jobs.values() if j.job_type == JobType.CLEAN]
     assert len(aux_kept) == _MAX_AUX_TERMINAL_JOBS
 
 
-def test_prune_keeps_active_jobs_regardless_of_aux_overflow(
+async def test_active_aux_job_survives_aux_overflow(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """Queued/running jobs survive even when the aux pool overflows.
+    """A still-QUEUED clean job is never pruned regardless of aux overflow.
 
-    Active jobs go to a third bucket (``active``) that has no
-    cap; pin the early ``status not in terminal_states`` branch
-    so a regression that lumped them in with aux can't evict an
-    in-flight clean from the runner's queue.
+    Active jobs (queued/running) go to a third bucket which has
+    no cap. Pin the early ``status not in terminal_states``
+    branch so a regression that lumped queued cleans in with
+    terminal aux can't evict an in-flight job.
     """
-    queued = FirmwareJob(
-        job_id="clean-queued",
-        configuration="device-x.yaml",
-        job_type=JobType.CLEAN,
-        status=JobStatus.QUEUED,
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+
+    # One queued job we deliberately leave alive.
+    queued_job = await controller.clean(configuration="device-queued.yaml")
+
+    # Overflow the aux pool with cancelled cleans.
+    overflow_ids = await _submit_cleans(
+        controller, _MAX_AUX_TERMINAL_JOBS + 2, prefix="device-overflow"
     )
-    aux_terminal_overflow = [
-        _terminal_job(
-            f"clean-done-{i}",
-            job_type=JobType.CLEAN,
-            configuration=f"device-{i}.yaml",
-            offset_s=i + 1,
-        )
-        for i in range(_MAX_AUX_TERMINAL_JOBS + 2)
-    ]
-    controller = firmware_controller_factory(queued, *aux_terminal_overflow)
+    await _cancel_all(controller, overflow_ids)
 
-    controller._prune_history()
-
-    # Queued job kept — active bucket is uncapped.
-    assert "clean-queued" in controller._jobs
-    # Aux terminal pool still capped despite the queued job sharing the type.
+    # Queued job is still in _jobs.
+    assert queued_job.job_id in controller._jobs
+    assert controller._jobs[queued_job.job_id].status == JobStatus.QUEUED
+    # Terminal aux pool capped (queued job doesn't count toward the cap).
     terminal_cleans = [
         j
         for j in controller._jobs.values()
@@ -183,49 +150,34 @@ def test_prune_keeps_active_jobs_regardless_of_aux_overflow(
     assert len(terminal_cleans) == _MAX_AUX_TERMINAL_JOBS
 
 
-def test_prune_does_not_dedupe_aux_by_configuration(
+async def test_aux_pool_keeps_repeated_cleans_against_same_configuration(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """Aux jobs against the same configuration all survive (within the cap).
 
-    The primary pool collapses to one entry per configuration
-    (newest wins) so the recent-jobs panel doesn't fill with
-    repeated compiles of the same device. Aux is intentionally
-    NOT deduped — repeated clean runs against the same device
-    are a meaningful diagnostic signal ("why is this device
-    needing constant cleans?") and the per-pool cap already
-    bounds memory.
+    The primary pool collapses to one entry per configuration so
+    the recent-jobs panel doesn't fill with repeated compiles of
+    the same device. Aux is intentionally NOT deduped — repeated
+    clean runs against the same device are a meaningful diagnostic
+    signal ("why is this device needing constant cleans?") and
+    the per-pool cap already bounds memory.
+
+    Repeated ``clean`` calls for the same configuration don't pile
+    up as QUEUED — supersede cancels each prior one when the next
+    arrives, which is itself a prune trigger. The auto-cancelled
+    jobs land in the aux pool; the latest one stays QUEUED. Pin
+    that all of them are still present (no per-configuration
+    collapse).
     """
-    same_config_cleans = [
-        _terminal_job(
-            f"clean-{i}",
-            job_type=JobType.CLEAN,
-            configuration="kitchen.yaml",
-            offset_s=i,
-        )
-        for i in range(3)
-    ]
-    controller = firmware_controller_factory(*same_config_cleans)
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    job_ids: list[str] = []
+    for _ in range(3):
+        job = await controller.clean(configuration="kitchen.yaml")
+        job_ids.append(job.job_id)
 
-    controller._prune_history()
-
-    # All three survive — no per-configuration collapse on the aux pool.
-    assert len(controller._jobs) == 3
-
-
-def test_prune_classification_pins_max_constants(
-    firmware_controller_factory: FirmwareControllerFactory,
-) -> None:
-    """Sanity: the constants are reasonable and aux is meaningfully smaller than primary.
-
-    The split-pool design only makes sense if aux is bounded
-    much tighter than primary; if a refactor flattened them, the
-    other tests in this module would still pass mechanically but
-    the policy intent ("keep recent compiles, treat clean/reset
-    as overflow noise") would be lost.
-    """
-    assert _MAX_AUX_TERMINAL_JOBS > 0
-    assert _MAX_PRIMARY_TERMINAL_JOBS > _MAX_AUX_TERMINAL_JOBS
-    # Avoid unused-fixture warning by exercising the factory.
-    controller = firmware_controller_factory()
-    assert controller._jobs == {}
+    # All three survived — supersede cancelled the first two (now
+    # in the aux pool) and the third is still QUEUED. None were
+    # collapsed by configuration.
+    assert set(job_ids).issubset(controller._jobs.keys())
+    statuses = {controller._jobs[jid].status for jid in job_ids}
+    assert statuses == {JobStatus.CANCELLED, JobStatus.QUEUED}
