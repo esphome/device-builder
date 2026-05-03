@@ -26,32 +26,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.config import (
-    get_device_metadata,
-    set_device_metadata,
-)
+from esphome_device_builder.controllers.config import get_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
-
-def _redirect_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Point ``ext_storage_path`` at ``tmp_path/.esphome/storage/``.
-
-    The real helper walks ``CORE.config_path`` which isn't set in
-    isolated tests; redirecting keeps the file ops on disk under
-    the test's tmp dir without spinning up a CORE.
-    """
-    storage_dir = tmp_path / ".esphome" / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-
-    def _ext(configuration: str) -> Path:
-        return storage_dir / f"{configuration}.json"
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.ext_storage_path",
-        _ext,
-    )
+from .conftest import SeedDeviceFactory
 
 
 def _make_controller(tmp_path: Path) -> DevicesController:
@@ -73,72 +53,6 @@ def _make_controller(tmp_path: Path) -> DevicesController:
     controller._scanner.scan = AsyncMock()
     controller._esphome_cmd = ["esphome"]
     return controller
-
-
-def _seed_device(
-    config_dir: Path,
-    configuration: str,
-    *,
-    friendly_name: str | None = None,
-    storage_friendly: str | None = None,
-) -> None:
-    """Lay down a YAML, StorageJSON sidecar, and ``.device-builder.json`` entry.
-
-    ``configuration`` is the YAML filename (e.g. ``kitchen.yaml``).
-    ``storage_friendly`` defaults to the YAML stem so the test
-    can verify the "friendly_name == old_name → also rewrite" branch
-    in ``_manual_rename``; pass an unrelated string to verify that
-    branch *doesn't* fire (friendly_name stays put).
-    """
-    name = configuration.removesuffix(".yaml")
-    yaml_text = (
-        "esphome:\n"
-        f"  name: {name}\n"
-        f'  friendly_name: "{friendly_name or name.title()}"\n'
-        "  platform: ESP32\n"
-        "  board: esp32-c3-devkitm-1\n"
-    )
-    (config_dir / configuration).write_text(yaml_text, encoding="utf-8")
-
-    storage_dir = config_dir / ".esphome" / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    (storage_dir / f"{configuration}.json").write_text(
-        json.dumps(
-            {
-                "storage_version": 1,
-                "name": name,
-                "friendly_name": (storage_friendly if storage_friendly is not None else name),
-                "comment": None,
-                "esphome_version": "2026.5.0-dev",
-                "src_version": 1,
-                "address": f"{name}.local",
-                "web_port": None,
-                "esp_platform": "esp32",
-                "board": "esp32-c3-devkitm-1",
-                "build_path": str(config_dir / ".esphome" / "build" / name),
-                "firmware_bin_path": str(
-                    config_dir / ".esphome" / "build" / name / ".pioenvs" / "firmware.bin"
-                ),
-                "loaded_integrations": ["api"],
-                "loaded_platforms": ["esp32"],
-                "no_mdns": False,
-                "framework": "esp-idf",
-                "core_platform": "esp32",
-                "target_platform": "esp32",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    # Sidecar metadata — exercise both ``board_id`` and
-    # ``friendly_name`` fields so the move-and-rename branches
-    # are observable.
-    set_device_metadata(
-        config_dir,
-        configuration,
-        board_id="generic-esp32c3",
-        friendly_name=friendly_name or name,
-    )
 
 
 async def _route_through_manual(
@@ -170,12 +84,14 @@ async def _route_through_manual(
 
 @pytest.mark.asyncio
 async def test_manual_rename_writes_new_yaml_with_rewritten_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """``esphome.name`` inside the YAML is rewritten and the file is moved."""
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
-    _seed_device(tmp_path, "kitchen.yaml")
+    await seed_device(tmp_path, "kitchen.yaml")
 
     result = await _route_through_manual(
         controller, monkeypatch, configuration="kitchen.yaml", new_name="livingroom"
@@ -193,7 +109,10 @@ async def test_manual_rename_writes_new_yaml_with_rewritten_name(
 
 @pytest.mark.asyncio
 async def test_manual_rename_preserves_unrelated_yaml_content(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """Only ``esphome.name`` is touched — substitutions, packages, comments stay.
 
@@ -203,7 +122,6 @@ async def test_manual_rename_preserves_unrelated_yaml_content(
     block; this test pins that scoping end-to-end so a refactor
     that loosened the rewrite would surface.
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
     yaml_text = (
         "esphome:\n"
@@ -243,7 +161,10 @@ async def test_manual_rename_preserves_unrelated_yaml_content(
 
 @pytest.mark.asyncio
 async def test_manual_rename_moves_and_rewrites_storage_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """StorageJSON moves to the new filename with name + address rewritten.
 
@@ -252,9 +173,8 @@ async def test_manual_rename_moves_and_rewrites_storage_json(
     correlation; both must reflect the rename or the device's
     online indicator goes UNKNOWN until the next compile.
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
-    _seed_device(tmp_path, "kitchen.yaml")
+    await seed_device(tmp_path, "kitchen.yaml")
 
     storage_dir = tmp_path / ".esphome" / "storage"
     old_storage = storage_dir / "kitchen.yaml.json"
@@ -278,7 +198,10 @@ async def test_manual_rename_moves_and_rewrites_storage_json(
 
 @pytest.mark.asyncio
 async def test_manual_rename_keeps_unrelated_friendly_name_in_storage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """Storage ``friendly_name`` only flips when it equalled the *old* name.
 
@@ -286,9 +209,8 @@ async def test_manual_rename_keeps_unrelated_friendly_name_in_storage(
     have it overwritten when the YAML file is renamed.
     Pin the conditional rewrite end-to-end.
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
-    _seed_device(
+    await seed_device(
         tmp_path,
         "kitchen.yaml",
         storage_friendly="My Kitchen Sensor",
@@ -308,7 +230,10 @@ async def test_manual_rename_keeps_unrelated_friendly_name_in_storage(
 
 @pytest.mark.asyncio
 async def test_manual_rename_succeeds_when_storage_json_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """A device without a StorageJSON (never compiled) renames cleanly.
 
@@ -316,7 +241,6 @@ async def test_manual_rename_succeeds_when_storage_json_missing(
     is the load-bearing operation; the storage-move is best-effort
     and shouldn't blow up the rename when there's nothing to move.
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
     # Plain YAML, no storage / sidecar.
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
@@ -333,7 +257,10 @@ async def test_manual_rename_succeeds_when_storage_json_missing(
 
 @pytest.mark.asyncio
 async def test_manual_rename_swallows_storage_load_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """A StorageJSON.load that raises doesn't abort the rename.
 
@@ -348,9 +275,8 @@ async def test_manual_rename_swallows_storage_load_failure(
     payloads rather than raising; we want to pin the
     *exception* path here.)
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
-    _seed_device(tmp_path, "kitchen.yaml")
+    await seed_device(tmp_path, "kitchen.yaml")
 
     def _raise(_path: Path) -> None:
         raise RuntimeError("simulated load failure")
@@ -371,7 +297,10 @@ async def test_manual_rename_swallows_storage_load_failure(
 
 @pytest.mark.asyncio
 async def test_manual_rename_swallows_metadata_move_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """A failure during the sidecar-metadata move doesn't abort the rename.
 
@@ -380,9 +309,8 @@ async def test_manual_rename_swallows_metadata_move_failure(
     succeeded; an issue with the metadata sidecar must not strand
     the user with mismatched on-disk state.
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
-    _seed_device(tmp_path, "kitchen.yaml")
+    await seed_device(tmp_path, "kitchen.yaml")
 
     def _raise(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("simulated metadata write failure")
@@ -409,7 +337,10 @@ async def test_manual_rename_swallows_metadata_move_failure(
 
 @pytest.mark.asyncio
 async def test_manual_rename_moves_sidecar_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """Sidecar metadata moves to the new filename, preserving ``board_id``.
 
@@ -419,9 +350,8 @@ async def test_manual_rename_moves_sidecar_metadata(
     new device would show up unidentified until the next
     StorageJSON regenerate.
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
-    _seed_device(tmp_path, "kitchen.yaml", friendly_name="kitchen")
+    await seed_device(tmp_path, "kitchen.yaml", friendly_name="kitchen")
 
     await _route_through_manual(
         controller, monkeypatch, configuration="kitchen.yaml", new_name="livingroom"
@@ -439,7 +369,10 @@ async def test_manual_rename_moves_sidecar_metadata(
 
 @pytest.mark.asyncio
 async def test_manual_rename_keeps_unrelated_metadata_friendly_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """Sidecar ``friendly_name`` survives if it didn't match the old name.
 
@@ -447,9 +380,8 @@ async def test_manual_rename_keeps_unrelated_metadata_friendly_name(
     "rewrite only when it matches old_name" branches in
     ``_manual_rename`` — pin both.
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
-    _seed_device(tmp_path, "kitchen.yaml", friendly_name="My Kitchen Sensor")
+    await seed_device(tmp_path, "kitchen.yaml", friendly_name="My Kitchen Sensor")
 
     await _route_through_manual(
         controller, monkeypatch, configuration="kitchen.yaml", new_name="livingroom"
@@ -467,7 +399,10 @@ async def test_manual_rename_keeps_unrelated_metadata_friendly_name(
 
 @pytest.mark.asyncio
 async def test_manual_rename_raises_when_source_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """A typo'd source filename surfaces as ``CommandError(INTERNAL_ERROR)``.
 
@@ -476,7 +411,6 @@ async def test_manual_rename_raises_when_source_missing(
     ``INTERNAL_ERROR`` (``FileNotFoundError`` isn't a typed
     user-correctable error).
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
     # No YAML on disk at all.
 
@@ -490,14 +424,16 @@ async def test_manual_rename_raises_when_source_missing(
 
 @pytest.mark.asyncio
 async def test_manual_rename_does_not_clobber_existing_target(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """Target filename collision is rejected before any file ops run.
 
     The public handler's pre-check fires here; verify the OLD
     YAML survives intact (no half-rename) so the user can recover.
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     (tmp_path / "livingroom.yaml").write_text("esphome:\n  name: livingroom\n", encoding="utf-8")
@@ -520,7 +456,10 @@ async def test_manual_rename_does_not_clobber_existing_target(
 
 @pytest.mark.asyncio
 async def test_manual_rename_full_round_trip(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seed_device: SeedDeviceFactory,
+    redirect_storage_path: None,
 ) -> None:
     """One assertion-rich pass that walks every observable side effect.
 
@@ -529,9 +468,8 @@ async def test_manual_rename_full_round_trip(
     verifies the *contract* (file moves + content rewrites +
     metadata move) the public ``rename_device`` API delivers.
     """
-    _redirect_storage(monkeypatch, tmp_path)
     controller = _make_controller(tmp_path)
-    _seed_device(tmp_path, "kitchen.yaml", friendly_name="kitchen")
+    await seed_device(tmp_path, "kitchen.yaml", friendly_name="kitchen")
 
     # Exercise via the executor path the API actually uses
     # (``rename_device`` calls ``run_in_executor`` to keep the
