@@ -50,6 +50,7 @@ class FirmwareControllerFactory(Protocol):
         with_settings: bool = ...,
         with_queue: bool = ...,
         with_terminate: bool = ...,
+        with_real_persistence: bool = ...,
     ) -> FirmwareController: ...
 
 
@@ -90,11 +91,19 @@ def firmware_controller_factory(
       ``_cancel_requested`` / ``_terminate_current_process``.
       Only ``cancel`` reaches into these.
 
+    - ``with_real_persistence=False`` (default): ``_persist_jobs``
+      is replaced with an ``AsyncMock`` so handler-wiring tests
+      can ``assert_awaited_once()`` / ``assert_not_awaited()``
+      without writing to disk. End-to-end persistence tests
+      (``test_persistence.py``) pass ``True`` to leave the real
+      method bound — that exercises ``metadata_transaction``
+      against ``tmp_path/.device-builder.json`` and survives
+      implementation rewrites of the on-disk shape.
+
     Always present: ``_jobs`` (populated from positional
-    arguments), ``_persist_jobs`` (``AsyncMock``), ``_db.bus``
-    (``MagicMock``). These three are universal enough that
-    every test either expects them to be called or asserts they
-    were not.
+    arguments), ``_db.bus`` (``MagicMock``), and
+    ``_db.create_background_task`` (no-op stub so ``start()``
+    can compose against it without spawning a runner).
     """
 
     def _make(
@@ -102,10 +111,12 @@ def firmware_controller_factory(
         with_settings: bool = True,
         with_queue: bool = False,
         with_terminate: bool = False,
+        with_real_persistence: bool = False,
     ) -> FirmwareController:
         controller = FirmwareController.__new__(FirmwareController)
         controller._jobs = {j.job_id: j for j in jobs}
-        controller._persist_jobs = AsyncMock()
+        if not with_real_persistence:
+            controller._persist_jobs = AsyncMock()
 
         bus = MagicMock()
         db_attrs: dict[str, Any] = {"bus": bus}
@@ -115,6 +126,12 @@ def firmware_controller_factory(
             settings.absolute_config_dir = tmp_path.resolve()
             db_attrs["settings"] = settings
         controller._db = type("DB", (), db_attrs)()
+        # ``start()`` schedules the queue runner via
+        # ``self._db.create_background_task``; persistence tests that drive
+        # through ``start()`` need a no-op so the runner doesn't actually
+        # spawn. Attach to the instance (not the class) so descriptor
+        # binding doesn't treat the lambda as an unbound method.
+        controller._db.create_background_task = lambda coro: coro.close()
 
         if with_queue:
             controller._queue = AsyncMock()
