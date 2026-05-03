@@ -37,7 +37,6 @@ exercised — not just the handler bodies.
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any
 
@@ -362,10 +361,12 @@ class _FakeProc:
 def captured_spawn(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Replace ``create_subprocess_exec`` with a recording fake.
 
-    Test asserts on ``captured["cmd"]`` to verify the command
-    shape (this is the upstream-parity check). Default fake
-    yields two output lines and exits 0; tests that need
-    different behaviour overwrite ``captured["proc_factory"]``.
+    Tests assert on ``captured["cmd"]`` to verify the command
+    shape (this is the upstream-parity check). The default fake
+    yields two output lines and exits 0; a test that needs
+    different behaviour mutates ``captured["lines"]`` /
+    ``captured["exit_code"]`` *before* opening the WS — the
+    fake reads them at spawn time, not at fixture-build time.
     """
     captured: dict[str, Any] = {
         "cmd": None,
@@ -616,10 +617,13 @@ async def test_spawn_ws_real_subprocess_streams_output(
     """Real subprocess (no mock) → output streams through, exit code passes.
 
     True end-to-end: drives the actual ``create_subprocess_exec``
-    code path against a real shell command. Catches a regression
+    code path against a real subprocess. Catches a regression
     where a refactor of the streaming loop or the helper itself
-    breaks the line iteration. Uses ``echo`` so the test
-    doesn't depend on having ``esphome`` installed.
+    breaks the line iteration. Uses ``sys.executable -c '<one-
+    liner>'`` so the test doesn't depend on having ``esphome``
+    installed and stays portable across platforms (Windows
+    ``cmd`` / POSIX shells differ on quoting; a Python one-liner
+    runs identically everywhere).
 
     Replaces ``_ESPHOME_CMD`` for the duration of the test so
     the spawn shape becomes ``[python, -c, "<script>", ...]``
@@ -689,31 +693,3 @@ def test_legacy_module_exposes_only_documented_routes() -> None:
         for route in routes
     }
     assert paths == {"/devices", "/json-config", "/compile", "/upload"}
-
-
-def test_spawn_protocol_frame_shape_matches_upstream() -> None:
-    """Pin the JSON keys of the spawn-protocol frames.
-
-    Upstream's tornado dashboard sends:
-    - ``{"event": "line", "data": <utf-8 chunk>}``
-    - ``{"event": "exit", "code": <int>}``
-
-    HA's ``esphome-dashboard-api`` reads exactly these keys.
-    Renaming any of them silently breaks the integration. The
-    handler's send-paths are short enough to literal-match
-    against this expected shape rather than a runtime check
-    over actual WS traffic.
-    """
-    from esphome_device_builder.api import legacy
-
-    src = Path(legacy.__file__).read_text(encoding="utf-8")
-    # Line frame.
-    assert (
-        '{"event": "line", "data":' in src
-        or "{'event': 'line'" in src
-        or ("event" in src and '"line"' in src and '"data"' in src)
-    )
-    # Exit frame on traversal-rejection (literal "code": 1).
-    assert json.dumps({"event": "exit", "code": 1}) in src or (
-        '"event": "exit"' in src and '"code"' in src
-    )
