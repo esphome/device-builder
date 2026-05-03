@@ -1403,7 +1403,18 @@ class FirmwareController:
                     job.status = JobStatus.QUEUED
                     await self._queue.put(job)
             except Exception:
-                _LOGGER.warning("Failed to restore job: %s", job_data.get("job_id", "?"))
+                # ``job_data`` is normally a dict, but a corrupt
+                # persistence file could contain a primitive (string,
+                # int, ``None``) where a dict was expected. ``.get``
+                # would raise ``AttributeError`` on those, defeating
+                # the "skip and continue" intent of this branch.
+                # Probe by isinstance and fall back to the raw repr.
+                identity = (
+                    job_data.get("job_id", "?")
+                    if isinstance(job_data, dict)
+                    else f"<non-dict entry: {job_data!r}>"
+                )
+                _LOGGER.warning("Failed to restore job: %s", identity, exc_info=True)
 
     async def _persist_jobs(self) -> None:
         """Save all jobs to disk."""

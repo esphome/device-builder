@@ -1,11 +1,30 @@
 """End-to-end coverage for firmware-job persistence across restarts.
 
-Drives through the public API only — no private method names,
-no on-disk format details — so the test contract is "what gets
-queued before shutdown is queued after restart" rather than "the
-metadata file has this exact key shape". An implementation
-rewrite (separate jobs.json file, sqlite, whatever) keeps the
-tests passing as long as the user-visible behaviour is preserved.
+Drives through the public API for the *contract* assertions
+(``compile`` / ``cancel`` / ``start`` / ``get_jobs``) so an
+implementation rewrite (separate ``jobs.json`` file, sqlite,
+whatever) keeps the tests passing as long as the user-visible
+behaviour is preserved. Two acknowledged seams remain:
+
+- The ``RUNNING``-carryover test mutates ``writer._jobs[id]``
+  directly to simulate "the runner was mid-build when the
+  dashboard died". There's no public API for putting a job
+  into ``RUNNING`` status without spawning a real ``esphome``
+  subprocess; the load-side rewrite is what's actually pinned
+  and that runs through the public ``start()`` path.
+- The corrupt-entry test surgically pokes
+  ``.device-builder.json`` because by design no public API
+  writes garbage into the persistence layer. The test
+  discovers the jobs key by suffix-match (``firmware_jobs``)
+  rather than importing the constant, so a rename of
+  ``_JOBS_KEY`` doesn't trip the test.
+
+Some tests also assert on ``_queue.put`` (which the conftest
+factory installs as ``AsyncMock``) to confirm the load path
+actually exchanged the job onto the queue — ``get_jobs()``
+alone reads ``self._jobs`` and would pass even if the runner
+never saw the job. That's a defence-in-depth check on the
+``"will run after restart"`` half of the policy.
 
 Pinned policy (esphome/device-builder#147):
 
@@ -13,10 +32,10 @@ Pinned policy (esphome/device-builder#147):
   interrupted build is idempotent at worst (the rebuilt
   firmware ends up identical), the user pays a couple minutes
   of compile time, no harm done. ``RUNNING`` jobs go through
-  ``_reset_job_for_recovery`` first so the rebuild's
-  ``progress`` / ``exit_code`` / ``error`` fields don't leak
-  the crashed run's state — but the original log is kept as
-  diagnostic history with a separator marker.
+  ``FirmwareJob.reset()`` first so the rebuild's ``progress``
+  / ``exit_code`` / ``error`` fields don't leak the crashed
+  run's state — but the original log is kept as diagnostic
+  history with a separator marker.
 - Terminal (``COMPLETED`` / ``FAILED`` / ``CANCELLED``) → load
   into the recent-jobs panel; don't re-queue.
 
@@ -122,6 +141,13 @@ async def test_queued_job_survives_dashboard_restart(
     assert after_restart[0].job_id == queued.job_id
     assert after_restart[0].status == JobStatus.QUEUED
     assert after_restart[0].configuration == "kitchen.yaml"
+    # Confirm the load path actually put the job back on the queue,
+    # not just into ``self._jobs``. ``get_jobs`` reads the in-memory
+    # map, which would still pass if ``_load_jobs`` forgot to
+    # ``await self._queue.put(...)``.
+    reader._queue.put.assert_awaited_once()
+    queued_arg = reader._queue.put.await_args.args[0]
+    assert queued_arg.job_id == queued.job_id
 
 
 @pytest.mark.asyncio
@@ -191,6 +217,12 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
     assert restored.exit_code is None
     # Job identity preserved.
     assert restored.configuration == "kitchen.yaml"
+    # The load path put both jobs (the running carryover + the
+    # follow-up queued sibling) onto the queue — confirms the
+    # carryover will actually run, not just sit ``QUEUED`` in
+    # ``self._jobs`` forever.
+    queued_ids = {call.args[0].job_id for call in reader._queue.put.await_args_list}
+    assert queued.job_id in queued_ids
 
 
 @pytest.mark.asyncio
@@ -311,6 +343,11 @@ async def test_cancelled_job_survives_restart_without_being_requeued(
     restored_jobs = {j.job_id: j for j in await reader.get_jobs()}
     assert queued.job_id in restored_jobs
     assert restored_jobs[queued.job_id].status == JobStatus.CANCELLED
+    # Terminal jobs must NOT be re-queued. ``get_jobs`` showing the
+    # job at status ``CANCELLED`` would pass even if the loader
+    # accidentally put it on the queue too — assert the queue
+    # interaction explicitly.
+    reader._queue.put.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -376,3 +413,51 @@ async def test_corrupt_entry_in_metadata_does_not_block_startup(
     assert len(surviving) == 1
     assert surviving[0].job_id == good.job_id
     assert any("Failed to restore job" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.parametrize(
+    "garbage",
+    ["not-a-dict", 42, None, ["nested", "list"]],
+)
+@pytest.mark.asyncio
+async def test_non_dict_entry_in_metadata_does_not_crash_warning_path(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_runtime: None,
+    caplog: pytest.LogCaptureFixture,
+    garbage: object,
+) -> None:
+    """A non-dict primitive in the persistence list logs a warning, doesn't crash.
+
+    The original ``except`` branch called ``job_data.get("job_id", "?")``
+    unconditionally, which raises ``AttributeError`` when
+    ``job_data`` is a string / int / ``None`` / list — turning
+    "skip and continue" into "abort startup". Pin the
+    isinstance guard so a future refactor that drops it shows
+    up here.
+    """
+    import json
+    import logging
+
+    (tmp_path / "kitchen.yaml").write_text("")
+    writer = _persistent_controller(firmware_controller_factory)
+    good = await writer.compile(configuration="kitchen.yaml")
+
+    metadata_path = tmp_path / ".device-builder.json"
+    raw = json.loads(metadata_path.read_text())
+    jobs_key = next(k for k in raw if k.endswith("firmware_jobs"))
+    raw[jobs_key].append(garbage)
+    metadata_path.write_text(json.dumps(raw))
+
+    with caplog.at_level(logging.WARNING):
+        reader = await _restart(firmware_controller_factory)
+
+    # Good entry survived; non-dict garbage logged a warning
+    # naming the offending raw repr.
+    surviving = await reader.get_jobs()
+    assert len(surviving) == 1
+    assert surviving[0].job_id == good.job_id
+    assert any(
+        "Failed to restore job" in rec.message and "non-dict entry" in rec.message
+        for rec in caplog.records
+    )
