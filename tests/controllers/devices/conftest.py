@@ -29,6 +29,60 @@ from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.models import EventType
 
 
+class RecordingScanner:
+    """Test fake for ``DeviceScanner`` capturing scan/reload calls.
+
+    Mirrors every public method on the production ``DeviceScanner``
+    (``scan`` / ``reload`` / ``get_by_name`` / ``devices`` /
+    ``by_path``). Calls to ``scan`` / ``reload`` / ``get_by_name``
+    land in ``self.calls`` as ``(method_name, *args)``; tests
+    assert on the list directly instead of scattering
+    ``MagicMock.assert_awaited_*`` lines.
+
+    Why a typed fake rather than ``MagicMock``: a typo
+    (``scann.assert_awaited_once``) silently passes against a
+    ``MagicMock`` because it spawns a fresh attribute on access; a
+    refactor renaming a real method (``reload`` → ``refresh_one``)
+    similarly breaks the contract without breaking the assertion.
+    Mirroring the *full* public surface (rather than just
+    ``scan`` + ``reload``) means a controller path that touches
+    ``get_by_name`` or ``by_path`` won't blow up against the fake
+    just because no earlier test exercised it.
+
+    ``reload_returns`` controls the truthy return — production's
+    ``reload`` returns ``False`` when the file isn't tracked, which
+    a few tests exercise. ``devices_by_name`` lets tests pre-seed
+    the name index that ``get_by_name`` reads from.
+    """
+
+    def __init__(
+        self,
+        *,
+        reload_returns: bool = True,
+        devices_by_name: dict[str, list[object]] | None = None,
+    ) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+        self._reload_returns = reload_returns
+        self._devices_by_name = devices_by_name or {}
+        # Mirrors ``DeviceScanner.devices`` / ``by_path`` — empty by
+        # default; tests that need a populated catalog can assign.
+        self.devices: list[object] = []
+        self.by_path: dict[Path, object] = {}
+
+    async def scan(self) -> None:
+        self.calls.append(("scan",))
+
+    async def reload(self, filename: str) -> bool:
+        self.calls.append(("reload", filename))
+        return self._reload_returns
+
+    def get_by_name(self, name: str) -> list[object]:
+        self.calls.append(("get_by_name", name))
+        # Fresh list snapshot — mirrors production semantics so
+        # callers can iterate / mutate without poisoning the index.
+        return list(self._devices_by_name.get(name, []))
+
+
 def _make_board_stub(board_id: str) -> MagicMock:
     """Build a catalog-result stub with the right ``id`` shape.
 
@@ -343,9 +397,10 @@ def make_controller() -> MakeControllerFactory:
         controller._db = MagicMock()
         controller._db.settings.config_dir = config_dir
         controller._db.settings.rel_path = lambda configuration: config_dir / configuration
-        controller._scanner = MagicMock()
-        controller._scanner.scan = AsyncMock()
-        controller._scanner.reload = AsyncMock()
+        # ``RecordingScanner`` rather than a MagicMock-shaped scanner so a
+        # typo or rename of ``scan``/``reload`` surfaces as
+        # ``AttributeError`` instead of silently passing the assertion.
+        controller._scanner = RecordingScanner()
 
         if with_state_monitor:
             controller._state_monitor = MagicMock()

@@ -321,7 +321,7 @@ async def test_archive_device_full_flow_calls_scanner(
 
     assert not yaml_path.exists()
     assert (tmp_path / "archive" / "kitchen.yaml").exists()
-    controller._scanner.scan.assert_awaited_once()
+    assert controller._scanner.calls == [("scan",)]
 
 
 @pytest.mark.asyncio
@@ -342,7 +342,7 @@ async def test_unarchive_device_full_flow_calls_scanner(
 
     assert not (archive_dir / "kitchen.yaml").exists()
     assert (tmp_path / "kitchen.yaml").exists()
-    controller._scanner.scan.assert_awaited_once()
+    assert controller._scanner.calls == [("scan",)]
 
 
 @pytest.mark.asyncio

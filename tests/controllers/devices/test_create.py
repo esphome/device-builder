@@ -46,7 +46,7 @@ async def test_create_device_translates_file_exists_to_command_error(
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "kitchen.yaml already exists" in excinfo.value.message
     # Nothing should hit the scanner when the pre-flight check fails.
-    ctrl._scanner.scan.assert_not_called()
+    assert ctrl._scanner.calls == []
 
 
 async def test_create_device_rejects_empty_name(
@@ -60,7 +60,7 @@ async def test_create_device_rejects_empty_name(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "name is required" in excinfo.value.message
-    ctrl._scanner.scan.assert_not_called()
+    assert ctrl._scanner.calls == []
 
 
 async def test_create_device_rejects_unknown_board_id(
@@ -75,7 +75,7 @@ async def test_create_device_rejects_unknown_board_id(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "bogus-board" in excinfo.value.message
-    ctrl._scanner.scan.assert_not_called()
+    assert ctrl._scanner.calls == []
 
 
 async def test_create_device_writes_stub_yaml_and_scans(
@@ -102,7 +102,7 @@ async def test_create_device_writes_stub_yaml_and_scans(
     yaml_path = tmp_path / "kitchen.yaml"
     assert yaml_path.read_text("utf-8").startswith("esphome:\n  name: kitchen\n")
     assert storage_path.exists()
-    ctrl._scanner.scan.assert_awaited_once()
+    assert ctrl._scanner.calls == [("scan",)]
 
 
 async def test_create_device_clears_residual_metadata_from_archived_same_name(

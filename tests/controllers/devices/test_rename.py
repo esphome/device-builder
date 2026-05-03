@@ -144,7 +144,7 @@ async def test_rename_invalid_yaml_uses_manual_path(
 
     assert result == {"configuration": "livingroom.yaml", "job": None}
     assert calls == [("kitchen.yaml", "livingroom")]
-    controller._scanner.scan.assert_awaited_once()
+    assert controller._scanner.calls == [("scan",)]
 
 
 @pytest.mark.asyncio
@@ -207,7 +207,7 @@ async def test_rename_valid_yaml_queues_firmware_job(
     assert result["job"]["job_type"] == JobType.RENAME
     # Manual rename must NOT have run — old YAML stays untouched
     # while the queued job owns the rollback semantics.
-    controller._scanner.scan.assert_not_called()
+    assert controller._scanner.calls == []
 
 
 @pytest.mark.asyncio

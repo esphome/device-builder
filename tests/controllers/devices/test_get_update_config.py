@@ -196,7 +196,7 @@ async def test_update_config_triggers_scan(
 
     await controller.update_config(configuration="new.yaml", content="esphome:\n  name: new\n")
 
-    controller._scanner.scan.assert_awaited_once()
+    assert controller._scanner.calls == [("scan",)]
 
 
 @pytest.mark.asyncio

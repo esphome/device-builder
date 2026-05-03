@@ -83,7 +83,7 @@ async def test_manual_rename_writes_new_yaml_with_rewritten_name(
     # Old YAML is gone.
     assert not (tmp_path / "kitchen.yaml").exists()
     # Scanner was kicked so the device list refreshes.
-    controller._scanner.scan.assert_awaited_once()
+    assert controller._scanner.calls == [("scan",)]
 
 
 @pytest.mark.asyncio
@@ -489,4 +489,4 @@ async def test_manual_rename_full_round_trip(
     assert await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml") == {}
     assert await asyncio.to_thread(get_device_metadata, tmp_path, "livingroom.yaml") != {}
     # Scanner kicked.
-    controller._scanner.scan.assert_awaited_once()
+    assert controller._scanner.calls == [("scan",)]

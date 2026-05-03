@@ -117,7 +117,8 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
         ]
     ]
     assert persist_calls == ["kitchen.yaml"]
-    controller._scanner.reload.assert_awaited_once_with("kitchen.yaml")
+    reload_calls = [c for c in controller._scanner.calls if c[0] == "reload"]
+    assert reload_calls == [("reload", "kitchen.yaml")]
     # Pending guard cleared in the ``finally``.
     assert controller._regenerate_pending == set()
     # Success → not in failed set.
@@ -219,7 +220,7 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     await _drain(controller)
 
     # Failure → reload skipped, persist skipped, failed marker set.
-    controller._scanner.reload.assert_not_called()
+    assert not any(c[0] == "reload" for c in controller._scanner.calls)
     assert persist_calls == []
     assert controller._regenerate_failed == {"kitchen.yaml"}
     # Pending cleared via the ``finally``.
@@ -260,7 +261,7 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
     )
     await _drain(controller)
 
-    controller._scanner.reload.assert_not_called()
+    assert not any(c[0] == "reload" for c in controller._scanner.calls)
     assert controller._regenerate_failed == {"kitchen.yaml"}
     assert controller._regenerate_pending == set()
 

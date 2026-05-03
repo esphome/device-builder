@@ -87,7 +87,7 @@ async def test_import_device_invokes_import_config_and_returns_path(
     # No matching importable cache entry → fall back to wifi (legacy behaviour).
     assert args[5] == "wifi"
     assert args[6] == "true"  # encryption flag forwarded
-    ctrl._scanner.scan.assert_awaited_once()
+    assert ("scan",) in ctrl._scanner.calls
 
 
 async def test_import_device_passes_ethernet_network_through_to_import_config(
@@ -262,7 +262,7 @@ async def test_import_device_translates_file_exists_to_command_error(
     assert "kitchen.yaml already exists" in excinfo.value.message
     # Scan must NOT run when the YAML write failed — otherwise we'd
     # falsely advertise a successful adoption to subscribers.
-    ctrl._scanner.scan.assert_not_called()
+    assert ctrl._scanner.calls == []
 
 
 async def test_import_device_returns_even_when_post_scan_fails(
