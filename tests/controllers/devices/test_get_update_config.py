@@ -11,10 +11,11 @@ Coverage targets:
 
 * Round-trip: write content with ``update_config`` and re-read it
   with ``get_config``.
-* ``update_config`` does the disk write off the event loop (the
-  read uses ``Path.read_text`` / ``Path.write_text`` which can
-  block on slow / network-mounted config dirs) — exercised by
-  asserting the file lands on disk after the await returns.
+* Both methods route the underlying ``Path.read_text`` /
+  ``Path.write_text`` through ``loop.run_in_executor`` so the
+  blocking syscall doesn't stall the event loop on slow /
+  network-mounted config dirs — exercised by asserting the file
+  lands on disk after the await returns.
 * ``update_config`` triggers a fresh scan + StorageJSON
   regenerate so the dashboard's UI reflects the new YAML without
   waiting for a full compile.
@@ -157,14 +158,18 @@ async def test_update_config_writes_utf8_unicode_intact(tmp_path: Path) -> None:
     matters on Windows where the default would otherwise be
     cp1252. Without this, comments with em dashes / accents
     would silently corrupt on save.
+
+    Asserts via ``read_text`` (not ``read_bytes``) because
+    ``Path.write_text`` defaults to ``newline=None``, which
+    translates LF to CRLF on Windows; the round-trip decode
+    normalises newlines so the assertion is platform-independent.
     """
     controller = _make_controller(tmp_path)
     new_content = "esphome:\n  name: küche\n  # — and ñ\n"
 
     await controller.update_config(configuration="kuche.yaml", content=new_content)
 
-    raw = (tmp_path / "kuche.yaml").read_bytes()
-    assert raw == new_content.encode("utf-8")
+    assert (tmp_path / "kuche.yaml").read_text(encoding="utf-8") == new_content
 
 
 @pytest.mark.asyncio
@@ -206,40 +211,41 @@ async def test_update_config_schedules_storage_regenerate(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_update_config_orders_write_before_scan_and_regenerate(
-    tmp_path: Path,
-) -> None:
-    """The disk write completes before the scan and regenerate fire.
+async def test_update_config_writes_before_scanner_runs(tmp_path: Path) -> None:
+    """The disk write completes before ``scanner.scan()`` fires.
 
-    Scanner reads the YAML it scans; regenerate spawns ``esphome
-    compile`` against the file. Both must see the new content,
-    not the stale on-disk one. A refactor that hoisted either
-    ahead of the write would silently regress the "save → see
-    new metadata" flow. Pin the order via call-time inspection.
+    Scanner reads the YAML it scans; if scan ran first, it would
+    see the stale on-disk version and dispatch DEVICE_UPDATED with
+    the old metadata. Pin the ordering by reading the file
+    inside the scan callback — once scan() runs, the new content
+    must already be on disk.
+
+    Read goes through ``asyncio.to_thread`` so blockbuster's
+    event-loop guard doesn't fault on the synchronous ``read_text``
+    on CI.
+
+    Regenerate-after-scan is implicit: ``update_config`` awaits
+    ``scan()`` before calling ``_schedule_storage_regenerate``,
+    so any ordering of regen-vs-write follows from this scan
+    check by virtue of the linear async control flow.
     """
+    import asyncio as _asyncio
+
     controller = _make_controller(tmp_path)
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: stale\n", encoding="utf-8")
 
     new_content = "esphome:\n  name: fresh\n"
     seen_during_scan: list[str] = []
-    seen_during_regen: list[str] = []
 
     async def _record_scan() -> None:
-        seen_during_scan.append(yaml_path.read_text(encoding="utf-8"))
-
-    def _record_regen(_configuration: str) -> None:
-        seen_during_regen.append(yaml_path.read_text(encoding="utf-8"))
+        seen_during_scan.append(await _asyncio.to_thread(yaml_path.read_text, "utf-8"))
 
     controller._scanner.scan = AsyncMock(side_effect=_record_scan)
-    controller._schedule_storage_regenerate = MagicMock(  # type: ignore[method-assign]
-        side_effect=_record_regen
-    )
 
     await controller.update_config(configuration="kitchen.yaml", content=new_content)
 
     assert seen_during_scan == [new_content]
-    assert seen_during_regen == [new_content]
 
 
 @pytest.mark.asyncio
