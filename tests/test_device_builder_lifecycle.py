@@ -1,0 +1,282 @@
+"""End-to-end smoke test for ``DeviceBuilder`` start / stop.
+
+Catches controller-wiring regressions that the per-controller
+test files miss: a new controller added to ``__init__`` but not
+to ``start()``'s init list, or omitted from the
+``collect_api_commands`` loop, would silently lose its api
+commands without breaking any narrower test.
+
+These tests instantiate a real ``DeviceBuilder`` against a
+``tmp_path`` config dir and run ``start`` + ``stop``. The three
+network-touching surfaces (firmware's ``_verify_esphome_importable``
+subprocess, devices' state-monitor zeroconf browser, MQTT
+coordinator's broker connect) are patched out so the test stays
+hermetic; everything else runs end-to-end including catalog
+loads and the command-handler registration walk.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock
+
+import pytest
+from esphome.core import CORE
+
+from esphome_device_builder.controllers._device_mqtt_coordinator import (
+    DeviceMqttCoordinator,
+)
+from esphome_device_builder.controllers._device_state_monitor import (
+    DeviceStateMonitor,
+)
+from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.device_builder import DeviceBuilder
+
+
+@pytest.fixture
+def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the network / subprocess surfaces so the smoke test runs hermetically.
+
+    - ``_find_esphome_cmd`` returns a fake invocation so the resolver
+      doesn't depend on a real esphome install.
+    - ``_verify_esphome_importable`` short-circuits to ``(True, "")``
+      so the firmware controller's startup probe doesn't spawn a
+      15-second subprocess.
+    - ``DeviceStateMonitor.start/stop`` are AsyncMocks at the class
+      level so any instance constructed by ``DevicesController``
+      picks them up.
+    - ``DeviceMqttCoordinator.reconcile/stop`` are AsyncMocks for the
+      same reason — production opens a paho broker connection.
+    """
+    fake_cmd = ["python", "-m", "esphome"]
+    for module in (
+        "esphome_device_builder.controllers.firmware.controller",
+        "esphome_device_builder.controllers.editor",
+        "esphome_device_builder.controllers.devices.controller",
+    ):
+        monkeypatch.setattr(f"{module}._find_esphome_cmd", lambda: fake_cmd)
+    monkeypatch.setattr(
+        FirmwareController,
+        "_load_jobs",
+        AsyncMock(),
+    )
+    # ``_verify_esphome_importable`` lives at module scope inside
+    # ``firmware.controller``; the firmware ``start()`` imports the
+    # name from there.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.controller._verify_esphome_importable",
+        AsyncMock(return_value=(True, "")),
+    )
+
+    # Patch the methods on the *classes* so any instance constructed
+    # by ``start()`` picks them up — production ``DevicesController``
+    # instantiates the monitors in its ``__init__``.
+    monkeypatch.setattr(DeviceStateMonitor, "start", AsyncMock())
+    monkeypatch.setattr(DeviceStateMonitor, "stop", AsyncMock())
+    monkeypatch.setattr(DeviceMqttCoordinator, "reconcile", AsyncMock())
+    monkeypatch.setattr(DeviceMqttCoordinator, "stop", AsyncMock())
+
+
+def _make_settings(tmp_path: Path) -> DashboardSettings:
+    """Build a ``DashboardSettings`` rooted at ``tmp_path``.
+
+    Matches the shape ``DeviceBuilder.__init__`` expects without
+    going through the CLI parser. ``CORE.config_path`` is also set
+    here because the production parser does it as a side effect
+    (see ``DashboardSettings.parse_args``); without it the
+    catalog loaders crash on ``CORE.config_dir.is_dir`` when
+    ``CORE.config_path`` is still the package-default ``None``.
+    """
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+    CORE.config_path = tmp_path / ".dashboard-sentinel"
+    return settings
+
+
+# ---------------------------------------------------------------------------
+# Pre-start state
+# ---------------------------------------------------------------------------
+
+
+def test_init_leaves_controllers_unset(tmp_path: Path) -> None:
+    """``DeviceBuilder()`` instantiates with controllers ``None`` until ``start()``.
+
+    Pin the documented "controllers populated in start()" contract
+    so a refactor that eagerly constructs them in ``__init__``
+    surfaces here — eager construction would mean a missed
+    ``settings`` dependency wouldn't crash until first command
+    instead of at construction time, which is a worse failure mode.
+    """
+    db = DeviceBuilder(_make_settings(tmp_path))
+
+    assert db.auth is None
+    assert db.boards is None
+    assert db.components is None
+    assert db.config is None
+    assert db.devices is None
+    assert db.automations is None
+    assert db.firmware is None
+    assert db.editor is None
+    assert db.command_handlers == {}
+    assert db.loop is None
+    # Pool eagerly constructed so probes pre-start see it.
+    assert db._executor is not None
+
+
+# ---------------------------------------------------------------------------
+# start()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_initialises_all_controllers(tmp_path: Path, _hermetic_lifecycle: None) -> None:
+    """``start()`` populates every controller attr.
+
+    A new controller added to ``__init__`` (the documented
+    ``None``-defaults) but missed in ``start()`` would silently
+    leave that attr as ``None`` — and any code path that reaches
+    for it later crashes with ``AttributeError`` on a
+    ``NoneType``. Pin the full set so the regression class can't
+    hide.
+    """
+    db = DeviceBuilder(_make_settings(tmp_path))
+    try:
+        await db.start()
+
+        assert db.loop is not None
+        assert db.auth is not None
+        assert db.boards is not None
+        assert db.components is not None
+        assert db.config is not None
+        assert db.devices is not None
+        assert db.automations is not None
+        assert db.firmware is not None
+        assert db.editor is not None
+    finally:
+        await db.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_registers_command_handlers_from_every_controller(
+    tmp_path: Path, _hermetic_lifecycle: None
+) -> None:
+    """``command_handlers`` includes one entry per controller's @api_command set.
+
+    Pin a sample of well-known commands rather than the full
+    inventory (which churns with every feature add) — enough to
+    catch a refactor that dropped a controller from the
+    ``collect_api_commands`` loop.
+    """
+    db = DeviceBuilder(_make_settings(tmp_path))
+    try:
+        await db.start()
+
+        # Sample one command per controller. If the loop ever skipped
+        # a controller these would fail.
+        assert "auth/login" in db.command_handlers  # AuthController
+        assert "boards/get_boards" in db.command_handlers  # BoardCatalog
+        assert "components/get_components" in db.command_handlers  # ComponentCatalog
+        assert "config/version" in db.command_handlers  # ConfigController
+        assert "devices/list" in db.command_handlers  # DevicesController
+        assert "firmware/compile" in db.command_handlers  # FirmwareController
+        assert "editor/validate_yaml" in db.command_handlers  # EditorController
+
+        # Built-in commands wired post-loop.
+        assert "ping" in db.command_handlers
+        assert "subscribe_events" in db.command_handlers
+        # ``auth`` is an alias of ``auth/login`` so both forms work on the wire.
+        assert db.command_handlers["auth"] is db.command_handlers["auth/login"]
+    finally:
+        await db.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_spawns_background_polling_task(
+    tmp_path: Path, _hermetic_lifecycle: None
+) -> None:
+    """``_bg_task`` is created and live after ``start``.
+
+    ``DeviceBuilder.poll`` calls into ``DevicesController.poll``
+    every ``_BG_POLL_INTERVAL_SECONDS`` to pick up file-watcher
+    misses; if ``start()`` ever forgot to spawn the task the
+    dashboard would silently stop seeing scan changes.
+    """
+    db = DeviceBuilder(_make_settings(tmp_path))
+    try:
+        await db.start()
+
+        assert db._bg_task is not None
+        assert not db._bg_task.done()
+    finally:
+        await db.stop()
+
+
+# ---------------------------------------------------------------------------
+# stop()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_background_tasks_and_tears_down_controllers(
+    tmp_path: Path, _hermetic_lifecycle: None
+) -> None:
+    """``stop()`` cancels the background task, drains tracked tasks, stops controllers.
+
+    Pin every step in the teardown chain. A graceful shutdown
+    that left the bg task spinning would prevent the process from
+    exiting on SIGINT — exactly the class of bug a smoke test
+    catches that a per-method test doesn't.
+    """
+    db = DeviceBuilder(_make_settings(tmp_path))
+    await db.start()
+    bg_task = db._bg_task
+    assert bg_task is not None
+
+    # Add a tracked task so we can verify the drain branch fires.
+    drained = asyncio.Event()
+
+    async def _tracked() -> None:
+        try:
+            await drained.wait()
+        except asyncio.CancelledError:
+            drained.set()
+            raise
+
+    db.create_background_task(_tracked())
+
+    await db.stop()
+
+    # Bg task cancelled.
+    assert bg_task.done()
+    # Tracked task observed cancellation.
+    assert drained.is_set()
+    # Devices and editor controllers had ``stop()`` invoked — they
+    # set ``_unsub_job_completed`` to ``None`` on stop, which is
+    # the externally-observable signal.
+    assert db.devices is not None
+    assert db.devices._unsub_job_completed is None  # type: ignore[attr-defined]
+    # Executor pool drained.
+    assert db._executor is None
+
+
+@pytest.mark.asyncio
+async def test_stop_is_safe_without_start(tmp_path: Path) -> None:
+    """``stop()`` on a never-started instance doesn't crash.
+
+    Production calls ``stop()`` from the aiohttp ``on_shutdown``
+    hook, which fires even when ``start()`` never completed
+    (e.g. early exception during catalog load). The ``if … is
+    not None`` guards in ``stop()`` are what make that path
+    survivable. Pin them.
+    """
+    db = DeviceBuilder(_make_settings(tmp_path))
+
+    # Never called start(); controllers are still ``None``.
+    await db.stop()
+
+    # Pool still gets drained even on the early-exit path so the
+    # process can exit cleanly.
+    assert db._executor is None
