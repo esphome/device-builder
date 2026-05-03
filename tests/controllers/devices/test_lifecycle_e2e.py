@@ -6,15 +6,15 @@ bypass ``__init__`` via ``__new__`` and stub
 individually — that lets each test target one method but leaves
 the wiring code itself uncovered:
 
-- ``__init__`` (lines 81-129) — constructs the scanner, state
-  monitor, and MQTT coordinator and threads their callbacks
-  back to the controller.
-- ``start()`` (lines 142-149) — resolves the esphome cmd, loads
-  ignored devices, kicks the scanner, starts the state monitor,
+- ``__init__`` — constructs the scanner, state monitor, and
+  MQTT coordinator and threads their callbacks back to the
+  controller.
+- ``start()`` — resolves the esphome cmd, loads ignored
+  devices, kicks the scanner, starts the state monitor,
   reconciles MQTT, and registers the JOB_COMPLETED listener.
-- ``stop()`` (lines 155-159) — unsubscribes the bus listener and
-  stops the two background monitors.
-- ``poll()`` (lines 163-164) — re-scans and reconciles MQTT.
+- ``stop()`` — unsubscribes the bus listener and stops the two
+  background monitors.
+- ``poll()`` — re-scans and reconciles MQTT.
 
 These tests instantiate a real ``DevicesController`` against a
 ``tmp_path`` config dir and a thin stub ``DeviceBuilder`` so the
@@ -165,6 +165,14 @@ async def test_start_runs_full_initialisation_chain(
     refactor that reordered (e.g. ``state_monitor.start`` before
     ``scanner.scan``) could cause cold-start ordering bugs the
     individual tests wouldn't catch.
+
+    Call ordering is asserted via a parent ``MagicMock`` that all
+    three inner lifecycle hooks attach to: the production code
+    awaits ``scanner.scan`` first, then ``state_monitor.start``,
+    then ``mqtt_coordinator.reconcile``. The state monitor reads
+    ``self._scanner.devices`` for its first sweep, so swapping
+    those two would have it iterate over an empty list at
+    cold-start.
     """
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.controller._find_esphome_cmd",
@@ -173,6 +181,14 @@ async def test_start_runs_full_initialisation_chain(
     db = _make_db(tmp_path)
     controller = DevicesController(db)
     _stub_inner_lifecycle(controller)
+
+    # Attach each AsyncMock to a single parent so ``mock_calls`` on
+    # the parent records the relative ordering across the three
+    # inner controllers.
+    parent = MagicMock()
+    parent.attach_mock(controller._scanner.scan, "scan")  # type: ignore[arg-type]
+    parent.attach_mock(controller._state_monitor.start, "state_monitor_start")  # type: ignore[arg-type]
+    parent.attach_mock(controller._mqtt_coordinator.reconcile, "reconcile")  # type: ignore[arg-type]
 
     # Seed an ignored-devices file so ``_load_ignored_devices`` has
     # something real to process — otherwise it's silently a no-op
@@ -192,6 +208,9 @@ async def test_start_runs_full_initialisation_chain(
     controller._scanner.scan.assert_awaited_once()
     controller._state_monitor.start.assert_awaited_once()
     controller._mqtt_coordinator.reconcile.assert_awaited_once()
+    # Pin the relative order: scan → state_monitor.start → reconcile.
+    observed_order = [c[0] for c in parent.mock_calls]
+    assert observed_order == ["scan", "state_monitor_start", "reconcile"]
     # JOB_COMPLETED listener registered via the real ``EventBus``-shaped stub.
     assert db.bus.listeners == [(EventType.JOB_COMPLETED, controller._on_firmware_job_completed)]
     assert controller._unsub_job_completed is not None
