@@ -20,6 +20,8 @@ from esphome_device_builder.controllers._device_state_monitor import DeviceState
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, DeviceState, EventType
 
+from .conftest import make_state_monitor_with_callbacks
+
 
 def _device(**overrides: Any) -> Device:
     base: dict[str, Any] = {
@@ -35,27 +37,6 @@ def _device(**overrides: Any) -> Device:
     return Device(**base)
 
 
-def _monitor(devices: list[Device]) -> tuple[DeviceStateMonitor, MagicMock]:
-    # Mirror production: the controller's callback writes the value
-    # back onto the device. The monitor's dedupe is keyed off the
-    # device's ``deployed_version`` so without the side-effect every
-    # repeat call would re-fire (the dedupe would never observe the
-    # post-callback state).
-    def _flip(name: str, version: str) -> None:
-        for d in devices:
-            if d.name == name:
-                d.deployed_version = version
-
-    on_version = MagicMock(side_effect=_flip)
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: devices,
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_version_change=on_version,
-    )
-    return monitor, on_version
-
-
 # ----------------------------------------------------------------------
 # DeviceStateMonitor.apply_version
 # ----------------------------------------------------------------------
@@ -63,9 +44,9 @@ def _monitor(devices: list[Device]) -> tuple[DeviceStateMonitor, MagicMock]:
 
 def test_apply_version_first_observation_fires_callback() -> None:
     """A version we haven't seen before reaches the controller."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_version("kitchen", "2026.5.0") is True
-    cb.assert_called_once_with("kitchen", "2026.5.0")
+    assert callbacks.calls == [("on_version_change", "kitchen", "2026.5.0")]
 
 
 def test_apply_version_dedupes_same_value() -> None:
@@ -75,35 +56,35 @@ def test_apply_version_dedupes_same_value() -> None:
     deduplication is the difference between a quiet ``DEVICE_UPDATED``
     stream and the UI thrashing.
     """
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_version("kitchen", "2026.5.0")
     monitor.apply_version("kitchen", "2026.5.0")
-    cb.assert_called_once()
+    assert callbacks.calls == [("on_version_change", "kitchen", "2026.5.0")]
 
 
 def test_apply_version_fires_on_change() -> None:
     """A different version than the last observation fires the callback again."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_version("kitchen", "2026.5.0")
     monitor.apply_version("kitchen", "2026.6.0")
-    assert cb.call_args_list == [
-        (("kitchen", "2026.5.0"),),
-        (("kitchen", "2026.6.0"),),
+    assert callbacks.calls == [
+        ("on_version_change", "kitchen", "2026.5.0"),
+        ("on_version_change", "kitchen", "2026.6.0"),
     ]
 
 
 def test_apply_version_ignores_empty_string() -> None:
     """Devices that don't announce a version → no-op (don't fire empty-string callbacks)."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_version("kitchen", "") is False
-    cb.assert_not_called()
+    assert callbacks.calls == []
 
 
 def test_apply_version_ignores_unknown_device() -> None:
     """Stray mDNS announcements for devices not in the catalog are dropped."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_version("ghost", "2026.5.0") is False
-    cb.assert_not_called()
+    assert callbacks.calls == []
 
 
 def test_apply_version_no_callback_silently_drops() -> None:

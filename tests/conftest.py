@@ -27,12 +27,13 @@ import pytest
 from blockbuster import blockbuster_ctx
 from esphome.core import CORE
 
+from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.event_bus import Event, EventBus
-from esphome_device_builder.models import Device, EventType
+from esphome_device_builder.models import Device, DeviceState, EventType
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
@@ -314,3 +315,98 @@ def make_devices_controller_with_bus(
         by_name.setdefault(device.name, []).append(device)
     controller._scanner.get_by_name = lambda name: by_name.get(name, [])
     return controller, captured
+
+
+# ---------------------------------------------------------------------------
+# DeviceStateMonitor callback recorder
+#
+# Every ``test_mdns_*.py`` file at the top of the tree was carrying a
+# near-identical ``_monitor()`` helper that wired ``MagicMock(side_effect=
+# _flip)`` callbacks per field, then asserted via ``cb.assert_called_with``.
+# The ``_flip`` side-effect was specifically there to mirror what the real
+# DevicesController callback does — without it, the monitor's dedupe
+# (which keys off the device's *own* field) doesn't observe the
+# post-callback state and every repeat call would re-fire.
+# ---------------------------------------------------------------------------
+
+
+class RecordingMonitorCallbacks:
+    """Capture monitor callback calls + apply production state-flip side-effects.
+
+    Mirrors the callback interface ``DeviceStateMonitor`` invokes on
+    its owning ``DevicesController`` (``on_state_change`` /
+    ``on_ip_change`` / ``on_version_change`` /
+    ``on_config_hash_change`` / ``on_api_encryption_change``). Each
+    invocation lands in ``self.calls`` as a flat tuple
+    ``(callback_name, *args)``; tests assert on the list directly
+    instead of poking ``MagicMock.assert_called_*``.
+
+    Each callback also writes the new value back onto the matching
+    ``Device`` in *devices* — the same write the production
+    ``DevicesController._on_*_change`` callback does. Without that
+    side-effect, the monitor's dedupe (keyed off the device's own
+    field) would never observe the post-callback state and every
+    repeat call would re-fire. Centralising means every mdns test
+    inherits the correct mirror without copy-pasting the
+    ``_flip``-style helper.
+
+    Type-resistant to typos: ``cb.assertt_called_once_with`` would
+    spawn a fresh ``MagicMock`` attribute and silently pass; calling
+    ``callbacks.assertt_called_once_with`` raises ``AttributeError``.
+    """
+
+    def __init__(self, devices: list[Device]) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+        self._devices = devices
+
+    def on_state_change(self, name: str, state: DeviceState, source: str) -> None:
+        self.calls.append(("on_state_change", name, state, source))
+        for device in self._devices:
+            if device.name == name:
+                device.state = state
+
+    def on_ip_change(self, name: str, ip: str) -> None:
+        self.calls.append(("on_ip_change", name, ip))
+        for device in self._devices:
+            if device.name == name:
+                device.ip = ip
+
+    def on_version_change(self, name: str, version: str) -> None:
+        self.calls.append(("on_version_change", name, version))
+        for device in self._devices:
+            if device.name == name:
+                device.deployed_version = version
+
+    def on_config_hash_change(self, name: str, config_hash: str) -> None:
+        self.calls.append(("on_config_hash_change", name, config_hash))
+        for device in self._devices:
+            if device.name == name:
+                device.deployed_config_hash = config_hash
+
+    def on_api_encryption_change(self, name: str, encryption: str) -> None:
+        self.calls.append(("on_api_encryption_change", name, encryption))
+        for device in self._devices:
+            if device.name == name:
+                device.api_encryption_active = encryption
+
+
+def make_state_monitor_with_callbacks(
+    devices: list[Device],
+) -> tuple[DeviceStateMonitor, RecordingMonitorCallbacks]:
+    """Build a ``DeviceStateMonitor`` + ``RecordingMonitorCallbacks`` pair.
+
+    Centralises the per-test ``_monitor()`` helper that every
+    ``test_mdns_*.py`` file was carrying. Returns the live monitor
+    plus the callbacks recorder; tests assert on
+    ``callbacks.calls``.
+    """
+    callbacks = RecordingMonitorCallbacks(devices)
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: devices,
+        on_state_change=callbacks.on_state_change,
+        on_ip_change=callbacks.on_ip_change,
+        on_version_change=callbacks.on_version_change,
+        on_config_hash_change=callbacks.on_config_hash_change,
+        on_api_encryption_change=callbacks.on_api_encryption_change,
+    )
+    return monitor, callbacks

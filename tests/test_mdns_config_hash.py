@@ -20,6 +20,8 @@ from esphome_device_builder.controllers._device_state_monitor import DeviceState
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, DeviceState, EventType
 
+from .conftest import make_state_monitor_with_callbacks
+
 
 def _device(**overrides: Any) -> Device:
     base: dict[str, Any] = {
@@ -35,27 +37,6 @@ def _device(**overrides: Any) -> Device:
     return Device(**base)
 
 
-def _monitor(devices: list[Device]) -> tuple[DeviceStateMonitor, MagicMock]:
-    # Mirror production: the controller's callback writes the value
-    # back onto the device. The monitor's dedupe is keyed off the
-    # device's ``deployed_config_hash`` so without the side-effect
-    # every repeat call would re-fire.
-    def _flip(name: str, config_hash: str) -> None:
-        for d in devices:
-            if d.name == name:
-                d.deployed_config_hash = config_hash
-
-    on_config_hash = MagicMock(side_effect=_flip)
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: devices,
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_version_change=MagicMock(),
-        on_config_hash_change=on_config_hash,
-    )
-    return monitor, on_config_hash
-
-
 # ----------------------------------------------------------------------
 # DeviceStateMonitor.apply_config_hash
 # ----------------------------------------------------------------------
@@ -63,9 +44,9 @@ def _monitor(devices: list[Device]) -> tuple[DeviceStateMonitor, MagicMock]:
 
 def test_apply_config_hash_first_observation_fires_callback() -> None:
     """A hash we haven't seen before reaches the controller."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_config_hash("kitchen", "1a2b3c4d") is True
-    cb.assert_called_once_with("kitchen", "1a2b3c4d")
+    assert callbacks.calls == [("on_config_hash_change", "kitchen", "1a2b3c4d")]
 
 
 def test_apply_config_hash_dedupes_same_value() -> None:
@@ -74,28 +55,28 @@ def test_apply_config_hash_dedupes_same_value() -> None:
     mDNS announcements are noisy and the hash only changes when the
     user re-flashes; deduping keeps the DEVICE_UPDATED stream quiet.
     """
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_config_hash("kitchen", "1a2b3c4d")
     monitor.apply_config_hash("kitchen", "1a2b3c4d")
-    cb.assert_called_once()
+    assert callbacks.calls == [("on_config_hash_change", "kitchen", "1a2b3c4d")]
 
 
 def test_apply_config_hash_fires_on_change() -> None:
     """A different hash than the last observation fires the callback again."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_config_hash("kitchen", "1a2b3c4d")
     monitor.apply_config_hash("kitchen", "deadbeef")
-    assert cb.call_args_list == [
-        (("kitchen", "1a2b3c4d"),),
-        (("kitchen", "deadbeef"),),
+    assert callbacks.calls == [
+        ("on_config_hash_change", "kitchen", "1a2b3c4d"),
+        ("on_config_hash_change", "kitchen", "deadbeef"),
     ]
 
 
 def test_apply_config_hash_ignores_empty_string() -> None:
     """Pre-#16145 firmware doesn't broadcast the TXT → empty-string is a no-op."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_config_hash("kitchen", "") is False
-    cb.assert_not_called()
+    assert callbacks.calls == []
 
 
 def test_apply_config_hash_refires_after_device_rebuild() -> None:
@@ -114,7 +95,7 @@ def test_apply_config_hash_refires_after_device_rebuild() -> None:
     again, and the device repopulates.
     """
     devices = [_device()]
-    monitor, cb = _monitor(devices)
+    monitor, callbacks = make_state_monitor_with_callbacks(devices)
 
     # First observation: device populated.
     monitor.apply_config_hash("kitchen", "1a2b3c4d")
@@ -129,14 +110,17 @@ def test_apply_config_hash_refires_after_device_rebuild() -> None:
     # the prior observation; the rebuilt device needs the value back.
     monitor.apply_config_hash("kitchen", "1a2b3c4d")
     assert devices[0].deployed_config_hash == "1a2b3c4d"
-    assert cb.call_count == 2
+    assert [c for c in callbacks.calls if c[0] == "on_config_hash_change"] == [
+        ("on_config_hash_change", "kitchen", "1a2b3c4d"),
+        ("on_config_hash_change", "kitchen", "1a2b3c4d"),
+    ]
 
 
 def test_apply_config_hash_ignores_unknown_device() -> None:
     """Stray mDNS announcements for devices not in the catalog are dropped."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_config_hash("ghost", "1a2b3c4d") is False
-    cb.assert_not_called()
+    assert callbacks.calls == []
 
 
 def test_apply_config_hash_no_callback_silently_drops() -> None:

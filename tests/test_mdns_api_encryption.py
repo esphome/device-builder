@@ -22,9 +22,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, DeviceState, EventType
+
+from .conftest import make_state_monitor_with_callbacks
 
 
 def _device(**overrides: Any) -> Device:
@@ -39,32 +40,13 @@ def _device(**overrides: Any) -> Device:
     return Device(**base)
 
 
-def _monitor(devices: list[Device]) -> tuple[DeviceStateMonitor, MagicMock]:
-    # Mirror production: the controller's callback writes the value
-    # back onto the device. The monitor's dedupe is keyed off the
-    # device's ``api_encryption_active`` so without the side-effect
-    # every repeat call would re-fire (and the empty-string
-    # plaintext state in particular would never settle).
-    def _flip(name: str, encryption: str) -> None:
-        for d in devices:
-            if d.name == name:
-                d.api_encryption_active = encryption
-
-    on_enc = MagicMock(side_effect=_flip)
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: devices,
-        on_state_change=MagicMock(),
-        on_ip_change=MagicMock(),
-        on_api_encryption_change=on_enc,
-    )
-    return monitor, on_enc
-
-
 def test_apply_api_encryption_first_observation_fires_callback() -> None:
     """A first encryption value reaches the controller."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_api_encryption("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256") is True
-    cb.assert_called_once_with("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
+    assert callbacks.calls == [
+        ("on_api_encryption_change", "kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
+    ]
 
 
 def test_apply_api_encryption_empty_string_is_a_real_observation() -> None:
@@ -74,26 +56,30 @@ def test_apply_api_encryption_empty_string_is_a_real_observation() -> None:
     callback firing at least once to know we have ground truth from
     mDNS at all.
     """
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_api_encryption("kitchen", "") is True
-    cb.assert_called_once_with("kitchen", "")
+    assert callbacks.calls == [("on_api_encryption_change", "kitchen", "")]
 
 
 def test_apply_api_encryption_dedupes_same_value() -> None:
     """Repeated identical observations don't churn the controller."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_api_encryption("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
     monitor.apply_api_encryption("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
-    cb.assert_called_once()
+    assert callbacks.calls == [
+        ("on_api_encryption_change", "kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
+    ]
 
 
 def test_apply_api_encryption_fires_on_change() -> None:
     """Encrypted → plaintext (or vice versa) re-fires the callback."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_api_encryption("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
     monitor.apply_api_encryption("kitchen", "")
-    assert cb.call_count == 2
-    assert cb.call_args_list[1].args == ("kitchen", "")
+    assert callbacks.calls == [
+        ("on_api_encryption_change", "kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256"),
+        ("on_api_encryption_change", "kitchen", ""),
+    ]
 
 
 def test_apply_api_encryption_unknown_device_is_ignored() -> None:
@@ -103,17 +89,17 @@ def test_apply_api_encryption_unknown_device_is_ignored() -> None:
     trigger a DEVICE_UPDATED on a configured device that happens to
     share a similar name slot.
     """
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_api_encryption("not-a-device", "anything") is False
-    cb.assert_not_called()
+    assert callbacks.calls == []
 
 
 def test_apply_api_encryption_dedupes_repeated_empty() -> None:
     """The empty-string state is dedup'd just like a non-empty one."""
-    monitor, cb = _monitor([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_api_encryption("kitchen", "")
     monitor.apply_api_encryption("kitchen", "")
-    cb.assert_called_once()
+    assert callbacks.calls == [("on_api_encryption_change", "kitchen", "")]
 
 
 # ----------------------------------------------------------------------
