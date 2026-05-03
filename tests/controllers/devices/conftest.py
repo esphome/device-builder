@@ -18,13 +18,68 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.config import set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.models import EventType
+
+
+class StubBus:
+    """Minimal event-bus stand-in for tests that exercise the listener wiring.
+
+    ``add_listener`` records the registration and returns a
+    callable that bumps ``unsub_calls`` when invoked — production
+    ``EventBus`` returns a closure that removes the entry, so the
+    return value's call-on-close behaviour is what
+    ``DevicesController.stop()`` relies on. Tests that need a
+    full ``DeviceBuilder``-shaped stub can pull this in via
+    ``make_db``.
+    """
+
+    def __init__(self) -> None:
+        self.listeners: list[tuple[EventType, Any]] = []
+        self.unsub_calls = 0
+
+    def add_listener(self, event_type: EventType, handler: Any) -> Any:
+        self.listeners.append((event_type, handler))
+
+        def _unsub() -> None:
+            self.unsub_calls += 1
+
+        return _unsub
+
+
+class MakeDbFactory(Protocol):
+    """Shape of the ``make_db`` fixture's return value."""
+
+    def __call__(self, config_dir: Path) -> MagicMock: ...
+
+
+@pytest.fixture
+def make_db() -> MakeDbFactory:
+    """Return a factory that builds a ``DeviceBuilder``-shaped stub.
+
+    The shape is the minimum ``DevicesController.__init__`` reads:
+    ``settings.config_dir`` / ``settings.absolute_config_dir`` /
+    ``settings.password`` and ``bus`` (a :class:`StubBus`).
+    Tests that construct a real ``DevicesController`` (i.e. don't
+    bypass-init via ``make_controller``) want this; everything
+    else just uses ``make_controller``.
+    """
+
+    def _make(config_dir: Path) -> MagicMock:
+        db = MagicMock()
+        db.settings.config_dir = config_dir
+        db.settings.absolute_config_dir = config_dir.resolve()
+        db.settings.password = ""  # ConfigController-side; harmless for tests
+        db.bus = StubBus()
+        return db
+
+    return _make
 
 
 class SeedDeviceFactory(Protocol):

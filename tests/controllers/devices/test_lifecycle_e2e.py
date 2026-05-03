@@ -27,7 +27,6 @@ are exercised in their own dedicated tests.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -35,39 +34,7 @@ import pytest
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import EventType
 
-
-class _Bus:
-    """Minimal event-bus stand-in.
-
-    ``add_listener`` records the registration and returns a
-    callable that records the unsubscribe — production
-    ``EventBus`` returns a closure that removes the entry, so the
-    return value's call-on-close behaviour is what ``stop()``
-    relies on.
-    """
-
-    def __init__(self) -> None:
-        self.listeners: list[tuple[EventType, Any]] = []
-        self.unsub_calls = 0
-
-    def add_listener(self, event_type: EventType, handler: Any) -> Any:
-        self.listeners.append((event_type, handler))
-
-        def _unsub() -> None:
-            self.unsub_calls += 1
-
-        return _unsub
-
-
-def _make_db(tmp_path: Path) -> MagicMock:
-    """Build a ``DeviceBuilder``-shaped stub for the controller's ``__init__``."""
-    db = MagicMock()
-    db.settings.config_dir = tmp_path
-    db.settings.absolute_config_dir = tmp_path.resolve()
-    db.settings.password = ""  # ConfigController-side; harmless for tests
-    db.bus = _Bus()
-    return db
-
+from .conftest import MakeDbFactory
 
 # ---------------------------------------------------------------------------
 # __init__
@@ -75,7 +42,7 @@ def _make_db(tmp_path: Path) -> MagicMock:
 
 
 def test_init_threads_state_monitor_callbacks_to_controller_methods(
-    tmp_path: Path,
+    tmp_path: Path, make_db: MakeDbFactory
 ) -> None:
     """State-monitor callbacks point back at ``self._on_*_change`` methods.
 
@@ -85,7 +52,7 @@ def test_init_threads_state_monitor_callbacks_to_controller_methods(
     refactor accidentally bypasses one of them, that whole class
     of bug returns.
     """
-    db = _make_db(tmp_path)
+    db = make_db(tmp_path)
     controller = DevicesController(db)
 
     # Bound-method equality: ``a is b`` fails on bound methods even
@@ -126,7 +93,7 @@ def _stub_inner_lifecycle(controller: DevicesController) -> None:
 
 @pytest.mark.asyncio
 async def test_start_runs_full_initialisation_chain(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_db: MakeDbFactory
 ) -> None:
     """``start()`` resolves esphome cmd, loads ignored, scans, starts monitors, subscribes bus.
 
@@ -148,7 +115,7 @@ async def test_start_runs_full_initialisation_chain(
         "esphome_device_builder.controllers.devices.controller._find_esphome_cmd",
         lambda: ["python", "-m", "esphome"],
     )
-    db = _make_db(tmp_path)
+    db = make_db(tmp_path)
     controller = DevicesController(db)
     _stub_inner_lifecycle(controller)
 
@@ -192,9 +159,11 @@ async def test_start_runs_full_initialisation_chain(
 
 
 @pytest.mark.asyncio
-async def test_stop_tears_down_monitors_and_unsubscribes(tmp_path: Path) -> None:
+async def test_stop_tears_down_monitors_and_unsubscribes(
+    tmp_path: Path, make_db: MakeDbFactory
+) -> None:
     """``stop()`` unsubscribes the bus listener and stops both monitors."""
-    db = _make_db(tmp_path)
+    db = make_db(tmp_path)
     controller = DevicesController(db)
     _stub_inner_lifecycle(controller)
     # Pretend ``start()`` already ran and registered a listener.
@@ -215,7 +184,7 @@ async def test_stop_tears_down_monitors_and_unsubscribes(tmp_path: Path) -> None
 
 @pytest.mark.asyncio
 async def test_stop_is_idempotent_without_started_listener(
-    tmp_path: Path,
+    tmp_path: Path, make_db: MakeDbFactory
 ) -> None:
     """``stop()`` before ``start()`` (or after a previous ``stop()``) doesn't crash.
 
@@ -223,7 +192,7 @@ async def test_stop_is_idempotent_without_started_listener(
     a refactor that dropped it would crash the second teardown
     on a process restart that calls stop+start+stop.
     """
-    db = _make_db(tmp_path)
+    db = make_db(tmp_path)
     controller = DevicesController(db)
     _stub_inner_lifecycle(controller)
     # Never started; ``_unsub_job_completed`` is the ``__init__`` default.
@@ -241,14 +210,14 @@ async def test_stop_is_idempotent_without_started_listener(
 
 
 @pytest.mark.asyncio
-async def test_poll_rescans_and_reconciles_mqtt(tmp_path: Path) -> None:
+async def test_poll_rescans_and_reconciles_mqtt(tmp_path: Path, make_db: MakeDbFactory) -> None:
     """``poll()`` runs a fresh scan + MQTT reconcile.
 
     The dashboard's periodic poll path; pin both calls so a
     refactor that dropped either silently breaks file-change /
     broker-rediscovery detection.
     """
-    db = _make_db(tmp_path)
+    db = make_db(tmp_path)
     controller = DevicesController(db)
     _stub_inner_lifecycle(controller)
 
