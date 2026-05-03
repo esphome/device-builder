@@ -533,16 +533,23 @@ async def test_listen_drops_non_json_payload(caplog: pytest.LogCaptureFixture) -
     await queue.put(_BadJsonMessage())
     await queue.put(_FreshMessage())
 
-    listen_task = asyncio.create_task(monitor._listen(queue))
-    try:
-        with caplog.at_level("DEBUG"):
+    with caplog.at_level("DEBUG", logger="esphome_device_builder.controllers._device_mqtt_monitor"):
+        listen_task = asyncio.create_task(monitor._listen(queue))
+        try:
             await asyncio.wait_for(fresh_seen.wait(), timeout=1.0)
-    finally:
-        listen_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await listen_task
+        finally:
+            listen_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await listen_task
 
     assert state_calls == [("kitchen", DeviceState.ONLINE)]
+    # Pin the log emission too — without this, a regression that
+    # silently swallows the JSONDecodeError without recording it
+    # would still pass the "fresh message wins" check.
+    assert any(
+        "Ignoring non-JSON payload" in rec.message and rec.levelname == "DEBUG"
+        for rec in caplog.records
+    ), [rec.message for rec in caplog.records]
 
 
 async def test_listen_skips_payload_with_missing_or_invalid_name() -> None:
@@ -874,7 +881,17 @@ async def test_start_spawns_run_task_when_paho_available(
     was uncovered. Stub ``_run`` to a fast-resolving coroutine
     so the test doesn't actually try to talk to a broker, then
     verify ``running`` flipped True.
+
+    Force ``paho_mqtt`` non-None for the duration of the test so
+    ``start()``'s ``is_available()`` guard doesn't short-circuit
+    on a stripped install (CI without the ``[esphome]`` extra,
+    or a Docker base image that omits paho).
     """
+    if monitor_module.paho_mqtt is None:
+        # Stand-in module — only the truthiness matters here, the
+        # stubbed ``_run`` never actually touches it.
+        monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {}))
+
     monitor = DeviceMqttMonitor(
         broker=MqttBrokerConfig(host="x"),
         on_state_change=lambda *_: None,
