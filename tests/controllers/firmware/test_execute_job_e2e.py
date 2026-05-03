@@ -405,14 +405,22 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
     cancelling, otherwise we'd race the subprocess spawn and either
     leak the process or hit the cancel before the try-block had
     entered.
+
+    Subprocess-keepalive: use ``time.sleep`` rather than
+    ``sys.stdin.read``. Under xdist the worker's stdin is ``/dev/null``
+    so ``stdin.read()`` returns immediately, the subprocess exits on
+    its own, and the cancel races the natural completion path —
+    ``terminate()`` then raises ``ProcessLookupError`` against a
+    dead transport. A long sleep keeps the process alive until the
+    test cancels.
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
     _fake_esphome(
         controller,
         # Print one line so the runner enters the line-reading loop,
-        # then block forever on stdin so the test controls the exit.
-        "import sys\nprint('starting...', flush=True)\nsys.stdin.read()\n",
+        # then sleep so the subprocess is still alive when we cancel.
+        "import sys, time\nprint('starting...', flush=True)\ntime.sleep(60)\n",
     )
     _seed_yaml(tmp_path)
 
