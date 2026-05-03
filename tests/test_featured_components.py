@@ -144,8 +144,20 @@ async def test_get_component_locked_field(catalog: ComponentCatalog) -> None:
 
 
 async def test_get_component_suggestions(catalog: ComponentCatalog) -> None:
-    """ESK-1 PIR materialisation surfaces the pin suggestions list."""
-    entry = await catalog.get_component(component_id="featured.apollo-esk-1.pir_motion")
+    """Materialisation rides ``preset.suggestions`` onto the returned ConfigEntry."""
+    # No live board manifest currently sets ``suggestions:`` (the
+    # apollo-esk-1 starter kit moved to fixed pin assignments), so we
+    # swap a synthetic record into the catalog for the duration of the
+    # test to exercise the full materialisation path.
+    full_id = "featured.apollo-esk-1.pir_motion"
+    original = catalog._featured_by_id[full_id]
+    patched = deepcopy(original)
+    patched.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
+    catalog._featured_by_id[full_id] = patched
+    try:
+        entry = await catalog.get_component(component_id=full_id)
+    finally:
+        catalog._featured_by_id[full_id] = original
     assert entry is not None
     pin = next(ce for ce in entry.config_entries if ce.key == "pin")
     assert pin.default_value == 4
@@ -301,8 +313,13 @@ async def test_apply_presets_locked_accepts_matching_value(
 
 
 async def test_apply_presets_suggestion_in_set(catalog: ComponentCatalog) -> None:
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
+    # No live board manifest currently sets ``suggestions:`` — the
+    # apollo-esk-1 starter kit moved to fixed pin assignments — so the
+    # suggestion-logic tests build their fixture inline by overriding
+    # the ``pin`` preset on a deepcopy of a real record.
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
     assert record is not None
+    record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     out = _apply_featured_presets(record, {"pin": 5})
     assert out["pin"] == 5
     assert out["device_class"] == "motion"
@@ -311,8 +328,9 @@ async def test_apply_presets_suggestion_in_set(catalog: ComponentCatalog) -> Non
 async def test_apply_presets_suggestion_rejects_off_list(
     catalog: ComponentCatalog,
 ) -> None:
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
     assert record is not None
+    record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     with pytest.raises(ValueError, match="must be one of"):
         _apply_featured_presets(record, {"pin": 99})
 
@@ -324,12 +342,13 @@ async def test_apply_presets_suggestion_accepts_rich_pin_form(
     Frontend submits pin fields as the rich ``{number, mode, ...}`` shape.
 
     The suggestion check must compare on the GPIO number so a
-    manifest's ``suggestions: [4, 5]`` accepts ``{"number": 5, ...}``
-    too — and the rich dict rides through to the merger unchanged so
-    the YAML keeps its full pin block.
+    preset's ``suggestions: [4, 5]`` accepts ``{"number": 5, ...}`` too
+    — and the rich dict rides through to the merger unchanged so the
+    YAML keeps its full pin block.
     """
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
     assert record is not None
+    record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     rich_pin = {"number": 5, "mode": {"input": True}}
     out = _apply_featured_presets(record, {"pin": rich_pin})
     assert out["pin"] == rich_pin
@@ -339,8 +358,9 @@ async def test_apply_presets_suggestion_rejects_rich_pin_off_list(
     catalog: ComponentCatalog,
 ) -> None:
     """Rich pin form whose ``number`` is off-list still raises."""
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
     assert record is not None
+    record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     with pytest.raises(ValueError, match="must be one of"):
         _apply_featured_presets(record, {"pin": {"number": 99, "mode": {"input": True}}})
 
@@ -362,8 +382,9 @@ async def test_apply_presets_suggestion_falls_back_to_value(
     catalog: ComponentCatalog,
 ) -> None:
     """Omitting a suggestion field falls back to the preset's initial value."""
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.pir_motion"))
     assert record is not None
+    record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     out = _apply_featured_presets(record, {})
     assert out["pin"] == 4
 

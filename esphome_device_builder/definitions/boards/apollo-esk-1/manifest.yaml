@@ -90,7 +90,7 @@ pins:
   available: true
   notes: Available on FPC connector
 - gpio: 18
-  label: GPIO14
+  label: GPIO18
   features:
   - adc
   available: true
