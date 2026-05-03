@@ -76,12 +76,6 @@ pins:
   - adc
   available: true
   notes: Available on FPC connector
-- gpio: 14
-  label: GPIO14
-  features:
-  - adc
-  available: true
-  notes: Available on FPC connector
 - gpio: 9
   label: BUTTON
   features:
@@ -89,6 +83,18 @@ pins:
   available: false
   occupied_by: Physical button
   notes: Active-low with internal pull-up, directly usable
+- gpio: 14
+  label: GPIO14
+  features:
+  - adc
+  available: true
+  notes: Available on FPC connector
+- gpio: 18
+  label: GPIO14
+  features:
+  - adc
+  available: true
+  notes: Available on FPC connector
 - gpio: 30
   label: RX
   features:
