@@ -10,7 +10,6 @@ mtime, size) are used to avoid re-parsing files that haven't changed.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import Callable, Iterable
 from enum import StrEnum
@@ -122,25 +121,22 @@ class _DeviceIndex:
     def set(self, path: Path, device: Device, cache_key: _CacheKey) -> None:
         """Insert / update *device* and refresh its cache key.
 
-        Configuration filenames are unique per path (the scanner's
-        ``util.list_yaml_files`` walk is non-recursive), so the
-        sorted-position insert can rely on never colliding with an
-        existing bucket entry once *previous* has been removed.
+        Drops *previous* (if any) from its bucket via
+        ``_unindex_name`` first — handles both the same-name update
+        path (drop from current bucket so the resort can place the
+        fresh Device) and the rename path (drop from the OLD name's
+        bucket before bucketing under the new name). Configuration
+        filenames are unique per path (the scanner's
+        ``util.list_yaml_files`` walk is non-recursive), so once
+        *previous* is gone the sorted-position insert never
+        collides with an existing entry.
         """
         previous = self._devices.get(path)
-        if previous is not None and previous.name != device.name:
-            # Renamed in YAML: drop from old name's bucket before
-            # re-inserting under the new one.
+        if previous is not None:
             self._unindex_name(previous)
         self._devices[path] = device
         self._cache_keys[path] = cache_key
         bucket = self._devices_by_name.setdefault(device.name, [])
-        if previous is not None:
-            with contextlib.suppress(ValueError):
-                bucket.remove(previous)
-        # Insert at the sorted position. Configuration filenames
-        # are unique per path and ``previous`` is gone, so no
-        # colliding entry to overwrite.
         insert_at = 0
         while insert_at < len(bucket) and bucket[insert_at].configuration < device.configuration:
             insert_at += 1
@@ -258,7 +254,10 @@ class DeviceScanner:
                 return False
             # Refresh the cache key; if the YAML disappears in the
             # race window between load and re-stat, keep the old key
-            # so the next ``_do_scan`` re-evaluates it.
+            # so the next ``_do_scan`` re-evaluates it. The path was
+            # just located via ``find_path_by_filename`` (so it's in
+            # ``_devices``, so it has a cache key by lockstep) — the
+            # ``cache_key()`` lookup is never ``None`` here.
             try:
                 stat = await loop.run_in_executor(None, path.stat)
                 cache_key: _CacheKey = (
@@ -268,7 +267,9 @@ class DeviceScanner:
                     stat.st_size,
                 )
             except OSError:
-                cache_key = self._index.cache_key(path) or (0, 0, 0.0, 0)
+                existing = self._index.cache_key(path)
+                assert existing is not None
+                cache_key = existing
             self._index.set(path, device, cache_key)
             self._on_change(ScanChange.UPDATED, device)
             return True
