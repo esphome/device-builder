@@ -25,6 +25,8 @@ import pytest
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.models import Device, DeviceState
 
+from .conftest import make_state_monitor_with_callbacks
+
 
 def _device(
     name: str = "kitchen",
@@ -48,6 +50,12 @@ def _make_monitor(
 ) -> tuple[DeviceStateMonitor, AsyncMock]:
     """Build a monitor with a mocked ``AsyncEsphomeZeroconf``.
 
+    Wires the production-mirroring state/IP write-back via the
+    shared :class:`RecordingMonitorCallbacks` (the recorder's
+    ``calls`` list isn't read by these tests — they assert on the
+    device's own ``state`` / ``ip`` after the side-effect runs —
+    but it's the canonical way to get the write-back for free).
+
     ``resolved`` maps a hostname to either a list of IPs (resolve
     succeeded), an empty list / ``None`` (resolve failed). The
     mock's ``async_resolve_host`` looks up the host in the dict
@@ -57,26 +65,7 @@ def _make_monitor(
     ``test_resolve_exception_does_not_propagate`` /
     ``test_multiple_devices_resolve_in_parallel``).
     """
-    captured_state: list[tuple[str, DeviceState, str]] = []
-    captured_ip: list[tuple[str, str]] = []
-
-    def _flip_state(name: str, state: DeviceState, source: str) -> None:
-        captured_state.append((name, state, source))
-        for d in devices:
-            if d.name == name:
-                d.state = state
-
-    def _flip_ip(name: str, ip: str) -> None:
-        captured_ip.append((name, ip))
-        for d in devices:
-            if d.name == name:
-                d.ip = ip
-
-    monitor = DeviceStateMonitor(
-        get_devices=lambda: devices,
-        on_state_change=_flip_state,
-        on_ip_change=_flip_ip,
-    )
+    monitor, _callbacks = make_state_monitor_with_callbacks(devices)
 
     fake_zc = MagicMock()
     resolve_map = resolved or {}

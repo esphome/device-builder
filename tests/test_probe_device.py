@@ -22,6 +22,8 @@ from esphome_device_builder.controllers._device_state_monitor import (
 )
 from esphome_device_builder.models import Device, DeviceState
 
+from .conftest import RecordingMonitorCallbacks
+
 
 def _make_monitor() -> DeviceStateMonitor:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
@@ -31,12 +33,34 @@ def _make_monitor() -> DeviceStateMonitor:
     return monitor
 
 
+def _capture_apply(
+    monitor: DeviceStateMonitor, monkeypatch: pytest.MonkeyPatch
+) -> list[tuple[str, Any]]:
+    """Swap ``_apply_service_info`` for a list-append closure and return the log.
+
+    A typed substitute for the previous ``apply = MagicMock();
+    apply.assert_called_once_with(...)`` shape. The win is on the
+    *assertion-method* side: against a ``MagicMock`` a typo'd
+    method name (``apply.assertt_called_once_with``) silently
+    passes because ``MagicMock`` spawns a fresh attribute on
+    access. Comparing the returned list with ``==`` has no
+    ``assert_*`` method to misspell — the failure mode is a clear
+    diff at the comparison instead of a vacuous green.
+    """
+    calls: list[tuple[str, Any]] = []
+
+    def _apply(name: str, info: Any) -> None:
+        calls.append((name, info))
+
+    monkeypatch.setattr(monitor, "_apply_service_info", _apply)
+    return calls
+
+
 @pytest.mark.asyncio
 async def test_probe_device_cache_hit_applies_synchronously(monkeypatch) -> None:
     """A cached service info applies inline; no task is spawned."""
     monitor = _make_monitor()
-    apply = MagicMock()
-    monkeypatch.setattr(monitor, "_apply_service_info", apply)
+    apply_calls = _capture_apply(monitor, monkeypatch)
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
@@ -47,7 +71,7 @@ async def test_probe_device_cache_hit_applies_synchronously(monkeypatch) -> None
 
     monitor.probe_device("kitchen")
 
-    apply.assert_called_once_with("kitchen", fake_info)
+    assert apply_calls == [("kitchen", fake_info)]
     assert not monitor._tasks
 
 
@@ -62,8 +86,7 @@ async def test_probe_device_uses_service_name_when_provided(monkeypatch) -> None
     the configured device under its NEW name.
     """
     monitor = _make_monitor()
-    apply = MagicMock()
-    monkeypatch.setattr(monitor, "_apply_service_info", apply)
+    apply_calls = _capture_apply(monitor, monkeypatch)
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
@@ -85,15 +108,14 @@ async def test_probe_device_uses_service_name_when_provided(monkeypatch) -> None
         ("_esphomelib._tcp.local.", "apollo-r-pro-1-eth-5938e0._esphomelib._tcp.local.")
     ]
     # …but applied under the NEW configured name.
-    apply.assert_called_once_with("my-living-room", fake_info)
+    assert apply_calls == [("my-living-room", fake_info)]
 
 
 @pytest.mark.asyncio
 async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
     """Cache miss → fire-and-forget resolve task tracked in ``_tasks``."""
     monitor = _make_monitor()
-    apply = MagicMock()
-    monkeypatch.setattr(monitor, "_apply_service_info", apply)
+    apply_calls = _capture_apply(monitor, monkeypatch)
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
@@ -109,7 +131,7 @@ async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
 
     monitor.probe_device("kitchen")
 
-    apply.assert_not_called()
+    assert apply_calls == []
     # One task was registered for tracking. Wait it out so the
     # done-callback can run and prune the set; otherwise pending
     # tasks would leak into the next test's event loop.
@@ -138,11 +160,6 @@ async def test_apply_service_info_claims_online() -> None:
     until the next ping sweep.
     """
     monitor = _make_monitor()
-    monitor._on_state_change = MagicMock()
-    monitor._on_ip_change = MagicMock()
-    monitor._on_version_change = MagicMock()
-    monitor._on_config_hash_change = MagicMock()
-    monitor._on_api_encryption_change = MagicMock()
     monitor._state_source = {}
     # ``apply()`` validates against the configured-devices catalog.
     device = Device(
@@ -154,6 +171,12 @@ async def test_apply_service_info_claims_online() -> None:
     )
     monitor._get_devices = lambda: [device]
     monitor._get_devices_by_name = lambda name: [device] if device.name == name else []
+    callbacks = RecordingMonitorCallbacks([device])
+    monitor._on_state_change = callbacks.on_state_change
+    monitor._on_ip_change = callbacks.on_ip_change
+    monitor._on_version_change = callbacks.on_version_change
+    monitor._on_config_hash_change = callbacks.on_config_hash_change
+    monitor._on_api_encryption_change = callbacks.on_api_encryption_change
 
     fake_info = MagicMock()
     fake_info.parsed_scoped_addresses.return_value = []
@@ -162,4 +185,6 @@ async def test_apply_service_info_claims_online() -> None:
 
     # ``_on_state_change`` is the bridge our owner registered for
     # state transitions; the call carries (name, state, source).
-    monitor._on_state_change.assert_called_once_with("kitchen", DeviceState.ONLINE, "mdns")
+    assert callbacks.calls_for("on_state_change") == [
+        ("on_state_change", "kitchen", DeviceState.ONLINE, "mdns")
+    ]
