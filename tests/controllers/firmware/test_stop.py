@@ -75,6 +75,64 @@ def test_signal_process_group_returns_false_for_dead_pid() -> None:
     assert _signal_process_group(proc.pid, signal.SIGTERM) is False
 
 
+def test_signal_process_group_returns_false_when_killpg_says_dead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``os.killpg`` racing with the child exiting also returns False.
+
+    There's a TOCTOU window between ``os.getpgid`` succeeding and
+    ``os.killpg`` firing — the process can exit in between, in
+    which case ``killpg`` raises ``ProcessLookupError``. The
+    earlier dead-pid test catches the ``getpgid`` arm; this one
+    pins the ``killpg`` arm so a refactor that drops it (e.g.
+    "the getpgid check already protects us") would surface here.
+    """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.helpers.os.getpgid",
+        lambda _pid: 12345,
+    )
+
+    def _raise_lookup(_pgid: int, _sig: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.helpers.os.killpg",
+        _raise_lookup,
+    )
+
+    assert _signal_process_group(99999, signal.SIGTERM) is False
+
+
+def test_signal_process_group_returns_false_on_permission_error(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``EPERM`` from ``killpg`` is logged and returns False, not raised.
+
+    Happens when something downgrades our privileges between
+    spawn and signal (rare in production, but the branch exists
+    for defense in depth). The user-visible contract is "Stop
+    didn't kill the build" rather than "the controller crashed";
+    pin both halves — return value and the warning log.
+    """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.helpers.os.getpgid",
+        lambda _pid: 12345,
+    )
+
+    def _raise_perm(_pgid: int, _sig: int) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.helpers.os.killpg",
+        _raise_perm,
+    )
+
+    with caplog.at_level("WARNING", logger="esphome_device_builder.controllers.firmware.helpers"):
+        assert _signal_process_group(99999, signal.SIGTERM) is False
+
+    assert any("Permission denied signalling pgid" in rec.message for rec in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # _terminate_current_process — full integration
 # ---------------------------------------------------------------------------

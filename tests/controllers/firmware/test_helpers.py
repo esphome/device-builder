@@ -225,6 +225,40 @@ async def test_verify_esphome_importable_returns_false_on_oserror() -> None:
     assert "FileNotFoundError" in detail or "OSError" in detail
 
 
+@pytest.mark.asyncio
+async def test_verify_esphome_importable_returns_false_on_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A probe that doesn't return within 15s gets killed and reports the timeout.
+
+    Real-world trigger: a wrapper script that hangs on a network
+    call before importing ``esphome``. The probe has to put the
+    spawn down (``proc.kill`` + ``await proc.wait()``) and surface
+    a clear message rather than letting the dashboard startup
+    block indefinitely.
+
+    Patches ``asyncio.wait_for`` in the helper's namespace to
+    raise immediately so the test doesn't have to actually wait
+    15 seconds. The ``with suppress(ProcessLookupError)`` guard
+    around ``proc.kill()`` covers the race where the child
+    exited on its own between the timeout and our kill — the
+    Python one-liner here is fast-exiting, so we exercise that
+    suppress branch incidentally.
+    """
+    from esphome_device_builder.controllers.firmware import helpers as _helpers
+
+    async def _raise_timeout(*_args: Any, **_kwargs: Any) -> None:
+        raise TimeoutError
+
+    monkeypatch.setattr(_helpers.asyncio, "wait_for", _raise_timeout)
+
+    cmd = [sys.executable, "-c", "pass"]
+    ok, detail = await _verify_esphome_importable(cmd)
+
+    assert not ok
+    assert detail == "TimeoutExpired: 15s probe didn't return"
+
+
 # ---------------------------------------------------------------------------
 # _find_esphome_cmd
 # ---------------------------------------------------------------------------
