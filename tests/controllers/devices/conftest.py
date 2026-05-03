@@ -222,6 +222,8 @@ class MakeControllerFactory(Protocol):
         config_dir: Path,
         *,
         with_regenerate_state: bool = ...,
+        with_state_monitor: bool = ...,
+        with_boards: bool = ...,
         esphome_cmd: list[str] | None = ...,
     ) -> DevicesController: ...
 
@@ -260,12 +262,26 @@ def make_controller() -> MakeControllerFactory:
     early-return guard at the top of
     ``_schedule_storage_regenerate`` doesn't short-circuit;
     leave it ``None`` for tests that don't reach that code path.
+
+    ``with_state_monitor=True`` attaches a ``MagicMock``-shaped
+    ``_state_monitor`` for tests that exercise paths reading the
+    cached-address / get_cached_addresses lookup (``import_device``,
+    ``create_device``). The monitor's ``get_cached_addresses``
+    defaults to returning ``None`` so the fast-online branch
+    short-circuits unless a test overrides it.
+
+    ``with_boards=True`` attaches a ``MagicMock``-shaped
+    ``_db.boards`` for tests that go through the
+    board-catalog lookup path (``create_device`` and the
+    board-id derivation).
     """
 
     def _make(
         config_dir: Path,
         *,
         with_regenerate_state: bool = False,
+        with_state_monitor: bool = False,
+        with_boards: bool = False,
         esphome_cmd: list[str] | None = None,
     ) -> DevicesController:
         controller = DevicesController.__new__(DevicesController)
@@ -275,6 +291,13 @@ def make_controller() -> MakeControllerFactory:
         controller._scanner = MagicMock()
         controller._scanner.scan = AsyncMock()
         controller._scanner.reload = AsyncMock()
+
+        if with_state_monitor:
+            controller._state_monitor = MagicMock()
+            controller._state_monitor.get_cached_addresses = MagicMock(return_value=None)
+
+        if with_boards:
+            controller._db.boards = MagicMock()
 
         if with_regenerate_state:
             spawned_tasks: list[asyncio.Task[object]] = []

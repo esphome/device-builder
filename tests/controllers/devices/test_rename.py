@@ -20,6 +20,7 @@ old name when something goes wrong mid-rename:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
@@ -34,16 +35,18 @@ from esphome_device_builder.models import (
     JobType,
 )
 
+from .conftest import MakeControllerFactory
 
-def _make_controller() -> DevicesController:
-    """Build a bare-bones controller with the bits ``rename_device`` touches."""
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = MagicMock()
+
+def _wire_fake_path(controller: DevicesController) -> None:
+    """Swap the factory's tmp_path-based ``rel_path`` for the ``_FakePath`` shim.
+
+    These tests don't touch the real filesystem; they assert which
+    branch of ``rename_device`` runs based on a synthetic
+    ``_FakePath.existing`` set rather than poking actual files
+    under ``tmp_path``.
+    """
     controller._db.settings.rel_path = _FakePath
-    controller._scanner = MagicMock()
-    controller._scanner.scan = AsyncMock()
-    controller._esphome_cmd = ["esphome"]
-    return controller
 
 
 class _FakePath:
@@ -75,14 +78,17 @@ def _reset_fake_path_existing() -> Any:
 
 
 @pytest.mark.asyncio
-async def test_rename_target_filename_collision_raises(monkeypatch: Any) -> None:
+async def test_rename_target_filename_collision_raises(
+    tmp_path: Path, monkeypatch: Any, make_controller: MakeControllerFactory
+) -> None:
     """Renaming onto an existing config rejects before any work runs.
 
     The CLI ``esphome rename`` path doesn't check this itself — it
     would happily overwrite the unrelated device's YAML and install
     the wrong firmware. We have to catch it ourselves at the gate.
     """
-    controller = _make_controller()
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    _wire_fake_path(controller)
     _FakePath.existing.add("livingroom.yaml")
 
     with pytest.raises(CommandError) as excinfo:
@@ -93,7 +99,9 @@ async def test_rename_target_filename_collision_raises(monkeypatch: Any) -> None
 
 
 @pytest.mark.asyncio
-async def test_rename_same_name_raises() -> None:
+async def test_rename_same_name_raises(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Renaming a device to its current name rejects up-front.
 
     A same-name rename is a no-op at the YAML level but every
@@ -103,7 +111,8 @@ async def test_rename_same_name_raises() -> None:
     ``firmware/install`` is the right command for "flash without
     renaming."
     """
-    controller = _make_controller()
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    _wire_fake_path(controller)
 
     with pytest.raises(CommandError) as excinfo:
         await controller.rename_device(configuration="kitchen.yaml", new_name="kitchen")
@@ -113,9 +122,12 @@ async def test_rename_same_name_raises() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rename_invalid_yaml_uses_manual_path(monkeypatch: Any) -> None:
+async def test_rename_invalid_yaml_uses_manual_path(
+    tmp_path: Path, monkeypatch: Any, make_controller: MakeControllerFactory
+) -> None:
     """Invalid config → inline ``_manual_rename`` and ``job: None`` response."""
-    controller = _make_controller()
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    _wire_fake_path(controller)
 
     async def fake_validates(self: Any, config_path: str) -> bool:
         return False
@@ -137,10 +149,13 @@ async def test_rename_invalid_yaml_uses_manual_path(monkeypatch: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_rename_invalid_yaml_collision_raises_command_error(
+    tmp_path: Path,
     monkeypatch: Any,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """Manual rename's FileExistsError surfaces as INVALID_ARGS."""
-    controller = _make_controller()
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    _wire_fake_path(controller)
 
     async def fake_validates(self: Any, config_path: str) -> bool:
         return False
@@ -160,9 +175,12 @@ async def test_rename_invalid_yaml_collision_raises_command_error(
 
 
 @pytest.mark.asyncio
-async def test_rename_valid_yaml_queues_firmware_job(monkeypatch: Any) -> None:
+async def test_rename_valid_yaml_queues_firmware_job(
+    tmp_path: Path, monkeypatch: Any, make_controller: MakeControllerFactory
+) -> None:
     """Valid config → firmware queue, response carries the queued job."""
-    controller = _make_controller()
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    _wire_fake_path(controller)
 
     async def fake_validates(self: Any, config_path: str) -> bool:
         return True
@@ -193,9 +211,12 @@ async def test_rename_valid_yaml_queues_firmware_job(monkeypatch: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rename_missing_firmware_controller_raises(monkeypatch: Any) -> None:
+async def test_rename_missing_firmware_controller_raises(
+    tmp_path: Path, monkeypatch: Any, make_controller: MakeControllerFactory
+) -> None:
     """Lifecycle race where firmware controller hasn't started yet."""
-    controller = _make_controller()
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    _wire_fake_path(controller)
 
     async def fake_validates(self: Any, config_path: str) -> bool:
         return True
@@ -211,10 +232,13 @@ async def test_rename_missing_firmware_controller_raises(monkeypatch: Any) -> No
 
 @pytest.mark.asyncio
 async def test_yaml_validates_returns_false_on_clean_nonzero_exit(
+    tmp_path: Path,
     monkeypatch: Any,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """``esphome config`` exited non-zero → False (the only "invalid" signal)."""
-    controller = _make_controller()
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    _wire_fake_path(controller)
 
     fake_proc = MagicMock()
     fake_proc.wait = AsyncMock(return_value=1)
@@ -237,7 +261,9 @@ async def test_yaml_validates_returns_false_on_clean_nonzero_exit(
 
 @pytest.mark.asyncio
 async def test_yaml_validates_propagates_unexpected_exception(
+    tmp_path: Path,
     monkeypatch: Any,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """CLI missing / permission errors must NOT silently fall back.
 
@@ -247,7 +273,8 @@ async def test_yaml_validates_propagates_unexpected_exception(
     is meant to prevent. We now raise so the rename is rejected
     with a real reason instead.
     """
-    controller = _make_controller()
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    _wire_fake_path(controller)
 
     async def fake_create(*args: Any, **kwargs: Any) -> Any:
         raise FileNotFoundError("esphome")

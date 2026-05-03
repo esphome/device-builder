@@ -34,31 +34,20 @@ import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
 
+from .conftest import MakeControllerFactory
 
-def _make_controller(config_dir: Path) -> DevicesController:
-    """Build a stub ``DevicesController`` wired to ``config_dir``.
 
-    Same shape as ``test_archive.py`` — bypass ``__init__``, attach
-    a ``_db.settings.rel_path`` that joins the configuration onto
-    the test's ``tmp_path``, and a ``_scanner.scan`` ``AsyncMock``
-    so ``update_config``'s post-write scan call is awaitable.
+def _stub_regenerate(controller: DevicesController) -> MagicMock:
+    """Replace ``_schedule_storage_regenerate`` with a sync MagicMock.
 
-    ``_schedule_storage_regenerate`` is replaced with a ``MagicMock``
-    on the instance so the test can ``assert_called_once_with(...)``
-    without spawning a real ``esphome compile --only-generate``
-    subprocess.
+    The production helper is fire-and-forget that internally schedules
+    a background task; a ``MagicMock`` records the call site without
+    dispatching the subprocess so tests can
+    ``assert_called_once_with(...)``.
     """
-    controller = DevicesController.__new__(DevicesController)
-    controller._db = MagicMock()
-    controller._db.settings.config_dir = config_dir
-    controller._db.settings.rel_path = lambda configuration: config_dir / configuration
-    controller._scanner = MagicMock()
-    controller._scanner.scan = AsyncMock()
-    # ``_schedule_storage_regenerate`` is sync (fire-and-forget that
-    # schedules a background task internally); a plain ``MagicMock``
-    # records the call site without dispatching the subprocess.
-    controller._schedule_storage_regenerate = MagicMock()  # type: ignore[method-assign]
-    return controller
+    stub = MagicMock()
+    controller._schedule_storage_regenerate = stub  # type: ignore[method-assign]
+    return stub
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +56,9 @@ def _make_controller(config_dir: Path) -> DevicesController:
 
 
 @pytest.mark.asyncio
-async def test_get_config_returns_yaml_content(tmp_path: Path) -> None:
+async def test_get_config_returns_yaml_content(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``get_config`` returns the file's text decoded as UTF-8.
 
     HA's editor pre-fills the textarea with whatever this returns
@@ -75,7 +66,8 @@ async def test_get_config_returns_yaml_content(tmp_path: Path) -> None:
     plain-string shape (no JSON envelope) so a refactor that
     wraps the response would surface.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
     yaml_content = "esphome:\n  name: kitchen\n  platform: ESP32\n"
     (tmp_path / "kitchen.yaml").write_text(yaml_content, encoding="utf-8")
 
@@ -85,14 +77,17 @@ async def test_get_config_returns_yaml_content(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_config_decodes_utf8_with_unicode(tmp_path: Path) -> None:
+async def test_get_config_decodes_utf8_with_unicode(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """UTF-8 content (e.g., comments with non-ASCII) round-trips intact.
 
     The explicit ``"utf-8"`` arg to ``read_text`` keeps Windows
     safe — the platform default is cp1252 there, which would
     silently mojibake the YAML.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
     yaml_content = "esphome:\n  name: küche\n  # comment with — em dash and ñ\n"
     (tmp_path / "kuche.yaml").write_text(yaml_content, encoding="utf-8")
 
@@ -102,7 +97,9 @@ async def test_get_config_decodes_utf8_with_unicode(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_config_propagates_file_not_found(tmp_path: Path) -> None:
+async def test_get_config_propagates_file_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Missing file → ``FileNotFoundError`` bubbles to the dispatcher.
 
     The api dispatcher catches it and turns it into a generic
@@ -111,7 +108,8 @@ async def test_get_config_propagates_file_not_found(tmp_path: Path) -> None:
     instead would surface (the editor would silently load an
     empty buffer for a typo'd configuration).
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
 
     with pytest.raises(FileNotFoundError):
         await controller.get_config(configuration="ghost.yaml")
@@ -123,9 +121,12 @@ async def test_get_config_propagates_file_not_found(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_config_writes_content_to_disk(tmp_path: Path) -> None:
+async def test_update_config_writes_content_to_disk(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """``update_config`` lands the new YAML on disk under the configuration name."""
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
     new_content = "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
 
     result = await controller.update_config(configuration="kitchen.yaml", content=new_content)
@@ -135,14 +136,17 @@ async def test_update_config_writes_content_to_disk(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_config_overwrites_existing_yaml(tmp_path: Path) -> None:
+async def test_update_config_overwrites_existing_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Writing over an existing YAML replaces it verbatim.
 
     The editor's "Save" button does this on every keystroke-driven
     save; pin the no-merge / clobber semantics so a refactor that
     accidentally appended would surface.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: stale\n", encoding="utf-8")
     new_content = "esphome:\n  name: kitchen\n"
 
@@ -152,7 +156,9 @@ async def test_update_config_overwrites_existing_yaml(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_config_writes_utf8_unicode_intact(tmp_path: Path) -> None:
+async def test_update_config_writes_utf8_unicode_intact(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Non-ASCII content lands on disk as UTF-8.
 
     Companion to the read test — the explicit ``"utf-8"`` arg
@@ -165,7 +171,8 @@ async def test_update_config_writes_utf8_unicode_intact(tmp_path: Path) -> None:
     translates LF to CRLF on Windows; the round-trip decode
     normalises newlines so the assertion is platform-independent.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
     new_content = "esphome:\n  name: küche\n  # — and ñ\n"
 
     await controller.update_config(configuration="kuche.yaml", content=new_content)
@@ -174,7 +181,9 @@ async def test_update_config_writes_utf8_unicode_intact(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_config_triggers_scan(tmp_path: Path) -> None:
+async def test_update_config_triggers_scan(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Each successful write awakens the scanner so the device list refreshes.
 
     Without the post-write scan, a freshly-added YAML wouldn't
@@ -182,7 +191,8 @@ async def test_update_config_triggers_scan(tmp_path: Path) -> None:
     (up to 60s on the file-poll cadence). The dashboard's
     "save and immediately see the device" UX depends on this.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
 
     await controller.update_config(configuration="new.yaml", content="esphome:\n  name: new\n")
 
@@ -190,7 +200,9 @@ async def test_update_config_triggers_scan(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_config_schedules_storage_regenerate(tmp_path: Path) -> None:
+async def test_update_config_schedules_storage_regenerate(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """Each successful write schedules a StorageJSON regenerate for that YAML.
 
     ``_schedule_storage_regenerate`` runs ``esphome compile
@@ -202,7 +214,8 @@ async def test_update_config_schedules_storage_regenerate(tmp_path: Path) -> Non
     surface — devices showing stale metadata after edits is the
     regression class this prevents.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
 
     await controller.update_config(
         configuration="kitchen.yaml", content="esphome:\n  name: kitchen\n"
@@ -212,7 +225,9 @@ async def test_update_config_schedules_storage_regenerate(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_update_config_writes_before_scanner_runs(tmp_path: Path) -> None:
+async def test_update_config_writes_before_scanner_runs(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
     """The disk write completes before ``scanner.scan()`` fires.
 
     Scanner reads the YAML it scans; if scan ran first, it would
@@ -230,7 +245,8 @@ async def test_update_config_writes_before_scanner_runs(tmp_path: Path) -> None:
     so any ordering of regen-vs-write follows from this scan
     check by virtue of the linear async control flow.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: stale\n", encoding="utf-8")
 
@@ -250,6 +266,7 @@ async def test_update_config_writes_before_scanner_runs(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_round_trip_update_then_get_returns_written_content(
     tmp_path: Path,
+    make_controller: MakeControllerFactory,
 ) -> None:
     """End-to-end: ``update_config`` then ``get_config`` returns what was written.
 
@@ -258,7 +275,8 @@ async def test_round_trip_update_then_get_returns_written_content(
     path. A future refactor that used different paths in
     ``rel_path`` for read vs write would surface here.
     """
-    controller = _make_controller(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
     written = "esphome:\n  name: roundtrip\n"
 
     await controller.update_config(configuration="rt.yaml", content=written)
