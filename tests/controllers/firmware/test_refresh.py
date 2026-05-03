@@ -45,7 +45,7 @@ from esphome_device_builder.models import (
     JobStatus,
     JobType,
 )
-from tests.controllers.devices.conftest import RecordingScanner
+from tests._recording_scanner import RecordingScanner
 
 
 def _device(name: str = "kitchen", **overrides: Any) -> Device:
