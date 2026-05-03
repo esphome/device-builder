@@ -55,6 +55,7 @@ from .helpers import (
     _mark_job_terminal,
     _names_touched_by_job,
     _parse_progress,
+    _reset_job_for_recovery,
     _signal_process_group,
     _terminate_subtree_windows,
     _trim_job_output,
@@ -1378,16 +1379,13 @@ class FirmwareController:
           load into the in-memory map for the recent-jobs panel
           but don't touch ``_queue``.
 
-        ``RUNNING`` jobs get their per-run state reset before
-        being re-queued: ``status`` flips back to ``QUEUED``,
-        and ``output`` / ``progress`` / ``error`` /
-        ``started_at`` / ``completed_at`` / ``exit_code`` are
-        cleared so the rebuild's log looks like a fresh run
-        instead of being concatenated onto the half-output the
-        crash left behind. ``_execute_job`` doesn't clear those
-        fields itself — it appends — so without this reset a
-        user tailing the re-run sees the pre-crash output, then
-        the new build's output, in one buffer. Confusing.
+        ``RUNNING`` jobs go through ``_reset_job_for_recovery``
+        before being re-queued so the rebuild looks like a
+        fresh run in the per-run-state fields (``progress`` /
+        ``error`` / ``started_at`` / ``completed_at`` /
+        ``exit_code``) but keeps the pre-crash ``output`` log
+        as diagnostic history with a separator marker showing
+        where the rebuild starts.
 
         See esphome/device-builder#147 for the policy discussion.
         """
@@ -1399,17 +1397,7 @@ class FirmwareController:
                 self._jobs[job.job_id] = job
                 if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
                     if job.status == JobStatus.RUNNING:
-                        # Clear per-run state from the crashed run so the
-                        # re-run's log starts clean. ``configuration`` /
-                        # ``port`` / ``new_name`` / ``job_type`` /
-                        # ``created_at`` stay (they describe the job, not
-                        # the run).
-                        job.output = []
-                        job.progress = None
-                        job.error = None
-                        job.started_at = None
-                        job.completed_at = None
-                        job.exit_code = None
+                        _reset_job_for_recovery(job)
                     job.status = JobStatus.QUEUED
                     await self._queue.put(job)
             except Exception:

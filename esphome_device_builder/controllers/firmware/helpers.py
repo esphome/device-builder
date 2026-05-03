@@ -115,6 +115,46 @@ def _mark_job_terminal(job: FirmwareJob, status: JobStatus) -> None:
     job.completed_at = datetime.now(UTC).isoformat()
 
 
+_RECOVERY_NOTICE = (
+    "... [dashboard restarted mid-build; the previous run's log is above, "
+    "the rebuild begins below] ...\n"
+)
+
+
+def _reset_job_for_recovery(job: FirmwareJob) -> None:
+    """
+    Clear per-run state on a job we're about to re-queue after a crash.
+
+    Used by the persistence-load path when a ``RUNNING`` job
+    survives a dashboard restart (see ``_load_jobs`` in the
+    controller). The runner's ``_execute_job`` appends to
+    ``job.output`` rather than resetting it, so without this
+    reset a user tailing the re-run would see two builds'
+    worth of log glued together with no demarcation, plus the
+    pre-crash ``progress`` / ``exit_code`` / ``error`` fields
+    leaking into the rebuild's status display.
+
+    Keeps ``job.output`` (the pre-crash log is useful
+    diagnostic history) and appends ``_RECOVERY_NOTICE`` so a
+    follower can see exactly where the rebuild starts. Resets
+    ``progress`` / ``error`` / ``started_at`` / ``completed_at``
+    / ``exit_code`` to their defaults so the rebuild looks
+    like a fresh run in every other respect.
+
+    Status flip is the caller's responsibility — we don't know
+    what state the caller wants the job in (the load path
+    flips ``RUNNING`` → ``QUEUED``; future callers that wanted
+    a different transition shouldn't have to fight a hardcoded
+    one here).
+    """
+    job.output = [*job.output, _RECOVERY_NOTICE]
+    job.progress = None
+    job.error = None
+    job.started_at = None
+    job.completed_at = None
+    job.exit_code = None
+
+
 def _names_touched_by_job(job: FirmwareJob) -> set[str]:
     """YAML filenames a job will read or write.
 

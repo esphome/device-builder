@@ -9,10 +9,14 @@ tests passing as long as the user-visible behaviour is preserved.
 
 Pinned policy (esphome/device-builder#147):
 
-- ``QUEUED`` → re-queue on next boot.
-- ``RUNNING`` → ``FAILED`` with a "dashboard restarted" reason.
-  The subprocess died with the dashboard, so silently
-  re-queueing would re-run a build the user didn't ask for.
+- ``QUEUED`` and ``RUNNING`` → re-queue. Re-running an
+  interrupted build is idempotent at worst (the rebuilt
+  firmware ends up identical), the user pays a couple minutes
+  of compile time, no harm done. ``RUNNING`` jobs go through
+  ``_reset_job_for_recovery`` first so the rebuild's
+  ``progress`` / ``exit_code`` / ``error`` fields don't leak
+  the crashed run's state — but the original log is kept as
+  diagnostic history with a separator marker.
 - Terminal (``COMPLETED`` / ``FAILED`` / ``CANCELLED``) → load
   into the recent-jobs panel; don't re-queue.
 
@@ -173,14 +177,19 @@ async def test_running_job_re_queues_with_clean_state_after_restart(
     restored = restored_jobs[queued.job_id]
     # Re-queued, not failed.
     assert restored.status == JobStatus.QUEUED
-    # Per-run state cleared so the rebuild's log starts fresh.
-    assert restored.output == []
+    # Pre-crash log retained as diagnostic history, with a
+    # marker line showing where the rebuild begins.
+    assert "compile in progress …\n" in restored.output
+    assert "src/main.cpp\n" in restored.output
+    assert any("dashboard restarted mid-build" in line for line in restored.output)
+    # Other per-run state cleared so the rebuild's status display
+    # shows fresh values.
     assert restored.progress is None
     assert restored.error is None
     assert restored.started_at is None
     assert restored.completed_at is None
     assert restored.exit_code is None
-    # Job identity preserved (configuration + job_id stay).
+    # Job identity preserved.
     assert restored.configuration == "kitchen.yaml"
 
 
