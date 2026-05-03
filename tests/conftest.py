@@ -22,6 +22,9 @@ from typing import TYPE_CHECKING
 import pytest
 from blockbuster import blockbuster_ctx
 
+from esphome_device_builder.controllers.boards import BoardCatalog
+from esphome_device_builder.controllers.components import ComponentCatalog
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -77,3 +80,43 @@ def blockbuster() -> Iterator[BlockBuster | None]:
             for filename, func_name in _STARTUP_BLOCKING_OK:
                 fn.can_block_in(filename, func_name)
         yield bb
+
+
+# ---------------------------------------------------------------------------
+# Catalog fixtures
+#
+# ``ComponentCatalog.load`` parses ~40 MB of JSON and instantiates ~900 entry
+# objects — about a second wall-time per call, plus blockbuster overhead on
+# Linux CI. Hoisting the load to a session-scoped fixture lets every test
+# module that wants the real catalog share the same instance per xdist
+# worker, instead of paying the cost in each module's setup.
+# ---------------------------------------------------------------------------
+
+
+class _CatalogContainer:
+    """Minimal ``device_builder``-shaped object the ComponentCatalog reads from."""
+
+    boards: BoardCatalog | None = None
+    components: ComponentCatalog | None = None
+
+
+@pytest.fixture(scope="session")
+def session_board_catalog() -> BoardCatalog:
+    """Real ``BoardCatalog`` loaded once per xdist worker."""
+    cat = BoardCatalog()
+    cat.load()
+    return cat
+
+
+@pytest.fixture(scope="session")
+def session_component_catalog(session_board_catalog: BoardCatalog) -> ComponentCatalog:
+    """Real ``ComponentCatalog`` (with featured registry built) loaded once per worker.
+
+    Tests that mutate the catalog must restore it before yielding back —
+    the instance is shared across every test in the session.
+    """
+    container = _CatalogContainer()
+    container.boards = session_board_catalog
+    container.components = ComponentCatalog(container)
+    container.components.load()
+    return container.components

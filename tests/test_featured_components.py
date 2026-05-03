@@ -21,7 +21,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices.helpers import _apply_featured_presets
@@ -98,20 +97,10 @@ def test_load_featured_bundle() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def catalog() -> ComponentCatalog:
-    """Boot board + component catalogs once per module."""
-
-    class _DB:
-        boards: BoardCatalog | None = None
-        components: ComponentCatalog | None = None
-
-    db = _DB()
-    db.boards = BoardCatalog()
-    db.boards.load()
-    db.components = ComponentCatalog(db)
-    db.components.load()
-    return db.components
+@pytest.fixture
+def catalog(session_component_catalog: ComponentCatalog) -> ComponentCatalog:
+    """Reuse the session-scoped catalog (board catalog already wired in)."""
+    return session_component_catalog
 
 
 def test_registry_indexes_known_boards(catalog: ComponentCatalog) -> None:

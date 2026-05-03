@@ -8,6 +8,8 @@ manifests in ``definitions/boards/``.
 
 from __future__ import annotations
 
+import pytest
+
 from script.validate_definitions import (  # type: ignore[import-not-found]
     _build_components_index,
     _validate_featured,
@@ -15,7 +17,14 @@ from script.validate_definitions import (  # type: ignore[import-not-found]
 )
 
 
+@pytest.fixture(scope="module")
 def _index() -> dict | None:
+    """Parse ``components.json`` once per module — every test wants the same index.
+
+    ``_build_components_index`` re-reads and JSON-decodes a ~40 MB file
+    on each call; sharing one snapshot across the file's tests turns
+    ten loads into one without changing the validator's contract.
+    """
     return _build_components_index()
 
 
@@ -31,7 +40,7 @@ def _pins(*gpios: int) -> dict[int, dict]:
     return {g: {"gpio": g, "features": []} for g in gpios}
 
 
-def test_valid_locked_pin() -> None:
+def test_valid_locked_pin(_index: dict | None) -> None:
     """A featured switch.gpio with a locked, declared pin passes."""
     errors = _validate_featured(
         "demo",
@@ -45,22 +54,22 @@ def test_valid_locked_pin() -> None:
             ]
         ),
         _pins(12),
-        _index(),
+        _index,
     )
     assert errors == []
 
 
-def test_unknown_component_id() -> None:
+def test_unknown_component_id(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",
         _board([{"id": "foo", "component_id": "definitely.not.real", "fields": {}}]),
         {},
-        _index(),
+        _index,
     )
     assert any("not found in components.json" in e for e in errors)
 
 
-def test_unknown_field_key() -> None:
+def test_unknown_field_key(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",
         _board(
@@ -73,12 +82,12 @@ def test_unknown_field_key() -> None:
             ]
         ),
         _pins(12),
-        _index(),
+        _index,
     )
     assert any("not a config_entry on switch.gpio" in e for e in errors)
 
 
-def test_pin_not_declared() -> None:
+def test_pin_not_declared(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",
         _board(
@@ -91,12 +100,12 @@ def test_pin_not_declared() -> None:
             ]
         ),
         _pins(12),  # GPIO99 is not a declared pin
-        _index(),
+        _index,
     )
     assert any("GPIO 99 not declared in pins" in e for e in errors)
 
 
-def test_suggestions_pin_not_declared() -> None:
+def test_suggestions_pin_not_declared(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",
         _board(
@@ -109,12 +118,12 @@ def test_suggestions_pin_not_declared() -> None:
             ]
         ),
         _pins(4),
-        _index(),
+        _index,
     )
     assert any("GPIO 99 not declared in pins" in e for e in errors)
 
 
-def test_dict_pin_with_number_validates() -> None:
+def test_dict_pin_with_number_validates(_index: dict | None) -> None:
     """Rich pin form ({number, mode, inverted}) gets its GPIO checked."""
     errors = _validate_featured(
         "demo",
@@ -137,12 +146,12 @@ def test_dict_pin_with_number_validates() -> None:
             ]
         ),
         _pins(0),
-        _index(),
+        _index,
     )
     assert errors == []
 
 
-def test_duplicate_featured_id() -> None:
+def test_duplicate_featured_id(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",
         _board(
@@ -152,12 +161,12 @@ def test_duplicate_featured_id() -> None:
             ]
         ),
         {},
-        _index(),
+        _index,
     )
     assert any("duplicate id 'relay'" in e for e in errors)
 
 
-def test_duplicate_bundle_id() -> None:
+def test_duplicate_bundle_id(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",
         _board(
@@ -168,12 +177,12 @@ def test_duplicate_bundle_id() -> None:
             ],
         ),
         {},
-        _index(),
+        _index,
     )
     assert any("duplicate id 'led'" in e for e in errors)
 
 
-def test_bundle_unknown_component_id() -> None:
+def test_bundle_unknown_component_id(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",
         _board(
@@ -183,12 +192,12 @@ def test_bundle_unknown_component_id() -> None:
             ],
         ),
         {},
-        _index(),
+        _index,
     )
     assert any("'ghost' does not match any" in e for e in errors)
 
 
-def test_locked_and_suggestions_both_set() -> None:
+def test_locked_and_suggestions_both_set(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",
         _board(
@@ -201,7 +210,7 @@ def test_locked_and_suggestions_both_set() -> None:
             ]
         ),
         _pins(4, 5),
-        _index(),
+        _index,
     )
     assert any("cannot set both 'locked' and 'suggestions'" in e for e in errors)
 
@@ -248,7 +257,7 @@ def test_field_preset_imported_still_requires_pin_declared() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_id_with_hyphens_rejected() -> None:
+def test_id_with_hyphens_rejected(_index: dict | None) -> None:
     """Hyphens in featured-component ids fail validation outright."""
     errors = _validate_featured(
         "demo",
@@ -262,12 +271,12 @@ def test_id_with_hyphens_rejected() -> None:
             ]
         ),
         {},
-        _index(),
+        _index,
     )
     assert any("no hyphens" in e for e in errors)
 
 
-def test_id_collides_with_dotted_domain() -> None:
+def test_id_collides_with_dotted_domain(_index: dict | None) -> None:
     """An id equal to the component_id's domain (e.g. ``output``) is rejected."""
     errors = _validate_featured(
         "demo",
@@ -281,12 +290,12 @@ def test_id_collides_with_dotted_domain() -> None:
             ]
         ),
         {},
-        _index(),
+        _index,
     )
     assert any("clashes with domain 'output'" in e and "output_<role>" in e for e in errors)
 
 
-def test_id_collides_with_single_segment_component_id() -> None:
+def test_id_collides_with_single_segment_component_id(_index: dict | None) -> None:
     """For component_ids without a dot (``i2c``, ``rtttl``), id must not equal it."""
     errors = _validate_featured(
         "demo",
@@ -300,12 +309,12 @@ def test_id_collides_with_single_segment_component_id() -> None:
             ]
         ),
         {},
-        _index(),
+        _index,
     )
     assert any("clashes with domain 'i2c'" in e for e in errors)
 
 
-def test_clean_id_passes_shape_check() -> None:
+def test_clean_id_passes_shape_check(_index: dict | None) -> None:
     """A canonical lowercase-underscore id with a descriptive name passes."""
     errors = _validate_featured(
         "demo",
@@ -319,14 +328,14 @@ def test_clean_id_passes_shape_check() -> None:
             ]
         ),
         {},
-        _index(),
+        _index,
     )
     # Neither shape nor collision messages should appear; the entry is clean.
     assert not any("no hyphens" in e for e in errors)
     assert not any("clashes with domain" in e for e in errors)
 
 
-def test_bundle_id_with_hyphens_rejected() -> None:
+def test_bundle_id_with_hyphens_rejected(_index: dict | None) -> None:
     """The same shape rule applies to ``featured_bundles[].id``."""
     errors = _validate_featured(
         "demo",
@@ -335,6 +344,6 @@ def test_bundle_id_with_hyphens_rejected() -> None:
             [{"id": "rgb-buzzer", "name": "RGB+Buzzer", "component_ids": ["a"]}],
         ),
         {},
-        _index(),
+        _index,
     )
     assert any("no hyphens" in e and "rgb-buzzer" in e for e in errors)

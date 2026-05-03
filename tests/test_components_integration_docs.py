@@ -14,12 +14,10 @@ import pytest
 from esphome_device_builder.controllers.components import ComponentCatalog
 
 
-@pytest.fixture(scope="module")
-def catalog() -> ComponentCatalog:
-    """Boot the catalog once per module — none of the tests below mutate it."""
-    cat = ComponentCatalog()
-    cat.load()
-    return cat
+@pytest.fixture
+def catalog(session_component_catalog: ComponentCatalog) -> ComponentCatalog:
+    """Reuse the session-scoped catalog — none of the tests below mutate it."""
+    return session_component_catalog
 
 
 async def test_top_level_components_resolved(catalog: ComponentCatalog) -> None:
