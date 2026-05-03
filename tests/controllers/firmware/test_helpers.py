@@ -26,6 +26,7 @@ expectations in one place avoids drift.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from typing import Any
@@ -248,7 +249,11 @@ def test_find_esphome_cmd_prefers_sibling_binary_when_present(
     bin_dir.mkdir()
     fake_python = bin_dir / "python"
     fake_python.write_text("#!/bin/sh\necho fake\n", encoding="utf-8")
-    sibling = bin_dir / ("esphome.exe" if sys.platform.startswith("win") else "esphome")
+    # Match the helper's own ``os.name == "nt"`` check exactly.
+    # ``sys.platform`` and ``os.name`` can disagree on MSYS / Cygwin
+    # so basing the fixture on ``os.name`` keeps the test in lockstep
+    # with whichever branch the helper is about to take.
+    sibling = bin_dir / ("esphome.exe" if os.name == "nt" else "esphome")
     sibling.write_text("#!/bin/sh\necho fake-esphome\n", encoding="utf-8")
 
     monkeypatch.setattr(sys, "executable", str(fake_python))
@@ -283,11 +288,11 @@ def test_find_esphome_cmd_falls_back_to_python_dash_m(
     assert cmd == [str(fake_python), "-m", "esphome"]
 
 
-@pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-extension branch")
+@pytest.mark.skipif(os.name == "nt", reason="POSIX-extension branch")
 def test_find_esphome_cmd_picks_bare_esphome_on_posix(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """On POSIX the helper picks ``esphome`` (no extension).
+    """On POSIX (``os.name != 'nt'``) the helper picks ``esphome`` (no extension).
 
     Layered with the Windows-only twin below so the CI matrix
     (Linux + macOS + Windows) covers both branches end-to-end.
@@ -296,6 +301,11 @@ def test_find_esphome_cmd_picks_bare_esphome_on_posix(
     real ``os.name`` at import time, and switching makes
     pathlib raise ``NotImplementedError`` — so we let the
     host OS pick.
+
+    Skip predicate matches the helper's branch exactly
+    (``os.name == "nt"``) rather than ``sys.platform`` so MSYS /
+    Cygwin (where the two can disagree) routes to the
+    correct test.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -309,7 +319,7 @@ def test_find_esphome_cmd_picks_bare_esphome_on_posix(
     assert cmd == [str(bin_dir / "esphome")]
 
 
-@pytest.mark.skipif(not sys.platform.startswith("win"), reason="Windows-extension branch")
+@pytest.mark.skipif(os.name != "nt", reason="Windows-extension branch")
 def test_find_esphome_cmd_picks_esphome_exe_on_windows(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
