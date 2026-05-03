@@ -172,3 +172,47 @@ async def test_async_wrapper_dispatches_to_sync_reader(tmp_path: Path) -> None:
     yaml_path = _setup(tmp_path, hash_value=0x12345678)
 
     assert await compute_yaml_config_hash(yaml_path) == "12345678"
+
+
+def test_returns_none_when_build_info_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """OSError on ``read_bytes`` → ``None`` + warning, no exception bubbles up.
+
+    Distinct from the ``FileNotFoundError`` branch above (silent
+    "fresh device" return). This branch is for genuine I/O
+    failures the user should notice — permission denied, disk
+    error, broken symlink — so the helper logs at WARNING and
+    returns None rather than crashing the caller.
+
+    The file *exists* (so the open() succeeds and we don't hit
+    the FileNotFoundError branch) but ``read_bytes`` raises a
+    permission error mid-read; pin both halves: ``None`` returned,
+    warning emitted naming the offending path.
+    """
+    import logging
+    from pathlib import Path as _Path
+
+    yaml_path = _setup(tmp_path, hash_value=None)
+    build_path = tmp_path / ".esphome" / "build" / "kitchen"
+    build_path.mkdir(parents=True, exist_ok=True)
+    build_info = build_path / "build_info.json"
+    build_info.write_text('{"config_hash": 1}', encoding="utf-8")
+
+    real_read_bytes = _Path.read_bytes
+
+    def _raise_permission(self: _Path) -> bytes:
+        if self == build_info:
+            raise PermissionError("simulated permission denied")
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(_Path, "read_bytes", _raise_permission)
+
+    with caplog.at_level(logging.WARNING, logger="esphome_device_builder.helpers.config_hash"):
+        result = read_build_info_hash(yaml_path)
+
+    assert result is None
+    assert any(
+        "Could not read" in rec.message and "build_info.json" in rec.message
+        for rec in caplog.records
+    ), "expected a WARNING naming the unreadable build_info.json"
