@@ -83,11 +83,6 @@ def json_response(data: Any, status: int = 200) -> web.Response:
     )
 
 
-def error_response(message: str, status: int = 400) -> web.Response:
-    """Return a JSON error response."""
-    return json_response({"error": message}, status)
-
-
 @web.middleware
 async def cors_middleware(request: web.Request, handler: Any) -> web.StreamResponse:
     """Permissive CORS for local development."""
