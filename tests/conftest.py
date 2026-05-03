@@ -18,16 +18,19 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import pytest
 from blockbuster import blockbuster_ctx
+from esphome.core import CORE
 
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
+from esphome_device_builder.controllers.config import DashboardSettings
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
     from blockbuster import BlockBuster
 
@@ -165,11 +168,62 @@ class FakeWebSocketClient:
         self.results.append((message_id, result))
 
     def events_for(self, name: str) -> list[Any]:
-        """Return the ``data`` payloads for every captured ``send_event(name, …)``.
+        """Return the ``data`` payloads for every captured ``send_event(..., event=name, ...)``.
 
-        Most assertions only care about the data attached to a
-        specific event ("show me every ``output`` line"); collapsing
-        the (message_id, event, data) tuple unpack into one helper
-        keeps the test bodies readable.
+        ``send_event`` takes ``(message_id, event, data)`` —
+        ``name`` here filters by the ``event`` argument. Most
+        assertions only care about the data attached to a
+        specific event ("show me every ``output`` line");
+        collapsing the (message_id, event, data) tuple unpacking
+        into one helper keeps the test bodies readable.
         """
         return [data for (_mid, event, data) in self.events if event == name]
+
+
+# ---------------------------------------------------------------------------
+# DashboardSettings factory
+#
+# Several test modules build a ``DashboardSettings`` rooted at ``tmp_path``
+# without going through ``parse_args`` — config_controller, executor pool,
+# device_builder lifecycle, ws handler branches, ha addon failsafe. They
+# all reproduce the same two-line wiring (``config_dir`` /
+# ``absolute_config_dir``); some additionally patch ``CORE.config_path``
+# because the catalog loaders crash on ``CORE.config_dir.is_dir`` when
+# the package-default ``None`` leaks in.
+# ---------------------------------------------------------------------------
+
+
+class MakeSettingsFactory(Protocol):
+    """Shape of the ``make_settings`` fixture's return value."""
+
+    def __call__(self, *, with_core_path: bool = ...) -> DashboardSettings: ...
+
+
+@pytest.fixture
+def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MakeSettingsFactory:
+    """Return a factory that builds a ``DashboardSettings`` rooted at ``tmp_path``.
+
+    The minimal shape ``DeviceBuilder.__init__`` /
+    ``ConfigController`` / ``DashboardSettings.rel_path`` need:
+    ``config_dir`` and ``absolute_config_dir``.
+
+    ``with_core_path=True`` additionally patches ``CORE.config_path``
+    to the same sentinel filename ``DashboardSettings.parse_args``
+    writes in production (``_DASHBOARD_SENTINEL_FILE`` in
+    ``controllers/config.py``). Without it, code paths that
+    reach into the catalog loaders crash on
+    ``CORE.config_dir.is_dir`` because ``CORE.config_path`` is the
+    package-default ``None``. Routing through ``monkeypatch``
+    auto-restores the value after the test so sibling tests in the
+    same xdist worker don't see leaked process-globals.
+    """
+
+    def _make(*, with_core_path: bool = False) -> DashboardSettings:
+        settings = DashboardSettings()
+        settings.config_dir = tmp_path
+        settings.absolute_config_dir = tmp_path.resolve()
+        if with_core_path:
+            monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
+        return settings
+
+    return _make
