@@ -26,6 +26,7 @@ Coverage targets:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -229,8 +230,6 @@ async def test_update_config_writes_before_scanner_runs(tmp_path: Path) -> None:
     so any ordering of regen-vs-write follows from this scan
     check by virtue of the linear async control flow.
     """
-    import asyncio as _asyncio
-
     controller = _make_controller(tmp_path)
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: stale\n", encoding="utf-8")
@@ -239,7 +238,7 @@ async def test_update_config_writes_before_scanner_runs(tmp_path: Path) -> None:
     seen_during_scan: list[str] = []
 
     async def _record_scan() -> None:
-        seen_during_scan.append(await _asyncio.to_thread(yaml_path.read_text, "utf-8"))
+        seen_during_scan.append(await asyncio.to_thread(yaml_path.read_text, "utf-8"))
 
     controller._scanner.scan = AsyncMock(side_effect=_record_scan)
 
