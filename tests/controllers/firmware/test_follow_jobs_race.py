@@ -14,25 +14,31 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from typing import Any
-from unittest.mock import MagicMock
 
 from esphome_device_builder.controllers.firmware import FirmwareController
-from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType, StreamEvent
 
 from ...conftest import FakeWebSocketClient
+from .conftest import FirmwareControllerFactory
 
 
-def _make_controller(jobs: list[FirmwareJob]) -> FirmwareController:
-    controller = FirmwareController.__new__(FirmwareController)
-    controller._jobs = {job.job_id: job for job in jobs}
-    db = MagicMock()
-    db.bus = EventBus()
-    controller._db = db
-    return controller
+def _make_controller(
+    factory: FirmwareControllerFactory, jobs: list[FirmwareJob]
+) -> FirmwareController:
+    """Build a ``follow_jobs``-shaped controller via the shared factory.
+
+    ``follow_jobs`` reads ``self._jobs`` and ``self._db.bus`` only;
+    ``with_real_bus=True`` swaps in the real ``EventBus`` so the
+    listener-attach + fire semantics match production, and
+    ``with_settings=False`` skips the config-dir wiring this path
+    doesn't read.
+    """
+    return factory(*jobs, with_real_bus=True, with_settings=False)
 
 
-async def test_follow_jobs_replays_snapshot_then_live_events_in_order() -> None:
+async def test_follow_jobs_replays_snapshot_then_live_events_in_order(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """A ``JOB_*`` event during the snapshot replay still reaches the client.
 
     Without the fix the snapshot loop awaited each ``send_event``,
@@ -55,7 +61,7 @@ async def test_follow_jobs_replays_snapshot_then_live_events_in_order() -> None:
         status=JobStatus.RUNNING,
         output=[],
     )
-    controller = _make_controller([job_a, job_b])
+    controller = _make_controller(firmware_controller_factory, [job_a, job_b])
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
@@ -99,7 +105,9 @@ async def test_follow_jobs_replays_snapshot_then_live_events_in_order() -> None:
     assert max(snapshot_indices) < queued_index
 
 
-async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation() -> None:
+async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """A running job mutating mid-snapshot doesn't appear twice.
 
     The earlier shape captured ``FirmwareJob`` objects synchronously
@@ -135,7 +143,7 @@ async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation(
         status=JobStatus.RUNNING,
         output=["b-pre-snapshot\n"],
     )
-    controller = _make_controller([job_a, job_b])
+    controller = _make_controller(firmware_controller_factory, [job_a, job_b])
     bus = controller._db.bus
 
     block = asyncio.Event()
@@ -187,14 +195,16 @@ async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation(
     assert job_outputs == [{"job_id": "b", "line": "b-mid-snapshot\n"}]
 
 
-async def test_follow_jobs_unsubscribes_on_cancellation() -> None:
+async def test_follow_jobs_unsubscribes_on_cancellation(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Cancelling the WS task releases every listener.
 
     Three event types are subscribed (lifecycle, output, progress);
     a leak here would silently grow the listener set on every
     reconnect.
     """
-    controller = _make_controller([])
+    controller = _make_controller(firmware_controller_factory, [])
     bus = controller._db.bus
     client = FakeWebSocketClient(yield_per_event=True)
 
@@ -225,9 +235,11 @@ async def _drain_until(client: FakeWebSocketClient, predicate: Any, attempts: in
             return
 
 
-async def test_follow_jobs_forwards_job_progress_events() -> None:
+async def test_follow_jobs_forwards_job_progress_events(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """A ``JOB_PROGRESS`` event lands as a ``job_progress`` push (not a lifecycle)."""
-    controller = _make_controller([])
+    controller = _make_controller(firmware_controller_factory, [])
     bus = controller._db.bus
     client = FakeWebSocketClient(yield_per_event=True)
 
@@ -247,14 +259,16 @@ async def test_follow_jobs_forwards_job_progress_events() -> None:
     assert progress_events == [progress]
 
 
-async def test_follow_jobs_drops_lifecycle_event_with_no_job_payload() -> None:
+async def test_follow_jobs_drops_lifecycle_event_with_no_job_payload(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """A lifecycle event missing the ``job`` key is silently ignored.
 
     The runner always tags lifecycle bus events with ``{"job": <FirmwareJob>}``,
     but the handler defends against a malformed payload by skipping it
     instead of crashing the stream — guard the early-return path here.
     """
-    controller = _make_controller([])
+    controller = _make_controller(firmware_controller_factory, [])
     bus = controller._db.bus
     client = FakeWebSocketClient(yield_per_event=True)
 
@@ -279,7 +293,9 @@ async def test_follow_jobs_drops_lifecycle_event_with_no_job_payload() -> None:
     assert client.events_for("job_progress") == [{"job_id": "a"}]
 
 
-async def test_follow_jobs_lifecycle_payload_passthrough_for_dict_job() -> None:
+async def test_follow_jobs_lifecycle_payload_passthrough_for_dict_job(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """A ``job`` payload that's already a dict is forwarded verbatim.
 
     Production firmware events carry a ``FirmwareJob`` instance and the
@@ -287,7 +303,7 @@ async def test_follow_jobs_lifecycle_payload_passthrough_for_dict_job() -> None:
     however, can hand back a plain dict — the handler's ``hasattr``
     check falls through and uses the dict as-is.
     """
-    controller = _make_controller([])
+    controller = _make_controller(firmware_controller_factory, [])
     bus = controller._db.bus
     client = FakeWebSocketClient(yield_per_event=True)
 

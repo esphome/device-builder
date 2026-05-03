@@ -20,32 +20,32 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import MagicMock
 
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware.constants import _MAX_OUTPUT_LINES_INFLIGHT
-from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType, StreamEvent
 
 from ...conftest import FakeWebSocketClient
+from .conftest import FirmwareControllerFactory
 
 
-def _make_controller_with_job(job: FirmwareJob) -> FirmwareController:
+def _make_controller_with_job(
+    factory: FirmwareControllerFactory, job: FirmwareJob
+) -> FirmwareController:
     """Build a controller shell that ``follow_job`` can drive end-to-end.
 
     ``follow_job`` reads ``self._jobs`` and ``self._db.bus`` only —
-    everything else is unused for this path, so a real ``EventBus``
-    plus the in-memory job map is enough.
+    everything else is unused for this path. ``with_real_bus=True``
+    swaps in the real ``EventBus`` so the listener-attach + fire
+    semantics match production; ``with_settings=False`` skips the
+    config-dir wiring this path doesn't read.
     """
-    controller = FirmwareController.__new__(FirmwareController)
-    controller._jobs = {job.job_id: job}
-    db = MagicMock()
-    db.bus = EventBus()
-    controller._db = db
-    return controller
+    return factory(job, with_real_bus=True, with_settings=False)
 
 
-async def test_terminal_job_replays_full_history_and_returns() -> None:
+async def test_terminal_job_replays_full_history_and_returns(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """A finished job's history is sent verbatim, followed by ``result``."""
     job = FirmwareJob(
         job_id="abc",
@@ -55,7 +55,7 @@ async def test_terminal_job_replays_full_history_and_returns() -> None:
         output=["line a\n", "line b\n", "line c\n"],
         exit_code=0,
     )
-    controller = _make_controller_with_job(job)
+    controller = _make_controller_with_job(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
 
     await controller.follow_job(job_id="abc", client=client, message_id="m1")
@@ -67,7 +67,9 @@ async def test_terminal_job_replays_full_history_and_returns() -> None:
     assert result_events[0][1] == {"status": "completed", "exit_code": 0}
 
 
-async def test_history_lines_arrive_before_live_lines_in_order() -> None:
+async def test_history_lines_arrive_before_live_lines_in_order(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Live events fired during the history send arrive after history.
 
     Drives the streaming loop concurrently with the follow_job
@@ -83,7 +85,7 @@ async def test_history_lines_arrive_before_live_lines_in_order() -> None:
         status=JobStatus.RUNNING,
         output=["history-1\n", "history-2\n"],
     )
-    controller = _make_controller_with_job(job)
+    controller = _make_controller_with_job(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
@@ -116,7 +118,9 @@ async def test_history_lines_arrive_before_live_lines_in_order() -> None:
     assert output_lines == ["history-1\n", "history-2\n", "live-1\n", "live-2\n"]
 
 
-async def test_live_events_for_other_jobs_are_filtered_out() -> None:
+async def test_live_events_for_other_jobs_are_filtered_out(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Listener ignores events for other ``job_id``s.
 
     Multiple jobs share the same bus; without filtering, the queue
@@ -130,7 +134,7 @@ async def test_live_events_for_other_jobs_are_filtered_out() -> None:
         status=JobStatus.RUNNING,
         output=[],
     )
-    controller = _make_controller_with_job(job)
+    controller = _make_controller_with_job(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
@@ -159,7 +163,9 @@ def _async_run(coro: Any) -> None:
     asyncio.run(coro)
 
 
-async def test_streaming_loop_cannot_append_between_snapshot_and_subscribe() -> None:
+async def test_streaming_loop_cannot_append_between_snapshot_and_subscribe(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Lines appended after follow_job starts appear via subscription, not history.
 
     Locks the contract that follow_job's history send and live drain
@@ -177,7 +183,7 @@ async def test_streaming_loop_cannot_append_between_snapshot_and_subscribe() -> 
         status=JobStatus.RUNNING,
         output=["pre-snapshot\n"],
     )
-    controller = _make_controller_with_job(job)
+    controller = _make_controller_with_job(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
@@ -203,7 +209,9 @@ async def test_streaming_loop_cannot_append_between_snapshot_and_subscribe() -> 
     assert output_lines == ["pre-snapshot\n", "post-snapshot\n"]
 
 
-async def test_slow_follower_drops_lines_above_queue_cap() -> None:
+async def test_slow_follower_drops_lines_above_queue_cap(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Bounded queue caps memory: lines past the cap are dropped.
 
     Without this bound, a follower that stops draining (closed WS,
@@ -222,7 +230,7 @@ async def test_slow_follower_drops_lines_above_queue_cap() -> None:
         status=JobStatus.RUNNING,
         output=[],
     )
-    controller = _make_controller_with_job(job)
+    controller = _make_controller_with_job(firmware_controller_factory, job)
     bus = controller._db.bus
 
     # Park send_event so the drain stays blocked on the very first
@@ -272,7 +280,9 @@ async def test_slow_follower_drops_lines_above_queue_cap() -> None:
     assert len(result_events) == 1
 
 
-async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full() -> None:
+async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """Terminal result + sentinel still land when the queue is full.
 
     The output put_nowait drops on full, but the result + sentinel
@@ -289,7 +299,7 @@ async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full() -> No
         status=JobStatus.RUNNING,
         output=[],
     )
-    controller = _make_controller_with_job(job)
+    controller = _make_controller_with_job(firmware_controller_factory, job)
     bus = controller._db.bus
 
     block = asyncio.Event()
@@ -334,7 +344,9 @@ async def test_terminal_sentinel_evicts_to_unblock_drain_when_queue_full() -> No
     assert result_events[0]["status"] == "completed"
 
 
-async def test_cancelled_terminal_event_returns_with_status() -> None:
+async def test_cancelled_terminal_event_returns_with_status(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
     """``JOB_CANCELLED`` ends the follow with a ``cancelled`` result.
 
     Mirrors the completed/failed paths but exercises the third
@@ -351,7 +363,7 @@ async def test_cancelled_terminal_event_returns_with_status() -> None:
         status=JobStatus.RUNNING,
         output=["pre-cancel\n"],
     )
-    controller = _make_controller_with_job(job)
+    controller = _make_controller_with_job(firmware_controller_factory, job)
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 

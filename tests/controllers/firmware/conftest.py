@@ -68,6 +68,7 @@ class FirmwareControllerFactory(Protocol):
         with_queue: bool = ...,
         with_terminate: bool = ...,
         with_real_persistence: bool = ...,
+        with_real_bus: bool = ...,
     ) -> FirmwareController: ...
 
 
@@ -116,10 +117,21 @@ def firmware_controller_factory(
       against ``tmp_path/.device-builder.json`` and survives
       implementation rewrites of the on-disk shape.
 
+    - ``with_real_bus=False`` (default): ``_db.bus`` is a
+      ``MagicMock`` — fine for tests that ignore the bus or use
+      ``capture_firmware_events`` to replace it. Pass ``True`` for
+      tests that drive the bus directly (subscribe a real listener
+      to observe streamed events, fire events from another task)
+      so the existing ``EventBus`` semantics — synchronous
+      delivery, dedupe by listener identity — match production.
+      Replaces the per-test ``_make_controller`` helpers in
+      ``test_follow_job_race.py`` / ``test_follow_jobs_race.py``.
+
     Always present: ``_jobs`` (populated from positional
-    arguments), ``_db.bus`` (``MagicMock``), and
-    ``_db.create_background_task`` (no-op stub so ``start()``
-    can compose against it without spawning a runner).
+    arguments), ``_db.bus`` (``MagicMock`` or ``EventBus`` per
+    ``with_real_bus``), and ``_db.create_background_task`` (no-op
+    stub so ``start()`` can compose against it without spawning a
+    runner).
     """
 
     def _make(
@@ -128,13 +140,14 @@ def firmware_controller_factory(
         with_queue: bool = False,
         with_terminate: bool = False,
         with_real_persistence: bool = False,
+        with_real_bus: bool = False,
     ) -> FirmwareController:
         controller = FirmwareController.__new__(FirmwareController)
         controller._jobs = {j.job_id: j for j in jobs}
         if not with_real_persistence:
             controller._persist_jobs = AsyncMock()
 
-        bus = MagicMock()
+        bus: EventBus | MagicMock = EventBus() if with_real_bus else MagicMock()
         db_attrs: dict[str, Any] = {"bus": bus}
         if with_settings:
             settings = DashboardSettings()
