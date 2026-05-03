@@ -223,45 +223,6 @@ def test_unindex_name_swallows_value_error_for_missing_device(tmp_path: Path) ->
 
 
 # ---------------------------------------------------------------------------
-# _set_device — bucket-collision in-place replace
-# ---------------------------------------------------------------------------
-
-
-def test_set_device_replaces_collision_in_bucket(tmp_path: Path) -> None:
-    """A bucket entry whose configuration matches the new device is replaced in place.
-
-    Unreachable through normal scanner flow (``_devices`` and
-    ``_devices_by_name`` are kept in lockstep, so a fresh
-    ``previous=None`` insert would never collide on
-    ``configuration`` with a bucket entry that isn't ``previous``).
-    The branch is a defensive guard against a desynced index —
-    e.g. if a future refactor of the apply / dedupe path were to
-    pre-seed the bucket from a state monitor before the scanner
-    saw the YAML. Without the in-place replace, the bucket would
-    end up with two entries sharing a configuration filename and
-    ``bucket[0]`` consumers would see flapping "first match"
-    behaviour. Drive the branch directly so the in-place replace
-    stays load-bearing if the scenario ever becomes reachable.
-    """
-    cfg = tmp_path / "configs"
-    cfg.mkdir()
-    scanner, _ = _make_scanner(cfg)
-
-    stale = Device(name="kitchen", friendly_name="Stale", configuration="kitchen.yaml")
-    # Pre-seed the bucket *without* touching ``_devices`` so the
-    # ``_set_device`` call below sees ``previous=None`` and falls
-    # through to the bucket-collision branch.
-    scanner._devices_by_name["kitchen"] = [stale]
-
-    fresh = Device(name="kitchen", friendly_name="Fresh", configuration="kitchen.yaml")
-    scanner._set_device(cfg / "kitchen.yaml", fresh)
-
-    bucket = scanner._devices_by_name["kitchen"]
-    assert len(bucket) == 1  # in-place replace, not a sibling insert
-    assert bucket[0].friendly_name == "Fresh"
-
-
-# ---------------------------------------------------------------------------
 # _build_cache_keys — stat OSError fallback
 # ---------------------------------------------------------------------------
 

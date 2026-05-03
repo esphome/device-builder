@@ -217,14 +217,14 @@ class DeviceScanner:
             with contextlib.suppress(ValueError):
                 bucket.remove(previous)
         # Insert at the position that keeps the bucket sorted by
-        # configuration filename.
+        # configuration filename. Configuration filenames are unique
+        # per path (``util.list_yaml_files`` is non-recursive) and
+        # ``previous`` has already been removed from the bucket
+        # above, so there is never a colliding entry to overwrite.
         insert_at = 0
         while insert_at < len(bucket) and bucket[insert_at].configuration < device.configuration:
             insert_at += 1
-        if insert_at < len(bucket) and bucket[insert_at].configuration == device.configuration:
-            bucket[insert_at] = device  # same path, refreshed Device
-        else:
-            bucket.insert(insert_at, device)
+        bucket.insert(insert_at, device)
 
     def _pop_device(self, path: Path) -> Device | None:
         """Drop the *path* entry, mirroring the removal in ``_devices_by_name``."""
