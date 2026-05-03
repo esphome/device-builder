@@ -87,7 +87,11 @@ async def test_import_device_invokes_import_config_and_returns_path(
     # No matching importable cache entry → fall back to wifi (legacy behaviour).
     assert args[5] == "wifi"
     assert args[6] == "true"  # encryption flag forwarded
-    assert ("scan",) in ctrl._scanner.calls
+    # ``import_device`` calls ``scan()`` exactly once on the happy
+    # path; pin the full call list so a regression that double-scans
+    # (or sneaks in a stray ``reload``) breaks here instead of
+    # silently passing the membership check.
+    assert ctrl._scanner.calls == [("scan",)]
 
 
 async def test_import_device_passes_ethernet_network_through_to_import_config(
