@@ -58,6 +58,39 @@ class EventType(StrEnum):
     JOB_CANCELLED = "job_cancelled"
 
 
+class StreamEvent(StrEnum):
+    """Per-stream frame names sent via ``WebSocketClient.send_event``.
+
+    Distinct from :class:`EventType` (the global event-bus channel
+    name): a ``StreamEvent`` is the ``event`` field of a single
+    streaming command's response frames (``follow_job``,
+    ``stream_logs``, ``validate_config``, ``follow_jobs``'s initial
+    snapshot). Two-tier model — bus events get fanned out to per-
+    connection streams, where the controller may relabel them
+    (e.g. ``EventType.JOB_OUTPUT`` becomes ``StreamEvent.OUTPUT``
+    inside a ``follow_job`` stream that's already scoped to a
+    specific job_id).
+
+    The wire bytes coincide with some ``EventType`` values
+    (``"job_output"``, ``"job_progress"``) for the all-jobs
+    follower path, where the stream simply forwards the bus event
+    name through. Those call sites use ``EventType.X.value``
+    directly rather than redeclaring the constant here.
+    """
+
+    # Per-line subprocess output (``follow_job`` / ``stream_logs`` /
+    # ``validate_config``).
+    OUTPUT = "output"
+    # Terminal frame — final status / exit code, ends a streaming
+    # command. Sent priority so a backlog of output frames can't
+    # drop the close signal.
+    RESULT = "result"
+    # Initial replay of buffered state at the start of a stream
+    # (``follow_jobs`` snapshots the job table; ``follow_job``
+    # replays the job's output ring before live tail).
+    SNAPSHOT = "snapshot"
+
+
 # ---------------------------------------------------------------------------
 # Hardware enums (shared between board metadata and config-entry constraints)
 # ---------------------------------------------------------------------------

@@ -34,7 +34,7 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.event_bus import StreamControls, stream_events
 from ...helpers.process import terminate_subtree_with_grace
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
-from ...models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType
+from ...models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType, StreamEvent
 from ..config import _load_metadata, metadata_transaction
 from .constants import (
     _ERROR_PATTERNS,
@@ -406,11 +406,11 @@ class FirmwareController:
 
         async def _send_initial(controls: StreamControls) -> None:
             for line in snapshot:
-                await client.send_event(message_id, "output", line)
+                await client.send_event(message_id, StreamEvent.OUTPUT, line)
             if is_terminal:
                 await client.send_event(
                     message_id,
-                    "result",
+                    StreamEvent.RESULT,
                     {"status": terminal_status, "exit_code": terminal_exit_code},
                 )
                 # No live drain — already-terminal job has nothing
@@ -421,14 +421,14 @@ class FirmwareController:
         def _handle_event(event: Event, controls: StreamControls) -> None:
             if event.event_type == EventType.JOB_OUTPUT:
                 if event.data.get("job_id") == job_id:
-                    controls.push("output", event.data["line"])
+                    controls.push(StreamEvent.OUTPUT, event.data["line"])
             elif event.event_type in _JOB_TERMINAL_EVENTS:
                 ev_job = event.data.get("job")
                 if ev_job and getattr(ev_job, "job_id", None) == job_id:
                     status = getattr(ev_job, "status", "unknown")
                     status_val = status.value if hasattr(status, "value") else str(status)
                     controls.push_priority(
-                        "result",
+                        StreamEvent.RESULT,
                         {
                             "status": status_val,
                             "exit_code": getattr(ev_job, "exit_code", None),
@@ -503,13 +503,17 @@ class FirmwareController:
 
         async def _send_initial(_controls: StreamControls) -> None:
             for payload in snapshot_payloads:
-                await client.send_event(message_id, "snapshot", payload)
+                await client.send_event(message_id, StreamEvent.SNAPSHOT, payload)
 
         def _handle_event(event: Event, controls: StreamControls) -> None:
             if event.event_type == EventType.JOB_OUTPUT:
-                controls.push("job_output", event.data)
+                # Forward the bus event name through verbatim — the
+                # all-jobs follower's wire protocol uses the EventType
+                # value directly for job-* events (see push_priority
+                # branch below).
+                controls.push(EventType.JOB_OUTPUT, event.data)
             elif event.event_type == EventType.JOB_PROGRESS:
-                controls.push("job_progress", event.data)
+                controls.push(EventType.JOB_PROGRESS, event.data)
             else:
                 # Lifecycle event (queued/started/completed/failed/
                 # cancelled). Use ``push_priority`` so a backlog of

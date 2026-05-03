@@ -45,6 +45,7 @@ from ...models import (
     EventType,
     JobStatus,
     JobType,
+    StreamEvent,
     UpdateDeviceResponse,
     WizardResponse,
 )
@@ -1877,7 +1878,7 @@ class DevicesController:
                 payload = line.rstrip("\n\r")
                 if line_transform is not None:
                     payload = line_transform(payload)
-                await client.send_event(message_id, "output", payload)
+                await client.send_event(message_id, StreamEvent.OUTPUT, payload)
             exit_code = await proc.wait()
         except asyncio.CancelledError:
             # Synchronous kill only — no awaits in the cancel path. The
