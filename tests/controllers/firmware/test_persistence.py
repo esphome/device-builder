@@ -121,41 +121,48 @@ async def test_queued_job_survives_dashboard_restart(
 
 
 @pytest.mark.asyncio
-async def test_running_job_finalises_as_failed_after_restart(
+async def test_running_job_re_queues_with_clean_state_after_restart(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
     patch_runtime: None,
 ) -> None:
-    """A ``RUNNING`` job at shutdown comes back ``FAILED`` with a reason.
+    """A ``RUNNING`` job at shutdown comes back ``QUEUED`` with per-run state cleared.
 
-    The subprocess died with the dashboard, so we can't resume
-    it; silently re-queueing would re-run a build the user
-    didn't ask for. The frontend's recent-jobs panel renders
-    the failure with the reason so the user can decide whether
-    to retry.
+    The user asked for the build; even though the subprocess
+    died with the dashboard, the request is still pending in
+    their head. Worst case the rebuild produces the same
+    firmware that was already on the device — that's
+    idempotent, the user pays a couple minutes of compile time,
+    no harm done.
 
-    Phase 1 has to mutate ``self._jobs[...].status`` directly
-    because there's no public API for "make the queue runner
-    pick this up" without actually running ``esphome`` — but
-    everything *after* that goes through public methods (the
-    cancel-style status flip + ``_persist_jobs`` is invoked
-    via ``cancel`` semantics through ``clear`` / similar).
+    Per-run state from the crashed run is cleared
+    (``output`` / ``progress`` / ``error`` / ``started_at`` /
+    ``completed_at`` / ``exit_code``) so the re-run's log looks
+    like a fresh build instead of being concatenated onto
+    whatever the crash left in the buffer. ``_execute_job``
+    appends rather than resets, so without the load-side clear
+    a user tailing the re-run would see two builds' worth of
+    output stitched together.
+
+    Phase 1 has to mutate ``self._jobs[...].status`` directly to
+    simulate the runner having picked up the job before the
+    dashboard went down — there's no public API for "make the
+    runner mid-build" without spawning a real ``esphome``.
+    Phase 2's load behaviour is what's actually pinned and that
+    runs through the public ``start()`` path.
     """
     (tmp_path / "kitchen.yaml").write_text("")
     writer = _persistent_controller(firmware_controller_factory)
     queued = await writer.compile(configuration="kitchen.yaml")
-    # Simulate the runner having picked up the job before the
-    # dashboard goes down. The status flip + persist is what the
-    # real runner would have done; we trigger persistence via a
-    # public path (``cancel`` would write — but cancelling
-    # doesn't put it in RUNNING). Persist explicitly through the
-    # method that *is* user-driven: another submission against
-    # the same config supersedes the QUEUED entry, but that
-    # doesn't help either. Easiest: force the in-memory state
-    # the runner would set, then trigger any persist via a
-    # follow-up public call.
-    writer._jobs[queued.job_id].status = JobStatus.RUNNING
-    # Persist by submitting any other job — its enqueue flushes.
+    # Simulate the runner having picked up the job mid-build —
+    # the status flip + per-run state are what the real runner
+    # would have set on its own. Persistence happens implicitly
+    # via the next ``compile`` submission's enqueue path.
+    in_flight = writer._jobs[queued.job_id]
+    in_flight.status = JobStatus.RUNNING
+    in_flight.output = ["compile in progress …\n", "src/main.cpp\n"]
+    in_flight.progress = 47
+    in_flight.started_at = "2026-01-01T00:00:00+00:00"
     (tmp_path / "garage.yaml").write_text("")
     await writer.compile(configuration="garage.yaml")
 
@@ -164,13 +171,17 @@ async def test_running_job_finalises_as_failed_after_restart(
     restored_jobs = {j.job_id: j for j in await reader.get_jobs()}
     assert queued.job_id in restored_jobs
     restored = restored_jobs[queued.job_id]
-    assert restored.status == JobStatus.FAILED
-    assert restored.completed_at is not None
-    assert restored.error is not None
-    assert "Dashboard restarted" in restored.error
-    # The other (genuinely queued) job is still queued.
-    other = next(j for j in restored_jobs.values() if j.job_id != queued.job_id)
-    assert other.status == JobStatus.QUEUED
+    # Re-queued, not failed.
+    assert restored.status == JobStatus.QUEUED
+    # Per-run state cleared so the rebuild's log starts fresh.
+    assert restored.output == []
+    assert restored.progress is None
+    assert restored.error is None
+    assert restored.started_at is None
+    assert restored.completed_at is None
+    assert restored.exit_code is None
+    # Job identity preserved (configuration + job_id stay).
+    assert restored.configuration == "kitchen.yaml"
 
 
 @pytest.mark.asyncio

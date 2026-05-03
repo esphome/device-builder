@@ -1365,22 +1365,31 @@ class FirmwareController:
 
     async def _load_jobs(self) -> None:
         """
-        Load persisted jobs and decide what to do with each by status.
+        Load persisted jobs and re-queue any incomplete ones.
 
-        - ``QUEUED``: re-queue. The job hadn't started before the
-          dashboard went down; resuming is the user's expectation.
-        - ``RUNNING``: finalise as ``FAILED`` with a "dashboard
-          restarted" reason. The subprocess died with the
-          dashboard, so there's no live build to resume — silently
-          re-queueing would re-run a build the user didn't ask
-          for. Surfacing the failure lets the user decide whether
-          to retry.
+        - ``QUEUED`` and ``RUNNING`` both re-queue. The user
+          asked for the build; even though the subprocess died
+          with the dashboard, the request is still pending in
+          their head. Worst case the rebuilt-and-reflashed
+          firmware is identical to what was already on the
+          device — that's idempotent, the user pays a couple
+          minutes of compile time, no harm done.
         - Terminal (``COMPLETED`` / ``FAILED`` / ``CANCELLED``):
           load into the in-memory map for the recent-jobs panel
           but don't touch ``_queue``.
 
-        See esphome/device-builder#147 for the policy discussion
-        behind the ``RUNNING`` → ``FAILED`` choice.
+        ``RUNNING`` jobs get their per-run state reset before
+        being re-queued: ``status`` flips back to ``QUEUED``,
+        and ``output`` / ``progress`` / ``error`` /
+        ``started_at`` / ``completed_at`` / ``exit_code`` are
+        cleared so the rebuild's log looks like a fresh run
+        instead of being concatenated onto the half-output the
+        crash left behind. ``_execute_job`` doesn't clear those
+        fields itself — it appends — so without this reset a
+        user tailing the re-run sees the pre-crash output, then
+        the new build's output, in one buffer. Confusing.
+
+        See esphome/device-builder#147 for the policy discussion.
         """
         loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(None, _load_metadata, self._db.settings.config_dir)
@@ -1388,14 +1397,21 @@ class FirmwareController:
             try:
                 job = FirmwareJob.from_dict(job_data)
                 self._jobs[job.job_id] = job
-                if job.status == JobStatus.QUEUED:
+                if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+                    if job.status == JobStatus.RUNNING:
+                        # Clear per-run state from the crashed run so the
+                        # re-run's log starts clean. ``configuration`` /
+                        # ``port`` / ``new_name`` / ``job_type`` /
+                        # ``created_at`` stay (they describe the job, not
+                        # the run).
+                        job.output = []
+                        job.progress = None
+                        job.error = None
+                        job.started_at = None
+                        job.completed_at = None
+                        job.exit_code = None
+                    job.status = JobStatus.QUEUED
                     await self._queue.put(job)
-                elif job.status == JobStatus.RUNNING:
-                    job.error = (
-                        "Dashboard restarted mid-build; the subprocess didn't "
-                        "survive. Re-trigger the operation if you still want it."
-                    )
-                    _mark_job_terminal(job, JobStatus.FAILED)
             except Exception:
                 _LOGGER.warning("Failed to restore job: %s", job_data.get("job_id", "?"))
 
