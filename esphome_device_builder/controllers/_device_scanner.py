@@ -247,17 +247,24 @@ class DeviceScanner:
             path = self._index.find_path_by_filename(filename)
             if path is None:
                 return False
+            # Snapshot the existing cache key *before* any ``await``
+            # so the OSError fallback below is race-free regardless
+            # of future lock discipline (today the lock serializes
+            # every writer; tomorrow's caller might not respect it).
+            # Non-None by lockstep: ``find_path_by_filename`` just
+            # located ``path`` in the index, so it's in
+            # ``_cache_keys`` too.
+            previous_cache_key = self._index.cache_key(path)
+            assert previous_cache_key is not None
             loop = asyncio.get_running_loop()
             loaded = await loop.run_in_executor(None, self._load_devices, {path})
             device = loaded.get(path)
             if device is None:
                 return False
             # Refresh the cache key; if the YAML disappears in the
-            # race window between load and re-stat, keep the old key
-            # so the next ``_do_scan`` re-evaluates it. The path was
-            # just located via ``find_path_by_filename`` (so it's in
-            # ``_devices``, so it has a cache key by lockstep) — the
-            # ``cache_key()`` lookup is never ``None`` here.
+            # race window between load and re-stat, keep the
+            # snapshotted previous key so the next ``_do_scan``
+            # re-evaluates it.
             try:
                 stat = await loop.run_in_executor(None, path.stat)
                 cache_key: _CacheKey = (
@@ -267,9 +274,7 @@ class DeviceScanner:
                     stat.st_size,
                 )
             except OSError:
-                existing = self._index.cache_key(path)
-                assert existing is not None
-                cache_key = existing
+                cache_key = previous_cache_key
             self._index.set(path, device, cache_key)
             self._on_change(ScanChange.UPDATED, device)
             return True
