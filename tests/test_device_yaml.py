@@ -7,12 +7,16 @@ hand-rolled text scanning makes regression risk meaningful.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from esphome_device_builder.helpers.device_yaml import (
     _parse_inline_value,
     compute_has_pending_changes,
     detect_platform_from_yaml,
     generate_device_yaml,
+    load_device_from_storage,
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
@@ -24,6 +28,7 @@ from esphome_device_builder.models import (
     Esp32Variant,
     Platform,
 )
+from tests._storage_fixtures import write_storage_json
 
 
 def _make_esp32_board(
@@ -543,3 +548,124 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
     secret = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     assert "  ssid: !secret wifi_ssid\n" in secret
     assert "  password: !secret wifi_password\n" in secret
+
+
+# ---------------------------------------------------------------------------
+# load_device_from_storage — read-error / firmware bin / target_platform paths
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _redirect_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Point ``ext_storage_path`` at ``tmp_path/.esphome/storage/``.
+
+    The production helper resolves through ``CORE.config_path``,
+    which isn't set in isolated tests; the redirect makes
+    ``StorageJSON.load(ext_storage_path(filename))`` read the
+    sidecar ``write_storage_json`` lays down.
+    """
+    storage_dir = tmp_path / ".esphome" / "storage"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    def _ext(configuration: str) -> Path:
+        return storage_dir / f"{configuration}.json"
+
+    monkeypatch.setattr("esphome_device_builder.helpers.device_yaml.ext_storage_path", _ext)
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_falls_back_to_empty_yaml_on_read_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An OSError reading the YAML produces an empty content string, not a crash.
+
+    The scanner can race a file rename / unlink; if the YAML
+    disappears between ``Path.exists()`` (in the caller) and
+    ``read_text()``, the loader must still return a usable
+    Device rather than blowing up the whole rebuild. Pin the
+    catch so a regression that re-raised the OSError would
+    surface here as a hard failure.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    real_read_text = Path.read_text
+
+    def _failing_read(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self.name == "kitchen.yaml":
+            msg = "permission denied"
+            raise OSError(msg)
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _failing_read)
+
+    device = load_device_from_storage(yaml_path)
+
+    # Empty-string fallback: parser sees no name/friendly/comment,
+    # so the loader leans on StorageJSON for those fields.
+    assert device.name == "kitchen"  # from StorageJSON.name (write_storage_json default)
+    assert device.configuration == "kitchen.yaml"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_records_firmware_bin_mtime_when_present(tmp_path: Path) -> None:
+    """``bin_mtime`` is populated when the firmware binary actually exists on disk.
+
+    The mtime drives the ``has_pending_changes`` fallback when
+    the canonical config-hash comparison can't run (pre-#16145
+    firmware). Pin: a sidecar pointing at an existing binary is
+    treated as deployed; an absent binary still leaves the
+    branch intact via the ``.exists()`` short-circuit.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    # Lay down a real firmware bin and point StorageJSON at it.
+    build_dir = tmp_path / ".esphome" / "build" / "kitchen"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    firmware_bin = build_dir / "firmware.bin"
+    firmware_bin.write_bytes(b"\x00" * 16)
+    write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=firmware_bin)
+
+    # Pre-existing YAML mtime equal to the bin (both freshly written) +
+    # both hashes empty → ``has_pending_changes`` falls back to mtime,
+    # and "bin newer than YAML" is False, so the device is in-sync.
+    device = load_device_from_storage(yaml_path)
+
+    # The bin mtime path was reached — without it, the loader would
+    # treat the device as "never compiled" (bin_mtime=None) and
+    # ``has_pending_changes`` would default to True.
+    assert device.has_pending_changes is False
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_uses_storage_target_platform_over_yaml(tmp_path: Path) -> None:
+    """When StorageJSON carries ``target_platform``, it wins over YAML detection.
+
+    StorageJSON's ``target_platform`` is post-codegen — what
+    actually compiled. The YAML's ``esp32:`` / ``esp8266:`` block
+    is what the user typed, which can drift from reality if
+    ESPHome remapped it during validation. Pin the
+    StorageJSON-wins precedence so a regression that
+    short-circuited to ``detect_platform_from_yaml`` would
+    surface here as the YAML-derived value leaking through.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    # YAML says esp32 …
+    yaml_path.write_text(
+        "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n",
+        encoding="utf-8",
+    )
+    # … but StorageJSON records rp2040 (post-codegen truth).
+    # ``StorageJSON.load`` reads ``target_platform`` from the
+    # JSON's ``esp_platform`` key (upstream's wire-name); override
+    # both to keep the on-disk shape consistent.
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        overrides={"esp_platform": "rp2040", "target_platform": "rp2040"},
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.target_platform == "rp2040"
