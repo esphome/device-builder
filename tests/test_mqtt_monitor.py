@@ -18,6 +18,7 @@ from typing import Any, ClassVar
 
 import pytest
 
+from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
     parse_mqtt_block,
@@ -25,6 +26,8 @@ from esphome_device_builder.controllers._device_mqtt_coordinator import (
 from esphome_device_builder.controllers._device_mqtt_monitor import (
     DeviceMqttMonitor,
     MqttBrokerConfig,
+    _decode_payload,
+    _extract_ip,
 )
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.helpers.device_yaml import device_uses_mqtt
@@ -498,8 +501,6 @@ def test_is_available_true_when_paho_importable() -> None:
     ``False`` test below patches the module attribute to simulate
     a missing wheel.
     """
-    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
-
     assert monitor_module.paho_mqtt is not None  # production import worked
     assert DeviceMqttMonitor.is_available() is True
 
@@ -513,8 +514,6 @@ def test_is_available_false_when_paho_missing(monkeypatch: pytest.MonkeyPatch) -
     consults ``is_available()`` and skips the listener with a
     helpful warning when paho is gone.
     """
-    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
-
     monkeypatch.setattr(monitor_module, "paho_mqtt", None)
     assert DeviceMqttMonitor.is_available() is False
 
@@ -558,8 +557,6 @@ async def test_start_warns_and_returns_when_paho_missing(
     user-facing breadcrumb pointing at the optional ``[esphome]``
     extra.
     """
-    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
-
     monkeypatch.setattr(monitor_module, "paho_mqtt", None)
 
     monitor = DeviceMqttMonitor(
@@ -654,8 +651,6 @@ async def test_ping_loop_marks_stale_devices_offline_and_republishes(
     ``_OFFLINE_TIMEOUT`` — the production values (2s / 10s)
     would make this test wait ten seconds for an offline flip.
     """
-    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
-
     # 50ms / 100ms: well under any plausible test-host scheduler
     # jitter while still letting "stale" form between ticks.
     monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
@@ -726,8 +721,6 @@ async def test_run_reconnects_on_connect_and_listen_failure(
     Speed up via ``_RECONNECT_DELAY = 0`` so the test doesn't
     wait the production 5s between attempts.
     """
-    from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
-
     monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
 
     monitor = DeviceMqttMonitor(
@@ -786,8 +779,6 @@ def test_extract_ip_returns_first_present_address() -> None:
     ``ip0`` → ``ip1`` → ``ip2`` so a regression that flips it
     surfaces here.
     """
-    from esphome_device_builder.controllers._device_mqtt_monitor import _extract_ip
-
     # ``ip`` wins when present.
     assert _extract_ip({"ip": "10.0.0.1", "ip0": "192.168.1.1", "ip1": "172.16.0.1"}) == "10.0.0.1"
     # Falls through to ``ip0`` when ``ip`` missing.
@@ -803,8 +794,6 @@ def test_extract_ip_skips_empty_and_non_string_values() -> None:
     Defensive: a misbehaving firmware that publishes ``"ip": null``
     or ``"ip": ""`` shouldn't shadow the next address candidate.
     """
-    from esphome_device_builder.controllers._device_mqtt_monitor import _extract_ip
-
     # Empty + non-string ``ip`` skipped, falls through to ``ip1``.
     assert _extract_ip({"ip": "", "ip0": None, "ip1": "172.16.0.1"}) == "172.16.0.1"
     # Numeric-shaped non-string skipped (devices shouldn't do this
@@ -823,8 +812,6 @@ def test_decode_payload_handles_str_bytes_and_garbage() -> None:
     Malformed UTF-8 falls back to ``backslashreplace`` so the
     debug log line stays readable.
     """
-    from esphome_device_builder.controllers._device_mqtt_monitor import _decode_payload
-
     assert _decode_payload("already-text") == "already-text"
     assert _decode_payload(b"raw bytes") == "raw bytes"
     assert _decode_payload(bytearray(b"mutable")) == "mutable"
@@ -841,8 +828,6 @@ def test_decode_payload_returns_empty_for_unsupported_types() -> None:
     The caller guards against a falsy return so an empty string
     safely short-circuits the JSON parse without raising.
     """
-    from esphome_device_builder.controllers._device_mqtt_monitor import _decode_payload
-
     assert _decode_payload(None) == ""
     assert _decode_payload(12345) == ""
     assert _decode_payload({"not": "supported"}) == ""
