@@ -65,19 +65,19 @@ class StubBoardLookups:
 
     def find_by_pio_board_returns(self, board_id: str | None) -> MagicMock:
         """Stub the PIO-board lookup. ``None`` → miss; ``str`` → match with that id."""
-        mock = MagicMock(return_value=_make_board_stub(board_id) if board_id else None)
+        mock = MagicMock(return_value=_make_board_stub(board_id) if board_id is not None else None)
         self._boards.find_by_pio_board = mock
         return mock
 
     def find_by_platform_variant_returns(self, board_id: str | None) -> MagicMock:
         """Stub the platform-variant fallback lookup."""
-        mock = MagicMock(return_value=_make_board_stub(board_id) if board_id else None)
+        mock = MagicMock(return_value=_make_board_stub(board_id) if board_id is not None else None)
         self._boards.find_by_platform_variant = mock
         return mock
 
     def get_board_returns(self, board_id: str | None) -> AsyncMock:
         """Stub the async ``get_board(board_id)`` lookup the create path uses."""
-        mock = AsyncMock(return_value=_make_board_stub(board_id) if board_id else None)
+        mock = AsyncMock(return_value=_make_board_stub(board_id) if board_id is not None else None)
         self._boards.get_board = mock
         return mock
 
