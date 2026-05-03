@@ -739,7 +739,16 @@ class FirmwareController:
             if job.job_type in (JobType.UPLOAD, JobType.INSTALL):
                 await self._verify_chip(job)
 
-            config_path = str(self._db.settings.rel_path(job.configuration))
+            # ``rel_path`` calls ``Path.resolve`` which does a sync
+            # ``os.path.realpath`` — blocking the event loop. Push it
+            # to the executor so the runner stays non-blocking
+            # end-to-end (matters even for the runner because
+            # ``bus.fire`` listeners are interleaved on the loop and
+            # blocking here pauses every follower's event delivery).
+            loop = asyncio.get_running_loop()
+            config_path = str(
+                await loop.run_in_executor(None, self._db.settings.rel_path, job.configuration)
+            )
             cache_args = self._build_cache_args(job)
             cmd = self._build_command(job.job_type, config_path, job.port, cache_args, job.new_name)
             _LOGGER.debug("Running: %s", " ".join(cmd))
