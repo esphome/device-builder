@@ -241,3 +241,100 @@ def test_field_preset_imported_still_requires_pin_declared() -> None:
 
     errors = _validate_field_preset("demo", "pin", preset, ce, pins, is_imported=True)
     assert any("GPIO 99 not declared in pins" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# id shape + collision checks
+# ---------------------------------------------------------------------------
+
+
+def test_id_with_hyphens_rejected() -> None:
+    """Hyphens in featured-component ids fail validation outright."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "status-led-output",
+                    "component_id": "output.gpio",
+                    "fields": {},
+                }
+            ]
+        ),
+        {},
+        _index(),
+    )
+    assert any("no hyphens" in e for e in errors)
+
+
+def test_id_collides_with_dotted_domain() -> None:
+    """An id equal to the component_id's domain (e.g. ``output``) is rejected."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "output",
+                    "component_id": "output.gpio",
+                    "fields": {},
+                }
+            ]
+        ),
+        {},
+        _index(),
+    )
+    assert any("clashes with domain 'output'" in e and "output_<role>" in e for e in errors)
+
+
+def test_id_collides_with_single_segment_component_id() -> None:
+    """For component_ids without a dot (``i2c``, ``rtttl``), id must not equal it."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "i2c",
+                    "component_id": "i2c",
+                    "fields": {},
+                }
+            ]
+        ),
+        {},
+        _index(),
+    )
+    assert any("clashes with domain 'i2c'" in e for e in errors)
+
+
+def test_clean_id_passes_shape_check() -> None:
+    """A canonical lowercase-underscore id with a descriptive name passes."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "relay_main",
+                    "component_id": "switch.gpio",
+                    "fields": {},
+                }
+            ]
+        ),
+        {},
+        _index(),
+    )
+    # Neither shape nor collision messages should appear; the entry is clean.
+    assert not any("no hyphens" in e for e in errors)
+    assert not any("clashes with domain" in e for e in errors)
+
+
+def test_bundle_id_with_hyphens_rejected() -> None:
+    """The same shape rule applies to ``featured_bundles[].id``."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [{"id": "a", "component_id": "switch.gpio", "fields": {}}],
+            [{"id": "rgb-buzzer", "name": "RGB+Buzzer", "component_ids": ["a"]}],
+        ),
+        {},
+        _index(),
+    )
+    assert any("no hyphens" in e and "rgb-buzzer" in e for e in errors)

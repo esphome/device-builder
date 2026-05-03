@@ -88,7 +88,7 @@ pins:
   - uart_tx
   available: true
 featured_components:
-- id: i2c-bus
+- id: i2c_bus
   component_id: i2c
   name: I²C Bus (sensor modules)
   description: |
@@ -110,7 +110,7 @@ featured_components:
     it talks I²C so no per-pin config is needed beyond the bus above.
   fields:
     variant: AHT20
-- id: pir-motion
+- id: pir_motion
   component_id: binary_sensor.gpio
   name: PIR Motion Module (MH-SR602)
   description: |
@@ -122,7 +122,7 @@ featured_components:
       suggestions: [4, 5]
       value: 4
     device_class: motion
-- id: rgb-strip
+- id: rgb_strip
   component_id: light.esp32_rmt_led_strip
   name: RGB LED Strip (addon module)
   description: |
@@ -135,7 +135,7 @@ featured_components:
       value: 4
     num_leds: 8
     rgb_order: GRB
-- id: buzzer-output
+- id: buzzer_output
   component_id: output.ledc
   name: Piezo Buzzer (addon module)
   description: |
@@ -145,17 +145,17 @@ featured_components:
     pin:
       suggestions: [4, 5]
       value: 5
-- id: rtttl-player
+- id: rtttl_player
   component_id: rtttl
   name: RTTTL Player (addon buzzer)
   description: |
     Plays RTTTL ringtones through the piezo buzzer above. Wire the
     ``output`` field to the buzzer output you just added.
 featured_bundles:
-- id: rgb-buzzer-module
+- id: rgb_buzzer_module
   name: RGB LED + Buzzer Module
   description: |
     Plug-in addon shipped with the starter kit — addressable LED
     strip plus a piezo buzzer. Adds the strip, the buzzer PWM output,
     and the RTTTL player as one logical unit.
-  component_ids: [rgb-strip, buzzer-output, rtttl-player]
+  component_ids: [rgb_strip, buzzer_output, rtttl_player]

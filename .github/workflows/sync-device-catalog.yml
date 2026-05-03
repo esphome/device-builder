@@ -72,7 +72,12 @@ jobs:
         id: diff
         run: |
           set -euo pipefail
-          if git diff --quiet -- esphome_device_builder/definitions/boards/; then
+          # ``git diff --quiet`` only sees modified tracked files — on the
+          # initial sync (or whenever upstream adds a brand-new board) the
+          # script writes untracked manifests that diff would silently miss,
+          # so we'd never open a PR. ``git status --porcelain`` covers
+          # added / modified / deleted in one go.
+          if [ -z "$(git status --porcelain -- esphome_device_builder/definitions/boards/)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

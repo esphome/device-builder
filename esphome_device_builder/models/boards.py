@@ -138,7 +138,7 @@ class FeaturedComponent(DataClassORJSONMixin):
     ``ConfigEntry.key``.
     """
 
-    # Local id, unique within this board (e.g. "relay", "pir-motion").
+    # Local id, unique within this board (e.g. "relay", "pir_motion").
     id: str
     component_id: str
     name: str | None = None

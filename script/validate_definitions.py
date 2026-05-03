@@ -10,6 +10,7 @@ Used as a pre-commit hook and in CI.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,12 @@ COMPONENTS_JSON = DEFINITIONS_DIR / "components.json"
 # Categories excluded from featured-component eligibility — these belong in
 # the dedicated "Add core configuration" dialog, not in board recommendations.
 _FEATURED_EXCLUDED_CATEGORIES = {"core", "ota", "time", "update"}
+
+# Required shape for featured-component ids: lowercase letters, digits, and
+# underscores only, starting with a letter. Mirrors what the runtime
+# slugifier (controllers/components.py::_default_id_from_local) and the
+# sync script's auto-id format produce, so manifests stay canonical.
+_FEATURED_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 # Pin features the board manifest can declare (mirrors the JSON Schema enum
 # in board.schema.json). Components.json sometimes carries pin_features
@@ -202,6 +209,12 @@ def _validate_featured(
             if b_id in seen_bundle_ids:
                 errors.append(f"{board_id}.featured_bundles[{idx}]: duplicate id '{b_id}'")
             seen_bundle_ids.add(b_id)
+            if not _FEATURED_ID_PATTERN.fullmatch(b_id):
+                errors.append(
+                    f"{board_id}.featured_bundles[{idx}]({b_id}): id '{b_id}' must match "
+                    f"{_FEATURED_ID_PATTERN.pattern} (lowercase letters, digits, "
+                    "underscores; no hyphens)"
+                )
         errors.extend(
             f"{board_id}.featured_bundles[{idx}].component_ids: "
             f"'{cid}' does not match any featured_components[].id"
@@ -224,6 +237,29 @@ def _validate_featured_component(
     fc_id = entry.get("id", f"#{idx}")
     component_id = entry.get("component_id")
     path = f"{board_id}.featured_components[{idx}]({fc_id})"
+
+    # Shape + collision checks on the local id. Run before the
+    # components_index gate so they catch bad ids even when the catalog
+    # isn't loaded.
+    if isinstance(fc_id, str) and entry.get("id") is not None:
+        if not _FEATURED_ID_PATTERN.fullmatch(fc_id):
+            errors.append(
+                f"{path}: id '{fc_id}' must match {_FEATURED_ID_PATTERN.pattern} "
+                "(lowercase letters, digits, underscores; no hyphens)"
+            )
+        if isinstance(component_id, str):
+            # Collision check: an id equal to the component_id's domain
+            # (the bit before the dot, or the whole string for single-
+            # domain ids like ``i2c``) clashes with the ESPHome block
+            # name (``output:``, ``i2c:``). Pick a descriptive role,
+            # e.g. ``output_relay`` instead of ``output``.
+            domain = component_id.split(".", 1)[0]
+            if fc_id == domain:
+                errors.append(
+                    f"{path}: id '{fc_id}' clashes with domain '{domain}' of "
+                    f"component_id '{component_id}'; use a descriptive name "
+                    f"like '{domain}_<role>' instead"
+                )
 
     if components_index is None:
         # Without a component index we can only sanity-check the local

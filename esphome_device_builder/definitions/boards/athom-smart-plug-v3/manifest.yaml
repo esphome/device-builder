@@ -94,7 +94,7 @@ featured_components:
           pullup: true
         inverted: true
       locked: true
-- id: status-led-output
+- id: status_led_output
   component_id: output.gpio
   name: Status LED Output
   description: |
@@ -105,15 +105,15 @@ featured_components:
       value: 7
       locked: true
     inverted: true
-- id: status-led-light
+- id: status_led_light
   component_id: light.binary
   name: Status LED Light
   description: |
     Binary light entity for the onboard status LED. Wire its ``output``
-    to the ``status-led-output`` you added.
+    to the ``status_led_output`` you added.
   fields:
     name: Status LED
-- id: power-monitor
+- id: power_monitor
   component_id: sensor.hlw8012
   name: HLW8012 Power Monitor
   description: |
@@ -131,9 +131,9 @@ featured_components:
       locked: true
     model: BL0937
 featured_bundles:
-- id: status-led
+- id: status_led
   name: Status LED (full setup)
   description: |
     Adds the onboard LED's GPIO output plus a binary light entity so it
     surfaces as a light in Home Assistant.
-  component_ids: [status-led-output, status-led-light]
+  component_ids: [status_led_output, status_led_light]

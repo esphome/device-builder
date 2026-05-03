@@ -142,7 +142,7 @@ featured_components:
       name: Relay   # primitive shorthand → value="Relay", locked=false
 
   # 3) Suggestions — short list of allowed values (frontend renders a picker).
-  - id: pir-motion
+  - id: pir_motion
     component_id: binary_sensor.gpio
     name: PIR Motion Module
     fields:
@@ -151,6 +151,11 @@ featured_components:
         value: 4    # initial pick
       device_class: motion
 ```
+
+`id` must be lowercase letters / digits / underscores (no hyphens) and must
+not equal the domain of `component_id` — e.g. `id: output` under
+`component_id: output.gpio` would clash with the ESPHome `output:` block;
+use `output_relay` instead.
 
 Inside `fields:`:
 
@@ -166,10 +171,10 @@ case is a status LED that needs both `output.gpio` and `light.binary`:
 
 ```yaml
 featured_bundles:
-  - id: status-led
+  - id: status_led
     name: Status LED (full setup)
     description: GPIO output plus a binary light entity.
-    component_ids: [status-led-output, status-led-light]
+    component_ids: [status_led_output, status_led_light]
 ```
 
 `component_ids` references the local `id` of entries in

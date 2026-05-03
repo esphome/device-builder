@@ -762,11 +762,12 @@ class DevicesController:
             fields = _apply_featured_presets(record, fields)
             # The frontend's catalog-derived id suggestion for featured
             # components is the dashed ``featured_<board>_<local>``
-            # form (e.g. ``featured_athom-smart-plug-v3_power-monitor_1``),
-            # which ESPHome rejects. Reset to empty when the supplied
-            # id contains a dash so ``generate_component_yaml`` produces
-            # a valid auto-id from the underlying component + name —
-            # a user-typed custom id without dashes passes through.
+            # form (e.g. ``featured_athom-smart-plug-v3_power_monitor_1``
+            # — the board id still carries dashes), which ESPHome rejects.
+            # Reset to empty when the supplied id contains a dash so
+            # ``generate_component_yaml`` produces a valid auto-id from
+            # the underlying component + name — a user-typed custom id
+            # without dashes passes through.
             user_id = fields.get("id")
             if isinstance(user_id, str) and "-" in user_id:
                 fields["id"] = ""

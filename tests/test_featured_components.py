@@ -81,14 +81,14 @@ def test_load_featured_bundle() -> None:
     """Bundle just stores ids — uniqueness/cross-refs come at validate time."""
     fb = _load_featured_bundle(
         {
-            "id": "status-led",
+            "id": "status_led",
             "name": "Status LED",
             "description": "...",
-            "component_ids": ["status-led-output", "status-led-light"],
+            "component_ids": ["status_led_output", "status_led_light"],
         }
     )
-    assert fb.id == "status-led"
-    assert fb.component_ids == ["status-led-output", "status-led-light"]
+    assert fb.id == "status_led"
+    assert fb.component_ids == ["status_led_output", "status_led_light"]
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ def catalog() -> ComponentCatalog:
 def test_registry_indexes_known_boards(catalog: ComponentCatalog) -> None:
     """Tier-1 manifests register their featured components under the right ids."""
     assert "featured.sonoff-basic.relay" in catalog._featured_by_id
-    assert "featured.apollo-esk-1.pir-motion" in catalog._featured_by_id
+    assert "featured.apollo-esk-1.pir_motion" in catalog._featured_by_id
     assert "featured.athom-smart-plug-v3.relay" in catalog._featured_by_id
 
 
@@ -143,7 +143,7 @@ async def test_get_component_locked_field(catalog: ComponentCatalog) -> None:
 
 async def test_get_component_suggestions(catalog: ComponentCatalog) -> None:
     """ESK-1 PIR materialisation surfaces the pin suggestions list."""
-    entry = await catalog.get_component(component_id="featured.apollo-esk-1.pir-motion")
+    entry = await catalog.get_component(component_id="featured.apollo-esk-1.pir_motion")
     assert entry is not None
     pin = next(ce for ce in entry.config_entries if ce.key == "pin")
     assert pin.default_value == 4
@@ -163,26 +163,16 @@ async def test_get_component_id_default_from_local(catalog: ComponentCatalog) ->
     assert id_field.locked is False
 
 
-async def test_get_component_id_default_slugifies_dashes(catalog: ComponentCatalog) -> None:
-    """Featured local ids with dashes (``status-led-output``) become valid esphome ids."""
-    entry = await catalog.get_component(
-        component_id="featured.athom-smart-plug-v3.status-led-output",
-    )
-    assert entry is not None
-    id_field = next(ce for ce in entry.config_entries if ce.key == "id")
-    assert id_field.default_value == "status_led_output"
-
-
 async def test_get_component_name_default_from_featured_name(
     catalog: ComponentCatalog,
 ) -> None:
     """The featured component's display name pre-fills the underlying ``name`` field."""
-    # apollo-esk-1.rgb-strip has ``name: RGB LED Strip (addon module)``
+    # apollo-esk-1.rgb_strip has ``name: RGB LED Strip (addon module)``
     # at the featured level but no field preset for ``name`` — the
     # auto-derived default lets the user start with a sensible
     # HA-visible entity name without having to repeat it in the
     # manifest's ``fields:`` block.
-    entry = await catalog.get_component(component_id="featured.apollo-esk-1.rgb-strip")
+    entry = await catalog.get_component(component_id="featured.apollo-esk-1.rgb_strip")
     assert entry is not None
     name_field = next(ce for ce in entry.config_entries if ce.key == "name")
     assert name_field.default_value == "RGB LED Strip (addon module)"
@@ -339,7 +329,7 @@ async def test_apply_presets_locked_accepts_matching_value(
 
 
 async def test_apply_presets_suggestion_in_set(catalog: ComponentCatalog) -> None:
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir-motion")
+    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
     assert record is not None
     out = _apply_featured_presets(record, {"pin": 5})
     assert out["pin"] == 5
@@ -349,7 +339,7 @@ async def test_apply_presets_suggestion_in_set(catalog: ComponentCatalog) -> Non
 async def test_apply_presets_suggestion_rejects_off_list(
     catalog: ComponentCatalog,
 ) -> None:
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir-motion")
+    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
     assert record is not None
     with pytest.raises(ValueError, match="must be one of"):
         _apply_featured_presets(record, {"pin": 99})
@@ -366,7 +356,7 @@ async def test_apply_presets_suggestion_accepts_rich_pin_form(
     too — and the rich dict rides through to the merger unchanged so
     the YAML keeps its full pin block.
     """
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir-motion")
+    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
     assert record is not None
     rich_pin = {"number": 5, "mode": {"input": True}}
     out = _apply_featured_presets(record, {"pin": rich_pin})
@@ -377,7 +367,7 @@ async def test_apply_presets_suggestion_rejects_rich_pin_off_list(
     catalog: ComponentCatalog,
 ) -> None:
     """Rich pin form whose ``number`` is off-list still raises."""
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir-motion")
+    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
     assert record is not None
     with pytest.raises(ValueError, match="must be one of"):
         _apply_featured_presets(record, {"pin": {"number": 99, "mode": {"input": True}}})
@@ -400,7 +390,7 @@ async def test_apply_presets_suggestion_falls_back_to_value(
     catalog: ComponentCatalog,
 ) -> None:
     """Omitting a suggestion field falls back to the preset's initial value."""
-    record = catalog.get_featured_record("featured.apollo-esk-1.pir-motion")
+    record = catalog.get_featured_record("featured.apollo-esk-1.pir_motion")
     assert record is not None
     out = _apply_featured_presets(record, {})
     assert out["pin"] == 4
@@ -548,9 +538,13 @@ async def test_add_component_featured_resets_dashed_id(
 
     response = await ctrl.add_component(
         configuration="plug.yaml",
-        component_id="featured.athom-smart-plug-v3.power-monitor",
+        component_id="featured.athom-smart-plug-v3.power_monitor",
         fields={
-            "id": "featured_athom-smart-plug-v3_power-monitor_1",
+            # The frontend's catalog-derived id format is
+            # ``featured_<board>_<local>_<n>``. The board portion
+            # (``athom-smart-plug-v3``) carries dashes that the dashed-id
+            # reset still has to detect and replace.
+            "id": "featured_athom-smart-plug-v3_power_monitor_1",
             "current": {"device_class": "current"},
         },
     )

@@ -222,7 +222,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Local id, unique within this board (e.g. 'relay', 'pir-motion').",
+          "description": "Local id, unique within this board (e.g. 'relay', 'pir_motion'). Lowercase letters / digits / underscores; must not equal the domain of component_id.",
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
         },
         "component_id": {
