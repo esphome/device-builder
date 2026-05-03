@@ -1,0 +1,307 @@
+"""Defensive-branch coverage for ``DeviceScanner``.
+
+The ordering / index tests in ``test_device_scanner_order.py``
+exercise the happy path and a couple of failure modes
+(``load_device_from_storage`` raising). The branches pinned here
+are smaller — early returns, OSError handlers, and the ``by_path``
+read-only accessor — that don't fit the ordering narrative but
+keep regressions in the scanner's failure-mode behaviour from
+slipping through. A failing scan would silently degrade dashboard
+state (devices missing, mDNS dedupe wrong, restart-time crash on
+an unreadable YAML); these tests pin the silent-skip behaviour
+so the regression surfaces in CI rather than in a user's logs.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+from esphome_device_builder.controllers._device_scanner import (
+    DeviceFileMetadata,
+    DeviceScanner,
+    ScanChange,
+)
+from esphome_device_builder.models import Device
+
+
+def _stub_metadata(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
+    return DeviceFileMetadata(board_id="", ip="", expected_config_hash="")
+
+
+def _make_scanner(config_dir: Path) -> tuple[DeviceScanner, list[tuple[ScanChange, Device]]]:
+    """Build a scanner with a recording on_change callback."""
+    events: list[tuple[ScanChange, Device]] = []
+    scanner = DeviceScanner(
+        config_dir=config_dir,
+        get_metadata=_stub_metadata,
+        on_change=lambda kind, device: events.append((kind, device)),
+    )
+    return scanner, events
+
+
+def _write_yaml(config_dir: Path, name: str) -> Path:
+    path = config_dir / f"{name}.yaml"
+    path.write_text(f"esphome:\n  name: {name}\n", encoding="utf-8")
+    return path
+
+
+# ---------------------------------------------------------------------------
+# by_path accessor
+# ---------------------------------------------------------------------------
+
+
+async def test_by_path_returns_live_mapping(tmp_path: Path) -> None:
+    """``by_path`` exposes the path → Device dict the scanner maintains.
+
+    Documented as "treat as read-only"; pin that the contents
+    reflect the most recent scan and that the keys are the
+    absolute YAML paths the scanner walked. Used by callers that
+    need to look up a device by configuration filename without
+    paying the O(n) cost of iterating ``devices``.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    yaml_path = _write_yaml(cfg, "kitchen")
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=path.stem, friendly_name=path.stem, configuration=path.name
+        ),
+    ):
+        scanner, _ = _make_scanner(cfg)
+        await scanner.scan()
+
+    by_path = scanner.by_path
+    assert list(by_path.keys()) == [yaml_path]
+    assert by_path[yaml_path].name == "kitchen"
+
+
+# ---------------------------------------------------------------------------
+# reload — failure-mode branches
+# ---------------------------------------------------------------------------
+
+
+async def test_reload_returns_false_when_loader_fails(tmp_path: Path) -> None:
+    """``reload`` returns ``False`` when the loader logs+skips the file.
+
+    ``_load_devices`` swallows exceptions from
+    ``load_device_from_storage`` and returns an empty dict for
+    that path. The reload-specific guard treats that as
+    "couldn't refresh" — pin the False return so callers (e.g. the
+    firmware controller's post-build refresh) don't proceed as if
+    the device's metadata is fresh after a parse failure.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+
+    # Initial scan succeeds so the path is tracked.
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=path.stem, friendly_name=path.stem, configuration=path.name
+        ),
+    ):
+        scanner, events = _make_scanner(cfg)
+        await scanner.scan()
+    events.clear()
+
+    # Reload pass: loader raises, ``_load_devices`` swallows + returns {}.
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=ValueError("simulated parse failure"),
+    ):
+        ok = await scanner.reload("kitchen.yaml")
+
+    assert ok is False
+    # The scanner did not fire an UPDATED event for the failed reload.
+    assert events == []
+
+
+async def test_reload_swallows_oserror_on_post_load_stat(tmp_path: Path) -> None:
+    """A stat failure after a successful load doesn't break the reload.
+
+    ``reload`` re-stats the file after the load to refresh the
+    cache key. If the YAML disappears in that race window
+    (atomic-save editor, parallel deletion), the stat raises
+    OSError — the reload still returns ``True`` because the
+    Device was loaded; the cache key just stays stale until the
+    next full scan re-evaluates it.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=path.stem, friendly_name=path.stem, configuration=path.name
+        ),
+    ):
+        scanner, events = _make_scanner(cfg)
+        await scanner.scan()
+    events.clear()
+
+    # The patched loader bypasses any internal ``stat`` calls inside
+    # ``load_device_from_storage``, so the only ``Path.stat`` call
+    # the reload makes is the post-load cache-key refresh on the
+    # tracked YAML. Fail it unconditionally for that path.
+    yaml_path = cfg / "kitchen.yaml"
+    real_stat = Path.stat
+
+    def _stat(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self == yaml_path:
+            raise OSError("simulated stat failure")
+        return real_stat(self, *args, **kwargs)
+
+    with (
+        patch.object(Path, "stat", _stat),
+        patch(
+            "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+            side_effect=lambda path, *_a, **_kw: Device(
+                name=path.stem, friendly_name="Kitchen Renamed", configuration=path.name
+            ),
+        ),
+    ):
+        ok = await scanner.reload("kitchen.yaml")
+
+    assert ok is True
+    # UPDATED still fired with the freshly-loaded Device.
+    assert [(kind, dev.friendly_name) for kind, dev in events] == [
+        (ScanChange.UPDATED, "Kitchen Renamed")
+    ]
+
+
+# ---------------------------------------------------------------------------
+# _unindex_name — early-returns
+# ---------------------------------------------------------------------------
+
+
+def test_unindex_name_is_noop_for_unknown_name(tmp_path: Path) -> None:
+    """A device whose name has no bucket is dropped silently.
+
+    Defensive: the rename path calls ``_unindex_name`` whenever
+    ``previous.name != device.name``. If a future refactor ever
+    invokes it for a name the index never knew about (callback
+    out of order, bucket already pruned, etc.), the helper must
+    not raise — the index is supposed to converge to the right
+    state regardless of arrival order.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    scanner, _ = _make_scanner(cfg)
+
+    ghost = Device(name="ghost", friendly_name="ghost", configuration="ghost.yaml")
+    # Must not raise.
+    scanner._unindex_name(ghost)
+    assert "ghost" not in scanner._devices_by_name
+
+
+def test_unindex_name_swallows_value_error_for_missing_device(tmp_path: Path) -> None:
+    """A device that's not actually in its name bucket is dropped silently.
+
+    Pre-seed a bucket with one Device, then call ``_unindex_name``
+    with a different Device that shares the name but is not the
+    same object / not equal. ``list.remove`` raises ``ValueError``;
+    the helper swallows it (and leaves the bucket intact), keeping
+    the index converged with the device cache.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    scanner, _ = _make_scanner(cfg)
+
+    incumbent = Device(name="kitchen", friendly_name="Kitchen", configuration="a.yaml")
+    scanner._devices_by_name["kitchen"] = [incumbent]
+
+    different = Device(name="kitchen", friendly_name="Kitchen", configuration="b.yaml")
+    scanner._unindex_name(different)  # not in the bucket → ValueError swallowed
+
+    # Bucket is unchanged: incumbent still indexed.
+    assert scanner._devices_by_name["kitchen"] == [incumbent]
+
+
+# ---------------------------------------------------------------------------
+# _set_device — bucket-collision in-place replace
+# ---------------------------------------------------------------------------
+
+
+def test_set_device_replaces_collision_in_bucket(tmp_path: Path) -> None:
+    """A bucket entry whose configuration matches the new device is replaced in place.
+
+    Unreachable through normal scanner flow (``_devices`` and
+    ``_devices_by_name`` are kept in lockstep, so a fresh
+    ``previous=None`` insert would never collide on
+    ``configuration`` with a bucket entry that isn't ``previous``).
+    The branch is a defensive guard against a desynced index —
+    e.g. if a future refactor of the apply / dedupe path were to
+    pre-seed the bucket from a state monitor before the scanner
+    saw the YAML. Without the in-place replace, the bucket would
+    end up with two entries sharing a configuration filename and
+    ``bucket[0]`` consumers would see flapping "first match"
+    behaviour. Drive the branch directly so the in-place replace
+    stays load-bearing if the scenario ever becomes reachable.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    scanner, _ = _make_scanner(cfg)
+
+    stale = Device(name="kitchen", friendly_name="Stale", configuration="kitchen.yaml")
+    # Pre-seed the bucket *without* touching ``_devices`` so the
+    # ``_set_device`` call below sees ``previous=None`` and falls
+    # through to the bucket-collision branch.
+    scanner._devices_by_name["kitchen"] = [stale]
+
+    fresh = Device(name="kitchen", friendly_name="Fresh", configuration="kitchen.yaml")
+    scanner._set_device(cfg / "kitchen.yaml", fresh)
+
+    bucket = scanner._devices_by_name["kitchen"]
+    assert len(bucket) == 1  # in-place replace, not a sibling insert
+    assert bucket[0].friendly_name == "Fresh"
+
+
+# ---------------------------------------------------------------------------
+# _build_cache_keys — stat OSError fallback
+# ---------------------------------------------------------------------------
+
+
+async def test_scan_skips_yamls_that_fail_to_stat(tmp_path: Path) -> None:
+    """A YAML that ``util.list_yaml_files`` finds but ``stat`` rejects is skipped.
+
+    Real-world trigger: a broken symlink in the config dir, or a
+    file the dashboard's user can list (read on the directory)
+    but not stat (no read on the file itself, e.g. mode 0000 or
+    a parent path that lost the +x bit between the listdir and
+    the stat). Without the OSError handler the scan would crash
+    and every other device on disk would vanish from the
+    dashboard until the operator removed the offending file.
+    """
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    good = _write_yaml(cfg, "good")
+    broken = _write_yaml(cfg, "broken")
+
+    real_stat = Path.stat
+
+    def _stat(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self == broken:
+            raise OSError("permission denied")
+        return real_stat(self, *args, **kwargs)
+
+    with (
+        patch.object(Path, "stat", _stat),
+        patch(
+            "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+            side_effect=lambda path, *_a, **_kw: Device(
+                name=path.stem, friendly_name=path.stem, configuration=path.name
+            ),
+        ),
+    ):
+        scanner, _ = _make_scanner(cfg)
+        await scanner.scan()
+
+    # Only the good YAML lands in the cache.
+    assert [d.name for d in scanner.devices] == ["good"]
+    assert good in scanner.by_path
+    assert broken not in scanner.by_path
