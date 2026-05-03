@@ -16,6 +16,7 @@ Covers four layers:
 from __future__ import annotations
 
 from copy import deepcopy
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -23,7 +24,10 @@ import pytest
 
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.devices import DevicesController
-from esphome_device_builder.controllers.devices.helpers import _apply_featured_presets
+from esphome_device_builder.controllers.devices.helpers import (
+    _apply_featured_presets,
+    _drop_unconfigured_dependent_fields,
+)
 from esphome_device_builder.definitions import (
     _coerce_field_preset,
     _load_featured_bundle,
@@ -671,3 +675,96 @@ async def test_add_component_keeps_mqtt_fields_when_mqtt_block_present(
 
     assert "availability:" in response.yaml
     assert "payload_available: online" in response.yaml
+
+
+async def test_add_component_handles_secret_tags_in_existing_yaml(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """
+    ESPHome ``!secret`` / ``!include`` tags don't disable the dependency gate.
+
+    A regex-based top-level scan is what makes this work — ``yaml.safe_load``
+    would raise on the unknown ``!secret`` tag and silently no-op the filter,
+    leaking MQTT defaults back into the YAML on most real-world configs.
+    """
+    existing = (
+        "esphome:\n  name: plug\napi:\n"
+        "mqtt:\n  broker: !secret mqtt_broker\n  username: !secret mqtt_user\n"
+    )
+    (tmp_path / "plug.yaml").write_text(existing, "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="plug.yaml",
+        component_id="featured.athom-smart-plug-v3.relay",
+        fields={"availability": {"payload_available": "online"}},
+    )
+
+    # mqtt block IS present (just uses !secret) — so MQTT fields stay.
+    assert "availability:" in response.yaml
+    assert "payload_available: online" in response.yaml
+
+
+def test_drop_unconfigured_dependent_fields_recurses_into_nested_dicts() -> None:
+    """Nested dict values get filtered against their sub-entries' dependencies."""
+    # Synthetic schema: a nested ``readings`` block whose sub-fields
+    # gate on different top-level dependencies. SimpleNamespace mirrors
+    # the duck-typed access ``ConfigEntry`` provides without dragging in
+    # every required field of the dataclass.
+    component = SimpleNamespace(
+        id="sensor.synthetic",
+        config_entries=[
+            SimpleNamespace(
+                key="readings",
+                depends_on_component=None,
+                config_entries=[
+                    SimpleNamespace(
+                        key="availability",
+                        depends_on_component="mqtt",
+                        config_entries=None,
+                    ),
+                    SimpleNamespace(
+                        key="web_url",
+                        depends_on_component="web_server",
+                        config_entries=None,
+                    ),
+                    SimpleNamespace(
+                        key="threshold",
+                        depends_on_component=None,
+                        config_entries=None,
+                    ),
+                ],
+            )
+        ],
+    )
+
+    fields = {
+        "readings": {
+            "availability": "online",
+            "web_url": "/foo",
+            "threshold": 42,
+        }
+    }
+    out = _drop_unconfigured_dependent_fields(fields, component, "esphome:\n  name: x\n")
+    # Both gated sub-fields gone, the unconditional one stays.
+    assert out == {"readings": {"threshold": 42}}
+
+
+def test_drop_unconfigured_dependent_fields_keeps_self_domain() -> None:
+    """Adding the gating component itself counts the new domain as configured."""
+    # ``mqtt.discovery`` itself carries ``depends_on_component: mqtt`` —
+    # without the self-domain allowance, adding ``mqtt:`` for the first
+    # time would silently drop ``discovery`` from the user's payload.
+    mqtt = SimpleNamespace(
+        id="mqtt",
+        config_entries=[
+            SimpleNamespace(key="broker", depends_on_component=None, config_entries=None),
+            SimpleNamespace(key="discovery", depends_on_component="mqtt", config_entries=None),
+        ],
+    )
+    out = _drop_unconfigured_dependent_fields(
+        {"broker": "host", "discovery": True},
+        mqtt,
+        "esphome:\n  name: x\napi:\n",
+    )
+    assert out == {"broker": "host", "discovery": True}
