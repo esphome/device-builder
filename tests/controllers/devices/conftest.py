@@ -26,7 +26,111 @@ import pytest
 from esphome_device_builder.controllers.config import set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.event_bus import Event, EventBus
-from esphome_device_builder.models import EventType
+from esphome_device_builder.helpers.hostname import normalize_hostname
+from esphome_device_builder.models import AdoptableDevice, DeviceState, EventType
+
+
+class RecordingStateMonitor:
+    """Test fake for ``DeviceStateMonitor`` that captures every call.
+
+    Mirrors every public method on the production
+    ``DeviceStateMonitor`` (``apply`` / ``apply_ip`` /
+    ``apply_version`` / ``apply_api_encryption`` /
+    ``apply_config_hash`` / ``get_cached_addresses`` /
+    ``get_cached_dns_addresses`` / ``probe_device`` /
+    ``priority_for`` / ``revisit_importable`` /
+    ``revisit_all_importables`` / ``get_importable_devices``)
+    without any of the real monitor's I/O. Calls land in
+    ``self.calls`` as flat tuples ``(method_name, *args)`` —
+    assertion-time comparisons read like
+    ``calls == [("apply", "kitchen", ONLINE, "mdns", True), ...]``
+    instead of three scattered ``MagicMock.assert_called_*`` lines.
+
+    Why a typed fake rather than ``MagicMock``: a typo (e.g.
+    ``probe_devicee.assert_called_once``) silently passes against a
+    ``MagicMock`` because it spawns a fresh attribute on access; a
+    refactor renaming a real method (``apply_ip`` → ``set_ip``)
+    similarly breaks the contract without breaking the assertion.
+    Pinning the surface here means both classes of drift surface as
+    ``AttributeError`` immediately. Mirroring the *full* public
+    surface (rather than just what the first batch of tests
+    needed) means a controller path like ``_on_scan_change(…,
+    REMOVED)`` that calls ``revisit_importable`` won't blow up
+    against the fake just because no earlier test exercised it.
+
+    ``cached_addresses`` and ``cached_dns_addresses`` accept
+    ``hostname → [ips]`` maps. Lookup keys are normalised through
+    ``normalize_hostname`` so tests can pass production-equivalent
+    inputs like ``Kitchen.local.`` and still hit the seeded entry.
+
+    ``importable_devices`` lets tests pre-seed a list returned by
+    ``get_importable_devices``; defaults to ``[]``.
+
+    ``priority_map`` lets tests override the per-source priority
+    returned by ``priority_for``; lookup falls back to ``"unknown"``
+    for unmapped sources, matching production's default branch.
+    """
+
+    def __init__(
+        self,
+        *,
+        cached_addresses: dict[str, list[str]] | None = None,
+        cached_dns_addresses: dict[str, list[str]] | None = None,
+        importable_devices: list[AdoptableDevice] | None = None,
+        priority_map: dict[str, str] | None = None,
+    ) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+        self._cached = {normalize_hostname(k): v for k, v in (cached_addresses or {}).items()}
+        self._cached_dns = {
+            normalize_hostname(k): v for k, v in (cached_dns_addresses or {}).items()
+        }
+        self._importable = list(importable_devices or [])
+        self._priority = priority_map or {}
+
+    def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
+        self.calls.append(("apply", name, state, source, claim))
+        return True
+
+    def apply_ip(self, name: str, ip: str) -> bool:
+        self.calls.append(("apply_ip", name, ip))
+        return True
+
+    def apply_version(self, name: str, version: str) -> bool:
+        self.calls.append(("apply_version", name, version))
+        return True
+
+    def apply_api_encryption(self, name: str, encryption: str) -> bool:
+        self.calls.append(("apply_api_encryption", name, encryption))
+        return True
+
+    def apply_config_hash(self, name: str, config_hash: str) -> bool:
+        self.calls.append(("apply_config_hash", name, config_hash))
+        return True
+
+    def get_cached_addresses(self, host_name: str) -> list[str] | None:
+        self.calls.append(("get_cached_addresses", host_name))
+        return self._cached.get(normalize_hostname(host_name))
+
+    def get_cached_dns_addresses(self, host_name: str) -> list[str] | None:
+        self.calls.append(("get_cached_dns_addresses", host_name))
+        return self._cached_dns.get(normalize_hostname(host_name))
+
+    def probe_device(self, device_name: str, service_name: str | None = None) -> None:
+        self.calls.append(("probe_device", device_name, service_name))
+
+    def priority_for(self, name: str) -> str:
+        self.calls.append(("priority_for", name))
+        return self._priority.get(name, "unknown")
+
+    def revisit_importable(self, device_name: str) -> None:
+        self.calls.append(("revisit_importable", device_name))
+
+    def revisit_all_importables(self) -> None:
+        self.calls.append(("revisit_all_importables",))
+
+    def get_importable_devices(self) -> list[AdoptableDevice]:
+        self.calls.append(("get_importable_devices",))
+        return list(self._importable)
 
 
 def _make_board_stub(board_id: str) -> MagicMock:
@@ -318,12 +422,15 @@ def make_controller() -> MakeControllerFactory:
     ``_schedule_storage_regenerate`` doesn't short-circuit;
     leave it ``None`` for tests that don't reach that code path.
 
-    ``with_state_monitor=True`` attaches a ``MagicMock``-shaped
-    ``_state_monitor`` for tests that exercise paths reading the
-    cached-address / get_cached_addresses lookup (``import_device``,
-    ``create_device``). The monitor's ``get_cached_addresses``
-    defaults to returning ``None`` so the fast-online branch
-    short-circuits unless a test overrides it.
+    ``with_state_monitor=True`` attaches a typed
+    :class:`RecordingStateMonitor` for tests that exercise paths
+    reading the cached-address / get_cached_addresses lookup
+    (``import_device``, ``create_device``). The fake's
+    ``get_cached_addresses`` returns ``None`` for an empty cache
+    so the fast-online branch short-circuits unless a test
+    overrides it (``ctrl._state_monitor =
+    RecordingStateMonitor(cached_addresses=...)``). Tests get the
+    typo-resistant typed surface by default — no opt-in flag.
 
     ``with_boards=True`` attaches a ``MagicMock``-shaped
     ``_db.boards`` for tests that go through the
@@ -348,8 +455,7 @@ def make_controller() -> MakeControllerFactory:
         controller._scanner.reload = AsyncMock()
 
         if with_state_monitor:
-            controller._state_monitor = MagicMock()
-            controller._state_monitor.get_cached_addresses = MagicMock(return_value=None)
+            controller._state_monitor = RecordingStateMonitor()
 
         if with_boards:
             controller._db.boards = MagicMock()

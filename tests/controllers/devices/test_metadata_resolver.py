@@ -21,7 +21,7 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, EventType
 
-from .conftest import capture_devices_events
+from .conftest import RecordingStateMonitor, capture_devices_events
 
 
 def _make_controller(monkeypatch: Any, board_id: str = "esp32-c3-devkitm-1") -> Any:
@@ -213,7 +213,7 @@ def test_added_device_without_hash_triggers_regenerate(monkeypatch: Any) -> None
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
     controller._regenerate_failed = set()
-    controller._state_monitor = MagicMock()
+    controller._state_monitor = RecordingStateMonitor()
     schedule = MagicMock()
     monkeypatch.setattr(controller, "_schedule_storage_regenerate", schedule, raising=False)
     captured = capture_devices_events(controller, EventType.DEVICE_ADDED)
@@ -235,7 +235,7 @@ def test_added_device_without_hash_triggers_regenerate(monkeypatch: Any) -> None
     ]
     # Probe fires too — the eager mDNS probe on ADDED is what catches
     # YAMLs dropped on disk outside the API path.
-    controller._state_monitor.probe_device.assert_called_once_with("apollo")
+    assert controller._state_monitor.calls == [("probe_device", "apollo", None)]
 
 
 def test_added_device_fully_populated_does_not_regenerate(

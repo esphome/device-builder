@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,7 +25,7 @@ from esphome_device_builder.controllers.devices import controller as devices_mod
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import AdoptableDevice, DeviceState, ErrorCode, EventType
 
-from .conftest import MakeControllerFactory, capture_devices_events
+from .conftest import MakeControllerFactory, RecordingStateMonitor, capture_devices_events
 
 
 def _seed_import_state(controller: DevicesController) -> None:
@@ -306,9 +306,11 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
     new card has an address right away.
     """
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
-    ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=["192.168.1.42"])
+    ctrl._state_monitor = RecordingStateMonitor(
+        cached_addresses={"kitchen.local": ["192.168.1.42"]}
+    )
 
     await ctrl.import_device(
         name="kitchen",
@@ -316,11 +318,14 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
         package_import_url="github://x",
     )
 
-    ctrl._state_monitor.apply.assert_called_once_with(
-        "kitchen", DeviceState.ONLINE, "mdns", claim=True
-    )
-    ctrl._state_monitor.get_cached_addresses.assert_called_once_with("kitchen.local")
-    ctrl._state_monitor.apply_ip.assert_called_once_with("kitchen", "192.168.1.42")
+    # Full call sequence — includes the post-apply probe_device the
+    # previous MagicMock-based assertion silently let through.
+    assert ctrl._state_monitor.calls == [
+        ("apply", "kitchen", DeviceState.ONLINE, "mdns", True),
+        ("get_cached_addresses", "kitchen.local"),
+        ("apply_ip", "kitchen", "192.168.1.42"),
+        ("probe_device", "kitchen", "kitchen"),
+    ]
 
 
 async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
@@ -330,9 +335,9 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
 ) -> None:
     """No cached IP → state still flips ONLINE, just no apply_ip call."""
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
-    ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=None)
+    ctrl._state_monitor = RecordingStateMonitor()  # no cached addresses
 
     await ctrl.import_device(
         name="kitchen",
@@ -340,10 +345,11 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
         package_import_url="github://x",
     )
 
-    ctrl._state_monitor.apply.assert_called_once_with(
-        "kitchen", DeviceState.ONLINE, "mdns", claim=True
-    )
-    ctrl._state_monitor.apply_ip.assert_not_called()
+    assert ctrl._state_monitor.calls == [
+        ("apply", "kitchen", DeviceState.ONLINE, "mdns", True),
+        ("get_cached_addresses", "kitchen.local"),
+        ("probe_device", "kitchen", "kitchen"),
+    ]
 
 
 async def test_import_device_drops_matching_import_result_entry(
