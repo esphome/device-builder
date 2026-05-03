@@ -352,20 +352,48 @@ def test_iter_boards_returns_internal_list(catalog: BoardCatalog) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_find_by_pio_board_returns_first_match(catalog: BoardCatalog) -> None:
-    """A pio_board with no variant hint returns the first matching entry."""
-    # ``esp32-c3-devkitm-1`` is shared by Seeed XIAO and Generic ESP32-C3.
+def test_find_by_pio_board_prefers_generic_when_multiple_match(
+    catalog: BoardCatalog,
+) -> None:
+    """Multiple matches for the same pio_board → prefer the generic.
+
+    Real-world trigger: a user imports a vanilla ``esp32-c3-devkitm-1``
+    YAML; the catalog contains both that generic plus several vendor
+    products built on the same reference design (Seeed XIAO,
+    "Athom Smart Plug v3", etc.). Without the generic preference the
+    dashboard would mislabel a plain dev-kit as the first vendor entry
+    by alphabetical id, which is exactly the regression that motivated
+    this branch.
+    """
     board = catalog.find_by_pio_board("esp32-c3-devkitm-1")
 
     assert board is not None
+    assert board.id == "generic-esp32c3"
+    assert board.is_generic is True
+
+
+def test_find_by_pio_board_returns_first_when_no_generic(
+    catalog: BoardCatalog,
+) -> None:
+    """Without a generic among the matches, fall back to the first match."""
+    # Drop the generics so only vendor entries remain.
+    catalog._boards = [b for b in catalog._boards if not b.is_generic]
+
+    board = catalog.find_by_pio_board("esp32-c3-devkitm-1")
+
+    assert board is not None
+    assert board.is_generic is False
     assert board.esphome.board == "esp32-c3-devkitm-1"
 
 
 def test_find_by_pio_board_prefers_matching_variant(catalog: BoardCatalog) -> None:
-    """When ``pio_variant`` is provided, prefer entries whose variant matches."""
-    # The fixture has two pio_board="esp32-c3-devkitm-1" entries; both
-    # are ESP32-C3 here. Add a different-variant entry to make the
-    # preference observable.
+    """When ``pio_variant`` is provided, prefer entries whose variant matches.
+
+    Variant filter narrows the candidate pool *before* the generic
+    preference applies. Add two same-pio different-variant entries
+    (no generic among them) so the variant filter is the only thing
+    that picks a winner.
+    """
     catalog._boards.append(
         _board(
             board_id="alt-c3-board",

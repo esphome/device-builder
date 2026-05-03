@@ -112,14 +112,27 @@ class BoardCatalog:
 
         Used to derive a board_id from a user-provided YAML config.
         Returns None if no entry has a matching ``esphome.board`` value.
+
+        When multiple catalog entries share the same PlatformIO board
+        id (e.g. several products are physically built on the same
+        ``esp32-c3-devkitm-1`` reference design), prefer the generic
+        fallback (``is_generic=true``) so the dashboard doesn't
+        misidentify a user's plain dev-kit YAML as a specific vendor
+        product like "Athom Smart Plug v3". Mirrors the same
+        generic-preference policy in ``find_by_platform_variant``.
         """
         matches = [b for b in self._boards if b.esphome.board == pio_board]
         if not matches:
             return None
         if pio_variant:
-            for b in matches:
-                if b.esphome.variant and b.esphome.variant.value == pio_variant:
-                    return b
+            variant_matches = [
+                b for b in matches if b.esphome.variant and b.esphome.variant.value == pio_variant
+            ]
+            if variant_matches:
+                matches = variant_matches
+        for b in matches:
+            if b.is_generic:
+                return b
         return matches[0]
 
     def find_by_platform_variant(
