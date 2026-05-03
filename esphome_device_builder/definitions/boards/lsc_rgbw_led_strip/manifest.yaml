@@ -12,16 +12,16 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (pwm_red)
+  occupied_by: pwm_red
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (pwm_green)
+  occupied_by: pwm_green
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (pwm_white)
+  occupied_by: pwm_white
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (pwm_blue)
+  occupied_by: pwm_blue
 docs_url: https://devices.esphome.io/devices/LSC-RGBW-LED-Strip/
 featured_components:
 - id: binary_sensor_remote_receiver_1
@@ -66,15 +66,6 @@ featured_components:
     internal: true
     id: binary_sensor_remote_receiver_7
     name: Remote Strobe
-- id: light_rgbw_1
-  component_id: light.rgbw
-  fields:
-    red: pwm_red
-    green: pwm_green
-    blue: pwm_blue
-    white: pwm_white
-    id: light_rgbw_1
-    name: Rgbw 1
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:
@@ -112,7 +103,7 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Wifi Signal Strength
 source:
   type: esphome-devices
   remote_id: LSC-RGBW-LED-Strip

@@ -15,46 +15,46 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Boot Button)
+  occupied_by: DO1
 - gpio: 1
   available: false
-  occupied_by: switch.gpio (DO2)
+  occupied_by: DO2
 - gpio: 2
   available: false
-  occupied_by: switch.gpio (DO3)
+  occupied_by: DO3
 - gpio: 3
   available: false
-  occupied_by: switch.gpio (DO4)
+  occupied_by: DO4
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (DI1)
+  occupied_by: DO5
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (DI2)
+  occupied_by: DO6
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (DI3)
+  occupied_by: DO7
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (DI4)
+  occupied_by: DO8
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (DI5)
+  occupied_by: DI5
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (DI6)
+  occupied_by: DI6
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (DI7)
+  occupied_by: DI7
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (DI8)
+  occupied_by: DI8
 - gpio: 38
   available: false
-  occupied_by: light.esp32_rmt_led_strip (RGB LED)
+  occupied_by: RGB LED
 - gpio: 46
   available: false
-  occupied_by: output.ledc (buzzer)
+  occupied_by: buzzer
 docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-S3-ETH-8DI-8DO/
 featured_components:
 - id: binary_sensor_gpio_1

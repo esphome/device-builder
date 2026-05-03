@@ -14,10 +14,9 @@ featured_components:
 - id: switch_output_1
   component_id: switch.output
   fields:
-    output: relayoutput
     restore_mode: ALWAYS_OFF
     id: switch_output_1
-    name: Output 1
+    name: Relay
 source:
   type: esphome-devices
   remote_id: Aubess-WiFi-Smart-Switch

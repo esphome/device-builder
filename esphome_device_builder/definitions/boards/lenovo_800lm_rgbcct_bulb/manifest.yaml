@@ -12,30 +12,25 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (output_r)
+  occupied_by: output_r
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (output_brightness)
+  occupied_by: output_brightness
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_g)
+  occupied_by: output_g
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (output_temp)
+  occupied_by: output_temp
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (output_b)
+  occupied_by: output_b
 docs_url: https://devices.esphome.io/devices/Lenovo-800lm-RGBCCT-Bulb/
 featured_components:
 - id: light_rgbct_1
   component_id: light.rgbct
   fields:
     color_interlock: true
-    red: output_r
-    green: output_g
-    blue: output_b
-    white_brightness: output_brightness
-    color_temperature: output_temp
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     id: light_rgbct_1

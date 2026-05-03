@@ -12,16 +12,16 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} Panel Button)
+  occupied_by: Panel Button
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_component_green)
+  occupied_by: output_component_green
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (output_component_red)
+  occupied_by: output_component_red
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (output_component_blue)
+  occupied_by: output_component_blue
 docs_url: https://devices.esphome.io/devices/Holman-RGB-Wifi/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -36,21 +36,13 @@ featured_components:
           pullup: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Panel Button
 - id: button_restart_1
   component_id: button.restart
   fields:
     disabled_by_default: true
     id: button_restart_1
-    name: Restart 1
-- id: light_rgb_1
-  component_id: light.rgb
-  fields:
-    red: output_component_red
-    green: output_component_green
-    blue: output_component_blue
-    id: light_rgb_1
-    name: RGB Lights
+    name: Restart
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:
@@ -77,14 +69,7 @@ featured_components:
   fields:
     update_interval: 600s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    icon: mdi:clock-start
-    entity_category: diagnostic
-    id: text_sensor_template_1
-    name: Uptime
+    name: wifi signal
 source:
   type: esphome-devices
   remote_id: Holman-RGB-Wifi

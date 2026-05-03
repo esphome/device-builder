@@ -12,16 +12,16 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (button)
+  occupied_by: button
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (Dumb Switch Output)
+  occupied_by: Dumb Switch Output
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (relay)
+  occupied_by: relay
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (dummy_relay)
+  occupied_by: dummy_relay
 docs_url: https://devices.esphome.io/devices/Gosund-SW6/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -32,7 +32,7 @@ featured_components:
         number: 0
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -53,13 +53,7 @@ featured_components:
     restore_mode: RESTORE_DEFAULT_OFF
     internal: true
     id: switch_gpio_1
-    name: Gpio 1
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    icon: mdi:light-switch
-    id: switch_template_1
-    name: Template 1
+    name: relay
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -70,7 +64,7 @@ featured_components:
       locked: true
     internal: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: dummy_relay
 source:
   type: esphome-devices
   remote_id: Gosund-SW6

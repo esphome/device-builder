@@ -18,22 +18,22 @@ tags:
 pins:
 - gpio: 3
   available: false
-  occupied_by: sensor.adc (temp_analog_reading)
+  occupied_by: temp_analog_reading
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (Reset Button)
+  occupied_by: Reset Button
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (Switch 4)
+  occupied_by: Switch 4
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (Switch 3)
+  occupied_by: Switch 3
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (Switch 2)
+  occupied_by: Switch 2
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (Switch 1)
+  occupied_by: Switch 1
 docs_url: https://devices.esphome.io/devices/Shelly-i4-Gen3/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -84,7 +84,6 @@ featured_components:
 - id: sensor_ntc_1
   component_id: sensor.ntc
   fields:
-    sensor: temp_resistance_reading
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
@@ -95,11 +94,10 @@ featured_components:
 - id: sensor_resistance_1
   component_id: sensor.resistance
   fields:
-    sensor: temp_analog_reading
     configuration: DOWNSTREAM
     resistor: 10kOhm
     id: sensor_resistance_1
-    name: Resistance 1
+    name: temp_resistance_reading
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -108,7 +106,7 @@ featured_components:
       locked: true
     attenuation: 12db
     id: sensor_adc_1
-    name: Adc 1
+    name: temp_analog_reading
 source:
   type: esphome-devices
   remote_id: Shelly-i4-Gen3

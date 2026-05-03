@@ -15,31 +15,31 @@ images:
 pins:
 - gpio: 3
   available: false
-  occupied_by: output.ledc (buzzer)
+  occupied_by: buzzer
 - gpio: 4
   available: false
-  occupied_by: display.ili9xxx (round_display)
+  occupied_by: round_display
 - gpio: 7
   available: false
-  occupied_by: display.ili9xxx (round_display)
+  occupied_by: round_display
 - gpio: 8
   available: false
-  occupied_by: display.ili9xxx (round_display)
+  occupied_by: round_display
 - gpio: 9
   available: false
-  occupied_by: output.ledc (backlight_output)
+  occupied_by: backlight_output
 - gpio: 40
   available: false
-  occupied_by: sensor.rotary_encoder (encoder)
+  occupied_by: encoder
 - gpio: 41
   available: false
-  occupied_by: sensor.rotary_encoder (encoder)
+  occupied_by: encoder
 - gpio: 42
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 - gpio: 46
   available: false
-  occupied_by: binary_sensor.gpio (Hold Button)
+  occupied_by: Hold Button
 docs_url: https://devices.esphome.io/devices/M5Stack-Dial/
 product_url: https://docs.m5stack.com/en/core/M5Dial
 featured_components:
@@ -73,11 +73,10 @@ featured_components:
       value: 4
       locked: true
     id: display_ili9xxx_1
-    name: Ili9Xxx 1
+    name: round_display
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: backlight_output
     default_transition_length: 0s
     id: light_monochromatic_1
     name: Backlight
@@ -105,14 +104,13 @@ featured_components:
       value: 41
       locked: true
     id: sensor_rotary_encoder_1
-    name: Rotary Encoder 1
+    name: encoder
 - id: touchscreen_ft5x06_1
   component_id: touchscreen.ft5x06
   fields:
-    i2c_id: internal_i2c
     address: 56
     id: touchscreen_ft5x06_1
-    name: Ft5X06 1
+    name: touch
 source:
   type: esphome-devices
   remote_id: M5Stack-Dial

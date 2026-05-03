@@ -14,37 +14,37 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (dm4-input01)
+  occupied_by: dm4-0
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (dm4-input02)
+  occupied_by: dm4-input02
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (dm4-input03)
+  occupied_by: dm4-input03
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (dm4-input04)
+  occupied_by: dm4-input04
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (dm4-io13)
+  occupied_by: dm4-io13
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (dm4-io14)
+  occupied_by: dm4-io14
 - gpio: 17
   available: false
-  occupied_by: binary_sensor.gpio (dm4-W1-io17)
+  occupied_by: dm4-W1-io17
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (dm4-21)
+  occupied_by: dm4-21
 - gpio: 40
   available: false
-  occupied_by: binary_sensor.gpio (dm4-W1-io40)
+  occupied_by: dm4-W1-io40
 - gpio: 47
   available: false
-  occupied_by: binary_sensor.gpio (dm4-W1-io47)
+  occupied_by: dm4-W1-io47
 - gpio: 48
   available: false
-  occupied_by: binary_sensor.gpio (dm4-W1-io48)
+  occupied_by: dm4-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-DM4/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -175,53 +175,39 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: dm4-0
-- id: display_ssd1306_i2c_1
-  component_id: display.ssd1306_i2c
-  fields:
-    model: SSD1306 128x64
-    address: 60
-    lambda: 'it.printf(0, 15, id(roboto), "IP: %s", id(eth_ip).state.c_str());'
-    id: display_ssd1306_i2c_1
-    name: Ssd1306 I2C 1
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: ac_dimmer_1
     gamma_correct: 1.0
     id: light_monochromatic_1
     name: DM4 DAC-1
 - id: light_monochromatic_2
   component_id: light.monochromatic
   fields:
-    output: ac_dimmer_2
     gamma_correct: 1.0
     id: light_monochromatic_2
     name: DM4 DAC-2
 - id: light_monochromatic_3
   component_id: light.monochromatic
   fields:
-    output: ac_dimmer_3
     gamma_correct: 1.0
     id: light_monochromatic_3
     name: DM4 DAC-3
 - id: light_monochromatic_4
   component_id: light.monochromatic
   fields:
-    output: ac_dimmer_4
     gamma_correct: 1.0
     id: light_monochromatic_4
     name: DM4 DAC-4
 - id: output_mcp4728_1
   component_id: output.mcp4728
   fields:
-    mcp4728_id: dac_output
     channel: A
     vref: internal
     id: output_mcp4728_1
 - id: output_mcp4728_2
   component_id: output.mcp4728
   fields:
-    mcp4728_id: dac_output
     channel: B
     vref: internal
     id: output_mcp4728_2
@@ -270,12 +256,6 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_4
     name: ADS1115 Channel A3-GND
-- id: switch_uart_1
-  component_id: switch.uart
-  fields:
-    uart_id: uart_1
-    id: switch_uart_1
-    name: RS485 Button
 source:
   type: esphome-devices
   remote_id: KinCony-DM4

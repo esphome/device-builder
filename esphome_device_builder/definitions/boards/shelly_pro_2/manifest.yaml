@@ -19,34 +19,34 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: switch.gpio (Relay 1)
+  occupied_by: Relay 1
 - gpio: 1
   available: false
-  occupied_by: switch.gpio (Relay 2)
+  occupied_by: Relay 2
 - gpio: 2
   available: false
-  occupied_by: switch.gpio (wifi_led_blue)
+  occupied_by: wifi_led_blue
 - gpio: 3
   available: false
-  occupied_by: switch.gpio (wifi_led_green)
+  occupied_by: wifi_led_green
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (wifi_led_red)
+  occupied_by: wifi_led_red
 - gpio: 35
   available: false
-  occupied_by: binary_sensor.gpio (reset_button)
+  occupied_by: reset_button
 - gpio: 36
   available: false
-  occupied_by: sensor.adc (temp_voltage1)
+  occupied_by: temp_voltage1
 - gpio: 37
   available: false
-  occupied_by: sensor.adc (temp_voltage2)
+  occupied_by: temp_voltage2
 - gpio: 38
   available: false
-  occupied_by: binary_sensor.gpio (input1)
+  occupied_by: input1
 - gpio: 39
   available: false
-  occupied_by: binary_sensor.gpio (input2)
+  occupied_by: input2
 docs_url: https://devices.esphome.io/devices/Shelly-Pro-2/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -58,7 +58,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: reset_button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -67,7 +67,7 @@ featured_components:
         number: 38
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: input1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -76,7 +76,7 @@ featured_components:
         number: 39
       locked: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: input2
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -85,19 +85,17 @@ featured_components:
       locked: true
     attenuation: auto
     id: sensor_adc_1
-    name: Adc 1
+    name: temp_voltage1
 - id: sensor_resistance_1
   component_id: sensor.resistance
   fields:
-    sensor: temp_voltage1
     configuration: DOWNSTREAM
     resistor: 10kOhm
     id: sensor_resistance_1
-    name: Resistance 1
+    name: temp_resistance1
 - id: sensor_ntc_1
   component_id: sensor.ntc
   fields:
-    sensor: temp_resistance1
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
@@ -111,19 +109,17 @@ featured_components:
       locked: true
     attenuation: auto
     id: sensor_adc_2
-    name: Adc 2
+    name: temp_voltage2
 - id: sensor_resistance_2
   component_id: sensor.resistance
   fields:
-    sensor: temp_voltage2
     configuration: DOWNSTREAM
     resistor: 10kOhm
     id: sensor_resistance_2
-    name: Resistance 2
+    name: temp_resistance2
 - id: sensor_ntc_2
   component_id: sensor.ntc
   fields:
-    sensor: temp_resistance2
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
@@ -161,7 +157,7 @@ featured_components:
         inverted: true
       locked: true
     id: switch_gpio_3
-    name: Gpio 3
+    name: wifi_led_blue
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -172,7 +168,7 @@ featured_components:
         inverted: true
       locked: true
     id: switch_gpio_4
-    name: Gpio 4
+    name: wifi_led_green
 - id: switch_gpio_5
   component_id: switch.gpio
   fields:
@@ -183,7 +179,7 @@ featured_components:
         inverted: true
       locked: true
     id: switch_gpio_5
-    name: Gpio 5
+    name: wifi_led_red
 source:
   type: esphome-devices
   remote_id: Shelly-Pro-2

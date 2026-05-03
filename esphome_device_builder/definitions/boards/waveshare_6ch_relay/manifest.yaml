@@ -18,31 +18,31 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Boot Button)
+  occupied_by: Boot Button
 - gpio: 1
   available: false
-  occupied_by: switch.gpio (Relay 1)
+  occupied_by: Relay 1
 - gpio: 2
   available: false
-  occupied_by: switch.gpio (Relay 2)
+  occupied_by: Relay 2
 - gpio: 21
   available: false
-  occupied_by: output.ledc (buzzer_output)
+  occupied_by: buzzer_output
 - gpio: 38
   available: false
-  occupied_by: light.esp32_rmt_led_strip (RGB LED)
+  occupied_by: RGB LED
 - gpio: 41
   available: false
-  occupied_by: switch.gpio (Relay 3)
+  occupied_by: Relay 3
 - gpio: 42
   available: false
-  occupied_by: switch.gpio (Relay 4)
+  occupied_by: Relay 4
 - gpio: 45
   available: false
-  occupied_by: switch.gpio (Relay 5)
+  occupied_by: Relay 5
 - gpio: 46
   available: false
-  occupied_by: switch.gpio (Relay 6)
+  occupied_by: Relay 6
 docs_url: https://devices.esphome.io/devices/waveshare-6ch-relay/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -154,12 +154,6 @@ featured_components:
       locked: true
     id: switch_gpio_6
     name: Relay 6
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    icon: mdi:volume-high
-    id: switch_template_1
-    name: Buzzer
 source:
   type: esphome-devices
   remote_id: waveshare-6ch-relay

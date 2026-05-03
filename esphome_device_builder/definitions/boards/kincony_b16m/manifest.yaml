@@ -18,64 +18,64 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input01)
+  occupied_by: b16m-output01
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input02)
+  occupied_by: b16m-output02
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input03)
+  occupied_by: b16m-output03
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input04)
+  occupied_by: b16m-output04
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input05)
+  occupied_by: b16m-output05
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input06)
+  occupied_by: b16m-output06
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input07)
+  occupied_by: b16m-output07
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input08)
+  occupied_by: b16m-output08
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input09)
+  occupied_by: b16m-output09
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input10)
+  occupied_by: b16m-output10
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input11)
+  occupied_by: b16m-output11
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input12)
+  occupied_by: b16m-output12
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input13)
+  occupied_by: b16m-output13
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input14)
+  occupied_by: b16m-output14
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input15)
+  occupied_by: b16m-output15
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (b16m-input16)
+  occupied_by: b16m-output16
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (b16m-W1-io21)
+  occupied_by: b16m-W1-io21
 - gpio: 40
   available: false
-  occupied_by: binary_sensor.gpio (b16m-W1-io40)
+  occupied_by: b16m-W1-io40
 - gpio: 47
   available: false
-  occupied_by: binary_sensor.gpio (b16m-W1-io47)
+  occupied_by: b16m-W1-io47
 - gpio: 48
   available: false
-  occupied_by: binary_sensor.gpio (b16m-W1-io48)
+  occupied_by: b16m-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-B16M/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -373,12 +373,6 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_4
     name: ADS1115 Channel A3-GND
-- id: switch_uart_1
-  component_id: switch.uart
-  fields:
-    uart_id: uart_1
-    id: switch_uart_1
-    name: RS485 Button
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

@@ -12,15 +12,9 @@ images:
 pins:
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (LED_controller)
+  occupied_by: LED_controller
 docs_url: https://devices.esphome.io/devices/MagicHome-ZJ-WFMN-C-Single-Color/
 featured_components:
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: LED_controller
-    id: light_monochromatic_1
-    name: LED
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:

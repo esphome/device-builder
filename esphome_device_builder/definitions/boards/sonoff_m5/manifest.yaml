@@ -17,36 +17,27 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (Left)
+  occupied_by: Left
 - gpio: 5
   available: false
-  occupied_by: light.status_led (LED)
+  occupied_by: LED
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (Right)
+  occupied_by: Right
 - gpio: 18
   available: false
-  occupied_by: output.ledc (pwm_output)
+  occupied_by: pwm_output
 - gpio: 19
   available: false
-  occupied_by: switch.gpio (Right)
+  occupied_by: Right
 - gpio: 22
   available: false
-  occupied_by: output.gpio (led_2)
+  occupied_by: led_2
 - gpio: 23
   available: false
-  occupied_by: switch.gpio (Left)
+  occupied_by: Left
 docs_url: https://devices.esphome.io/devices/Sonoff-M5/
 featured_components:
-- id: binary_sensor_template_1
-  component_id: binary_sensor.template
-  fields:
-    internal: true
-    entity_category: diagnostic
-    device_class: connectivity
-    lambda: return global_api_server->is_connected();
-    id: binary_sensor_template_1
-    name: API connected
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -84,7 +75,6 @@ featured_components:
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: pwm_output
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:led-outline
     entity_category: config

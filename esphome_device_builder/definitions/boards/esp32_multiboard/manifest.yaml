@@ -14,16 +14,16 @@ images:
 pins:
 - gpio: 25
   available: false
-  occupied_by: switch.gpio (Grove Digital Output (GPIO25))
+  occupied_by: Grove Digital Output (GPIO25)
 - gpio: 26
   available: false
-  occupied_by: binary_sensor.gpio (Grove Digital Input (GPIO26))
+  occupied_by: Grove Digital Input (GPIO26)
 - gpio: 34
   available: false
-  occupied_by: sensor.adc (Grove Analog (GPIO34))
+  occupied_by: Grove Analog (GPIO34)
 - gpio: 35
   available: false
-  occupied_by: sensor.adc (Grove Analog (GPIO35))
+  occupied_by: Grove Analog (GPIO35)
 docs_url: https://devices.esphome.io/devices/ESP32-Multiboard/
 product_url: https://github.com/thebeaverdam/ESP32_MultiBoard
 featured_components:

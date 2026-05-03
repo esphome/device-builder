@@ -20,40 +20,40 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: output.gpio (mux_a)
+  occupied_by: mux_a
 - gpio: 2
   available: false
-  occupied_by: output.gpio (mux_b)
+  occupied_by: mux_b
 - gpio: 12
   available: false
-  occupied_by: output.ledc (pwm_2)
+  occupied_by: pwm_2
 - gpio: 13
   available: false
-  occupied_by: output.ledc (pwm_1)
+  occupied_by: pwm_1
 - gpio: 14
   available: false
-  occupied_by: output.ledc (pwm_3)
+  occupied_by: pwm_3
 - gpio: 16
   available: false
-  occupied_by: output.ledc (pwm_4)
+  occupied_by: pwm_4
 - gpio: 17
   available: false
-  occupied_by: output.ledc (pwm_5)
+  occupied_by: pwm_5
 - gpio: 35
   available: false
-  occupied_by: binary_sensor.gpio (${device_name} Reset Button)
+  occupied_by: Reset Button
 - gpio: 36
   available: false
-  occupied_by: binary_sensor.gpio (in36)
+  occupied_by: in36
 - gpio: 37
   available: false
-  occupied_by: binary_sensor.gpio (in37)
+  occupied_by: in37
 - gpio: 38
   available: false
-  occupied_by: binary_sensor.gpio (in38)
+  occupied_by: in38
 - gpio: 39
   available: false
-  occupied_by: binary_sensor.gpio (in39)
+  occupied_by: in39
 docs_url: https://devices.esphome.io/devices/Shelly-Pro-RGBWW-PM/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -65,7 +65,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Reset Button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -75,7 +75,7 @@ featured_components:
         mode: INPUT
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: in36
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -85,7 +85,7 @@ featured_components:
         mode: INPUT
       locked: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: in37
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -95,7 +95,7 @@ featured_components:
         mode: INPUT
       locked: true
     id: binary_sensor_gpio_4
-    name: Gpio 4
+    name: in38
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -105,37 +105,7 @@ featured_components:
         mode: INPUT
       locked: true
     id: binary_sensor_gpio_5
-    name: Gpio 5
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: pwm_1
-    id: light_monochromatic_1
-    name: Channel 1
-- id: light_monochromatic_2
-  component_id: light.monochromatic
-  fields:
-    output: pwm_2
-    id: light_monochromatic_2
-    name: Channel 2
-- id: light_monochromatic_3
-  component_id: light.monochromatic
-  fields:
-    output: pwm_3
-    id: light_monochromatic_3
-    name: Channel 3
-- id: light_monochromatic_4
-  component_id: light.monochromatic
-  fields:
-    output: pwm_4
-    id: light_monochromatic_4
-    name: Channel 4
-- id: light_monochromatic_5
-  component_id: light.monochromatic
-  fields:
-    output: pwm_5
-    id: light_monochromatic_5
-    name: Channel 5
+    name: in39
 - id: output_ledc_1
   component_id: output.ledc
   fields:

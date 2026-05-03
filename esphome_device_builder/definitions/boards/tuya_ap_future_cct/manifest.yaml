@@ -12,17 +12,15 @@ images:
 pins:
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (cold_white_channel)
+  occupied_by: cold_white_channel
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (warm_white_channel)
+  occupied_by: warm_white_channel
 docs_url: https://devices.esphome.io/devices/Tuya-AP-Future-CCT/
 featured_components:
 - id: light_cwww_1
   component_id: light.cwww
   fields:
-    cold_white: cold_white_channel
-    warm_white: warm_white_channel
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     id: light_cwww_1

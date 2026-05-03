@@ -16,19 +16,19 @@ images:
 pins:
 - gpio: 2
   available: false
-  occupied_by: output.ledc (output_cw)
+  occupied_by: output_cw
 - gpio: 4
   available: false
-  occupied_by: output.ledc (output_ww)
+  occupied_by: output_ww
 - gpio: 26
   available: false
-  occupied_by: sensor.rotary_encoder (rotation)
+  occupied_by: rotation
 - gpio: 27
   available: false
-  occupied_by: sensor.rotary_encoder (rotation)
+  occupied_by: rotation
 - gpio: 33
   available: false
-  occupied_by: binary_sensor.gpio (button)
+  occupied_by: button
 docs_url: https://devices.esphome.io/devices/Mi-Desklamp-Pro/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -41,39 +41,24 @@ featured_components:
         mode: INPUT_PULLDOWN
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: light_cwww_1
   component_id: light.cwww
   fields:
     default_transition_length: 0s
     constant_brightness: true
-    cold_white: output_cw
-    warm_white: output_ww
     cold_white_color_temperature: 4800 K
     warm_white_color_temperature: 2500 K
     restore_mode: RESTORE_DEFAULT_OFF
     gamma_correct: 1
     id: light_cwww_1
     name: Light
-- id: number_template_1
-  component_id: number.template
-  fields:
-    icon: mdi:sine-wave
-    unit_of_measurement: Hz
-    min_value: 0
-    max_value: 100000
-    initial_value: 100000
-    mode: box
-    step: 1
-    id: number_template_1
-    name: Flicker Frequency
 - id: output_ledc_1
   component_id: output.ledc
   fields:
     pin:
       value: 2
       locked: true
-    power_supply: power
     frequency: 100000Hz
     id: output_ledc_1
 - id: output_ledc_2
@@ -82,7 +67,6 @@ featured_components:
     pin:
       value: 4
       locked: true
-    power_supply: power
     frequency: 100000Hz
     id: output_ledc_2
 - id: sensor_wifi_signal_1
@@ -103,7 +87,7 @@ featured_components:
       locked: true
     resolution: 2
     id: sensor_rotary_encoder_1
-    name: Rotary Encoder 1
+    name: rotation
 - id: text_sensor_version_1
   component_id: text_sensor.version
   fields:

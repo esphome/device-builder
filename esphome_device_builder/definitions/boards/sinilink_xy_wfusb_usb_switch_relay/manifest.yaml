@@ -16,13 +16,13 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (hardware_button)
+  occupied_by: hardware_button
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (switch_relay)
+  occupied_by: switch_relay
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (green_led)
+  occupied_by: green_led
 docs_url: https://devices.esphome.io/devices/Sinilink-XY-WFUSB-USB-Switch-Relay/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -35,7 +35,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: hardware_button
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -49,7 +49,7 @@ featured_components:
       value: 5
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: switch_relay
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -60,7 +60,7 @@ featured_components:
       value: true
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: green_led
 source:
   type: esphome-devices
   remote_id: Sinilink-XY-WFUSB-USB-Switch-Relay

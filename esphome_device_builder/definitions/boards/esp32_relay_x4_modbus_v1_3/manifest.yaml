@@ -17,34 +17,34 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (Relay 3)
+  occupied_by: Relay 3
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (Relay 2)
+  occupied_by: Relay 2
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (Relay 4)
+  occupied_by: Relay 4
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (Pad RX2 as input)
+  occupied_by: Pad RX2 as input
 - gpio: 17
   available: false
-  occupied_by: binary_sensor.gpio (Pad TX2 as input)
+  occupied_by: Pad TX2 as input
 - gpio: 23
   available: false
-  occupied_by: switch.gpio (Relay 1)
+  occupied_by: Relay 1
 - gpio: 25
   available: false
-  occupied_by: binary_sensor.gpio (Input 1)
+  occupied_by: Input 1
 - gpio: 26
   available: false
-  occupied_by: binary_sensor.gpio (Input 2)
+  occupied_by: Input 2
 - gpio: 27
   available: false
-  occupied_by: binary_sensor.gpio (Input 3)
+  occupied_by: Input 3
 - gpio: 33
   available: false
-  occupied_by: binary_sensor.gpio (Input 4)
+  occupied_by: Input 4
 docs_url: https://devices.esphome.io/devices/ESP32_Relay_X4_Modbus_v1.3/
 featured_components:
 - id: binary_sensor_gpio_1

@@ -14,10 +14,10 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (DoorBell)
+  occupied_by: DoorBell
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (Lock)
+  occupied_by: Lock
 docs_url: https://devices.esphome.io/devices/ESPBell-LITE/
 product_url: https://github.com/PricelessToolkit/ESPBell-LITE/tree/main
 featured_components:

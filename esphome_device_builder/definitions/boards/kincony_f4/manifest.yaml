@@ -16,46 +16,46 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (f4-input01)
+  occupied_by: f4-io0
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (f4-input02)
+  occupied_by: f4-input02
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (f4-input03)
+  occupied_by: f4-input03
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (f4-input04)
+  occupied_by: f4-input04
 - gpio: 4
   available: false
-  occupied_by: sensor.adc (f4 A4 Current)
+  occupied_by: f4-output01
 - gpio: 5
   available: false
-  occupied_by: sensor.adc (f4 A1 Voltage)
+  occupied_by: f4-output02
 - gpio: 6
   available: false
-  occupied_by: sensor.adc (f4 A3 Current)
+  occupied_by: f4-output03
 - gpio: 7
   available: false
-  occupied_by: sensor.adc (f4 A2 Voltage)
+  occupied_by: f4-output04
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (f4-W1-io14)
+  occupied_by: f4-W1-io14
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (f4-W1-io15)
+  occupied_by: f4-W1-io15
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (f4-W1-io21)
+  occupied_by: f4-W1-io21
 - gpio: 40
   available: false
-  occupied_by: binary_sensor.gpio (f4-433M)
+  occupied_by: f4-433M
 - gpio: 47
   available: false
-  occupied_by: binary_sensor.gpio (f4-W1-io47)
+  occupied_by: f4-W1-io47
 - gpio: 48
   available: false
-  occupied_by: binary_sensor.gpio (f4-W1-io48)
+  occupied_by: f4-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-F4/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -176,15 +176,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_11
     name: f4-io0
-- id: display_ssd1306_i2c_1
-  component_id: display.ssd1306_i2c
-  fields:
-    i2c_id: bus_a
-    model: SSD1306 128x64
-    address: 60
-    lambda: it.printf(0, 0, id(roboto), "KinCony f4");
-    id: display_ssd1306_i2c_1
-    name: Ssd1306 I2C 1
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -227,12 +218,6 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_4
     name: f4 A4 Current
-- id: switch_uart_1
-  component_id: switch.uart
-  fields:
-    uart_id: uart_1
-    id: switch_uart_1
-    name: RS485 Button
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

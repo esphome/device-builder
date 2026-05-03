@@ -17,11 +17,6 @@ featured_components:
   component_id: light.rgbww
   fields:
     restore_mode: RESTORE_DEFAULT_ON
-    red: output_red
-    green: output_green
-    blue: output_blue
-    cold_white: output_cold_white
-    warm_white: output_warm_white
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     color_interlock: true

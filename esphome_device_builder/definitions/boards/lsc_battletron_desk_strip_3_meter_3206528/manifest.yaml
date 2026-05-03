@@ -19,7 +19,6 @@ featured_components:
     chipset: WS2812
     num_leds: 36
     rgb_order: GRB
-    power_supply: led_power
     id: light_beken_spi_led_strip_1
     name: Color Light
 source:

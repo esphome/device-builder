@@ -14,31 +14,22 @@ images:
 pins:
 - gpio: 2
   available: false
-  occupied_by: output.ledc (buzzer)
-- gpio: 5
-  available: false
-  occupied_by: display.st7789v
+  occupied_by: buzzer
 - gpio: 10
   available: false
-  occupied_by: output.ledc (builtin_led)
-- gpio: 12
-  available: false
-  occupied_by: display.st7789v
-- gpio: 14
-  available: false
-  occupied_by: display.st7789v
+  occupied_by: builtin_led
 - gpio: 27
   available: false
-  occupied_by: output.ledc (backlight)
+  occupied_by: backlight
 - gpio: 37
   available: false
-  occupied_by: binary_sensor.gpio (${upper_devicename} Button A)
+  occupied_by: Button A
 - gpio: 38
   available: false
-  occupied_by: sensor.adc (Battery Voltage)
+  occupied_by: Battery Voltage
 - gpio: 39
   available: false
-  occupied_by: binary_sensor.gpio (${upper_devicename} Button B)
+  occupied_by: Button B
 docs_url: https://devices.esphome.io/devices/M5Stack-M5StickC-PLUS2/
 product_url: https://docs.m5stack.com/en/core/M5StickC%20PLUS2
 featured_components:
@@ -51,7 +42,7 @@ featured_components:
         inverted: false
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button A
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -61,35 +52,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
-- id: display_st7789v_1
-  component_id: display.st7789v
-  fields:
-    model: TTGO TDisplay 135x240
-    cs_pin:
-      value: 5
-      locked: true
-    dc_pin:
-      value: 14
-      locked: true
-    reset_pin:
-      value: 12
-      locked: true
-    rotation: 270
-    id: display_st7789v_1
-    name: St7789V 1
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: builtin_led
-    id: light_monochromatic_1
-    name: Monochromatic 1
-- id: light_monochromatic_2
-  component_id: light.monochromatic
-  fields:
-    output: backlight
-    id: light_monochromatic_2
-    name: Monochromatic 2
+    name: Button B
 - id: output_ledc_1
   component_id: output.ledc
   fields:
@@ -133,7 +96,6 @@ featured_components:
 - id: sensor_mpu6886_1
   component_id: sensor.mpu6886
   fields:
-    i2c_id: bus_a
     address: 104
     update_interval: 10s
     id: sensor_mpu6886_1

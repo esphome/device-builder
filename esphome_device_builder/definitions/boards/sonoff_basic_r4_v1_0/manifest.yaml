@@ -20,10 +20,10 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (Tomada)
+  occupied_by: Tomada
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (button_1)
+  occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/Sonoff-BASIC-R4-v1.0/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -38,7 +38,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button_1
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

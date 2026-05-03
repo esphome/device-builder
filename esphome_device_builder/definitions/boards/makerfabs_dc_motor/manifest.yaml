@@ -14,16 +14,16 @@ images:
 pins:
 - gpio: 25
   available: false
-  occupied_by: output.ledc (motor_reverse_pin)
+  occupied_by: motor_reverse_pin
 - gpio: 26
   available: false
-  occupied_by: output.ledc (motor_forward_pin)
+  occupied_by: motor_forward_pin
 - gpio: 32
   available: false
-  occupied_by: binary_sensor.gpio (Endstop 2)
+  occupied_by: Endstop 2
 - gpio: 33
   available: false
-  occupied_by: binary_sensor.gpio (Endstop 1)
+  occupied_by: Endstop 1
 docs_url: https://devices.esphome.io/devices/Makerfabs-DC-Motor/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -53,12 +53,6 @@ featured_components:
 - id: fan_hbridge_1
   component_id: fan.hbridge
   fields:
-    pin_a:
-      value: motor_forward_pin
-      locked: true
-    pin_b:
-      value: motor_reverse_pin
-      locked: true
     decay_mode: slow
     id: fan_hbridge_1
     name: DC Motor

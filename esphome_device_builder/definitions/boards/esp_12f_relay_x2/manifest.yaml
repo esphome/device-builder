@@ -14,13 +14,13 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (Relay2)
+  occupied_by: Relay2
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (Relay1)
+  occupied_by: Relay1
 - gpio: 16
   available: false
-  occupied_by: switch.gpio (Led16)
+  occupied_by: Led16
 docs_url: https://devices.esphome.io/devices/ESP-12F-Relay-X2/
 featured_components:
 - id: switch_gpio_1

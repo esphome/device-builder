@@ -16,13 +16,13 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (redLED)
+  occupied_by: redLED
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (${friendly_name})
+  occupied_by: relay
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+  occupied_by: Button
 docs_url: https://devices.esphome.io/devices/Zentec-Smart-Plug/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -35,7 +35,7 @@ featured_components:
       locked: true
     internal: false
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -44,7 +44,7 @@ featured_components:
       locked: true
     restore_mode: ALWAYS_OFF
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:

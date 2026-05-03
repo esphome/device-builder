@@ -16,37 +16,22 @@ images:
 pins:
 - gpio: 1
   available: false
-  occupied_by: output.ledc (gpio_backlight_pwm)
+  occupied_by: gpio_backlight_pwm
 - gpio: 3
   available: false
-  occupied_by: touchscreen.gt911 (my_touchscreen)
+  occupied_by: my_touchscreen
 - gpio: 38
   available: false
-  occupied_by: touchscreen.gt911 (my_touchscreen)
+  occupied_by: my_touchscreen
 docs_url: https://devices.esphome.io/devices/Guition-JC4827543C/
 featured_components:
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: gpio_backlight_pwm
     icon: mdi:lightbulb-on
     restore_mode: ALWAYS_ON
     id: light_monochromatic_1
     name: Display Backlight
-- id: number_template_1
-  component_id: number.template
-  fields:
-    optimistic: true
-    initial_value: 15
-    restore_value: true
-    unit_of_measurement: s
-    device_class: duration
-    mode: box
-    min_value: 5
-    max_value: 600
-    step: 1
-    id: number_template_1
-    name: Sleep time
 - id: output_ledc_1
   component_id: output.ledc
   fields:
@@ -59,7 +44,6 @@ featured_components:
 - id: touchscreen_gt911_1
   component_id: touchscreen.gt911
   fields:
-    i2c_id: bus_a
     interrupt_pin:
       value:
         number: 3
@@ -69,7 +53,7 @@ featured_components:
       value: 38
       locked: true
     id: touchscreen_gt911_1
-    name: Gt911 1
+    name: my_touchscreen
 source:
   type: esphome-devices
   remote_id: Guition-JC4827543C

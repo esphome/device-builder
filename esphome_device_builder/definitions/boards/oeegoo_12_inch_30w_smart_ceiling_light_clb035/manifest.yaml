@@ -16,35 +16,30 @@ images:
 pins:
 - gpio: 3
   available: false
-  occupied_by: output.ledc (output_pwm2)
+  occupied_by: output_pwm2
 - gpio: 4
   available: false
-  occupied_by: output.ledc (output_pwm3)
+  occupied_by: output_pwm3
 - gpio: 5
   available: false
-  occupied_by: output.ledc (output_pwm5)
+  occupied_by: output_pwm5
 - gpio: 10
   available: false
-  occupied_by: output.ledc (output_pwm1)
+  occupied_by: output_pwm1
 - gpio: 18
   available: false
-  occupied_by: output.ledc (output_pwm4)
+  occupied_by: output_pwm4
 docs_url: https://devices.esphome.io/devices/OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035/
 featured_components:
 - id: light_rgb_1
   component_id: light.rgb
   fields:
-    red: output_pwm1
-    green: output_pwm2
-    blue: output_pwm3
     restore_mode: RESTORE_DEFAULT_OFF
     id: light_rgb_1
     name: RGB Light
 - id: light_cwww_1
   component_id: light.cwww
   fields:
-    cold_white: output_pwm4
-    warm_white: output_pwm5
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     constant_brightness: true
@@ -98,7 +93,7 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: WiFi Signal
 source:
   type: esphome-devices
   remote_id: OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035

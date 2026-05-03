@@ -11,18 +11,10 @@ images:
 - images/Mirabella-Door-Window-Sensor.jpg
 docs_url: https://devices.esphome.io/devices/Mirabella-Door-Window-Sensor/
 featured_components:
-- id: binary_sensor_template_1
-  component_id: binary_sensor.template
-  fields:
-    device_class: door
-    lambda: return {};
-    id: binary_sensor_template_1
-    name: Door Window Sensor
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
     update_interval: 1s
-    expire_after: null
     unit_of_measurement: '%'
     accuracy_decimals: 0
     id: sensor_adc_1

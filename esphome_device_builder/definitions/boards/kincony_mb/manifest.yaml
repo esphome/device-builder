@@ -14,19 +14,10 @@ images:
 - images/MB-1_06.jpg
 docs_url: https://devices.esphome.io/devices/KinCony-MB/
 featured_components:
-- id: display_ssd1306_i2c_1
-  component_id: display.ssd1306_i2c
-  fields:
-    i2c_id: bus_a
-    model: SSD1306 128x64
-    address: 60
-    id: display_ssd1306_i2c_1
-    name: Ssd1306 I2C 1
 - id: sensor_ina226_1
   component_id: sensor.ina226
   fields:
     address: 64
-    i2c_id: bus_a
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -36,7 +27,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 65
-    i2c_id: bus_a
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -46,7 +36,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 66
-    i2c_id: bus_a
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -56,7 +45,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 67
-    i2c_id: bus_a
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -66,7 +54,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 68
-    i2c_id: bus_a
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -76,7 +63,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 69
-    i2c_id: bus_a
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -86,7 +72,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 70
-    i2c_id: bus_a
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -96,7 +81,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 71
-    i2c_id: bus_a
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -106,7 +90,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 64
-    i2c_id: bus_b
     shunt_resistance: 0.1 ohm
     max_current: 15A
     update_interval: 5s
@@ -116,7 +99,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 65
-    i2c_id: bus_b
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -126,7 +108,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 66
-    i2c_id: bus_b
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -136,7 +117,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 67
-    i2c_id: bus_b
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -146,7 +126,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 68
-    i2c_id: bus_b
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -156,7 +135,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 69
-    i2c_id: bus_b
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -166,7 +144,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 70
-    i2c_id: bus_b
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s
@@ -176,7 +153,6 @@ featured_components:
   component_id: sensor.ina226
   fields:
     address: 71
-    i2c_id: bus_b
     shunt_resistance: 0.01 ohm
     max_current: 15A
     update_interval: 5s

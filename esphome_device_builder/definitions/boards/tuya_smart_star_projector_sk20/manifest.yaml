@@ -15,23 +15,18 @@ featured_components:
   component_id: light.rgb
   fields:
     restore_mode: ALWAYS_OFF
-    red: red
-    green: green
-    blue: blue
     id: light_rgb_1
     name: Light
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
     icon: mdi:laser-pointer
-    output: laser_pwm
     restore_mode: ALWAYS_OFF
     id: light_monochromatic_1
     name: Laser
 - id: light_status_led_1
   component_id: light.status_led
   fields:
-    output: button_led0_gpio
     restore_mode: ALWAYS_OFF
     internal: true
     id: light_status_led_1
@@ -39,7 +34,6 @@ featured_components:
 - id: light_monochromatic_2
   component_id: light.monochromatic
   fields:
-    output: button_led1_pwm
     restore_mode: ALWAYS_OFF
     id: light_monochromatic_2
     name: Button LED1

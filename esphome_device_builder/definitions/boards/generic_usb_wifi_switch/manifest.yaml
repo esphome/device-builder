@@ -15,19 +15,19 @@ tags:
 pins:
 - gpio: 6
   available: false
-  occupied_by: output.libretiny_pwm (led)
+  occupied_by: led
 - gpio: 7
   available: false
-  occupied_by: switch.gpio (Relay 1)
+  occupied_by: Relay 1
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (Side button)
+  occupied_by: Side button
 - gpio: 24
   available: false
-  occupied_by: switch.gpio (Relay 3)
+  occupied_by: Relay 3
 - gpio: 26
   available: false
-  occupied_by: switch.gpio (Relay 2)
+  occupied_by: Relay 2
 docs_url: https://devices.esphome.io/devices/Generic-USB-Wifi-Switch/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -41,12 +41,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Side button
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: led
-    id: light_monochromatic_1
-    name: LED
 - id: output_libretiny_pwm_1
   component_id: output.libretiny_pwm
   fields:

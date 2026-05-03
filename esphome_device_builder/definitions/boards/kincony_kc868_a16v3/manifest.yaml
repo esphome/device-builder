@@ -19,46 +19,46 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (a16v3_input1)
+  occupied_by: a16v3_output9
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (a16v3_input2)
+  occupied_by: a16v3_output10
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (a16v3_input3)
+  occupied_by: a16v3_output11
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (a16v3_input4)
+  occupied_by: a16v3_output12
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (a16v3_input5)
+  occupied_by: a16v3_output13
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (a16v3_input6)
+  occupied_by: a16v3_output14
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (a16v3_input7)
+  occupied_by: a16v3_output15
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (a16v3_input8)
+  occupied_by: a16v3_output16
 - gpio: 38
   available: false
-  occupied_by: binary_sensor.gpio (A16v3 IO38)
+  occupied_by: A16v3 IO38
 - gpio: 39
   available: false
-  occupied_by: binary_sensor.gpio (A16v3 IO39)
+  occupied_by: A16v3 IO39
 - gpio: 40
   available: false
-  occupied_by: binary_sensor.gpio (A16v3 IO40)
+  occupied_by: A16v3 IO40
 - gpio: 41
   available: false
-  occupied_by: binary_sensor.gpio (A16v3 IO41)
+  occupied_by: A16v3 IO41
 - gpio: 47
   available: false
-  occupied_by: binary_sensor.gpio (A16v3 IO47)
+  occupied_by: A16v3 IO47
 - gpio: 48
   available: false
-  occupied_by: binary_sensor.gpio (A16v3 IO48)
+  occupied_by: A16v3 IO48
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A16v3/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -365,12 +365,6 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_4
     name: A16v3 A4 Current
-- id: switch_uart_1
-  component_id: switch.uart
-  fields:
-    uart_id: uart_1
-    id: switch_uart_1
-    name: RS485 Button
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

@@ -15,13 +15,13 @@ tags:
 pins:
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (button_1)
+  occupied_by: button_1
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (${upper_devicename} Switch)
+  occupied_by: Switch
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (sw_led1)
+  occupied_by: sw_led1
 docs_url: https://devices.esphome.io/devices/Athom-Smart-Plug-PG01V2-EU16A/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -32,26 +32,20 @@ featured_components:
         number: 5
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
-- id: sensor_cse7766_1
-  component_id: sensor.cse7766
-  fields:
-    uart_id: cse7766_uart_bus
-    id: sensor_cse7766_1
-    name: Cse7766 1
+    name: button_1
 - id: sensor_total_daily_energy_1
   component_id: sensor.total_daily_energy
   fields:
     unit_of_measurement: kWh
     icon: mdi:clock-alert
     id: sensor_total_daily_energy_1
-    name: Total Daily Energy 1
+    name: Total Daily Energy
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Wifi Signal
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -60,7 +54,7 @@ featured_components:
       locked: true
     icon: mdi:power-socket-fr
     id: switch_gpio_1
-    name: Gpio 1
+    name: Switch
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -68,7 +62,7 @@ featured_components:
       value: 13
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: sw_led1
 source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-PG01V2-EU16A

@@ -14,7 +14,7 @@ images:
 pins:
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (Underside Button)
+  occupied_by: Underside Button
 docs_url: https://devices.esphome.io/devices/Smartpoint-Wifi-Smart-Remote-Controller/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -27,13 +27,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Underside Button
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    optimistic: true
-    assumed_state: true
-    id: switch_template_1
-    name: TV Power
 source:
   type: esphome-devices
   remote_id: Smartpoint-Wifi-Smart-Remote-Controller

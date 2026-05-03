@@ -21,19 +21,19 @@ featured_components:
     sensor_datapoint: 1
     device_class: occupancy
     id: binary_sensor_tuya_1
-    name: Tuya 1
+    name: Presence State
 - id: button_restart_1
   component_id: button.restart
   fields:
     entity_category: diagnostic
     id: button_restart_1
-    name: Restart 1
+    name: Restart
 - id: button_safe_mode_1
   component_id: button.safe_mode
   fields:
     entity_category: diagnostic
     id: button_safe_mode_1
-    name: Safe Mode 1
+    name: Restart (Safe Mode)
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -43,7 +43,7 @@ featured_components:
     step: 1
     icon: mdi:ray-vertex
     id: number_tuya_1
-    name: Tuya 1
+    name: Sensitivity
 - id: number_tuya_2
   component_id: number.tuya
   fields:
@@ -55,7 +55,7 @@ featured_components:
     unit_of_measurement: cm
     icon: mdi:signal-distance-variant
     id: number_tuya_2
-    name: Tuya 2
+    name: Near Detection
 - id: number_tuya_3
   component_id: number.tuya
   fields:
@@ -67,7 +67,7 @@ featured_components:
     unit_of_measurement: cm
     icon: mdi:signal-distance-variant
     id: number_tuya_3
-    name: Tuya 3
+    name: Far Detection
 - id: number_tuya_4
   component_id: number.tuya
   fields:
@@ -79,7 +79,7 @@ featured_components:
     mode: slider
     icon: mdi:clock
     id: number_tuya_4
-    name: Tuya 4
+    name: Detection Delay
 - id: number_tuya_5
   component_id: number.tuya
   fields:
@@ -91,21 +91,21 @@ featured_components:
     mode: slider
     icon: mdi:clock
     id: number_tuya_5
-    name: Tuya 5
+    name: Fading Time
 - id: select_tuya_1
   component_id: select.tuya
   fields:
     icon: mdi:eye
     enum_datapoint: 6
     id: select_tuya_1
-    name: Tuya 1
+    name: Self Check Result
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     internal: true
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Signal strength
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -115,7 +115,7 @@ featured_components:
     device_class: illuminance
     state_class: measurement
     id: sensor_tuya_1
-    name: Tuya 1
+    name: Light Intensity
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -125,13 +125,7 @@ featured_components:
     device_class: distance
     state_class: measurement
     id: sensor_tuya_2
-    name: Tuya 2
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    icon: mdi:clock-start
-    id: text_sensor_template_1
-    name: Template 1
+    name: Target Distance
 source:
   type: esphome-devices
   remote_id: Tuya-ZY-M100-Human-Presence-Sensor

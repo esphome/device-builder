@@ -16,40 +16,40 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: switch.gpio (a32m-light1)
+  occupied_by: a32m-light25
 - gpio: 1
   available: false
-  occupied_by: switch.gpio (a32m-light2)
+  occupied_by: a32m-light26
 - gpio: 2
   available: false
-  occupied_by: switch.gpio (a32m-light3)
+  occupied_by: a32m-light27
 - gpio: 3
   available: false
-  occupied_by: switch.gpio (a32m-light4)
+  occupied_by: a32m-light28
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (a32m-light5)
+  occupied_by: a32m-light29
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (a32m-light6)
+  occupied_by: a32m-light30
 - gpio: 6
   available: false
-  occupied_by: switch.gpio (a32m-light7)
+  occupied_by: a32m-light31
 - gpio: 7
   available: false
-  occupied_by: switch.gpio (a32m-light8)
+  occupied_by: a32m-light32
 - gpio: 34
   available: false
-  occupied_by: sensor.adc (a32m-analog-1)
+  occupied_by: a32m-analog-1
 - gpio: 35
   available: false
-  occupied_by: sensor.adc (a32m-analog-2)
+  occupied_by: a32m-analog-2
 - gpio: 36
   available: false
-  occupied_by: sensor.adc (a32m-analog-4)
+  occupied_by: a32m-analog-4
 - gpio: 39
   available: false
-  occupied_by: sensor.adc (a32m-analog-3)
+  occupied_by: a32m-analog-3
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A32M/
 featured_components:
 - id: sensor_adc_1

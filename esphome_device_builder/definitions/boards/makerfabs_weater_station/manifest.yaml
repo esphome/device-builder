@@ -14,13 +14,12 @@ images:
 pins:
 - gpio: 27
   available: false
-  occupied_by: sensor.pulse_counter (Wind Speed)
+  occupied_by: Wind Speed
 docs_url: https://devices.esphome.io/devices/Makerfabs-Weater-Station/
 featured_components:
 - id: sensor_aht10_1
   component_id: sensor.aht10
   fields:
-    i2c_id: i2c_bus
     update_interval: 10s
     id: sensor_aht10_1
     name: Aht10 1
@@ -42,7 +41,6 @@ featured_components:
 - id: sensor_bmp280_i2c_1
   component_id: sensor.bmp280_i2c
   fields:
-    i2c_id: i2c_bus
     address: 118
     update_interval: 10s
     iir_filter: 16X

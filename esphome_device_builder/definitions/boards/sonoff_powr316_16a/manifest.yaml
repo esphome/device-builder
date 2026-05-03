@@ -19,16 +19,16 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} - Button)
+  occupied_by: Button
 - gpio: 5
   available: false
-  occupied_by: light.status_led (wifi_status_led)
+  occupied_by: wifi_status_led
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (${friendly_name} - Relay Switch)
+  occupied_by: Relay Switch
 - gpio: 18
   available: false
-  occupied_by: output.ledc (led)
+  occupied_by: led
 docs_url: https://devices.esphome.io/devices/Sonoff-POWR316-16a/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -43,15 +43,14 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: led
     internal: true
     default_transition_length: 0s
     id: light_monochromatic_1
-    name: Monochromatic 1
+    name: switch_led
 - id: light_status_led_1
   component_id: light.status_led
   fields:
@@ -62,7 +61,7 @@ featured_components:
         inverted: true
       locked: true
     id: light_status_led_1
-    name: Status Led 1
+    name: wifi_status_led
 - id: output_ledc_1
   component_id: output.ledc
   fields:
@@ -85,7 +84,7 @@ featured_components:
       value: 13
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: Relay Switch
 source:
   type: esphome-devices
   remote_id: Sonoff-POWR316-16a

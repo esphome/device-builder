@@ -13,7 +13,7 @@ images:
 pins:
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (physical_button)
+  occupied_by: physical_button
 docs_url: https://devices.esphome.io/devices/SZMDLX-IR-Hub/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -23,7 +23,7 @@ featured_components:
       value: 13
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: physical_button
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:

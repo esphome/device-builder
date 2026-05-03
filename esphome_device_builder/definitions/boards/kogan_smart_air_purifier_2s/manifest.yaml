@@ -27,7 +27,7 @@ featured_components:
     max_value: 2
     step: 1
     id: number_tuya_1
-    name: Tuya 1
+    name: Timer Mode
 - id: number_tuya_2
   component_id: number.tuya
   fields:
@@ -36,7 +36,7 @@ featured_components:
     max_value: 480
     step: 1
     id: number_tuya_2
-    name: Tuya 2
+    name: Timer Countdown Mins
 - id: number_tuya_3
   component_id: number.tuya
   fields:
@@ -45,7 +45,7 @@ featured_components:
     max_value: 2
     step: 1
     id: number_tuya_3
-    name: Tuya 3
+    name: LED Brightness
 - id: number_tuya_4
   component_id: number.tuya
   fields:
@@ -54,7 +54,7 @@ featured_components:
     max_value: 2
     step: 1
     id: number_tuya_4
-    name: Tuya 4
+    name: Air Quality Level
 source:
   type: esphome-devices
   remote_id: Kogan-Smart-Air-Purifier-2S

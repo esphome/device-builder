@@ -15,58 +15,58 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (4)
+  occupied_by: '4'
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (13)
+  occupied_by: '13'
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (14)
+  occupied_by: '14'
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (15)
+  occupied_by: '15'
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (16)
+  occupied_by: '16'
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (21)
+  occupied_by: '21'
 - gpio: 22
   available: false
-  occupied_by: binary_sensor.gpio (22)
+  occupied_by: '22'
 - gpio: 25
   available: false
-  occupied_by: binary_sensor.gpio (TMP2)
+  occupied_by: TMP2
 - gpio: 26
   available: false
-  occupied_by: binary_sensor.gpio (TMP1)
+  occupied_by: TMP1
 - gpio: 27
   available: false
-  occupied_by: binary_sensor.gpio (27)
+  occupied_by: '27'
 - gpio: 32
   available: false
-  occupied_by: binary_sensor.gpio (32)
+  occupied_by: '32'
 - gpio: 33
   available: false
-  occupied_by: binary_sensor.gpio (33)
+  occupied_by: '33'
 - gpio: 34
   available: false
-  occupied_by: binary_sensor.gpio (34)
+  occupied_by: '34'
 - gpio: 35
   available: false
-  occupied_by: binary_sensor.gpio (35)
+  occupied_by: '35'
 - gpio: 36
   available: false
-  occupied_by: binary_sensor.gpio (36)
+  occupied_by: '36'
 - gpio: 37
   available: false
-  occupied_by: binary_sensor.gpio (37)
+  occupied_by: '37'
 - gpio: 38
   available: false
-  occupied_by: binary_sensor.gpio (38)
+  occupied_by: '38'
 - gpio: 39
   available: false
-  occupied_by: binary_sensor.gpio (39)
+  occupied_by: '39'
 docs_url: https://devices.esphome.io/devices/KinCony-ATF/
 featured_components:
 - id: binary_sensor_gpio_1

@@ -16,13 +16,13 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (Physical Switch Input)
+  occupied_by: Physical Switch Input
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (Smart Switch)
+  occupied_by: Smart Switch
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (watchdog_heartbeat)
+  occupied_by: watchdog_heartbeat
 docs_url: https://devices.esphome.io/devices/Tinxy-1N-16A-Relay/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -44,15 +44,6 @@ featured_components:
       locked: true
     frequency: 500 Hz
     id: output_esp8266_pwm_1
-- id: select_template_1
-  component_id: select.template
-  fields:
-    icon: mdi:power-settings
-    restore_value: true
-    optimistic: true
-    entity_category: config
-    id: select_template_1
-    name: Template 1
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (${device_name}_button)
+  occupied_by: button
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -27,10 +27,10 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (led)
+  occupied_by: led
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (${device_name}_plug)
+  occupied_by: plug
 docs_url: https://devices.esphome.io/devices/Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -43,7 +43,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -67,13 +67,13 @@ featured_components:
   fields:
     unit_of_measurement: kWh
     id: sensor_total_daily_energy_1
-    name: Total Daily Energy 1
+    name: daily_energy
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 5min
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: rssi
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -83,7 +83,7 @@ featured_components:
         inverted: true
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: led
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -91,14 +91,7 @@ featured_components:
       value: 14
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    entity_category: diagnostic
-    icon: mdi:clock-start
-    id: text_sensor_template_1
-    name: Template 1
+    name: plug
 source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports

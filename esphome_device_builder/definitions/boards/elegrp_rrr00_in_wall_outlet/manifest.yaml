@@ -28,17 +28,15 @@ featured_components:
 - id: light_binary_1
   component_id: light.binary
   fields:
-    output: upper_white_led
     internal: true
     id: light_binary_1
-    name: Binary 1
+    name: light_upper_white
 - id: light_binary_2
   component_id: light.binary
   fields:
-    output: lower_white_led
     internal: true
     id: light_binary_2
-    name: Binary 2
+    name: light_lower_white
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -62,7 +60,6 @@ featured_components:
 - id: sensor_total_daily_energy_1
   component_id: sensor.total_daily_energy
   fields:
-    power_id: power_monitor
     unit_of_measurement: kWh
     state_class: total_increasing
     device_class: energy

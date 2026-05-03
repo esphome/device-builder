@@ -28,16 +28,16 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 10
   available: false
-  occupied_by: switch.gpio (${relay1_name})
+  occupied_by: relay1
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} Button 2)
+  occupied_by: Button 2
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (${relay2_name})
+  occupied_by: relay2
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} Button 1)
+  occupied_by: Button 1
 docs_url: https://devices.esphome.io/devices/NX-SP201-Smart-Plug/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -50,7 +50,7 @@ featured_components:
       locked: true
     internal: false
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button 1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -61,7 +61,7 @@ featured_components:
       locked: true
     internal: false
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: Button 2
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -87,7 +87,7 @@ featured_components:
       value: 10
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -95,7 +95,7 @@ featured_components:
       value: 13
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: relay2
 source:
   type: esphome-devices
   remote_id: NX-SP201-Smart-Plug

@@ -172,6 +172,38 @@ _LOCKABLE_FIELD_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^inverted$"),
 ]
 
+# Strings that mark "user must fill this in" placeholders in upstream
+# YAML. Lifting them as featured-component presets would create an
+# entity that compiles but can't actually run — better to skip the
+# whole component and let the user add the underlying catalog entry
+# manually. Match is case-insensitive and substring-anchored.
+_PLACEHOLDER_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"\bfill\s*in\b", re.IGNORECASE),
+    re.compile(r"\breplace\s*me\b", re.IGNORECASE),
+    re.compile(r"<\s*replaceme\s*>", re.IGNORECASE),
+    re.compile(r"<[A-Z_][A-Z0-9_]*>"),  # <UNKNOWN>, <ADDRESS>, ...
+    re.compile(r"\byour[\s_-]+(key|address|token|id)\b", re.IGNORECASE),
+]
+
+# Template substitutions like ``${friendly_name}`` that upstream pages
+# resolve at runtime via ``substitutions:``. We don't carry the
+# substitutions block forward, so anything still containing one is
+# unsafe to surface as a preset value or as an ``occupied_by`` label.
+_TEMPLATE_VAR_RE = re.compile(r"\$\{[^}]*\}")
+
+# Platforms we never lift, regardless of which domain hosts them. The
+# ``template`` family (``switch.template``, ``binary_sensor.template``,
+# ...) and the ``copy`` family both rely on user-provided lambdas or
+# id references for their actual behaviour — without those we'd emit a
+# featured component that compiles but does nothing.
+_SKIPPED_PLATFORMS: frozenset[str] = frozenset({"template", "copy"})
+
+# Top-level inline-yaml keys whose presence means the upstream YAML's
+# behaviour comes from a lambda we can't represent in a preset. When
+# any of these appears on a featured-component item we drop the whole
+# item rather than emit a static skeleton.
+_LAMBDA_BEHAVIOUR_KEYS: frozenset[str] = frozenset({"lambda", "write_lambda"})
+
 # Maximum images to copy per device. Some pages list 30+ photos —
 # we cap to the first few so the repo doesn't bloat with PCB galleries.
 _MAX_IMAGES_PER_DEVICE = 8
@@ -562,6 +594,11 @@ def _resolve_board_and_variant(
     raw_framework = soc_block.get("framework")
 
     board = raw_board if isinstance(raw_board, str) else None
+    # Upstream pages occasionally ship a ``<REPLACEME>`` placeholder
+    # where a real PlatformIO board id should be — those configs would
+    # never compile, so treat them the same as a missing board.
+    if board is not None and _is_placeholder_value(board):
+        board = None
     # Upstream pages sometimes write the variant in uppercase (``ESP32C3``)
     # — normalize to match our enum.
     variant = raw_variant.lower() if isinstance(raw_variant, str) else None
@@ -605,17 +642,25 @@ def _extract_featured_components(
             platform = item.get("platform")
             if not isinstance(platform, str) or not platform:
                 continue
+            if platform in _SKIPPED_PLATFORMS:
+                continue
+            if any(key in item for key in _LAMBDA_BEHAVIOUR_KEYS):
+                continue
             component_id = f"{domain}.{platform}"
             component = components_index.get(component_id)
             if component is None:
                 continue
-            fields = _extract_fields(item, component, gpio_occupancy, component_id)
-            # No-field components are generic catalog entries the user
-            # can add from the regular flow; including them here just
-            # adds noise (sensor.uptime, switch.restart, ...). Keeping
-            # only those with a real hardware-specific preset.
-            if not fields:
+            local_occupancy: dict[int, str] = {}
+            fields = _extract_fields(item, component, local_occupancy, component_id)
+            # ``None`` from _extract_fields means the upstream item carries
+            # an unfillable placeholder ("(FILL IN ...)") that would leave
+            # the entity broken; ``{}`` means no hardware-specific preset
+            # at all (generic catalog entries the user can add via the
+            # normal flow). Both branches drop the entry without polluting
+            # gpio_occupancy with the buffered pin label.
+            if fields is None or not fields:
                 continue
+            gpio_occupancy.update(local_occupancy)
             counters[component_id] = counters.get(component_id, 0) + 1
             local_id = f"{domain}_{platform}_{counters[component_id]}"
             # Always set ``fields.id`` so the dashboard never has to
@@ -623,19 +668,13 @@ def _extract_featured_components(
             # of truth for what ends up in the user's YAML.
             fields["id"] = local_id
             # For HA entity platforms, also fill ``fields.name`` so the
-            # entity surfaces in Home Assistant. Prefer upstream's name
-            # when the page set one (and it's a simple scalar — skip
-            # ``${friendly_name}`` templates the user can't sensibly
-            # override); otherwise derive a default.
+            # entity surfaces in Home Assistant. Reuse the GPIO-occupancy
+            # cleaner so a ``${friendly_name} Relay1`` upstream name lands
+            # as ``Relay1``; fall back to a derived default when the
+            # template-stripping leaves nothing readable.
             if domain in _HA_ENTITY_DOMAINS:
-                upstream_name = item.get("name")
-                if _is_simple_scalar(upstream_name) and isinstance(upstream_name, str):
-                    upstream_name = upstream_name.strip()
-                else:
-                    upstream_name = ""
-                fields["name"] = (
-                    upstream_name
-                    or f"{platform.replace('_', ' ').title()} {counters[component_id]}"
+                fields["name"] = _clean_entity_name(item) or (
+                    f"{platform.replace('_', ' ').title()} {counters[component_id]}"
                 )
             entry: dict[str, Any] = {
                 "id": local_id,
@@ -651,7 +690,7 @@ def _extract_fields(
     component: dict[str, Any],
     gpio_occupancy: dict[int, str],
     component_id: str,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """
     Lift hardware-fixed fields out of an inline platform-list item.
 
@@ -660,6 +699,11 @@ def _extract_fields(
     Per-instance fields (``id``) are skipped — the dashboard generates
     its own ids and pre-filling the upstream value would just create
     rename friction or duplicate-id collisions.
+
+    Returns ``None`` when the upstream item carries an unfillable
+    placeholder (e.g. ``address: (FILL IN ONE-WIRE BUS ADDRESS)``).
+    The caller drops the whole featured-component entry in that case
+    rather than emit a preset that would compile but not run.
     """
     valid_keys: dict[str, dict[str, Any]] = {}
     for ce in component.get("config_entries") or []:
@@ -674,34 +718,89 @@ def _extract_fields(
         ce = valid_keys.get(fkey)
         if ce is None:
             continue
-        ce_type = ce.get("type")
-        if ce_type == "pin":
-            normalized = _normalize_pin_value(fval)
-            gpio = _gpio_number(normalized)
-            if gpio is None:
-                # Reference-style pins or lambdas — skip silently.
-                continue
-            label = _occupancy_label(inline_item, component_id)
-            if gpio not in gpio_occupancy:
-                gpio_occupancy[gpio] = label
-            out[fkey] = {"value": normalized, "locked": True}
-            continue
-        if not _is_simple_scalar(fval):
-            continue
-        if _looks_lockable(fkey):
-            out[fkey] = {"value": fval, "locked": True}
-        else:
-            out[fkey] = fval
+        if _is_placeholder_value(fval):
+            return None
+        preset = _coerce_field_preset(ce, fval, fkey, inline_item, gpio_occupancy, component_id)
+        if preset is not None:
+            out[fkey] = preset
     return out
 
 
+def _coerce_field_preset(
+    config_entry: dict[str, Any],
+    raw_value: Any,
+    field_name: str,
+    inline_item: dict[str, Any],
+    gpio_occupancy: dict[int, str],
+    component_id: str,
+) -> Any:
+    """
+    Convert one upstream field value into a preset, or ``None`` to skip it.
+
+    Pin entries record GPIO occupancy and emit a ``locked`` preset.
+    Cross-component id references are dropped (the user picks at add
+    time). Other simple scalars come through as either locked presets
+    (when the field name looks hardware-fixed) or bare suggestions.
+    """
+    ce_type = config_entry.get("type")
+    if ce_type == "pin":
+        normalized = _normalize_pin_value(raw_value)
+        gpio = _gpio_number(normalized)
+        if gpio is None:
+            # Reference-style pins or lambdas — skip silently.
+            return None
+        label = _occupancy_label(inline_item, component_id)
+        gpio_occupancy.setdefault(gpio, label)
+        return {"value": normalized, "locked": True}
+    if ce_type == "id":
+        # Cross-references to another component's id — the upstream
+        # value points at an id from a YAML we don't carry forward,
+        # so the dashboard has to let the user pick a real target.
+        return None
+    if not _is_simple_scalar(raw_value):
+        return None
+    if _looks_lockable(field_name):
+        return {"value": raw_value, "locked": True}
+    return raw_value
+
+
 def _occupancy_label(inline_item: dict[str, Any], component_id: str) -> str:
-    """Build a human-readable label for a GPIO's ``occupied_by`` field."""
+    """
+    Build a human-readable label for a GPIO's ``occupied_by`` field.
+
+    Strips ``${friendly_name}``-style template variables that survive
+    in upstream ``name:`` / ``id:`` fields and would otherwise leak
+    raw substitution syntax into the manifest. Falls back to the
+    catalog component id when nothing readable remains.
+    """
+    return _clean_entity_name(inline_item) or component_id
+
+
+def _clean_entity_name(inline_item: dict[str, Any]) -> str:
+    """
+    Pick a readable entity name from an inline-yaml item.
+
+    Returns the upstream ``name:`` / ``id:`` value with any
+    ``${...}`` template substitutions removed and surrounding
+    whitespace / separators trimmed. Returns an empty string when no
+    readable label remains — callers fall back to a derived default.
+    """
     for key in ("name", "id"):
         candidate = inline_item.get(key)
-        if isinstance(candidate, str) and candidate.strip():
-            return f"{component_id} ({candidate.strip()})"
-    return component_id
+        if not isinstance(candidate, str):
+            continue
+        cleaned = _TEMPLATE_VAR_RE.sub("", candidate).strip(" -_")
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if cleaned:
+            return cleaned
+    return ""
+
+
+def _is_placeholder_value(value: Any) -> bool:
+    """Return True for upstream "user must fill this in" sentinel strings."""
+    if not isinstance(value, str):
+        return False
+    return any(p.search(value) for p in _PLACEHOLDER_PATTERNS)
 
 
 def _is_simple_scalar(value: Any) -> bool:

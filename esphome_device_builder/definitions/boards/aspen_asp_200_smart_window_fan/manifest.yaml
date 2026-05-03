@@ -26,27 +26,27 @@ featured_components:
     enum_datapoint: 3
     optimistic: true
     id: select_tuya_1
-    name: Tuya 1
+    name: Speed
 - id: select_tuya_2
   component_id: select.tuya
   fields:
     enum_datapoint: 2
     optimistic: true
     id: select_tuya_2
-    name: Tuya 2
+    name: Mode
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 19
     unit_of_measurement: °F
     id: sensor_tuya_1
-    name: Tuya 1
+    name: Temperature
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
     id: switch_tuya_1
-    name: Tuya 1
+    name: Power
 source:
   type: esphome-devices
   remote_id: Aspen-ASP-200-Smart-Window-Fan

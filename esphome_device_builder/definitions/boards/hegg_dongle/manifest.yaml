@@ -17,22 +17,19 @@ images:
 pins:
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (green)
+  occupied_by: green
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (red)
+  occupied_by: red
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (blue)
+  occupied_by: blue
 docs_url: https://devices.esphome.io/devices/Hegg-Dongle/
 featured_components:
 - id: light_rgb_1
   component_id: light.rgb
   fields:
     internal: true
-    red: red
-    green: green
-    blue: blue
     id: light_rgb_1
     name: Status Led
 - id: output_esp8266_pwm_1

@@ -18,28 +18,28 @@ featured_components:
     device_class: running
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: S1_open
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
     device_class: running
     internal: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: S2_close
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
     device_class: running
     internal: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: S3_open
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
     device_class: running
     internal: true
     id: binary_sensor_gpio_4
-    name: Gpio 4
+    name: S4_close
 - id: cover_time_based_1
   component_id: cover.time_based
   fields:

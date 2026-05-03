@@ -19,43 +19,43 @@ tags:
 pins:
 - gpio: 1
   available: false
-  occupied_by: switch.gpio (Outlet 4)
+  occupied_by: Outlet 4
 - gpio: 2
   available: false
-  occupied_by: switch.gpio (Outlet 2)
+  occupied_by: Outlet 2
 - gpio: 3
   available: false
-  occupied_by: switch.gpio (Outlet 3)
+  occupied_by: Outlet 3
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (Outlet 1)
+  occupied_by: Outlet 1
 - gpio: 6
   available: false
-  occupied_by: sensor.ade7953_spi (ade7953_0)
+  occupied_by: ade7953_0
 - gpio: 7
   available: false
-  occupied_by: sensor.ade7953_spi (ade7953_1)
+  occupied_by: ade7953_1
 - gpio: 10
   available: false
-  occupied_by: sensor.ade7953_spi (ade7953_1)
+  occupied_by: ade7953_1
 - gpio: 15
   available: false
-  occupied_by: sensor.ade7953_spi (ade7953_0)
+  occupied_by: ade7953_0
 - gpio: 18
   available: false
-  occupied_by: light.esp32_rmt_led_strip (LED Strip)
+  occupied_by: LED Strip
 - gpio: 20
   available: false
-  occupied_by: binary_sensor.gpio (Button 1)
+  occupied_by: Button 1
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (Button 4)
+  occupied_by: Button 4
 - gpio: 22
   available: false
-  occupied_by: binary_sensor.gpio (Button 2)
+  occupied_by: Button 2
 - gpio: 23
   available: false
-  occupied_by: binary_sensor.gpio (Button 3)
+  occupied_by: Button 3
 docs_url: https://devices.esphome.io/devices/Shelly-Power-Strip-4-Gen4/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -126,7 +126,7 @@ featured_components:
       locked: true
     update_interval: 10s
     id: sensor_ade7953_spi_1
-    name: Ade7953 Spi 1
+    name: ade7953_0
 - id: sensor_ade7953_spi_2
   component_id: sensor.ade7953_spi
   fields:
@@ -138,7 +138,7 @@ featured_components:
       locked: true
     update_interval: 10s
     id: sensor_ade7953_spi_2
-    name: Ade7953 Spi 2
+    name: ade7953_1
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

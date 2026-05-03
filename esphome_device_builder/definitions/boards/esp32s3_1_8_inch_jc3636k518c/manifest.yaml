@@ -15,29 +15,15 @@ images:
 pins:
 - gpio: 47
   available: false
-  occupied_by: output.ledc (backlight_pwm)
+  occupied_by: backlight_pwm
 docs_url: https://devices.esphome.io/devices/ESP32S3-1.8-inch-JC3636K518C/
 featured_components:
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: backlight_pwm
     restore_mode: ALWAYS_ON
     id: light_monochromatic_1
     name: Backlight
-- id: number_template_1
-  component_id: number.template
-  fields:
-    optimistic: true
-    unit_of_measurement: s
-    initial_value: 45
-    restore_value: true
-    min_value: 10
-    max_value: 180
-    step: 5
-    mode: box
-    id: number_template_1
-    name: LVGL Screen timeout
 - id: output_ledc_1
   component_id: output.ledc
   fields:
@@ -46,14 +32,6 @@ featured_components:
         number: 47
       locked: true
     id: output_ledc_1
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    icon: mdi:television-shimmer
-    optimistic: true
-    entity_category: config
-    id: switch_template_1
-    name: Antiburn
 source:
   type: esphome-devices
   remote_id: ESP32S3-1.8-inch-JC3636K518C

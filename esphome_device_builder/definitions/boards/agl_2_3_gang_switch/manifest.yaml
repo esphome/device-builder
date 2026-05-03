@@ -14,19 +14,19 @@ images:
 pins:
 - gpio: 2
   available: false
-  occupied_by: light.status_led (blue_led)
+  occupied_by: blue_led
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (AGL 2 Gang Button 2)
+  occupied_by: AGL 2 Gang Button 2
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (AGL 2 Gang Switch 2)
+  occupied_by: AGL 2 Gang Switch 2
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (AGL 2 Gang Switch 1)
+  occupied_by: AGL 2 Gang Switch 1
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (AGL 2 Gang Button 1)
+  occupied_by: AGL 2 Gang Button 1
 docs_url: https://devices.esphome.io/devices/AGL-2-3-Gang-Switch/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -61,7 +61,7 @@ featured_components:
       locked: true
     internal: true
     id: light_status_led_1
-    name: Status Led 1
+    name: blue_led
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

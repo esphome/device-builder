@@ -12,17 +12,15 @@ images:
 pins:
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (brightness_pwm)
+  occupied_by: brightness_pwm
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (color_temp_pwm)
+  occupied_by: color_temp_pwm
 docs_url: https://devices.esphome.io/devices/Wipro-Next-20W-Smart-CCT-Batten/
 featured_components:
 - id: light_color_temperature_1
   component_id: light.color_temperature
   fields:
-    color_temperature: color_temp_pwm
-    brightness: brightness_pwm
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     id: light_color_temperature_1

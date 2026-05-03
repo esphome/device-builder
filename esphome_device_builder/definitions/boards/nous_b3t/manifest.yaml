@@ -18,22 +18,22 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: light.status_led (Status LED)
+  occupied_by: Status LED
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (button)
+  occupied_by: button
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (Switch 1 (external))
+  occupied_by: Switch 1 (external)
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Switch 1)
+  occupied_by: Switch 1
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (Switch 2)
+  occupied_by: Switch 2
 - gpio: 18
   available: false
-  occupied_by: binary_sensor.gpio (Switch 2 (external))
+  occupied_by: Switch 2 (external)
 docs_url: https://devices.esphome.io/devices/Nous-B3T/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -49,7 +49,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:

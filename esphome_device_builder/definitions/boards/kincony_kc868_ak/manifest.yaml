@@ -14,28 +14,28 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (ak-input1)
+  occupied_by: ak-input33
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (ak-input2)
+  occupied_by: ak-input34
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (ak-input3)
+  occupied_by: ak-input35
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (ak-input4)
+  occupied_by: ak-input36
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (ak-input5)
+  occupied_by: ak-input29
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (ak-input6)
+  occupied_by: ak-input30
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (ak-input7)
+  occupied_by: ak-input31
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (ak-input8)
+  occupied_by: ak-input32
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-AK/
 featured_components:
 - id: binary_sensor_gpio_1

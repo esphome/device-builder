@@ -18,58 +18,58 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI01)
+  occupied_by: A32 Pro Switch17
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI02)
+  occupied_by: A32 Pro Switch18
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI03)
+  occupied_by: A32 Pro Switch19
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI04)
+  occupied_by: A32 Pro Switch20
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI05)
+  occupied_by: A32 Pro Switch21
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI06)
+  occupied_by: A32 Pro Switch22
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI07)
+  occupied_by: A32 Pro Switch23
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI08)
+  occupied_by: A32 Pro Switch24
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI09)
+  occupied_by: A32 Pro Switch25
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI10)
+  occupied_by: A32 Pro Switch26
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI11)
+  occupied_by: A32 Pro Switch27
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI12)
+  occupied_by: A32 Pro Switch28
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI13)
+  occupied_by: A32 Pro Switch29
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI14)
+  occupied_by: A32 Pro Switch30
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI15)
+  occupied_by: A32 Pro Switch31
 - gpio: 17
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DI16)
+  occupied_by: A32 Pro Switch32
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (A32 Pro DTUYA)
+  occupied_by: A32 Pro DTUYA
 - gpio: 45
   available: false
-  occupied_by: switch.gpio (LED)
+  occupied_by: LED
 docs_url: https://devices.esphome.io/devices/KinCony-A32Pro/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -592,39 +592,26 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_44
     name: A32 Pro DI40
-- id: display_ssd1306_i2c_1
-  component_id: display.ssd1306_i2c
-  fields:
-    i2c_id: bus_a
-    model: SSD1306 128x64
-    address: 60
-    lambda: it.printf(0, 0, id(roboto), "A32 Pro");
-    id: display_ssd1306_i2c_1
-    name: Ssd1306 I2C 1
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: gp8403_output_1
     gamma_correct: 1.0
     id: light_monochromatic_1
     name: A32 Pro-DAC-0
 - id: light_monochromatic_2
   component_id: light.monochromatic
   fields:
-    output: gp8403_output_2
     gamma_correct: 1.0
     id: light_monochromatic_2
     name: A32 Pro-DAC-1
 - id: output_gp8403_1
   component_id: output.gp8403
   fields:
-    gp8403_id: my_gp8403
     channel: 0
     id: output_gp8403_1
 - id: output_gp8403_2
   component_id: output.gp8403
   fields:
-    gp8403_id: my_gp8403
     channel: 1
     id: output_gp8403_2
 - id: sensor_adc_1

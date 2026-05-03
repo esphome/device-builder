@@ -14,12 +14,6 @@ tags:
 - compact
 docs_url: https://devices.esphome.io/devices/Denver-SHP-102/
 featured_components:
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: output_led_1
-    id: light_binary_1
-    name: Binary 1
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:

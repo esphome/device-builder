@@ -15,16 +15,16 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: sensor.adc (ambient_light)
+  occupied_by: ambient_light
 - gpio: 13
   available: false
-  occupied_by: output.gpio (led_blue)
+  occupied_by: led_blue
 - gpio: 39
   available: false
-  occupied_by: switch.gpio (LDO2)
+  occupied_by: LDO2
 - gpio: 40
   available: false
-  occupied_by: light.esp32_rmt_led_strip (NeoPixel Light)
+  occupied_by: NeoPixel Light
 docs_url: https://devices.esphome.io/devices/UnexpectedMaker-FeatherS3D/
 featured_components:
 - id: light_esp32_rmt_led_strip_1
@@ -38,12 +38,6 @@ featured_components:
     num_leds: 1
     id: light_esp32_rmt_led_strip_1
     name: NeoPixel Light
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: led_blue
-    id: light_binary_1
-    name: Binary 1
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -58,7 +52,7 @@ featured_components:
       value: 4
       locked: true
     id: sensor_adc_1
-    name: Adc 1
+    name: ambient_light
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

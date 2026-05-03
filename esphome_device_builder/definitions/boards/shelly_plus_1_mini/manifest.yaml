@@ -18,16 +18,16 @@ tags:
 pins:
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (${device_name} Button)
+  occupied_by: Button
 - gpio: 3
   available: false
-  occupied_by: sensor.adc (temp_analog_reading)
+  occupied_by: temp_analog_reading
 - gpio: 7
   available: false
-  occupied_by: output.gpio (relay_output)
+  occupied_by: relay_output
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (${device_name} Switch)
+  occupied_by: Switch
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-1-Mini/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -37,7 +37,7 @@ featured_components:
       value: 10
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Switch
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -50,7 +50,7 @@ featured_components:
           pullup: true
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: Button
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -61,20 +61,18 @@ featured_components:
 - id: sensor_ntc_1
   component_id: sensor.ntc
   fields:
-    sensor: temp_resistance_reading
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
     id: sensor_ntc_1
-    name: Ntc 1
+    name: Temperature
 - id: sensor_resistance_1
   component_id: sensor.resistance
   fields:
-    sensor: temp_analog_reading
     configuration: DOWNSTREAM
     resistor: 10kOhm
     id: sensor_resistance_1
-    name: Resistance 1
+    name: temp_resistance_reading
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -83,13 +81,7 @@ featured_components:
       locked: true
     attenuation: 12db
     id: sensor_adc_1
-    name: Adc 1
-- id: switch_output_1
-  component_id: switch.output
-  fields:
-    output: relay_output
-    id: switch_output_1
-    name: Output 1
+    name: temp_analog_reading
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-1-Mini

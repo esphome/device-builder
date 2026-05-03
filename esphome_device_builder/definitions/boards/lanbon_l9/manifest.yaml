@@ -17,16 +17,16 @@ images:
 pins:
 - gpio: 5
   available: false
-  occupied_by: sensor.pulse_meter (Power)
+  occupied_by: Power
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (Proximity Sensor)
+  occupied_by: Proximity Sensor
 - gpio: 36
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 - gpio: 42
   available: false
-  occupied_by: output.ledc (lcd_backlight_output)
+  occupied_by: lcd_backlight_output
 docs_url: https://devices.esphome.io/devices/Lanbon-L9/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -40,7 +40,6 @@ featured_components:
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: lcd_backlight_output
     restore_mode: ALWAYS_ON
     id: light_monochromatic_1
     name: Display Backlight
@@ -75,13 +74,6 @@ featured_components:
       locked: true
     id: switch_gpio_1
     name: Relay
-- id: touchscreen_ft63x6_1
-  component_id: touchscreen.ft63x6
-  fields:
-    display: my_display
-    i2c_id: touchscreen_i2c
-    id: touchscreen_ft63x6_1
-    name: Ft63X6 1
 source:
   type: esphome-devices
   remote_id: Lanbon-L9

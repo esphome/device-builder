@@ -15,16 +15,16 @@ images:
 pins:
 - gpio: 34
   available: false
-  occupied_by: sensor.adc (m16--AI-2)
+  occupied_by: m16--AI-2
 - gpio: 35
   available: false
-  occupied_by: sensor.adc (adc35)
+  occupied_by: adc35
 - gpio: 36
   available: false
-  occupied_by: sensor.adc (m16--AI-1)
+  occupied_by: m16--AI-1
 - gpio: 39
   available: false
-  occupied_by: sensor.adc (m16--AI-3)
+  occupied_by: m16--AI-3
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-M16/
 featured_components:
 - id: sensor_adc_1
@@ -36,7 +36,7 @@ featured_components:
     update_interval: never
     attenuation: 12db
     id: sensor_adc_1
-    name: Adc 1
+    name: adc35
 - id: sensor_adc_2
   component_id: sensor.adc
   fields:
@@ -71,239 +71,207 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 0
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_1
-    name: Cd74Hc4067 1
+    name: ai1
 - id: sensor_cd74hc4067_2
   component_id: sensor.cd74hc4067
   fields:
     number: 1
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_2
-    name: Cd74Hc4067 2
+    name: ai2
 - id: sensor_cd74hc4067_3
   component_id: sensor.cd74hc4067
   fields:
     number: 2
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_3
-    name: Cd74Hc4067 3
+    name: ai3
 - id: sensor_cd74hc4067_4
   component_id: sensor.cd74hc4067
   fields:
     number: 3
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_4
-    name: Cd74Hc4067 4
+    name: ai4
 - id: sensor_cd74hc4067_5
   component_id: sensor.cd74hc4067
   fields:
     number: 4
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_5
-    name: Cd74Hc4067 5
+    name: ai5
 - id: sensor_cd74hc4067_6
   component_id: sensor.cd74hc4067
   fields:
     number: 5
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_6
-    name: Cd74Hc4067 6
+    name: ai6
 - id: sensor_cd74hc4067_7
   component_id: sensor.cd74hc4067
   fields:
     number: 6
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_7
-    name: Cd74Hc4067 7
+    name: ai7
 - id: sensor_cd74hc4067_8
   component_id: sensor.cd74hc4067
   fields:
     number: 7
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_8
-    name: Cd74Hc4067 8
+    name: ai8
 - id: sensor_cd74hc4067_9
   component_id: sensor.cd74hc4067
   fields:
     number: 8
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_9
-    name: Cd74Hc4067 9
+    name: ai9
 - id: sensor_cd74hc4067_10
   component_id: sensor.cd74hc4067
   fields:
     number: 9
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_10
-    name: Cd74Hc4067 10
+    name: ai10
 - id: sensor_cd74hc4067_11
   component_id: sensor.cd74hc4067
   fields:
     number: 10
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_11
-    name: Cd74Hc4067 11
+    name: ai11
 - id: sensor_cd74hc4067_12
   component_id: sensor.cd74hc4067
   fields:
     number: 11
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_12
-    name: Cd74Hc4067 12
+    name: ai12
 - id: sensor_cd74hc4067_13
   component_id: sensor.cd74hc4067
   fields:
     number: 12
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_13
-    name: Cd74Hc4067 13
+    name: ai13
 - id: sensor_cd74hc4067_14
   component_id: sensor.cd74hc4067
   fields:
     number: 13
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_14
-    name: Cd74Hc4067 14
+    name: ai14
 - id: sensor_cd74hc4067_15
   component_id: sensor.cd74hc4067
   fields:
     number: 14
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_15
-    name: Cd74Hc4067 15
+    name: ai15
 - id: sensor_cd74hc4067_16
   component_id: sensor.cd74hc4067
   fields:
     number: 15
-    sensor: adc35
     update_interval: 5s
     id: sensor_cd74hc4067_16
-    name: Cd74Hc4067 16
+    name: ai16
 - id: sensor_ct_clamp_1
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai1
     update_interval: 5s
     id: sensor_ct_clamp_1
     name: Measured Current-1
 - id: sensor_ct_clamp_2
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai2
     update_interval: 5s
     id: sensor_ct_clamp_2
     name: Measured Current-2
 - id: sensor_ct_clamp_3
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai3
     update_interval: 5s
     id: sensor_ct_clamp_3
     name: Measured Current-3
 - id: sensor_ct_clamp_4
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai4
     update_interval: 5s
     id: sensor_ct_clamp_4
     name: Measured Current-4
 - id: sensor_ct_clamp_5
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai5
     update_interval: 5s
     id: sensor_ct_clamp_5
     name: Measured Current-5
 - id: sensor_ct_clamp_6
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai6
     update_interval: 5s
     id: sensor_ct_clamp_6
     name: Measured Current-6
 - id: sensor_ct_clamp_7
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai7
     update_interval: 5s
     id: sensor_ct_clamp_7
     name: Measured Current-7
 - id: sensor_ct_clamp_8
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai8
     update_interval: 5s
     id: sensor_ct_clamp_8
     name: Measured Current-8
 - id: sensor_ct_clamp_9
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai9
     update_interval: 5s
     id: sensor_ct_clamp_9
     name: Measured Current-9
 - id: sensor_ct_clamp_10
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai10
     update_interval: 5s
     id: sensor_ct_clamp_10
     name: Measured Current-10
 - id: sensor_ct_clamp_11
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai11
     update_interval: 5s
     id: sensor_ct_clamp_11
     name: Measured Current-11
 - id: sensor_ct_clamp_12
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai12
     update_interval: 5s
     id: sensor_ct_clamp_12
     name: Measured Current-12
 - id: sensor_ct_clamp_13
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai13
     update_interval: 5s
     id: sensor_ct_clamp_13
     name: Measured Current-13
 - id: sensor_ct_clamp_14
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai14
     update_interval: 5s
     id: sensor_ct_clamp_14
     name: Measured Current-14
 - id: sensor_ct_clamp_15
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai15
     update_interval: 5s
     id: sensor_ct_clamp_15
     name: Measured Current-15
 - id: sensor_ct_clamp_16
   component_id: sensor.ct_clamp
   fields:
-    sensor: ai16
     update_interval: 5s
     id: sensor_ct_clamp_16
     name: Measured Current-16

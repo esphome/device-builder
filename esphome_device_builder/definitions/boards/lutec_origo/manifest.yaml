@@ -15,29 +15,24 @@ images:
 pins:
 - gpio: 2
   available: false
-  occupied_by: output.ledc (output_warm_white)
+  occupied_by: output_warm_white
 - gpio: 4
   available: false
-  occupied_by: output.ledc (output_cool_white)
+  occupied_by: output_cool_white
 - gpio: 25
   available: false
-  occupied_by: output.ledc (output_red)
+  occupied_by: output_red
 - gpio: 26
   available: false
-  occupied_by: output.ledc (output_green)
+  occupied_by: output_green
 - gpio: 27
   available: false
-  occupied_by: output.ledc (output_blue)
+  occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/LUTEC-Origo/
 featured_components:
 - id: light_rgbww_1
   component_id: light.rgbww
   fields:
-    red: output_red
-    green: output_green
-    blue: output_blue
-    warm_white: output_warm_white
-    cold_white: output_cool_white
     cold_white_color_temperature: 6500K
     warm_white_color_temperature: 2700K
     constant_brightness: true

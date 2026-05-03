@@ -17,19 +17,19 @@ images:
 pins:
 - gpio: 2
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 - gpio: 5
   available: false
-  occupied_by: output.ledc (pwm_output)
+  occupied_by: pwm_output
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (Wi-Fi Button)
+  occupied_by: Wi-Fi Button
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (Up Button)
+  occupied_by: Up Button
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (Down Button)
+  occupied_by: Down Button
 docs_url: https://devices.esphome.io/devices/Martin-Jerry-RP-SD01/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -65,7 +65,6 @@ featured_components:
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: pwm_output
     restore_mode: RESTORE_AND_OFF
     id: light_monochromatic_1
     name: Dimmer

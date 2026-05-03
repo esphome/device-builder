@@ -15,13 +15,13 @@ tags:
 pins:
 - gpio: 2
   available: false
-  occupied_by: output.gpio (led)
+  occupied_by: led
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (button)
+  occupied_by: button
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 docs_url: https://devices.esphome.io/devices/FrankEver-FK-PW801US/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -35,7 +35,7 @@ featured_components:
         mode: INPUT_PULLUP
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: output_gpio_1
   component_id: output.gpio
   fields:

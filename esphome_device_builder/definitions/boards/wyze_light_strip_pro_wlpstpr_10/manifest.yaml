@@ -16,16 +16,16 @@ images:
 pins:
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} side button)
+  occupied_by: side button
 - gpio: 19
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} top button)
+  occupied_by: top button
 - gpio: 25
   available: false
-  occupied_by: light.esp32_rmt_led_strip (${friendly_name} light1)
+  occupied_by: light1
 - gpio: 26
   available: false
-  occupied_by: light.esp32_rmt_led_strip (${friendly_name} light2)
+  occupied_by: light2
 docs_url: https://devices.esphome.io/devices/WYZE-Light-Strip-Pro-WLPSTPR-10/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -35,7 +35,7 @@ featured_components:
       value: 2
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: side button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -43,7 +43,7 @@ featured_components:
       value: 19
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: top button
 - id: light_esp32_rmt_led_strip_1
   component_id: light.esp32_rmt_led_strip
   fields:
@@ -54,7 +54,7 @@ featured_components:
     num_leds: 50
     rgb_order: BRG
     id: light_esp32_rmt_led_strip_1
-    name: Esp32 Rmt Led Strip 1
+    name: light1
 - id: light_esp32_rmt_led_strip_2
   component_id: light.esp32_rmt_led_strip
   fields:
@@ -65,7 +65,7 @@ featured_components:
     num_leds: 50
     rgb_order: BRG
     id: light_esp32_rmt_led_strip_2
-    name: Esp32 Rmt Led Strip 2
+    name: light2
 source:
   type: esphome-devices
   remote_id: WYZE-Light-Strip-Pro-WLPSTPR-10

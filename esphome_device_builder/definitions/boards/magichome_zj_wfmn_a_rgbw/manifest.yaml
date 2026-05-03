@@ -12,27 +12,18 @@ images:
 pins:
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (green_channel)
+  occupied_by: green_channel
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (red_channel)
+  occupied_by: red_channel
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (blue_channel)
+  occupied_by: blue_channel
 - gpio: 15
   available: false
-  occupied_by: output.esp8266_pwm (white_channel)
+  occupied_by: white_channel
 docs_url: https://devices.esphome.io/devices/MagicHome-ZJ-WFMN-A-RGBW/
 featured_components:
-- id: light_rgbw_1
-  component_id: light.rgbw
-  fields:
-    red: red_channel
-    green: green_channel
-    blue: blue_channel
-    white: white_channel
-    id: light_rgbw_1
-    name: Rgbw 1
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:

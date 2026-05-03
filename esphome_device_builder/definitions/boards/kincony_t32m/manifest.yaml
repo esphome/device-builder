@@ -17,61 +17,61 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input01)
+  occupied_by: t32m-output17
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input02)
+  occupied_by: t32m-output18
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input03)
+  occupied_by: t32m-output19
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input04)
+  occupied_by: t32m-output20
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input05)
+  occupied_by: t32m-output21
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input06)
+  occupied_by: t32m-output22
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input07)
+  occupied_by: t32m-output23
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input08)
+  occupied_by: t32m-output24
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input09)
+  occupied_by: t32m-output25
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input10)
+  occupied_by: t32m-output26
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input11)
+  occupied_by: t32m-output27
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input12)
+  occupied_by: t32m-output28
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input13)
+  occupied_by: t32m-output29
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input14)
+  occupied_by: t32m-output30
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input15)
+  occupied_by: t32m-output31
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (t32m-input16)
+  occupied_by: t32m-output32
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (t32m-W1-io16)
+  occupied_by: t32m-W1-io16
 - gpio: 17
   available: false
-  occupied_by: binary_sensor.gpio (t32m-W1-io17)
+  occupied_by: t32m-W1-io17
 - gpio: 18
   available: false
-  occupied_by: binary_sensor.gpio (t32m-W1-io18)
+  occupied_by: t32m-W1-io18
 docs_url: https://devices.esphome.io/devices/KinCony-T32M/
 featured_components:
 - id: binary_sensor_gpio_1

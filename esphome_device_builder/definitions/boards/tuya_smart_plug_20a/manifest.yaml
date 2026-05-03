@@ -21,7 +21,7 @@ featured_components:
   fields:
     icon: mdi:radiobox-blank
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button_1
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:

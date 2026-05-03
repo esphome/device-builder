@@ -18,13 +18,13 @@ tags:
 pins:
 - gpio: 3
   available: false
-  occupied_by: sensor.adc (temp_analog_reading)
+  occupied_by: temp_analog_reading
 - gpio: 5
   available: false
-  occupied_by: output.gpio (relay_output)
+  occupied_by: relay_output
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (Switch)
+  occupied_by: Switch
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-1PM-Mini/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -38,7 +38,6 @@ featured_components:
 - id: light_binary_1
   component_id: light.binary
   fields:
-    output: relay_output
     restore_mode: ALWAYS_OFF
     id: light_binary_1
     name: Light
@@ -52,7 +51,6 @@ featured_components:
 - id: sensor_ntc_1
   component_id: sensor.ntc
   fields:
-    sensor: temp_resistance_reading
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
@@ -61,11 +59,10 @@ featured_components:
 - id: sensor_resistance_1
   component_id: sensor.resistance
   fields:
-    sensor: temp_analog_reading
     configuration: DOWNSTREAM
     resistor: 10kOhm
     id: sensor_resistance_1
-    name: Resistance 1
+    name: temp_resistance_reading
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -74,11 +71,10 @@ featured_components:
       locked: true
     attenuation: 12db
     id: sensor_adc_1
-    name: Adc 1
+    name: temp_analog_reading
 - id: sensor_bl0942_1
   component_id: sensor.bl0942
   fields:
-    uart_id: uart_bus
     update_interval: 5s
     id: sensor_bl0942_1
     name: Bl0942 1

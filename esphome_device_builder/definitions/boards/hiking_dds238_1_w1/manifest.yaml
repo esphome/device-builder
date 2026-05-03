@@ -14,10 +14,10 @@ images:
 pins:
 - gpio: 14
   available: false
-  occupied_by: output.gpio (tuya_led_wifi)
+  occupied_by: tuya_led_wifi
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (SET long press)
+  occupied_by: SET long press
 docs_url: https://devices.esphome.io/devices/Hiking-DDS238-1-W1/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -40,24 +40,6 @@ featured_components:
       value: true
       locked: true
     id: output_gpio_1
-- id: sensor_template_1
-  component_id: sensor.template
-  fields:
-    device_class: voltage
-    unit_of_measurement: V
-    state_class: measurement
-    accuracy_decimals: 1
-    id: sensor_template_1
-    name: Voltage
-- id: sensor_template_2
-  component_id: sensor.template
-  fields:
-    device_class: current
-    unit_of_measurement: A
-    state_class: measurement
-    accuracy_decimals: 3
-    id: sensor_template_2
-    name: Current
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:

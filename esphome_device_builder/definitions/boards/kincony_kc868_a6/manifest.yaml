@@ -17,22 +17,22 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A6-IN-1)
+  occupied_by: KC868-A6-RELAY-1
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A6-IN-2)
+  occupied_by: KC868-A6-RELAY-2
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A6-IN-3)
+  occupied_by: KC868-A6-RELAY-3
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A6-IN-4)
+  occupied_by: KC868-A6-RELAY-4
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A6-IN-5)
+  occupied_by: KC868-A6-RELAY-5
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A6-IN-6)
+  occupied_by: KC868-A6-RELAY-6
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A6/
 featured_components:
 - id: binary_sensor_gpio_1

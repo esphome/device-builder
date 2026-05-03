@@ -15,10 +15,10 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (button_1)
+  occupied_by: button_1
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (button_2)
+  occupied_by: button_2
 docs_url: https://devices.esphome.io/devices/Sonoff-Dual-DIY-light/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -33,7 +33,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -46,31 +46,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: out_1
-    id: light_binary_1
-    name: Dual L1
-- id: light_binary_2
-  component_id: light.binary
-  fields:
-    output: out_2
-    id: light_binary_2
-    name: Dual L2
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    optimistic: true
-    id: switch_template_1
-    name: Template 1
-- id: switch_template_2
-  component_id: switch.template
-  fields:
-    optimistic: true
-    id: switch_template_2
-    name: Template 2
+    name: button_2
 source:
   type: esphome-devices
   remote_id: Sonoff-Dual-DIY-light

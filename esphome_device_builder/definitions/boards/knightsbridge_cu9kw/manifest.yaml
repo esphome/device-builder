@@ -18,13 +18,13 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: output.gpio (led_2)
+  occupied_by: led_2
 - gpio: 2
   available: false
-  occupied_by: output.gpio (led_1)
+  occupied_by: led_1
 - gpio: 4
   available: false
-  occupied_by: output.gpio (relay_2)
+  occupied_by: relay_2
 - gpio: 5
   available: false
   occupied_by: sensor.hlw8012
@@ -33,16 +33,16 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (button_2)
+  occupied_by: button_2
 - gpio: 14
   available: false
   occupied_by: sensor.hlw8012
 - gpio: 15
   available: false
-  occupied_by: output.gpio (relay_1)
+  occupied_by: relay_1
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (button_1)
+  occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/Knightsbridge-CU9KW/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -57,7 +57,7 @@ featured_components:
         inverted: false
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -70,7 +70,7 @@ featured_components:
         inverted: false
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: button_2
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -124,14 +124,12 @@ featured_components:
 - id: switch_output_1
   component_id: switch.output
   fields:
-    output: relay_1
     icon: mdi:power-socket-uk
     id: switch_output_1
     name: Outlet 1
 - id: switch_output_2
   component_id: switch.output
   fields:
-    output: relay_2
     icon: mdi:power-socket-uk
     id: switch_output_2
     name: Outlet 2

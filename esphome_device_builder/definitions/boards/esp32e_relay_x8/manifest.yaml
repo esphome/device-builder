@@ -17,28 +17,28 @@ tags:
 pins:
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Relay7)
+  occupied_by: Relay7
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (Relay8)
+  occupied_by: Relay8
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (Relay6)
+  occupied_by: Relay6
 - gpio: 25
   available: false
-  occupied_by: switch.gpio (Relay3)
+  occupied_by: Relay3
 - gpio: 26
   available: false
-  occupied_by: switch.gpio (Relay4)
+  occupied_by: Relay4
 - gpio: 27
   available: false
-  occupied_by: switch.gpio (Relay5)
+  occupied_by: Relay5
 - gpio: 32
   available: false
-  occupied_by: switch.gpio (Relay1)
+  occupied_by: Relay1
 - gpio: 33
   available: false
-  occupied_by: switch.gpio (Relay2)
+  occupied_by: Relay2
 docs_url: https://devices.esphome.io/devices/ESP32E-Relay-X8/
 featured_components:
 - id: switch_gpio_1

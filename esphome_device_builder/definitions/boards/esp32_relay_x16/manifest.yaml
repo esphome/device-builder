@@ -16,52 +16,52 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: switch.gpio (Relay01)
+  occupied_by: Relay01
 - gpio: 1
   available: false
-  occupied_by: switch.gpio (Relay02)
+  occupied_by: Relay02
 - gpio: 2
   available: false
-  occupied_by: switch.gpio (Relay03)
+  occupied_by: Relay03
 - gpio: 3
   available: false
-  occupied_by: switch.gpio (Relay04)
+  occupied_by: Relay04
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (Relay05)
+  occupied_by: Relay05
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (Relay06)
+  occupied_by: Relay06
 - gpio: 6
   available: false
-  occupied_by: switch.gpio (Relay07)
+  occupied_by: Relay07
 - gpio: 7
   available: false
-  occupied_by: switch.gpio (Relay08)
+  occupied_by: Relay08
 - gpio: 8
   available: false
-  occupied_by: switch.gpio (Relay09)
+  occupied_by: Relay09
 - gpio: 9
   available: false
-  occupied_by: switch.gpio (Relay10)
+  occupied_by: Relay10
 - gpio: 10
   available: false
-  occupied_by: switch.gpio (Relay11)
+  occupied_by: Relay11
 - gpio: 11
   available: false
-  occupied_by: switch.gpio (Relay12)
+  occupied_by: Relay12
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Relay13)
+  occupied_by: Relay13
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (Relay14)
+  occupied_by: Relay14
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (Relay15)
+  occupied_by: Relay15
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (Relay16)
+  occupied_by: Relay16
 docs_url: https://devices.esphome.io/devices/ESP32-Relay-X16/
 featured_components:
 - id: switch_gpio_1

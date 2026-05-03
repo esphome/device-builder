@@ -18,10 +18,10 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 - gpio: 13
   available: false
   occupied_by: sensor.hlw8012
@@ -65,7 +65,6 @@ featured_components:
 - id: sensor_total_daily_energy_1
   component_id: sensor.total_daily_energy
   fields:
-    power_id: power
     device_class: energy
     state_class: total_increasing
     unit_of_measurement: kWh
@@ -77,14 +76,6 @@ featured_components:
     update_interval: 60s
     internal: true
     id: sensor_wifi_signal_1
-    name: WiFi Strength
-- id: sensor_copy_1
-  component_id: sensor.copy
-  fields:
-    source_id: signal_strength
-    unit_of_measurement: '%'
-    entity_category: diagnostic
-    id: sensor_copy_1
     name: WiFi Strength
 - id: switch_gpio_1
   component_id: switch.gpio

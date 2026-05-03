@@ -12,13 +12,13 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (button1)
+  occupied_by: button1
 - gpio: 2
   available: false
-  occupied_by: output.esp8266_pwm (state_led)
+  occupied_by: state_led
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (GosundSW5)
+  occupied_by: GosundSW5
 docs_url: https://devices.esphome.io/devices/Gosund-SW5/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -29,13 +29,7 @@ featured_components:
         number: 0
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: state_led
-    id: light_monochromatic_1
-    name: Monochromatic 1
+    name: button1
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:

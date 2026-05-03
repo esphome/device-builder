@@ -21,16 +21,16 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.gpio (relay_1)
+  occupied_by: relay_1
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (s1)
+  occupied_by: s1
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (button)
+  occupied_by: button
 - gpio: 19
   available: false
-  occupied_by: output.gpio (status_led_output)
+  occupied_by: status_led_output
 docs_url: https://devices.esphome.io/devices/Sonoff-MINIR4M/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -40,7 +40,7 @@ featured_components:
       value: 9
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -54,9 +54,8 @@ featured_components:
   fields:
     icon: mdi:ceiling-light-multiple-outline
     restore_mode: restore_default_off
-    output: relay_1
     id: light_binary_1
-    name: Binary 1
+    name: light_1
 - id: output_gpio_1
   component_id: output.gpio
   fields:

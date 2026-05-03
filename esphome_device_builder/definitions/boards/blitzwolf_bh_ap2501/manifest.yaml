@@ -13,17 +13,9 @@ images:
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BH-AP2501/
 product_url: https://github.com/wildekek/BlitzHome-BH-AP2501
 featured_components:
-- id: button_template_1
-  component_id: button.template
-  fields:
-    entity_category: diagnostic
-    icon: mdi:air-filter
-    id: button_template_1
-    name: Filter cartridge reset
 - id: fan_speed_1
   component_id: fan.speed
   fields:
-    output: fan_output
     speed_count: 3
     id: fan_speed_1
     name: Fan
@@ -101,7 +93,7 @@ featured_components:
     switch_datapoint: 11
     internal: true
     id: switch_tuya_3
-    name: Tuya 3
+    name: filter_reset
 source:
   type: esphome-devices
   remote_id: BlitzWolf-BH-AP2501

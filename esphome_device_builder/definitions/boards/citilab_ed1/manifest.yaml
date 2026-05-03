@@ -14,37 +14,28 @@ images:
 pins:
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.esp32_touch (Button Left)
+  occupied_by: Button Left
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.esp32_touch (Button Up)
-- gpio: 5
-  available: false
-  occupied_by: display.st7735 (internal_display)
-- gpio: 9
-  available: false
-  occupied_by: display.st7735 (internal_display)
-- gpio: 10
-  available: false
-  occupied_by: display.st7735 (internal_display)
+  occupied_by: Button Up
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.esp32_touch (Button Down)
+  occupied_by: Button Down
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.esp32_touch (Button X)
+  occupied_by: Button X
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.esp32_touch (Button OK)
+  occupied_by: Button OK
 - gpio: 26
   available: false
-  occupied_by: output.ledc (buzzer_output)
+  occupied_by: buzzer_output
 - gpio: 27
   available: false
-  occupied_by: binary_sensor.esp32_touch (Button Right)
+  occupied_by: Button Right
 - gpio: 34
   available: false
-  occupied_by: sensor.adc (Light Level)
+  occupied_by: Light Level
 docs_url: https://devices.esphome.io/devices/Citilab-ED1/
 product_url: https://github.com/glifocat/ed1-hoas
 featured_components:
@@ -102,27 +93,6 @@ featured_components:
     threshold: 900
     id: binary_sensor_esp32_touch_6
     name: Button X
-- id: display_st7735_1
-  component_id: display.st7735
-  fields:
-    cs_pin:
-      value: 5
-      locked: true
-    dc_pin:
-      value: 9
-      locked: true
-    reset_pin:
-      value: 10
-      locked: true
-    rotation: 0
-    model: INITR_GREENTAB
-    device_width: 128
-    device_height: 128
-    col_start: 2
-    row_start: 3
-    update_interval: 1s
-    id: display_st7735_1
-    name: St7735 1
 - id: output_ledc_1
   component_id: output.ledc
   fields:

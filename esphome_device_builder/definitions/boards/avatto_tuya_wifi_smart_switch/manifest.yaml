@@ -19,12 +19,6 @@ featured_components:
     internal: true
     id: light_status_led_1
     name: State
-- id: switch_output_1
-  component_id: switch.output
-  fields:
-    output: relayoutput
-    id: switch_output_1
-    name: Output 1
 source:
   type: esphome-devices
   remote_id: AVATTO-Tuya-WiFi-Smart-Switch

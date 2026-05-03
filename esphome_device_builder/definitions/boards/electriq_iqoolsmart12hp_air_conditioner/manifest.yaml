@@ -20,28 +20,28 @@ featured_components:
     target_temperature_datapoint: 2
     current_temperature_datapoint: 3
     id: climate_tuya_1
-    name: Tuya 1
+    name: Climate
 - id: select_tuya_1
   component_id: select.tuya
   fields:
     enum_datapoint: 4
     optimistic: true
     id: select_tuya_1
-    name: Tuya 1
+    name: Mode
 - id: select_tuya_2
   component_id: select.tuya
   fields:
     enum_datapoint: 5
     optimistic: true
     id: select_tuya_2
-    name: Tuya 2
+    name: Fan Speed
 - id: select_tuya_3
   component_id: select.tuya
   fields:
     enum_datapoint: 19
     optimistic: true
     id: select_tuya_3
-    name: Tuya 3
+    name: Temperature Unit
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -53,13 +53,13 @@ featured_components:
   fields:
     switch_datapoint: 101
     id: switch_tuya_1
-    name: Tuya 1
+    name: Sleep Mode
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
     switch_datapoint: 104
     id: switch_tuya_2
-    name: Tuya 2
+    name: Oscillating air paddle
 source:
   type: esphome-devices
   remote_id: Electriq-IQoolsmart12hp-air-conditioner

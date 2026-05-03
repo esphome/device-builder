@@ -122,41 +122,18 @@ featured_components:
     disabled_by_default: true
     id: binary_sensor_modbus_controller_11
     name: Relay R3 Preheating
-- id: binary_sensor_template_1
-  component_id: binary_sensor.template
-  fields:
-    device_class: running
-    entity_category: diagnostic
-    id: binary_sensor_template_1
-    name: Template 1
 - id: button_restart_1
   component_id: button.restart
   fields:
     entity_category: diagnostic
     id: button_restart_1
-    name: Restart 1
+    name: controller restart
 - id: button_safe_mode_1
   component_id: button.safe_mode
   fields:
     entity_category: diagnostic
     id: button_safe_mode_1
-    name: Safe Mode 1
-- id: button_template_1
-  component_id: button.template
-  fields:
-    entity_category: config
-    icon: mdi:eye-refresh-outline
-    disabled_by_default: true
-    id: button_template_1
-    name: Template 1
-- id: button_template_2
-  component_id: button.template
-  fields:
-    entity_category: diagnostic
-    icon: mdi:clock-edit-outline
-    disabled_by_default: true
-    id: button_template_2
-    name: Template 2
+    name: controller safe mode boot
 - id: number_modbus_controller_1
   component_id: number.modbus_controller
   fields:
@@ -170,7 +147,7 @@ featured_components:
     step: 1
     mode: box
     id: number_modbus_controller_1
-    name: Modbus Controller 1
+    name: Max duration for level 3-4
 - id: number_modbus_controller_2
   component_id: number.modbus_controller
   fields:
@@ -184,7 +161,7 @@ featured_components:
     step: 1
     mode: box
     id: number_modbus_controller_2
-    name: Modbus Controller 2
+    name: Level 1 supply
 - id: number_modbus_controller_3
   component_id: number.modbus_controller
   fields:
@@ -198,7 +175,7 @@ featured_components:
     step: 1
     mode: box
     id: number_modbus_controller_3
-    name: Modbus Controller 3
+    name: Level 1 extract
 - id: number_modbus_controller_4
   component_id: number.modbus_controller
   fields:
@@ -212,7 +189,7 @@ featured_components:
     step: 1
     mode: box
     id: number_modbus_controller_4
-    name: Modbus Controller 4
+    name: Level 2 supply
 - id: number_modbus_controller_5
   component_id: number.modbus_controller
   fields:
@@ -226,7 +203,7 @@ featured_components:
     step: 1
     mode: box
     id: number_modbus_controller_5
-    name: Modbus Controller 5
+    name: Level 2 extract
 - id: number_modbus_controller_6
   component_id: number.modbus_controller
   fields:
@@ -240,7 +217,7 @@ featured_components:
     step: 1
     mode: box
     id: number_modbus_controller_6
-    name: Modbus Controller 6
+    name: Level 3 supply
 - id: number_modbus_controller_7
   component_id: number.modbus_controller
   fields:
@@ -254,40 +231,8 @@ featured_components:
     step: 1
     mode: box
     id: number_modbus_controller_7
-    name: Modbus Controller 7
+    name: Level 3 extract
 - id: number_modbus_controller_8
-  component_id: number.modbus_controller
-  fields:
-    unit_of_measurement: °C
-    icon: mdi:cog-outline
-    address: 2
-    lambda: return (x + 100) / 10;
-    write_lambda: return x * 10 - 100;
-    value_type: U_WORD
-    entity_category: config
-    min_value: 10
-    max_value: 30
-    step: 0.1
-    mode: box
-    id: number_modbus_controller_8
-    name: Modbus Controller 8
-- id: number_modbus_controller_9
-  component_id: number.modbus_controller
-  fields:
-    unit_of_measurement: °C
-    icon: mdi:cog-outline
-    address: 18
-    lambda: return x / 10;
-    write_lambda: return x * 10;
-    value_type: U_WORD
-    entity_category: config
-    min_value: 1
-    max_value: 10
-    step: 0.1
-    mode: box
-    id: number_modbus_controller_9
-    name: Modbus Controller 9
-- id: number_modbus_controller_10
   component_id: number.modbus_controller
   fields:
     unit_of_measurement: °C
@@ -299,9 +244,9 @@ featured_components:
     max_value: 20
     step: 1
     mode: box
-    id: number_modbus_controller_10
-    name: Modbus Controller 10
-- id: number_modbus_controller_11
+    id: number_modbus_controller_8
+    name: Bypass close external delta
+- id: number_modbus_controller_9
   component_id: number.modbus_controller
   fields:
     unit_of_measurement: mo
@@ -314,8 +259,8 @@ featured_components:
     step: 1
     mode: box
     disabled_by_default: true
-    id: number_modbus_controller_11
-    name: Modbus Controller 11
+    id: number_modbus_controller_9
+    name: Filter change period
 - id: select_modbus_controller_1
   component_id: select.modbus_controller
   fields:
@@ -324,7 +269,7 @@ featured_components:
     value_type: U_WORD
     optimistic: true
     id: select_modbus_controller_1
-    name: Modbus Controller 1
+    name: Speed
 - id: select_modbus_controller_2
   component_id: select.modbus_controller
   fields:
@@ -335,7 +280,7 @@ featured_components:
     skip_updates: 24
     disabled_by_default: true
     id: select_modbus_controller_2
-    name: Modbus Controller 2
+    name: Display model
 - id: select_modbus_controller_3
   component_id: select.modbus_controller
   fields:
@@ -346,7 +291,7 @@ featured_components:
     skip_updates: 24
     disabled_by_default: true
     id: select_modbus_controller_3
-    name: Modbus Controller 3
+    name: Regulation method
 - id: sensor_modbus_controller_1
   component_id: sensor.modbus_controller
   fields:
@@ -356,7 +301,7 @@ featured_components:
     unit_of_measurement: '%'
     value_type: U_WORD
     id: sensor_modbus_controller_1
-    name: Modbus Controller 1
+    name: Inlet fan
 - id: sensor_modbus_controller_2
   component_id: sensor.modbus_controller
   fields:
@@ -366,7 +311,7 @@ featured_components:
     unit_of_measurement: '%'
     value_type: U_WORD
     id: sensor_modbus_controller_2
-    name: Modbus Controller 2
+    name: Extract fan
 - id: sensor_modbus_controller_3
   component_id: sensor.modbus_controller
   fields:
@@ -377,7 +322,7 @@ featured_components:
     value_type: U_WORD
     accuracy_decimals: 1
     id: sensor_modbus_controller_3
-    name: Modbus Controller 3
+    name: Supply air
 - id: sensor_modbus_controller_4
   component_id: sensor.modbus_controller
   fields:
@@ -388,7 +333,7 @@ featured_components:
     value_type: U_WORD
     accuracy_decimals: 1
     id: sensor_modbus_controller_4
-    name: Modbus Controller 4
+    name: Fresh air
 - id: sensor_modbus_controller_5
   component_id: sensor.modbus_controller
   fields:
@@ -399,7 +344,7 @@ featured_components:
     value_type: U_WORD
     accuracy_decimals: 1
     id: sensor_modbus_controller_5
-    name: Modbus Controller 5
+    name: Exhaust air
 - id: sensor_modbus_controller_6
   component_id: sensor.modbus_controller
   fields:
@@ -410,7 +355,7 @@ featured_components:
     value_type: U_WORD
     accuracy_decimals: 1
     id: sensor_modbus_controller_6
-    name: Modbus Controller 6
+    name: Extract air
 - id: sensor_modbus_controller_7
   component_id: sensor.modbus_controller
   fields:
@@ -420,7 +365,7 @@ featured_components:
     address: 11
     value_type: U_WORD
     id: sensor_modbus_controller_7
-    name: Modbus Controller 7
+    name: Bypass
 - id: sensor_modbus_controller_8
   component_id: sensor.modbus_controller
   fields:
@@ -430,7 +375,7 @@ featured_components:
     address: 13
     value_type: U_WORD
     id: sensor_modbus_controller_8
-    name: Modbus Controller 8
+    name: Humidity
 - id: sensor_modbus_controller_9
   component_id: sensor.modbus_controller
   fields:
@@ -442,7 +387,7 @@ featured_components:
     disabled_by_default: true
     bitmask: 2147483647
     id: sensor_modbus_controller_9
-    name: Modbus Controller 9
+    name: Mode (modbus)
 - id: sensor_modbus_controller_10
   component_id: sensor.modbus_controller
   fields:
@@ -454,7 +399,7 @@ featured_components:
     disabled_by_default: true
     bitmask: 2147483647
     id: sensor_modbus_controller_10
-    name: Modbus Controller 10
+    name: Alarm code (DEC)
 - id: sensor_modbus_controller_11
   component_id: sensor.modbus_controller
   fields:
@@ -465,7 +410,7 @@ featured_components:
     value_type: U_WORD
     bitmask: 2147483647
     id: sensor_modbus_controller_11
-    name: Modbus Controller 11
+    name: Reheating
 - id: sensor_modbus_controller_12
   component_id: sensor.modbus_controller
   fields:
@@ -476,24 +421,7 @@ featured_components:
     value_type: U_WORD
     bitmask: 2147483647
     id: sensor_modbus_controller_12
-    name: Modbus Controller 12
-- id: sensor_template_1
-  component_id: sensor.template
-  fields:
-    accuracy_decimals: 2
-    update_interval: 120s
-    icon: mdi:water
-    unit_of_measurement: g/m³
-    id: sensor_template_1
-    name: Template 1
-- id: sensor_template_2
-  component_id: sensor.template
-  fields:
-    unit_of_measurement: °C
-    update_interval: 120s
-    icon: mdi:thermometer-alert
-    id: sensor_template_2
-    name: Template 2
+    name: Reheating control
 - id: switch_modbus_controller_1
   component_id: switch.modbus_controller
   fields:
@@ -503,7 +431,7 @@ featured_components:
     address: 1
     bitmask: 1
     id: switch_modbus_controller_1
-    name: Modbus Controller 1
+    name: Reheating
 - id: switch_modbus_controller_2
   component_id: switch.modbus_controller
   fields:
@@ -513,7 +441,7 @@ featured_components:
     address: 4
     bitmask: 1
     id: switch_modbus_controller_2
-    name: Modbus Controller 2
+    name: Max duration for level 3-4 enable
 - id: switch_modbus_controller_3
   component_id: switch.modbus_controller
   fields:
@@ -523,7 +451,7 @@ featured_components:
     address: 6
     bitmask: 1
     id: switch_modbus_controller_3
-    name: Modbus Controller 3
+    name: Humidity control
 - id: switch_modbus_controller_4
   component_id: switch.modbus_controller
   fields:
@@ -534,7 +462,7 @@ featured_components:
     address: 15
     bitmask: 1
     id: switch_modbus_controller_4
-    name: Modbus Controller 4
+    name: Filter change autostop
 - id: switch_modbus_controller_5
   component_id: switch.modbus_controller
   fields:
@@ -545,7 +473,7 @@ featured_components:
     address: 25
     bitmask: 1
     id: switch_modbus_controller_5
-    name: Modbus Controller 5
+    name: Device stop enable
 - id: switch_modbus_controller_6
   component_id: switch.modbus_controller
   fields:
@@ -556,7 +484,7 @@ featured_components:
     address: 45
     bitmask: 1
     id: switch_modbus_controller_6
-    name: Modbus Controller 6
+    name: Calendar mode
 - id: switch_modbus_controller_7
   component_id: switch.modbus_controller
   fields:
@@ -566,18 +494,7 @@ featured_components:
     address: 47
     bitmask: 1
     id: switch_modbus_controller_7
-    name: Modbus Controller 7
-- id: text_sensor_modbus_controller_1
-  component_id: text_sensor.modbus_controller
-  fields:
-    icon: mdi:calendar-clock
-    address: 200
-    register_type: holding
-    register_count: 6
-    skip_updates: 12
-    force_new_range: true
-    id: text_sensor_modbus_controller_1
-    name: Modbus Controller 1
+    name: Filter reset
 source:
   type: esphome-devices
   remote_id: Genvex-Nibe-AlphaInnotec-heat-recovery-ventilation

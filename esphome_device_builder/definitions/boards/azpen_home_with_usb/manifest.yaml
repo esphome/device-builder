@@ -18,13 +18,13 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (USB Relay)
+  occupied_by: USB Relay
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (Relay Button)
+  occupied_by: Relay Button
 docs_url: https://devices.esphome.io/devices/Azpen-Home-With-USB/
 featured_components:
 - id: binary_sensor_gpio_1

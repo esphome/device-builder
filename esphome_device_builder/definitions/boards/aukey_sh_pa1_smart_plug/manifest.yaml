@@ -15,13 +15,13 @@ tags:
 pins:
 - gpio: 2
   available: false
-  occupied_by: output.gpio (blue_led_output)
+  occupied_by: blue_led_output
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (mini_tree_button)
+  occupied_by: mini_tree_button
 - gpio: 15
   available: false
-  occupied_by: output.gpio (plug_outlet)
+  occupied_by: plug_outlet
 docs_url: https://devices.esphome.io/devices/Aukey-SH-PA1-Smart-Plug/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -32,19 +32,7 @@ featured_components:
         number: 13
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: plug_outlet
-    id: light_binary_1
-    name: Mini Tree
-- id: light_binary_2
-  component_id: light.binary
-  fields:
-    output: blue_led_output
-    id: light_binary_2
-    name: Binary 2
+    name: mini_tree_button
 - id: output_gpio_1
   component_id: output.gpio
   fields:

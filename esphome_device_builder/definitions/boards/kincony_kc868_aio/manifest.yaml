@@ -17,64 +17,64 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (aio--input1)
+  occupied_by: aio--light17
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (aio--input2)
+  occupied_by: aio--light18
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (aio--input3)
+  occupied_by: aio--light19
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (aio--input4)
+  occupied_by: aio--light20
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (aio--input5)
+  occupied_by: aio--light21
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (aio--input6)
+  occupied_by: aio--light22
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (aio--input7)
+  occupied_by: aio--light23
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (aio--input8)
+  occupied_by: aio--light24
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (aio--input9)
+  occupied_by: aio--light25
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (aio--input10)
+  occupied_by: aio--light26
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (aio--input11)
+  occupied_by: aio--light27
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (aio--input12)
+  occupied_by: aio--light28
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (aio--input13)
+  occupied_by: aio--led-D7
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (aio--input14)
+  occupied_by: aio--led-D8
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (aio--input15)
+  occupied_by: aio--light31
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (aio--input16)
+  occupied_by: aio--light32
 - gpio: 34
   available: false
-  occupied_by: sensor.adc (aio--AI-18)
+  occupied_by: aio--AI-18
 - gpio: 35
   available: false
-  occupied_by: sensor.adc (aio--AI-19)
+  occupied_by: aio--AI-19
 - gpio: 36
   available: false
-  occupied_by: sensor.adc (adc36)
+  occupied_by: adc36
 - gpio: 39
   available: false
-  occupied_by: sensor.adc (aio--AI-17)
+  occupied_by: aio--AI-17
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-AIO/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -773,205 +773,84 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_58
     name: aio--input58-s4
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: PWM0
-    id: light_monochromatic_1
-    name: aio-Color-LED-1
-- id: light_monochromatic_2
-  component_id: light.monochromatic
-  fields:
-    output: PWM1
-    id: light_monochromatic_2
-    name: aio-Color-LED-2
-- id: light_monochromatic_3
-  component_id: light.monochromatic
-  fields:
-    output: PWM2
-    id: light_monochromatic_3
-    name: aio-Color-LED-3
-- id: light_monochromatic_4
-  component_id: light.monochromatic
-  fields:
-    output: PWM3
-    id: light_monochromatic_4
-    name: aio-Color-LED-4
-- id: light_monochromatic_5
-  component_id: light.monochromatic
-  fields:
-    output: PWM4
-    id: light_monochromatic_5
-    name: aio-Color-LED-5
-- id: light_monochromatic_6
-  component_id: light.monochromatic
-  fields:
-    output: PWM5
-    id: light_monochromatic_6
-    name: aio-Color-LED-6
-- id: light_monochromatic_7
-  component_id: light.monochromatic
-  fields:
-    output: PWM6
-    id: light_monochromatic_7
-    name: aio-Color-LED-7
-- id: light_monochromatic_8
-  component_id: light.monochromatic
-  fields:
-    output: PWM7
-    id: light_monochromatic_8
-    name: aio-Color-LED-8
-- id: light_monochromatic_9
-  component_id: light.monochromatic
-  fields:
-    output: PWM8
-    id: light_monochromatic_9
-    name: aio-Color-LED-9
-- id: light_monochromatic_10
-  component_id: light.monochromatic
-  fields:
-    output: PWM9
-    id: light_monochromatic_10
-    name: aio-Color-LED-10
-- id: light_monochromatic_11
-  component_id: light.monochromatic
-  fields:
-    output: PWM10
-    id: light_monochromatic_11
-    name: aio-Color-LED-11
-- id: light_monochromatic_12
-  component_id: light.monochromatic
-  fields:
-    output: PWM11
-    id: light_monochromatic_12
-    name: aio-Color-LED-12
-- id: light_monochromatic_13
-  component_id: light.monochromatic
-  fields:
-    output: PWM12
-    id: light_monochromatic_13
-    name: aio-Color-LED-13
-- id: light_monochromatic_14
-  component_id: light.monochromatic
-  fields:
-    output: PWM13
-    id: light_monochromatic_14
-    name: aio-Color-LED-14
-- id: light_monochromatic_15
-  component_id: light.monochromatic
-  fields:
-    output: PWM14
-    id: light_monochromatic_15
-    name: aio-Color-LED-15
-- id: light_monochromatic_16
-  component_id: light.monochromatic
-  fields:
-    output: PWM15
-    id: light_monochromatic_16
-    name: aio-Color-LED-16
-- id: light_rgbw_1
-  component_id: light.rgbw
-  fields:
-    red: PWM1
-    green: PWM2
-    blue: PWM3
-    white: PWM4
-    id: light_rgbw_1
-    name: aio-rgbw
 - id: output_pca9685_1
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 0
     id: output_pca9685_1
 - id: output_pca9685_2
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 1
     id: output_pca9685_2
 - id: output_pca9685_3
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 2
     id: output_pca9685_3
 - id: output_pca9685_4
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 3
     id: output_pca9685_4
 - id: output_pca9685_5
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 4
     id: output_pca9685_5
 - id: output_pca9685_6
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 5
     id: output_pca9685_6
 - id: output_pca9685_7
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 6
     id: output_pca9685_7
 - id: output_pca9685_8
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 7
     id: output_pca9685_8
 - id: output_pca9685_9
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 8
     id: output_pca9685_9
 - id: output_pca9685_10
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 9
     id: output_pca9685_10
 - id: output_pca9685_11
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 10
     id: output_pca9685_11
 - id: output_pca9685_12
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 11
     id: output_pca9685_12
 - id: output_pca9685_13
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 12
     id: output_pca9685_13
 - id: output_pca9685_14
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 13
     id: output_pca9685_14
 - id: output_pca9685_15
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 14
     id: output_pca9685_15
 - id: output_pca9685_16
   component_id: output.pca9685
   fields:
-    pca9685_id: pca9685_hub
     channel: 15
     id: output_pca9685_16
 - id: sensor_dallas_temp_1
@@ -989,7 +868,7 @@ featured_components:
     update_interval: never
     attenuation: 12db
     id: sensor_adc_1
-    name: Adc 1
+    name: adc36
 - id: sensor_adc_2
   component_id: sensor.adc
   fields:
@@ -1024,7 +903,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 0
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_1
     name: aio--AI-16
@@ -1032,7 +910,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 1
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_2
     name: aio--AI-15
@@ -1040,7 +917,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 2
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_3
     name: aio--AI-14
@@ -1048,7 +924,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 3
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_4
     name: aio--AI-13
@@ -1056,7 +931,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 4
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_5
     name: aio--AI-12
@@ -1064,7 +938,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 5
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_6
     name: aio--AI-11
@@ -1072,7 +945,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 6
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_7
     name: aio--AI-10
@@ -1080,7 +952,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 7
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_8
     name: aio--AI-9
@@ -1088,7 +959,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 8
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_9
     name: aio--AI-8
@@ -1096,7 +966,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 9
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_10
     name: aio--AI-7
@@ -1104,7 +973,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 10
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_11
     name: aio--AI-6
@@ -1112,7 +980,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 11
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_12
     name: aio--AI-5
@@ -1120,7 +987,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 12
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_13
     name: aio--AI-4
@@ -1128,7 +994,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 13
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_14
     name: aio--AI-3
@@ -1136,7 +1001,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 14
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_15
     name: aio--AI-2
@@ -1144,7 +1008,6 @@ featured_components:
   component_id: sensor.cd74hc4067
   fields:
     number: 15
-    sensor: adc36
     update_interval: 5s
     id: sensor_cd74hc4067_16
     name: aio--AI-1

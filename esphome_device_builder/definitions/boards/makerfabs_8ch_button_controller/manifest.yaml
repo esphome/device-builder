@@ -15,28 +15,28 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (BUTTON8)
+  occupied_by: BUTTON8
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (BUTTON7)
+  occupied_by: BUTTON7
 - gpio: 23
   available: false
-  occupied_by: binary_sensor.gpio (BUTTON4)
+  occupied_by: BUTTON4
 - gpio: 26
   available: false
-  occupied_by: binary_sensor.gpio (BUTTON5)
+  occupied_by: BUTTON5
 - gpio: 27
   available: false
-  occupied_by: binary_sensor.gpio (BUTTON6)
+  occupied_by: BUTTON6
 - gpio: 34
   available: false
-  occupied_by: binary_sensor.gpio (BUTTON2)
+  occupied_by: BUTTON2
 - gpio: 35
   available: false
-  occupied_by: binary_sensor.gpio (BUTTON1)
+  occupied_by: BUTTON1
 - gpio: 39
   available: false
-  occupied_by: binary_sensor.gpio (BUTTON3)
+  occupied_by: BUTTON3
 docs_url: https://devices.esphome.io/devices/Makerfabs-8CH-Button-Controller/
 featured_components:
 - id: binary_sensor_gpio_1

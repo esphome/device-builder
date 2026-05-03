@@ -14,34 +14,10 @@ images:
 pins:
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (Orange_LED)
+  occupied_by: Orange_LED
 docs_url: https://devices.esphome.io/devices/ADS-WSM-1A/
 product_url: https://detection-solutions.com/technical-overview
 featured_components:
-- id: sensor_dallas_temp_1
-  component_id: sensor.dallas_temp
-  fields:
-    update_interval: 30s
-    address: (FILL IN ONE-WIRE BUS ADDRESS)
-    unit_of_measurement: °C
-    device_class: temperature
-    accuracy_decimals: 1
-    state_class: measurement
-    icon: mdi:thermometer
-    id: sensor_dallas_temp_1
-    name: Temperature_1
-- id: sensor_dallas_temp_2
-  component_id: sensor.dallas_temp
-  fields:
-    update_interval: 30s
-    address: (FILL IN ONE-WIRE BUS ADDRESS)
-    unit_of_measurement: °C
-    device_class: temperature
-    accuracy_decimals: 1
-    state_class: measurement
-    icon: mdi:thermometer
-    id: sensor_dallas_temp_2
-    name: Temperature_2
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -58,7 +34,7 @@ featured_components:
       locked: true
     restore_mode: ALWAYS_OFF
     id: switch_gpio_1
-    name: Gpio 1
+    name: Orange_LED
 source:
   type: esphome-devices
   remote_id: ADS-WSM-1A

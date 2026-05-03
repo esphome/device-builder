@@ -14,28 +14,28 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (INPUT4)
+  occupied_by: LED WS2812B
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (INPUT3)
+  occupied_by: INPUT3
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (INPUT2)
+  occupied_by: INPUT2
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (INPUT1)
+  occupied_by: INPUT1
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (RELAY4)
+  occupied_by: RELAY4
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (RELAY3)
+  occupied_by: RELAY3
 - gpio: 6
   available: false
-  occupied_by: switch.gpio (RELAY2)
+  occupied_by: RELAY2
 - gpio: 7
   available: false
-  occupied_by: switch.gpio (RELAY1)
+  occupied_by: RELAY1
 - gpio: 21
   available: false
   occupied_by: sensor.dht

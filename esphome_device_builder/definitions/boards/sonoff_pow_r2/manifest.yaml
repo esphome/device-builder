@@ -15,10 +15,10 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 docs_url: https://devices.esphome.io/devices/Sonoff-POW-R2/
 featured_components:
 - id: binary_sensor_gpio_1

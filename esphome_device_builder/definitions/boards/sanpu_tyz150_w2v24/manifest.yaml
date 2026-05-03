@@ -18,8 +18,6 @@ featured_components:
 - id: light_cwww_1
   component_id: light.cwww
   fields:
-    cold_white: output_cold_white
-    warm_white: output_warm_white
     cold_white_color_temperature: 6500K
     warm_white_color_temperature: 2700K
     constant_brightness: true

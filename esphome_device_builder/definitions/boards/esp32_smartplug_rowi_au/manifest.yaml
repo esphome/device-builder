@@ -17,19 +17,19 @@ tags:
 pins:
 - gpio: 2
   available: false
-  occupied_by: switch.gpio (${friendly_name})
+  occupied_by: relay
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+  occupied_by: Button
 - gpio: 18
   available: false
-  occupied_by: output.ledc (red)
+  occupied_by: red
 - gpio: 19
   available: false
-  occupied_by: output.ledc (green)
+  occupied_by: green
 - gpio: 21
   available: false
-  occupied_by: output.ledc (blue)
+  occupied_by: blue
 docs_url: https://devices.esphome.io/devices/ESP32-SmartPlug-Rowi-AU/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -45,16 +45,13 @@ featured_components:
       locked: true
     disabled_by_default: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button
 - id: light_rgb_1
   component_id: light.rgb
   fields:
     disabled_by_default: true
-    red: red
-    green: green
-    blue: blue
     id: light_rgb_1
-    name: Rgb 1
+    name: rgb_light
 - id: output_ledc_1
   component_id: output.ledc
   fields:
@@ -89,7 +86,7 @@ featured_components:
       value: 2
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay
 source:
   type: esphome-devices
   remote_id: ESP32-SmartPlug-Rowi-AU

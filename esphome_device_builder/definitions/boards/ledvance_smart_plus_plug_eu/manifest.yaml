@@ -31,26 +31,18 @@ featured_components:
     current_resistor: '0.00045'
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: sensor_template_1
-  component_id: sensor.template
-  fields:
-    unit_of_measurement: A
-    accuracy_decimals: 2
-    update_interval: $update_interval_seconds
-    id: sensor_template_1
-    name: $friendly_name Current
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Signal
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-eu
     id: switch_gpio_1
-    name: Gpio 1
+    name: Outlet
 source:
   type: esphome-devices
   remote_id: LEDVANCE-SMART-PLUS-PLUG-EU

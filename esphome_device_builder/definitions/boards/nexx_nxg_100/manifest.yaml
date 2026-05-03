@@ -15,16 +15,16 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Reset Button)
+  occupied_by: Reset Button
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Door Relay)
+  occupied_by: Door Relay
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (Green LED)
+  occupied_by: Green LED
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (Door Closed)
+  occupied_by: Door Closed
 docs_url: https://devices.esphome.io/devices/Nexx-NXG-100/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -56,13 +56,6 @@ featured_components:
     internal: true
     id: binary_sensor_status_1
     name: Status
-- id: cover_template_1
-  component_id: cover.template
-  fields:
-    optimistic: true
-    assumed_state: true
-    id: cover_template_1
-    name: Garage Door
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:

@@ -20,7 +20,6 @@ featured_components:
 - id: sensor_bl0942_1
   component_id: sensor.bl0942
   fields:
-    uart_id: uart_bus
     update_interval: 10s
     id: sensor_bl0942_1
     name: Bl0942 1
@@ -29,31 +28,31 @@ featured_components:
   fields:
     icon: mdi:power-socket-au
     id: switch_gpio_1
-    name: Gpio 1
+    name: '1'
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
     id: switch_gpio_2
-    name: Gpio 2
+    name: '2'
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
     id: switch_gpio_3
-    name: Gpio 3
+    name: '3'
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
     id: switch_gpio_4
-    name: Gpio 4
+    name: '4'
 - id: switch_gpio_5
   component_id: switch.gpio
   fields:
     icon: mdi:power-socket-au
     id: switch_gpio_5
-    name: Gpio 5
+    name: '5'
 source:
   type: esphome-devices
   remote_id: bauhn-5-way-powerboard

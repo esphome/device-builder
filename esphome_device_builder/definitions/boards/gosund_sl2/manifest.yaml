@@ -12,16 +12,16 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (${upper_devicename} Pushbutton)
+  occupied_by: Pushbutton
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (output_green)
+  occupied_by: output_green
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_red)
+  occupied_by: output_red
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (output_blue)
+  occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Gosund-SL2/
 featured_components:
 - id: binary_sensor_status_1
@@ -29,7 +29,7 @@ featured_components:
   fields:
     device_class: connectivity
     id: binary_sensor_status_1
-    name: Status 1
+    name: Status
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -41,15 +41,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
-- id: light_rgb_1
-  component_id: light.rgb
-  fields:
-    red: output_red
-    green: output_green
-    blue: output_blue
-    id: light_rgb_1
-    name: Rgb 1
+    name: Pushbutton
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:
@@ -77,7 +69,7 @@ featured_components:
     update_interval: 60s
     icon: mdi:wifi
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Wifi Signal
 source:
   type: esphome-devices
   remote_id: Gosund-SL2

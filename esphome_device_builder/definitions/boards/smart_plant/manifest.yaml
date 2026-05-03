@@ -14,25 +14,25 @@ images:
 pins:
 - gpio: 1
   available: false
-  occupied_by: sensor.adc (Soil Moisture)
+  occupied_by: Soil Moisture
 - gpio: 2
   available: false
-  occupied_by: sensor.adc (Battery Voltage)
+  occupied_by: Battery Voltage
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (Excitation switch)
+  occupied_by: Excitation switch
 - gpio: 10
   available: false
-  occupied_by: display.waveshare_epaper (my_display)
+  occupied_by: my_display
 - gpio: 13
   available: false
-  occupied_by: display.waveshare_epaper (my_display)
+  occupied_by: my_display
 - gpio: 14
   available: false
-  occupied_by: display.waveshare_epaper (my_display)
+  occupied_by: my_display
 - gpio: 15
   available: false
-  occupied_by: display.waveshare_epaper (my_display)
+  occupied_by: my_display
 docs_url: https://devices.esphome.io/devices/Smart-Plant/
 product_url: https://smart-plant.readthedocs.io
 featured_components:
@@ -56,7 +56,7 @@ featured_components:
     update_interval: never
     full_update_every: 1
     id: display_waveshare_epaper_1
-    name: Waveshare Epaper 1
+    name: my_display
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -70,20 +70,10 @@ featured_components:
     icon: mdi:battery-medium
     id: sensor_adc_1
     name: Battery Voltage
-- id: sensor_template_1
-  component_id: sensor.template
-  fields:
-    lambda: return id(batvolt).state;
-    accuracy_decimals: 0
-    unit_of_measurement: '%'
-    icon: mdi:battery-medium
-    id: sensor_template_1
-    name: Battery %
 - id: sensor_aht10_1
   component_id: sensor.aht10
   fields:
     variant: AHT20
-    i2c_id: bus_a
     update_interval: 3s
     id: sensor_aht10_1
     name: Aht10 1

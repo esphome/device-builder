@@ -17,64 +17,64 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (ta-input01)
+  occupied_by: ta-io0
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (ta-input02)
+  occupied_by: ta-input02
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (ta-input03)
+  occupied_by: ta-input03
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (ta-input04)
+  occupied_by: ta-input04
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (ta-input05)
+  occupied_by: ta-io04
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (ta-input06)
+  occupied_by: ta-io05
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (ta-input07)
+  occupied_by: ta-io06
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (ta-input08)
+  occupied_by: ta-io07
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (ta-input09)
+  occupied_by: ta-input09
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (ta-input10)
+  occupied_by: ta-io09
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (ta-input11)
+  occupied_by: ta-input11
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (ta-input12)
+  occupied_by: ta-io11
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (ta-433M-R)
+  occupied_by: ta-433M-R
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (ta-io13)
+  occupied_by: ta-io13
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (ta-io14)
+  occupied_by: ta-output01
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (ta-output02)
+  occupied_by: ta-output02
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (ta-io21)
+  occupied_by: ta-io21
 - gpio: 40
   available: false
-  occupied_by: binary_sensor.gpio (ta-io40)
+  occupied_by: ta-io40
 - gpio: 47
   available: false
-  occupied_by: binary_sensor.gpio (ta-io47)
+  occupied_by: ta-io47
 - gpio: 48
   available: false
-  occupied_by: binary_sensor.gpio (ta-io48)
+  occupied_by: ta-io48
 docs_url: https://devices.esphome.io/devices/KinCony-TA/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -361,12 +361,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_26
     name: ta-433M-R
-- id: switch_uart_1
-  component_id: switch.uart
-  fields:
-    uart_id: uart_1
-    id: switch_uart_1
-    name: RS485 Button
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

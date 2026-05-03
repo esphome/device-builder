@@ -16,7 +16,7 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: output.gpio (relay_led)
+  occupied_by: relay_led
 - gpio: 3
   available: false
   occupied_by: sensor.hlw8012
@@ -25,10 +25,10 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (XS-SSA05 Relay)
+  occupied_by: XS-SSA05 Relay
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (XS-SSA05 Button)
+  occupied_by: XS-SSA05 Button
 - gpio: 14
   available: false
   occupied_by: sensor.hlw8012

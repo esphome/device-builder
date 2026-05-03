@@ -14,22 +14,22 @@ images:
 pins:
 - gpio: 1
   available: false
-  occupied_by: sensor.adc (Input_1)
+  occupied_by: Input_1
 - gpio: 2
   available: false
-  occupied_by: sensor.adc (Input_2)
+  occupied_by: Input_2
 - gpio: 3
   available: false
-  occupied_by: sensor.adc (Input_3)
+  occupied_by: Input_3
 - gpio: 4
   available: false
-  occupied_by: sensor.adc (Input_4)
+  occupied_by: Input_4
 - gpio: 5
   available: false
-  occupied_by: sensor.adc (Input_5)
+  occupied_by: Input_5
 - gpio: 6
   available: false
-  occupied_by: sensor.adc (Input_6)
+  occupied_by: Input_6
 - gpio: 10
   available: false
   occupied_by: display.waveshare_epaper
@@ -75,7 +75,7 @@ featured_components:
     attenuation: 12db
     update_interval: 1s
     id: sensor_adc_1
-    name: Adc 1
+    name: Input_1
 - id: sensor_adc_2
   component_id: sensor.adc
   fields:
@@ -85,7 +85,7 @@ featured_components:
     attenuation: 12db
     update_interval: 1s
     id: sensor_adc_2
-    name: Adc 2
+    name: Input_2
 - id: sensor_adc_3
   component_id: sensor.adc
   fields:
@@ -95,7 +95,7 @@ featured_components:
     attenuation: 12db
     update_interval: 1s
     id: sensor_adc_3
-    name: Adc 3
+    name: Input_3
 - id: sensor_adc_4
   component_id: sensor.adc
   fields:
@@ -105,7 +105,7 @@ featured_components:
     attenuation: 12db
     update_interval: 1s
     id: sensor_adc_4
-    name: Adc 4
+    name: Input_4
 - id: sensor_adc_5
   component_id: sensor.adc
   fields:
@@ -115,7 +115,7 @@ featured_components:
     attenuation: 12db
     update_interval: 1s
     id: sensor_adc_5
-    name: Adc 5
+    name: Input_5
 - id: sensor_adc_6
   component_id: sensor.adc
   fields:
@@ -125,11 +125,10 @@ featured_components:
     attenuation: 12db
     update_interval: 1s
     id: sensor_adc_6
-    name: Adc 6
+    name: Input_6
 - id: sensor_ct_clamp_1
   component_id: sensor.ct_clamp
   fields:
-    sensor: Input_1
     sample_duration: 200ms
     update_interval: 1s
     id: sensor_ct_clamp_1
@@ -137,7 +136,6 @@ featured_components:
 - id: sensor_ct_clamp_2
   component_id: sensor.ct_clamp
   fields:
-    sensor: Input_2
     sample_duration: 200ms
     update_interval: 1s
     id: sensor_ct_clamp_2
@@ -145,7 +143,6 @@ featured_components:
 - id: sensor_ct_clamp_3
   component_id: sensor.ct_clamp
   fields:
-    sensor: Input_3
     sample_duration: 200ms
     update_interval: 1s
     id: sensor_ct_clamp_3
@@ -153,7 +150,6 @@ featured_components:
 - id: sensor_ct_clamp_4
   component_id: sensor.ct_clamp
   fields:
-    sensor: Input_4
     sample_duration: 200ms
     update_interval: 1s
     id: sensor_ct_clamp_4
@@ -161,7 +157,6 @@ featured_components:
 - id: sensor_ct_clamp_5
   component_id: sensor.ct_clamp
   fields:
-    sensor: Input_5
     sample_duration: 200ms
     update_interval: 1s
     id: sensor_ct_clamp_5
@@ -169,24 +164,10 @@ featured_components:
 - id: sensor_ct_clamp_6
   component_id: sensor.ct_clamp
   fields:
-    sensor: Input_6
     sample_duration: 200ms
     update_interval: 1s
     id: sensor_ct_clamp_6
     name: Probe 6
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    power_id: current_power
-    id: sensor_total_daily_energy_1
-    name: Total Daily Power
-- id: sensor_template_1
-  component_id: sensor.template
-  fields:
-    unit_of_measurement: kW
-    update_interval: 5s
-    id: sensor_template_1
-    name: Measured Power
 source:
   type: esphome-devices
   remote_id: Smart-Powermeter

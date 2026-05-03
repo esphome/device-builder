@@ -15,19 +15,19 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (led1)
+  occupied_by: led1
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (led2)
+  occupied_by: led2
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Relay 1)
+  occupied_by: Relay 1
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (Teckin SS42 Button)
+  occupied_by: Teckin SS42 Button
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (Relay 2)
+  occupied_by: Relay 2
 docs_url: https://devices.esphome.io/devices/Teckin-SS42/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -75,7 +75,7 @@ featured_components:
         inverted: true
       locked: true
     id: switch_gpio_3
-    name: Gpio 3
+    name: led1
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -85,7 +85,7 @@ featured_components:
         inverted: true
       locked: true
     id: switch_gpio_4
-    name: Gpio 4
+    name: led2
 source:
   type: esphome-devices
   remote_id: Teckin-SS42

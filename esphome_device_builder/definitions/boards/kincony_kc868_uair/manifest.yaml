@@ -15,10 +15,10 @@ images:
 pins:
 - gpio: 32
   available: false
-  occupied_by: light.esp32_rmt_led_strip (Uair-Bottom-LED)
+  occupied_by: Uair-Bottom-LED
 - gpio: 33
   available: false
-  occupied_by: light.esp32_rmt_led_strip (Uair-VVertical-LED)
+  occupied_by: Uair-VVertical-LED
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-Uair/
 featured_components:
 - id: light_esp32_rmt_led_strip_1

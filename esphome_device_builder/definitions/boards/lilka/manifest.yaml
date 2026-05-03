@@ -14,34 +14,34 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (button_select)
+  occupied_by: button_select
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (button_start)
+  occupied_by: button_start
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (button_a)
+  occupied_by: button_a
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (button_b)
+  occupied_by: button_b
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (button_d)
+  occupied_by: button_d
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (button_c)
+  occupied_by: button_c
 - gpio: 38
   available: false
-  occupied_by: binary_sensor.gpio (button_up)
+  occupied_by: button_up
 - gpio: 39
   available: false
-  occupied_by: binary_sensor.gpio (button_left)
+  occupied_by: button_left
 - gpio: 40
   available: false
-  occupied_by: binary_sensor.gpio (button_right)
+  occupied_by: button_right
 - gpio: 41
   available: false
-  occupied_by: binary_sensor.gpio (button_down)
+  occupied_by: button_down
 docs_url: https://devices.esphome.io/devices/Lilka/
 product_url: https://docs.lilka.dev/
 featured_components:
@@ -55,7 +55,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button_up
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -66,7 +66,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: button_down
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -77,7 +77,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: button_left
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -88,7 +88,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_4
-    name: Gpio 4
+    name: button_right
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -99,7 +99,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_5
-    name: Gpio 5
+    name: button_a
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -110,7 +110,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_6
-    name: Gpio 6
+    name: button_b
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -121,7 +121,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_7
-    name: Gpio 7
+    name: button_c
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -132,7 +132,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_8
-    name: Gpio 8
+    name: button_d
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -143,7 +143,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_9
-    name: Gpio 9
+    name: button_start
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
   fields:
@@ -154,7 +154,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_10
-    name: Gpio 10
+    name: button_select
 source:
   type: esphome-devices
   remote_id: Lilka

@@ -18,7 +18,7 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (${device_name} Switch)
+  occupied_by: Switch
 - gpio: 5
   available: false
   occupied_by: sensor.hlw8012
@@ -30,13 +30,13 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 26
   available: false
-  occupied_by: output.gpio (relay_output)
+  occupied_by: relay_output
 - gpio: 32
   available: false
-  occupied_by: sensor.adc (temp_analog_reading)
+  occupied_by: temp_analog_reading
 - gpio: 33
   available: false
-  occupied_by: sensor.adc (${device_name} Relay Supply Voltage)
+  occupied_by: Relay Supply Voltage
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-1PM/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -46,7 +46,7 @@ featured_components:
       value: 4
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Switch
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -57,20 +57,18 @@ featured_components:
 - id: sensor_ntc_1
   component_id: sensor.ntc
   fields:
-    sensor: temp_resistance_reading
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
     id: sensor_ntc_1
-    name: Ntc 1
+    name: Temperature
 - id: sensor_resistance_1
   component_id: sensor.resistance
   fields:
-    sensor: temp_analog_reading
     configuration: DOWNSTREAM
     resistor: 10kOhm
     id: sensor_resistance_1
-    name: Resistance 1
+    name: temp_resistance_reading
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -79,7 +77,7 @@ featured_components:
       locked: true
     attenuation: 12db
     id: sensor_adc_1
-    name: Adc 1
+    name: temp_analog_reading
 - id: sensor_adc_2
   component_id: sensor.adc
   fields:
@@ -88,7 +86,7 @@ featured_components:
       locked: true
     attenuation: 12db
     id: sensor_adc_2
-    name: Adc 2
+    name: Relay Supply Voltage
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -113,17 +111,10 @@ featured_components:
 - id: sensor_total_daily_energy_1
   component_id: sensor.total_daily_energy
   fields:
-    power_id: power
     unit_of_measurement: kWh
     icon: mdi:clock-alert
     id: sensor_total_daily_energy_1
-    name: Total Daily Energy 1
-- id: switch_output_1
-  component_id: switch.output
-  fields:
-    output: relay_output
-    id: switch_output_1
-    name: Output 1
+    name: Daily energy consumed
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-1PM

@@ -37,7 +37,7 @@ featured_components:
     attenuation: auto
     update_interval: never
     id: sensor_adc_1
-    name: Adc 1
+    name: Voltage
 - id: sensor_resistance_1
   component_id: sensor.resistance
   fields:
@@ -46,34 +46,7 @@ featured_components:
     disabled_by_default: true
     configuration: UPSTREAM
     id: sensor_resistance_1
-    name: Resistance 1
-- id: sensor_template_1
-  component_id: sensor.template
-  fields:
-    icon: mdi:omega
-    entity_category: diagnostic
-    unit_of_measurement: Ω
-    update_interval: never
-    id: sensor_template_1
-    name: Template 1
-- id: sensor_template_2
-  component_id: sensor.template
-  fields:
-    icon: mdi:percent
-    entity_category: diagnostic
-    disabled_by_default: true
-    unit_of_measurement: '%'
-    update_interval: never
-    id: sensor_template_2
-    name: Template 2
-- id: sensor_template_3
-  component_id: sensor.template
-  fields:
-    unit_of_measurement: ppm
-    device_class: carbon_monoxide
-    update_interval: never
-    id: sensor_template_3
-    name: Template 3
+    name: Resistance
 - id: switch_output_1
   component_id: switch.output
   fields:
@@ -81,7 +54,7 @@ featured_components:
     entity_category: diagnostic
     disabled_by_default: true
     id: switch_output_1
-    name: Output 1
+    name: Heater
 source:
   type: esphome-devices
   remote_id: MQ-7

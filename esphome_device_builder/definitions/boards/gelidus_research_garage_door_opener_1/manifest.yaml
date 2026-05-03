@@ -48,18 +48,6 @@ featured_components:
     entity_category: config
     id: button_factory_reset_1
     name: Factory Reset
-- id: button_template_1
-  component_id: button.template
-  fields:
-    entity_category: config
-    id: button_template_1
-    name: Reset door timings
-- id: button_template_2
-  component_id: button.template
-  fields:
-    entity_category: config
-    id: button_template_2
-    name: Re-sync
 - id: text_sensor_version_1
   component_id: text_sensor.version
   fields:

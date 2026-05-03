@@ -14,31 +14,31 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: switch.gpio (Relay6)
+  occupied_by: Relay6
 - gpio: 2
   available: false
-  occupied_by: light.status_led (RelayBoard LED)
+  occupied_by: RelayBoard LED
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (Relay7)
+  occupied_by: Relay7
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (Relay8)
+  occupied_by: Relay8
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Relay3)
+  occupied_by: Relay3
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (Relay4)
+  occupied_by: Relay4
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (Relay2)
+  occupied_by: Relay2
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (Relay5)
+  occupied_by: Relay5
 - gpio: 16
   available: false
-  occupied_by: switch.gpio (Relay1)
+  occupied_by: Relay1
 docs_url: https://devices.esphome.io/devices/ESP-12F-Relay-X8/
 featured_components:
 - id: light_status_led_1

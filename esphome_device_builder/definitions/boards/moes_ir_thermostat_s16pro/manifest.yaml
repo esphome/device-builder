@@ -26,7 +26,6 @@ featured_components:
 - id: climate_climate_ir_lg_1
   component_id: climate.climate_ir_lg
   fields:
-    receiver_id: ir_r
     header_high: 3265us
     header_low: 9856us
     internal: true

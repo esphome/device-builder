@@ -12,19 +12,19 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (strip_light_pushbutton)
+  occupied_by: strip_light_pushbutton
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (output_red)
+  occupied_by: output_red
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (output_white)
+  occupied_by: output_white
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_green)
+  occupied_by: output_green
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (output_blue)
+  occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Mirabella-Genio-WiFi-LED-Strip-Light/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -39,15 +39,6 @@ featured_components:
     internal: true
     id: binary_sensor_gpio_1
     name: strip_light_pushbutton
-- id: light_rgbw_1
-  component_id: light.rgbw
-  fields:
-    red: output_red
-    green: output_green
-    blue: output_blue
-    white: output_white
-    id: light_rgbw_1
-    name: Strip Light
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:

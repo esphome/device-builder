@@ -12,17 +12,15 @@ images:
 pins:
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (cw_color_temp)
+  occupied_by: cw_color_temp
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (ww_color_temp)
+  occupied_by: ww_color_temp
 docs_url: https://devices.esphome.io/devices/Brilliant-Smart-CCT-Globe-GU10/
 featured_components:
 - id: light_cwww_1
   component_id: light.cwww
   fields:
-    cold_white: cw_color_temp
-    warm_white: ww_color_temp
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     constant_brightness: true

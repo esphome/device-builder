@@ -13,13 +13,13 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Bottom Button)
+  occupied_by: Bottom Button
 - gpio: 12
   available: false
-  occupied_by: output.gpio (gpio_12)
+  occupied_by: gpio_12
 - gpio: 13
   available: false
-  occupied_by: output.gpio (gpio_13)
+  occupied_by: gpio_13
 docs_url: https://devices.esphome.io/devices/Athom-AR01-IR-Controller/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -48,18 +48,6 @@ featured_components:
       value: 13
       locked: true
     id: output_gpio_2
-- id: switch_output_1
-  component_id: switch.output
-  fields:
-    output: gpio_12
-    id: switch_output_1
-    name: Top LED
-- id: switch_output_2
-  component_id: switch.output
-  fields:
-    output: gpio_13
-    id: switch_output_2
-    name: Middle LED
 source:
   type: esphome-devices
   remote_id: Athom-AR01-IR-Controller

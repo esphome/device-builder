@@ -15,16 +15,16 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (reset)
+  occupied_by: reset
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (${device_name}_status)
+  occupied_by: status
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (${device_name}_switch)
+  occupied_by: switch
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (blue_led)
+  occupied_by: blue_led
 docs_url: https://devices.esphome.io/devices/Sonoff-Mini-Relay/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -35,7 +35,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: reset
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -43,14 +43,13 @@ featured_components:
       value: 4
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: status
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: blue_led
     internal: true
     id: light_monochromatic_1
-    name: Monochromatic 1
+    name: blueled
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:
@@ -68,7 +67,7 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Wifi Signal Strength
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -78,7 +77,7 @@ featured_components:
       locked: true
     restore_mode: restore_default_off
     id: switch_gpio_1
-    name: Gpio 1
+    name: switch
 source:
   type: esphome-devices
   remote_id: Sonoff-Mini-Relay

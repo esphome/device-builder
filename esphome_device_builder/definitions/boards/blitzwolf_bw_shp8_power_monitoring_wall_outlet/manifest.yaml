@@ -15,10 +15,10 @@ tags:
 pins:
 - gpio: 1
   available: false
-  occupied_by: output.esp8266_pwm (state_led)
+  occupied_by: state_led
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (button)
+  occupied_by: button
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -30,7 +30,7 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 14
   available: false
-  occupied_by: switch.gpio ($hostname power)
+  occupied_by: $hostname power
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BW-SHP8-Power-Monitoring-Wall-Outlet/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -43,13 +43,7 @@ featured_components:
         mode: INPUT_PULLUP
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: state_led
-    id: light_monochromatic_1
-    name: Monochromatic 1
+    name: button
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:
@@ -80,27 +74,6 @@ featured_components:
       locked: true
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: sensor_template_1
-  component_id: sensor.template
-  fields:
-    unit_of_measurement: VA
-    accuracy_decimals: 3
-    lambda: return id(voltage).state * id(current).state;
-    id: sensor_template_1
-    name: $hostname apparent power
-- id: sensor_template_2
-  component_id: sensor.template
-  fields:
-    unit_of_measurement: VAr
-    accuracy_decimals: 3
-    id: sensor_template_2
-    name: $hostname reactive power
-- id: sensor_template_3
-  component_id: sensor.template
-  fields:
-    accuracy_decimals: 1
-    id: sensor_template_3
-    name: $hostname power factor
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

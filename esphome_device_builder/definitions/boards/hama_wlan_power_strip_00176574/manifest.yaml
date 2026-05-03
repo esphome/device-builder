@@ -15,25 +15,25 @@ tags:
 pins:
 - gpio: 1
   available: false
-  occupied_by: 'switch.gpio (POWERSTRIP: Switch Main)'
+  occupied_by: 'POWERSTRIP: Switch Main'
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (powerstrip_button)
+  occupied_by: powerstrip_button
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (powerstrip_relay_2)
+  occupied_by: powerstrip_relay_2
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (powerstrip_relay_1)
+  occupied_by: powerstrip_relay_1
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (powerstrip_relay_3)
+  occupied_by: powerstrip_relay_3
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (powerstrip_relay_4)
+  occupied_by: powerstrip_relay_4
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (powerstrip_relay_5)
+  occupied_by: powerstrip_relay_5
 docs_url: https://devices.esphome.io/devices/Hama-WLAN-Power-Strip-00176574/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -46,7 +46,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: powerstrip_button
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -54,7 +54,7 @@ featured_components:
       value: 5
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: powerstrip_relay_1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -62,7 +62,7 @@ featured_components:
       value: 12
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: powerstrip_relay_3
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -70,7 +70,7 @@ featured_components:
       value: 13
       locked: true
     id: switch_gpio_3
-    name: Gpio 3
+    name: powerstrip_relay_4
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -78,7 +78,7 @@ featured_components:
       value: 4
       locked: true
     id: switch_gpio_4
-    name: Gpio 4
+    name: powerstrip_relay_2
 - id: switch_gpio_5
   component_id: switch.gpio
   fields:
@@ -86,7 +86,7 @@ featured_components:
       value: 14
       locked: true
     id: switch_gpio_5
-    name: Gpio 5
+    name: powerstrip_relay_5
 - id: switch_gpio_6
   component_id: switch.gpio
   fields:
@@ -97,41 +97,6 @@ featured_components:
       locked: true
     id: switch_gpio_6
     name: 'POWERSTRIP: Switch Main'
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_template_1
-    name: 'POWERSTRIP: Switch 1'
-- id: switch_template_2
-  component_id: switch.template
-  fields:
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_template_2
-    name: 'POWERSTRIP: Switch 2'
-- id: switch_template_3
-  component_id: switch.template
-  fields:
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_template_3
-    name: 'POWERSTRIP: Switch 3'
-- id: switch_template_4
-  component_id: switch.template
-  fields:
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_template_4
-    name: 'POWERSTRIP: Switch 4'
-- id: switch_template_5
-  component_id: switch.template
-  fields:
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_template_5
-    name: 'POWERSTRIP: Switch 5'
 source:
   type: esphome-devices
   remote_id: Hama-WLAN-Power-Strip-00176574

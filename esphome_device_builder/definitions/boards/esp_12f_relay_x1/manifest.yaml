@@ -14,7 +14,7 @@ tags:
 pins:
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 docs_url: https://devices.esphome.io/devices/ESP-12F-Relay-X1/
 featured_components:
 - id: switch_gpio_1

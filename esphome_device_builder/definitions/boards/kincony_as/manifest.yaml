@@ -17,7 +17,7 @@ images:
 pins:
 - gpio: 16
   available: false
-  occupied_by: light.esp32_rmt_led_strip (on board light)
+  occupied_by: on board light
 docs_url: https://devices.esphome.io/devices/KinCony-AS/
 featured_components:
 - id: light_esp32_rmt_led_strip_1
@@ -31,12 +31,6 @@ featured_components:
     chipset: ws2812
     id: light_esp32_rmt_led_strip_1
     name: on board light
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    optimistic: true
-    id: switch_template_1
-    name: mute
 source:
   type: esphome-devices
   remote_id: KinCony-AS

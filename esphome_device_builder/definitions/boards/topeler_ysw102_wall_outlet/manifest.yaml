@@ -19,7 +19,6 @@ featured_components:
 - id: light_status_led_1
   component_id: light.status_led
   fields:
-    output: output_green_led
     disabled_by_default: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: light_status_led_1

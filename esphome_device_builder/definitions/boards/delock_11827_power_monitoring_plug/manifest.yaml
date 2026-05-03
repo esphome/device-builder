@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (${plug_name} Button)
+  occupied_by: Button
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -27,10 +27,10 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (led)
+  occupied_by: led
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (${plug_name} Smart Plug)
+  occupied_by: Smart Plug
 docs_url: https://devices.esphome.io/devices/Delock-11827-Power-Monitoring-Plug/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -42,7 +42,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -68,7 +68,7 @@ featured_components:
       value: 13
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: led
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -76,7 +76,7 @@ featured_components:
       value: 14
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: Smart Plug
 source:
   type: esphome-devices
   remote_id: Delock-11827-Power-Monitoring-Plug

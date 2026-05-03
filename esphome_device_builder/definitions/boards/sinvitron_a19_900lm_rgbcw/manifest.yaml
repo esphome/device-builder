@@ -13,34 +13,29 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (red)
+  occupied_by: red
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (cold_white)
+  occupied_by: cold_white
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (green)
+  occupied_by: green
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (warm_white)
+  occupied_by: warm_white
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (blue)
+  occupied_by: blue
 docs_url: https://devices.esphome.io/devices/Sinvitron-A19-900lm-RGBCW/
 featured_components:
 - id: light_rgbww_1
   component_id: light.rgbww
   fields:
-    red: red
-    green: green
-    blue: blue
-    cold_white: cold_white
-    warm_white: warm_white
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     restore_mode: ALWAYS_ON
     id: light_rgbww_1
-    name: Rgbww 1
+    name: thelight
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:

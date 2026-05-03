@@ -14,27 +14,18 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (pwm_w)
+  occupied_by: pwm_w
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (pwm_r)
+  occupied_by: pwm_r
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (pwm_b)
+  occupied_by: pwm_b
 - gpio: 15
   available: false
-  occupied_by: output.esp8266_pwm (pwm_g)
+  occupied_by: pwm_g
 docs_url: https://devices.esphome.io/devices/Shelly-RGBW2/
 featured_components:
-- id: light_rgbw_1
-  component_id: light.rgbw
-  fields:
-    red: pwm_r
-    green: pwm_g
-    blue: pwm_b
-    white: pwm_w
-    id: light_rgbw_1
-    name: ledstrip_shelly_rgbw2
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:

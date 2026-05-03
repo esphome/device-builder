@@ -25,11 +25,6 @@ featured_components:
     constant_brightness: true
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
-    red: output_red
-    green: output_green
-    blue: output_blue
-    cold_white: output_cold
-    warm_white: output_warm
     restore_mode: RESTORE_DEFAULT_ON
     gamma_correct: 1.5
     default_transition_length: 0.5s

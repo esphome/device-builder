@@ -20,7 +20,7 @@ featured_components:
   fields:
     internal: true
     id: light_status_led_1
-    name: Status Led 1
+    name: status_light
 source:
   type: esphome-devices
   remote_id: Energizer-Smart-Plug

@@ -18,16 +18,16 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 - gpio: 4
   available: false
-  occupied_by: sensor.adc (batt_adc)
+  occupied_by: batt_adc
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (batt_presence)
+  occupied_by: batt_presence
 - gpio: 18
   available: false
-  occupied_by: output.gpio (batt_power_en)
+  occupied_by: batt_power_en
 docs_url: https://devices.esphome.io/devices/Shelly-HT-Gen3/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -40,7 +40,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: batt_presence
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -86,7 +86,7 @@ featured_components:
     internal: true
     samples: 15
     id: sensor_adc_1
-    name: Adc 1
+    name: batt_adc
 source:
   type: esphome-devices
   remote_id: Shelly-HT-Gen3

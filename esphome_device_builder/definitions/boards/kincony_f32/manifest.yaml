@@ -17,64 +17,64 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (f32-input01)
+  occupied_by: f32-output17
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (f32-input02)
+  occupied_by: f32-output18
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (f32-input03)
+  occupied_by: f32-output19
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (f32-input04)
+  occupied_by: f32-output20
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (f32-input05)
+  occupied_by: f32-output21
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (f32-input06)
+  occupied_by: f32-output22
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (f32-input07)
+  occupied_by: f32-output23
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (f32-input08)
+  occupied_by: f32-output24
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (f32-input09)
+  occupied_by: f32-output25
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (f32-input10)
+  occupied_by: f32-output26
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (f32-input11)
+  occupied_by: f32-output27
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (f32-input12)
+  occupied_by: f32-output28
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (f32-input13)
+  occupied_by: f32-output29
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (f32-input14)
+  occupied_by: f32-output30
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (f32-input15)
+  occupied_by: f32-output31
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (f32-input16)
+  occupied_by: f32-output32
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (f32-W1-io21)
+  occupied_by: f32-W1-io21
 - gpio: 40
   available: false
-  occupied_by: binary_sensor.gpio (f32-433M)
+  occupied_by: f32-433M
 - gpio: 47
   available: false
-  occupied_by: binary_sensor.gpio (f32-W1-io47)
+  occupied_by: f32-W1-io47
 - gpio: 48
   available: false
-  occupied_by: binary_sensor.gpio (f32-W1-io48)
+  occupied_by: f32-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-F32/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -531,15 +531,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_39
     name: f32-433M
-- id: display_ssd1306_i2c_1
-  component_id: display.ssd1306_i2c
-  fields:
-    i2c_id: bus_a
-    model: SSD1306 128x64
-    address: 60
-    lambda: it.printf(0, 0, id(roboto), "KinCony F32");
-    id: display_ssd1306_i2c_1
-    name: Ssd1306 I2C 1
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -582,12 +573,6 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_4
     name: f32 A4 Current
-- id: switch_uart_1
-  component_id: switch.uart
-  fields:
-    uart_id: uart_1
-    id: switch_uart_1
-    name: RS485 Button
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

@@ -17,28 +17,28 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: 'switch.gpio (Relay #6)'
+  occupied_by: 'Relay #6'
 - gpio: 5
   available: false
-  occupied_by: 'switch.gpio (Relay #8)'
+  occupied_by: 'Relay #8'
 - gpio: 13
   available: false
-  occupied_by: 'switch.gpio (Relay #4)'
+  occupied_by: 'Relay #4'
 - gpio: 14
   available: false
-  occupied_by: 'switch.gpio (Relay #3)'
+  occupied_by: 'Relay #3'
 - gpio: 15
   available: false
-  occupied_by: 'switch.gpio (Relay #5)'
+  occupied_by: 'Relay #5'
 - gpio: 16
   available: false
-  occupied_by: 'switch.gpio (Relay #7)'
+  occupied_by: 'Relay #7'
 - gpio: 32
   available: false
-  occupied_by: 'switch.gpio (Relay #1)'
+  occupied_by: 'Relay #1'
 - gpio: 33
   available: false
-  occupied_by: 'switch.gpio (Relay #2)'
+  occupied_by: 'Relay #2'
 docs_url: https://devices.esphome.io/devices/Makerfabs-8CH-Relay/
 featured_components:
 - id: switch_gpio_1

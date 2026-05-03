@@ -16,772 +16,772 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (a256-input1)
+  occupied_by: a256-light1
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (a256-input2)
+  occupied_by: a256-light2
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (a256-input3)
+  occupied_by: a256-light3
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (a256-input4)
+  occupied_by: a256-light4
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (a256-input5)
+  occupied_by: a256-light5
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (a256-input6)
+  occupied_by: a256-light6
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (a256-input7)
+  occupied_by: a256-light7
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (a256-input8)
+  occupied_by: a256-light8
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (a256-input9)
+  occupied_by: a256-light9
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (a256-input10)
+  occupied_by: a256-light10
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (a256-input11)
+  occupied_by: a256-light11
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (a256-input12)
+  occupied_by: a256-light12
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (a256-input13)
+  occupied_by: a256-light13
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (a256-input14)
+  occupied_by: a256-light14
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (a256-input15)
+  occupied_by: a256-light15
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (a256-input16)
+  occupied_by: a256-light16
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (a256-input17)
+  occupied_by: a256-light17
 - gpio: 17
   available: false
-  occupied_by: binary_sensor.gpio (a256-input18)
+  occupied_by: a256-light18
 - gpio: 18
   available: false
-  occupied_by: binary_sensor.gpio (a256-input19)
+  occupied_by: a256-light19
 - gpio: 19
   available: false
-  occupied_by: binary_sensor.gpio (a256-input20)
+  occupied_by: a256-light20
 - gpio: 20
   available: false
-  occupied_by: binary_sensor.gpio (a256-input21)
+  occupied_by: a256-light21
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (a256-input22)
+  occupied_by: a256-light22
 - gpio: 22
   available: false
-  occupied_by: binary_sensor.gpio (a256-input23)
+  occupied_by: a256-light23
 - gpio: 23
   available: false
-  occupied_by: binary_sensor.gpio (a256-input24)
+  occupied_by: a256-light24
 - gpio: 24
   available: false
-  occupied_by: binary_sensor.gpio (a256-input25)
+  occupied_by: a256-light25
 - gpio: 25
   available: false
-  occupied_by: binary_sensor.gpio (a256-input26)
+  occupied_by: a256-light26
 - gpio: 26
   available: false
-  occupied_by: binary_sensor.gpio (a256-input27)
+  occupied_by: a256-light27
 - gpio: 27
   available: false
-  occupied_by: binary_sensor.gpio (a256-input28)
+  occupied_by: a256-light28
 - gpio: 28
   available: false
-  occupied_by: binary_sensor.gpio (a256-input29)
+  occupied_by: a256-light29
 - gpio: 29
   available: false
-  occupied_by: binary_sensor.gpio (a256-input30)
+  occupied_by: a256-light30
 - gpio: 30
   available: false
-  occupied_by: binary_sensor.gpio (a256-input31)
+  occupied_by: a256-light31
 - gpio: 31
   available: false
-  occupied_by: binary_sensor.gpio (a256-input32)
+  occupied_by: a256-light32
 - gpio: 32
   available: false
-  occupied_by: binary_sensor.gpio (a256-input33)
+  occupied_by: a256-light33
 - gpio: 33
   available: false
-  occupied_by: binary_sensor.gpio (a256-input34)
+  occupied_by: a256-light34
 - gpio: 34
   available: false
-  occupied_by: binary_sensor.gpio (a256-input35)
+  occupied_by: a256-light35
 - gpio: 35
   available: false
-  occupied_by: binary_sensor.gpio (a256-input36)
+  occupied_by: a256-light36
 - gpio: 36
   available: false
-  occupied_by: binary_sensor.gpio (a256-input37)
+  occupied_by: a256-light37
 - gpio: 37
   available: false
-  occupied_by: binary_sensor.gpio (a256-input38)
+  occupied_by: a256-light38
 - gpio: 38
   available: false
-  occupied_by: binary_sensor.gpio (a256-input39)
+  occupied_by: a256-light39
 - gpio: 39
   available: false
-  occupied_by: binary_sensor.gpio (a256-input40)
+  occupied_by: a256-light40
 - gpio: 40
   available: false
-  occupied_by: binary_sensor.gpio (a256-input41)
+  occupied_by: a256-light41
 - gpio: 41
   available: false
-  occupied_by: binary_sensor.gpio (a256-input42)
+  occupied_by: a256-light42
 - gpio: 42
   available: false
-  occupied_by: binary_sensor.gpio (a256-input43)
+  occupied_by: a256-light43
 - gpio: 43
   available: false
-  occupied_by: binary_sensor.gpio (a256-input44)
+  occupied_by: a256-light44
 - gpio: 44
   available: false
-  occupied_by: binary_sensor.gpio (a256-input45)
+  occupied_by: a256-light45
 - gpio: 45
   available: false
-  occupied_by: binary_sensor.gpio (a256-input46)
+  occupied_by: a256-light46
 - gpio: 46
   available: false
-  occupied_by: binary_sensor.gpio (a256-input47)
+  occupied_by: a256-light47
 - gpio: 47
   available: false
-  occupied_by: binary_sensor.gpio (a256-input48)
+  occupied_by: a256-light48
 - gpio: 48
   available: false
-  occupied_by: binary_sensor.gpio (a256-input49)
+  occupied_by: a256-light49
 - gpio: 49
   available: false
-  occupied_by: binary_sensor.gpio (a256-input50)
+  occupied_by: a256-light50
 - gpio: 50
   available: false
-  occupied_by: binary_sensor.gpio (a256-input51)
+  occupied_by: a256-light51
 - gpio: 51
   available: false
-  occupied_by: binary_sensor.gpio (a256-input52)
+  occupied_by: a256-light52
 - gpio: 52
   available: false
-  occupied_by: binary_sensor.gpio (a256-input53)
+  occupied_by: a256-light53
 - gpio: 53
   available: false
-  occupied_by: binary_sensor.gpio (a256-input54)
+  occupied_by: a256-light54
 - gpio: 54
   available: false
-  occupied_by: binary_sensor.gpio (a256-input55)
+  occupied_by: a256-light55
 - gpio: 55
   available: false
-  occupied_by: binary_sensor.gpio (a256-input56)
+  occupied_by: a256-light56
 - gpio: 56
   available: false
-  occupied_by: binary_sensor.gpio (a256-input57)
+  occupied_by: a256-light57
 - gpio: 57
   available: false
-  occupied_by: binary_sensor.gpio (a256-input58)
+  occupied_by: a256-light58
 - gpio: 58
   available: false
-  occupied_by: binary_sensor.gpio (a256-input59)
+  occupied_by: a256-light59
 - gpio: 59
   available: false
-  occupied_by: binary_sensor.gpio (a256-input60)
+  occupied_by: a256-light60
 - gpio: 60
   available: false
-  occupied_by: binary_sensor.gpio (a256-input61)
+  occupied_by: a256-light61
 - gpio: 61
   available: false
-  occupied_by: binary_sensor.gpio (a256-input62)
+  occupied_by: a256-light62
 - gpio: 62
   available: false
-  occupied_by: binary_sensor.gpio (a256-input63)
+  occupied_by: a256-light63
 - gpio: 63
   available: false
-  occupied_by: binary_sensor.gpio (a256-input64)
+  occupied_by: a256-light64
 - gpio: 64
   available: false
-  occupied_by: binary_sensor.gpio (a256-input65)
+  occupied_by: a256-light65
 - gpio: 65
   available: false
-  occupied_by: binary_sensor.gpio (a256-input66)
+  occupied_by: a256-light66
 - gpio: 66
   available: false
-  occupied_by: binary_sensor.gpio (a256-input67)
+  occupied_by: a256-light67
 - gpio: 67
   available: false
-  occupied_by: binary_sensor.gpio (a256-input68)
+  occupied_by: a256-light68
 - gpio: 68
   available: false
-  occupied_by: binary_sensor.gpio (a256-input69)
+  occupied_by: a256-light69
 - gpio: 69
   available: false
-  occupied_by: binary_sensor.gpio (a256-input70)
+  occupied_by: a256-light70
 - gpio: 70
   available: false
-  occupied_by: binary_sensor.gpio (a256-input71)
+  occupied_by: a256-light71
 - gpio: 71
   available: false
-  occupied_by: binary_sensor.gpio (a256-input72)
+  occupied_by: a256-light72
 - gpio: 72
   available: false
-  occupied_by: binary_sensor.gpio (a256-input73)
+  occupied_by: a256-light73
 - gpio: 73
   available: false
-  occupied_by: binary_sensor.gpio (a256-input74)
+  occupied_by: a256-light74
 - gpio: 74
   available: false
-  occupied_by: binary_sensor.gpio (a256-input75)
+  occupied_by: a256-light75
 - gpio: 75
   available: false
-  occupied_by: binary_sensor.gpio (a256-input76)
+  occupied_by: a256-light76
 - gpio: 76
   available: false
-  occupied_by: binary_sensor.gpio (a256-input77)
+  occupied_by: a256-light77
 - gpio: 77
   available: false
-  occupied_by: binary_sensor.gpio (a256-input78)
+  occupied_by: a256-light78
 - gpio: 78
   available: false
-  occupied_by: binary_sensor.gpio (a256-input79)
+  occupied_by: a256-light79
 - gpio: 79
   available: false
-  occupied_by: binary_sensor.gpio (a256-input80)
+  occupied_by: a256-light80
 - gpio: 80
   available: false
-  occupied_by: binary_sensor.gpio (a256-input81)
+  occupied_by: a256-light81
 - gpio: 81
   available: false
-  occupied_by: binary_sensor.gpio (a256-input82)
+  occupied_by: a256-light82
 - gpio: 82
   available: false
-  occupied_by: binary_sensor.gpio (a256-input83)
+  occupied_by: a256-light83
 - gpio: 83
   available: false
-  occupied_by: binary_sensor.gpio (a256-input84)
+  occupied_by: a256-light84
 - gpio: 84
   available: false
-  occupied_by: binary_sensor.gpio (a256-input85)
+  occupied_by: a256-light85
 - gpio: 85
   available: false
-  occupied_by: binary_sensor.gpio (a256-input86)
+  occupied_by: a256-light86
 - gpio: 86
   available: false
-  occupied_by: binary_sensor.gpio (a256-input87)
+  occupied_by: a256-light87
 - gpio: 87
   available: false
-  occupied_by: binary_sensor.gpio (a256-input88)
+  occupied_by: a256-light88
 - gpio: 88
   available: false
-  occupied_by: binary_sensor.gpio (a256-input89)
+  occupied_by: a256-light89
 - gpio: 89
   available: false
-  occupied_by: binary_sensor.gpio (a256-input90)
+  occupied_by: a256-light90
 - gpio: 90
   available: false
-  occupied_by: binary_sensor.gpio (a256-input91)
+  occupied_by: a256-light91
 - gpio: 91
   available: false
-  occupied_by: binary_sensor.gpio (a256-input92)
+  occupied_by: a256-light92
 - gpio: 92
   available: false
-  occupied_by: binary_sensor.gpio (a256-input93)
+  occupied_by: a256-light93
 - gpio: 93
   available: false
-  occupied_by: binary_sensor.gpio (a256-input94)
+  occupied_by: a256-light94
 - gpio: 94
   available: false
-  occupied_by: binary_sensor.gpio (a256-input95)
+  occupied_by: a256-light95
 - gpio: 95
   available: false
-  occupied_by: binary_sensor.gpio (a256-input96)
+  occupied_by: a256-light96
 - gpio: 96
   available: false
-  occupied_by: binary_sensor.gpio (a256-input97)
+  occupied_by: a256-light97
 - gpio: 97
   available: false
-  occupied_by: binary_sensor.gpio (a256-input98)
+  occupied_by: a256-light98
 - gpio: 98
   available: false
-  occupied_by: binary_sensor.gpio (a256-input99)
+  occupied_by: a256-light99
 - gpio: 99
   available: false
-  occupied_by: binary_sensor.gpio (a256-input100)
+  occupied_by: a256-light100
 - gpio: 100
   available: false
-  occupied_by: binary_sensor.gpio (a256-input101)
+  occupied_by: a256-light101
 - gpio: 101
   available: false
-  occupied_by: binary_sensor.gpio (a256-input102)
+  occupied_by: a256-light102
 - gpio: 102
   available: false
-  occupied_by: binary_sensor.gpio (a256-input103)
+  occupied_by: a256-light103
 - gpio: 103
   available: false
-  occupied_by: binary_sensor.gpio (a256-input104)
+  occupied_by: a256-light104
 - gpio: 104
   available: false
-  occupied_by: binary_sensor.gpio (a256-input105)
+  occupied_by: a256-light105
 - gpio: 105
   available: false
-  occupied_by: binary_sensor.gpio (a256-input106)
+  occupied_by: a256-light106
 - gpio: 106
   available: false
-  occupied_by: binary_sensor.gpio (a256-input107)
+  occupied_by: a256-light107
 - gpio: 107
   available: false
-  occupied_by: binary_sensor.gpio (a256-input108)
+  occupied_by: a256-light108
 - gpio: 108
   available: false
-  occupied_by: binary_sensor.gpio (a256-input109)
+  occupied_by: a256-light109
 - gpio: 109
   available: false
-  occupied_by: binary_sensor.gpio (a256-input110)
+  occupied_by: a256-light110
 - gpio: 110
   available: false
-  occupied_by: binary_sensor.gpio (a256-input111)
+  occupied_by: a256-light111
 - gpio: 111
   available: false
-  occupied_by: binary_sensor.gpio (a256-input112)
+  occupied_by: a256-light112
 - gpio: 112
   available: false
-  occupied_by: binary_sensor.gpio (a256-input113)
+  occupied_by: a256-light113
 - gpio: 113
   available: false
-  occupied_by: binary_sensor.gpio (a256-input114)
+  occupied_by: a256-light114
 - gpio: 114
   available: false
-  occupied_by: binary_sensor.gpio (a256-input115)
+  occupied_by: a256-light115
 - gpio: 115
   available: false
-  occupied_by: binary_sensor.gpio (a256-input116)
+  occupied_by: a256-light116
 - gpio: 116
   available: false
-  occupied_by: binary_sensor.gpio (a256-input117)
+  occupied_by: a256-light117
 - gpio: 117
   available: false
-  occupied_by: binary_sensor.gpio (a256-input118)
+  occupied_by: a256-light118
 - gpio: 118
   available: false
-  occupied_by: binary_sensor.gpio (a256-input119)
+  occupied_by: a256-light119
 - gpio: 119
   available: false
-  occupied_by: binary_sensor.gpio (a256-input120)
+  occupied_by: a256-light120
 - gpio: 120
   available: false
-  occupied_by: binary_sensor.gpio (a256-input121)
+  occupied_by: a256-light121
 - gpio: 121
   available: false
-  occupied_by: binary_sensor.gpio (a256-input122)
+  occupied_by: a256-light122
 - gpio: 122
   available: false
-  occupied_by: binary_sensor.gpio (a256-input123)
+  occupied_by: a256-light123
 - gpio: 123
   available: false
-  occupied_by: binary_sensor.gpio (a256-input124)
+  occupied_by: a256-light124
 - gpio: 124
   available: false
-  occupied_by: binary_sensor.gpio (a256-input125)
+  occupied_by: a256-light125
 - gpio: 125
   available: false
-  occupied_by: binary_sensor.gpio (a256-input126)
+  occupied_by: a256-light126
 - gpio: 126
   available: false
-  occupied_by: binary_sensor.gpio (a256-input127)
+  occupied_by: a256-light127
 - gpio: 127
   available: false
-  occupied_by: binary_sensor.gpio (a256-input128)
+  occupied_by: a256-light128
 - gpio: 128
   available: false
-  occupied_by: binary_sensor.gpio (a256-input129)
+  occupied_by: a256-light129
 - gpio: 129
   available: false
-  occupied_by: binary_sensor.gpio (a256-input130)
+  occupied_by: a256-light130
 - gpio: 130
   available: false
-  occupied_by: binary_sensor.gpio (a256-input131)
+  occupied_by: a256-light131
 - gpio: 131
   available: false
-  occupied_by: binary_sensor.gpio (a256-input132)
+  occupied_by: a256-light132
 - gpio: 132
   available: false
-  occupied_by: binary_sensor.gpio (a256-input133)
+  occupied_by: a256-light133
 - gpio: 133
   available: false
-  occupied_by: binary_sensor.gpio (a256-input134)
+  occupied_by: a256-light134
 - gpio: 134
   available: false
-  occupied_by: binary_sensor.gpio (a256-input135)
+  occupied_by: a256-light135
 - gpio: 135
   available: false
-  occupied_by: binary_sensor.gpio (a256-input136)
+  occupied_by: a256-light136
 - gpio: 136
   available: false
-  occupied_by: binary_sensor.gpio (a256-input137)
+  occupied_by: a256-light137
 - gpio: 137
   available: false
-  occupied_by: binary_sensor.gpio (a256-input138)
+  occupied_by: a256-light138
 - gpio: 138
   available: false
-  occupied_by: binary_sensor.gpio (a256-input139)
+  occupied_by: a256-light139
 - gpio: 139
   available: false
-  occupied_by: binary_sensor.gpio (a256-input140)
+  occupied_by: a256-light140
 - gpio: 140
   available: false
-  occupied_by: binary_sensor.gpio (a256-input141)
+  occupied_by: a256-light141
 - gpio: 141
   available: false
-  occupied_by: binary_sensor.gpio (a256-input142)
+  occupied_by: a256-light142
 - gpio: 142
   available: false
-  occupied_by: binary_sensor.gpio (a256-input143)
+  occupied_by: a256-light143
 - gpio: 143
   available: false
-  occupied_by: binary_sensor.gpio (a256-input144)
+  occupied_by: a256-light144
 - gpio: 144
   available: false
-  occupied_by: binary_sensor.gpio (a256-input145)
+  occupied_by: a256-light145
 - gpio: 145
   available: false
-  occupied_by: binary_sensor.gpio (a256-input146)
+  occupied_by: a256-light146
 - gpio: 146
   available: false
-  occupied_by: binary_sensor.gpio (a256-input147)
+  occupied_by: a256-light147
 - gpio: 147
   available: false
-  occupied_by: binary_sensor.gpio (a256-input148)
+  occupied_by: a256-light148
 - gpio: 148
   available: false
-  occupied_by: binary_sensor.gpio (a256-input149)
+  occupied_by: a256-light149
 - gpio: 149
   available: false
-  occupied_by: binary_sensor.gpio (a256-input150)
+  occupied_by: a256-light150
 - gpio: 150
   available: false
-  occupied_by: binary_sensor.gpio (a256-input151)
+  occupied_by: a256-light151
 - gpio: 151
   available: false
-  occupied_by: binary_sensor.gpio (a256-input152)
+  occupied_by: a256-light152
 - gpio: 152
   available: false
-  occupied_by: binary_sensor.gpio (a256-input153)
+  occupied_by: a256-light153
 - gpio: 153
   available: false
-  occupied_by: binary_sensor.gpio (a256-input154)
+  occupied_by: a256-light154
 - gpio: 154
   available: false
-  occupied_by: binary_sensor.gpio (a256-input155)
+  occupied_by: a256-light155
 - gpio: 155
   available: false
-  occupied_by: binary_sensor.gpio (a256-input156)
+  occupied_by: a256-light156
 - gpio: 156
   available: false
-  occupied_by: binary_sensor.gpio (a256-input157)
+  occupied_by: a256-light157
 - gpio: 157
   available: false
-  occupied_by: binary_sensor.gpio (a256-input158)
+  occupied_by: a256-light158
 - gpio: 158
   available: false
-  occupied_by: binary_sensor.gpio (a256-input159)
+  occupied_by: a256-light159
 - gpio: 159
   available: false
-  occupied_by: binary_sensor.gpio (a256-input160)
+  occupied_by: a256-light160
 - gpio: 160
   available: false
-  occupied_by: binary_sensor.gpio (a256-input161)
+  occupied_by: a256-light161
 - gpio: 161
   available: false
-  occupied_by: binary_sensor.gpio (a256-input162)
+  occupied_by: a256-light162
 - gpio: 162
   available: false
-  occupied_by: binary_sensor.gpio (a256-input163)
+  occupied_by: a256-light163
 - gpio: 163
   available: false
-  occupied_by: binary_sensor.gpio (a256-input164)
+  occupied_by: a256-light164
 - gpio: 164
   available: false
-  occupied_by: binary_sensor.gpio (a256-input165)
+  occupied_by: a256-light165
 - gpio: 165
   available: false
-  occupied_by: binary_sensor.gpio (a256-input166)
+  occupied_by: a256-light166
 - gpio: 166
   available: false
-  occupied_by: binary_sensor.gpio (a256-input167)
+  occupied_by: a256-light167
 - gpio: 167
   available: false
-  occupied_by: binary_sensor.gpio (a256-input168)
+  occupied_by: a256-light168
 - gpio: 168
   available: false
-  occupied_by: binary_sensor.gpio (a256-input169)
+  occupied_by: a256-light169
 - gpio: 169
   available: false
-  occupied_by: binary_sensor.gpio (a256-input170)
+  occupied_by: a256-light170
 - gpio: 170
   available: false
-  occupied_by: binary_sensor.gpio (a256-input171)
+  occupied_by: a256-light171
 - gpio: 171
   available: false
-  occupied_by: binary_sensor.gpio (a256-input172)
+  occupied_by: a256-light172
 - gpio: 172
   available: false
-  occupied_by: binary_sensor.gpio (a256-input173)
+  occupied_by: a256-light173
 - gpio: 173
   available: false
-  occupied_by: binary_sensor.gpio (a256-input174)
+  occupied_by: a256-light174
 - gpio: 174
   available: false
-  occupied_by: binary_sensor.gpio (a256-input175)
+  occupied_by: a256-light175
 - gpio: 175
   available: false
-  occupied_by: binary_sensor.gpio (a256-input176)
+  occupied_by: a256-light176
 - gpio: 176
   available: false
-  occupied_by: binary_sensor.gpio (a256-input177)
+  occupied_by: a256-light177
 - gpio: 177
   available: false
-  occupied_by: binary_sensor.gpio (a256-input178)
+  occupied_by: a256-light178
 - gpio: 178
   available: false
-  occupied_by: binary_sensor.gpio (a256-input179)
+  occupied_by: a256-light179
 - gpio: 179
   available: false
-  occupied_by: binary_sensor.gpio (a256-input180)
+  occupied_by: a256-light180
 - gpio: 180
   available: false
-  occupied_by: binary_sensor.gpio (a256-input181)
+  occupied_by: a256-light181
 - gpio: 181
   available: false
-  occupied_by: binary_sensor.gpio (a256-input182)
+  occupied_by: a256-light182
 - gpio: 182
   available: false
-  occupied_by: binary_sensor.gpio (a256-input183)
+  occupied_by: a256-light183
 - gpio: 183
   available: false
-  occupied_by: binary_sensor.gpio (a256-input184)
+  occupied_by: a256-light184
 - gpio: 184
   available: false
-  occupied_by: binary_sensor.gpio (a256-input185)
+  occupied_by: a256-light185
 - gpio: 185
   available: false
-  occupied_by: binary_sensor.gpio (a256-input186)
+  occupied_by: a256-light186
 - gpio: 186
   available: false
-  occupied_by: binary_sensor.gpio (a256-input187)
+  occupied_by: a256-light187
 - gpio: 187
   available: false
-  occupied_by: binary_sensor.gpio (a256-input188)
+  occupied_by: a256-light188
 - gpio: 188
   available: false
-  occupied_by: binary_sensor.gpio (a256-input189)
+  occupied_by: a256-light189
 - gpio: 189
   available: false
-  occupied_by: binary_sensor.gpio (a256-input190)
+  occupied_by: a256-light190
 - gpio: 190
   available: false
-  occupied_by: binary_sensor.gpio (a256-input191)
+  occupied_by: a256-light191
 - gpio: 191
   available: false
-  occupied_by: binary_sensor.gpio (a256-input192)
+  occupied_by: a256-light192
 - gpio: 192
   available: false
-  occupied_by: binary_sensor.gpio (a256-input193)
+  occupied_by: a256-light193
 - gpio: 193
   available: false
-  occupied_by: binary_sensor.gpio (a256-input194)
+  occupied_by: a256-light194
 - gpio: 194
   available: false
-  occupied_by: binary_sensor.gpio (a256-input195)
+  occupied_by: a256-light195
 - gpio: 195
   available: false
-  occupied_by: binary_sensor.gpio (a256-input196)
+  occupied_by: a256-light196
 - gpio: 196
   available: false
-  occupied_by: binary_sensor.gpio (a256-input197)
+  occupied_by: a256-light197
 - gpio: 197
   available: false
-  occupied_by: binary_sensor.gpio (a256-input198)
+  occupied_by: a256-light198
 - gpio: 198
   available: false
-  occupied_by: binary_sensor.gpio (a256-input199)
+  occupied_by: a256-light199
 - gpio: 199
   available: false
-  occupied_by: binary_sensor.gpio (a256-input200)
+  occupied_by: a256-light200
 - gpio: 200
   available: false
-  occupied_by: binary_sensor.gpio (a256-input201)
+  occupied_by: a256-light201
 - gpio: 201
   available: false
-  occupied_by: binary_sensor.gpio (a256-input202)
+  occupied_by: a256-light202
 - gpio: 202
   available: false
-  occupied_by: binary_sensor.gpio (a256-input203)
+  occupied_by: a256-light203
 - gpio: 203
   available: false
-  occupied_by: binary_sensor.gpio (a256-input204)
+  occupied_by: a256-light204
 - gpio: 204
   available: false
-  occupied_by: binary_sensor.gpio (a256-input205)
+  occupied_by: a256-light205
 - gpio: 205
   available: false
-  occupied_by: binary_sensor.gpio (a256-input206)
+  occupied_by: a256-light206
 - gpio: 206
   available: false
-  occupied_by: binary_sensor.gpio (a256-input207)
+  occupied_by: a256-light207
 - gpio: 207
   available: false
-  occupied_by: binary_sensor.gpio (a256-input208)
+  occupied_by: a256-light208
 - gpio: 208
   available: false
-  occupied_by: binary_sensor.gpio (a256-input209)
+  occupied_by: a256-light209
 - gpio: 209
   available: false
-  occupied_by: binary_sensor.gpio (a256-input210)
+  occupied_by: a256-light210
 - gpio: 210
   available: false
-  occupied_by: binary_sensor.gpio (a256-input211)
+  occupied_by: a256-light211
 - gpio: 211
   available: false
-  occupied_by: binary_sensor.gpio (a256-input212)
+  occupied_by: a256-light212
 - gpio: 212
   available: false
-  occupied_by: binary_sensor.gpio (a256-input213)
+  occupied_by: a256-light213
 - gpio: 213
   available: false
-  occupied_by: binary_sensor.gpio (a256-input214)
+  occupied_by: a256-light214
 - gpio: 214
   available: false
-  occupied_by: binary_sensor.gpio (a256-input215)
+  occupied_by: a256-light215
 - gpio: 215
   available: false
-  occupied_by: binary_sensor.gpio (a256-input216)
+  occupied_by: a256-light216
 - gpio: 216
   available: false
-  occupied_by: binary_sensor.gpio (a256-input217)
+  occupied_by: a256-light217
 - gpio: 217
   available: false
-  occupied_by: binary_sensor.gpio (a256-input218)
+  occupied_by: a256-light218
 - gpio: 218
   available: false
-  occupied_by: binary_sensor.gpio (a256-input219)
+  occupied_by: a256-light219
 - gpio: 219
   available: false
-  occupied_by: binary_sensor.gpio (a256-input220)
+  occupied_by: a256-light220
 - gpio: 220
   available: false
-  occupied_by: binary_sensor.gpio (a256-input221)
+  occupied_by: a256-light221
 - gpio: 221
   available: false
-  occupied_by: binary_sensor.gpio (a256-input222)
+  occupied_by: a256-light222
 - gpio: 222
   available: false
-  occupied_by: binary_sensor.gpio (a256-input223)
+  occupied_by: a256-light223
 - gpio: 223
   available: false
-  occupied_by: binary_sensor.gpio (a256-input224)
+  occupied_by: a256-light224
 - gpio: 224
   available: false
-  occupied_by: binary_sensor.gpio (a256-input225)
+  occupied_by: a256-light225
 - gpio: 225
   available: false
-  occupied_by: binary_sensor.gpio (a256-input226)
+  occupied_by: a256-light226
 - gpio: 226
   available: false
-  occupied_by: binary_sensor.gpio (a256-input227)
+  occupied_by: a256-light227
 - gpio: 227
   available: false
-  occupied_by: binary_sensor.gpio (a256-input228)
+  occupied_by: a256-light228
 - gpio: 228
   available: false
-  occupied_by: binary_sensor.gpio (a256-input229)
+  occupied_by: a256-light229
 - gpio: 229
   available: false
-  occupied_by: binary_sensor.gpio (a256-input230)
+  occupied_by: a256-light230
 - gpio: 230
   available: false
-  occupied_by: binary_sensor.gpio (a256-input231)
+  occupied_by: a256-light231
 - gpio: 231
   available: false
-  occupied_by: binary_sensor.gpio (a256-input232)
+  occupied_by: a256-light232
 - gpio: 232
   available: false
-  occupied_by: binary_sensor.gpio (a256-input233)
+  occupied_by: a256-light233
 - gpio: 233
   available: false
-  occupied_by: binary_sensor.gpio (a256-input234)
+  occupied_by: a256-light234
 - gpio: 234
   available: false
-  occupied_by: binary_sensor.gpio (a256-input235)
+  occupied_by: a256-light235
 - gpio: 235
   available: false
-  occupied_by: binary_sensor.gpio (a256-input236)
+  occupied_by: a256-light236
 - gpio: 236
   available: false
-  occupied_by: binary_sensor.gpio (a256-input237)
+  occupied_by: a256-light237
 - gpio: 237
   available: false
-  occupied_by: binary_sensor.gpio (a256-input238)
+  occupied_by: a256-light238
 - gpio: 238
   available: false
-  occupied_by: binary_sensor.gpio (a256-input239)
+  occupied_by: a256-light239
 - gpio: 239
   available: false
-  occupied_by: binary_sensor.gpio (a256-input240)
+  occupied_by: a256-light240
 - gpio: 240
   available: false
-  occupied_by: binary_sensor.gpio (a256-input241)
+  occupied_by: a256-light241
 - gpio: 241
   available: false
-  occupied_by: binary_sensor.gpio (a256-input242)
+  occupied_by: a256-light242
 - gpio: 242
   available: false
-  occupied_by: binary_sensor.gpio (a256-input243)
+  occupied_by: a256-light243
 - gpio: 243
   available: false
-  occupied_by: binary_sensor.gpio (a256-input244)
+  occupied_by: a256-light244
 - gpio: 244
   available: false
-  occupied_by: binary_sensor.gpio (a256-input245)
+  occupied_by: a256-light245
 - gpio: 245
   available: false
-  occupied_by: binary_sensor.gpio (a256-input246)
+  occupied_by: a256-light246
 - gpio: 246
   available: false
-  occupied_by: binary_sensor.gpio (a256-input247)
+  occupied_by: a256-light247
 - gpio: 247
   available: false
-  occupied_by: binary_sensor.gpio (a256-input248)
+  occupied_by: a256-light248
 - gpio: 248
   available: false
-  occupied_by: binary_sensor.gpio (a256-input249)
+  occupied_by: a256-light249
 - gpio: 249
   available: false
-  occupied_by: binary_sensor.gpio (a256-input250)
+  occupied_by: a256-light250
 - gpio: 250
   available: false
-  occupied_by: binary_sensor.gpio (a256-input251)
+  occupied_by: a256-light251
 - gpio: 251
   available: false
-  occupied_by: binary_sensor.gpio (a256-input252)
+  occupied_by: a256-light252
 - gpio: 252
   available: false
-  occupied_by: binary_sensor.gpio (a256-input253)
+  occupied_by: a256-light253
 - gpio: 253
   available: false
-  occupied_by: binary_sensor.gpio (a256-input254)
+  occupied_by: a256-light254
 - gpio: 254
   available: false
-  occupied_by: binary_sensor.gpio (a256-input255)
+  occupied_by: a256-light255
 - gpio: 255
   available: false
-  occupied_by: binary_sensor.gpio (a256-input256)
+  occupied_by: a256-light256
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A256/
 featured_components:
 - id: binary_sensor_gpio_1

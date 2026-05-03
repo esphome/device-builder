@@ -12,26 +12,22 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (output_red)
+  occupied_by: output_red
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (output_white)
+  occupied_by: output_white
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_green)
+  occupied_by: output_green
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (output_blue)
+  occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Cocoon-DY180363-RGBW-8W-Bulb/
 featured_components:
 - id: light_rgbw_1
   component_id: light.rgbw
   fields:
     icon: mdi:light
-    red: output_red
-    green: output_green
-    blue: output_blue
-    white: output_white
     color_interlock: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: light_rgbw_1

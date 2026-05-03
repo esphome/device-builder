@@ -14,10 +14,10 @@ images:
 pins:
 - gpio: 32
   available: false
-  occupied_by: binary_sensor.gpio (M1-sensor-DI)
+  occupied_by: M1-sensor-DI
 - gpio: 33
   available: false
-  occupied_by: switch.gpio (M1-relay)
+  occupied_by: M1-relay
 docs_url: https://devices.esphome.io/devices/KinCony-M1/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -31,7 +31,6 @@ featured_components:
 - id: sensor_bl0942_1
   component_id: sensor.bl0942
   fields:
-    uart_id: uart_bus
     update_interval: 3s
     id: sensor_bl0942_1
     name: Bl0942 1

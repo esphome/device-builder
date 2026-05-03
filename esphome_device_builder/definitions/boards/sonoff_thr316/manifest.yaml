@@ -18,22 +18,22 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (reset)
+  occupied_by: reset
 - gpio: 13
   available: false
-  occupied_by: light.status_led (auto_led)
+  occupied_by: auto_led
 - gpio: 15
   available: false
-  occupied_by: light.status_led (wifi_status_led)
+  occupied_by: wifi_status_led
 - gpio: 16
   available: false
-  occupied_by: light.status_led (switch_led)
+  occupied_by: switch_led
 - gpio: 21
   available: false
-  occupied_by: switch.gpio ($friendly_name)
+  occupied_by: $friendly_name
 - gpio: 27
   available: false
-  occupied_by: switch.gpio (sensor_power)
+  occupied_by: sensor_power
 docs_url: https://devices.esphome.io/devices/Sonoff-THR316/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -44,11 +44,10 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: reset
 - id: climate_thermostat_1
   component_id: climate.thermostat
   fields:
-    sensor: temp
     min_heating_off_time: 5s
     min_heating_run_time: 5s
     min_idle_time: 5s
@@ -66,7 +65,7 @@ featured_components:
         inverted: true
       locked: true
     id: light_status_led_1
-    name: Status Led 1
+    name: switch_led
 - id: light_status_led_2
   component_id: light.status_led
   fields:
@@ -77,7 +76,7 @@ featured_components:
         inverted: true
       locked: true
     id: light_status_led_2
-    name: Status Led 2
+    name: wifi_status_led
 - id: light_status_led_3
   component_id: light.status_led
   fields:
@@ -88,7 +87,7 @@ featured_components:
         inverted: true
       locked: true
     id: light_status_led_3
-    name: Status Led 3
+    name: auto_led
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -118,13 +117,7 @@ featured_components:
       locked: true
     restore_mode: ALWAYS_ON
     id: switch_gpio_2
-    name: Gpio 2
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    icon: mdi:clock-start
-    id: text_sensor_template_1
-    name: $friendly_name Uptime
+    name: sensor_power
 source:
   type: esphome-devices
   remote_id: Sonoff-THR316

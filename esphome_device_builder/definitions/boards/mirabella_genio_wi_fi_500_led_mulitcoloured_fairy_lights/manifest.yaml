@@ -12,16 +12,16 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.gpio (status_led)
+  occupied_by: status_led
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (pina)
+  occupied_by: pina
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (pinb)
+  occupied_by: pinb
 docs_url: https://devices.esphome.io/devices/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -35,22 +35,10 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: Button
-- id: light_hbridge_1
-  component_id: light.hbridge
-  fields:
-    pin_a:
-      value: pina
-      locked: true
-    pin_b:
-      value: pinb
-      locked: true
-    id: light_hbridge_1
-    name: Fairy Lights
 - id: light_binary_1
   component_id: light.binary
   fields:
     internal: true
-    output: status_led
     id: light_binary_1
     name: LED
 - id: output_esp8266_pwm_1

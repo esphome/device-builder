@@ -12,17 +12,15 @@ images:
 pins:
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_warm_white)
+  occupied_by: output_warm_white
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (output_daylight)
+  occupied_by: output_daylight
 docs_url: https://devices.esphome.io/devices/Mirabella-Genio-Wi-Fi-SES-LED-Candle/
 featured_components:
 - id: light_cwww_1
   component_id: light.cwww
   fields:
-    cold_white: output_daylight
-    warm_white: output_warm_white
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     restore_mode: ALWAYS_ON

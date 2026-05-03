@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (button_1)
+  occupied_by: button_1
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -27,10 +27,10 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (sw_led1)
+  occupied_by: sw_led1
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (${upper_devicename} Switch)
+  occupied_by: Switch
 docs_url: https://devices.esphome.io/devices/Athom-Smart-Plug-TP29/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -43,7 +43,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button_1
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -68,13 +68,13 @@ featured_components:
     unit_of_measurement: kWh
     icon: mdi:clock-alert
     id: sensor_total_daily_energy_1
-    name: Total Daily Energy 1
+    name: Total Daily Energy
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Wifi Signal
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -83,7 +83,7 @@ featured_components:
       value: 14
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: Switch
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -94,7 +94,7 @@ featured_components:
       value: true
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: sw_led1
 source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-TP29

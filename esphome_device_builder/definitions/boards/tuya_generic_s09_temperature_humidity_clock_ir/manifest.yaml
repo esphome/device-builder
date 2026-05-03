@@ -12,10 +12,10 @@ images:
 pins:
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (btn)
+  occupied_by: btn
 - gpio: 8
   available: false
-  occupied_by: output.libretiny_pwm (led)
+  occupied_by: led
 docs_url: https://devices.esphome.io/devices/Tuya-Generic-S09-Temperature-Humidity-Clock-IR/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -28,13 +28,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: led
-    id: light_monochromatic_1
-    name: LED
+    name: btn
 - id: output_libretiny_pwm_1
   component_id: output.libretiny_pwm
   fields:

@@ -16,31 +16,31 @@ tags:
 pins:
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (S1)
+  occupied_by: S1
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (S2)
+  occupied_by: S2
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (S3)
+  occupied_by: S3
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (S4)
+  occupied_by: S4
 - gpio: 10
   available: false
-  occupied_by: output.gpio (relay1)
+  occupied_by: relay1
 - gpio: 23
   available: false
-  occupied_by: binary_sensor.gpio (Push Button)
+  occupied_by: Push Button
 - gpio: 24
   available: false
-  occupied_by: output.gpio (relay2)
+  occupied_by: relay2
 - gpio: 26
   available: false
-  occupied_by: output.gpio (relay3)
+  occupied_by: relay3
 - gpio: 28
   available: false
-  occupied_by: output.gpio (relay4)
+  occupied_by: relay4
 docs_url: https://devices.esphome.io/devices/Tuya-Mini-W1-4CH/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -113,30 +113,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: Push Button
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: relay1
-    id: light_binary_1
-    name: Relay 1
-- id: light_binary_2
-  component_id: light.binary
-  fields:
-    output: relay2
-    id: light_binary_2
-    name: Relay 2
-- id: light_binary_3
-  component_id: light.binary
-  fields:
-    output: relay3
-    id: light_binary_3
-    name: Relay 3
-- id: light_binary_4
-  component_id: light.binary
-  fields:
-    output: relay4
-    id: light_binary_4
-    name: Relay 4
 - id: output_gpio_1
   component_id: output.gpio
   fields:

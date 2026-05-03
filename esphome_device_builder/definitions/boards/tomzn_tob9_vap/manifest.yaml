@@ -14,10 +14,10 @@ images:
 pins:
 - gpio: 17
   available: false
-  occupied_by: binary_sensor.gpio (power_button)
+  occupied_by: power_button
 - gpio: 26
   available: false
-  occupied_by: switch.hbridge (Switch)
+  occupied_by: Switch
 docs_url: https://devices.esphome.io/devices/Tomzn-TOB9-VAP/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -30,13 +30,7 @@ featured_components:
         mode: INPUT_PULLUP
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: red_led_output
-    id: light_monochromatic_1
-    name: Monochromatic 1
+    name: power_button
 - id: sensor_bl0942_1
   component_id: sensor.bl0942
   fields:

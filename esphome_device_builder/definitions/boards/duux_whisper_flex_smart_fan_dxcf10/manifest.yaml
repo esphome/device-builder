@@ -50,12 +50,6 @@ featured_components:
     icon: mdi:wifi
     id: sensor_wifi_signal_1
     name: Wifi Signal
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    icon: mdi:arrow-up-down
-    id: switch_template_1
-    name: Oscillate vertically
 - id: text_sensor_version_1
   component_id: text_sensor.version
   fields:

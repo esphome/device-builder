@@ -16,10 +16,6 @@ featured_components:
 - id: light_rgbw_1
   component_id: light.rgbw
   fields:
-    red: output_red
-    green: output_green
-    blue: output_blue
-    white: output_white
     restore_mode: RESTORE_AND_ON
     color_interlock: true
     gamma_correct: 1.0

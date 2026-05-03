@@ -5,6 +5,11 @@ Focuses on the explicit-fields contract: every emitted featured-component
 entry must carry ``fields.id`` and, for HA entity domains, ``fields.name``
 — so the imported manifests are self-contained and the runtime never
 has to auto-derive these from the local id / display name.
+
+Also covers the safety filters that drop upstream items the dashboard
+can't usefully surface — placeholder addresses, lambda-driven
+templates, cross-component id references — without polluting the
+synthesized ``pins[]`` block with orphan GPIO labels.
 """
 
 from __future__ import annotations
@@ -23,6 +28,35 @@ _INDEX = {
         "config_entries": [
             {"key": "pin", "type": "pin"},
             {"key": "model", "type": "string"},
+        ]
+    },
+    "sensor.dallas_temp": {
+        "config_entries": [
+            {"key": "address", "type": "string"},
+            {"key": "update_interval", "type": "string"},
+        ]
+    },
+    "switch.gpio": {
+        "config_entries": [
+            {"key": "pin", "type": "pin"},
+            {"key": "inverted", "type": "boolean"},
+        ]
+    },
+    "switch.template": {
+        "config_entries": [
+            {"key": "lambda", "type": "string"},
+            {"key": "optimistic", "type": "boolean"},
+        ]
+    },
+    "binary_sensor.template": {
+        "config_entries": [
+            {"key": "lambda", "type": "string"},
+        ]
+    },
+    "light.binary": {
+        "config_entries": [
+            {"key": "output", "type": "id"},
+            {"key": "restore_mode", "type": "string"},
         ]
     },
 }
@@ -87,3 +121,89 @@ def test_extract_counter_distinguishes_multiple_instances() -> None:
     names = [f["fields"]["name"] for f in featured]
     assert ids == ["binary_sensor_gpio_1", "binary_sensor_gpio_2"]
     assert names == ["Gpio 1", "Gpio 2"]
+
+
+def test_extract_strips_template_substitution_from_name() -> None:
+    """``${friendly_name} Relay1`` upstream becomes a clean ``Relay1`` preset name."""
+    inline = {
+        "switch": [{"platform": "gpio", "name": "${friendly_name} Relay1", "pin": 12}],
+    }
+    featured, _ = _extract_featured_components(inline, _INDEX)
+    assert featured[0]["fields"]["name"] == "Relay1"
+
+
+def test_extract_occupancy_label_strips_template_and_drops_component_prefix() -> None:
+    """``occupied_by`` exposes only the cleaned name, not ``switch.gpio (...)``."""
+    inline = {
+        "switch": [{"platform": "gpio", "name": "${friendly_name} Relay1", "pin": 12}],
+    }
+    _, gpio_occupancy = _extract_featured_components(inline, _INDEX)
+    assert gpio_occupancy == {12: "Relay1"}
+
+
+def test_extract_drops_component_with_placeholder_field_value() -> None:
+    """``address: (FILL IN ONE-WIRE BUS ADDRESS)`` drops the whole sensor.dallas_temp."""
+    inline = {
+        "sensor": [
+            {
+                "platform": "dallas_temp",
+                "address": "(FILL IN ONE-WIRE BUS ADDRESS)",
+                "update_interval": "30s",
+            },
+        ],
+    }
+    featured, _ = _extract_featured_components(inline, _INDEX)
+    assert featured == []
+
+
+def test_extract_skips_template_platform_entirely() -> None:
+    """``switch.template`` etc. need user-supplied lambdas — never lifted as presets."""
+    inline = {
+        "switch": [{"platform": "template", "name": "Demo", "optimistic": True}],
+    }
+    featured, _ = _extract_featured_components(inline, _INDEX)
+    assert featured == []
+
+
+def test_extract_skips_item_with_lambda_top_level_key() -> None:
+    """Any inline item with a top-level ``lambda:`` is dropped — its behaviour is in the lambda."""
+    inline = {
+        "binary_sensor": [
+            {
+                "platform": "template",
+                "name": "API Connected",
+                "lambda": "return global_api_server->is_connected();",
+            },
+        ],
+    }
+    featured, _ = _extract_featured_components(inline, _INDEX)
+    assert featured == []
+
+
+def test_extract_drops_id_reference_field() -> None:
+    """Cross-component id refs like ``output: red_output`` are dropped — user picks at add time."""
+    inline = {
+        "light": [{"platform": "binary", "name": "Indicator", "output": "red_output"}],
+    }
+    featured, _ = _extract_featured_components(inline, _INDEX)
+    # No real preset survives — the upstream ``output:`` ref doesn't, and
+    # there's no other hardware-specific field, so the entry is skipped
+    # by the "no useful fields" branch.
+    assert featured == []
+
+
+def test_extract_skips_placeholder_component_without_polluting_pin_block() -> None:
+    """Skipped placeholder components don't leave their GPIO in ``occupied_by``."""
+    inline = {
+        "sensor": [
+            {
+                "platform": "dallas_temp",
+                "address": "(FILL IN)",
+                "update_interval": "30s",
+            },
+        ],
+        "switch": [{"platform": "gpio", "name": "Relay", "pin": 12}],
+    }
+    _, gpio_occupancy = _extract_featured_components(inline, _INDEX)
+    # Only the surviving switch.gpio's pin lands in the occupancy map.
+    assert gpio_occupancy == {12: "Relay"}

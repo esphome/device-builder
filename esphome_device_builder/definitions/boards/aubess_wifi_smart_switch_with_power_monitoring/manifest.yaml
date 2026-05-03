@@ -16,20 +16,7 @@ featured_components:
   fields:
     update_interval: 10s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
-- id: sensor_copy_1
-  component_id: sensor.copy
-  fields:
-    source_id: wifi_signal_db
-    unit_of_measurement: '%'
-    id: sensor_copy_1
-    name: WiFi Signal Percent
-- id: sensor_bl0942_1
-  component_id: sensor.bl0942
-  fields:
-    uart_id: uart_bus
-    id: sensor_bl0942_1
-    name: Bl0942 1
+    name: wifi_signal_db
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

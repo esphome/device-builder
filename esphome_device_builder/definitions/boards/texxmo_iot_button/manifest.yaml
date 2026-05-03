@@ -13,13 +13,13 @@ images:
 pins:
 - gpio: 5
   available: false
-  occupied_by: output.gpio (power_pin)
+  occupied_by: power_pin
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (led_red_pin)
+  occupied_by: led_red_pin
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (led_green_pin)
+  occupied_by: led_green_pin
 docs_url: https://devices.esphome.io/devices/TeXXmo-IoT-Button/
 featured_components:
 - id: output_gpio_1
@@ -49,7 +49,7 @@ featured_components:
     internal: true
     update_interval: 10s
     id: sensor_adc_1
-    name: Adc 1
+    name: button_adc
 source:
   type: esphome-devices
   remote_id: TeXXmo-IoT-Button

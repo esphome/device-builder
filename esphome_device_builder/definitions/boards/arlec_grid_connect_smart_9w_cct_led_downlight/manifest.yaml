@@ -12,17 +12,15 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (output_cw)
+  occupied_by: output_cw
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (output_ww)
+  occupied_by: output_ww
 docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight/
 featured_components:
 - id: light_cwww_1
   component_id: light.cwww
   fields:
-    cold_white: output_cw
-    warm_white: output_ww
     cold_white_color_temperature: 5700 K
     warm_white_color_temperature: 3000 K
     constant_brightness: true

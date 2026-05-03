@@ -15,30 +15,25 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (output_red)
+  occupied_by: output_red
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (output_cold_white)
+  occupied_by: output_cold_white
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_green)
+  occupied_by: output_green
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (output_warm_white)
+  occupied_by: output_warm_white
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (output_blue)
+  occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Zemismart-Moonlamp/
 featured_components:
 - id: light_rgbww_1
   component_id: light.rgbww
   fields:
     color_interlock: true
-    red: output_red
-    green: output_green
-    blue: output_blue
-    warm_white: output_warm_white
-    cold_white: output_cold_white
     warm_white_color_temperature: 2800 K
     cold_white_color_temperature: 6200 K
     id: light_rgbww_1

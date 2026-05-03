@@ -17,37 +17,37 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-X01)
+  occupied_by: KC868-A16-Y09
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-X02)
+  occupied_by: KC868-A16-Y10
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-X03)
+  occupied_by: KC868-A16-Y11
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-X04)
+  occupied_by: KC868-A16-Y12
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-X05)
+  occupied_by: KC868-A16-Y13
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-X06)
+  occupied_by: KC868-A16-Y14
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-X07)
+  occupied_by: KC868-A16-Y15
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-X08)
+  occupied_by: KC868-A16-Y16
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-HT3)
+  occupied_by: KC868-A16-HT3
 - gpio: 32
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-HT1)
+  occupied_by: KC868-A16-HT1
 - gpio: 33
   available: false
-  occupied_by: binary_sensor.gpio (KC868-A16-HT2)
+  occupied_by: KC868-A16-HT2
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A16/
 featured_components:
 - id: binary_sensor_gpio_1

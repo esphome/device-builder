@@ -15,16 +15,16 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (${upper_devicename} Socket)
+  occupied_by: Socket
 - gpio: 5
   available: false
-  occupied_by: output.gpio (relay2)
+  occupied_by: relay2
 - gpio: 13
   available: false
-  occupied_by: output.gpio (button_led)
+  occupied_by: button_led
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (${upper_devicename} Button)
+  occupied_by: Button
 docs_url: https://devices.esphome.io/devices/Bauhn-ASPU-1019-Plug/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -37,7 +37,7 @@ featured_components:
         mode: INPUT_PULLUP
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -64,7 +64,7 @@ featured_components:
     restore_mode: always on
     icon: mdi:power-socket-au
     id: switch_gpio_1
-    name: Gpio 1
+    name: Socket
 source:
   type: esphome-devices
   remote_id: Bauhn-ASPU-1019-Plug

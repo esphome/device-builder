@@ -13,36 +13,18 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.gpio (cap_charge)
+  occupied_by: cap_charge
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (pwm_white)
+  occupied_by: pwm_white
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (pwm_green)
+  occupied_by: pwm_green
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (pwm_red)
+  occupied_by: pwm_red
 docs_url: https://devices.esphome.io/devices/myStrom-Wifi-Button/
 featured_components:
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: pwm_white
-    id: light_monochromatic_1
-    name: White LED
-- id: light_monochromatic_2
-  component_id: light.monochromatic
-  fields:
-    output: pwm_green
-    id: light_monochromatic_2
-    name: Green LED
-- id: light_monochromatic_3
-  component_id: light.monochromatic
-  fields:
-    output: pwm_red
-    id: light_monochromatic_3
-    name: Red LED
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:

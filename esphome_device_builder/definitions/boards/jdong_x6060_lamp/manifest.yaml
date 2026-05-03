@@ -17,13 +17,8 @@ featured_components:
     color_interlock: true
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
-    red: output_red
-    green: output_green
-    blue: output_blue
-    cold_white: output_cold
-    warm_white: output_warm
     id: light_rgbww_1
-    name: Rgbww 1
+    name: light_rgbww
 source:
   type: esphome-devices
   remote_id: JDONG-X6060-lamp

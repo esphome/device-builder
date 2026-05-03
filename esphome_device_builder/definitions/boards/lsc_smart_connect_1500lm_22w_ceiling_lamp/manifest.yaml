@@ -25,8 +25,6 @@ featured_components:
   fields:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
-    cold_white: output_cold
-    warm_white: output_warm
     restore_mode: RESTORE_DEFAULT_ON
     id: light_cwww_1
     name: Main

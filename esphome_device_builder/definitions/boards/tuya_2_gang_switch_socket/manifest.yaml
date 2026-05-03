@@ -16,32 +16,20 @@ featured_components:
   fields:
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
     internal: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: relay1
-    id: light_binary_1
-    name: Binary 1
-- id: light_binary_2
-  component_id: light.binary
-  fields:
-    output: relay2
-    id: light_binary_2
-    name: Binary 2
+    name: button_2
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
     restore_mode: always on
     icon: mdi:power-socket-au
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay
 source:
   type: esphome-devices
   remote_id: Tuya-2-Gang-Switch-Socket

@@ -16,31 +16,31 @@ images:
 pins:
 - gpio: 1
   available: false
-  occupied_by: switch.gpio (Relay 3)
+  occupied_by: Relay 3
 - gpio: 2
   available: false
-  occupied_by: switch.gpio (Relay 2)
+  occupied_by: Relay 2
 - gpio: 16
   available: false
-  occupied_by: display.st7701s (tft_display)
+  occupied_by: tft_display
 - gpio: 17
   available: false
-  occupied_by: display.st7701s (tft_display)
+  occupied_by: tft_display
 - gpio: 18
   available: false
-  occupied_by: display.st7701s (tft_display)
+  occupied_by: tft_display
 - gpio: 21
   available: false
-  occupied_by: display.st7701s (tft_display)
+  occupied_by: tft_display
 - gpio: 38
   available: false
-  occupied_by: output.ledc (backlight_output)
+  occupied_by: backlight_output
 - gpio: 39
   available: false
-  occupied_by: display.st7701s (tft_display)
+  occupied_by: tft_display
 - gpio: 40
   available: false
-  occupied_by: switch.gpio (Relay 1)
+  occupied_by: Relay 1
 docs_url: https://devices.esphome.io/devices/Guition-ESP32-S3-4848S040/
 featured_components:
 - id: display_st7701s_1
@@ -76,11 +76,10 @@ featured_components:
     update_interval: never
     auto_clear_enabled: false
     id: display_st7701s_1
-    name: St7701S 1
+    name: tft_display
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: backlight_output
     restore_mode: ALWAYS_ON
     default_transition_length: 1s
     id: light_monochromatic_1
@@ -125,12 +124,6 @@ featured_components:
       locked: true
     id: switch_gpio_3
     name: Relay 3
-- id: touchscreen_gt911_1
-  component_id: touchscreen.gt911
-  fields:
-    display: tft_display
-    id: touchscreen_gt911_1
-    name: Gt911 1
 source:
   type: esphome-devices
   remote_id: Guition-ESP32-S3-4848S040

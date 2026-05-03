@@ -18,7 +18,7 @@ tags:
 pins:
 - gpio: 26
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 docs_url: https://devices.esphome.io/devices/Homemaster-MicroPLC/
 product_url: https://github.com/isystemsautomation/HOMEMASTER/tree/main/MicroPLC
 featured_components:

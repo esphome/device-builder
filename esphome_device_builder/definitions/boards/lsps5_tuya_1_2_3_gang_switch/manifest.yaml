@@ -14,10 +14,10 @@ images:
 pins:
 - gpio: 8
   available: false
-  occupied_by: switch.gpio ($devicename Switch 1)
+  occupied_by: $devicename Switch 1
 - gpio: 26
   available: false
-  occupied_by: binary_sensor.gpio ($devicename Button 1)
+  occupied_by: $devicename Button 1
 docs_url: https://devices.esphome.io/devices/LSPS5-Tuya-1-2-3-Gang-Switch/
 featured_components:
 - id: binary_sensor_gpio_1

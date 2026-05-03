@@ -38,7 +38,7 @@ featured_components:
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
     id: switch_gpio_1
-    name: Gpio 1
+    name: Relay Switch
 source:
   type: esphome-devices
   remote_id: Tuya-Smart-Plug-20A-WHDZ03

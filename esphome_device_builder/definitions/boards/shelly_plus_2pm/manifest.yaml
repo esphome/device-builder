@@ -18,25 +18,25 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (${devicename} Button)
+  occupied_by: Button
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (${input_name_1})
+  occupied_by: binary_sensor.gpio
 - gpio: 12
   available: false
-  occupied_by: output.gpio (relay_output_2)
+  occupied_by: relay_output_2
 - gpio: 13
   available: false
-  occupied_by: output.gpio (relay_output_1)
+  occupied_by: relay_output_1
 - gpio: 18
   available: false
-  occupied_by: binary_sensor.gpio (${input_name_2})
+  occupied_by: binary_sensor.gpio
 - gpio: 27
   available: false
   occupied_by: sensor.ade7953_i2c
 - gpio: 35
   available: false
-  occupied_by: sensor.adc (temp_analog_reading)
+  occupied_by: temp_analog_reading
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-2PM/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -52,7 +52,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -101,21 +101,19 @@ featured_components:
 - id: sensor_ntc_1
   component_id: sensor.ntc
   fields:
-    sensor: temp_resistance_reading
     unit_of_measurement: °C
     accuracy_decimals: 1
     icon: mdi:thermometer
     entity_category: diagnostic
     id: sensor_ntc_1
-    name: Ntc 1
+    name: Temperature
 - id: sensor_resistance_1
   component_id: sensor.resistance
   fields:
-    sensor: temp_analog_reading
     configuration: DOWNSTREAM
     resistor: 5.6kOhm
     id: sensor_resistance_1
-    name: Resistance 1
+    name: temp_resistance_reading
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -125,19 +123,7 @@ featured_components:
     attenuation: 12db
     update_interval: 10s
     id: sensor_adc_1
-    name: Adc 1
-- id: switch_output_1
-  component_id: switch.output
-  fields:
-    output: relay_output_1
-    id: switch_output_1
-    name: Output 1
-- id: switch_output_2
-  component_id: switch.output
-  fields:
-    output: relay_output_2
-    id: switch_output_2
-    name: Output 2
+    name: temp_analog_reading
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-2PM

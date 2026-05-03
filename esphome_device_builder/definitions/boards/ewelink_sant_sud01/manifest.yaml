@@ -12,10 +12,10 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: sensor.pulse_meter (power_status_pulses)
+  occupied_by: power_status_pulses
 - gpio: 12
   available: false
-  occupied_by: output.gpio (out_relay)
+  occupied_by: out_relay
 docs_url: https://devices.esphome.io/devices/eWeLink-SANT-SUD01/
 featured_components:
 - id: output_gpio_1
@@ -36,7 +36,7 @@ featured_components:
       locked: true
     timeout: 5s
     id: sensor_pulse_meter_1
-    name: Pulse Meter 1
+    name: power_status_pulses
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -44,27 +44,6 @@ featured_components:
     entity_category: diagnostic
     id: sensor_wifi_signal_1
     name: WiFi Signal dB
-- id: sensor_copy_1
-  component_id: sensor.copy
-  fields:
-    source_id: wifi_signal_db
-    unit_of_measurement: Signal %
-    entity_category: diagnostic
-    device_class: ''
-    id: sensor_copy_1
-    name: WiFi Signal Percent
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    restore_mode: ALWAYS_OFF
-    id: switch_template_1
-    name: Template 1
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    icon: mdi:clock-start
-    id: text_sensor_template_1
-    name: Uptime Human Readable
 source:
   type: esphome-devices
   remote_id: eWeLink-SANT-SUD01

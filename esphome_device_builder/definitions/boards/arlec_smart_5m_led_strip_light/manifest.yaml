@@ -12,25 +12,21 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (output_red)
+  occupied_by: output_red
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (output_white)
+  occupied_by: output_white
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_green)
+  occupied_by: output_green
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (output_blue)
+  occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Arlec-Smart-5m-LED-Strip-Light/
 featured_components:
 - id: light_rgbw_1
   component_id: light.rgbw
   fields:
-    red: output_red
-    green: output_green
-    blue: output_blue
-    white: output_white
     restore_mode: RESTORE_DEFAULT_OFF
     id: light_rgbw_1
     name: LED Strip

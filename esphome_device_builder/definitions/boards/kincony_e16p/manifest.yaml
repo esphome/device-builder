@@ -16,28 +16,28 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (e16t-input1)
+  occupied_by: e16t-output9
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (e16t-input2)
+  occupied_by: e16t-output10
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (e16t-input3)
+  occupied_by: e16t-output11
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (e16t-input4)
+  occupied_by: e16t-output12
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (e16t-input5)
+  occupied_by: e16t-output13
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (e16t-input6)
+  occupied_by: e16t-output14
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (e16t-input7)
+  occupied_by: e16t-output15
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (e16t-input8)
+  occupied_by: e16t-output16
 docs_url: https://devices.esphome.io/devices/KinCony-E16P/
 featured_components:
 - id: binary_sensor_gpio_1

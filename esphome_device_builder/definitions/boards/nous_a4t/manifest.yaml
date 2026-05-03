@@ -18,7 +18,7 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 3
   available: false
-  occupied_by: light.status_led (status_led)
+  occupied_by: status_led
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -27,13 +27,13 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (switch_1)
+  occupied_by: switch_1
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (switch_2)
+  occupied_by: switch_2
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (input)
+  occupied_by: input
 docs_url: https://devices.esphome.io/devices/Nous-A4t/
 featured_components:
 - id: binary_sensor_gpio_1

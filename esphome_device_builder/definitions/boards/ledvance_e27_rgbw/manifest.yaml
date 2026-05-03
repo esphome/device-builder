@@ -15,10 +15,6 @@ featured_components:
   component_id: light.rgbw
   fields:
     color_interlock: true
-    red: output_red
-    green: output_green
-    blue: output_blue
-    white: output_white
     id: light_rgbw_1
     name: None
 source:

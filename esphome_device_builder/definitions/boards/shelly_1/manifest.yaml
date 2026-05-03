@@ -14,10 +14,10 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.gpio (shelly_1_relay)
+  occupied_by: shelly_1_relay
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (Switch Shelly 1)
+  occupied_by: Switch Shelly 1
 docs_url: https://devices.esphome.io/devices/Shelly-1/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -30,12 +30,6 @@ featured_components:
     internal: true
     id: binary_sensor_gpio_1
     name: Switch Shelly 1
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: shelly_1_relay
-    id: light_binary_1
-    name: Shelly 1 Light
 - id: output_gpio_1
   component_id: output.gpio
   fields:

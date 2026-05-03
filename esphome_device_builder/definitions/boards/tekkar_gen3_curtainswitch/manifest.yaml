@@ -12,23 +12,15 @@ images:
 - images/cb3s.png
 docs_url: https://devices.esphome.io/devices/Tekkar-Gen3-CurtainSwitch/
 featured_components:
-- id: cover_template_1
-  component_id: cover.template
-  fields:
-    optimistic: true
-    id: cover_template_1
-    name: Curtain Bedroom
 - id: light_binary_1
   component_id: light.binary
   fields:
-    output: led_green_out
     restore_mode: RESTORE_DEFAULT_OFF
     id: light_binary_1
     name: LED
 - id: light_binary_2
   component_id: light.binary
   fields:
-    output: led_blue_out
     restore_mode: RESTORE_DEFAULT_OFF
     id: light_binary_2
     name: Backlight

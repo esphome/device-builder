@@ -14,13 +14,13 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (relay)
+  occupied_by: relay
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (button)
+  occupied_by: button
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (green_led)
+  occupied_by: green_led
 docs_url: https://devices.esphome.io/devices/Sinilink-XY-VFMS/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -33,7 +33,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -42,7 +42,7 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -54,7 +54,7 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_ON
     id: switch_gpio_2
-    name: Gpio 2
+    name: green_led
 source:
   type: esphome-devices
   remote_id: Sinilink-XY-VFMS

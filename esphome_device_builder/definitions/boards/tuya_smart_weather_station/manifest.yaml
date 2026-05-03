@@ -44,43 +44,43 @@ featured_components:
   fields:
     internal: true
     id: sensor_homeassistant_1
-    name: Homeassistant 1
+    name: current_temperature
 - id: sensor_homeassistant_2
   component_id: sensor.homeassistant
   fields:
     internal: true
     id: sensor_homeassistant_2
-    name: Homeassistant 2
+    name: current_humidity
 - id: sensor_homeassistant_3
   component_id: sensor.homeassistant
   fields:
     internal: true
     id: sensor_homeassistant_3
-    name: Homeassistant 3
+    name: current_pressure
 - id: sensor_homeassistant_4
   component_id: sensor.homeassistant
   fields:
     internal: true
     id: sensor_homeassistant_4
-    name: Homeassistant 4
+    name: current_realfeel
 - id: sensor_homeassistant_5
   component_id: sensor.homeassistant
   fields:
     internal: true
     id: sensor_homeassistant_5
-    name: Homeassistant 5
+    name: current_uvi
 - id: sensor_homeassistant_6
   component_id: sensor.homeassistant
   fields:
     internal: true
     id: sensor_homeassistant_6
-    name: Homeassistant 6
+    name: current_windspeed
 - id: sensor_homeassistant_7
   component_id: sensor.homeassistant
   fields:
     internal: true
     id: sensor_homeassistant_7
-    name: Homeassistant 7
+    name: raw_weathercode
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -167,101 +167,6 @@ featured_components:
     switch_datapoint: 102
     id: switch_tuya_2
     name: Display 24h Format
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_1
-    name: Display UV Index
-- id: switch_template_2
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_2
-    name: Display Wind Speed
-- id: switch_template_3
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_3
-    name: Display Pressure
-- id: switch_template_4
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_4
-    name: Display Temperature
-- id: switch_template_5
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_5
-    name: Display Humidity
-- id: switch_template_6
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_6
-    name: Display Feels Like
-- id: switch_template_7
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_7
-    name: Display Local T&H
-- id: switch_template_8
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_8
-    name: Display Sub T&H
-- id: switch_template_9
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_9
-    name: Display Date
-- id: switch_template_10
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_10
-    name: Display Week
-- id: switch_template_11
-  component_id: switch.template
-  fields:
-    entity_category: CONFIG
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_11
-    name: Display Weather
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    internal: true
-    update_interval: never
-    id: text_sensor_template_1
-    name: Template 1
 source:
   type: esphome-devices
   remote_id: Tuya-Smart-Weather-Station

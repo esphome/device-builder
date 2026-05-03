@@ -23,24 +23,6 @@ featured_components:
     device_class: light
     id: binary_sensor_gpio_2
     name: PIR Button P16
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: buzzer
-    id: light_binary_1
-    name: Delete PIR Alarm Output P6
-- id: light_binary_2
-  component_id: light.binary
-  fields:
-    output: output_p14
-    id: light_binary_2
-    name: PIR Button Enabler P14
-- id: light_binary_3
-  component_id: light.binary
-  fields:
-    output: internal_led
-    id: light_binary_3
-    name: PIR Internal LED P20
 - id: output_libretiny_pwm_1
   component_id: output.libretiny_pwm
   fields:

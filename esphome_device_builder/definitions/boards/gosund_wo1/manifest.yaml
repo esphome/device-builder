@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: output.gpio (top_outlet_led)
+  occupied_by: top_outlet_led
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -27,13 +27,13 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: output.gpio (bottom_outlet_led)
+  occupied_by: bottom_outlet_led
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (Bottom Outlet)
+  occupied_by: Bottom Outlet
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (Top Outlet)
+  occupied_by: Top Outlet
 docs_url: https://devices.esphome.io/devices/Gosund-WO1/
 featured_components:
 - id: output_gpio_1
@@ -81,7 +81,7 @@ featured_components:
     update_interval: 100ms
     unit_of_measurement: ''
     id: sensor_adc_1
-    name: Adc 1
+    name: analog_buttons
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

@@ -13,13 +13,13 @@ images:
 pins:
 - gpio: 12
   available: false
-  occupied_by: light.status_led (status1)
+  occupied_by: status1
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} Button)
+  occupied_by: Button
 - gpio: 16
   available: false
-  occupied_by: output.gpio (relay1)
+  occupied_by: relay1
 docs_url: https://devices.esphome.io/devices/DETA-Mechanism-Switch-6014HA/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -34,19 +34,13 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button
 - id: button_restart_1
   component_id: button.restart
   fields:
     disabled_by_default: true
     id: button_restart_1
-    name: Restart 1
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: relay1
-    id: light_binary_1
-    name: Binary 1
+    name: Restart
 - id: light_status_led_1
   component_id: light.status_led
   fields:
@@ -56,7 +50,7 @@ featured_components:
         inverted: true
       locked: true
     id: light_status_led_1
-    name: Status Led 1
+    name: status1
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -69,13 +63,7 @@ featured_components:
   fields:
     update_interval: 600s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    icon: mdi:clock-start
-    id: text_sensor_template_1
-    name: Uptime
+    name: wifi signal
 source:
   type: esphome-devices
   remote_id: DETA-Mechanism-Switch-6014HA

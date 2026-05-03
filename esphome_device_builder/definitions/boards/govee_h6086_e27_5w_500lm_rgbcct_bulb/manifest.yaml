@@ -13,29 +13,24 @@ images:
 pins:
 - gpio: 6
   available: false
-  occupied_by: output.ledc (blue_color)
+  occupied_by: blue_color
 - gpio: 7
   available: false
-  occupied_by: output.ledc (green_color)
+  occupied_by: green_color
 - gpio: 8
   available: false
-  occupied_by: output.ledc (warm_white)
+  occupied_by: warm_white
 - gpio: 10
   available: false
-  occupied_by: output.ledc (red_color)
+  occupied_by: red_color
 - gpio: 12
   available: false
-  occupied_by: output.ledc (cold_white)
+  occupied_by: cold_white
 docs_url: https://devices.esphome.io/devices/Govee-H6086-E27-5W-500lm-RGBCCT-bulb/
 featured_components:
 - id: light_rgbww_1
   component_id: light.rgbww
   fields:
-    red: red_color
-    green: green_color
-    blue: blue_color
-    cold_white: cold_white
-    warm_white: warm_white
     cold_white_color_temperature: 6536 K
     warm_white_color_temperature: 2000 K
     color_interlock: true

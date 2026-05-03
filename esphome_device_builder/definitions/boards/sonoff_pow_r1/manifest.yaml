@@ -15,13 +15,13 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (SonOff POW Button)
+  occupied_by: SonOff POW Button
 - gpio: 5
   available: false
   occupied_by: sensor.hlw8012
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (relay)
+  occupied_by: relay
 - gpio: 13
   available: false
   occupied_by: sensor.hlw8012
@@ -30,7 +30,7 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 15
   available: false
-  occupied_by: output.esp8266_pwm (pow_blue_led)
+  occupied_by: pow_blue_led
 docs_url: https://devices.esphome.io/devices/Sonoff-POW-R1/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -44,12 +44,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: SonOff POW Button
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: pow_blue_led
-    id: light_monochromatic_1
-    name: SonOff POW Blue LED
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:
@@ -74,12 +68,6 @@ featured_components:
     update_interval: 2s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    optimistic: true
-    id: switch_template_1
-    name: SonOff POW Relay
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -87,7 +75,7 @@ featured_components:
       value: 12
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay
 source:
   type: esphome-devices
   remote_id: Sonoff-POW-R1

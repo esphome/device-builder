@@ -16,42 +16,33 @@ images:
 pins:
 - gpio: 5
   available: false
-  occupied_by: output.ledc (backlight_pwm)
+  occupied_by: backlight_pwm
 - gpio: 12
   available: false
-  occupied_by: output.gpio (relay_1)
+  occupied_by: relay_1
 - gpio: 14
   available: false
-  occupied_by: output.gpio (relay_2)
+  occupied_by: relay_2
 - gpio: 26
   available: false
-  occupied_by: output.ledc (moodRed)
+  occupied_by: moodRed
 - gpio: 27
   available: false
-  occupied_by: output.gpio (relay_3)
+  occupied_by: relay_3
 - gpio: 32
   available: false
-  occupied_by: output.ledc (moodGreen)
+  occupied_by: moodGreen
 - gpio: 33
   available: false
-  occupied_by: output.ledc (moodBlue)
+  occupied_by: moodBlue
 docs_url: https://devices.esphome.io/devices/lanbon_l8/
 featured_components:
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: backlight_pwm
     restore_mode: ALWAYS_ON
     id: light_monochromatic_1
     name: Backlight
-- id: light_rgb_1
-  component_id: light.rgb
-  fields:
-    red: moodRed
-    green: moodGreen
-    blue: moodBlue
-    id: light_rgb_1
-    name: Mood Light
 - id: output_ledc_1
   component_id: output.ledc
   fields:

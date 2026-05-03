@@ -18,27 +18,18 @@ images:
 pins:
 - gpio: 13
   available: false
-  occupied_by: output.ledc (output_blue)
+  occupied_by: output_blue
 - gpio: 14
   available: false
-  occupied_by: output.ledc (output_red)
+  occupied_by: output_red
 - gpio: 15
   available: false
-  occupied_by: output.ledc (output_white)
+  occupied_by: output_white
 - gpio: 26
   available: false
-  occupied_by: output.ledc (output_green)
+  occupied_by: output_green
 docs_url: https://devices.esphome.io/devices/wyze-bulb-color/
 featured_components:
-- id: light_rgbw_1
-  component_id: light.rgbw
-  fields:
-    red: output_red
-    green: output_green
-    blue: output_blue
-    white: output_white
-    id: light_rgbw_1
-    name: Rgbw 1
 - id: output_ledc_1
   component_id: output.ledc
   fields:
@@ -46,7 +37,6 @@ featured_components:
       value: 14
       locked: true
     max_power: 0.9
-    power_supply: rgb_power
     frequency: 1220hz
     id: output_ledc_1
 - id: output_ledc_2
@@ -56,7 +46,6 @@ featured_components:
       value: 26
       locked: true
     max_power: 0.9
-    power_supply: rgb_power
     frequency: 1220hz
     id: output_ledc_2
 - id: output_ledc_3
@@ -66,7 +55,6 @@ featured_components:
       value: 13
       locked: true
     max_power: 0.9
-    power_supply: rgb_power
     frequency: 1220hz
     id: output_ledc_3
 - id: output_ledc_4

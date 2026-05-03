@@ -16,16 +16,16 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: switch.gpio (Blue LED)
+  occupied_by: Blue LED
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (Red LED)
+  occupied_by: Red LED
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 docs_url: https://devices.esphome.io/devices/prime-CCRCWFIO2PK-plug/
 featured_components:
 - id: binary_sensor_gpio_1

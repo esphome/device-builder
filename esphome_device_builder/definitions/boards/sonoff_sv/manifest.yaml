@@ -15,10 +15,10 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (Outlet)
+  occupied_by: Outlet
 docs_url: https://devices.esphome.io/devices/Sonoff-SV/
 featured_components:
 - id: binary_sensor_gpio_1

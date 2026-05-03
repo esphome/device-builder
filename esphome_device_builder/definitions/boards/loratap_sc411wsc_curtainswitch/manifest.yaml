@@ -16,19 +16,19 @@ featured_components:
   fields:
     disabled_by_default: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: S1 switch input
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
     disabled_by_default: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: S2 switch input
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
     disabled_by_default: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: remote stop switch
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

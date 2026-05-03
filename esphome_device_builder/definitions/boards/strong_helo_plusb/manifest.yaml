@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (button)
+  occupied_by: button
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -27,13 +27,13 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: light.status_led (onboard_led)
+  occupied_by: onboard_led
 - gpio: 14
   available: false
-  occupied_by: output.gpio (relay1)
+  occupied_by: relay1
 - gpio: 15
   available: false
-  occupied_by: output.gpio (relay2)
+  occupied_by: relay2
 docs_url: https://devices.esphome.io/devices/Strong-Helo-PLUSB/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -44,7 +44,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: light_status_led_1
   component_id: light.status_led
   fields:
@@ -55,7 +55,7 @@ featured_components:
         inverted: true
       locked: true
     id: light_status_led_1
-    name: Status Led 1
+    name: onboard_led
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -94,17 +94,15 @@ featured_components:
   fields:
     icon: mdi:power-socket-de
     restore_mode: RESTORE_DEFAULT_OFF
-    output: relay1
     id: switch_output_1
-    name: Output 1
+    name: Socket
 - id: switch_output_2
   component_id: switch.output
   fields:
     icon: mdi:usb-port
     restore_mode: RESTORE_DEFAULT_OFF
-    output: relay2
     id: switch_output_2
-    name: Output 2
+    name: USB
 source:
   type: esphome-devices
   remote_id: Strong-Helo-PLUSB

@@ -17,7 +17,6 @@ featured_components:
 - id: fan_speed_1
   component_id: fan.speed
   fields:
-    output: arduino_dimmer_1
     icon: mdi:lightbulb
     id: fan_speed_1
     name: Kitchen Lights

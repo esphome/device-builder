@@ -15,7 +15,7 @@ images:
 pins:
 - gpio: 48
   available: false
-  occupied_by: light.esp32_rmt_led_strip (WS2812B Light)
+  occupied_by: WS2812B Light
 docs_url: https://devices.esphome.io/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/
 featured_components:
 - id: light_esp32_rmt_led_strip_1

@@ -41,7 +41,6 @@ featured_components:
 - id: light_monochromatic_2
   component_id: light.monochromatic
   fields:
-    output: led1
     icon: mdi:led-outline
     entity_category: config
     default_transition_length: 1000 ms
@@ -51,7 +50,6 @@ featured_components:
 - id: light_monochromatic_3
   component_id: light.monochromatic
   fields:
-    output: led2
     icon: mdi:led-outline
     entity_category: config
     default_transition_length: 1000 ms
@@ -61,7 +59,6 @@ featured_components:
 - id: light_monochromatic_4
   component_id: light.monochromatic
   fields:
-    output: led3
     icon: mdi:led-outline
     entity_category: config
     default_transition_length: 1000 ms
@@ -75,7 +72,6 @@ featured_components:
     init_with_half_cycle: true
     zero_means_zero: true
     max_power: 100 %
-    power_supply: ac_live
     id: output_ac_dimmer_1
 - id: output_ledc_1
   component_id: output.ledc

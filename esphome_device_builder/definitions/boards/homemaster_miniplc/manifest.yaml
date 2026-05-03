@@ -18,37 +18,37 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: 'binary_sensor.gpio (Button #1)'
+  occupied_by: 'RELAY #3'
 - gpio: 1
   available: false
-  occupied_by: 'binary_sensor.gpio (Button #2)'
+  occupied_by: 'RELAY #2'
 - gpio: 2
   available: false
-  occupied_by: 'binary_sensor.gpio (Button #3)'
+  occupied_by: 'RELAY #1'
 - gpio: 3
   available: false
-  occupied_by: 'binary_sensor.gpio (Button #4)'
+  occupied_by: 'LED #2'
 - gpio: 4
   available: false
-  occupied_by: 'switch.gpio (RELAY #6)'
+  occupied_by: 'LED #3'
 - gpio: 5
   available: false
-  occupied_by: 'switch.gpio (RELAY #5)'
+  occupied_by: 'RELAY #5'
 - gpio: 6
   available: false
-  occupied_by: 'switch.gpio (RELAY #4)'
+  occupied_by: 'RELAY #4'
 - gpio: 34
   available: false
-  occupied_by: 'binary_sensor.gpio (DI #3)'
+  occupied_by: 'DI #3'
 - gpio: 35
   available: false
-  occupied_by: 'binary_sensor.gpio (DI #4)'
+  occupied_by: 'DI #4'
 - gpio: 36
   available: false
-  occupied_by: 'binary_sensor.gpio (DI #1)'
+  occupied_by: 'DI #1'
 - gpio: 39
   available: false
-  occupied_by: 'binary_sensor.gpio (DI #2)'
+  occupied_by: 'DI #2'
 docs_url: https://devices.esphome.io/devices/Homemaster-MiniPLC/
 product_url: https://github.com/isystemsautomation/HOMEMASTER/tree/main/MiniPLC
 featured_components:
@@ -132,22 +132,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: 'Button #4'
-- id: display_ssd1306_i2c_1
-  component_id: display.ssd1306_i2c
-  fields:
-    model: SH1106 128x64
-    address: 60
-    rotation: 180
-    contrast: 100%
-    update_interval: 1s
-    id: display_ssd1306_i2c_1
-    name: Ssd1306 I2C 1
-- id: fan_speed_1
-  component_id: fan.speed
-  fields:
-    output: dac_output
-    id: fan_speed_1
-    name: DAC 0-10V Output
 - id: output_ledc_1
   component_id: output.ledc
   fields:
@@ -158,7 +142,6 @@ featured_components:
 - id: sensor_dallas_temp_1
   component_id: sensor.dallas_temp
   fields:
-    one_wire_id: hub_1
     address: 8033444170748420392
     update_interval: 60s
     id: sensor_dallas_temp_1
@@ -166,7 +149,6 @@ featured_components:
 - id: sensor_dallas_temp_2
   component_id: sensor.dallas_temp
   fields:
-    one_wire_id: hub_2
     address: 13563718172574175528
     update_interval: 60s
     id: sensor_dallas_temp_2
@@ -329,18 +311,6 @@ featured_components:
       locked: true
     id: switch_gpio_8
     name: 'LED #3'
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    optimistic: true
-    id: switch_template_1
-    name: Switch buzzer
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    update_interval: 60s
-    id: text_sensor_template_1
-    name: Current time
 source:
   type: esphome-devices
   remote_id: Homemaster-MiniPLC

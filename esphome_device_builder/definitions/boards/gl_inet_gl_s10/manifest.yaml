@@ -22,13 +22,13 @@ images:
 pins:
 - gpio: 12
   available: false
-  occupied_by: output.gpio (bluetooth_led)
+  occupied_by: bluetooth_led
 - gpio: 14
   available: false
-  occupied_by: output.gpio (power_led)
+  occupied_by: power_led
 - gpio: 33
   available: false
-  occupied_by: binary_sensor.gpio (Reset Button)
+  occupied_by: Reset Button
 docs_url: https://devices.esphome.io/devices/GL-iNet-GL-S10/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -46,7 +46,7 @@ featured_components:
   fields:
     internal: true
     id: binary_sensor_status_1
-    name: Status 1
+    name: Status
 - id: button_safe_mode_1
   component_id: button.safe_mode
   fields:

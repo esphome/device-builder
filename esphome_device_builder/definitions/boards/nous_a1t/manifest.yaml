@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (button_state)
+  occupied_by: button_state
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -27,10 +27,10 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: light.status_led (led)
+  occupied_by: led
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (relay)
+  occupied_by: relay
 docs_url: https://devices.esphome.io/devices/Nous-A1t/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -42,7 +42,7 @@ featured_components:
         mode: INPUT_PULLUP
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button_state
 - id: light_status_led_1
   component_id: light.status_led
   fields:
@@ -53,28 +53,27 @@ featured_components:
         inverted: true
       locked: true
     id: light_status_led_1
-    name: Status Led 1
+    name: led
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     icon: mdi:wifi
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Wifi Signal
 - id: sensor_total_daily_energy_1
   component_id: sensor.total_daily_energy
   fields:
-    power_id: nous_a1t_watt
     unit_of_measurement: kWh
     icon: mdi:calendar-clock
     id: sensor_total_daily_energy_1
-    name: Total Daily Energy 1
+    name: Electric Consumption [kWh]
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
     icon: mdi:flash-outline
     id: sensor_adc_1
-    name: Adc 1
+    name: VCC Volt
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -93,14 +92,6 @@ featured_components:
     update_interval: 3s
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    icon: mdi:power
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
-    id: switch_template_1
-    name: Template 1
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -109,13 +100,13 @@ featured_components:
       value: 14
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay
 - id: text_sensor_version_1
   component_id: text_sensor.version
   fields:
     hide_timestamp: true
     id: text_sensor_version_1
-    name: Version 1
+    name: ESPHome Version
 source:
   type: esphome-devices
   remote_id: Nous-A1t

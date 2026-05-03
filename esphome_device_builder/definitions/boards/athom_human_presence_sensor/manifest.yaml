@@ -12,16 +12,16 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (mmWave Sensor)
+  occupied_by: mmWave Sensor
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (Pir Sensor)
+  occupied_by: Pir Sensor
 - gpio: 16
   available: false
-  occupied_by: light.status_led (Status LED)
+  occupied_by: Status LED
 docs_url: https://devices.esphome.io/devices/Athom-Human-Presence-Sensor/
 product_url: https://github.com/athom-tech/athom-configs/blob/main/athom-presence-sensor.yaml
 featured_components:
@@ -63,12 +63,6 @@ featured_components:
     device_class: motion
     id: binary_sensor_gpio_3
     name: mmWave Sensor
-- id: binary_sensor_template_1
-  component_id: binary_sensor.template
-  fields:
-    device_class: occupancy
-    id: binary_sensor_template_1
-    name: Occupancy
 - id: button_factory_reset_1
   component_id: button.factory_reset
   fields:
@@ -76,12 +70,6 @@ featured_components:
     internal: true
     id: button_factory_reset_1
     name: Restart with Factory Default Settings
-- id: button_template_1
-  component_id: button.template
-  fields:
-    entity_category: config
-    id: button_template_1
-    name: Reset device
 - id: button_restart_1
   component_id: button.restart
   fields:
@@ -89,19 +77,6 @@ featured_components:
     internal: true
     id: button_restart_1
     name: Restart_esp
-- id: button_template_2
-  component_id: button.template
-  fields:
-    entity_category: config
-    internal: true
-    id: button_template_2
-    name: Restart_mmWave
-- id: button_template_3
-  component_id: button.template
-  fields:
-    entity_category: config
-    id: button_template_3
-    name: Restart device
 - id: light_status_led_1
   component_id: light.status_led
   fields:
@@ -112,88 +87,6 @@ featured_components:
     entity_category: config
     id: light_status_led_1
     name: Status LED
-- id: number_template_1
-  component_id: number.template
-  fields:
-    entity_category: config
-    min_value: 1.9
-    max_value: 12
-    initial_value: 6
-    optimistic: true
-    step: 0.1
-    restore_value: true
-    unit_of_measurement: m
-    mode: slider
-    id: number_template_1
-    name: Farthest Detection
-- id: number_template_2
-  component_id: number.template
-  fields:
-    entity_category: config
-    min_value: 0
-    max_value: 9
-    initial_value: 7
-    optimistic: true
-    step: 1
-    restore_value: true
-    mode: slider
-    id: number_template_2
-    name: Maintain Sensitivity
-- id: number_template_3
-  component_id: number.template
-  fields:
-    entity_category: config
-    min_value: 0
-    max_value: 9
-    initial_value: 5
-    optimistic: true
-    step: 1
-    restore_value: true
-    mode: slider
-    id: number_template_3
-    name: Trigger Sensitivity
-- id: number_template_4
-  component_id: number.template
-  fields:
-    entity_category: config
-    min_value: 0.1
-    max_value: 60
-    initial_value: 0.1
-    optimistic: true
-    step: 0.1
-    restore_value: true
-    unit_of_measurement: seconds
-    mode: slider
-    id: number_template_4
-    name: Detection Delay
-- id: number_template_5
-  component_id: number.template
-  fields:
-    entity_category: config
-    min_value: 1
-    max_value: 300
-    initial_value: 15
-    optimistic: true
-    step: 1
-    restore_value: true
-    unit_of_measurement: seconds
-    mode: auto
-    id: number_template_5
-    name: Fading Time
-- id: number_template_6
-  component_id: number.template
-  fields:
-    entity_category: config
-    min_value: 1
-    max_value: 255
-    initial_value: 1
-    optimistic: true
-    step: 1
-    restore_value: true
-    unit_of_measurement: seconds
-    mode: slider
-    id: number_template_6
-    name: Blockade Time
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -207,15 +100,6 @@ featured_components:
     update_interval: 5s
     id: sensor_bh1750_1
     name: Light Sensor
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    internal: true
-    entity_category: config
-    optimistic: true
-    restore_mode: DISABLED
-    id: switch_template_1
-    name: mmWave Status
 source:
   type: esphome-devices
   remote_id: Athom-Human-Presence-Sensor

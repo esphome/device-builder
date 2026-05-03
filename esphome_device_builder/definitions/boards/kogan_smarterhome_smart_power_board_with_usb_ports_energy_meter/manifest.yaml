@@ -15,13 +15,13 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (${device_name}_button)
+  occupied_by: button
 - gpio: 1
   available: false
-  occupied_by: light.status_led (green_led)
+  occupied_by: green_led
 - gpio: 3
   available: false
-  occupied_by: switch.gpio (${device_name}_plug3)
+  occupied_by: plug3
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -33,13 +33,13 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (${device_name}_plug1)
+  occupied_by: plug1
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (${device_name}_plug2)
+  occupied_by: plug2
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (${device_name}_usb)
+  occupied_by: usb
 docs_url: https://devices.esphome.io/devices/Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -52,7 +52,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: light_status_led_1
   component_id: light.status_led
   fields:
@@ -62,7 +62,7 @@ featured_components:
         inverted: true
       locked: true
     id: light_status_led_1
-    name: Status Led 1
+    name: green_led
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -86,13 +86,13 @@ featured_components:
   fields:
     unit_of_measurement: kWh
     id: sensor_total_daily_energy_1
-    name: Total Daily Energy 1
+    name: daily_energy
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 5min
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: rssi
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -100,7 +100,7 @@ featured_components:
       value: 13
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: plug1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -108,7 +108,7 @@ featured_components:
       value: 14
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: plug2
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -116,7 +116,7 @@ featured_components:
       value: 3
       locked: true
     id: switch_gpio_3
-    name: Gpio 3
+    name: plug3
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -124,14 +124,7 @@ featured_components:
       value: 15
       locked: true
     id: switch_gpio_4
-    name: Gpio 4
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    icon: mdi:clock-start
-    update_interval: 5min
-    id: text_sensor_template_1
-    name: Template 1
+    name: usb
 source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter

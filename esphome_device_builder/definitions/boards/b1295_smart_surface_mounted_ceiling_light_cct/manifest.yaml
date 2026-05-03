@@ -13,17 +13,15 @@ images:
 pins:
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_temperature)
+  occupied_by: output_temperature
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (output_brightness)
+  occupied_by: output_brightness
 docs_url: https://devices.esphome.io/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/
 featured_components:
 - id: light_color_temperature_1
   component_id: light.color_temperature
   fields:
-    color_temperature: output_temperature
-    brightness: output_brightness
     cold_white_color_temperature: 6000 K
     warm_white_color_temperature: 3000 K
     id: light_color_temperature_1

@@ -17,64 +17,64 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (a24--input1)
+  occupied_by: a24--light13
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (a24--input2)
+  occupied_by: a24--light14
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (a24--input3)
+  occupied_by: a24--light15
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (a24--input4)
+  occupied_by: a24--light16
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (a24--input5)
+  occupied_by: a24--light17
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (a24--input6)
+  occupied_by: a24--light18
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (a24--input7)
+  occupied_by: a24--light19
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (a24--input8)
+  occupied_by: a24--light20
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (a24--input9)
+  occupied_by: a24--light21
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (a24--input10)
+  occupied_by: a24--light22
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (a24--input11)
+  occupied_by: a24--light23
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (a24--input12)
+  occupied_by: a24--light24
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (a24--input13)
+  occupied_by: a24--input13
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (a24--input14)
+  occupied_by: K-Type Thermocouple-1
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (a24--input15)
+  occupied_by: K-Type Thermocouple-2
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (a24--input16)
+  occupied_by: K-Type Thermocouple-3
 - gpio: 34
   available: false
-  occupied_by: sensor.adc (A24 A2 Voltage)
+  occupied_by: A24 A2 Voltage
 - gpio: 35
   available: false
-  occupied_by: sensor.adc (A24 A1 Voltage)
+  occupied_by: A24 A1 Voltage
 - gpio: 36
   available: false
-  occupied_by: sensor.adc (A24 A4 Current)
+  occupied_by: A24 A4 Current
 - gpio: 39
   available: false
-  occupied_by: sensor.adc (A24 A3 Current)
+  occupied_by: A24 A3 Current
 docs_url: https://devices.esphome.io/devices/KinCony-A24/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -365,28 +365,14 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: a24--input24
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: gp8403_output_1
-    id: light_monochromatic_1
-    name: A24-DAC-1
-- id: light_monochromatic_2
-  component_id: light.monochromatic
-  fields:
-    output: gp8403_output_2
-    id: light_monochromatic_2
-    name: A24-DAC-2
 - id: output_gp8403_1
   component_id: output.gp8403
   fields:
-    gp8403_id: my_gp8403
     channel: 0
     id: output_gp8403_1
 - id: output_gp8403_2
   component_id: output.gp8403
   fields:
-    gp8403_id: my_gp8403
     channel: 1
     id: output_gp8403_2
 - id: sensor_adc_1

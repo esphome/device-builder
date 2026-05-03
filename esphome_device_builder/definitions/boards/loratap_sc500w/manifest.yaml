@@ -14,19 +14,19 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} S1 switch input)
+  occupied_by: S1 switch input
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} S2 switch input)
+  occupied_by: S2 switch input
 - gpio: 12
   available: false
-  occupied_by: output.gpio (relay1)
+  occupied_by: relay1
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (${friendly_name} button)
+  occupied_by: button
 - gpio: 14
   available: false
-  occupied_by: output.gpio (relay2)
+  occupied_by: relay2
 docs_url: https://devices.esphome.io/devices/LoraTap-SC500W/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -37,7 +37,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -46,7 +46,7 @@ featured_components:
       locked: true
     disabled_by_default: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: S1 switch input
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -55,19 +55,7 @@ featured_components:
       locked: true
     disabled_by_default: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: relay1
-    id: light_binary_1
-    name: Binary 1
-- id: light_binary_2
-  component_id: light.binary
-  fields:
-    output: relay2
-    id: light_binary_2
-    name: Binary 2
+    name: S2 switch input
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -87,7 +75,7 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Wifi Signal Strength
 source:
   type: esphome-devices
   remote_id: LoraTap-SC500W

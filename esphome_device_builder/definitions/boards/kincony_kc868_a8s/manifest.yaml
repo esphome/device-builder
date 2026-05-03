@@ -16,31 +16,31 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (input1)
+  occupied_by: light1
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (input2)
+  occupied_by: light2
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (input3)
+  occupied_by: light3
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (input4)
+  occupied_by: light4
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (input5)
+  occupied_by: curtain1-up
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (input6)
+  occupied_by: curtain1-down
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (input7)
+  occupied_by: curtain2-up
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (input8)
+  occupied_by: curtain2-down
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (PIR1)
+  occupied_by: PIR1
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A8S/
 featured_components:
 - id: binary_sensor_gpio_1

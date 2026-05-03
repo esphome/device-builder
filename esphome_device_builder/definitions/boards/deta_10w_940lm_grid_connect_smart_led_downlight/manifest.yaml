@@ -12,30 +12,25 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (output_g)
+  occupied_by: output_g
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (output_r)
+  occupied_by: output_r
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (output_ww)
+  occupied_by: output_ww
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (output_b)
+  occupied_by: output_b
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (output_cw)
+  occupied_by: output_cw
 docs_url: https://devices.esphome.io/devices/Deta-10W-940lm-Grid-Connect-Smart-LED-Downlight/
 featured_components:
 - id: light_rgbww_1
   component_id: light.rgbww
   fields:
     color_interlock: true
-    red: output_r
-    green: output_g
-    blue: output_b
-    warm_white: output_ww
-    cold_white: output_cw
     cold_white_color_temperature: 5700 K
     warm_white_color_temperature: 3000 K
     id: light_rgbww_1

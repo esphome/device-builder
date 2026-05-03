@@ -11,13 +11,6 @@ images:
 - images/5250B.webp
 docs_url: https://devices.esphome.io/devices/Ningbo-Fuda-5250B-Dehumidifier/
 featured_components:
-- id: binary_sensor_template_1
-  component_id: binary_sensor.template
-  fields:
-    device_class: problem
-    icon: mdi:water-alert
-    id: binary_sensor_template_1
-    name: Water tank
 - id: binary_sensor_tuya_1
   component_id: binary_sensor.tuya
   fields:

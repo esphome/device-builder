@@ -13,28 +13,28 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: output.gpio (led_1)
+  occupied_by: valve_1
 - gpio: 1
   available: false
-  occupied_by: output.gpio (led_2)
+  occupied_by: valve_2
 - gpio: 2
   available: false
-  occupied_by: output.gpio (led_3)
+  occupied_by: valve_3
 - gpio: 3
   available: false
-  occupied_by: output.gpio (led_4)
+  occupied_by: valve_4
 - gpio: 4
   available: false
-  occupied_by: output.gpio (led_5)
+  occupied_by: valve_5
 - gpio: 5
   available: false
-  occupied_by: output.gpio (led_6)
+  occupied_by: valve_6
 - gpio: 6
   available: false
-  occupied_by: output.gpio (led_7)
+  occupied_by: valve_7
 - gpio: 7
   available: false
-  occupied_by: output.gpio (led_8)
+  occupied_by: valve_8
 docs_url: https://devices.esphome.io/devices/Tuya-WIFI-Sprinkler-Controller/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -42,25 +42,25 @@ featured_components:
   fields:
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: touch_sensor_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
     internal: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: touch_sensor_2
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
     internal: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: touch_sensor_3
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
     internal: true
     id: binary_sensor_gpio_4
-    name: Gpio 4
+    name: touch_sensor_4
 - id: output_gpio_1
   component_id: output.gpio
   fields:
@@ -151,7 +151,7 @@ featured_components:
         inverted: false
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: valve_1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -162,7 +162,7 @@ featured_components:
         inverted: false
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: valve_2
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -173,7 +173,7 @@ featured_components:
         inverted: false
       locked: true
     id: switch_gpio_3
-    name: Gpio 3
+    name: valve_3
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -184,7 +184,7 @@ featured_components:
         inverted: false
       locked: true
     id: switch_gpio_4
-    name: Gpio 4
+    name: valve_4
 - id: switch_gpio_5
   component_id: switch.gpio
   fields:
@@ -195,7 +195,7 @@ featured_components:
         inverted: false
       locked: true
     id: switch_gpio_5
-    name: Gpio 5
+    name: valve_5
 - id: switch_gpio_6
   component_id: switch.gpio
   fields:
@@ -206,7 +206,7 @@ featured_components:
         inverted: false
       locked: true
     id: switch_gpio_6
-    name: Gpio 6
+    name: valve_6
 - id: switch_gpio_7
   component_id: switch.gpio
   fields:
@@ -217,7 +217,7 @@ featured_components:
         inverted: false
       locked: true
     id: switch_gpio_7
-    name: Gpio 7
+    name: valve_7
 - id: switch_gpio_8
   component_id: switch.gpio
   fields:
@@ -228,7 +228,7 @@ featured_components:
         inverted: false
       locked: true
     id: switch_gpio_8
-    name: Gpio 8
+    name: valve_8
 source:
   type: esphome-devices
   remote_id: Tuya-WIFI-Sprinkler-Controller

@@ -16,16 +16,16 @@ images:
 pins:
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (IO15)
+  occupied_by: IO15
 - gpio: 38
   available: false
-  occupied_by: binary_sensor.gpio (IO38)
+  occupied_by: IO38
 - gpio: 39
   available: false
-  occupied_by: binary_sensor.gpio (IO39)
+  occupied_by: IO39
 - gpio: 40
   available: false
-  occupied_by: binary_sensor.gpio (IO40)
+  occupied_by: IO40
 docs_url: https://devices.esphome.io/devices/KinCony-AG8/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -83,15 +83,8 @@ featured_components:
 - id: switch_uart_1
   component_id: switch.uart
   fields:
-    uart_id: uart_485
-    id: switch_uart_1
-    name: RS485 Button
-- id: switch_uart_2
-  component_id: switch.uart
-  fields:
-    uart_id: uart_232
     data: RS232-test
-    id: switch_uart_2
+    id: switch_uart_1
     name: RS232 Button
 source:
   type: esphome-devices

@@ -12,17 +12,15 @@ images:
 pins:
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (dimmer)
+  occupied_by: dimmer
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (color_temp)
+  occupied_by: color_temp
 docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-LED-Globe-CWWW/
 featured_components:
 - id: light_color_temperature_1
   component_id: light.color_temperature
   fields:
-    color_temperature: color_temp
-    brightness: dimmer
     cold_white_color_temperature: 5700 K
     warm_white_color_temperature: 3000 K
     id: light_color_temperature_1

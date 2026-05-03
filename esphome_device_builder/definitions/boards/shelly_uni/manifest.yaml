@@ -16,36 +16,27 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: light.status_led (LED)
+  occupied_by: LED
 - gpio: 4
   available: false
-  occupied_by: output.gpio (out_2)
+  occupied_by: out_2
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (Input 1)
+  occupied_by: Input 1
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (Input 2)
+  occupied_by: Input 2
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (ADC Range)
+  occupied_by: ADC Range
 - gpio: 15
   available: false
-  occupied_by: output.gpio (out_1)
+  occupied_by: out_1
 - gpio: 17
   available: false
-  occupied_by: sensor.adc (Voltage)
+  occupied_by: Voltage
 docs_url: https://devices.esphome.io/devices/Shelly-Uni/
 featured_components:
-- id: binary_sensor_template_1
-  component_id: binary_sensor.template
-  fields:
-    internal: true
-    entity_category: diagnostic
-    device_class: connectivity
-    lambda: return global_api_server->is_connected();
-    id: binary_sensor_template_1
-    name: API connected
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -115,18 +106,6 @@ featured_components:
     update_interval: 9s
     id: sensor_adc_1
     name: Voltage
-- id: switch_output_1
-  component_id: switch.output
-  fields:
-    output: out_1
-    id: switch_output_1
-    name: Output 1
-- id: switch_output_2
-  component_id: switch.output
-  fields:
-    output: out_2
-    id: switch_output_2
-    name: Output 2
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

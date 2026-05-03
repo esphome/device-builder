@@ -16,8 +16,6 @@ featured_components:
 - id: light_cwww_1
   component_id: light.cwww
   fields:
-    cold_white: output_cw
-    warm_white: output_ww
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     id: light_cwww_1
@@ -28,19 +26,8 @@ featured_components:
     chipset: WS2812
     num_leds: 40
     rgb_order: RBG
-    power_supply: led_power
     id: light_beken_spi_led_strip_1
     name: Color Light
-- id: output_libretiny_pwm_1
-  component_id: output.libretiny_pwm
-  fields:
-    power_supply: led_power
-    id: output_libretiny_pwm_1
-- id: output_libretiny_pwm_2
-  component_id: output.libretiny_pwm
-  fields:
-    power_supply: led_power
-    id: output_libretiny_pwm_2
 source:
   type: esphome-devices
   remote_id: LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1

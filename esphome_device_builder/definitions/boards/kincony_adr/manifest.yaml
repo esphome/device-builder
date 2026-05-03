@@ -17,16 +17,15 @@ images:
 pins:
 - gpio: 25
   available: false
-  occupied_by: output.ac_dimmer (dimmer1)
+  occupied_by: dimmer1
 - gpio: 33
   available: false
-  occupied_by: output.ac_dimmer (dimmer1)
+  occupied_by: dimmer1
 docs_url: https://devices.esphome.io/devices/KinCony-ADR/
 featured_components:
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
-    output: dimmer1
     default_transition_length: 100ms
     id: light_monochromatic_1
     name: adr_lamp

@@ -19,7 +19,7 @@ featured_components:
   fields:
     device_class: window
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -37,21 +37,13 @@ featured_components:
     current_resistor: 0.0009
     id: sensor_hlw8012_1
     name: Hlw8012 1
-- id: sensor_template_1
-  component_id: sensor.template
-  fields:
-    unit_of_measurement: A
-    accuracy_decimals: 2
-    update_interval: 30s
-    id: sensor_template_1
-    name: $name Current
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
     restore_mode: always off
     icon: mdi:power-socket-au
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay
 source:
   type: esphome-devices
   remote_id: Arlec-PC191HA-Plug

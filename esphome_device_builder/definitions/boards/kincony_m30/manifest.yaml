@@ -15,7 +15,7 @@ images:
 pins:
 - gpio: 12
   available: false
-  occupied_by: light.esp32_rmt_led_strip (light1)
+  occupied_by: light1
 docs_url: https://devices.esphome.io/devices/KinCony-M30/
 featured_components:
 - id: light_esp32_rmt_led_strip_1
@@ -28,11 +28,10 @@ featured_components:
     num_leds: 30
     chipset: ws2812
     id: light_esp32_rmt_led_strip_1
-    name: Esp32 Rmt Led Strip 1
+    name: light1
 - id: sensor_modbus_controller_1
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 100
     register_type: holding
     unit_of_measurement: A
@@ -43,7 +42,6 @@ featured_components:
 - id: sensor_modbus_controller_2
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 101
     register_type: holding
     unit_of_measurement: A
@@ -54,7 +52,6 @@ featured_components:
 - id: sensor_modbus_controller_3
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 102
     register_type: holding
     unit_of_measurement: A
@@ -65,7 +62,6 @@ featured_components:
 - id: sensor_modbus_controller_4
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 103
     register_type: holding
     unit_of_measurement: A
@@ -76,7 +72,6 @@ featured_components:
 - id: sensor_modbus_controller_5
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 104
     register_type: holding
     unit_of_measurement: A
@@ -87,7 +82,6 @@ featured_components:
 - id: sensor_modbus_controller_6
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 105
     register_type: holding
     unit_of_measurement: A
@@ -98,7 +92,6 @@ featured_components:
 - id: sensor_modbus_controller_7
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 106
     register_type: holding
     unit_of_measurement: A
@@ -109,7 +102,6 @@ featured_components:
 - id: sensor_modbus_controller_8
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 107
     register_type: holding
     unit_of_measurement: A
@@ -120,7 +112,6 @@ featured_components:
 - id: sensor_modbus_controller_9
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 108
     register_type: holding
     unit_of_measurement: A
@@ -131,7 +122,6 @@ featured_components:
 - id: sensor_modbus_controller_10
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 109
     register_type: holding
     unit_of_measurement: A
@@ -142,7 +132,6 @@ featured_components:
 - id: sensor_modbus_controller_11
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 110
     register_type: holding
     unit_of_measurement: V
@@ -153,7 +142,6 @@ featured_components:
 - id: sensor_modbus_controller_12
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 111
     register_type: holding
     unit_of_measurement: W
@@ -164,7 +152,6 @@ featured_components:
 - id: sensor_modbus_controller_13
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 112
     register_type: holding
     unit_of_measurement: W
@@ -175,7 +162,6 @@ featured_components:
 - id: sensor_modbus_controller_14
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 113
     register_type: holding
     unit_of_measurement: W
@@ -186,7 +172,6 @@ featured_components:
 - id: sensor_modbus_controller_15
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 114
     register_type: holding
     unit_of_measurement: W
@@ -197,7 +182,6 @@ featured_components:
 - id: sensor_modbus_controller_16
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 115
     register_type: holding
     unit_of_measurement: W
@@ -208,7 +192,6 @@ featured_components:
 - id: sensor_modbus_controller_17
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 116
     register_type: holding
     unit_of_measurement: W
@@ -219,7 +202,6 @@ featured_components:
 - id: sensor_modbus_controller_18
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 117
     register_type: holding
     unit_of_measurement: W
@@ -230,7 +212,6 @@ featured_components:
 - id: sensor_modbus_controller_19
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 118
     register_type: holding
     unit_of_measurement: W
@@ -241,7 +222,6 @@ featured_components:
 - id: sensor_modbus_controller_20
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 119
     register_type: holding
     unit_of_measurement: W
@@ -252,7 +232,6 @@ featured_components:
 - id: sensor_modbus_controller_21
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 120
     register_type: holding
     unit_of_measurement: W
@@ -265,7 +244,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 121
     register_type: holding
     unit_of_measurement: kWh
@@ -278,7 +256,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 122
     register_type: holding
     unit_of_measurement: kWh
@@ -291,7 +268,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 123
     register_type: holding
     unit_of_measurement: kWh
@@ -304,7 +280,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 124
     register_type: holding
     unit_of_measurement: kWh
@@ -317,7 +292,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 125
     register_type: holding
     unit_of_measurement: kWh
@@ -330,7 +304,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 126
     register_type: holding
     unit_of_measurement: kWh
@@ -343,7 +316,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 127
     register_type: holding
     unit_of_measurement: kWh
@@ -356,7 +328,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 128
     register_type: holding
     unit_of_measurement: kWh
@@ -369,7 +340,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 129
     register_type: holding
     unit_of_measurement: kWh
@@ -382,7 +352,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 130
     register_type: holding
     unit_of_measurement: kWh
@@ -393,7 +362,6 @@ featured_components:
 - id: sensor_modbus_controller_32
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 131
     register_type: holding
     unit_of_measurement: kWh
@@ -404,7 +372,6 @@ featured_components:
 - id: sensor_modbus_controller_33
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 132
     register_type: holding
     unit_of_measurement: Hz
@@ -415,7 +382,6 @@ featured_components:
 - id: sensor_modbus_controller_34
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 133
     register_type: holding
     unit_of_measurement: °C
@@ -426,7 +392,6 @@ featured_components:
 - id: sensor_modbus_controller_35
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 200
     register_type: holding
     unit_of_measurement: A
@@ -437,7 +402,6 @@ featured_components:
 - id: sensor_modbus_controller_36
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 201
     register_type: holding
     unit_of_measurement: A
@@ -448,7 +412,6 @@ featured_components:
 - id: sensor_modbus_controller_37
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 202
     register_type: holding
     unit_of_measurement: A
@@ -459,7 +422,6 @@ featured_components:
 - id: sensor_modbus_controller_38
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 203
     register_type: holding
     unit_of_measurement: A
@@ -470,7 +432,6 @@ featured_components:
 - id: sensor_modbus_controller_39
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 204
     register_type: holding
     unit_of_measurement: A
@@ -481,7 +442,6 @@ featured_components:
 - id: sensor_modbus_controller_40
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 205
     register_type: holding
     unit_of_measurement: A
@@ -492,7 +452,6 @@ featured_components:
 - id: sensor_modbus_controller_41
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 206
     register_type: holding
     unit_of_measurement: A
@@ -503,7 +462,6 @@ featured_components:
 - id: sensor_modbus_controller_42
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 207
     register_type: holding
     unit_of_measurement: A
@@ -514,7 +472,6 @@ featured_components:
 - id: sensor_modbus_controller_43
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 208
     register_type: holding
     unit_of_measurement: A
@@ -525,7 +482,6 @@ featured_components:
 - id: sensor_modbus_controller_44
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 209
     register_type: holding
     unit_of_measurement: A
@@ -536,7 +492,6 @@ featured_components:
 - id: sensor_modbus_controller_45
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 210
     register_type: holding
     unit_of_measurement: V
@@ -547,7 +502,6 @@ featured_components:
 - id: sensor_modbus_controller_46
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 211
     register_type: holding
     unit_of_measurement: W
@@ -558,7 +512,6 @@ featured_components:
 - id: sensor_modbus_controller_47
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 212
     register_type: holding
     unit_of_measurement: W
@@ -569,7 +522,6 @@ featured_components:
 - id: sensor_modbus_controller_48
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 213
     register_type: holding
     unit_of_measurement: W
@@ -580,7 +532,6 @@ featured_components:
 - id: sensor_modbus_controller_49
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 214
     register_type: holding
     unit_of_measurement: W
@@ -591,7 +542,6 @@ featured_components:
 - id: sensor_modbus_controller_50
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 215
     register_type: holding
     unit_of_measurement: W
@@ -602,7 +552,6 @@ featured_components:
 - id: sensor_modbus_controller_51
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 216
     register_type: holding
     unit_of_measurement: W
@@ -613,7 +562,6 @@ featured_components:
 - id: sensor_modbus_controller_52
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 217
     register_type: holding
     unit_of_measurement: W
@@ -624,7 +572,6 @@ featured_components:
 - id: sensor_modbus_controller_53
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 218
     register_type: holding
     unit_of_measurement: W
@@ -635,7 +582,6 @@ featured_components:
 - id: sensor_modbus_controller_54
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 219
     register_type: holding
     unit_of_measurement: W
@@ -646,7 +592,6 @@ featured_components:
 - id: sensor_modbus_controller_55
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 220
     register_type: holding
     unit_of_measurement: W
@@ -659,7 +604,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 221
     register_type: holding
     unit_of_measurement: kWh
@@ -672,7 +616,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 222
     register_type: holding
     unit_of_measurement: kWh
@@ -685,7 +628,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 223
     register_type: holding
     unit_of_measurement: kWh
@@ -698,7 +640,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 224
     register_type: holding
     unit_of_measurement: kWh
@@ -711,7 +652,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 225
     register_type: holding
     unit_of_measurement: kWh
@@ -724,7 +664,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 226
     register_type: holding
     unit_of_measurement: kWh
@@ -737,7 +676,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 227
     register_type: holding
     unit_of_measurement: kWh
@@ -750,7 +688,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 228
     register_type: holding
     unit_of_measurement: kWh
@@ -763,7 +700,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 229
     register_type: holding
     unit_of_measurement: kWh
@@ -776,7 +712,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 230
     register_type: holding
     unit_of_measurement: kWh
@@ -787,7 +722,6 @@ featured_components:
 - id: sensor_modbus_controller_66
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 231
     register_type: holding
     unit_of_measurement: kWh
@@ -798,7 +732,6 @@ featured_components:
 - id: sensor_modbus_controller_67
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 232
     register_type: holding
     unit_of_measurement: Hz
@@ -809,7 +742,6 @@ featured_components:
 - id: sensor_modbus_controller_68
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 233
     register_type: holding
     unit_of_measurement: °C
@@ -820,7 +752,6 @@ featured_components:
 - id: sensor_modbus_controller_69
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 300
     register_type: holding
     unit_of_measurement: A
@@ -831,7 +762,6 @@ featured_components:
 - id: sensor_modbus_controller_70
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 301
     register_type: holding
     unit_of_measurement: A
@@ -842,7 +772,6 @@ featured_components:
 - id: sensor_modbus_controller_71
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 302
     register_type: holding
     unit_of_measurement: A
@@ -853,7 +782,6 @@ featured_components:
 - id: sensor_modbus_controller_72
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 303
     register_type: holding
     unit_of_measurement: A
@@ -864,7 +792,6 @@ featured_components:
 - id: sensor_modbus_controller_73
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 304
     register_type: holding
     unit_of_measurement: A
@@ -875,7 +802,6 @@ featured_components:
 - id: sensor_modbus_controller_74
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 305
     register_type: holding
     unit_of_measurement: A
@@ -886,7 +812,6 @@ featured_components:
 - id: sensor_modbus_controller_75
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 306
     register_type: holding
     unit_of_measurement: A
@@ -897,7 +822,6 @@ featured_components:
 - id: sensor_modbus_controller_76
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 307
     register_type: holding
     unit_of_measurement: A
@@ -908,7 +832,6 @@ featured_components:
 - id: sensor_modbus_controller_77
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 308
     register_type: holding
     unit_of_measurement: A
@@ -919,7 +842,6 @@ featured_components:
 - id: sensor_modbus_controller_78
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 309
     register_type: holding
     unit_of_measurement: A
@@ -930,7 +852,6 @@ featured_components:
 - id: sensor_modbus_controller_79
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 310
     register_type: holding
     unit_of_measurement: V
@@ -941,7 +862,6 @@ featured_components:
 - id: sensor_modbus_controller_80
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 311
     register_type: holding
     unit_of_measurement: W
@@ -952,7 +872,6 @@ featured_components:
 - id: sensor_modbus_controller_81
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 312
     register_type: holding
     unit_of_measurement: W
@@ -963,7 +882,6 @@ featured_components:
 - id: sensor_modbus_controller_82
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 313
     register_type: holding
     unit_of_measurement: W
@@ -974,7 +892,6 @@ featured_components:
 - id: sensor_modbus_controller_83
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 314
     register_type: holding
     unit_of_measurement: W
@@ -985,7 +902,6 @@ featured_components:
 - id: sensor_modbus_controller_84
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 315
     register_type: holding
     unit_of_measurement: W
@@ -996,7 +912,6 @@ featured_components:
 - id: sensor_modbus_controller_85
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 316
     register_type: holding
     unit_of_measurement: W
@@ -1007,7 +922,6 @@ featured_components:
 - id: sensor_modbus_controller_86
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 317
     register_type: holding
     unit_of_measurement: W
@@ -1018,7 +932,6 @@ featured_components:
 - id: sensor_modbus_controller_87
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 318
     register_type: holding
     unit_of_measurement: W
@@ -1029,7 +942,6 @@ featured_components:
 - id: sensor_modbus_controller_88
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 319
     register_type: holding
     unit_of_measurement: W
@@ -1040,7 +952,6 @@ featured_components:
 - id: sensor_modbus_controller_89
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 320
     register_type: holding
     unit_of_measurement: W
@@ -1053,7 +964,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 321
     register_type: holding
     unit_of_measurement: kWh
@@ -1066,7 +976,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 322
     register_type: holding
     unit_of_measurement: kWh
@@ -1079,7 +988,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 323
     register_type: holding
     unit_of_measurement: kWh
@@ -1092,7 +1000,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 324
     register_type: holding
     unit_of_measurement: kWh
@@ -1105,7 +1012,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 325
     register_type: holding
     unit_of_measurement: kWh
@@ -1118,7 +1024,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 326
     register_type: holding
     unit_of_measurement: kWh
@@ -1131,7 +1036,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 327
     register_type: holding
     unit_of_measurement: kWh
@@ -1144,7 +1048,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 328
     register_type: holding
     unit_of_measurement: kWh
@@ -1157,7 +1060,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 329
     register_type: holding
     unit_of_measurement: kWh
@@ -1170,7 +1072,6 @@ featured_components:
   fields:
     state_class: total_increasing
     device_class: energy
-    modbus_controller_id: modbus_hub_m30
     address: 330
     register_type: holding
     unit_of_measurement: kWh
@@ -1181,7 +1082,6 @@ featured_components:
 - id: sensor_modbus_controller_100
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 331
     register_type: holding
     unit_of_measurement: kWh
@@ -1192,7 +1092,6 @@ featured_components:
 - id: sensor_modbus_controller_101
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 332
     register_type: holding
     unit_of_measurement: Hz
@@ -1203,7 +1102,6 @@ featured_components:
 - id: sensor_modbus_controller_102
   component_id: sensor.modbus_controller
   fields:
-    modbus_controller_id: modbus_hub_m30
     address: 333
     register_type: holding
     unit_of_measurement: °C

@@ -16,64 +16,64 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (a64--input1)
+  occupied_by: a64--light49
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (a64--input2)
+  occupied_by: a64--light50
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (a64--input3)
+  occupied_by: a64--light51
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (a64--input4)
+  occupied_by: a64--light52
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (a64--input5)
+  occupied_by: a64--light53
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (a64--input6)
+  occupied_by: a64--light54
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (a64--input7)
+  occupied_by: a64--light55
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (a64--input8)
+  occupied_by: a64--light56
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (a64--input9)
+  occupied_by: a64--light57
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (a64--input10)
+  occupied_by: a64--light58
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (a64--input11)
+  occupied_by: a64--light59
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (a64--input12)
+  occupied_by: a64--light60
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (a64--input13)
+  occupied_by: a64--light61
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (a64--input14)
+  occupied_by: a64--light62
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (a64--input15)
+  occupied_by: a64--light63
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (a64--input16)
+  occupied_by: a64--light64
 - gpio: 34
   available: false
-  occupied_by: sensor.adc (a64--analog--2)
+  occupied_by: a64--analog--2
 - gpio: 35
   available: false
-  occupied_by: sensor.adc (a64--analog--4)
+  occupied_by: a64--analog--4
 - gpio: 36
   available: false
-  occupied_by: sensor.adc (a64--analog--3)
+  occupied_by: a64--analog--3
 - gpio: 39
   available: false
-  occupied_by: sensor.adc (a64--analog--1)
+  occupied_by: a64--analog--1
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A64/
 featured_components:
 - id: binary_sensor_gpio_1

@@ -18,7 +18,7 @@ tags:
 pins:
 - gpio: 16
   available: false
-  occupied_by: output.gpio (ade7953_reset)
+  occupied_by: ade7953_reset
 docs_url: https://devices.esphome.io/devices/Shelly-Pro-EM-50/
 featured_components:
 - id: output_gpio_1

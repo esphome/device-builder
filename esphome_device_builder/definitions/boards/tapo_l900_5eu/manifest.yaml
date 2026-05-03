@@ -19,14 +19,6 @@ featured_components:
     internal: true
     id: binary_sensor_gpio_1
     name: strip_light_pushbutton
-- id: light_rgb_1
-  component_id: light.rgb
-  fields:
-    red: output_red
-    green: output_green
-    blue: output_blue
-    id: light_rgb_1
-    name: Strip Light
 source:
   type: esphome-devices
   remote_id: Tapo-L900-5EU

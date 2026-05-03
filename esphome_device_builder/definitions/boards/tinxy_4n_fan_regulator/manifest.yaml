@@ -16,27 +16,15 @@ tags:
 pins:
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (gen_pwm_test)
+  occupied_by: gen_pwm_test
 docs_url: https://devices.esphome.io/devices/Tinxy-4N-Fan-Regulator/
 featured_components:
 - id: fan_speed_1
   component_id: fan.speed
   fields:
-    output: fanoutput
     speed_count: 3
     id: fan_speed_1
     name: Fan
-- id: number_template_1
-  component_id: number.template
-  fields:
-    optimistic: true
-    restore_value: true
-    initial_value: '60'
-    min_value: 5
-    max_value: 100
-    step: 1
-    id: number_template_1
-    name: Switch Delay
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:
@@ -45,27 +33,6 @@ featured_components:
       locked: true
     frequency: 1000 Hz
     id: output_esp8266_pwm_1
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_template_1
-    name: Relay2
-- id: switch_template_2
-  component_id: switch.template
-  fields:
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_template_2
-    name: Relay3
-- id: switch_template_3
-  component_id: switch.template
-  fields:
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    id: switch_template_3
-    name: Relay4
 source:
   type: esphome-devices
   remote_id: Tinxy-4N-Fan-Regulator

@@ -22,13 +22,13 @@ featured_components:
   fields:
     entity_category: diagnostic
     id: button_restart_1
-    name: Restart 1
+    name: Restart
 - id: button_safe_mode_1
   component_id: button.safe_mode
   fields:
     entity_category: diagnostic
     id: button_safe_mode_1
-    name: Safe Mode 1
+    name: Restart (Safe Mode)
 - id: light_tuya_1
   component_id: light.tuya
   fields:
@@ -46,26 +46,20 @@ featured_components:
     max_value: 255
     step: 1
     id: number_tuya_1
-    name: Tuya 1
+    name: Minimum Brightness
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     internal: true
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Signal strength
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
     switch_datapoint: 102
     id: switch_tuya_1
-    name: Tuya 1
-- id: text_sensor_template_1
-  component_id: text_sensor.template
-  fields:
-    icon: mdi:clock-start
-    id: text_sensor_template_1
-    name: Template 1
+    name: Switch Only Mode
 source:
   type: esphome-devices
   remote_id: Miboxer-TRI-C1WR-Dimmer

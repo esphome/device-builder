@@ -15,13 +15,13 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: output.gpio (led)
+  occupied_by: led
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (button)
+  occupied_by: button
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (Socket)
+  occupied_by: Socket
 docs_url: https://devices.esphome.io/devices/Jeeo-TF-SH330/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -40,7 +40,6 @@ featured_components:
   component_id: light.binary
   fields:
     internal: true
-    output: led
     restore_mode: RESTORE_DEFAULT_OFF
     id: light_binary_1
     name: Status LED

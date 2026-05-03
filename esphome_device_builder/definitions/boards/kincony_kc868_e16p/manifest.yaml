@@ -17,28 +17,28 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (e16p-input1)
+  occupied_by: e16p-output9
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (e16p-input2)
+  occupied_by: e16p-output10
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (e16p-input3)
+  occupied_by: e16p-output11
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (e16p-input4)
+  occupied_by: e16p-output12
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (e16p-input5)
+  occupied_by: e16p-output13
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (e16p-input6)
+  occupied_by: e16p-output14
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (e16p-input7)
+  occupied_by: e16p-output15
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (e16p-input8)
+  occupied_by: e16p-output16
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-E16P/
 featured_components:
 - id: binary_sensor_gpio_1

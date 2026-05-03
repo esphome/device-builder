@@ -13,7 +13,7 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (D3 Input Button)
+  occupied_by: D3 Input Button
 docs_url: https://devices.esphome.io/devices/IoT-devices-GGreg20-V3/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -39,7 +39,6 @@ featured_components:
   component_id: sensor.integration
   fields:
     unit_of_measurement: mkSv
-    sensor: my_doze_meter
     icon: mdi:radioactive
     accuracy_decimals: 5
     time_unit: min

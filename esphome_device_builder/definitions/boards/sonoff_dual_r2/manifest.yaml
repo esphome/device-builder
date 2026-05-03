@@ -15,19 +15,19 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (${dev_name}_button0)
+  occupied_by: button0
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (${dev_name}_relay2)
+  occupied_by: relay2
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (${dev_name}_button1)
+  occupied_by: button1
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (${dev_name}_button)
+  occupied_by: button
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (${dev_name}_relay)
+  occupied_by: relay
 docs_url: https://devices.esphome.io/devices/Sonoff-Dual-R2/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -40,7 +40,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -51,7 +51,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: button0
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -62,13 +62,13 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: button1
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 30s
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: wifi_signal
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -76,7 +76,7 @@ featured_components:
       value: 12
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -84,7 +84,7 @@ featured_components:
       value: 5
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: relay2
 source:
   type: esphome-devices
   remote_id: Sonoff-Dual-R2

@@ -17,13 +17,13 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (Device Button)
+  occupied_by: Device Button
 - gpio: 5
   available: false
-  occupied_by: switch.gpio (Relay)
+  occupied_by: Relay
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (Switch Input)
+  occupied_by: Switch Input
 docs_url: https://devices.esphome.io/devices/Shelly-1-Gen4/
 featured_components:
 - id: binary_sensor_gpio_1

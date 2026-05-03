@@ -16,52 +16,52 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (a128-input1)
+  occupied_by: a128-light113
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (a128-input2)
+  occupied_by: a128-light114
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (a128-input3)
+  occupied_by: a128-light115
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (a128-input4)
+  occupied_by: a128-light116
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (a128-input5)
+  occupied_by: a128-light117
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (a128-input6)
+  occupied_by: a128-light118
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (a128-input7)
+  occupied_by: a128-light119
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (a128-input8)
+  occupied_by: a128-light120
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (a128-input9)
+  occupied_by: a128-light121
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (a128-input10)
+  occupied_by: a128-light122
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (a128-input11)
+  occupied_by: a128-light123
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (a128-input12)
+  occupied_by: a128-light124
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (a128-input13)
+  occupied_by: a128-light125
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (a128-input14)
+  occupied_by: a128-light126
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (a128-input15)
+  occupied_by: a128-light127
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (a128-input16)
+  occupied_by: a128-light128
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A128/
 featured_components:
 - id: binary_sensor_gpio_1

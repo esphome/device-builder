@@ -16,16 +16,9 @@ tags:
 - compact
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A-EU_BL0942/
 featured_components:
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: led_output
-    id: light_binary_1
-    name: Status LED
 - id: sensor_bl0942_1
   component_id: sensor.bl0942
   fields:
-    uart_id: bl0942_uart
     line_frequency: 50Hz
     id: sensor_bl0942_1
     name: Bl0942 1

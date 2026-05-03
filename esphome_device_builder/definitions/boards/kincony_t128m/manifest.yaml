@@ -17,61 +17,61 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input01)
+  occupied_by: t128m-output113
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input02)
+  occupied_by: t128m-output114
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input03)
+  occupied_by: t128m-output115
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input04)
+  occupied_by: t128m-output116
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input05)
+  occupied_by: t128m-output117
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input06)
+  occupied_by: t128m-output118
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input07)
+  occupied_by: t128m-output119
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input08)
+  occupied_by: t128m-output120
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input09)
+  occupied_by: t128m-output121
 - gpio: 9
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input10)
+  occupied_by: t128m-output122
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input11)
+  occupied_by: t128m-output123
 - gpio: 11
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input12)
+  occupied_by: t128m-output124
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input13)
+  occupied_by: t128m-output125
 - gpio: 13
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input14)
+  occupied_by: t128m-output126
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input15)
+  occupied_by: t128m-output127
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (t128m-input16)
+  occupied_by: t128m-output128
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (t128m-W1-io16)
+  occupied_by: t128m-W1-io16
 - gpio: 17
   available: false
-  occupied_by: binary_sensor.gpio (t128m-W1-io17)
+  occupied_by: t128m-W1-io17
 - gpio: 18
   available: false
-  occupied_by: binary_sensor.gpio (t128m-W1-io18)
+  occupied_by: t128m-W1-io18
 docs_url: https://devices.esphome.io/devices/KinCony-T128M/
 featured_components:
 - id: binary_sensor_gpio_1

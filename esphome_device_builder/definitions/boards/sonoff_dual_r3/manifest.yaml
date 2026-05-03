@@ -17,22 +17,22 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 - gpio: 13
   available: false
-  occupied_by: light.status_led (LED)
+  occupied_by: LED
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (2)
+  occupied_by: '2'
 - gpio: 27
   available: false
-  occupied_by: switch.gpio (1)
+  occupied_by: '1'
 - gpio: 32
   available: false
-  occupied_by: binary_sensor.gpio (1)
+  occupied_by: '1'
 - gpio: 33
   available: false
-  occupied_by: binary_sensor.gpio (2)
+  occupied_by: '2'
 docs_url: https://devices.esphome.io/devices/Sonoff-Dual-R3/
 featured_components:
 - id: binary_sensor_gpio_1

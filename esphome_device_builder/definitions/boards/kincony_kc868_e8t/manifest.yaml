@@ -16,28 +16,28 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (e8t-input1)
+  occupied_by: e8t-light1
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (e8t-input2)
+  occupied_by: e8t-light2
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (e8t-input3)
+  occupied_by: e8t-light3
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (e8t-input4)
+  occupied_by: e8t-light4
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (e8t-input5)
+  occupied_by: e8t-light5
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (e8t-input6)
+  occupied_by: e8t-light6
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (e8t-input7)
+  occupied_by: e8t-light7
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (e8t-input8)
+  occupied_by: e8t-light8
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-E8T/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -139,14 +139,12 @@ featured_components:
 - id: sensor_bl0939_1
   component_id: sensor.bl0939
   fields:
-    uart_id: uart_1
     update_interval: 10s
     id: sensor_bl0939_1
     name: Bl0939 1
 - id: sensor_bl0939_2
   component_id: sensor.bl0939
   fields:
-    uart_id: uart_2
     update_interval: 10s
     id: sensor_bl0939_2
     name: Bl0939 2

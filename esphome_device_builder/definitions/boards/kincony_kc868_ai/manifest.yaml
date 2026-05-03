@@ -14,28 +14,28 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (ai-input1)
+  occupied_by: ai-input41
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (ai-input2)
+  occupied_by: ai-input42
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (ai-input3)
+  occupied_by: ai-input43
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (ai-input4)
+  occupied_by: ai-input44
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (ai-input5)
+  occupied_by: ai-input45
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (ai-input6)
+  occupied_by: ai-input46
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (ai-input7)
+  occupied_by: ai-input47
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (ai-input8)
+  occupied_by: ai-input48
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-AI/
 featured_components:
 - id: binary_sensor_gpio_1

@@ -17,16 +17,16 @@ tags:
 pins:
 - gpio: 12
   available: false
-  occupied_by: binary_sensor.gpio (${device_name} Button 1)
+  occupied_by: Button 1
 - gpio: 14
   available: false
-  occupied_by: binary_sensor.gpio (${device_name} Button 2)
+  occupied_by: Button 2
 - gpio: 26
   available: false
-  occupied_by: binary_sensor.gpio (${device_name} Button 4)
+  occupied_by: Button 4
 - gpio: 27
   available: false
-  occupied_by: binary_sensor.gpio (${device_name} Button 3)
+  occupied_by: Button 3
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-i4/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -39,7 +39,7 @@ featured_components:
           input: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: Button 1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -50,7 +50,7 @@ featured_components:
           input: true
       locked: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: Button 2
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -61,7 +61,7 @@ featured_components:
           input: true
       locked: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: Button 3
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -72,14 +72,14 @@ featured_components:
           input: true
       locked: true
     id: binary_sensor_gpio_4
-    name: Gpio 4
+    name: Button 4
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     internal: true
     id: sensor_wifi_signal_1
-    name: Wifi Signal 1
+    name: Signal strength
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-i4

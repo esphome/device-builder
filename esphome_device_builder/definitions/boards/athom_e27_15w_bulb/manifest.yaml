@@ -12,30 +12,25 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (red_output)
+  occupied_by: red_output
 - gpio: 5
   available: false
-  occupied_by: output.esp8266_pwm (white_output)
+  occupied_by: white_output
 - gpio: 12
   available: false
-  occupied_by: output.esp8266_pwm (green_output)
+  occupied_by: green_output
 - gpio: 13
   available: false
-  occupied_by: output.esp8266_pwm (ct_output)
+  occupied_by: ct_output
 - gpio: 14
   available: false
-  occupied_by: output.esp8266_pwm (blue_output)
+  occupied_by: blue_output
 docs_url: https://devices.esphome.io/devices/Athom-E27-15W-Bulb/
 featured_components:
 - id: light_rgbct_1
   component_id: light.rgbct
   fields:
     restore_mode: RESTORE_DEFAULT_ON
-    red: red_output
-    green: green_output
-    blue: blue_output
-    white_brightness: white_output
-    color_temperature: ct_output
     cold_white_color_temperature: 153 mireds
     warm_white_color_temperature: 500 mireds
     color_interlock: true

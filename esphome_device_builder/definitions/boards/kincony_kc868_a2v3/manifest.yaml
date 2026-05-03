@@ -19,34 +19,34 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (IO4)
+  occupied_by: IO4
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (IO5)
+  occupied_by: IO5
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (IO6)
+  occupied_by: IO6
 - gpio: 8
   available: false
-  occupied_by: binary_sensor.gpio (IO8)
+  occupied_by: IO8
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (A2v3-input1)
+  occupied_by: A2v3-input1
 - gpio: 17
   available: false
-  occupied_by: binary_sensor.gpio (A2v3-input2)
+  occupied_by: A2v3-input2
 - gpio: 18
   available: false
-  occupied_by: binary_sensor.gpio (IO18)
+  occupied_by: IO18
 - gpio: 38
   available: false
-  occupied_by: binary_sensor.gpio (IO38)
+  occupied_by: IO38
 - gpio: 39
   available: false
-  occupied_by: switch.gpio (A2v3-Relay2)
+  occupied_by: A2v3-Relay2
 - gpio: 40
   available: false
-  occupied_by: switch.gpio (A2v3-Relay1)
+  occupied_by: A2v3-Relay1
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A2v3/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -141,15 +141,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: IO38
-- id: display_ssd1306_i2c_1
-  component_id: display.ssd1306_i2c
-  fields:
-    i2c_id: bus_a
-    model: SSD1306 128x64
-    address: 60
-    lambda: it.printf(0, 0, id(roboto), "A2v3");
-    id: display_ssd1306_i2c_1
-    name: Ssd1306 I2C 1
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -166,18 +157,6 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: A2v3-Relay2
-- id: switch_uart_1
-  component_id: switch.uart
-  fields:
-    uart_id: uart_1
-    id: switch_uart_1
-    name: RS485 Button
-- id: switch_uart_2
-  component_id: switch.uart
-  fields:
-    uart_id: uart_sim7600
-    id: switch_uart_2
-    name: UART 4G
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-A2v3

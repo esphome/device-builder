@@ -13,10 +13,10 @@ images:
 pins:
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 - gpio: 8
   available: false
-  occupied_by: light.status_led (Status LED)
+  occupied_by: Status LED
 docs_url: https://devices.esphome.io/devices/AVATTO-S06Pro-IR-Remote/
 featured_components:
 - id: binary_sensor_gpio_1

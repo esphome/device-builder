@@ -24,13 +24,6 @@ featured_components:
     entity_category: diagnostic
     id: sensor_wifi_signal_1
     name: WiFi Signal dB
-- id: switch_template_1
-  component_id: switch.template
-  fields:
-    optimistic: true
-    restore_mode: ALWAYS_OFF
-    id: switch_template_1
-    name: RF Receiver
 source:
   type: esphome-devices
   remote_id: Tuya-Generic-S11-IR-RF-Remote-Control

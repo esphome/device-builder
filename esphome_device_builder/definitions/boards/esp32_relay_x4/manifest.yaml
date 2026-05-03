@@ -19,16 +19,16 @@ tags:
 pins:
 - gpio: 25
   available: false
-  occupied_by: switch.gpio (Relay 3)
+  occupied_by: Relay 3
 - gpio: 26
   available: false
-  occupied_by: switch.gpio (Relay 4)
+  occupied_by: Relay 4
 - gpio: 32
   available: false
-  occupied_by: switch.gpio (Relay 1)
+  occupied_by: Relay 1
 - gpio: 33
   available: false
-  occupied_by: switch.gpio (Relay 2)
+  occupied_by: Relay 2
 docs_url: https://devices.esphome.io/devices/ESP32-Relay-x4/
 featured_components:
 - id: switch_gpio_1

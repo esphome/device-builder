@@ -17,49 +17,37 @@ featured_components:
   fields:
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
+    name: button_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
     internal: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: button_2
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
     internal: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: activation_status_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
     internal: true
     id: binary_sensor_gpio_4
-    name: Gpio 4
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: filter_1
-    id: light_binary_1
-    name: Binary 1
-- id: light_binary_2
-  component_id: light.binary
-  fields:
-    output: filter_2
-    id: light_binary_2
-    name: Binary 2
+    name: activation_status_2
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
     internal: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: relay_1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
     internal: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: relay_2
 source:
   type: esphome-devices
   remote_id: DETA-Grid-Connect-Two-Gang-Two-Way-6952HA

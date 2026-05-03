@@ -13,22 +13,22 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (Button 1)
+  occupied_by: Button 1
 - gpio: 2
   available: false
-  occupied_by: light.status_led (Switch 1 state LED)
+  occupied_by: Switch 1 state LED
 - gpio: 4
   available: false
-  occupied_by: light.status_led (Switch 2 state LED)
+  occupied_by: Switch 2 state LED
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (Button 2)
+  occupied_by: Button 2
 - gpio: 12
   available: false
-  occupied_by: output.gpio (relay2)
+  occupied_by: relay2
 - gpio: 14
   available: false
-  occupied_by: output.gpio (relay1)
+  occupied_by: relay1
 docs_url: https://devices.esphome.io/devices/Gosund-SW9/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -69,18 +69,6 @@ featured_components:
       locked: true
     id: light_status_led_2
     name: Switch 2 state LED
-- id: light_binary_1
-  component_id: light.binary
-  fields:
-    output: relay1
-    id: light_binary_1
-    name: $entity_name_1
-- id: light_binary_2
-  component_id: light.binary
-  fields:
-    output: relay2
-    id: light_binary_2
-    name: $entity_name_2
 - id: output_gpio_1
   component_id: output.gpio
   fields:

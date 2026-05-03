@@ -17,13 +17,13 @@ tags:
 pins:
 - gpio: 3
   available: false
-  occupied_by: switch.gpio (Output 1)
+  occupied_by: Output 1
 - gpio: 6
   available: false
-  occupied_by: switch.gpio (Output 2)
+  occupied_by: Output 2
 - gpio: 10
   available: false
-  occupied_by: binary_sensor.gpio (Button)
+  occupied_by: Button
 docs_url: https://devices.esphome.io/devices/Shelly-The-Pill/
 featured_components:
 - id: binary_sensor_gpio_1

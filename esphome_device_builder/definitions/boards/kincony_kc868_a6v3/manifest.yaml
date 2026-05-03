@@ -19,34 +19,34 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (A6v3-input1)
+  occupied_by: A6v3-output1
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (A6v3-input2)
+  occupied_by: A6v3-output2
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (A6v3-input3)
+  occupied_by: A6v3-output3
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (A6v3-input4)
+  occupied_by: A6v3-output4
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (A6v3-input5)
+  occupied_by: A6v3-output5
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (A6v3-input6)
+  occupied_by: A6v3-output6
 - gpio: 6
   available: false
-  occupied_by: sensor.adc (A6v3 A3 Current)
+  occupied_by: A6v3 A3 Current
 - gpio: 7
   available: false
-  occupied_by: sensor.adc (A6v3 A4 Current)
+  occupied_by: A6v3 A4 Current
 - gpio: 15
   available: false
-  occupied_by: binary_sensor.gpio (A6v3-W1-io15)
+  occupied_by: A6v3-W1-io15
 - gpio: 16
   available: false
-  occupied_by: binary_sensor.gpio (A6v3-W1-io16)
+  occupied_by: A6v3-W1-io16
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A6v3/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -151,37 +151,14 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_9
     name: A6v3-W1-DW
-- id: display_ssd1306_i2c_1
-  component_id: display.ssd1306_i2c
-  fields:
-    i2c_id: bus_a
-    model: SSD1306 128x64
-    address: 60
-    lambda: it.printf(0, 0, id(roboto), "KinCony A6v3");
-    id: display_ssd1306_i2c_1
-    name: Ssd1306 I2C 1
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: gp8403_output_1
-    id: light_monochromatic_1
-    name: A6v3-DAC-1
-- id: light_monochromatic_2
-  component_id: light.monochromatic
-  fields:
-    output: gp8403_output_2
-    id: light_monochromatic_2
-    name: A6v3-DAC-2
 - id: output_gp8403_1
   component_id: output.gp8403
   fields:
-    gp8403_id: my_gp8403
     channel: 0
     id: output_gp8403_1
 - id: output_gp8403_2
   component_id: output.gp8403
   fields:
-    gp8403_id: my_gp8403
     channel: 1
     id: output_gp8403_2
 - id: sensor_adc_1
@@ -298,18 +275,6 @@ featured_components:
       locked: true
     id: switch_gpio_6
     name: A6v3-output6
-- id: switch_uart_1
-  component_id: switch.uart
-  fields:
-    uart_id: uart_1
-    id: switch_uart_1
-    name: RS485 Button
-- id: switch_uart_2
-  component_id: switch.uart
-  fields:
-    uart_id: uart_2
-    id: switch_uart_2
-    name: RS232 Button
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-A6v3

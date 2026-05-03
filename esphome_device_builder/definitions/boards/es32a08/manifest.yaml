@@ -17,85 +17,85 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: binary_sensor.gpio (I1)
+  occupied_by: A
 - gpio: 1
   available: false
-  occupied_by: binary_sensor.gpio (I2)
+  occupied_by: B
 - gpio: 2
   available: false
-  occupied_by: binary_sensor.gpio (I3)
+  occupied_by: C
 - gpio: 3
   available: false
-  occupied_by: binary_sensor.gpio (I4)
+  occupied_by: D
 - gpio: 4
   available: false
-  occupied_by: binary_sensor.gpio (I5)
+  occupied_by: E
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (I6)
+  occupied_by: F
 - gpio: 6
   available: false
-  occupied_by: binary_sensor.gpio (I7)
+  occupied_by: G
 - gpio: 7
   available: false
-  occupied_by: binary_sensor.gpio (I8)
+  occupied_by: DP
 - gpio: 8
   available: false
-  occupied_by: output.gpio (G1)
+  occupied_by: G1
 - gpio: 9
   available: false
-  occupied_by: output.gpio (G2)
+  occupied_by: G2
 - gpio: 10
   available: false
-  occupied_by: output.gpio (G3)
+  occupied_by: G3
 - gpio: 11
   available: false
-  occupied_by: output.gpio (G4)
+  occupied_by: G4
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (status LED)
+  occupied_by: status LED
 - gpio: 16
   available: false
-  occupied_by: switch.gpio (O1)
+  occupied_by: O1
 - gpio: 17
   available: false
-  occupied_by: switch.gpio (O2)
+  occupied_by: O2
 - gpio: 18
   available: false
-  occupied_by: binary_sensor.gpio (KEY1)
+  occupied_by: O3
 - gpio: 19
   available: false
-  occupied_by: binary_sensor.gpio (KEY2)
+  occupied_by: O4
 - gpio: 20
   available: false
-  occupied_by: switch.gpio (O5)
+  occupied_by: O5
 - gpio: 21
   available: false
-  occupied_by: binary_sensor.gpio (KEY3)
+  occupied_by: O6
 - gpio: 22
   available: false
-  occupied_by: switch.gpio (O7)
+  occupied_by: O7
 - gpio: 23
   available: false
-  occupied_by: binary_sensor.gpio (KEY4)
+  occupied_by: O8
 - gpio: 32
   available: false
-  occupied_by: sensor.adc (ADC5 (0-10V))
+  occupied_by: ADC5 (0-10V)
 - gpio: 33
   available: false
-  occupied_by: sensor.adc (ADC6 (0-10V))
+  occupied_by: ADC6 (0-10V)
 - gpio: 34
   available: false
-  occupied_by: sensor.adc (ADC3 (0-20ma))
+  occupied_by: ADC3 (0-20ma)
 - gpio: 35
   available: false
-  occupied_by: sensor.adc (ADC4 (0-20ma))
+  occupied_by: ADC4 (0-20ma)
 - gpio: 36
   available: false
-  occupied_by: sensor.adc (ADC1 (0-20ma))
+  occupied_by: ADC1 (0-20ma)
 - gpio: 39
   available: false
-  occupied_by: sensor.adc (ADC2 (0-20ma))
+  occupied_by: ADC2 (0-20ma)
 docs_url: https://devices.esphome.io/devices/ES32A08/
 featured_components:
 - id: binary_sensor_gpio_1

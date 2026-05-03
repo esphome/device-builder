@@ -15,22 +15,22 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: output.esp8266_pwm (output_component_blue)
+  occupied_by: output_component_blue
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio (${displayname} Button)
+  occupied_by: Button
 - gpio: 12
   available: false
-  occupied_by: switch.gpio (${displayname} Relay 2)
+  occupied_by: Relay 2
 - gpio: 13
   available: false
-  occupied_by: switch.gpio (${displayname} Relay 1)
+  occupied_by: Relay 1
 - gpio: 14
   available: false
-  occupied_by: switch.gpio (${displayname} Relay 3)
+  occupied_by: Relay 3
 - gpio: 15
   available: false
-  occupied_by: switch.gpio (${displayname} Relay 4)
+  occupied_by: Relay 4
 docs_url: https://devices.esphome.io/devices/AHRise-AHR-083/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -41,13 +41,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Gpio 1
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    output: output_component_blue
-    id: light_monochromatic_1
-    name: Monochromatic 1
+    name: Button
 - id: output_esp8266_pwm_1
   component_id: output.esp8266_pwm
   fields:
@@ -66,7 +60,7 @@ featured_components:
         number: 13
       locked: true
     id: switch_gpio_1
-    name: Gpio 1
+    name: Relay 1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -75,7 +69,7 @@ featured_components:
         number: 12
       locked: true
     id: switch_gpio_2
-    name: Gpio 2
+    name: Relay 2
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -84,7 +78,7 @@ featured_components:
         number: 14
       locked: true
     id: switch_gpio_3
-    name: Gpio 3
+    name: Relay 3
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -93,7 +87,7 @@ featured_components:
         number: 15
       locked: true
     id: switch_gpio_4
-    name: Gpio 4
+    name: Relay 4
 source:
   type: esphome-devices
   remote_id: AHRise-AHR-083
