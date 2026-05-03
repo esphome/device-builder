@@ -54,16 +54,16 @@ async def test_clear_default_removes_all_terminal_states(
     forgets to include any one of them in ``_TERMINAL_JOB_STATUSES``
     surfaces here regardless of which state was missed.
     """
-    controller = firmware_controller_factory(with_settings=False)
-    controller._jobs = {
-        "c": _job("c", JobStatus.COMPLETED),
-        "f": _job("f", JobStatus.FAILED),
-        "x": _job("x", JobStatus.CANCELLED),
-    }
+    controller = firmware_controller_factory(
+        _job("c", JobStatus.COMPLETED),
+        _job("f", JobStatus.FAILED),
+        _job("x", JobStatus.CANCELLED),
+        with_settings=False,
+    )
 
     await controller.clear()
 
-    assert controller._jobs == {}
+    assert await controller.get_jobs() == []
 
 
 @pytest.mark.asyncio
@@ -77,16 +77,16 @@ async def test_clear_default_keeps_queued_and_running_jobs(
     that defaulted to "remove all" would silently nuke the queue
     and follow_job sessions would be left dangling.
     """
-    controller = firmware_controller_factory(with_settings=False)
-    controller._jobs = {
-        "q": _job("q", JobStatus.QUEUED),
-        "r": _job("r", JobStatus.RUNNING),
-        "c": _job("c", JobStatus.COMPLETED),
-    }
+    controller = firmware_controller_factory(
+        _job("q", JobStatus.QUEUED),
+        _job("r", JobStatus.RUNNING),
+        _job("c", JobStatus.COMPLETED),
+        with_settings=False,
+    )
 
     await controller.clear()
 
-    assert set(controller._jobs) == {"q", "r"}
+    assert {j.job_id for j in await controller.get_jobs()} == {"q", "r"}
 
 
 @pytest.mark.asyncio
@@ -100,15 +100,15 @@ async def test_clear_default_with_no_terminal_jobs_is_noop(
     was empty would leak a stale on-disk file when the user
     *did* clear something earlier in the same session.
     """
-    controller = firmware_controller_factory(with_settings=False)
-    controller._jobs = {
-        "q": _job("q", JobStatus.QUEUED),
-        "r": _job("r", JobStatus.RUNNING),
-    }
+    controller = firmware_controller_factory(
+        _job("q", JobStatus.QUEUED),
+        _job("r", JobStatus.RUNNING),
+        with_settings=False,
+    )
 
     await controller.clear()
 
-    assert set(controller._jobs) == {"q", "r"}
+    assert {j.job_id for j in await controller.get_jobs()} == {"q", "r"}
     controller._persist_jobs.assert_awaited_once()
 
 
@@ -127,17 +127,17 @@ async def test_clear_with_specific_status_removes_only_that_status(
     without exact-match filtering they'd nuke the wrong category
     and the user would lose history they wanted to keep.
     """
-    controller = firmware_controller_factory(with_settings=False)
-    controller._jobs = {
-        "c1": _job("c1", JobStatus.COMPLETED),
-        "c2": _job("c2", JobStatus.COMPLETED),
-        "f": _job("f", JobStatus.FAILED),
-        "x": _job("x", JobStatus.CANCELLED),
-    }
+    controller = firmware_controller_factory(
+        _job("c1", JobStatus.COMPLETED),
+        _job("c2", JobStatus.COMPLETED),
+        _job("f", JobStatus.FAILED),
+        _job("x", JobStatus.CANCELLED),
+        with_settings=False,
+    )
 
     await controller.clear(status=JobStatus.COMPLETED)
 
-    assert set(controller._jobs) == {"f", "x"}
+    assert {j.job_id for j in await controller.get_jobs()} == {"f", "x"}
 
 
 @pytest.mark.asyncio
@@ -153,15 +153,15 @@ async def test_clear_with_status_string_matches_enum_value(
     enum would silently make this comparison false and the
     string-status branch would no-op.
     """
-    controller = firmware_controller_factory(with_settings=False)
-    controller._jobs = {
-        "c": _job("c", JobStatus.COMPLETED),
-        "f": _job("f", JobStatus.FAILED),
-    }
+    controller = firmware_controller_factory(
+        _job("c", JobStatus.COMPLETED),
+        _job("f", JobStatus.FAILED),
+        with_settings=False,
+    )
 
     await controller.clear(status="completed")
 
-    assert set(controller._jobs) == {"f"}
+    assert {j.job_id for j in await controller.get_jobs()} == {"f"}
 
 
 @pytest.mark.asyncio
@@ -176,16 +176,16 @@ async def test_clear_with_status_can_remove_active_jobs(
     FAILED) is a real recovery scenario. Pin the contract that
     the filter is applied verbatim, not intersected with terminal.
     """
-    controller = firmware_controller_factory(with_settings=False)
-    controller._jobs = {
-        "r": _job("r", JobStatus.RUNNING),
-        "q": _job("q", JobStatus.QUEUED),
-        "c": _job("c", JobStatus.COMPLETED),
-    }
+    controller = firmware_controller_factory(
+        _job("r", JobStatus.RUNNING),
+        _job("q", JobStatus.QUEUED),
+        _job("c", JobStatus.COMPLETED),
+        with_settings=False,
+    )
 
     await controller.clear(status=JobStatus.RUNNING)
 
-    assert set(controller._jobs) == {"q", "c"}
+    assert {j.job_id for j in await controller.get_jobs()} == {"q", "c"}
 
 
 @pytest.mark.asyncio
@@ -193,14 +193,14 @@ async def test_clear_with_status_no_matches_is_noop(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """An unmatched status is a no-op (still persists the unchanged map)."""
-    controller = firmware_controller_factory(with_settings=False)
-    controller._jobs = {
-        "c": _job("c", JobStatus.COMPLETED),
-    }
+    controller = firmware_controller_factory(
+        _job("c", JobStatus.COMPLETED),
+        with_settings=False,
+    )
 
     await controller.clear(status=JobStatus.FAILED)
 
-    assert set(controller._jobs) == {"c"}
+    assert {j.job_id for j in await controller.get_jobs()} == {"c"}
     controller._persist_jobs.assert_awaited_once()
 
 
@@ -220,24 +220,24 @@ async def test_clear_persists_after_removal(
     (persist runs *after* the deletes — the map must be the
     cleared shape when persist serialises it).
     """
-    controller = firmware_controller_factory(with_settings=False)
-    seen_jobs_at_persist: dict[str, FirmwareJob] = {}
+    controller = firmware_controller_factory(
+        _job("c", JobStatus.COMPLETED),
+        _job("q", JobStatus.QUEUED),
+        with_settings=False,
+    )
+    seen_ids_at_persist: set[str] = set()
 
     async def _capture() -> None:
-        seen_jobs_at_persist.update(controller._jobs)
+        seen_ids_at_persist.update(j.job_id for j in await controller.get_jobs())
 
     controller._persist_jobs = AsyncMock(side_effect=_capture)
-    controller._jobs = {
-        "c": _job("c", JobStatus.COMPLETED),
-        "q": _job("q", JobStatus.QUEUED),
-    }
 
     await controller.clear()
 
     controller._persist_jobs.assert_awaited_once()
     # Snapshot at persist time has the queued job only — not the
     # pre-delete shape.
-    assert set(seen_jobs_at_persist) == {"q"}
+    assert seen_ids_at_persist == {"q"}
 
 
 @pytest.mark.asyncio
@@ -251,12 +251,14 @@ async def test_clear_accepts_arbitrary_kwargs(
     ``client`` / ``message_id`` / bookkeeping fields the handler
     doesn't read.
     """
-    controller = firmware_controller_factory(with_settings=False)
-    controller._jobs = {"c": _job("c", JobStatus.COMPLETED)}
+    controller = firmware_controller_factory(
+        _job("c", JobStatus.COMPLETED),
+        with_settings=False,
+    )
 
     await controller.clear(client=object(), message_id="m1", spurious=True)
 
-    assert controller._jobs == {}
+    assert await controller.get_jobs() == []
 
 
 @pytest.mark.asyncio
@@ -268,5 +270,5 @@ async def test_clear_with_empty_jobs_map_is_noop(
 
     await controller.clear()
 
-    assert controller._jobs == {}
+    assert await controller.get_jobs() == []
     controller._persist_jobs.assert_awaited_once()

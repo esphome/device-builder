@@ -128,10 +128,13 @@ async def test_resubmit_cancels_running_predecessor(
     (tmp_path / "kitchen.yaml").write_text("")
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     first = await controller.compile(configuration="kitchen.yaml")
-    # Simulate the runner having picked it up.
-    in_flight = controller._jobs[first.job_id]
-    in_flight.status = JobStatus.RUNNING
-    controller._current_job = in_flight
+    # Simulate the runner having picked it up. ``status`` is set
+    # on the live job object; there's no public API for putting a
+    # job into RUNNING without spawning a real ``esphome`` (same
+    # justified seam as ``test_persistence.py``'s RUNNING-carryover
+    # test).
+    first.status = JobStatus.RUNNING
+    controller._current_job = first
 
     second = await controller.compile(configuration="kitchen.yaml")
 
@@ -142,7 +145,8 @@ async def test_resubmit_cancels_running_predecessor(
     assert first.job_id in controller._cancel_requested
     controller._terminate_current_process.assert_awaited()
     # Second submission queued normally.
-    assert controller._jobs[second.job_id].status == JobStatus.QUEUED
+    jobs = {j.job_id: j for j in await controller.get_jobs()}
+    assert jobs[second.job_id].status == JobStatus.QUEUED
 
 
 @pytest.mark.asyncio
@@ -163,22 +167,23 @@ async def test_resubmit_does_not_cancel_terminal_jobs_for_same_config(
     spawning a real ``esphome``).
     """
     (tmp_path / "kitchen.yaml").write_text("")
-    controller = firmware_controller_factory(with_queue=True)
-    # Seed historical entries directly.
-    historical: list[FirmwareJob] = []
-    for status, job_id in [
-        (JobStatus.COMPLETED, "h-completed"),
-        (JobStatus.FAILED, "h-failed"),
-        (JobStatus.CANCELLED, "h-cancelled"),
-    ]:
-        job = FirmwareJob(
+    # Seed historical entries through the factory's ``*jobs``
+    # arg — no public API to land a job in COMPLETED / FAILED /
+    # CANCELLED without spawning a real ``esphome``.
+    historical: list[FirmwareJob] = [
+        FirmwareJob(
             job_id=job_id,
             configuration="kitchen.yaml",
             job_type=JobType.COMPILE,
             status=status,
         )
-        controller._jobs[job_id] = job
-        historical.append(job)
+        for status, job_id in [
+            (JobStatus.COMPLETED, "h-completed"),
+            (JobStatus.FAILED, "h-failed"),
+            (JobStatus.CANCELLED, "h-cancelled"),
+        ]
+    ]
+    controller = firmware_controller_factory(*historical, with_queue=True)
 
     fresh = await controller.compile(configuration="kitchen.yaml")
 

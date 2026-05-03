@@ -84,7 +84,7 @@ async def test_compile_bulk_rejects_whole_batch_on_traversal_entry(
     # to completion before any enqueue work, so a partial batch
     # with the valid head queued and the bad entry erroring would
     # be a regression.
-    assert controller._jobs == {}
+    assert await controller.get_jobs() == []
 
 
 @pytest.mark.asyncio
@@ -105,7 +105,7 @@ async def test_compile_bulk_rejects_whole_batch_on_empty_entry(
     with pytest.raises(CommandError) as exc:
         await controller.compile_bulk(configurations=["kitchen.yaml", ""])
     assert exc.value.code == ErrorCode.INVALID_ARGS
-    assert controller._jobs == {}
+    assert await controller.get_jobs() == []
 
 
 @pytest.mark.asyncio
@@ -148,12 +148,13 @@ async def test_compile_bulk_skips_entries_with_enqueue_command_error(
     queued_configs = [j.configuration for j in jobs]
     assert queued_configs == ["kitchen.yaml", "office.yaml"]
     # The skipped job's ``_create_job`` call still wrote it into
-    # ``self._jobs`` (the rename-lock check fires inside
+    # the in-memory job map (the rename-lock check fires inside
     # ``_enqueue``, *after* ``_create_job`` registers the job).
     # That's the production contract — skipping the enqueue
-    # leaves a stranded ``QUEUED`` entry in the map. Pin it so a
-    # future refactor that swaps the order surfaces here.
-    assert "locked.yaml" in {j.configuration for j in controller._jobs.values()}
+    # leaves a stranded ``QUEUED`` entry visible via ``get_jobs``.
+    # Pin it so a future refactor that swaps the order surfaces
+    # here.
+    assert "locked.yaml" in {j.configuration for j in await controller.get_jobs()}
 
 
 @pytest.mark.asyncio
@@ -171,7 +172,7 @@ async def test_compile_bulk_empty_input_returns_empty_list(
     jobs = await controller.compile_bulk(configurations=[])
 
     assert jobs == []
-    assert controller._jobs == {}
+    assert await controller.get_jobs() == []
 
 
 @pytest.mark.asyncio
