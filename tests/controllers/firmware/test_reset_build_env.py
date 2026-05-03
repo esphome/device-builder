@@ -81,12 +81,12 @@ async def test_reset_build_env_uses_empty_configuration(
 async def test_reset_build_env_registers_job_in_jobs_map(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """The new job lands in ``self._jobs`` so ``cancel`` / ``follow_job`` can find it."""
+    """The new job is registered so ``cancel`` / ``follow_job`` can find it by id."""
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
 
     job = await controller.reset_build_env()
 
-    assert controller._jobs[job.job_id] is job
+    assert await controller.get_job(job_id=job.job_id) is job
 
 
 @pytest.mark.asyncio

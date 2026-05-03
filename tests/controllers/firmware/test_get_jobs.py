@@ -218,7 +218,7 @@ async def test_get_job_returns_none_for_unknown_id(
 async def test_get_job_does_not_mutate_state(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """Pure read — the call doesn't mutate ``self._jobs`` or persist anything.
+    """Pure read — the call doesn't add/remove jobs or persist anything.
 
     Belt-and-braces: a future refactor that, say, lazy-removes
     terminal jobs on read would silently change the contract for
@@ -227,9 +227,9 @@ async def test_get_job_does_not_mutate_state(
     """
     target = _job("target")
     controller = firmware_controller_factory(target, with_settings=False)
-    before = dict(controller._jobs)
+    before = await controller.get_jobs()
 
     await controller.get_job(job_id="target")
 
-    assert controller._jobs == before
+    assert await controller.get_jobs() == before
     controller._persist_jobs.assert_not_awaited()

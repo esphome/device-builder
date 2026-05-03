@@ -194,7 +194,7 @@ async def test_upload_enqueues_before_firing_job_queued(
 async def test_upload_registers_job_in_jobs_map(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """The new job lands in ``self._jobs`` keyed by ``job_id``.
+    """The new job is registered so ``get_job`` finds it by ``job_id``.
 
     Subsequent ``firmware/get_jobs`` / ``firmware/cancel`` /
     ``firmware/follow_job`` calls all look the job up by id;
@@ -206,4 +206,4 @@ async def test_upload_registers_job_in_jobs_map(
 
     job = await controller.upload(configuration="kitchen.yaml")
 
-    assert controller._jobs[job.job_id] is job
+    assert await controller.get_job(job_id=job.job_id) is job
