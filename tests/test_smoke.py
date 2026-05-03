@@ -17,14 +17,18 @@ from __future__ import annotations
 
 def test_package_imports() -> None:
     """Top-level package imports without side effects."""
-    import esphome_device_builder  # noqa: F401
+    # Import inside the test (PLC0415 noqa) so a failure surfaces
+    # as this single test failing rather than as a collection-time
+    # error that prevents the rest of the suite from running.
+    import esphome_device_builder  # noqa: F401, PLC0415
 
 
 def test_controllers_import() -> None:
     """Each controller module is importable on its own."""
-    # Import lazily so a failure in one controller doesn't poison
-    # diagnosis of the others.
-    from esphome_device_builder.controllers import (  # noqa: F401
+    # Import lazily (PLC0415 noqa) so a failure in one controller
+    # doesn't poison diagnosis of the others — the whole point of
+    # the per-test-function isolation here.
+    from esphome_device_builder.controllers import (  # noqa: F401, PLC0415
         automations,
         boards,
         components,
@@ -37,7 +41,7 @@ def test_controllers_import() -> None:
 
 def test_models_import() -> None:
     """Public model surface is importable."""
-    from esphome_device_builder.models import (  # noqa: F401
+    from esphome_device_builder.models import (  # noqa: F401, PLC0415
         ComponentCatalogEntry,
         ConfigEntry,
         ConfigEntryType,

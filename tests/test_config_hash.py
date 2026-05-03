@@ -13,6 +13,7 @@ of ``read_build_info_hash`` (the sync entry point) and
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -190,23 +191,20 @@ def test_returns_none_when_build_info_unreadable(
     permission error mid-read; pin both halves: ``None`` returned,
     warning emitted naming the offending path.
     """
-    import logging
-    from pathlib import Path as _Path
-
     yaml_path = _setup(tmp_path, hash_value=None)
     build_path = tmp_path / ".esphome" / "build" / "kitchen"
     build_path.mkdir(parents=True, exist_ok=True)
     build_info = build_path / "build_info.json"
     build_info.write_text('{"config_hash": 1}', encoding="utf-8")
 
-    real_read_bytes = _Path.read_bytes
+    real_read_bytes = Path.read_bytes
 
-    def _raise_permission(self: _Path) -> bytes:
+    def _raise_permission(self: Path) -> bytes:
         if self == build_info:
             raise PermissionError("simulated permission denied")
         return real_read_bytes(self)
 
-    monkeypatch.setattr(_Path, "read_bytes", _raise_permission)
+    monkeypatch.setattr(Path, "read_bytes", _raise_permission)
 
     with caplog.at_level(logging.WARNING, logger="esphome_device_builder.helpers.config_hash"):
         result = read_build_info_hash(yaml_path)

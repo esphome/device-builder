@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import ClassVar
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,6 +18,13 @@ from esphome_device_builder.controllers import (
 )
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.controllers._dns_cache import DNSCache
+from esphome_device_builder.controllers.config import (
+    get_board_id,
+    get_device_ip,
+    set_device_metadata,
+)
+from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.models import Device, DeviceState
 
 
@@ -333,8 +341,6 @@ async def test_ping_sweep_marks_offline_directly_on_dns_failure(fake_resolver) -
     cache-confirmed lookup failure as the "we tried, can't reach"
     signal and apply OFFLINE directly.
     """
-    from esphome_device_builder.models import DeviceState
-
     devices = [_device()]
     state_changes: list[tuple[str, DeviceState, str]] = []
     monitor = DeviceStateMonitor(
@@ -375,8 +381,6 @@ async def test_ping_sweep_skips_devices_with_cached_dns_failure(fake_resolver) -
     won't reach. The resolver call must also be skipped so we don't
     re-attempt a known-bad lookup every minute.
     """
-    from esphome_device_builder.models import DeviceState
-
     devices = [_device()]
     state_changes: list[tuple[str, DeviceState, str]] = []
     monitor = DeviceStateMonitor(
@@ -419,10 +423,6 @@ async def test_ping_marks_offline_when_icmp_raises(fake_resolver) -> None:
     couldn't reach it" and the state flips to OFFLINE; a subsequent
     successful ping flips it right back to ONLINE.
     """
-    from esphome_device_builder.controllers import _device_state_monitor as sm
-    from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-    from esphome_device_builder.models import DeviceState
-
     devices = [_device()]
     state_changes: list[tuple[str, DeviceState, str]] = []
     monitor = DeviceStateMonitor(
@@ -452,11 +452,6 @@ async def test_ping_marks_offline_when_icmp_raises(fake_resolver) -> None:
 
 def test_set_device_ip_writes_to_metadata(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """``set_device_metadata(ip=...)`` round-trips through ``get_device_ip``."""
-    from esphome_device_builder.controllers.config import (
-        get_device_ip,
-        set_device_metadata,
-    )
-
     set_device_metadata(tmp_path, "kitchen.yaml", ip="10.0.0.1")
     assert get_device_ip(tmp_path, "kitchen.yaml") == "10.0.0.1"
 
@@ -469,11 +464,6 @@ def test_set_device_ip_preserves_existing_when_empty(tmp_path) -> None:  # type:
     in-memory IP whenever a device drops off, but we still want the
     cache to be warm next time we OTA.
     """
-    from esphome_device_builder.controllers.config import (
-        get_device_ip,
-        set_device_metadata,
-    )
-
     set_device_metadata(tmp_path, "kitchen.yaml", ip="10.0.0.1")
     set_device_metadata(tmp_path, "kitchen.yaml", ip="")
     set_device_metadata(tmp_path, "kitchen.yaml", ip=None)
@@ -482,26 +472,17 @@ def test_set_device_ip_preserves_existing_when_empty(tmp_path) -> None:  # type:
 
 def test_set_device_ip_unrelated_field_does_not_clobber_ip(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Setting ``board_id`` later doesn't drop the persisted ``ip`` field."""
-    from esphome_device_builder.controllers.config import (
-        get_device_ip,
-        set_device_metadata,
-    )
-
     set_device_metadata(tmp_path, "kitchen.yaml", ip="10.0.0.1")
     set_device_metadata(tmp_path, "kitchen.yaml", board_id="esp32-devkit")
     assert get_device_ip(tmp_path, "kitchen.yaml") == "10.0.0.1"
 
 
 def test_get_device_ip_returns_empty_for_unknown_device(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from esphome_device_builder.controllers.config import get_device_ip
-
     assert get_device_ip(tmp_path, "kitchen.yaml") == ""
 
 
 def test_load_device_from_storage_threads_ip_through(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Scanner-loaded devices carry the persisted IP into the model."""
-    from esphome_device_builder.helpers import device_yaml
-
     # ``ext_storage_path`` walks ``CORE.config_path`` which isn't set
     # in this test; redirect it to ``tmp_path`` and short-circuit
     # ``StorageJSON.load`` so we exercise just the YAML + ip plumbing.
@@ -531,8 +512,6 @@ def test_load_device_from_storage_address_falls_back_to_filename_local(  # type:
     stayed UNKNOWN forever — that's what the user reported with
     ``wr2-test`` and friends.
     """
-    from esphome_device_builder.helpers import device_yaml
-
     monkeypatch.setattr(
         device_yaml,
         "ext_storage_path",
@@ -560,8 +539,6 @@ def test_load_device_from_storage_address_uses_filename_not_parsed_name(  # type
     ``largegarage.yaml`` — exactly the bug the user reported. The
     filename stem is canonical and matches what the user types.
     """
-    from esphome_device_builder.helpers import device_yaml
-
     monkeypatch.setattr(
         device_yaml,
         "ext_storage_path",
@@ -584,8 +561,6 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
     monkeypatch, tmp_path
 ) -> None:
     """A real ``StorageJSON.address`` wins over the ``<name>.local`` fallback."""
-    from esphome_device_builder.helpers import device_yaml
-
     monkeypatch.setattr(
         device_yaml,
         "ext_storage_path",
@@ -616,11 +591,6 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
 
 def test_on_ip_change_persists_non_empty_value(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """``_on_ip_change`` schedules a metadata write for non-empty IPs."""
-    from unittest.mock import MagicMock
-
-    from esphome_device_builder.controllers.devices import DevicesController
-    from esphome_device_builder.models import Device
-
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
     db = MagicMock()
     scheduled: list[object] = []
@@ -640,11 +610,6 @@ def test_on_ip_change_persists_non_empty_value(monkeypatch) -> None:  # type: ig
 
 def test_on_ip_change_skips_persist_for_empty_value() -> None:
     """Empty IP (device went offline) doesn't schedule a write — keeps the cache warm."""
-    from unittest.mock import MagicMock
-
-    from esphome_device_builder.controllers.devices import DevicesController
-    from esphome_device_builder.models import Device
-
     device = Device(
         name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml", ip="10.0.0.1"
     )
@@ -671,13 +636,6 @@ def test_metadata_transaction_serialises_concurrent_writers(tmp_path) -> None:  
     own field, and the later save would clobber the earlier. The lock
     serialises the cycle so every write lands.
     """
-    from concurrent.futures import ThreadPoolExecutor
-
-    from esphome_device_builder.controllers.config import (
-        get_board_id,
-        set_device_metadata,
-    )
-
     writer_count = 32
 
     def _write(i: int) -> None:

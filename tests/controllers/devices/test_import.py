@@ -22,7 +22,7 @@ import pytest
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices import controller as devices_module
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import ErrorCode
+from esphome_device_builder.models import AdoptableDevice, DeviceState, ErrorCode, EventType
 
 
 def _make_controller(tmp_path: Any) -> DevicesController:
@@ -104,8 +104,6 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
     ``package_import_url`` the dialog passes and forward its
     ``network`` field to ``import_config``.
     """
-    from esphome_device_builder.models import AdoptableDevice
-
     captured: dict[str, Any] = {}
     monkeypatch.setattr(
         devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
@@ -151,8 +149,6 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
     Ethernet, one stock) that meant a coin-flip on which network
     the imported YAML got.
     """
-    from esphome_device_builder.models import AdoptableDevice
-
     captured: dict[str, Any] = {}
     monkeypatch.setattr(
         devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
@@ -203,8 +199,6 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
     Wi-Fi is the historical default and matches what the legacy
     dashboard wrote.
     """
-    from esphome_device_builder.models import AdoptableDevice
-
     captured: dict[str, Any] = {}
     monkeypatch.setattr(
         devices_module, "import_config", lambda *args, **_kw: captured.setdefault("args", args)
@@ -297,8 +291,6 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
     can't clobber it) and pulls the cached IP out of zeroconf so the
     new card has an address right away.
     """
-    from esphome_device_builder.models import DeviceState
-
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
     ctrl = _make_controller(tmp_path)
     ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=["192.168.1.42"])
@@ -320,8 +312,6 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No cached IP → state still flips ONLINE, just no apply_ip call."""
-    from esphome_device_builder.models import DeviceState
-
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
     ctrl = _make_controller(tmp_path)
     ctrl._state_monitor.get_cached_addresses = MagicMock(return_value=None)
@@ -349,8 +339,6 @@ async def test_import_device_drops_matching_import_result_entry(
     so we drop the right entry even when the user typed a different
     YAML name in the dialog.
     """
-    from esphome_device_builder.models import AdoptableDevice, EventType
-
     monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: None)
     ctrl = _make_controller(tmp_path)
     discovered = AdoptableDevice(

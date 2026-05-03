@@ -20,6 +20,7 @@ import pytest
 from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
 )
+from esphome_device_builder.models import Device, DeviceState
 
 
 def _make_monitor() -> DeviceStateMonitor:
@@ -144,8 +145,6 @@ async def test_apply_service_info_claims_online() -> None:
     monitor._on_api_encryption_change = MagicMock()
     monitor._state_source = {}
     # ``apply()`` validates against the configured-devices catalog.
-    from esphome_device_builder.models import Device, DeviceState
-
     device = Device(
         name="kitchen",
         friendly_name="Kitchen",

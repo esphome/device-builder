@@ -10,11 +10,16 @@ exception.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers.config import (
+    get_device_metadata,
+    set_device_metadata,
+)
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices import controller as devices_module
 from esphome_device_builder.helpers.api import CommandError
@@ -119,13 +124,6 @@ async def test_create_device_clears_residual_metadata_from_archived_same_name(
     and the dashboard renders the new YAML's friendly_name as
     the archived one's. Pin the wipe-on-create contract.
     """
-    import asyncio
-
-    from esphome_device_builder.controllers.config import (
-        get_device_metadata,
-        set_device_metadata,
-    )
-
     config_dir = tmp_path
     storage_path = tmp_path / "storage.json"
     monkeypatch.setattr(devices_module, "ext_storage_path", lambda _filename: storage_path)
@@ -166,13 +164,6 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
     called WITH a board_id, the new value must replace the
     archived one rather than be merged or skipped.
     """
-    import asyncio
-
-    from esphome_device_builder.controllers.config import (
-        get_device_metadata,
-        set_device_metadata,
-    )
-
     config_dir = tmp_path
     storage_path = tmp_path / "storage.json"
     monkeypatch.setattr(devices_module, "ext_storage_path", lambda _filename: storage_path)

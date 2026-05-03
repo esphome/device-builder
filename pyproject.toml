@@ -87,7 +87,6 @@ ignore = [
   "D203", # conflicts with D211
   "D213", # conflicts with D212
   "D417", # false positives
-  "PLC0415", # late imports are deliberate (avoid circular deps, lazy esphome load)
   "PLR0913", # too many arguments — not a useful constraint here
   "PLR2004", # magic value comparison — too noisy for status codes / structural checks
   "S101", # assert used for type checking
@@ -116,7 +115,9 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501"] # CLI scripts
+# CLI scripts: noisy print is fine, late imports gate optional esphome introspection
+# behind try/except ImportError, and several subprocess invocations are inherent.
+"script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415"]
 "tests/*" = ["S105", "S106"] # hardcoded test credentials
 
 [tool.codespell]

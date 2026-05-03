@@ -15,13 +15,17 @@ Covers four layers:
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.boards import BoardCatalog
-from esphome_device_builder.controllers.components import ComponentCatalog
+from esphome_device_builder.controllers.components import (
+    ComponentCatalog,
+    _default_id_from_local,
+)
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices.helpers import _apply_featured_presets
 from esphome_device_builder.definitions import (
@@ -31,6 +35,7 @@ from esphome_device_builder.definitions import (
 )
 from esphome_device_builder.helpers.yaml import generate_component_yaml
 from esphome_device_builder.models import ComponentCategory
+from esphome_device_builder.models.common import FieldPreset
 
 # ---------------------------------------------------------------------------
 # Loader-level (pure unit tests, no catalog)
@@ -195,8 +200,6 @@ def test_default_id_from_local_handles_leading_digit() -> None:
     # ESPHome ids become C++ identifiers downstream — a leading digit
     # produces an invalid build, so the slugifier must guard against
     # it.
-    from esphome_device_builder.controllers.components import _default_id_from_local
-
     assert _default_id_from_local("3v3-rail") == "_3v3_rail"
     assert _default_id_from_local("4-channel-relay") == "_4_channel_relay"
     # Non-digit-leading ids stay untouched.
@@ -408,10 +411,6 @@ async def test_apply_presets_locked_without_value_fails_fast(
     catalog: ComponentCatalog,
 ) -> None:
     """A malformed manifest (locked=True with no value) fails fast at add time."""
-    from copy import deepcopy
-
-    from esphome_device_builder.models import FieldPreset
-
     record = deepcopy(catalog.get_featured_record("featured.sonoff-basic.relay"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=None, locked=True)

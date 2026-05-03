@@ -16,12 +16,16 @@ process OOMs first.
 from __future__ import annotations
 
 from esphome_device_builder.controllers.firmware.constants import (
+    _ERROR_PATTERNS,
     _INFLIGHT_TRIM_KEEP,
     _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_OUTPUT_LINES_RETAINED,
     _OUTPUT_TRIM_NOTICE_PREFIX,
 )
-from esphome_device_builder.controllers.firmware.helpers import _trim_job_output
+from esphome_device_builder.controllers.firmware.helpers import (
+    _is_no_module_named_esphome,
+    _trim_job_output,
+)
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType
 
 
@@ -119,8 +123,6 @@ def test_is_no_module_named_esphome_matches_exact_quoted_form() -> None:
     different reasons) would tell users to reinstall ESPHome
     itself when the real fix is to install a different dependency.
     """
-    from esphome_device_builder.controllers.firmware.helpers import _is_no_module_named_esphome
-
     # CPython's exact ModuleNotFoundError emission — the format we
     # actually need to detect.
     assert _is_no_module_named_esphome("ModuleNotFoundError: No module named 'esphome'\n")
@@ -158,11 +160,6 @@ def test_saw_no_esphome_module_flag_survives_inflight_trim() -> None:
     ``test_is_no_module_named_esphome_matches_exact_quoted_form``
     above.
     """
-    from esphome_device_builder.controllers.firmware.constants import _ERROR_PATTERNS
-    from esphome_device_builder.controllers.firmware.helpers import (
-        _is_no_module_named_esphome,
-    )
-
     has_error_in_output = False
     saw_no_esphome_module = False
 

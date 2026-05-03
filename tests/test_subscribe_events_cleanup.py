@@ -20,7 +20,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.device_builder import DeviceBuilder
-from esphome_device_builder.helpers.event_bus import EventBus
+from esphome_device_builder.helpers.event_bus import (
+    _DEFAULT_STREAM_QUEUE_MAX,
+    EventBus,
+    StreamBackpressureError,
+)
 from esphome_device_builder.models import EventType
 
 
@@ -260,8 +264,6 @@ async def test_subscribe_events_terminates_on_overflow_uniformly(
     per-event-type policy surfaces here regardless of which
     path it touched.
     """
-    from esphome_device_builder.helpers.event_bus import StreamBackpressureError
-
     db = _make_db()
     drain_can_run = asyncio.Event()
     received: list[tuple[str, str, Any]] = []
@@ -276,8 +278,6 @@ async def test_subscribe_events_terminates_on_overflow_uniformly(
     await asyncio.sleep(0)
 
     # Fill past the cap.
-    from esphome_device_builder.helpers.event_bus import _DEFAULT_STREAM_QUEUE_MAX
-
     for _ in range(_DEFAULT_STREAM_QUEUE_MAX + 1):
         db.bus.fire(event_type, payload)
 

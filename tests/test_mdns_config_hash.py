@@ -17,7 +17,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.models import Device, DeviceState, EventType
 
 
 def _device(**overrides: Any) -> Device:
@@ -158,9 +159,6 @@ def test_apply_config_hash_no_callback_silently_drops() -> None:
 @pytest.mark.asyncio
 async def test_on_config_hash_change_updates_device_and_fires_event() -> None:
     """The full pipe: callback updates the in-memory device + fires DEVICE_UPDATED."""
-    from esphome_device_builder.controllers.devices import DevicesController
-    from esphome_device_builder.models import EventType
-
     device = _device(deployed_config_hash="")
 
     db = MagicMock()
@@ -182,8 +180,6 @@ async def test_on_config_hash_change_updates_device_and_fires_event() -> None:
 @pytest.mark.asyncio
 async def test_on_config_hash_change_skips_when_same() -> None:
     """No-op when in-memory device already has the announced hash."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     device = _device(deployed_config_hash="1a2b3c4d")
 
     db = MagicMock()
@@ -201,8 +197,6 @@ async def test_on_config_hash_change_skips_when_same() -> None:
 @pytest.mark.asyncio
 async def test_on_config_hash_change_unknown_device_is_noop() -> None:
     """A stray callback for an unknown device must not raise or fire events."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     db = MagicMock()
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
@@ -218,8 +212,6 @@ async def test_on_config_hash_change_unknown_device_is_noop() -> None:
 @pytest.mark.asyncio
 async def test_on_config_hash_change_flips_pending_when_hashes_diverge() -> None:
     """Hashes don't match → ``has_pending_changes`` flips True."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     device = _device(
         expected_config_hash="abc12345",
         deployed_config_hash="",
@@ -242,8 +234,6 @@ async def test_on_config_hash_change_flips_pending_when_hashes_diverge() -> None
 @pytest.mark.asyncio
 async def test_on_config_hash_change_marks_in_sync_when_hashes_match() -> None:
     """Hashes match → ``has_pending_changes`` flips False."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     device = _device(
         expected_config_hash="abc12345",
         deployed_config_hash="",
@@ -266,8 +256,6 @@ async def test_on_config_hash_change_marks_in_sync_when_hashes_match() -> None:
 @pytest.mark.asyncio
 async def test_on_config_hash_change_leaves_pending_alone_without_expected_hash() -> None:
     """No expected hash on file → don't touch has_pending_changes (mtime fallback owns it)."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     device = _device(
         expected_config_hash="",
         deployed_config_hash="",

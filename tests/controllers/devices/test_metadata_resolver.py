@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.models import Device, EventType
 
 
 def _make_controller(monkeypatch: Any, board_id: str = "esp32-c3-devkitm-1") -> Any:
@@ -206,9 +208,6 @@ def test_added_device_without_hash_triggers_regenerate(monkeypatch: Any) -> None
     ``not loaded_integrations or not expected_config_hash`` schedules
     the regenerate so the next scan picks up the canonical hash.
     """
-    from esphome_device_builder.controllers._device_scanner import ScanChange
-    from esphome_device_builder.models import Device, EventType
-
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
     controller._regenerate_failed = set()
@@ -243,9 +242,6 @@ def test_added_device_fully_populated_does_not_regenerate(
     spawn an ``--only-generate`` per device on a fully-warmed
     config_dir.
     """
-    from esphome_device_builder.controllers._device_scanner import ScanChange
-    from esphome_device_builder.models import Device
-
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
     controller._regenerate_failed = set()

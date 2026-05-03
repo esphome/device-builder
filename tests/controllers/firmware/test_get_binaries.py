@@ -22,11 +22,13 @@ configuration-traversal branch is already covered in
 
 from __future__ import annotations
 
+import logging
 import sys
 import types
 from pathlib import Path
 from typing import Any
 
+import esphome.components as parent
 import pytest
 from esphome.components.esp32 import VARIANTS as _ESP32_VARIANTS
 
@@ -69,8 +71,6 @@ def _install_fake_component(
     attribute access in later tests, which can break a downstream
     ``from esphome.components import esp32`` lookup.
     """
-    import esphome.components as parent
-
     captured: list[Any] = []
 
     def _get_download_types(storage: Any) -> list[dict]:
@@ -212,7 +212,6 @@ async def test_get_binaries_logs_and_returns_empty_on_module_failure(
     so an operator notices the regression in the dashboard log
     rather than seeing silent empty rows everywhere.
     """
-    import logging
 
     def _boom(_storage: Any) -> list[dict]:
         raise RuntimeError("upstream regression")

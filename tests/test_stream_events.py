@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 
+from esphome_device_builder.helpers import event_bus
 from esphome_device_builder.helpers.event_bus import (
     _DEFAULT_STREAM_QUEUE_MAX,
     Event,
@@ -430,7 +431,6 @@ async def test_force_enqueue_returns_when_get_nowait_finds_empty_queue(
     ``_force_enqueue(None)``) returns instead of spinning, the
     drain finds its sentinel, and ``stream_events`` exits.
     """
-    from esphome_device_builder.helpers import event_bus
 
     class _ForeverFullEverEmptyQueue:
         """Always raises QueueFull on put + QueueEmpty on get_nowait.

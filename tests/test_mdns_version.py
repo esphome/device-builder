@@ -17,7 +17,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.models import Device, DeviceState, EventType
 
 
 def _device(**overrides: Any) -> Device:
@@ -140,8 +141,6 @@ def _patch_storage(monkeypatch: Any, tmp_path: Any, storage: Any) -> None:
 
 def test_persist_storage_version_writes_when_different(monkeypatch: Any, tmp_path: Any) -> None:
     """``_persist_storage_version`` saves when the on-disk value differs."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     storage = MagicMock()
     storage.esphome_version = "2026.4.0"
     _patch_storage(monkeypatch, tmp_path, storage)
@@ -159,8 +158,6 @@ def test_persist_storage_version_skips_when_same(monkeypatch: Any, tmp_path: Any
     bump the StorageJSON mtime, defeat the scanner's mtime-based cache,
     and force a full re-parse of every YAML on the next poll.
     """
-    from esphome_device_builder.controllers.devices import DevicesController
-
     storage = MagicMock()
     storage.esphome_version = "2026.5.0"
     _patch_storage(monkeypatch, tmp_path, storage)
@@ -172,8 +169,6 @@ def test_persist_storage_version_skips_when_same(monkeypatch: Any, tmp_path: Any
 
 def test_persist_storage_version_handles_missing_storage(monkeypatch: Any, tmp_path: Any) -> None:
     """Device that's never been compiled has no StorageJSON — bail out cleanly."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     _patch_storage(monkeypatch, tmp_path, storage=None)
 
     # Should not raise.
@@ -188,9 +183,6 @@ def test_persist_storage_version_handles_missing_storage(monkeypatch: Any, tmp_p
 @pytest.mark.asyncio
 async def test_on_version_change_updates_device_and_fires_event(monkeypatch: Any) -> None:
     """The full pipe: callback updates the in-memory device + fires DEVICE_UPDATED."""
-    from esphome_device_builder.controllers.devices import DevicesController
-    from esphome_device_builder.models import EventType
-
     device = _device(deployed_version="2026.4.0")
 
     db = MagicMock()
@@ -223,8 +215,6 @@ async def test_on_version_change_updates_device_and_fires_event(monkeypatch: Any
 @pytest.mark.asyncio
 async def test_on_version_change_skips_when_same(monkeypatch: Any) -> None:
     """No-op when in-memory device already has the announced version."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     device = _device(deployed_version="2026.5.0")
 
     db = MagicMock()
@@ -244,8 +234,6 @@ async def test_on_version_change_skips_when_same(monkeypatch: Any) -> None:
 @pytest.mark.asyncio
 async def test_on_version_change_marks_update_available_when_behind() -> None:
     """A device on an older version than the dashboard → ``update_available`` flips on."""
-    from esphome_device_builder.controllers.devices import DevicesController
-
     device = _device(current_version="2026.5.0", deployed_version="2026.4.0")
 
     db = MagicMock()

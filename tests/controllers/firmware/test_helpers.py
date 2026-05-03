@@ -33,6 +33,7 @@ from typing import Any
 
 import pytest
 
+from esphome_device_builder.controllers.firmware import helpers as _helpers
 from esphome_device_builder.controllers.firmware.constants import (
     _MAX_OUTPUT_LINES_RETAINED,
     _OUTPUT_TRIM_NOTICE_PREFIX,
@@ -245,7 +246,6 @@ async def test_verify_esphome_importable_returns_false_on_timeout(
     Python one-liner here is fast-exiting, so we exercise that
     suppress branch incidentally.
     """
-    from esphome_device_builder.controllers.firmware import helpers as _helpers
 
     async def _raise_timeout(*_args: Any, **_kwargs: Any) -> None:
         raise TimeoutError

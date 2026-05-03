@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
+from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices.helpers import _build_address_cache_args
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.models import Device, FirmwareJob, JobType
@@ -148,8 +149,6 @@ def _devices_controller_with(*devices: Device) -> Any:
     ``loaded_integrations`` field — keep the rest of the controller
     out of the test surface.
     """
-    from esphome_device_builder.controllers.devices import DevicesController
-
     controller = DevicesController.__new__(DevicesController)
     scanner = MagicMock()
     scanner.devices = list(devices)
