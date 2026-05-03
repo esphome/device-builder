@@ -142,9 +142,10 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# ``loadgroup`` keeps the round-robin scheduler for unmarked tests but
-# pins anything tagged ``@pytest.mark.xdist_group("<name>")`` to a
-# single worker. The catalog-heavy modules use that to share one
+# ``loadgroup`` is xdist's default ``load`` scheduler (each test goes
+# to whichever worker is free) plus an extra rule: tests tagged
+# ``@pytest.mark.xdist_group("<name>")`` are pinned to a single
+# worker. The catalog-heavy modules use that to share one
 # ``ComponentCatalog.load`` (~2s on Linux CI) per run instead of
 # paying it on every xdist worker.
 addopts = "--dist=loadgroup"

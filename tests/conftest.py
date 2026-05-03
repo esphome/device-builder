@@ -116,8 +116,9 @@ def session_board_catalog() -> BoardCatalog:
 def session_component_catalog(session_board_catalog: BoardCatalog) -> ComponentCatalog:
     """Real ``ComponentCatalog`` (with featured registry built) loaded once per worker.
 
-    Tests that mutate the catalog must restore it before yielding back —
-    the instance is shared across every test in the session.
+    The fixture returns a single shared instance for every test in
+    the session, so tests that mutate the catalog must restore it
+    before the test finishes (typically via ``try / finally``).
     """
     container = _CatalogContainer()
     container.boards = session_board_catalog
