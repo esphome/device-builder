@@ -26,7 +26,7 @@ from ..helpers.api import CommandError
 from ..helpers.json import (
     JSONDecodeError,
     dumps_str,
-    dumps_str_subclass_keys,
+    dumps_str_non_str_keys,
     json_response,
     loads,
 )
@@ -147,9 +147,9 @@ def create_legacy_routes() -> web.RouteTableDef:
         # ESPHome's ``yaml_util.load_yaml`` returns an ``OrderedDict``
         # whose keys are ``EStr`` (a ``str`` subclass that carries
         # source-position info). orjson's strict default rejects
-        # non-exact-``str`` keys; ``dumps_str_subclass_keys`` flips
+        # non-exact-``str`` keys; ``dumps_str_non_str_keys`` flips
         # the ``OPT_NON_STR_KEYS`` option just for this endpoint.
-        return web.json_response(config, dumps=dumps_str_subclass_keys)
+        return web.json_response(config, dumps=dumps_str_non_str_keys)
 
     @routes.get("/compile")
     async def legacy_compile(request: web.Request) -> web.WebSocketResponse:
