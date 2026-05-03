@@ -210,3 +210,97 @@ async def test_follow_jobs_unsubscribes_on_cancellation() -> None:
 
     listener_count_after = sum(len(bus._listeners.get(et, ())) for et in EventType)
     assert listener_count_after == 0
+
+
+# ---------------------------------------------------------------------------
+# _handle_event branch coverage
+# ---------------------------------------------------------------------------
+
+
+async def _drain_until(client: FakeWebSocketClient, predicate: Any, attempts: int = 20) -> None:
+    """Yield the event loop until *predicate(client)* is truthy or *attempts* runs out."""
+    for _ in range(attempts):
+        await asyncio.sleep(0)
+        if predicate(client):
+            return
+
+
+async def test_follow_jobs_forwards_job_progress_events() -> None:
+    """A ``JOB_PROGRESS`` event lands as a ``job_progress`` push (not a lifecycle)."""
+    controller = _make_controller([])
+    bus = controller._db.bus
+    client = FakeWebSocketClient(yield_per_event=True)
+
+    follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
+    await asyncio.sleep(0)
+
+    progress = {"job_id": "a", "stage": "compile", "percent": 42}
+    bus.fire(EventType.JOB_PROGRESS, progress)
+
+    await _drain_until(client, lambda c: any(e == "job_progress" for (_m, e, _d) in c.events))
+
+    follow_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await follow_task
+
+    progress_events = client.events_for("job_progress")
+    assert progress_events == [progress]
+
+
+async def test_follow_jobs_drops_lifecycle_event_with_no_job_payload() -> None:
+    """A lifecycle event missing the ``job`` key is silently ignored.
+
+    The runner always tags lifecycle bus events with ``{"job": <FirmwareJob>}``,
+    but the handler defends against a malformed payload by skipping it
+    instead of crashing the stream — guard the early-return path here.
+    """
+    controller = _make_controller([])
+    bus = controller._db.bus
+    client = FakeWebSocketClient(yield_per_event=True)
+
+    follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
+    await asyncio.sleep(0)
+
+    # Bare payload — no ``job`` key. The handler must early-return
+    # without raising and without pushing anything.
+    bus.fire(EventType.JOB_QUEUED, {"unrelated": "noise"})
+
+    # And then a normal event so we have a synchronisation point —
+    # if the handler had crashed, the listener would be torn down
+    # and this second event would never reach the client.
+    bus.fire(EventType.JOB_PROGRESS, {"job_id": "a"})
+    await _drain_until(client, lambda c: any(e == "job_progress" for (_m, e, _d) in c.events))
+
+    follow_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await follow_task
+
+    assert client.events_for("job_queued") == []
+    assert client.events_for("job_progress") == [{"job_id": "a"}]
+
+
+async def test_follow_jobs_lifecycle_payload_passthrough_for_dict_job() -> None:
+    """A ``job`` payload that's already a dict is forwarded verbatim.
+
+    Production firmware events carry a ``FirmwareJob`` instance and the
+    handler calls ``to_dict()`` on it. Replays from persisted history,
+    however, can hand back a plain dict — the handler's ``hasattr``
+    check falls through and uses the dict as-is.
+    """
+    controller = _make_controller([])
+    bus = controller._db.bus
+    client = FakeWebSocketClient(yield_per_event=True)
+
+    follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
+    await asyncio.sleep(0)
+
+    raw = {"job_id": "z", "status": "completed"}
+    bus.fire(EventType.JOB_COMPLETED, {"job": raw})
+    await _drain_until(client, lambda c: any(e == "job_completed" for (_m, e, _d) in c.events))
+
+    follow_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await follow_task
+
+    completed = client.events_for("job_completed")
+    assert completed == [raw]
