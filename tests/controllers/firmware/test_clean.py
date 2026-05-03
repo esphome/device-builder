@@ -19,13 +19,16 @@ test catching it.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, EventType, JobStatus, JobType
-from tests.controllers.firmware.conftest import FirmwareControllerFactory
+from tests.controllers.firmware.conftest import (
+    EnqueueStep,
+    FirmwareControllerFactory,
+    capture_enqueue_order,
+)
 
 
 @pytest.mark.asyncio
@@ -86,31 +89,17 @@ async def test_clean_enqueues_before_firing_job_queued(
     race the runner if the event broadcast preceded the queue
     insert — the follower could attach to a queue that hasn't
     seen the job yet, dropping the first line.
-
-    Implementation note: the factory's ``with_queue=True``
-    installs ``AsyncMock`` stubs for ``_queue`` and
-    ``_supersede_active_jobs``; we replace ``_queue`` and the
-    bus with attribute children of a parent ``MagicMock`` so
-    both calls land on a single ``method_calls`` log in their
-    actual order.
     """
-    parent = MagicMock()
-    parent.queue.put = AsyncMock()
-    parent.bus.fire = MagicMock()
-
     controller = firmware_controller_factory(with_queue=True)
-    controller._queue = parent.queue
-    controller._db.bus = parent.bus
+    log = capture_enqueue_order(controller, EventType.JOB_QUEUED)
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.clean(configuration="kitchen.yaml")
 
-    method_names = [name for name, _, _ in parent.method_calls]
-    queued_idx = method_names.index("queue.put")
-    fired_idx = method_names.index("bus.fire")
-    assert queued_idx < fired_idx
-
-    parent.bus.fire.assert_any_call(EventType.JOB_QUEUED, {"job": job})
+    assert log[0] == (EnqueueStep.PUT, job)
+    assert log[1][0] is EnqueueStep.FIRE
+    assert log[1][1].event_type == EventType.JOB_QUEUED
+    assert log[1][1].data == {"job": job}
 
 
 @pytest.mark.asyncio

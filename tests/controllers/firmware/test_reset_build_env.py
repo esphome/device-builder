@@ -25,14 +25,15 @@ shells out via ``create_subprocess_exec``).
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.firmware.constants import _RESET_BUILD_ENV_TARGETS
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
+    EnqueueStep,
     FirmwareControllerFactory,
+    capture_enqueue_order,
     capture_firmware_events,
 )
 
@@ -106,22 +107,15 @@ async def test_reset_build_env_fires_job_queued_after_enqueue(
     that immediately calls ``follow_job`` could race the runner
     and miss the first lines.
     """
-    parent = MagicMock()
-    parent.queue.put = AsyncMock()
-    parent.bus.fire = MagicMock()
-
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
-    controller._queue = parent.queue
-    controller._db.bus = parent.bus
+    log = capture_enqueue_order(controller, EventType.JOB_QUEUED)
 
     job = await controller.reset_build_env()
 
-    method_names = [name for name, _, _ in parent.method_calls]
-    queued_idx = method_names.index("queue.put")
-    fired_idx = method_names.index("bus.fire")
-    assert queued_idx < fired_idx
-
-    parent.bus.fire.assert_any_call(EventType.JOB_QUEUED, {"job": job})
+    assert log[0] == (EnqueueStep.PUT, job)
+    assert log[1][0] is EnqueueStep.FIRE
+    assert log[1][1].event_type == EventType.JOB_QUEUED
+    assert log[1][1].data == {"job": job}
 
 
 @pytest.mark.asyncio

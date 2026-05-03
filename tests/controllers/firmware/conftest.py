@@ -22,6 +22,8 @@ silently absorbing into a stub.
 
 from __future__ import annotations
 
+import asyncio
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
@@ -32,6 +34,20 @@ from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.models import EventType, FirmwareJob
+
+
+class EnqueueStep(StrEnum):
+    """Step labels in the ``capture_enqueue_order`` log.
+
+    Same shape as ``StreamEvent`` (PR #212): a small enum keeps
+    callers from drifting on bare strings — a typo in either the
+    helper or the assertion would otherwise pass silently
+    (``log[0] == ("putt", job)`` is a valid tuple comparison that
+    never matches).
+    """
+
+    PUT = "put"
+    FIRE = "fire"
 
 
 class FirmwareControllerFactory(Protocol):
@@ -170,3 +186,41 @@ def capture_firmware_events(
         bus.add_listener(event_type, captured.append)
     controller._db.bus = bus
     return captured
+
+
+def capture_enqueue_order(
+    controller: FirmwareController,
+    *event_types: EventType,
+) -> list[tuple[EnqueueStep, Any]]:
+    """Trace ``_queue.put`` calls and ``bus.fire`` events into one ordered log.
+
+    Each ``await self._queue.put(job)`` appends ``(EnqueueStep.PUT, job)``
+    and each broadcast for a subscribed ``EventType`` appends
+    ``(EnqueueStep.FIRE, Event)``. Tests assert the put-then-fire
+    ordering by index in the returned list — the previous shape
+    spread the same contract across a parent ``MagicMock`` whose
+    ``method_calls`` log was walked with two ``.index()`` calls and
+    a ``parent.bus.fire.assert_any_call(...)`` follow-up.
+
+    The internal queue is a real ``asyncio.Queue`` so a runner can
+    still dequeue if the test exercises that path.
+    """
+    log: list[tuple[EnqueueStep, Any]] = []
+    inner_queue: asyncio.Queue[FirmwareJob] = asyncio.Queue()
+
+    async def _trace_put(item: FirmwareJob) -> None:
+        log.append((EnqueueStep.PUT, item))
+        await inner_queue.put(item)
+
+    queue_proxy = MagicMock()
+    queue_proxy.put = _trace_put
+    queue_proxy.get = inner_queue.get
+    queue_proxy.qsize = inner_queue.qsize
+    controller._queue = queue_proxy
+
+    bus = EventBus()
+    for event_type in event_types:
+        bus.add_listener(event_type, lambda event: log.append((EnqueueStep.FIRE, event)))
+    controller._db.bus = bus
+
+    return log
