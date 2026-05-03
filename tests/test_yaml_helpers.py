@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.helpers.yaml import (
+    _splice_into_domain_block,
     generate_component_yaml,
     merge_component_yaml,
     rewrite_esphome_name,
@@ -119,6 +120,59 @@ def test_rewrite_esphome_name_preserves_trailing_comment() -> None:
     yaml = "esphome:\n  name: kitchen  # primary device\n"
     out = rewrite_esphome_name(yaml, "kitchen", "kitchen-2")
     assert out == "esphome:\n  name: kitchen-2  # primary device\n"
+
+
+def test_rewrite_esphome_name_no_match_walks_past_sibling_top_level_blocks() -> None:
+    """A no-op rename still walks the whole file without crashing.
+
+    Pin the two post-esphome branches that only fire when the
+    function reaches the end without finding a match (i.e. doesn't
+    ``break`` at line 102):
+
+    - sibling top-level header (``wifi:``) flips ``in_esphome``
+      back off (the block-exit branch);
+    - the indented child line that follows then short-circuits via
+      the ``not in_esphome`` guard.
+
+    Without these branches the walker would either keep
+    ``in_esphome=True`` after leaving the esphome block (and
+    rewrite a stray ``name:`` under ``wifi:``) or attempt the
+    ``name:`` regex on every line forever.
+    """
+    yaml = "esphome:\n  name: kitchen\nwifi:\n  ssid: home\n"
+    # ``other`` doesn't match ``kitchen`` → no rewrite, walker runs to EOF.
+    assert rewrite_esphome_name(yaml, "other", "renamed") == yaml
+
+
+def test_rewrite_esphome_name_walks_past_non_name_lines_and_other_blocks() -> None:
+    """The walker tolerates non-``name:`` esphome lines and exits the block on a sibling.
+
+    Drives the three early-continue branches in one trace:
+
+    - ``friendly_name:`` is inside the esphome block but doesn't match
+      the ``name:`` regex, so the loop falls through to ``continue``.
+    - ``wifi:`` is a sibling top-level key and flips ``in_esphome``
+      back off — without that, a stray ``name:`` under ``wifi:`` would
+      get rewritten too.
+    - ``  ssid:`` lands after the block flipped off and skips the
+      regex check entirely (the ``not in_esphome`` guard).
+
+    Asserts the function still finds and rewrites the real ``name:``
+    further down rather than bailing on the friendly_name detour.
+    """
+    yaml = (
+        "esphome:\n"
+        "  friendly_name: Kitchen\n"
+        "  name: kitchen\n"
+        "wifi:\n"
+        "  ssid: home\n"
+        "  name: kitchen\n"  # would-be lookalike under wifi block
+    )
+    out = rewrite_esphome_name(yaml, "kitchen", "kitchen-2")
+    assert "  name: kitchen-2\n" in out
+    # Wi-Fi's ``name:`` lookalike survives — the block-exit branch did its job.
+    assert out.count("name: kitchen\n") == 1
+    assert out.endswith("  name: kitchen\n")
 
 
 def test_rewrite_esphome_name_handles_quoted_value() -> None:
@@ -426,3 +480,75 @@ def test_generate_component_yaml_emits_list_of_dicts_as_block_sequence() -> None
     assert "      b: x" in out
     assert "    - a: 2" in out
     assert "      b: y" in out
+
+
+# ---------------------------------------------------------------------------
+# _splice_into_domain_block — defensive guards
+# ---------------------------------------------------------------------------
+
+
+def test_splice_rejects_block_without_matching_domain_header() -> None:
+    """A block whose first line isn't ``<domain>:`` returns ``None``.
+
+    The guard exists because ``merge_component_yaml`` could grow a
+    code path that hands ``_splice_into_domain_block`` a block built
+    for a different domain (e.g. category drift between catalog
+    sync and the helper). Pin the rejection so the splice always
+    falls through to ``_append_block`` instead of welding the wrong
+    list under the wrong header.
+    """
+    assert _splice_into_domain_block("sensor:\n  - platform: dht\n", "switch", "logger:\n") is None
+
+
+def test_splice_rejects_single_line_block() -> None:
+    """A block with no body (one line) returns ``None``.
+
+    Defensive: ``merge_component_yaml`` always passes a header +
+    list-item pair, but a future caller that constructs a block
+    directly could hand in just the header. Pin the early-return so
+    the splice never produces a header-without-body insertion that
+    would silently corrupt the file.
+    """
+    assert _splice_into_domain_block("sensor:\n", "sensor", "sensor:") is None
+
+
+def test_splice_appends_newline_when_existing_lacks_trailing_lf() -> None:
+    r"""When the existing YAML has no trailing newline, the splice adds one.
+
+    Hand-edited YAMLs occasionally arrive without a final newline
+    (some editors strip it). Without the guard, the splice would
+    concatenate the new list item directly onto the previous line
+    (``    address: 0x76  - platform: dht``), producing invalid
+    YAML. Pin the inserted ``\n`` so the new item always lands on
+    its own line.
+    """
+    existing = "sensor:\n  - platform: bme280\n    address: 0x76"  # no trailing newline
+    out = _splice_into_domain_block(
+        existing, "sensor", "sensor:\n  - platform: dht\n    pin: GPIO4"
+    )
+    assert out is not None
+    assert "    address: 0x76\n" in out
+    assert "  - platform: dht\n" in out
+
+
+# ---------------------------------------------------------------------------
+# _generate_id — empty-slug fallback (driven via generate_component_yaml)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_component_yaml_id_falls_back_when_name_slug_is_empty() -> None:
+    """A name made entirely of punctuation slugifies to ``""`` → bare component id.
+
+    The slug regex collapses every non-``[a-z0-9]`` run to ``_`` then
+    strips outer underscores; a name like ``":::"`` collapses to
+    nothing. Without the fallback, the emitted id would be
+    ``<comp>_`` (trailing underscore) — invalid as a YAML id and
+    rejected by ESPHome at compile time. Pin the bare-component-id
+    return so the helper degrades gracefully on punctuation-only
+    names.
+    """
+    component = _component(component_id="hlw8012", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"id": "", "name": ":::"})
+    # Auto-filled id is just the component stem — no trailing ``_``.
+    assert "  id: hlw8012\n" in out
+    assert "  id: hlw8012_\n" not in out
