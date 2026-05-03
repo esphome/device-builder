@@ -17,7 +17,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
-from esphome_device_builder.models import Device, DeviceState, EventType
+from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import make_devices_controller_with_bus
 
@@ -47,9 +47,6 @@ def _close_coro(coro: Any) -> Any:
     return MagicMock()
 
 
-_FANOUT_EVENT_TYPES = (EventType.DEVICE_STATE_CHANGED, EventType.DEVICE_UPDATED)
-
-
 def test_state_change_fans_out_to_every_matching_device() -> None:
     """Fans the state update + bus event out to every matching device.
 
@@ -61,7 +58,6 @@ def test_state_change_fans_out_to_every_matching_device() -> None:
     b = _device("kitchen (1).yaml")
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        capture_event_types=_FANOUT_EVENT_TYPES,
         create_background_task=_close_coro,
     )
 
@@ -79,7 +75,6 @@ def test_ip_change_fans_out_to_every_matching_device() -> None:
     b = _device("kitchen (1).yaml", ip="")
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        capture_event_types=_FANOUT_EVENT_TYPES,
         create_background_task=_close_coro,
     )
 
@@ -99,7 +94,6 @@ def test_version_change_fans_out_to_every_matching_device() -> None:
     b = _device("kitchen (1).yaml", current_version="2026.5.0", deployed_version="")
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        capture_event_types=_FANOUT_EVENT_TYPES,
         create_background_task=_close_coro,
     )
 
@@ -123,7 +117,6 @@ def test_config_hash_change_fans_out_to_every_matching_device() -> None:
     )
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        capture_event_types=_FANOUT_EVENT_TYPES,
         create_background_task=_close_coro,
     )
 
@@ -142,7 +135,6 @@ def test_api_encryption_change_fans_out_to_every_matching_device() -> None:
     b = _device("kitchen (1).yaml", api_encryption_active=None)
     controller, captured = make_devices_controller_with_bus(
         [a, b],
-        capture_event_types=_FANOUT_EVENT_TYPES,
         create_background_task=_close_coro,
     )
 
@@ -159,7 +151,6 @@ def test_unrelated_devices_are_not_touched() -> None:
     garage = _device("garage.yaml", name="garage", address="garage.local")
     controller, captured = make_devices_controller_with_bus(
         [kitchen, garage],
-        capture_event_types=_FANOUT_EVENT_TYPES,
         create_background_task=_close_coro,
     )
 

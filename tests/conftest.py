@@ -271,17 +271,22 @@ def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MakeSettin
 def make_devices_controller_with_bus(
     devices: list[Device],
     *,
-    capture_event_types: tuple[EventType, ...] = (EventType.DEVICE_STATE_CHANGED,),
     create_background_task: Callable[[Any], Any] | None = None,
 ) -> tuple[DevicesController, list[Event]]:
     """Bypass-init a ``DevicesController`` wired to a real ``EventBus``.
 
     Returns the controller and a live ``list[Event]`` capture for
-    every subscribed ``EventType``. Tests assert on the flat list
-    instead of poking ``MagicMock.assert_called_once_with`` /
-    ``call_args_list`` — the contract being tested is "what fanned
-    out to the bus", not the call shape of the mock that recorded
-    it.
+    *every* ``EventType`` fired on the bus. Tests assert on the
+    flat list instead of poking ``MagicMock.assert_called_once_with``
+    / ``call_args_list`` — the contract being tested is "what
+    fanned out to the bus", not the call shape of the mock that
+    recorded it.
+
+    Captures every event type by default (rather than an explicit
+    subset) so a refactor that fires an unexpected event surfaces
+    in the test instead of silently passing through. Tests that
+    only care about a subset filter the list themselves
+    (``[e for e in captured if e.event_type == X]``).
 
     The scanner is a ``MagicMock`` exposing ``devices`` and a
     ``get_by_name(name)`` lambda derived from *devices*; mirrors
@@ -295,7 +300,7 @@ def make_devices_controller_with_bus(
     """
     bus = EventBus()
     captured: list[Event] = []
-    for event_type in capture_event_types:
+    for event_type in EventType:
         bus.add_listener(event_type, captured.append)
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
