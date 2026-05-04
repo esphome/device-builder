@@ -45,6 +45,8 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, NamedTuple
 
+import orjson
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -471,14 +473,12 @@ def main() -> int:
         "esphome_schema_version": version,
         "components": [_strip_defaults(c) for c in catalog],
     }
-    # Compact separators: the file is consumed only by the loader (not
-    # hand-edited or diffed), and the indented form was ~39 MB vs ~19 MB
-    # compact. Trims roughly 600 KB off the released wheel after
+    # Use orjson (already a runtime dep) for a compact UTF-8 dump —
+    # the file is consumed only by the loader (not hand-edited or
+    # diffed), so indentation was pure overhead. Indented stdlib json
+    # was ~39 MB on disk vs ~19 MB here, ~600 KB off the wheel after
     # deflate.
-    _OUTPUT_FILE.write_text(
-        json.dumps(payload, separators=(",", ":"), ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    _OUTPUT_FILE.write_bytes(orjson.dumps(payload, option=orjson.OPT_APPEND_NEWLINE))
     _LOGGER.info("Wrote %s", _OUTPUT_FILE)
     return 0
 
