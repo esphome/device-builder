@@ -15,6 +15,11 @@ on:
         description: "Version number (e.g. 2026.5.0 or 2026.5.0b1)"
         required: true
         type: string
+      initial-release:
+        description: "Replace the release notes with an 'Initial release' placeholder. Intended for the very first release."
+        required: false
+        type: boolean
+        default: false
 
 env:
   PYTHON_VERSION: "3.13"
@@ -155,33 +160,20 @@ jobs:
 
       - name: Resolve previous release tag
         id: previous
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          set -euo pipefail
-          # Latest non-draft release that isn't the one we're about to
-          # cut. ``--exclude-drafts`` already strips draft entries left
-          # over from a prior attempt; ``grep -v`` defends against the
-          # rare case where ``inputs.version`` matches a published tag
-          # that the validate job somehow let through.
-          tag=$(gh release list --exclude-drafts --limit 5 \
-            --json tagName --jq '.[].tagName' \
-            | grep -v "^${{ inputs.version }}$" | head -n 1 || true)
-          if [ -z "$tag" ]; then
-            echo "No previous release found — emitting full first-release notes."
-          else
-            echo "Previous release: $tag"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/resolve-release-versions
+        with:
+          version: ${{ inputs.version }}
+          github-token: ${{ steps.app-token.outputs.token }}
 
       - name: Generate release notes
         id: notes
         uses: ./.github/actions/generate-release-notes
         with:
           version: ${{ inputs.version }}
-          previous-tag: ${{ steps.previous.outputs.tag }}
+          previous-tag: ${{ steps.previous.outputs.previous-tag }}
           commitish: ${{ github.sha }}
           github-token: ${{ steps.app-token.outputs.token }}
+          initial-release: ${{ inputs.initial-release }}
 
       - name: Create or update draft release
         env:

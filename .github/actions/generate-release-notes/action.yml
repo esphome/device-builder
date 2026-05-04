@@ -7,6 +7,10 @@ description: |
   are fetched and their bullets are dropped into the matching backend
   category. Bump PRs themselves never appear in the rendered notes.
 
+  When ``initial-release`` is ``true`` the action skips PR fetching entirely
+  and emits a short "Initial release" placeholder. Intended for the very
+  first release of the project.
+
 inputs:
   version:
     description: Version being released (used in log lines, not in the body).
@@ -32,32 +36,43 @@ inputs:
     description: Frontend distribution name as it appears in pyproject.toml's `dependencies`.
     required: false
     default: esphome-device-builder-frontend
+  initial-release:
+    description: |
+      When ``true``, skip PR fetching and emit a short "Initial release"
+      placeholder body instead. Intended for the very first release of
+      the project, where a full PR dump would be noisy. The exact
+      placeholder wording is a deliberate stub — refine in a follow-up.
+    required: false
+    default: "false"
 
 outputs:
   release-notes:
     description: The rendered release-notes body.
-    value: ${{ steps.generate.outputs.release-notes }}
+    value: ${{ steps.generate.outputs.release-notes || steps.initial.outputs.release-notes }}
   release-notes-file:
     description: |
       Path to a file containing the rendered notes. Prefer this over
       `release-notes` when piping into `gh release create --notes-file`,
       since multi-line outputs can be brittle to reinterpolate.
-    value: ${{ steps.generate.outputs.release-notes-file }}
+    value: ${{ steps.generate.outputs.release-notes-file || steps.initial.outputs.release-notes-file }}
 
 runs:
   using: composite
   steps:
     - name: Set up Python
+      if: inputs.initial-release != 'true'
       uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
       with:
         python-version: "3.13"
 
     - name: Install Python dependencies
+      if: inputs.initial-release != 'true'
       shell: bash
       run: pip install --no-cache-dir PyGithub PyYAML
 
     - name: Generate release notes
       id: generate
+      if: inputs.initial-release != 'true'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -69,3 +84,21 @@ runs:
         FRONTEND_REPO: ${{ inputs.frontend-repo }}
         FRONTEND_DEP_NAME: ${{ inputs.frontend-dep-name }}
       run: python "${{ github.action_path }}/generate_notes.py"
+
+    - name: Emit initial-release placeholder
+      id: initial
+      if: inputs.initial-release == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Placeholder body for the very first release. The exact
+        # wording is a stub — a follow-up PR will replace this with
+        # something more substantive.
+        notes_file="${RUNNER_TEMP:-/tmp}/release-notes.md"
+        printf 'Initial release.\n' > "$notes_file"
+        {
+          echo "release-notes-file=$notes_file"
+          echo "release-notes<<RELEASENOTES_EOF"
+          echo "Initial release."
+          echo "RELEASENOTES_EOF"
+        } >> "$GITHUB_OUTPUT"

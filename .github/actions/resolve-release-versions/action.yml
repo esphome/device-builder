@@ -1,0 +1,165 @@
+name: Resolve release versions
+description: |
+  Inspect recent published GitHub releases and answer two questions:
+  what tag should the release notes diff against, and (when no
+  ``version`` is supplied) what's the next prerelease version?
+
+  Both answers come from a single ``gh release list`` call so callers
+  that need both don't pay the API round-trip twice.
+
+  Diff-base rules (applied to ``inputs.version``, or to the computed
+  next prerelease when none is supplied):
+    - stable ``X.Y.Z``       → most recent stable; fall back to last beta
+    - first beta ``X.Y.Zb1`` → most recent stable; fall back to last beta
+    - later beta ``X.Y.ZbN`` → most recent beta;   fall back to last stable
+
+  The two beta cases differ because ``b1`` opens a new version cycle —
+  reviewers want to see everything that accumulated since the previous
+  shipped version, not an empty diff against a missing predecessor.
+
+  Next-version bump (used when ``inputs.version`` is empty), keyed on
+  ``inputs.mode``:
+    - ``mode: prerelease`` (default)
+        - latest is ``X.Y.ZbN``  → ``X.Y.Zb(N+1)``
+        - latest is ``X.Y.Z``    → ``X.Y.(Z+1)b1``
+        - no prior releases      → ``0.1.0b1``
+    - ``mode: stable``
+        - latest is ``X.Y.ZbN``  → ``X.Y.Z`` (the cycle's stable target)
+        - latest is ``X.Y.Z``    → ``X.Y.(Z+1)`` (placeholder patch bump)
+        - no prior releases      → ``0.1.0``
+
+inputs:
+  version:
+    description: |
+      Version about to be cut, e.g. ``0.1.5b3``. When provided, the
+      ``version`` output echoes it and the diff base is resolved for
+      this exact version. When omitted, the action computes the next
+      version per ``mode`` and resolves the diff base for that.
+    required: false
+    default: ""
+  mode:
+    description: |
+      ``prerelease`` (default) or ``stable``. Selects the next-version
+      computation when ``inputs.version`` is empty. Ignored when
+      ``inputs.version`` is set — there the diff-base rules key off
+      the input version's shape directly.
+    required: false
+    default: prerelease
+  github-token:
+    description: |
+      Token used to call ``gh release list``. Defaults to the
+      implicit ``${{ github.token }}``, which has the read access
+      needed for the release list. Callers that want to use an app
+      token (e.g. for consistency with the rest of their workflow)
+      can pass it explicitly.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  version:
+    description: |
+      The resolved version — echoes ``inputs.version`` when provided,
+      otherwise the computed next prerelease.
+    value: ${{ steps.resolve.outputs.version }}
+  previous-tag:
+    description: |
+      The tag the release notes should diff against, per the
+      channel-aware rules above. Empty when this is the first-ever
+      release.
+    value: ${{ steps.resolve.outputs.previous-tag }}
+  latest-overall:
+    description: |
+      The most recent published release of any channel (or empty
+      when nothing has shipped yet). Exposed for callers like
+      ``auto-release.yml`` that need a single baseline for commit
+      counting and don't care about the channel split.
+    value: ${{ steps.resolve.outputs.latest-overall }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve versions
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VERSION_INPUT: ${{ inputs.version }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        if [ "$MODE" != "prerelease" ] && [ "$MODE" != "stable" ]; then
+          echo "::error::mode must be 'prerelease' or 'stable' (got '$MODE')."
+          exit 1
+        fi
+
+        # One pass over the recent published releases populates the
+        # buckets we need. ``--exclude-drafts`` strips any draft (the
+        # rolling previews, or a leftover from a failed release attempt).
+        mapfile -t tags < <(gh release list --exclude-drafts --limit 50 \
+          --json tagName --jq '.[].tagName')
+
+        latest_stable=""
+        latest_beta=""
+        latest_overall=""
+        for t in "${tags[@]}"; do
+          # Skip ``inputs.version`` if it somehow appears as a
+          # published tag (release.yml's pre-existing defensive check
+          # against a tag the validate job let through).
+          [ -n "$VERSION_INPUT" ] && [ "$t" = "$VERSION_INPUT" ] && continue
+          [ -z "$latest_overall" ] && latest_overall="$t"
+          if [[ "$t" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            [ -z "$latest_stable" ] && latest_stable="$t"
+          elif [[ "$t" =~ ^[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$ ]]; then
+            [ -z "$latest_beta" ] && latest_beta="$t"
+          fi
+        done
+
+        # Resolve the version: echo the input if given, else bump the
+        # most recent release per the requested mode.
+        if [ -n "$VERSION_INPUT" ]; then
+          version="$VERSION_INPUT"
+        elif [ -z "$latest_overall" ]; then
+          if [ "$MODE" = "stable" ]; then
+            version="0.1.0"
+          else
+            version="0.1.0b1"
+          fi
+        elif [[ "$latest_overall" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)b([0-9]+)$ ]]; then
+          if [ "$MODE" = "stable" ]; then
+            version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+          else
+            version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}b$((BASH_REMATCH[4] + 1))"
+          fi
+        elif [[ "$latest_overall" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          if [ "$MODE" = "stable" ]; then
+            version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+          else
+            version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))b1"
+          fi
+        else
+          echo "::error::Cannot parse latest tag '$latest_overall' (expected X.Y.Z or X.Y.ZbN)."
+          exit 1
+        fi
+
+        # Resolve the diff base by channel.
+        if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          previous="${latest_stable:-$latest_beta}"
+        elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+b([0-9]+)$ ]]; then
+          if [ "${BASH_REMATCH[1]}" -eq 1 ]; then
+            previous="${latest_stable:-$latest_beta}"
+          else
+            previous="${latest_beta:-$latest_stable}"
+          fi
+        else
+          echo "::error::Cannot parse version '$version' (expected X.Y.Z or X.Y.ZbN)."
+          exit 1
+        fi
+
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "previous-tag=$previous" >> "$GITHUB_OUTPUT"
+        echo "latest-overall=$latest_overall" >> "$GITHUB_OUTPUT"
+        echo "Latest stable:    ${latest_stable:-(none)}"
+        echo "Latest beta:      ${latest_beta:-(none)}"
+        echo "Latest overall:   ${latest_overall:-(none)}"
+        echo "Resolved version: $version"
+        echo "Diff base:        ${previous:-(none — first release)}"
