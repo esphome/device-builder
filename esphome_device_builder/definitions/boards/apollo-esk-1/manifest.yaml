@@ -134,6 +134,22 @@ featured_components:
     id: aht20
     name: AHT20 Temperature & Humidity
     variant: AHT20
+- id: battery_monitor
+  component_id: sensor.max17043
+  name: Battery Fuel Gauge (MAX17048)
+  description: |
+    Onboard MAX17048 fuel gauge for monitoring a LiPo battery. ESPHome's
+    ``max17043`` driver speaks the same I²C protocol (fixed address
+    ``0x36``, VCELL + SOC register layout) and reads voltage and
+    state-of-charge correctly without any external component.
+  fields:
+    id: battery_monitor
+    i2c_id: i2c_bus
+    update_interval: 60s
+    battery_voltage:
+      name: Battery Voltage
+    battery_level:
+      name: Battery Level
 - id: accessory_power
   component_id: switch.gpio
   name: Accessory Power Rail
