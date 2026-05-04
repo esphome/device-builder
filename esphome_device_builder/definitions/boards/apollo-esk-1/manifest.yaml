@@ -28,6 +28,8 @@ tags:
 - starter-kit
 - rgb-led
 - usb-c
+- lipo
+- battery
 docs_url: https://wiki.apolloautomation.com/products/esk1/buttongettingstarted/
 product_url: https://apolloautomation.com/products/esk-1-esphome-starter-kit
 featured: true
@@ -147,9 +149,11 @@ featured_components:
     i2c_id: i2c_bus
     update_interval: 60s
     battery_voltage:
-      name: Battery Voltage
+      value:
+        name: Battery Voltage
     battery_level:
-      name: Battery Level
+      value:
+        name: Battery Level
 - id: accessory_power
   component_id: switch.gpio
   name: Accessory Power Rail
