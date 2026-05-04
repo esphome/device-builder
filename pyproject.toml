@@ -12,7 +12,7 @@ classifiers = [
   "Topic :: Home Automation",
 ]
 dependencies = [
-  "esphome-device-builder-frontend==0.1.26",
+  "esphome-device-builder-frontend==0.1.27",
   "aiohttp>=3.9.0",
   "mashumaro>=3.13",
   "orjson>=3.9.0",
