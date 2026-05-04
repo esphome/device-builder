@@ -84,10 +84,11 @@ StateChangeCallback = Callable[[str, DeviceState, str], None]
 # Callback fired when mDNS resolves (or clears) a device's IP address.
 # ``primary`` is the IPv4 we lock onto for ICMP / OTA cache args (or
 # the first scoped IPv6 when a host has no V4); ``addresses`` is the
-# full announced list — IPv4 first, then any scoped IPv6 entries —
-# so the dashboard can surface every IP a multi-homed device claims.
-# Empty primary + empty list signals the device went offline / was
-# removed from mDNS.
+# announced set — order is whatever zeroconf's
+# ``parsed_scoped_addresses(IPVersion.All)`` returned (in practice
+# IPv4 first, then any scoped IPv6 entries). Single-IP sources (MQTT,
+# DNS fallback) carry just the one address they know. Empty primary +
+# empty list signals the device went offline / was removed from mDNS.
 IPChangeCallback = Callable[[str, str, list[str]], None]
 
 # Callback fired when the mDNS ``version`` TXT record reports a
@@ -318,8 +319,24 @@ class DeviceStateMonitor:
         callers with the full announced set should reach for
         :meth:`apply_ip_addresses` instead so the multi-IP view stays
         accurate.
+
+        When *ip* is already present in the device's ``ip_addresses``
+        list, only the primary slot is touched — a narrower MQTT /
+        DNS observation must not shrink a multi-IP view that mDNS
+        already populated, otherwise we'd re-hide IPv6 the next time
+        MQTT discovery fires.
         """
-        return self._dispatch_ip(name, ip, [ip] if ip else [])
+        if not ip:
+            return self._dispatch_ip(name, "", [])
+        devices = self._get_devices_by_name(name)
+        if not devices:
+            return False
+        # Read ``ip_addresses`` off any matching device — duplicates
+        # all flow through ``_dispatch_ip``'s fan-out so they end up
+        # at the same state regardless of which we sampled here.
+        existing = devices[0].ip_addresses
+        addresses = list(existing) if ip in existing else [ip]
+        return self._dispatch_ip(name, ip, addresses)
 
     def apply_ip_addresses(self, name: str, addresses: list[str]) -> bool:
         """

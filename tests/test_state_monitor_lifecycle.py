@@ -1256,3 +1256,41 @@ def test_apply_ip_addresses_fires_when_list_changes_but_primary_does_not() -> No
     ]
     assert device.ip == "10.0.0.1"
     assert device.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
+
+
+def test_apply_ip_preserves_multi_ip_list_when_primary_already_known() -> None:
+    """Single-IP sources don't shrink a multi-IP view they don't see.
+
+    MQTT discovery fires every ping interval against a device whose
+    mDNS bundle (V4 + V6) already populated ``ip_addresses``. Without
+    this guard, MQTT's narrower observation would collapse the list
+    back to ``[v4]`` every cycle and re-hide the V6 from the
+    dashboard until the next mDNS pass.
+    """
+    device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1", "fe80::1%en0"])
+    monitor, callbacks = _make_monitor([device])
+
+    monitor.apply_ip("kitchen", "10.0.0.1")
+
+    assert callbacks.calls_for("on_ip_change") == []
+    assert device.ip == "10.0.0.1"
+    assert device.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
+
+
+def test_apply_ip_replaces_list_when_primary_is_new() -> None:
+    """A different single IP overrides the list — the device moved networks.
+
+    The previous V4 isn't in the new MQTT-reported set, so we treat
+    that as authoritative for the live IP and let the next mDNS pass
+    repopulate the V6 entries.
+    """
+    device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1", "fe80::1%en0"])
+    monitor, callbacks = _make_monitor([device])
+
+    monitor.apply_ip("kitchen", "10.0.0.99")
+
+    assert callbacks.calls_for("on_ip_change") == [
+        ("on_ip_change", "kitchen", "10.0.0.99", ["10.0.0.99"]),
+    ]
+    assert device.ip == "10.0.0.99"
+    assert device.ip_addresses == ["10.0.0.99"]

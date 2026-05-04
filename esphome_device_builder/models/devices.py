@@ -32,13 +32,14 @@ class Device(DataClassORJSONMixin):
     # pre-resolve in the ping sweep, persisted through the device-builder
     # metadata sidecar so the OTA address cache survives a restart.
     ip: str = ""
-    # Every IP currently announced by the device, IPv4 first then any
-    # scoped IPv6 entries (link-local addresses keep the ``%scope``
-    # suffix). Populated from zeroconf's ``parsed_scoped_addresses``
-    # so the dashboard can surface a multi-homed device's full set —
-    # ``ip`` only holds the primary picked for OTA cache args.
-    # Runtime-only: not persisted to the metadata sidecar; the next
-    # mDNS pass repopulates after a restart.
+    # Every IP currently known for the device. mDNS populates from
+    # zeroconf's ``parsed_scoped_addresses`` (in practice IPv4 first,
+    # then any scoped IPv6 — link-local addresses keep the ``%scope``
+    # suffix); single-IP sources (MQTT discovery, DNS fallback) carry
+    # just the one address they know. ``ip`` always holds the primary
+    # picked for OTA cache args. Runtime-only: not persisted to the
+    # metadata sidecar; the next mDNS pass repopulates after a
+    # restart.
     ip_addresses: list[str] = field(default_factory=list)
     web_port: int | None = None
     current_version: str = ""
