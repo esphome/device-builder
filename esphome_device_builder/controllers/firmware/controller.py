@@ -18,7 +18,8 @@ import logging
 import os
 import shutil
 import sys
-from contextlib import suppress
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any
@@ -785,6 +786,15 @@ class FirmwareController:
             )
             self._current_process = proc
 
+            # Honour a cancel that landed in the gap between
+            # ``_verify_chip`` finishing and ``create_subprocess_exec``
+            # returning — without this, an early Stop click during
+            # the brief async window where ``_current_process`` was
+            # ``None`` lets the install run to completion before the
+            # post-``proc.wait()`` cancel check sees the flag.
+            if job.job_id in self._cancel_requested:
+                await self._terminate_current_process()
+
             has_error_in_output = False
             # Captured at append time because the in-flight trim can
             # elide the offending line before the post-exit handler
@@ -896,10 +906,22 @@ class FirmwareController:
             _LOGGER.info("Job %s cancelled (runner shutdown)", job.job_id)
             raise
         except Exception as exc:
-            job.error = str(exc)
-            _mark_job_terminal(job, JobStatus.FAILED)
-            self._db.bus.fire(EventType.JOB_FAILED, {"job": job})
-            _LOGGER.exception("Job %s failed: %s", job.job_id, exc)
+            # If a cancel was requested before this exception escaped,
+            # honour it as CANCELLED instead of FAILED. The
+            # ``_verify_chip`` early-cancel path raises ``ValueError``
+            # to short-circuit the install — without this branch
+            # that error would be reported as a generic failure
+            # rather than the user-driven cancel it actually is.
+            if job.job_id in self._cancel_requested:
+                self._cancel_requested.discard(job.job_id)
+                _mark_job_terminal(job, JobStatus.CANCELLED)
+                self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
+                _LOGGER.info("Job %s cancelled before subprocess wait: %s", job.job_id, exc)
+            else:
+                job.error = str(exc)
+                _mark_job_terminal(job, JobStatus.FAILED)
+                self._db.bus.fire(EventType.JOB_FAILED, {"job": job})
+                _LOGGER.exception("Job %s failed: %s", job.job_id, exc)
         finally:
             self._current_job = None
             self._current_process = None
@@ -911,6 +933,56 @@ class FirmwareController:
                 _trim_job_output(job)
                 self._prune_history()
             await self._persist_jobs()
+
+    @asynccontextmanager
+    async def _tracked_subprocess(
+        self, *args: Any, **kwargs: Any
+    ) -> AsyncIterator[asyncio.subprocess.Process]:
+        """
+        Spawn a subprocess that's visible to ``firmware/cancel``.
+
+        Use this for **every** subprocess invocation in the runner
+        path — pre-flight checks (``_verify_chip``-style) AND any
+        future probe that the runner adds. Setting
+        ``_current_process`` is what lets a concurrent
+        ``firmware/cancel`` actually land SIGTERM on the running
+        spawn; a direct ``create_subprocess_exec`` call without
+        this registration silently regresses the issue-#136 fix —
+        the cancel handler walks ``_current_process`` and no-ops on
+        ``None``, the user clicks Stop, nothing visible happens,
+        and the orphaned subprocess runs to completion in the
+        background.
+
+        Restores the prior ``_current_process`` value on exit so
+        the wrapper composes safely if a future caller nests them.
+
+        Pairs with ``_raise_if_cancelled`` — wrap each spawn, then
+        call the helper after to short-circuit if the cancel landed
+        between this subprocess and the next one.
+        """
+        proc = await create_subprocess_exec(*args, **kwargs)
+        prev = self._current_process
+        self._current_process = proc
+        try:
+            yield proc
+        finally:
+            self._current_process = prev
+
+    def _raise_if_cancelled(self, job: FirmwareJob, phase: str) -> None:
+        """
+        Short-circuit a runner phase if a cancel landed mid-phase.
+
+        Called between subprocess spawns so a cancel that came in
+        while one pre-flight was running stops the next one from
+        starting. Raises ``ValueError`` so ``_execute_job``'s
+        cancel-aware ``except Exception`` branch finalises the job
+        as ``CANCELLED`` (vs. the bare ``FAILED`` path used for
+        unrelated exceptions). ``phase`` shows up in the error
+        message to make the cause clear in the log.
+        """
+        if job.job_id in self._cancel_requested:
+            msg = f"Cancelled during {phase}"
+            raise ValueError(msg)
 
     async def _terminate_current_process(self) -> None:
         """Signal the running subprocess (and its children); escalate if it lingers.
@@ -1018,6 +1090,16 @@ class FirmwareController:
         compares against the target platform in the device config.
         Raises ValueError on mismatch so the job fails early with a
         clear error message.
+
+        The verify subprocess is registered as ``_current_process``
+        for the duration of its run so an early ``firmware/cancel``
+        — typical when the user picked the wrong serial port and
+        esptool is hanging waiting for a device that won't answer
+        — actually lands on the spawned esptool process, instead
+        of no-op'ing because the main install hadn't been spawned
+        yet. ``start_new_session=True`` puts the process in its
+        own group so the SIGTERM signal walks the whole tree the
+        same way the main install spawn site does.
         """
         if not job.port or job.port.upper() == "OTA" or not job.port.startswith("/dev"):
             return  # only check serial ports
@@ -1036,7 +1118,7 @@ class FirmwareController:
         if not expected_platform:
             return  # can't verify without knowing expected platform
 
-        proc = await create_subprocess_exec(
+        async with self._tracked_subprocess(
             sys.executable,
             "-m",
             "esptool",
@@ -1045,10 +1127,19 @@ class FirmwareController:
             "chip-id",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-        )
-        assert proc.stdout is not None  # type narrowing
-        output = (await proc.stdout.read()).decode("utf-8", errors="replace")
-        await proc.wait()
+            start_new_session=True,
+        ) as proc:
+            assert proc.stdout is not None  # type narrowing
+            output = (await proc.stdout.read()).decode("utf-8", errors="replace")
+            await proc.wait()
+
+        # Honour an early cancel that arrived during chip detection
+        # (the main install hasn't spawned yet, so the post-wait
+        # check below in ``_execute_job`` would otherwise let the
+        # full install run before reporting CANCELLED). Reusing
+        # the ``ValueError`` shape keeps the error path identical
+        # to a chip mismatch.
+        self._raise_if_cancelled(job, "chip verification")
 
         # Parse "Detecting chip type... ESP32-C3"
         detected = ""

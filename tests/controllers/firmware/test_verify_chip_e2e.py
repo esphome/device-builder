@@ -519,3 +519,284 @@ async def test_install_serial_device_without_target_platform_skips_check(
     assert record["esptool_calls"] == []
     assert record["build_calls"], "build subprocess should still have run"
     assert job.status == JobStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------------
+# Early-cancel race: cancel arrives while ``_verify_chip`` is running
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
+    firmware_controller_factory: FirmwareControllerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancel during a hanging verify-chip terminates the spawn quickly.
+
+    The user-visible regression from issue #136: pick the wrong
+    serial port, esptool hangs talking to a non-ESP device for
+    ~30s, user clicks Stop, **nothing happens** — the cancel
+    flag was set but ``_current_process`` was ``None`` (the main
+    install hadn't spawned yet) so ``_terminate_current_process``
+    no-op'd. The verify subprocess kept running until esptool
+    gave up on its own.
+
+    Drive that path: stub ``create_subprocess_exec`` so the
+    "esptool" call sleeps ~30s. Submit the install, wait for the
+    runner to enter ``_execute_job``, fire the public ``cancel``
+    handler, and assert the job reaches CANCELLED in well under
+    the sleep duration. The only way that's possible is if the
+    SIGTERM actually landed on the verify subprocess — which
+    requires the spawn to have been registered as
+    ``_current_process``.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _set_esphome_cmd(controller)
+    _seed_yaml(tmp_path)
+
+    real = controller_module.create_subprocess_exec
+    verify_spawned = asyncio.Event()
+
+    async def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        if (
+            len(args) >= 3
+            and args[0] == sys.executable
+            and args[1] == "-m"
+            and args[2] == "esptool"
+        ):
+            verify_spawned.set()
+            # Sleep long enough that any non-cancelled run would
+            # blow the test timeout — the assertion that the test
+            # finishes in seconds is the proof that SIGTERM landed.
+            return await real(
+                sys.executable,
+                "-c",
+                "import time\ntime.sleep(30)\n",
+                **kwargs,
+            )
+        # Build subprocess must not run — verify raises before it.
+        msg = "build subprocess spawned despite mid-verify cancel"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(controller_module, "create_subprocess_exec", _wrapper)
+
+    job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
+
+    # Run the queue and, in parallel, fire the cancel as soon as
+    # the verify subprocess has spawned. ``_run_until_terminal``
+    # finishes when JOB_CANCELLED lands.
+    async def _cancel_when_verify_starts() -> None:
+        await verify_spawned.wait()
+        # Wait until the runner has assigned the verify subprocess
+        # to ``_current_process``. The wrapper's ``verify_spawned``
+        # fires INSIDE the ``await create_subprocess_exec`` call —
+        # ``_verify_chip`` hasn't received the proc back yet, so
+        # firing the cancel right here would hit the very race we're
+        # trying to guard against (``_current_process`` still None,
+        # ``_terminate_current_process`` no-ops). The poll proves the
+        # registration happens BEFORE the runner waits on the proc,
+        # which is the contract that makes mid-verify cancel work.
+        while controller._current_process is None:
+            await asyncio.sleep(0.01)
+        await controller.cancel(job_id=job.job_id)
+
+    canceller = asyncio.create_task(_cancel_when_verify_starts())
+    try:
+        captured = await _run_until_terminal(controller, timeout=5.0)
+    finally:
+        canceller.cancel()
+        with suppress(asyncio.CancelledError):
+            await canceller
+
+    assert job.status == JobStatus.CANCELLED
+    assert captured["job_cancelled"]
+    assert captured["job_failed"] == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_verify_chip_marks_job_cancelled(
+    firmware_controller_factory: FirmwareControllerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancel during chip verify ends the job as CANCELLED, not FAILED.
+
+    Repros issue #136: the user picks a serial port, the runner
+    enters ``_verify_chip`` and spawns esptool against it, the
+    user clicks Stop, the WS handler sets ``_cancel_requested``
+    and terminates ``_current_process`` (the esptool spawn
+    courtesy of the registration covered by the previous test).
+    Once esptool is gone, ``_verify_chip`` raises ValueError to
+    short-circuit the main install spawn, and ``_execute_job``'s
+    generic ``except Exception`` honours the cancel flag and
+    marks the job CANCELLED + fires JOB_CANCELLED — instead of
+    surfacing the synthetic ValueError as a generic FAILED.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _set_esphome_cmd(controller)
+    _seed_yaml(tmp_path)
+
+    real = controller_module.create_subprocess_exec
+    cancel_armed = False
+
+    async def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        nonlocal cancel_armed
+        if (
+            len(args) >= 3
+            and args[0] == sys.executable
+            and args[1] == "-m"
+            and args[2] == "esptool"
+        ):
+            # Simulate the in-flight cancel: queue the flag set
+            # before the verify subprocess returns. The fake exits
+            # quickly (no real hang) so the runner reaches the post-
+            # wait cancel check inside ``_verify_chip`` and raises.
+            if controller._current_job is not None:
+                controller._cancel_requested.add(controller._current_job.job_id)
+                cancel_armed = True
+            return await real(
+                sys.executable,
+                "-c",
+                'import sys\nsys.stdout.buffer.write(b"Detecting chip type... ESP32-C3\\n")\n',
+                **kwargs,
+            )
+        # The build subprocess MUST NOT run — the cancel-during-verify
+        # path raises before the spawn site. Fail loudly if it does.
+        msg = "build subprocess spawned despite mid-verify cancel"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(controller_module, "create_subprocess_exec", _wrapper)
+
+    job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
+    captured = await _run_until_terminal(controller)
+
+    assert cancel_armed, "test bug: cancel flag was never set"
+    assert job.status == JobStatus.CANCELLED
+    assert captured["job_cancelled"]
+    assert captured["job_cancelled"][0]["job"] is job
+    assert captured["job_failed"] == []
+    # The cancel flag is consumed by the except-branch finalisation —
+    # not strictly required (no other path reads it after) but pin it
+    # so a future refactor that forgets the discard surfaces here.
+    assert job.job_id not in controller._cancel_requested
+
+
+# ---------------------------------------------------------------------------
+# Hardening: the ``_tracked_subprocess`` helper itself
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tracked_subprocess_registers_and_clears_current_process(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """``_tracked_subprocess`` parks the spawned process on the controller.
+
+    This is the helper that future pre-flight checks
+    (``_verify_chip``-style) MUST go through to keep
+    ``firmware/cancel`` working — a fresh probe that calls
+    ``create_subprocess_exec`` directly would silently regress
+    the issue-#136 fix because the cancel handler walks
+    ``_current_process`` and no-ops on ``None``.
+
+    Pin the contract:
+
+    1. Inside the ``async with`` block, ``_current_process`` IS
+       the spawned proc (so SIGTERM via ``cancel`` lands on it).
+    2. After the block exits cleanly, the field returns to its
+       prior value (``None`` here, but the helper restores
+       whatever was there to compose safely with future nested
+       use).
+    """
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+    # ``with_terminate`` mocks ``_terminate_current_process`` (which
+    # we don't exercise here), but it also initialises
+    # ``_current_process = None``. Strip the mock so the helper's
+    # real assignment stays observable.
+    assert controller._current_process is None
+
+    async with controller._tracked_subprocess(
+        sys.executable,
+        "-c",
+        "import sys\nsys.exit(0)\n",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    ) as proc:
+        assert controller._current_process is proc
+        await proc.wait()
+
+    # Restored on exit.
+    assert controller._current_process is None
+
+
+@pytest.mark.asyncio
+async def test_tracked_subprocess_restores_prior_value_on_exit(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """``_tracked_subprocess`` restores the prior ``_current_process``.
+
+    The helper saves whatever was registered before it spawned
+    and restores it on exit, so a future caller that uses the
+    helper inside an outer one (or just after another spawn site
+    that's already populated the field) doesn't accidentally
+    null out the active process reference. ``None`` is the
+    common case but the contract is "restore the prior value".
+    """
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+    # ``with_terminate`` mocks ``_terminate_current_process`` (which
+    # we don't exercise here), but it also initialises
+    # ``_current_process = None``. Strip the mock so the helper's
+    # real assignment stays observable.
+    sentinel = object()
+    controller._current_process = sentinel  # type: ignore[assignment]
+
+    async with controller._tracked_subprocess(
+        sys.executable,
+        "-c",
+        "import sys\nsys.exit(0)\n",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    ) as proc:
+        assert controller._current_process is proc  # registered for the duration
+        await proc.wait()
+
+    assert controller._current_process is sentinel  # restored
+
+
+@pytest.mark.asyncio
+async def test_tracked_subprocess_restores_prior_value_on_exception(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The restore happens even when the body raises.
+
+    Without the ``try/finally`` shape inside the helper, an
+    exception thrown inside the ``async with`` body would leave
+    the controller pointing at a defunct process — the next
+    ``firmware/cancel`` would either no-op (if the field went
+    back to ``None``) or signal the wrong process (if it stayed
+    pointing at the dead one). Pin both halves.
+    """
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+    # ``with_terminate`` mocks ``_terminate_current_process`` (which
+    # we don't exercise here), but it also initialises
+    # ``_current_process = None``. Strip the mock so the helper's
+    # real assignment stays observable.
+    assert controller._current_process is None
+
+    with pytest.raises(RuntimeError, match="boom"):
+        async with controller._tracked_subprocess(
+            sys.executable,
+            "-c",
+            "import sys\nsys.exit(0)\n",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        ):
+            msg = "boom"
+            raise RuntimeError(msg)
+
+    assert controller._current_process is None
