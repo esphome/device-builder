@@ -204,6 +204,53 @@ def test_detect_platform_from_yaml_skips_load_when_no_packages_block(
     spy.assert_not_called()
 
 
+def test_load_device_yaml_uses_upstream_resolve_packages_when_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the upstream ``resolve_packages`` import is available it wins.
+
+    The two-step ``do_packages_pass`` + ``merge_packages`` path is
+    the fallback for older esphome releases — once the upstream PR
+    (esphome/esphome#16235) lands and the dashboard's dep floor
+    moves past it, the single-call seam takes over. Stubs the
+    upstream symbol with a spy and confirms the wrapper goes
+    through it (and the two-step is NOT called).
+    """
+    yaml_file = tmp_path / "with_pkg.yaml"
+    yaml_file.write_text("esphome:\n  name: x\npackages:\n  shared:\n    wifi:\n      ssid: y\n")
+    spy = mock.MagicMock(side_effect=lambda c: c)
+    monkeypatch.setattr(device_yaml, "_resolve_packages", spy)
+    with mock.patch.object(device_yaml, "_do_packages_pass") as two_step_spy:
+        config = load_device_yaml(yaml_file)
+    assert config is not None
+    spy.assert_called_once()
+    two_step_spy.assert_not_called()
+
+
+def test_load_device_yaml_recovers_when_merge_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad / unreachable package can't blank the device's metadata.
+
+    Pinning the catch-all error handler on the merge call: if
+    ``do_packages_pass`` (or ``resolve_packages``) raises — the
+    typical case is a remote package whose git ref vanished, but
+    also a malformed local package YAML, a missing file, etc. —
+    the function returns the unmerged config so the raw-YAML
+    fallback paths at the call sites still surface what they
+    can. Pre-fix degradation, not a hard failure.
+    """
+    yaml_file = tmp_path / "broken_pkg.yaml"
+    yaml_file.write_text("esphome:\n  name: x\npackages:\n  shared:\n    wifi:\n      ssid: y\n")
+    boom = mock.MagicMock(side_effect=RuntimeError("simulated package failure"))
+    monkeypatch.setattr(device_yaml, "_resolve_packages", boom)
+    config = load_device_yaml(yaml_file)
+    assert config is not None
+    # Merge raised → caller keeps the unmerged shape rather than
+    # crashing or returning ``None``.
+    assert "packages" in config
+
+
 def test_load_device_yaml_falls_back_when_both_imports_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
