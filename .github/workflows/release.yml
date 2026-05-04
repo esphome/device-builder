@@ -58,8 +58,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh api "repos/${{ github.repository }}/git/refs/tags/${{ inputs.version }}" --silent 2>/dev/null; then
+          # `gh api` exits 0 on 2xx and non-zero on any other outcome
+          # (HTTP error or transport failure), so a bare exit-code check
+          # can't tell "tag doesn't exist" apart from "the network ate
+          # the request". Capture stderr and require an HTTP 404 before
+          # treating the tag as absent — anything else fails loudly.
+          if err=$(gh api "repos/${{ github.repository }}/git/refs/tags/${{ inputs.version }}" --silent 2>&1); then
             echo "::error::Tag '${{ inputs.version }}' already exists. Pick a new version."
+            exit 1
+          elif ! grep -q "HTTP 404" <<<"$err"; then
+            echo "::error::Failed to check whether tag '${{ inputs.version }}' exists: $err"
             exit 1
           fi
 
