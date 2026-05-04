@@ -869,9 +869,7 @@ class FirmwareController:
             # exits non-zero (terminated by signal). Honour that
             # intent rather than reporting it as a generic failure.
             if job.job_id in self._cancel_requested:
-                self._cancel_requested.discard(job.job_id)
-                _mark_job_terminal(job, JobStatus.CANCELLED)
-                self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
+                self._finalize_cancelled(job)
                 _LOGGER.info("Job %s cancelled mid-run (exit %s)", job.job_id, exit_code)
             else:
                 success = exit_code == 0 and not has_error_in_output
@@ -902,9 +900,7 @@ class FirmwareController:
             # ``_tracked_subprocess`` already terminated the spawn
             # on its way out; this branch only needs to finalise
             # the job model and fire the event.
-            _mark_job_terminal(job, JobStatus.CANCELLED)
-            self._cancel_requested.discard(job.job_id)
-            self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
+            self._finalize_cancelled(job)
             _LOGGER.info("Job %s cancelled (runner shutdown)", job.job_id)
             raise
         except Exception as exc:
@@ -915,9 +911,7 @@ class FirmwareController:
             # that error would be reported as a generic failure
             # rather than the user-driven cancel it actually is.
             if job.job_id in self._cancel_requested:
-                self._cancel_requested.discard(job.job_id)
-                _mark_job_terminal(job, JobStatus.CANCELLED)
-                self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
+                self._finalize_cancelled(job)
                 _LOGGER.info("Job %s cancelled before subprocess wait: %s", job.job_id, exc)
             else:
                 job.error = str(exc)
@@ -994,6 +988,29 @@ class FirmwareController:
             raise
         finally:
             self._current_process = prev
+
+    def _finalize_cancelled(self, job: FirmwareJob) -> None:
+        """
+        Run the runtime-cancel finalisation: discard, mark, fire.
+
+        Centralises the three-line sequence every "user cancelled
+        an in-flight job" code path needs: drop the id from
+        ``_cancel_requested`` (so a subsequent re-queue starts
+        clean), stamp ``CANCELLED`` + ``completed_at`` via the
+        shared ``_mark_job_terminal`` helper, and broadcast
+        ``JOB_CANCELLED`` so frontends following the all-jobs
+        stream stay consistent. Each call site adds its own log
+        line so the message can name the phase that was cancelled.
+
+        Doesn't cover the QUEUED-cancel path in ``cancel`` itself —
+        that one also runs ``_prune_history`` + ``_persist_jobs``
+        because the runner never sees the job, and inlining those
+        here would couple the runtime-cancel sites to disk I/O
+        they don't otherwise need.
+        """
+        self._cancel_requested.discard(job.job_id)
+        _mark_job_terminal(job, JobStatus.CANCELLED)
+        self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
 
     def _raise_if_cancelled(self, job: FirmwareJob, phase: str) -> None:
         """
@@ -1086,10 +1103,8 @@ class FirmwareController:
                 # rmtree isn't interruptible from another coroutine,
                 # so we can only stop before starting the next target.
                 if job.job_id in self._cancel_requested:
-                    self._cancel_requested.discard(job.job_id)
                     _emit("Reset cancelled by user.")
-                    _mark_job_terminal(job, JobStatus.CANCELLED)
-                    self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
+                    self._finalize_cancelled(job)
                     return
 
                 if not target_exists[name]:
