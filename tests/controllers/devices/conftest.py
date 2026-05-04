@@ -25,6 +25,7 @@ import pytest
 
 from esphome_device_builder.controllers.config import set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.hostname import normalize_hostname
 from esphome_device_builder.models import AdoptableDevice, DeviceState, EventType
@@ -445,6 +446,12 @@ def make_controller() -> MakeControllerFactory:
         # typo or rename of ``scan``/``reload`` surfaces as
         # ``AttributeError`` instead of silently passing the assertion.
         controller._scanner = RecordingScanner()
+        # ``yaml/search`` reads through this cache; tests that
+        # exercise the search command need a real instance, and
+        # the rest can ignore it. Cheap to instantiate
+        # (just an asyncio.Lock + empty dict) so set it on every
+        # bypass-init controller for parity with __init__.
+        controller._yaml_search_cache = YamlSearchCache()
 
         if with_state_monitor:
             controller._state_monitor = RecordingStateMonitor()

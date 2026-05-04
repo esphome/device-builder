@@ -58,6 +58,7 @@ from ..config import (
     set_device_metadata,
 )
 from ..firmware.helpers import _find_esphome_cmd
+from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
     _apply_featured_presets,
     _archive_clear_device_sidecars,
@@ -108,6 +109,12 @@ class DevicesController:
         self._regenerate_pending: set[str] = set()
         self._regenerate_failed: set[str] = set()
         self._regenerate_lock = asyncio.Lock()
+
+        # ``yaml/search`` per-file cache. The class owns its own
+        # ``stat``-then-read flow + ``asyncio.Lock`` so the
+        # bookkeeping doesn't sprawl across this controller. See
+        # ``_yaml_search_cache.YamlSearchCache``.
+        self._yaml_search_cache = YamlSearchCache()
 
         self._scanner = DeviceScanner(
             config_dir=self._db.settings.config_dir,
@@ -251,6 +258,14 @@ class DevicesController:
         cheap line-numbered grep. Searching expanded packages would
         need separate "matched in package X line Y" rendering on the
         frontend; queued as a follow-up.
+
+        Cache: see ``_yaml_search_cache.YamlSearchCache``. The
+        frontend debounces keystrokes but still fires one search
+        per pause — on a fleet of 100 devices that's 100 reads + 100
+        splitlines per keystroke without a cache. With it, every
+        keystroke after the first becomes a stat-and-grep against
+        an already-split list (only files whose mtime changed get
+        re-read).
         """
         needle_raw = query.strip()
         if not needle_raw:
@@ -260,25 +275,20 @@ class DevicesController:
         per_file_cap = 5
         results: list[dict] = []
         total_matches = 0
+        live_configurations: set[str] = set()
 
         for device in self._scanner.devices:
             if total_matches >= max_results:
                 break
+            live_configurations.add(device.configuration)
 
-            path = self._db.settings.rel_path(device.configuration)
-            try:
-                # ``read_text`` is sync — push it to the executor so
-                # one slow disk doesn't stall the event loop while
-                # we walk the rest of the fleet.
-                text = await asyncio.to_thread(
-                    Path(path).read_text, encoding="utf-8", errors="replace"
-                )
-            except OSError as exc:
-                _LOGGER.debug("yaml/search: skipping %s: %s", device.configuration, exc)
+            path = Path(self._db.settings.rel_path(device.configuration))
+            lines = await self._yaml_search_cache.get_lines(device.configuration, path)
+            if lines is None:
                 continue
 
             matches: list[dict] = []
-            for i, line in enumerate(text.splitlines(), start=1):
+            for i, line in enumerate(lines, start=1):
                 haystack = line if case_sensitive else line.lower()
                 if needle in haystack:
                     matches.append({"line_number": i, "line_text": line})
@@ -298,6 +308,7 @@ class DevicesController:
                 )
                 total_matches += len(matches)
 
+        self._yaml_search_cache.prune(live_configurations)
         return results
 
     # ------------------------------------------------------------------
