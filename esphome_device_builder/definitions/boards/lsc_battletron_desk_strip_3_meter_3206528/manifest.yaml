@@ -25,5 +25,5 @@ source:
   type: esphome-devices
   remote_id: LSC-Battletron-Desk-Strip-3-meter-3206528
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
-  content_hash: 3e91df39995d2682fc63a4a9f05eeb685e447c026022da3292b0edbada0f8015
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
+  content_hash: f1a27e852351c090ed71e5b3b25ed6433f7782b4cd1edb8b5272d8936766cddc

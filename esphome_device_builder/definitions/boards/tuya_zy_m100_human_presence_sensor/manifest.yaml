@@ -130,5 +130,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-ZY-M100-Human-Presence-Sensor
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-ZY-M100-Human-Presence-Sensor/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 047d8e517b31c4c5cb96c8fb256f6a2cf6924e7ffdede16cb5813991a3e549e9

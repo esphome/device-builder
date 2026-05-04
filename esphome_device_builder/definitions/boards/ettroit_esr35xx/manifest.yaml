@@ -42,5 +42,5 @@ source:
   type: esphome-devices
   remote_id: EttroIT-ESR35xx
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/EttroIT-ESR35xx/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 0d44e5b79b1e70b4298f6c3fac87bbc8d94877143cad087a22eea67e987d28b0

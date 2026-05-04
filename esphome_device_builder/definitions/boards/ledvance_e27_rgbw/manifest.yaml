@@ -21,5 +21,5 @@ source:
   type: esphome-devices
   remote_id: LEDVANCE-E27-RGBW
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LEDVANCE-E27-RGBW/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 90dd4887566ca965b435facec483e083e5595f5ff0029bb623aae97802a580a5

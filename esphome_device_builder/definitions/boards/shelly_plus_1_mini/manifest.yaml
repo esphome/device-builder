@@ -110,5 +110,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Plus-1-Mini
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Shelly-Plus-1-Mini/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 35ef4da155e50482e0d46e414f515a1ef6cd02883f6227f2ca6f462d85b683b7

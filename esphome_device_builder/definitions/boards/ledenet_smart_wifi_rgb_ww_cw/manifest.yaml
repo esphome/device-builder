@@ -99,5 +99,5 @@ source:
   type: esphome-devices
   remote_id: LEDENET-Smart-WiFi-RGB-WW-CW
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LEDENET-Smart-WiFi-RGB-WW-CW/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 6023899b51b6ec76f58bebb99e4cec328a76f72506eec73091a910aed8079cbc

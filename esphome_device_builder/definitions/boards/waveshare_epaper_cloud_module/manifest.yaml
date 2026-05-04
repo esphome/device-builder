@@ -51,5 +51,5 @@ source:
   type: esphome-devices
   remote_id: Waveshare-epaper-cloud-module
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Waveshare-epaper-cloud-module/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 27caa0edd34b5bf5c8fe82760625fe8462304b6e451336811555a837e1b0346d

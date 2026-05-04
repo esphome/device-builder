@@ -71,5 +71,5 @@ source:
   type: esphome-devices
   remote_id: Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
-  content_hash: 09bba9da4b82a0cea3091fac102e65f87eabc82f5621635d04bdf89927537489
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
+  content_hash: 3f26fae085108e4a25d0c677e866c2d90b14cc9001e9af68e68cf163a8a4cb43

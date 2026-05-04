@@ -129,5 +129,5 @@ source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: fa8c3b240925d785eb9c509d2362c3349ece8833183a196884ef14ae68c600d0

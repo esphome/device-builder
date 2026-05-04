@@ -53,5 +53,5 @@ source:
   type: esphome-devices
   remote_id: Xiaomi-Philips-Zhirui-Downlight
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Xiaomi-Philips-Zhirui-Downlight/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 1c72d1ffad8dc199945964b33d139f358c38d6acc3b988ee6e380c51b0776f2d

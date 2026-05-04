@@ -44,5 +44,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-Wifi-Mini-Sensor-PIR-Motion-Alarm
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tuya-Wifi-Mini-Sensor-PIR-Motion-Alarm/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: c08f773cc9ffbd03735f7b6a18b8b1c8d98192e4385fbfe04b015bb4c406fd53

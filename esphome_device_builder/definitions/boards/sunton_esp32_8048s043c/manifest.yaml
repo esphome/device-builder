@@ -44,5 +44,5 @@ source:
   type: esphome-devices
   remote_id: Sunton-ESP32-8048S043C
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sunton-ESP32-8048S043C/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 36fc76e2e66e8798468845a65530309d34ca8a1b2ff60f5d7b08cd33c6797c8e

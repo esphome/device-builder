@@ -84,5 +84,5 @@ source:
   type: esphome-devices
   remote_id: refoss-p11-plug
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/refoss-p11-plug/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 1567e5d37ee3bb51b05c98f43b1cb81a5a49e52470f4e69211a5f7588cbb7dd7

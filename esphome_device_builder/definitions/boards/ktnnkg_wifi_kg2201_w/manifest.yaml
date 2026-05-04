@@ -60,5 +60,5 @@ source:
   type: esphome-devices
   remote_id: KTNNKG-Wifi-KG2201-W
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KTNNKG-Wifi-KG2201-W/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 7bf8cb899b1bf2372360fa3d6bf4373150545cc306159f34e8a16ddc25c3215e

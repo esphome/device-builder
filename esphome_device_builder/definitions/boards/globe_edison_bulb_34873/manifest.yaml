@@ -54,5 +54,5 @@ source:
   type: esphome-devices
   remote_id: Globe-Edison-Bulb-34873
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Globe-Edison-Bulb-34873/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: dbc154352a07602a4d2fdd3f4b0fe6fc093d3920c6ac2aa53f93b11702e3f969

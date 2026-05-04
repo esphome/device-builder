@@ -71,5 +71,5 @@ source:
   type: esphome-devices
   remote_id: Lilygo-TDisplay-S3
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Lilygo-TDisplay-S3/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 30e395b09ce6722634889c46c24aab5877aeef8a3a1acd64a69a04fb6786c405

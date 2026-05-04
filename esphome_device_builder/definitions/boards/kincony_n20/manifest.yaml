@@ -788,5 +788,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-N20
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-N20/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 367fa23625be02cfb7528c7c642650166e55c54c8dedcfa548540b6936581193

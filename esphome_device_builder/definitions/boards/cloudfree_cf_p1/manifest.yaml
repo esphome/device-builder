@@ -58,5 +58,5 @@ source:
   type: esphome-devices
   remote_id: CloudFree-CF-P1
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/CloudFree-CF-P1/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 5c37634e2e17aae1d1e454c2cde5762edf3d12621457a7f47d69fc317b4c1174

@@ -104,5 +104,5 @@ source:
   type: esphome-devices
   remote_id: AHRise-AHR-083
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AHRise-AHR-083/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: e70c9474ba5830b33a7987b9d87e44b997b883c4eda38d1f4d0c484c864aeed2

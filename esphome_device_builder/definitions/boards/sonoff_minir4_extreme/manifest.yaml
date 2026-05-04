@@ -78,5 +78,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-MiniR4-Extreme
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Sonoff-MiniR4-Extreme/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 9ebc08643a47ad0225a16b30064706c7c909e386752298324e7fb30b41314e45

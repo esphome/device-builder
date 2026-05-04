@@ -63,5 +63,5 @@ source:
   type: esphome-devices
   remote_id: LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 1c4d6363f1a0e9cbe1469069f510fe86fbfff67026cd7e1cc0ab268f8d9da018

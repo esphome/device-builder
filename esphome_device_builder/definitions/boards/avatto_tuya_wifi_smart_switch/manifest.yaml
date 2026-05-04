@@ -23,5 +23,5 @@ source:
   type: esphome-devices
   remote_id: AVATTO-Tuya-WiFi-Smart-Switch
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 78fed0455ee3ef73fbc1fd14354ce15e73360411fc6cd5ef52b3d9d01f2cd392

@@ -54,5 +54,5 @@ source:
   type: esphome-devices
   remote_id: TeXXmo-IoT-Button
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/TeXXmo-IoT-Button/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 95ddbc5585c56826fab57022896315e6a5bf62b967da328ab42ce0b25182d3da

@@ -38,5 +38,5 @@ source:
   type: esphome-devices
   remote_id: ESP-01S-1-channel-relay
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/ESP-01S-1-channel-relay/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 79830ce2f5656be646c1f6af9867748706f5d934df7d6ad03ec0912b07c4feeb

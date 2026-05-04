@@ -34,5 +34,5 @@ source:
   type: esphome-devices
   remote_id: QIACHIP-Smart-Switch
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/QIACHIP-Smart-Switch/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 3929d7a1c3a0c227272585fdd5637bb5a03b1a1df6fb7a2960d4a903d35aa60e

@@ -55,5 +55,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-ADR
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/KinCony-ADR/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 4c3faf789ad481696178569c8c2b4708fb31fadd9a484a1a1261bf8aacbc84f9

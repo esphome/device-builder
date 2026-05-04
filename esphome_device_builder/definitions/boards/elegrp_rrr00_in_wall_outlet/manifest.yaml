@@ -95,5 +95,5 @@ source:
   type: esphome-devices
   remote_id: Elegrp-RRR00-in-wall-outlet
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: fe51ddb2b03ddb258ae8e585ff2ed0661cf98a83c89c647bd779ef78f8edb0bd

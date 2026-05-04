@@ -55,5 +55,5 @@ source:
   type: esphome-devices
   remote_id: Tekkar-Gen3-CurtainSwitch
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tekkar-Gen3-CurtainSwitch/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 1a91b95f839359282e17ea3508caa2b0338b3ebfe9d332b82f4b8aef473f2c43

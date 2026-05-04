@@ -23,5 +23,5 @@ source:
   type: esphome-devices
   remote_id: TreatLife-DS02F
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/TreatLife-DS02F/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 96c963641622f3c245f7064f046e4da87748b6602056b72d51e0e33180f4a52b

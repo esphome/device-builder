@@ -275,5 +275,5 @@ source:
   type: esphome-devices
   remote_id: Tongou-TO-Q-SYS-JWT-power-meter
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: b3018ca01f36ed4c2b996e896840ac31a73c44528265215665f82f57705fda3a

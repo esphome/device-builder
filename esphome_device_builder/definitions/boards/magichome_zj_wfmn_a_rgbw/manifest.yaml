@@ -74,5 +74,5 @@ source:
   type: esphome-devices
   remote_id: MagicHome-ZJ-WFMN-A-RGBW
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/MagicHome-ZJ-WFMN-A-RGBW/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: c161f92d049a0a213b0a1c9f8d2258fed5174c4ffc4345c277e4fb5503181ecb

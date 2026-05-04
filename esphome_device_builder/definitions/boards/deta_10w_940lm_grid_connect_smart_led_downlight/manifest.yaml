@@ -89,5 +89,5 @@ source:
   type: esphome-devices
   remote_id: Deta-10W-940lm-Grid-Connect-Smart-LED-Downlight
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Deta-10W-940lm-Grid-Connect-Smart-LED-Downlight/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: b56c80588b47b334a06aa5925bf67ef7be7b99336e28cd338e9bc0a4fcd48ff5

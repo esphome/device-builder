@@ -69,5 +69,5 @@ source:
   type: esphome-devices
   remote_id: Aoycocr-X13-Outdoor-Plug-2AKBP-X13
   upstream_url: https://github.com/esphome/esphome-devices/blob/main/src/docs/devices/Aoycocr-X13-Outdoor-Plug-2AKBP-X13/index.md
-  upstream_revision: 7fa250835bc3d3a2b319dced285d5e0c27171bd1
+  upstream_revision: 2bf64e131a2f72a0fc161c1f2f7d4de85c87a900
   content_hash: 09815a6fd2a60b238612163b17da684077b7e898c5aaf1e5ef7a1ea0a999b707
