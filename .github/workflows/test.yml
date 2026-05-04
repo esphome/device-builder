@@ -134,8 +134,8 @@ jobs:
           fail_ci_if_error: false
 
   test-esphome-channels:
-    name: Pytest (esphome ${{ matrix.channel }} / Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Pytest (esphome ${{ matrix.channel }} / ${{ matrix.os }} / Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     # Probes the dashboard against the next two esphome release
     # channels on a single Linux 3.14 runner. The ``test`` matrix
     # above already covers stable (it's what ``pip install
@@ -150,6 +150,7 @@ jobs:
       matrix:
         include:
           - channel: beta
+            os: ubuntu-latest
             python-version: "3.14"
             # ``--prerelease=allow`` opts into pre-release versions
             # (uv's flag — pip's ``--pre`` doesn't apply here).
@@ -158,6 +159,7 @@ jobs:
             install: uv pip install --system --upgrade --prerelease=allow esphome
             allow_failure: false
           - channel: dev
+            os: ubuntu-latest
             python-version: "3.14"
             # The ``dev`` branch is ESPHome's nightly working copy;
             # it can break at any time and we want the signal but
