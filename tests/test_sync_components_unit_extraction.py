@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "script"))
 
 from sync_components import (
     _audit_catalog_for_unit_mismatches,
+    _collect_refined_types,
+    _enumerate_platform_manifests,
     _extract_validator_units,
 )
 
@@ -39,9 +41,17 @@ def cv():
 
 
 def test_extract_units_for_frequency(cv) -> None:
-    """`cv.frequency` produces the metric-prefixed Hz list."""
+    """`cv.frequency` produces the IoT-relevant metric-prefixed Hz list.
+
+    Canonical unit (`Hz`) first; remaining prefixes in magnitude
+    order. The frontend's renderer treats `unit_options[0]` as the
+    canonical unit (range bounds default to it), so this contract
+    matters at every layer.
+    """
     assert _extract_validator_units(cv.frequency) == [
         "Hz",
+        "nHz",
+        "µHz",
         "mHz",
         "kHz",
         "MHz",
@@ -50,13 +60,29 @@ def test_extract_units_for_frequency(cv) -> None:
 
 
 def test_extract_units_for_voltage(cv) -> None:
-    """`cv.voltage` produces the metric-prefixed V list."""
-    assert _extract_validator_units(cv.voltage) == ["V", "mV", "kV", "MV", "GV"]
+    """`cv.voltage` produces the IoT-relevant metric-prefixed V list."""
+    assert _extract_validator_units(cv.voltage) == [
+        "V",
+        "nV",
+        "µV",
+        "mV",
+        "kV",
+        "MV",
+        "GV",
+    ]
 
 
 def test_extract_units_for_distance(cv) -> None:
-    """`cv.distance` produces the metric-prefixed m list."""
-    assert _extract_validator_units(cv.distance) == ["m", "mm", "km", "Mm", "Gm"]
+    """`cv.distance` produces the IoT-relevant metric-prefixed m list."""
+    assert _extract_validator_units(cv.distance) == [
+        "m",
+        "nm",
+        "µm",
+        "mm",
+        "km",
+        "Mm",
+        "Gm",
+    ]
 
 
 def test_extract_units_for_framerate(cv) -> None:
@@ -139,6 +165,54 @@ def test_audit_recurses_into_nested_entries(caplog) -> None:
     with caplog.at_level(logging.WARNING, logger="sync_components"):
         _audit_catalog_for_unit_mismatches(catalog)
     assert "fake.component.inner_rate" in caplog.text
+
+
+@pytest.fixture
+def loader():
+    """Lazy-import esphome's loader; skip if unavailable."""
+    try:
+        from esphome import loader as _loader  # noqa: PLC0415
+    except Exception:
+        pytest.skip("esphome.loader not importable")
+    return _loader
+
+
+def test_enumerate_platform_manifests_returns_real_manifests(loader) -> None:
+    """`mcp3008` ships a sensor and an output platform.
+
+    `_enumerate_platform_manifests` must surface both so the platform-
+    schema's unit-coerced fields (`reference_voltage` etc.) get refined
+    on the live introspection walk — a small upstream shape change
+    here would silently strip `float_with_unit` metadata otherwise.
+    """
+    manifests = _enumerate_platform_manifests(loader, "mcp3008")
+    # At least the sensor platform should be reachable; output is
+    # the secondary platform.
+    assert manifests, "mcp3008 should expose at least one platform manifest"
+
+
+def test_platform_manifest_refines_unit_coerced_field(loader) -> None:
+    """End-to-end: `mcp3008.sensor.reference_voltage` is `float_with_unit`.
+
+    The bare `mcp3008` manifest's `config_schema` carries the SPI bus
+    fields but NOT the per-instance `reference_voltage` — that lives
+    on the platform schema (`mcp3008.sensor`). If
+    `_enumerate_platform_manifests` regresses, this catalog field
+    silently falls back to `float`-with-string-default and the
+    silent-Add-button class of bug returns. Pin the refinement here
+    so an upstream rename / restructure trips CI.
+    """
+    refined = {}
+    for platform_manifest in _enumerate_platform_manifests(loader, "mcp3008"):
+        refined.update(_collect_refined_types(platform_manifest))
+    voltage = refined.get(("reference_voltage",))
+    if voltage is None:
+        pytest.skip(
+            "esphome version doesn't expose mcp3008.sensor.reference_voltage "
+            "via the live-introspection walker — guard, not a regression"
+        )
+    assert voltage.type == "float_with_unit"
+    assert voltage.unit_options is not None and "V" in voltage.unit_options
 
 
 def test_audit_silent_when_no_mismatches(caplog) -> None:

@@ -2429,11 +2429,27 @@ class RefinedType(NamedTuple):
 # never a hand-maintained list — so the catalog stays in sync with
 # ESPHome without anyone having to remember to update us.
 #
-# Common metric prefixes the frontend's unit picker offers when the
-# validator allows them. Pulled from ``cv.METRIC_SUFFIXES`` at
-# runtime; this is the curated subset most ESPHome configs use (the
-# full set includes attobytes and yottabytes which are noise).
-_COMMON_METRIC_PREFIXES = ["", "m", "k", "M", "G"]
+# Metric prefixes the frontend's unit picker offers when the
+# validator allows them. ``cv.METRIC_SUFFIXES`` accepts every SI
+# prefix from quecto (1e-30) through quetta (1e30) plus a few non-
+# standard ones (deca, hecto, deci, centi); a picker exposing all
+# 26 entries — half of which describe scales below the noise floor
+# of an MCU, the other half above the diameter of the observable
+# universe — is unusable. This list is the IoT-relevant subset:
+# nano (cap, ns), micro (V, A, F, s), milli, base, kilo, mega, giga.
+# Both ``µ`` and ``u`` resolve to 1e-6 in ESPHome — only ``µ`` is
+# emitted (the SI canonical form) so the picker doesn't show two
+# entries that mean the same thing.
+#
+# A future per-quantity override list (frequencies don't need ``n``;
+# voltages don't need ``G``) is reasonable, but the current list is
+# already a strict superset of what every real ESPHome config in the
+# wild uses.
+# Base unit ("") comes first so the canonical unit (per the model
+# docs: "first entry is the canonical unit") is the un-prefixed
+# form — `Hz` not `nHz`. The remaining prefixes follow in
+# magnitude order.
+_COMMON_METRIC_PREFIXES = ["", "n", "µ", "m", "k", "M", "G"]
 
 # Names of the ``cv.*`` validators we know are built on
 # ``cv.float_with_unit``. Each comes through the live-introspection
