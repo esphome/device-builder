@@ -2171,7 +2171,7 @@ def _audit_catalog_for_unit_mismatches(catalog: list[dict]) -> None:
     """
     mismatches: list[tuple[str, str, str]] = []
     for component in catalog:
-        for entry in _walk_entries(component.get("config_entries") or []):
+        for path, entry in _walk_entries(component.get("config_entries") or []):
             if entry.get("type") not in ("float", "integer"):
                 continue
             default = entry.get("default_value")
@@ -2181,7 +2181,7 @@ def _audit_catalog_for_unit_mismatches(catalog: list[dict]) -> None:
                 float(default)
             except ValueError:
                 mismatches.append(
-                    (component["id"], entry["key"], default),
+                    (component["id"], ".".join(path), default),
                 )
     if not mismatches:
         return
@@ -2194,17 +2194,35 @@ def _audit_catalog_for_unit_mismatches(catalog: list[dict]) -> None:
         "ones) in script/sync_components.py.",
         len(mismatches),
     )
-    for component_id, key, default in mismatches:
-        _LOGGER.warning("  %s.%s = %r", component_id, key, default)
+    for component_id, dotted_path, default in mismatches:
+        _LOGGER.warning("  %s.%s = %r", component_id, dotted_path, default)
 
 
-def _walk_entries(entries: list[dict]) -> Iterable[dict]:
-    """Yield every entry in *entries*, recursing into NESTED groups."""
+def _walk_entries(
+    entries: list[dict],
+    parent_path: tuple[str, ...] = (),
+) -> Iterable[tuple[tuple[str, ...], dict]]:
+    """Yield (dotted-path, entry) for every entry in *entries*.
+
+    Recurses into NESTED groups and MAP value templates so the audit
+    covers every entry the catalog actually ships. ``parent_path`` is
+    threaded through so leaf yields carry the full path the user
+    sees in YAML — e.g. ``("api", "actions", "service")`` rather than
+    just ``("service",)`` — which is essential when multiple
+    components share a key like ``rate`` or ``size``: the warning
+    has to point at the specific instance.
+    """
     for entry in entries:
-        yield entry
-        if entry.get("type") == "nested":
-            inner = entry.get("config_entries") or []
-            yield from _walk_entries(inner)
+        path = (*parent_path, entry["key"])
+        yield path, entry
+        # Both NESTED groups and MAP value templates (built via
+        # ``_build_map_value_template``) carry their inner schema
+        # under ``config_entries``. Walk both so the audit doesn't
+        # silently miss unit-coerced defaults inside e.g.
+        # ``api.actions.<user_key>.<float-with-string-default>``.
+        inner = entry.get("config_entries") if entry.get("type") in ("nested", "map") else None
+        if inner:
+            yield from _walk_entries(inner, path)
 
 
 def _enumerate_platform_manifests(loader: Any, stem: str) -> list[Any]:

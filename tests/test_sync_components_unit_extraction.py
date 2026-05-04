@@ -15,14 +15,10 @@ warning fires for the cases we've already curated as follow-ups.
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "script"))
-
-from sync_components import (
+from script.sync_components import (  # type: ignore[import-not-found]
     _audit_catalog_for_unit_mismatches,
     _collect_refined_types,
     _enumerate_platform_manifests,
@@ -143,7 +139,7 @@ def test_audit_warns_on_unit_suffixed_string_default(caplog) -> None:
 
 
 def test_audit_recurses_into_nested_entries(caplog) -> None:
-    """Mismatches buried inside a NESTED group still fire the warning."""
+    """Mismatches buried inside a NESTED group fire the warning with full path."""
     catalog = [
         {
             "id": "fake.component",
@@ -164,7 +160,44 @@ def test_audit_recurses_into_nested_entries(caplog) -> None:
     ]
     with caplog.at_level(logging.WARNING, logger="sync_components"):
         _audit_catalog_for_unit_mismatches(catalog)
-    assert "fake.component.inner_rate" in caplog.text
+    # Warning includes the full dotted path (`outer.inner_rate`)
+    # rather than the bare leaf — components with repeated nested
+    # keys (`rate`, `size`) would otherwise produce ambiguous
+    # warnings.
+    assert "fake.component.outer.inner_rate" in caplog.text
+
+
+def test_audit_recurses_into_map_value_templates(caplog) -> None:
+    """MAP value templates carry inner ``config_entries`` too.
+
+    `_build_map_value_template` materialises the value-side schema of
+    user-keyed maps (`api.actions.<user_key>.<...>`,
+    `esphome.platformio_options.<...>`). Without recursing into
+    those, the audit silently misses any unit-coerced numeric
+    default that lands inside one — exactly the class of catalog
+    bug the audit is supposed to police.
+    """
+    catalog = [
+        {
+            "id": "fake.component",
+            "config_entries": [
+                {
+                    "key": "actions",
+                    "type": "map",
+                    "config_entries": [
+                        {
+                            "key": "delay",
+                            "type": "float",
+                            "default_value": "100ms",
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+    with caplog.at_level(logging.WARNING, logger="sync_components"):
+        _audit_catalog_for_unit_mismatches(catalog)
+    assert "fake.component.actions.delay" in caplog.text
 
 
 @pytest.fixture
