@@ -36,6 +36,25 @@ from pathlib import Path
 _LOGGER = logging.getLogger(__name__)
 
 
+# Hard byte ceiling on any single file the search cache will
+# load into memory. Files past this size are *not* loaded — the
+# cache returns ``None`` and the search loop skips them.
+#
+# 8 MiB comfortably holds every realistic ESPHome config (the
+# largest packaged ratgdo / Apollo configs land around 100 KiB
+# even with hundreds of binary_sensor blocks). The cap exists
+# to defend against pathological cases — machine-generated
+# YAML, accidentally-checked-in build output, runaway lambda
+# blocks producing megabytes of source — that would otherwise
+# pin tens or hundreds of megabytes per device into the cache
+# for a feature that's only meant to surface line-grep matches.
+#
+# Pairs with ``_yaml_search.MAX_LINES_PER_FILE``: the line cap
+# bounds *scan* time, this byte cap bounds *memory*. Both are
+# sized so realistic configs are unaffected.
+MAX_FILE_BYTES = 8 * 1024 * 1024
+
+
 class YamlSearchCache:
     """Async-safe (mtime, lines) cache for raw device YAML files."""
 
@@ -51,17 +70,37 @@ class YamlSearchCache:
         the previously-split lines without touching disk again.
         Otherwise reads + splits and stores the result.
 
-        Returns ``None`` (and removes any stale cache entry) when
-        the file is gone or unreadable. Errors are logged at DEBUG
-        — they're routine in a fleet that's actively being edited
-        — and never propagate; ``yaml/search`` is best-effort
-        across the fleet, not a per-device contract.
+        Returns ``None`` (and removes any stale cache entry) when:
+
+        - the file is gone or unreadable (errors logged at DEBUG —
+          they're routine in a fleet that's actively being edited
+          — and never propagate; ``yaml/search`` is best-effort
+          across the fleet, not a per-device contract);
+        - the file's on-disk size exceeds ``MAX_FILE_BYTES``. The
+          byte ceiling is checked from ``stat.st_size`` *before*
+          ``read_text``, so a pathological multi-megabyte YAML
+          never gets loaded into Python memory in the first place
+          — the cache stays bounded regardless of what the
+          filesystem holds.
         """
         async with self._lock:
             try:
                 stat = await asyncio.to_thread(path.stat)
             except OSError as exc:
                 _LOGGER.debug("yaml-search-cache: stat %s failed: %s", configuration, exc)
+                self._entries.pop(configuration, None)
+                return None
+
+            if stat.st_size > MAX_FILE_BYTES:
+                _LOGGER.debug(
+                    "yaml-search-cache: %s is %d bytes, over %d-byte cap — skipped",
+                    configuration,
+                    stat.st_size,
+                    MAX_FILE_BYTES,
+                )
+                # Drop any stale entry from a previous call when
+                # the file was smaller — the search loop should
+                # treat the device as unreadable now.
                 self._entries.pop(configuration, None)
                 return None
 

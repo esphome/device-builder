@@ -31,6 +31,7 @@ from unittest.mock import patch
 import pytest
 
 from esphome_device_builder.controllers.devices._yaml_search_cache import (
+    MAX_FILE_BYTES,
     YamlSearchCache,
 )
 
@@ -253,3 +254,77 @@ async def test_concurrent_misses_against_same_file_read_once(tmp_path: Path) -> 
     # One read, not two — the lock collapsed the second miss into
     # a cache hit once the first finished.
     assert call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Byte-size cap (pathological-file defence)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_oversize_file_returns_none_without_loading(tmp_path: Path) -> None:
+    """Files past ``MAX_FILE_BYTES`` are skipped *before* read_text fires.
+
+    Defends the cache's memory footprint against pathological
+    files (machine-generated YAML, accidentally-checked-in build
+    output). The on-disk size is checked from ``stat.st_size``;
+    if the file is over the cap, ``read_text`` is never called
+    and no entry lands in the cache.
+
+    Pin both halves: returns ``None``, AND ``read_text`` was not
+    invoked (i.e. we didn't pay the megabyte read cost just to
+    immediately drop it).
+    """
+    cache = YamlSearchCache()
+    path = tmp_path / "huge.yaml"
+    # One byte past the cap — minimum to exercise the >cap branch.
+    path.write_bytes(b"x" * (MAX_FILE_BYTES + 1))
+
+    real_read = Path.read_text
+    read_calls = 0
+
+    def _counting_read(self: Path, *args: object, **kwargs: object) -> str:
+        nonlocal read_calls
+        read_calls += 1
+        return real_read(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    with patch.object(Path, "read_text", _counting_read):
+        result = await cache.get_lines("huge.yaml", path)
+
+    assert result is None
+    assert read_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_oversize_file_drops_stale_cache_entry(tmp_path: Path) -> None:
+    """A previously-cached small file is evicted if it grows past the cap.
+
+    The byte cap is checked on every call (not just on the first
+    cold one), so a file that lived in the cache while small and
+    then grew past the cap drops out cleanly — the next call
+    returns ``None`` and the entry is removed. Pin via a third
+    call confirming the entry isn't merely shadowed.
+    """
+    cache = YamlSearchCache()
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("wifi:\n", encoding="utf-8")
+    first = await cache.get_lines("kitchen.yaml", path)
+    assert first == ["wifi:"]
+
+    # Grow past the cap and bump mtime so the cache would
+    # otherwise miss + re-read.
+    path.write_bytes(b"x" * (MAX_FILE_BYTES + 1))
+    new_mtime = path.stat().st_mtime_ns + 1_000_000_000
+    os.utime(path, ns=(new_mtime, new_mtime))
+
+    second = await cache.get_lines("kitchen.yaml", path)
+    assert second is None
+
+    # Shrink back below the cap; the next call should re-populate
+    # from scratch (the previous oversize call must have dropped
+    # the entry, otherwise we'd see a stale empty / shadow result).
+    path.write_text("api:\n", encoding="utf-8")
+    new_mtime += 1_000_000_000
+    os.utime(path, ns=(new_mtime, new_mtime))
+    third = await cache.get_lines("kitchen.yaml", path)
+    assert third == ["api:"]
