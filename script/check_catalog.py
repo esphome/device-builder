@@ -50,6 +50,10 @@ _EXPECTATIONS: list[tuple[str, list[tuple[str, str, bool | None, str | None]]]] 
         [
             ("ssid", "string", None, None),
             ("password", "secure_string", None, None),
+            # ``ap`` is wrapped in a custom validator and would
+            # regress to ``string`` if the _FIELD_OVERRIDES entry
+            # were removed (issue #308).
+            ("ap", "nested", None, None),
         ],
     ),
     (

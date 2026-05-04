@@ -291,6 +291,120 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
             },
         ],
     },
+    # ``wifi.ap`` is wrapped in a custom validator (``wifi_network_ap``)
+    # so the schema bundle drops the inner schema and types it as a
+    # bare string. The actual YAML shape is a fallback access point
+    # — same fields as a network entry plus ``ap_timeout``. Surface it
+    # as a nested group on the main form (it's a feature users
+    # actively configure for offline recovery, not an advanced knob)
+    # and rename the label away from the schema's bare ``Ap``.
+    ("wifi", "ap"): {
+        "type": "nested",
+        "label": "Fallback Access Point",
+        "description": (
+            "Bring up an access point on the device when it can't reach "
+            "the configured WiFi network. Pair with `captive_portal:` "
+            "or `web_server:` so the user can connect to the AP and "
+            "reconfigure WiFi from a phone."
+        ),
+        "advanced": False,
+        "help_link": "https://esphome.io/components/wifi#access-point-mode",
+        "config_entries": [
+            {
+                "key": "ssid",
+                "type": "string",
+                "label": "SSID",
+                "description": (
+                    "Name of the access point to create. Leave empty to use the device name."
+                ),
+                "help_link": "https://esphome.io/components/wifi#access-point-mode",
+            },
+            {
+                "key": "password",
+                "type": "secure_string",
+                "label": "Password",
+                "description": ("Password for the access point. Leave empty for an open network."),
+                "help_link": "https://esphome.io/components/wifi#access-point-mode",
+            },
+            {
+                "key": "channel",
+                "type": "integer",
+                "label": "Channel",
+                "description": ("2.4GHz channel the AP should operate on (1-14). Defaults to 1."),
+                "range": [1, 14],
+                "advanced": True,
+                "help_link": "https://esphome.io/components/wifi#access-point-mode",
+            },
+            {
+                "key": "ap_timeout",
+                "type": "time_period",
+                "label": "AP Timeout",
+                "description": (
+                    "Time without a station connection before the "
+                    "fallback access point comes up. Set to `0s` to "
+                    "disable automatic startup. Defaults to `90s`."
+                ),
+                "default_value": "90s",
+                "advanced": True,
+                "help_link": "https://esphome.io/components/wifi#access-point-mode",
+            },
+            {
+                "key": "manual_ip",
+                "type": "nested",
+                "label": "Manual IP",
+                "description": (
+                    "Manually set the IP options for the AP. Same "
+                    "fields as the station-side `manual_ip:`."
+                ),
+                "advanced": True,
+                "help_link": "https://esphome.io/components/wifi#access-point-mode",
+                "config_entries": [
+                    {
+                        "key": "static_ip",
+                        "type": "string",
+                        "label": "Static IP",
+                        "description": "The static IP of the AP.",
+                        "required": True,
+                        "help_link": "https://esphome.io/components/wifi#access-point-mode",
+                    },
+                    {
+                        "key": "gateway",
+                        "type": "string",
+                        "label": "Gateway",
+                        "description": "The gateway of the AP network.",
+                        "required": True,
+                        "help_link": "https://esphome.io/components/wifi#access-point-mode",
+                    },
+                    {
+                        "key": "subnet",
+                        "type": "string",
+                        "label": "Subnet",
+                        "description": "The subnet of the AP network.",
+                        "required": True,
+                        "help_link": "https://esphome.io/components/wifi#access-point-mode",
+                    },
+                    {
+                        "key": "dns1",
+                        "type": "string",
+                        "label": "DNS 1",
+                        "description": "The main DNS server for the AP.",
+                        "default_value": "0.0.0.0",
+                        "advanced": True,
+                        "help_link": "https://esphome.io/components/wifi#access-point-mode",
+                    },
+                    {
+                        "key": "dns2",
+                        "type": "string",
+                        "label": "DNS 2",
+                        "description": "The backup DNS server for the AP.",
+                        "default_value": "0.0.0.0",
+                        "advanced": True,
+                        "help_link": "https://esphome.io/components/wifi#access-point-mode",
+                    },
+                ],
+            },
+        ],
+    },
 }
 
 # Key-name prefixes for automation triggers (``on_press``, ``on_value``,
