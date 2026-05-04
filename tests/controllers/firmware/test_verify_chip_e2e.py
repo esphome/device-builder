@@ -713,11 +713,12 @@ async def test_tracked_subprocess_registers_and_clears_current_process(
        whatever was there to compose safely with future nested
        use).
     """
+    # ``with_terminate=True`` initialises ``_current_process = None``
+    # and ``_cancel_requested = set()`` so the helper has a clean
+    # slate to assign onto. The mocked ``_terminate_current_process``
+    # is unused by this test (we never trip the CancelledError or
+    # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    # ``with_terminate`` mocks ``_terminate_current_process`` (which
-    # we don't exercise here), but it also initialises
-    # ``_current_process = None``. Strip the mock so the helper's
-    # real assignment stays observable.
     assert controller._current_process is None
 
     async with controller._tracked_subprocess(
@@ -747,11 +748,12 @@ async def test_tracked_subprocess_restores_prior_value_on_exit(
     null out the active process reference. ``None`` is the
     common case but the contract is "restore the prior value".
     """
+    # ``with_terminate=True`` initialises ``_current_process = None``
+    # and ``_cancel_requested = set()`` so the helper has a clean
+    # slate to assign onto. The mocked ``_terminate_current_process``
+    # is unused by this test (we never trip the CancelledError or
+    # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    # ``with_terminate`` mocks ``_terminate_current_process`` (which
-    # we don't exercise here), but it also initialises
-    # ``_current_process = None``. Strip the mock so the helper's
-    # real assignment stays observable.
     sentinel = object()
     controller._current_process = sentinel  # type: ignore[assignment]
 
@@ -781,11 +783,12 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
     back to ``None``) or signal the wrong process (if it stayed
     pointing at the dead one). Pin both halves.
     """
+    # ``with_terminate=True`` initialises ``_current_process = None``
+    # and ``_cancel_requested = set()`` so the helper has a clean
+    # slate to assign onto. The mocked ``_terminate_current_process``
+    # is unused by this test (we never trip the CancelledError or
+    # post-spawn cancel paths) but is harmless.
     controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    # ``with_terminate`` mocks ``_terminate_current_process`` (which
-    # we don't exercise here), but it also initialises
-    # ``_current_process = None``. Strip the mock so the helper's
-    # real assignment stays observable.
     assert controller._current_process is None
 
     with pytest.raises(RuntimeError, match="boom"):
