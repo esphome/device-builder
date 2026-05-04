@@ -216,6 +216,90 @@ class DevicesController:
         """Get connectivity state for all devices."""
         return {d.configuration: d.state.value for d in self._scanner.devices}
 
+    @api_command("yaml/search")
+    async def search_yaml(
+        self,
+        *,
+        query: str,
+        max_results: int = 50,
+        case_sensitive: bool = False,
+        **kwargs: Any,
+    ) -> list[dict]:
+        """
+        Substring-search every configured device's raw YAML file.
+
+        Returns a list of per-device hits, each entry shaped as::
+
+            {
+              "configuration": "<filename>",
+              "device_name":   "<esphome.name>",
+              "friendly_name": "<esphome.friendly_name or name>",
+              "matches": [
+                {"line_number": <1-based int>, "line_text": "<raw line>"}
+              ]
+            }
+
+        Per-file matches are capped at ``_PER_FILE_MATCH_CAP`` so a
+        chatty match (e.g. a query of ``:`` against a deeply-nested
+        config) doesn't crowd out hits in other devices, and the
+        total hit count is capped at ``max_results`` so the dropdown
+        on the frontend stays usable. Empty / whitespace-only queries
+        return ``[]`` immediately — the frontend debounces typing
+        but a stray empty call shouldn't iterate every YAML file.
+
+        Reads the on-disk file (not the package-resolved tree) for
+        cheap line-numbered grep. Searching expanded packages would
+        need separate "matched in package X line Y" rendering on the
+        frontend; queued as a follow-up.
+        """
+        needle_raw = query.strip()
+        if not needle_raw:
+            return []
+        needle = needle_raw if case_sensitive else needle_raw.lower()
+
+        per_file_cap = 5
+        results: list[dict] = []
+        total_matches = 0
+
+        for device in self._scanner.devices:
+            if total_matches >= max_results:
+                break
+
+            path = self._db.settings.rel_path(device.configuration)
+            try:
+                # ``read_text`` is sync — push it to the executor so
+                # one slow disk doesn't stall the event loop while
+                # we walk the rest of the fleet.
+                text = await asyncio.to_thread(
+                    Path(path).read_text, encoding="utf-8", errors="replace"
+                )
+            except OSError as exc:
+                _LOGGER.debug("yaml/search: skipping %s: %s", device.configuration, exc)
+                continue
+
+            matches: list[dict] = []
+            for i, line in enumerate(text.splitlines(), start=1):
+                haystack = line if case_sensitive else line.lower()
+                if needle in haystack:
+                    matches.append({"line_number": i, "line_text": line})
+                    if len(matches) >= per_file_cap:
+                        break
+                if total_matches + len(matches) >= max_results:
+                    break
+
+            if matches:
+                results.append(
+                    {
+                        "configuration": device.configuration,
+                        "device_name": device.name,
+                        "friendly_name": device.friendly_name or device.name,
+                        "matches": matches,
+                    }
+                )
+                total_matches += len(matches)
+
+        return results
+
     # ------------------------------------------------------------------
     # API commands — CRUD
     # ------------------------------------------------------------------
