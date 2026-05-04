@@ -800,3 +800,84 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
             raise RuntimeError(msg)
 
     assert controller._current_process is None
+
+
+@pytest.mark.asyncio
+async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
+    firmware_controller_factory: FirmwareControllerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancel landed during the verify→main-spawn gap → terminate fires.
+
+    The runner's tracked-subprocess block clears
+    ``_current_process`` on ``_verify_chip`` exit, then assigns the
+    main install subprocess to ``_current_process`` a moment later.
+    A ``firmware/cancel`` that arrived in that gap sets
+    ``_cancel_requested`` but ``_terminate_current_process`` walked
+    a ``None`` field and no-op'd. Without the post-spawn flag check
+    inside ``_execute_job`` (the ``if job.job_id in
+    self._cancel_requested: await self._terminate_current_process()``
+    branch right after the main spawn), the install would run to
+    completion before the post-``proc.wait()`` cancel handler saw
+    the flag — the issue-#136 symptom for the "cancel arrived
+    after verify but before main-spawn returned" sub-case.
+
+    Drive that path: pre-load the cancel flag from inside the
+    ``create_subprocess_exec`` substitute so by the time the
+    runner re-enters ``_execute_job`` and assigns
+    ``_current_process``, the flag is set. The immediate post-
+    spawn check should fire ``_terminate_current_process`` on the
+    (test fake) build subprocess. Spy on the terminate call to
+    pin both halves of the contract:
+
+    1. ``_terminate_current_process`` runs at the gap-check
+       site (counter increments).
+    2. It runs against a non-``None`` ``_current_process`` —
+       i.e. the post-spawn assignment happened first, so the
+       SIGTERM has somewhere to land.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _set_esphome_cmd(controller)
+    _seed_yaml(tmp_path)
+
+    real = controller_module.create_subprocess_exec
+    terminate_calls: list[asyncio.subprocess.Process | None] = []
+    real_terminate = controller._terminate_current_process
+
+    async def _spy_terminate() -> None:
+        terminate_calls.append(controller._current_process)
+        await real_terminate()
+
+    monkeypatch.setattr(controller, "_terminate_current_process", _spy_terminate)
+
+    async def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        # OTA port → ``_verify_chip`` returns before any spawn,
+        # so the only ``create_subprocess_exec`` call here is the
+        # build subprocess. Pre-load the cancel flag right before
+        # returning the proc — this is the "cancel arrived in
+        # the verify→main-spawn gap" scenario the post-spawn
+        # check guards.
+        if controller._current_job is not None:
+            controller._cancel_requested.add(controller._current_job.job_id)
+        return await real(sys.executable, "-c", _BUILD_SCRIPT_OK, **kwargs)
+
+    monkeypatch.setattr(controller_module, "create_subprocess_exec", _wrapper)
+
+    job = await controller.install(configuration="kitchen.yaml", port="OTA")
+    captured = await _run_until_terminal(controller)
+
+    # The post-spawn flag check fired terminate exactly once,
+    # against the just-assigned build subprocess (not ``None``).
+    assert len(terminate_calls) == 1, "post-spawn cancel check should fire terminate once"
+    assert terminate_calls[0] is not None, (
+        "_current_process must be set when terminate fires — that's the whole point of "
+        "the post-spawn check (vs. the no-op None path)"
+    )
+    # Job finalises as CANCELLED via the post-``proc.wait()`` cancel
+    # handler, not FAILED.
+    assert job.status == JobStatus.CANCELLED
+    assert captured["job_cancelled"]
+    assert captured["job_failed"] == []
