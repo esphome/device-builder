@@ -204,6 +204,32 @@ def test_detect_platform_from_yaml_skips_load_when_no_packages_block(
     spy.assert_not_called()
 
 
+def test_load_device_yaml_uses_two_step_when_resolve_packages_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two-step fallback runs when the upstream ``resolve_packages`` is missing.
+
+    Pins the fallback path independently of which esphome release
+    happens to be installed in the test runner. CI runs against
+    whatever esphome ships today (no ``resolve_packages``); local
+    development can hit either side. The forced-None monkeypatch
+    makes coverage of the two-step branch deterministic regardless.
+    """
+    monkeypatch.setattr(device_yaml, "_resolve_packages", None)
+    (tmp_path / "common.yaml").write_text(
+        "esp32:\n  board: esp32dev\nwifi:\n  ssid: x\n  password: y\n"
+    )
+    yaml_file = tmp_path / "ble.yaml"
+    yaml_file.write_text("esphome:\n  name: ble\npackages:\n  common: !include common.yaml\n")
+    config = load_device_yaml(yaml_file)
+    assert config is not None
+    # Two-step path fired → packages merged → top-level keys
+    # surface.
+    assert "packages" not in config
+    assert "esp32" in config
+    assert "wifi" in config
+
+
 def test_load_device_yaml_uses_upstream_resolve_packages_when_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
