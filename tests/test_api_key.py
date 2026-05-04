@@ -15,7 +15,6 @@ import pytest
 
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
-    _has_remote_packages,
     config_has_top_level_block,
     detect_platform_from_yaml,
     get_api_encryption_block,
@@ -205,120 +204,6 @@ def test_detect_platform_from_yaml_skips_load_when_no_packages_block(
     spy.assert_not_called()
 
 
-def test_load_device_yaml_skips_merge_for_remote_packages(
-    tmp_path: Path,
-) -> None:
-    """Remote-package configs DON'T trigger the merge — would block on git clone.
-
-    A ``url:`` package fires ``git clone`` synchronously inside
-    ``do_packages_pass``; first-run latency is 5-10 minutes on
-    slow connections / large repos. The dashboard's metadata
-    refresh runs on the WS event loop, so we gate the merge on
-    "no remote packages anywhere in the tree". Configs that hit
-    this gate degrade to the unmerged shape (same as pre-fix); a
-    follow-up will add an executor + mtime cache to support
-    remote packages without blocking.
-
-    Spy on ``do_packages_pass`` / ``resolve_packages`` to confirm
-    neither runs when a remote package is present.
-    """
-    yaml_file = tmp_path / "remote.yaml"
-    yaml_file.write_text(
-        "esphome:\n  name: remote\n"
-        "packages:\n"
-        "  shared:\n"
-        "    url: https://github.com/example/shared\n"
-        "    files:\n      - shared.yaml\n"
-        "    ref: main\n"
-    )
-    with (
-        mock.patch("esphome_device_builder.helpers.device_yaml._do_packages_pass") as do_pkg,
-        mock.patch("esphome_device_builder.helpers.device_yaml._resolve_packages") as resolve_pkg,
-    ):
-        config = load_device_yaml(yaml_file)
-    assert config is not None
-    # Merge skipped → ``packages:`` is still in the result.
-    assert "packages" in config
-    do_pkg.assert_not_called()
-    resolve_pkg.assert_not_called()
-
-
-def test_has_remote_packages_local_only_returns_false() -> None:
-    """A purely local ``packages:`` tree (inline dicts) is safe to merge.
-
-    Walks the canonical local-package shapes — inline dict
-    fragment, ``IncludeFile`` substitute (any non-``url:`` dict),
-    list of inline dicts — and confirms the gate stays open. A
-    False positive here would silently disable the merge for the
-    BLE-beacon configs from #288 the fix was written for.
-    """
-    assert _has_remote_packages({"shared": {"wifi": {"ssid": "x"}}}) is False
-    assert _has_remote_packages({}) is False
-    assert _has_remote_packages({"a": {"foo": 1}, "b": {"bar": 2}}) is False
-
-
-def test_has_remote_packages_url_dict_returns_true() -> None:
-    """A package definition with ``url:`` is remote — gate has to bail."""
-    assert (
-        _has_remote_packages(
-            {"shared": {"url": "https://github.com/example/shared", "ref": "main"}}
-        )
-        is True
-    )
-
-
-def test_has_remote_packages_shorthand_string_returns_true() -> None:
-    """``github://user/repo@ref`` (and friends) are remote.
-
-    ESPHome accepts a string-shorthand form alongside the dict
-    form; ``do_packages_pass`` parses it via
-    ``validate_source_shorthand`` which clones from a git remote.
-    """
-    assert _has_remote_packages({"shared": "github://example/shared@main"}) is True
-
-
-def test_has_remote_packages_mixed_local_and_remote_returns_true() -> None:
-    """Any single remote package in the tree taints the whole config.
-
-    The metadata loader can't merge "just the local ones" — that
-    would silently drop blocks the user expects from the remote
-    package. Bail to the unmerged shape instead, same as
-    pre-fix.
-    """
-    assert (
-        _has_remote_packages(
-            {
-                "local": {"wifi": {"ssid": "x"}},
-                "remote": {"url": "https://github.com/example/shared"},
-            }
-        )
-        is True
-    )
-
-
-def test_has_remote_packages_nested_remote_returns_true() -> None:
-    """Remote package nested inside a local one still triggers the gate.
-
-    ESPHome's package resolver flattens nested packages
-    recursively — a local package can reference a remote one. The
-    walk has to descend the full tree to spot this.
-    """
-    assert (
-        _has_remote_packages(
-            {
-                "outer": {
-                    "packages": {
-                        "inner": {
-                            "url": "https://github.com/example/inner",
-                        }
-                    },
-                }
-            }
-        )
-        is True
-    )
-
-
 def test_load_device_yaml_falls_back_when_both_imports_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -327,7 +212,7 @@ def test_load_device_yaml_falls_back_when_both_imports_missing(
     A future esphome that deprecates ``do_packages_pass`` /
     ``merge_packages`` AND moves ``resolve_packages`` (rename,
     refactor, …) would otherwise leave us with no merge path. The
-    module's ``try/except ImportError`` guards both imports — the
+    module's ``try/except ImportError`` guards both imports - the
     function then degrades to the unmerged shape, the same fallback
     we use when a package merge fails at runtime. Pre-fix
     behaviour stays available even if the upstream API surface
@@ -344,26 +229,6 @@ def test_load_device_yaml_falls_back_when_both_imports_missing(
     # then falls back to the raw-scan / StorageJSON surfaces the
     # rest of the metadata pipeline already handles.
     assert "packages" in config
-
-
-def test_load_device_yaml_skips_merge_for_remote_shorthand_package(
-    tmp_path: Path,
-) -> None:
-    """The git-shorthand string form (``github://``) is also remote.
-
-    ESPHome accepts a ``name: github://user/repo@ref`` value as
-    sugar for the dict form. ``_has_remote_packages`` walks string
-    entries too, so both shapes hit the gate.
-    """
-    yaml_file = tmp_path / "remote.yaml"
-    yaml_file.write_text(
-        "esphome:\n  name: remote\npackages:\n  shared: github://example/shared@main\n"
-    )
-    with mock.patch("esphome_device_builder.helpers.device_yaml._do_packages_pass") as do_pkg:
-        config = load_device_yaml(yaml_file)
-    assert config is not None
-    assert "packages" in config
-    do_pkg.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -37,23 +37,9 @@ try:
 except ImportError:
     _resolve_packages = None
 
-# Same forward-compat pattern: prefer upstream's
-# ``has_remote_packages`` walker (esphome/esphome#16235) so the
-# local copy below can be deleted once the dep floor moves past
-# the release that ships it.
-try:
-    from esphome.components.packages import (  # type: ignore[attr-defined]
-        has_remote_packages as _upstream_has_remote_packages,
-    )
-except ImportError:
-    _upstream_has_remote_packages = None
-
 try:
     from esphome.components.packages import (
         do_packages_pass as _do_packages_pass,
-    )
-    from esphome.components.packages import (
-        is_remote_package as _is_remote_package,
     )
     from esphome.components.packages import (
         merge_packages as _merge_packages,
@@ -61,73 +47,10 @@ try:
 except ImportError:
     _do_packages_pass = None  # type: ignore[assignment]
     _merge_packages = None  # type: ignore[assignment]
-    _is_remote_package = None  # type: ignore[assignment]
 
 from ..models import Device, DeviceState
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _has_remote_packages(packages_subtree: object) -> bool:
-    """Return True when the ``packages:`` subtree contains any remote ref.
-
-    Prefers the upstream ``has_remote_packages`` walker
-    (esphome/esphome#16235) when present — keeps the dashboard's
-    remote-detection in lockstep with the rest of the resolver
-    without having to track new remote-package shapes here. Falls
-    back to a local mirror of the same walk for older esphome
-    releases.
-
-    A remote package triggers ``git clone`` / URL fetch synchronously
-    inside ``do_packages_pass`` — first-run latency runs into 5-10
-    minutes on a slow connection / large repo. The metadata refresh
-    runs on the WS event loop; that wait would freeze the dashboard
-    for every connected client. Callers use this gate to skip the
-    merge entirely for configs with any remote package ref and
-    degrade to the unmerged shape (same behaviour as pre-fix; once
-    the user compiles, ``StorageJSON.loaded_integrations`` /
-    ``target_platform`` fill in the package-aware metadata anyway).
-
-    Local-fallback walk semantics (matched to upstream's): walks
-    ONLY nested ``packages:`` blocks inside local config fragments.
-    A string AT the package-definition position is remote
-    (``github://...`` shorthand); a string anywhere else (a wifi
-    password, a sensor name) isn't. ``IncludeFile`` is local (file
-    IO only).
-    """
-    if _upstream_has_remote_packages is not None:
-        return _upstream_has_remote_packages(packages_subtree)
-    if isinstance(packages_subtree, list):
-        return any(_has_remote_packages(item) for item in packages_subtree)
-    if not isinstance(packages_subtree, dict):
-        # ``IncludeFile`` / ``None`` / scalar — none are remote.
-        # ``packages:`` itself can be ``!include packages.yaml``,
-        # which yaml_util returns as ``IncludeFile`` (file-IO only,
-        # no network), and we want to allow that.
-        return False
-    return any(_definition_is_remote(definition) for definition in packages_subtree.values())
-
-
-def _definition_is_remote(definition: object) -> bool:
-    """Return True when *definition* is a remote package def or has remote nested."""
-    if isinstance(definition, str):
-        # Shorthand at the package-definition level
-        # (``github://...``) is always remote. Strings deeper
-        # inside config fragments don't reach this branch because
-        # the caller only recurses into nested ``packages:``
-        # blocks, not arbitrary value subtrees.
-        return True
-    if isinstance(definition, dict):
-        if _is_remote_package is not None and _is_remote_package(definition):
-            return True
-        # Local config fragment — recurse ONLY into its own
-        # nested ``packages:`` key (if any). Walking into
-        # arbitrary keys (``wifi:`` / ``sensor:`` / …) would
-        # over-trigger on benign string values.
-        nested = definition.get(CONF_PACKAGES)
-        return nested is not None and _has_remote_packages(nested)
-    # ``IncludeFile`` / scalars / None — local.
-    return False
 
 
 if TYPE_CHECKING:
@@ -301,12 +224,6 @@ def detect_platform_from_yaml(path: Path) -> str:
     dashboard scan, even though there's nothing in the file the
     merge could surface. The cheap-regex-only fast path stays the
     winner for the typical no-packages config.
-
-    The merge itself defends against remote-package timeouts (see
-    ``_has_remote_packages`` upstream of ``load_device_yaml``), so
-    a remote-package config still falls back gracefully here —
-    its platform comes from the post-compile ``StorageJSON``
-    instead.
 
     Returns the empty string when neither path turns up a platform.
     """
@@ -732,22 +649,21 @@ def load_device_yaml(path: Path) -> dict | None:
     # misses them. We delegate to ESPHome internals — the loader
     # and merge algorithm live upstream.
     #
-    # CRITICAL: only merge when the ``packages:`` subtree is purely
-    # local. A remote package (``url:`` key, or git-shorthand
-    # string) makes ``do_packages_pass`` run ``git clone``
-    # synchronously, which can take 5-10 minutes the first time on
-    # a slow connection / large repo. The metadata refresh runs on
-    # the WS event loop; a multi-minute git clone there freezes the
-    # dashboard for every connected client. Skip the merge for
-    # remote-package configs and degrade to the unmerged shape —
-    # same behaviour as pre-fix; once the user compiles,
-    # ``StorageJSON.loaded_integrations`` / ``target_platform``
-    # fill in the package-aware metadata anyway. The follow-up to
-    # support remote packages cleanly will need an mtime-keyed
-    # cache plus a thread-pool executor so the git fetch doesn't
-    # land on the event loop.
-    packages = config.get(CONF_PACKAGES)
-    if isinstance(packages, (dict, list)) and not _has_remote_packages(packages):
+    # ``load_device_yaml`` runs on a worker thread (the device
+    # scanner uses ``run_in_executor``; the devices controller
+    # threads it through too), NOT the WS event loop. Same trade
+    # the validate path lives with: ESPHome's ``vscode`` subprocess
+    # runs the full resolve on every validate call, so a
+    # remote-package config that fires ``git clone`` synchronously
+    # blocks this worker thread for as long as the clone takes
+    # (minutes on a slow connection / large repo) but the dashboard
+    # stays responsive to other clients. The follow-up that mirrors
+    # the validate-style subprocess pattern for metadata refresh
+    # (so a slow remote clone doesn't stall the whole scan) is
+    # tracked separately; this PR closes the local-package gap
+    # behind #288 without trying to solve the remote-package
+    # latency problem at the same time.
+    if isinstance(config.get(CONF_PACKAGES), (dict, list)):
         try:
             if _resolve_packages is not None:
                 config = _resolve_packages(config)
@@ -755,9 +671,10 @@ def load_device_yaml(path: Path) -> dict | None:
                 config = _do_packages_pass(config)
                 config = _merge_packages(config)
         except Exception:
-            # Best-effort: a bad local package shouldn't blank the
-            # device's metadata. Keep the unmerged shape so the
-            # raw-YAML fallback paths at the call sites still work.
+            # Best-effort: a bad / unreachable package shouldn't
+            # blank the device's metadata. Keep the unmerged shape
+            # so the raw-YAML fallback paths at the call sites
+            # still work.
             _LOGGER.debug(
                 "Package merge failed for %s; using unmerged config",
                 path,
