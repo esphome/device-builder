@@ -27,6 +27,7 @@ every dashboard build with no test failure.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from contextlib import suppress
 from pathlib import Path
@@ -475,6 +476,100 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
     # The discard is unconditional — it's a no-op when the id wasn't
     # in the set, which is exactly the shutdown case.
     assert job.job_id not in controller._cancel_requested
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group semantics")
+@pytest.mark.asyncio
+async def test_execute_job_runner_shutdown_kills_subprocess_group(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+) -> None:
+    """Runner-shutdown cancellation walks the whole process group.
+
+    Pre-refactor regression hazard: an earlier draft used
+    ``proc.terminate()`` (signals only the python parent) inside
+    the helper's ``CancelledError`` branch instead of
+    ``_terminate_current_process`` (which uses
+    ``terminate_subtree_with_grace`` →
+    ``os.killpg(getpgid(pid), SIGTERM)`` to walk the group).
+    With ``start_new_session=True`` the build's children
+    (esphome → platformio → gcc / esptool) share a process group
+    with the parent; the parent dies but children get orphaned
+    and keep running. The previous runner-shutdown test would
+    have passed with that buggy variant because it only asserts
+    on ``proc.returncode`` of the python parent — by the time
+    the test re-checks, the parent is dead, no child involved.
+
+    Pin the group-walk by forking a real child. The parent
+    spawns a long-running ``time.sleep`` subprocess, prints the
+    child PID, then sleeps itself. After we cancel the runner,
+    poll ``os.kill(child_pid, 0)`` — it raises
+    ``ProcessLookupError`` only when the kernel has reaped the
+    child, which only happens if the child got SIGTERM too.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _fake_esphome(
+        controller,
+        # Parent fork pattern: spawn a child sleeper that's NOT a
+        # direct ``await proc.wait`` target — the runner only
+        # tracks the python parent's pid. The cancel must walk
+        # the process group to reach this child. ``start_new_session``
+        # is False here so the child inherits the parent's group.
+        # ``flush=True`` keeps the runner's line reader from
+        # buffering the PID line past the cancel.
+        "import os, subprocess, sys, time\n"
+        "child = subprocess.Popen("
+        "[sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "print(f'CHILD_PID={child.pid}', flush=True)\n"
+        "time.sleep(60)\n",
+    )
+    _seed_yaml(tmp_path)
+
+    await controller.compile(configuration="kitchen.yaml")
+
+    child_seen = asyncio.Event()
+    child_pid: list[int] = []
+    real_fire = controller._db.bus.fire
+
+    def _watch(event_type: EventType, data: dict) -> None:
+        if event_type == EventType.JOB_OUTPUT:
+            line = data.get("line", "")
+            if "CHILD_PID=" in line:
+                child_pid.append(int(line.split("=", 1)[1].strip()))
+                child_seen.set()
+        real_fire(event_type, data)
+
+    controller._db.bus.fire = _watch
+
+    runner_task = asyncio.create_task(controller._run_queue())
+    try:
+        await asyncio.wait_for(child_seen.wait(), timeout=10.0)
+        assert child_pid, "test bug: never read CHILD_PID line"
+        runner_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await runner_task
+    finally:
+        if not runner_task.done():
+            runner_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await runner_task
+
+    # Poll until the child is reaped — group SIGTERM has a brief
+    # propagation window, then the kernel cleans up the zombie
+    # once the parent (also dead) is reaped.
+    cpid = child_pid[0]
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            os.kill(cpid, 0)
+        except ProcessLookupError:
+            break  # child gone — group SIGTERM landed
+        await asyncio.sleep(0.05)
+    else:
+        # Best-effort cleanup so we don't leak a runaway sleeper.
+        with suppress(ProcessLookupError):
+            os.kill(cpid, 9)
+        pytest.fail(f"child {cpid} survived runner-shutdown cancel — group SIGTERM didn't reach it")
 
 
 # ---------------------------------------------------------------------------
