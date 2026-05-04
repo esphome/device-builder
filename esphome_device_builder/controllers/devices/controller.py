@@ -76,6 +76,13 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Per-file match cap for ``yaml/search``. Each device contributes
+# at most this many lines so a chatty match (a query of ``:``
+# against a deeply-nested config) doesn't drown hits in other
+# devices. The dropdown caps its overall hit count at the
+# caller-supplied ``max_results`` on top of this.
+_YAML_SEARCH_PER_FILE_MATCH_CAP = 5
+
 
 class DevicesController:
     """Manage device configurations, file watching, and CLI operations."""
@@ -246,18 +253,33 @@ class DevicesController:
               ]
             }
 
-        Per-file matches are capped at ``_PER_FILE_MATCH_CAP`` so a
-        chatty match (e.g. a query of ``:`` against a deeply-nested
-        config) doesn't crowd out hits in other devices, and the
-        total hit count is capped at ``max_results`` so the dropdown
-        on the frontend stays usable. Empty / whitespace-only queries
-        return ``[]`` immediately — the frontend debounces typing
-        but a stray empty call shouldn't iterate every YAML file.
+        Per-file matches are capped at
+        ``_YAML_SEARCH_PER_FILE_MATCH_CAP`` so a chatty match (e.g.
+        a query of ``:`` against a deeply-nested config) doesn't
+        crowd out hits in other devices, and the total hit count is
+        capped at ``max_results`` so the dropdown on the frontend
+        stays usable. Empty / whitespace-only queries return ``[]``
+        immediately — the frontend debounces typing but a stray
+        empty call shouldn't iterate every YAML file.
 
         Reads the on-disk file (not the package-resolved tree) for
         cheap line-numbered grep. Searching expanded packages would
         need separate "matched in package X line Y" rendering on the
         frontend; queued as a follow-up.
+
+        Iterates the scanner's existing snapshot rather than firing
+        a fresh ``await self._scanner.scan()`` like ``devices/list``
+        does — this command runs once per debounced keystroke from
+        the frontend's command palette, and a per-keystroke disk
+        scan would dominate the round-trip cost. The scanner refreshes
+        on its own cadence (file-watcher events + periodic re-scan)
+        so YAMLs added or removed between scans become visible on
+        the next scan, not the next search. The scanner-level skip
+        of YAMLs that fail to materialise into a ``Device`` (broken
+        configs that ``DeviceScanner._load_devices()`` logs and
+        drops) carries through here too: this command searches the
+        same set of devices the dashboard list shows, not the raw
+        ``*.yaml`` filesystem.
 
         Cache: see ``_yaml_search_cache.YamlSearchCache``. The
         frontend debounces keystrokes but still fires one search
@@ -272,7 +294,7 @@ class DevicesController:
             return []
         needle = needle_raw if case_sensitive else needle_raw.lower()
 
-        per_file_cap = 5
+        per_file_cap = _YAML_SEARCH_PER_FILE_MATCH_CAP
         results: list[dict] = []
         total_matches = 0
         live_configurations: set[str] = set()
