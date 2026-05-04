@@ -49,7 +49,38 @@ class TestRealProgressLines:
             ("Writing at 0x00050000... (45%)", 45),
         ],
     )
-    def test_esptool_writing_marker(self, line: str, expected: int) -> None:
+    def test_esptool_writing_marker_legacy(self, line: str, expected: int) -> None:
+        assert _parse_progress(line) == expected
+
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            # Issue #140: newer esptool dropped the parens around the
+            # percent and added an ASCII progress bar + bytes counter.
+            # The percentage is now decimal — we capture the integer
+            # part since the dashboard's progress bar is a coarse 0-100.
+            (
+                "Writing at 0x000cf943 [========================>     ]  84.8% "
+                "491520/579918 bytes...",
+                84,
+            ),
+            ("Writing at 0x00010000 [                              ]  0.0% 0/579918 bytes...", 0),
+            (
+                "Writing at 0x000a1234 [==============================] 100.0% "
+                "579918/579918 bytes...",
+                100,
+            ),
+            # Carriage-return-terminated chunk: ``iter_lines_with_progress``
+            # splits on ``\r`` so esptool's in-place line refreshes survive
+            # the pipe. The trailing ``\r`` is part of the chunk handed to
+            # ``_parse_progress``; it must not break the match.
+            (
+                "Writing at 0x000cf943 [=>     ]  42.5% 200000/579918 bytes...\r",
+                42,
+            ),
+        ],
+    )
+    def test_esptool_writing_marker_new(self, line: str, expected: int) -> None:
         assert _parse_progress(line) == expected
 
     @pytest.mark.parametrize(

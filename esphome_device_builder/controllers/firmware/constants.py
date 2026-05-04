@@ -48,16 +48,26 @@ _NO_ESPHOME_MODULE_MARKER = "No module named 'esphome'"
 #     brackets so PIO's ESP-IDF builds (which don't emit a per-file
 #     percent at all) and the package-extract bar (no ``[NN%]`` shape)
 #     never trip it.
-#   * esptool serial flash:          ``Writing at 0x10000... (45 %)``
+#   * esptool serial flash (legacy):  ``Writing at 0x10000... (45 %)``
 #     We match a bare parenthesized percentage anywhere in the line:
-#     ``(\s*\d{1,3}\s*%\s*\)``. In practice that is enough for esptool
-#     progress, and no other expected PIO/ESPHome output uses parens
-#     around a bare percentage.
+#     ``(\s*\d{1,3}\s*%\s*\)``. In practice that is enough for the
+#     older esptool output shape, and no other expected PIO/ESPHome
+#     output uses parens around a bare percentage.
+#   * esptool serial flash (current): ``Writing at 0x10000 [bar]  84.8% NNN/NNN bytes...``
+#     Newer esptool releases dropped the parens and added an ASCII
+#     progress bar plus a decimal percentage. Anchored to the
+#     ``Writing at`` prefix so the wider ``\d{1,3}(?:\.\d+)?%``
+#     match doesn't fire on memory-usage / unpacking / stray-percent
+#     lines elsewhere in the build output. We capture the integer
+#     part and discard the decimal — the dashboard's progress bar
+#     is a single coarse 0-100 indicator, sub-percent precision is
+#     wasted resolution.
 #   * ESPHome OTA upload:            ``Uploading: [====] 100% Done...``
 #     Anchored to the ``Uploading:`` prefix.
 _PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*\[\s*(\d{1,3})\s*%\s*\]"),
     re.compile(r"\(\s*(\d{1,3})\s*%\s*\)"),
+    re.compile(r"^\s*Writing at\b.*?(\d{1,3})(?:\.\d+)?\s*%"),
     re.compile(r"^\s*Uploading:.*?\b(\d{1,3})\s*%"),
 )
 
