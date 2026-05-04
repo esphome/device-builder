@@ -17,17 +17,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from esphome import const, yaml_util
-from esphome.components.packages import do_packages_pass, merge_packages
 from esphome.const import CONF_PACKAGES
 from esphome.storage_json import StorageJSON, ext_storage_path
 
-# Prefer the upstream single-call seam when present (proposed-but-not-
-# yet-merged ``esphome.components.packages.resolve_packages``). Falls
-# back to the two-step ``do_packages_pass`` + ``merge_packages`` that
-# ESPHome's own pipeline strings together at ``esphome.config:1010-1039``
-# today. Once an esphome release ships ``resolve_packages`` and the
-# dashboard's dep floor moves past it, the fallback can be deleted in
-# one commit.
+# Prefer the upstream single-call seam when present (the
+# ``resolve_packages`` proposal landing as esphome/esphome#16235).
+# Fall back to the two-step ``do_packages_pass`` + ``merge_packages``
+# that ESPHome's own pipeline strings together at
+# ``esphome.config:1010-1039`` today. Both imports are guarded by
+# ``try/except ImportError``: a future esphome that ships only
+# ``resolve_packages`` (deprecating or moving the two-step helpers)
+# would otherwise break our module-load. Once the dashboard's dep
+# floor moves past the release that shipped ``resolve_packages``,
+# the entire fallback path can be deleted in one commit.
 try:
     from esphome.components.packages import (  # type: ignore[attr-defined]
         resolve_packages as _resolve_packages,
@@ -35,9 +37,87 @@ try:
 except ImportError:
     _resolve_packages = None
 
+try:
+    from esphome.components.packages import (
+        do_packages_pass as _do_packages_pass,
+    )
+    from esphome.components.packages import (
+        is_remote_package as _is_remote_package,
+    )
+    from esphome.components.packages import (
+        merge_packages as _merge_packages,
+    )
+except ImportError:
+    _do_packages_pass = None  # type: ignore[assignment]
+    _merge_packages = None  # type: ignore[assignment]
+    _is_remote_package = None  # type: ignore[assignment]
+
 from ..models import Device, DeviceState
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _has_remote_packages(packages_subtree: object) -> bool:
+    """Return True when the ``packages:`` subtree contains any remote ref.
+
+    A remote package triggers ``git clone`` / URL fetch synchronously
+    inside ``do_packages_pass`` — first-run latency runs into 5-10
+    minutes on a slow connection / large repo. The metadata refresh
+    runs on the WS event loop; that wait would freeze the dashboard
+    for every connected client. Callers use this gate to skip the
+    merge entirely for configs with any remote package ref and
+    degrade to the unmerged shape (same behaviour as pre-fix; once
+    the user compiles, ``StorageJSON.loaded_integrations`` /
+    ``target_platform`` fill in the package-aware metadata anyway).
+
+    What counts as remote is delegated to ESPHome's own
+    ``is_remote_package`` (a dict with a ``url:`` key) plus the
+    git-shorthand string form (``github://user/repo@ref``,
+    ``gitlab://...``) — both are network-dependent. Local shapes
+    are ``IncludeFile`` (resolved ``!include`` — file-IO only) and
+    inline-dict config fragments. Hardcoding the remote-key list
+    here would drift the moment ESPHome adds a new remote shape;
+    using upstream's predicate keeps the gate in sync.
+
+    The walk descends ONLY into nested ``packages:`` blocks inside
+    local config fragments. ESPHome supports a local package
+    referencing a remote one through its own ``packages:`` key, so
+    we have to recurse there — but we DON'T recurse into arbitrary
+    config-fragment values (``wifi: { ssid: ... }`` shouldn't have
+    its scalar leaves treated as package definitions). That
+    distinction is what makes the recursion correct: a string AT
+    the package-definition position is remote, a string anywhere
+    else (a wifi password, a sensor name, …) isn't.
+    """
+    if isinstance(packages_subtree, list):
+        return any(_has_remote_packages(item) for item in packages_subtree)
+    if not isinstance(packages_subtree, dict):
+        # ``IncludeFile`` / ``None`` / scalar — none are remote.
+        # ``packages:`` itself can be ``!include packages.yaml``,
+        # which yaml_util returns as ``IncludeFile`` (file-IO only,
+        # no network), and we want to allow that.
+        return False
+    for definition in packages_subtree.values():
+        if isinstance(definition, str):
+            # Shorthand at the package-definition level
+            # (``github://...``) is always remote. Strings deeper
+            # inside config fragments don't reach this branch
+            # because we only recurse into nested ``packages:``
+            # blocks, not arbitrary value subtrees.
+            return True
+        if isinstance(definition, dict):
+            if _is_remote_package is not None and _is_remote_package(definition):
+                return True
+            # Local config fragment — recurse ONLY into its own
+            # nested ``packages:`` key (if any). Walking into
+            # arbitrary keys (``wifi:`` / ``sensor:`` / …) would
+            # over-trigger on benign string values.
+            nested = definition.get(CONF_PACKAGES)
+            if nested is not None and _has_remote_packages(nested):
+                return True
+        # Anything else (``IncludeFile``, scalars) is local.
+    return False
+
 
 if TYPE_CHECKING:
     from ..models import BoardCatalogEntry
@@ -199,15 +279,23 @@ def detect_platform_from_yaml(path: Path) -> str:
     Find a YAML file's platform key.
 
     First tries the cheap line-scan against the raw file (no parser
-    involved, survives mid-edit drafts). Falls back to a full
-    package-resolved load when the raw scan misses — configs that
-    place ``esp32:`` / ``esp8266:`` / etc. inside a ``packages:``
-    reference (BLE-beacon configs sharing a common board package,
-    Apollo's dashboard_import flow, …) only register that key after
-    package merge runs. Without the fallback those devices come
-    back with ``target_platform=""`` and the dashboard's web-flasher
-    gate (which checks the platform string) hides the option even
-    when the device is an ESP32.
+    involved, survives mid-edit drafts). Falls back to the
+    package-merged load ONLY when the raw scan misses AND the file
+    actually contains a ``packages:`` block — configs that place
+    ``esp32:`` / ``esp8266:`` / etc. inside a package only register
+    that key after merge runs. Without the gate every YAML that
+    happens to omit a top-level platform key (mid-edit drafts,
+    package-less configs that get their platform from
+    ``StorageJSON``) would pay a full parser load on every
+    dashboard scan, even though there's nothing in the file the
+    merge could surface. The cheap-regex-only fast path stays the
+    winner for the typical no-packages config.
+
+    The merge itself defends against remote-package timeouts (see
+    ``_has_remote_packages`` upstream of ``load_device_yaml``), so
+    a remote-package config still falls back gracefully here —
+    its platform comes from the post-compile ``StorageJSON``
+    instead.
 
     Returns the empty string when neither path turns up a platform.
     """
@@ -221,6 +309,11 @@ def detect_platform_from_yaml(path: Path) -> str:
         platform = ""
     if platform:
         return platform
+    if not yaml_has_top_level_block(raw, CONF_PACKAGES):
+        # No ``packages:`` block in the raw text → the merge can't
+        # surface a platform key that wasn't already there. Skip
+        # the load to keep the scan cheap.
+        return ""
     config = load_device_yaml(path)
     if isinstance(config, dict):
         for key in config:
@@ -619,32 +712,46 @@ def load_device_yaml(path: Path) -> dict | None:
     if not isinstance(config, dict):
         return None
     # ``packages:`` is a separate pass in the ESPHome pipeline (see
-    # ``esphome.config:1010-1039``): packages need to be loaded
-    # (file open / git fetch / !include resolution) and then merged
-    # so blocks they contribute (api / wifi / target-platform / …)
-    # become top-level keys. Without this step a config that puts
-    # those blocks behind ``packages:`` comes back from
+    # ``esphome.config:1010-1039``): packages need to be loaded and
+    # merged so blocks they contribute (api / wifi / target-platform
+    # / …) become top-level keys. Without this step a config that
+    # puts those blocks behind ``packages:`` comes back from
     # ``yaml_util.load_yaml`` with everything still nested under
     # ``packages:``, and the dashboard's flag detection silently
-    # misses them. ``_resolve_packages`` (when available) and the
-    # ``do_packages_pass`` + ``merge_packages`` fallback are both
-    # pure delegations to ESPHome internals — the loader and merge
-    # algorithm live upstream.
-    if isinstance(config.get(CONF_PACKAGES), (dict, list)):
+    # misses them. We delegate to ESPHome internals — the loader
+    # and merge algorithm live upstream.
+    #
+    # CRITICAL: only merge when the ``packages:`` subtree is purely
+    # local. A remote package (``url:`` key, or git-shorthand
+    # string) makes ``do_packages_pass`` run ``git clone``
+    # synchronously, which can take 5-10 minutes the first time on
+    # a slow connection / large repo. The metadata refresh runs on
+    # the WS event loop; a multi-minute git clone there freezes the
+    # dashboard for every connected client. Skip the merge for
+    # remote-package configs and degrade to the unmerged shape —
+    # same behaviour as pre-fix; once the user compiles,
+    # ``StorageJSON.loaded_integrations`` / ``target_platform``
+    # fill in the package-aware metadata anyway. The follow-up to
+    # support remote packages cleanly will need an mtime-keyed
+    # cache plus a thread-pool executor so the git fetch doesn't
+    # land on the event loop.
+    packages = config.get(CONF_PACKAGES)
+    if isinstance(packages, (dict, list)) and not _has_remote_packages(packages):
         try:
             if _resolve_packages is not None:
                 config = _resolve_packages(config)
-            else:
-                config = do_packages_pass(config)
-                config = merge_packages(config)
+            elif _do_packages_pass is not None and _merge_packages is not None:
+                config = _do_packages_pass(config)
+                config = _merge_packages(config)
         except Exception:
-            # Best-effort: a bad / unreachable package shouldn't blank
-            # the device's metadata. Keep the unmerged shape so the
+            # Best-effort: a bad local package shouldn't blank the
+            # device's metadata. Keep the unmerged shape so the
             # raw-YAML fallback paths at the call sites still work.
-            # Log at debug — package errors are routine for offline
-            # / git-cache-cold setups and the user-facing surface
-            # already degrades gracefully.
-            _LOGGER.debug("Package merge failed for %s; using unmerged config", path, exc_info=True)
+            _LOGGER.debug(
+                "Package merge failed for %s; using unmerged config",
+                path,
+                exc_info=True,
+            )
     return config
 
 
