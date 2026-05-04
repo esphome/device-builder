@@ -169,6 +169,17 @@ class ConfigEntryType(StrEnum):
     PIN = "pin"
     # Duration like "30s", "5min" — frontend renders a value+unit input
     TIME_PERIOD = "time_period"
+    # Numeric value carrying a unit: frequency ("50kHz"), data size
+    # ("500KB"), framerate ("10 fps"), voltage ("3.3V"), distance
+    # ("2m"), temperature ("4°C"), etc. ESPHome's coercer multiplies
+    # by the unit at compile time, but the YAML shape the user types
+    # is a string — so the frontend renders a number input plus a
+    # unit picker, round-trips the value as ``"<value><unit>"``, and
+    # validates the numeric portion against ``range``. Unit choices
+    # come from ``unit_options`` on the entry. ``TIME_PERIOD`` is
+    # kept separate because its grammar (``1h30s``) and unit set are
+    # richer; this type is for the simpler single-unit measurements.
+    FLOAT_WITH_UNIT = "float_with_unit"
     # Material Design icon picker (mdi:foo)
     ICON = "icon"
     # Component ID reference — links to another component instance
@@ -283,6 +294,15 @@ class ConfigEntry(DataClassORJSONMixin):
 
     # Min/max bounds for INTEGER / FLOAT entries. None = unbounded.
     range: tuple[int | float, int | float] | None = None
+
+    # Unit choices for ``FLOAT_WITH_UNIT`` entries. The frontend
+    # renders a unit picker populated from this list; each option's
+    # string is what the YAML serialization appends after the
+    # numeric value (e.g. ``["Hz", "kHz", "MHz", "GHz"]`` for
+    # ``cv.frequency``). The first entry is the canonical unit —
+    # range bounds and any user-typed bare number default to it.
+    # None for non-FLOAT_WITH_UNIT entries.
+    unit_options: list[str] | None = None
 
     # When True the field accepts a list of values rather than a single
     # value (e.g. multiple SSIDs, multiple radar targets). Frontend

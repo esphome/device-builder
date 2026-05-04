@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -465,6 +465,8 @@ def main() -> int:
         sum(1 for c in catalog if c.get("config_entries")),
     )
 
+    _audit_catalog_for_unit_mismatches(catalog)
+
     payload = {
         "esphome_schema_version": version,
         "components": [_strip_defaults(c) for c in catalog],
@@ -569,8 +571,10 @@ def load_index(schema_dir: Path) -> SchemaIndex:
 
     # 2. Each <domain>.json — domain.components map. Key under both the
     # bare stem and the qualified ``<domain>.<stem>`` form so lookups
-    # work regardless of which the caller has on hand.
-    for domain in _PLATFORM_DOMAINS:
+    # work regardless of which the caller has on hand. Sorted so
+    # ``setdefault`` keeps the same domain's metadata on every run
+    # when two domains describe the same stem.
+    for domain in sorted(_PLATFORM_DOMAINS):
         domain_file = schema_dir / f"{domain}.json"
         if not domain_file.exists():
             continue
@@ -2118,17 +2122,122 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         return {}
     if manifest is None:
         return {}
+    # ``component_id`` for the platform-style entries the catalog
+    # passes us is a bare stem (``mcp3008``) — domain stripping
+    # happens at the caller. The bare manifest's ``config_schema``
+    # is the parent component's, which doesn't carry the platform-
+    # specific fields (``reference_voltage``, etc.). Walk the
+    # platform manifests too so unit-coerced validators on those
+    # fields get refined like the bus-component ones.
+    platform_manifests = _enumerate_platform_manifests(loader, component_id)
 
     raw_auto_load = manifest.auto_load
     auto_load: list[str] = list(raw_auto_load) if isinstance(raw_auto_load, list) else []
+
+    refined_types = _collect_refined_types(manifest)
+    # Merge platform-manifest refinements on top — the platform
+    # schema's reference_voltage etc. don't appear on the parent
+    # component manifest. Paths come back keyed by entry name so
+    # they slot into the same dict the catalog walk consumes.
+    for platform_manifest in platform_manifests:
+        for path, refined in _collect_refined_types(platform_manifest).items():
+            refined_types.setdefault(path, refined)
 
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
         "is_target_platform": bool(getattr(manifest, "is_target_platform", False)),
         "platform_defaults": _collect_platform_defaults(manifest),
-        "refined_types": _collect_refined_types(manifest),
+        "refined_types": refined_types,
         "auto_load": auto_load,
     }
+
+
+def _audit_catalog_for_unit_mismatches(catalog: list[dict]) -> None:
+    """Warn on float/integer entries whose ``default_value`` doesn't parse.
+
+    Runs after the catalog is built. Catches the silent-bug class
+    that prompted the ``FLOAT_WITH_UNIT`` work in the first place:
+    a ``cv.<unit_coerced>`` validator the live-introspection walker
+    didn't recognise (because ESPHome added a new one upstream, or
+    the validator was wrapped in a way ``classify`` can't see
+    through). The schema-bundle types these entries ``"float"`` /
+    ``"integer"`` based on their post-coerce runtime, but their
+    ``default_value`` is a unit-suffixed string the frontend's
+    number input won't accept.
+
+    Surfacing as a sync-time WARNING gives us actionable telemetry
+    to add the validator to ``_FLOAT_WITH_UNIT_VALIDATORS`` (or
+    ``_UNIT_FALLBACKS``) before users hit the silent-Add-button bug.
+    """
+    mismatches: list[tuple[str, str, str]] = []
+    for component in catalog:
+        for entry in _walk_entries(component.get("config_entries") or []):
+            if entry.get("type") not in ("float", "integer"):
+                continue
+            default = entry.get("default_value")
+            if not isinstance(default, str):
+                continue
+            try:
+                float(default)
+            except ValueError:
+                mismatches.append(
+                    (component["id"], entry["key"], default),
+                )
+    if not mismatches:
+        return
+    _LOGGER.warning(
+        "Catalog audit: %d float/integer entries have non-numeric string "
+        "defaults — likely a unit-coerced cv.* validator the introspection "
+        "walker didn't recognise. The frontend's number input will reject "
+        "these defaults as NaN. Add the validator to "
+        "_FLOAT_WITH_UNIT_VALIDATORS (or _UNIT_FALLBACKS for hand-rolled "
+        "ones) in script/sync_components.py.",
+        len(mismatches),
+    )
+    for component_id, key, default in mismatches:
+        _LOGGER.warning("  %s.%s = %r", component_id, key, default)
+
+
+def _walk_entries(entries: list[dict]) -> Iterable[dict]:
+    """Yield every entry in *entries*, recursing into NESTED groups."""
+    for entry in entries:
+        yield entry
+        if entry.get("type") == "nested":
+            inner = entry.get("config_entries") or []
+            yield from _walk_entries(inner)
+
+
+def _enumerate_platform_manifests(loader: Any, stem: str) -> list[Any]:
+    """Return platform-specific manifests for *stem*.
+
+    A multi-platform component (e.g. ``mcp3008`` ships a sensor and
+    an output) keeps its platform-specific schemas in
+    ``esphome.components.<stem>.<domain>``. ``loader.get_platform``
+    fetches each one; missing combinations return ``None`` and we
+    skip them. Best-effort — exceptions are swallowed so one bad
+    platform manifest can't tank the whole sync.
+
+    Iterates ``_PLATFORM_DOMAINS`` (the same set the catalog walk
+    already uses for schema-keyed platform entries) so adding a
+    domain in one place automatically covers the introspection
+    walk too — no parallel list to keep in sync. Sorted so the
+    catalog output is deterministic across runs — frozenset
+    iteration is hash-randomised per process and would otherwise
+    flip refinement results between syncs when two platform
+    manifests refine the same path differently (the
+    ``setdefault`` keep-first downstream picks whichever domain
+    came up first).
+    """
+    out: list[Any] = []
+    for domain in sorted(_PLATFORM_DOMAINS):
+        try:
+            platform_manifest = loader.get_platform(domain, stem)
+        except Exception:  # noqa: S112 — best-effort: missing platform combos are normal
+            continue
+        if platform_manifest is None:
+            continue
+        out.append(platform_manifest)
+    return out
 
 
 def _get_esphome_loader() -> Any:
@@ -2303,13 +2412,158 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
     return out
 
 
-def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], str]:  # noqa: PLR0915
+class RefinedType(NamedTuple):
+    """Type recovered from a runtime validator, with type-specific extras.
+
+    ``unit_options`` is populated only for ``float_with_unit`` entries —
+    the unit picker the frontend renders alongside the numeric input.
+    Other types ignore it.
+    """
+
+    type: str
+    unit_options: list[str] | None = None
+
+
+# ``cv.*`` validators built on ``cv.float_with_unit``. Their unit
+# choices come from the validator's compiled regex at runtime —
+# never a hand-maintained list — so the catalog stays in sync with
+# ESPHome without anyone having to remember to update us.
+#
+# Common metric prefixes the frontend's unit picker offers when the
+# validator allows them. Pulled from ``cv.METRIC_SUFFIXES`` at
+# runtime; this is the curated subset most ESPHome configs use (the
+# full set includes attobytes and yottabytes which are noise).
+_COMMON_METRIC_PREFIXES = ["", "m", "k", "M", "G"]
+
+# Names of the ``cv.*`` validators we know are built on
+# ``cv.float_with_unit``. Each comes through the live-introspection
+# walker via ``getattr(cv, name)`` so the catalog tracks ESPHome's
+# actual surface — adding a validator here only matters when ESPHome
+# adds one upstream. ``cv.time_period`` is intentionally absent: its
+# grammar (``1h30s``) and unit set are richer than the
+# ``float_with_unit`` widget can express, so it keeps its own
+# ``time_period`` type.
+_FLOAT_WITH_UNIT_VALIDATORS = (
+    "frequency",
+    "data_size",
+    "framerate",
+    "voltage",
+    "distance",
+    "temperature",
+    "temperature_delta",
+)
+
+# Validators that accept METRIC prefixes on their base unit. Order
+# matters: the first entry's compiled value is the canonical unit
+# the picker defaults to.
+_METRIC_PREFIX_VALIDATORS = frozenset({"frequency", "voltage", "data_size", "distance"})
+# Validators whose suffix is a fixed list rather than
+# metric-prefix-able (e.g. temperature has only °C / °F / K, not
+# m°C). The compiled regex's alternation captures the full set.
+_FIXED_UNIT_VALIDATORS = frozenset({"framerate", "temperature", "temperature_delta"})
+
+# Fallback unit lists for validators we can't introspect. Kept as
+# small as possible — only validators that fail
+# ``_extract_validator_units`` need an entry here. ``cv.validate_bytes``
+# uses an inline regex inside the function body (not a closure
+# pattern); ``cv.temperature`` / ``cv.temperature_delta`` are hand-
+# rolled functions that compose multiple ``float_with_unit`` sub-
+# validators sequentially. The unit set for these is stable across
+# ESPHome releases — they're physical-unit definitions — so the
+# brittleness cost is low. If ESPHome ever changes them, the
+# catalog sync produces stale options but the user-visible result
+# is just a missing or extra item in the unit picker.
+_UNIT_FALLBACKS: dict[str, list[str]] = {
+    "data_size": ["B", "kB", "MB", "GB"],
+    "temperature": ["°C", "°F", "K"],
+    "temperature_delta": ["°C", "°F", "K"],
+}
+
+
+def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR0911
+    """Pull the unit option list out of a ``cv.float_with_unit`` validator.
+
+    Inspects the closure cells produced by ``float_with_unit``: a
+    compiled ``re.Pattern`` whose final optional group is the base-unit
+    alternation. Combined with ``cv.METRIC_SUFFIXES`` (for prefix-able
+    validators) we recover the full picker list — no hand-maintained
+    mapping that goes stale on the next ESPHome release.
+    """
+    try:
+        from esphome import config_validation as cv
+    except Exception:
+        return None
+    closure = getattr(validator, "__closure__", None) or ()
+    pattern = None
+    quantity = None
+    for cell in closure:
+        contents = cell.cell_contents
+        if isinstance(contents, re.Pattern):
+            pattern = contents
+        elif isinstance(contents, str):
+            quantity = contents
+    if pattern is None:
+        return None
+    # The validator's regex ends with a final group capturing the
+    # base unit(s) — usually ``(Hz|HZ|hz)?`` for ``cv.frequency``
+    # but sometimes ``(m)$`` (no ``?``) for ``cv.distance``. Match
+    # the last parenthesized group anchored to ``$``; this avoids
+    # false-matching earlier ``(\w*?)`` capture groups in the
+    # mantissa-and-prefix prefix.
+    match = re.search(r"\(([^)]+)\)\??\$", pattern.pattern)
+    if not match:
+        return None
+    raw_alternatives = [alt for alt in match.group(1).split("|") if alt]
+    if not raw_alternatives:
+        return None
+    # Prefer an alternative containing uppercase letters when one
+    # exists — esphome regexes list lowercase first (``v``) for
+    # case-insensitive matching, but the user-facing canonical
+    # form for SI units uses the uppercase symbol (``V``, ``Hz``).
+    # Without this preference we'd populate ``unit_options`` with
+    # lowercase ``v`` / ``hz`` etc.
+    canonical = next(
+        (alt for alt in raw_alternatives if any(c.isupper() for c in alt)),
+        raw_alternatives[0],
+    )
+    raw_alternatives = [canonical, *(a for a in raw_alternatives if a != canonical)]
+    if quantity in _FIXED_UNIT_VALIDATORS:
+        # Each alternative is a distinct unit (``°C``, ``°F``,
+        # ``K``). Deduplicate case variants by lowercasing.
+        seen: set[str] = set()
+        units: list[str] = []
+        for alt in raw_alternatives:
+            key = alt.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            units.append(alt)
+        return units
+    if quantity in _METRIC_PREFIX_VALIDATORS:
+        # Pick the first alternative as the canonical base unit
+        # (``Hz`` from ``Hz|HZ|hz``) and combine with metric
+        # prefixes. Returns ``["Hz", "mHz", "kHz", "MHz", "GHz"]``.
+        base_unit = raw_alternatives[0]
+        metric_suffixes = getattr(cv, "METRIC_SUFFIXES", {"": 1.0})
+        return [
+            f"{prefix}{base_unit}"
+            for prefix in _COMMON_METRIC_PREFIXES
+            if prefix in metric_suffixes
+        ]
+    return None
+
+
+def _collect_refined_types(  # noqa: PLR0915
+    manifest: Any,
+) -> dict[tuple[str, ...], RefinedType]:
     """Walk the live ``CONFIG_SCHEMA`` to recover types the schema lost.
 
     The pre-built schema collapses many ``cv.boolean`` / ``cv.float_`` /
     ``cv.icon`` / ``cv.lambda_`` validators into bare strings. By
     inspecting the actual voluptuous validators we can promote those
-    fields back to the right type. Returns ``{key_path: type_name}``.
+    fields back to the right type. Returns ``{key_path: RefinedType}``
+    where the named tuple carries ``type`` plus per-type extras (e.g.
+    ``unit_options`` for ``float_with_unit``).
     """
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
@@ -2319,33 +2573,50 @@ def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], str]:  # noqa
     except Exception:
         return {}
 
-    # Map runtime validator identities / names to our type strings. The
+    # Map runtime validator identities / names to refined types. The
     # schema bundle already gets ``cv.string`` and ``cv.int_`` right via
     # explicit ``type:`` markers; we focus on the cases where the
     # bundle silently emits no type at all. Identity is keyed by
     # ``id()`` because some voluptuous validators (notably _Schema
     # subclasses) override __hash__ to be unhashable.
-    by_identity: dict[int, str] = {}
-    by_name: dict[str, str] = {}
+    by_identity: dict[int, RefinedType] = {}
+    by_name: dict[str, RefinedType] = {}
 
-    def add(name: str, type_str: str, *attrs: str) -> None:
-        by_name[name] = type_str
+    def add(name: str, refined: RefinedType, *attrs: str) -> None:
+        by_name[name] = refined
         for a in attrs:
             obj = getattr(cv, a, None)
             if obj is not None:
-                by_identity[id(obj)] = type_str
+                by_identity[id(obj)] = refined
 
-    add("boolean", "boolean", "boolean")
-    add("float_", "float", "float_", "positive_float", "negative_float")
-    add("float_range", "float", "float_range")
-    add("frequency", "float", "frequency")
-    add("icon", "icon", "icon")
-    add("lambda_", "lambda", "lambda_")
-    add("returning_lambda", "lambda", "returning_lambda")
-    add("mac_address", "mac_address", "mac_address")
-    add("color_temperature", "string", "color_temperature")
+    add("boolean", RefinedType("boolean"), "boolean")
+    add("float_", RefinedType("float"), "float_", "positive_float", "negative_float")
+    add("float_range", RefinedType("float"), "float_range")
+    # Unit-coerced validators — render as a number input + unit
+    # picker on the frontend. The validator's runtime type is a
+    # float, but the YAML shape is ``"<value><unit>"``. Pull the
+    # unit list from the validator's compiled regex at runtime so
+    # the catalog stays in sync with ESPHome without a
+    # hand-maintained table to forget about.
+    for validator_name in _FLOAT_WITH_UNIT_VALIDATORS:
+        validator = getattr(cv, validator_name, None)
+        if validator is None:
+            continue
+        units = _extract_validator_units(validator) or _UNIT_FALLBACKS.get(validator_name)
+        if not units:
+            continue
+        add(
+            validator_name,
+            RefinedType("float_with_unit", unit_options=units),
+            validator_name,
+        )
+    add("icon", RefinedType("icon"), "icon")
+    add("lambda_", RefinedType("lambda"), "lambda_")
+    add("returning_lambda", RefinedType("lambda"), "returning_lambda")
+    add("mac_address", RefinedType("mac_address"), "mac_address")
+    add("color_temperature", RefinedType("string"), "color_temperature")
 
-    out: dict[tuple[str, ...], str] = {}
+    out: dict[tuple[str, ...], RefinedType] = {}
     visited: set[int] = set()
 
     def unwrap_to_dict(node: Any) -> dict | None:
@@ -2369,7 +2640,7 @@ def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], str]:  # noqa
             return None
         return None
 
-    def classify(validator: Any) -> str | None:
+    def classify(validator: Any) -> RefinedType | None:
         if id(validator) in by_identity:
             return by_identity[id(validator)]
         # Some validators are wrapped (vol.All chains or partials);
@@ -2380,11 +2651,22 @@ def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], str]:  # noqa
                 t = classify(v)
                 if t is not None:
                     return t
+        # ``cv.float_with_unit`` returns a closure whose ``__name__``
+        # is the generic ``"validator"`` (too noisy to substring-
+        # match) but whose ``__qualname__`` carries the factory
+        # name. Detect that shape and pull units straight from the
+        # closure — handles platform-style entries (``sensor.mcp3008.
+        # reference_voltage``, ``esp32_camera.idle_framerate``) the
+        # name-by-name registration loop missed because they weren't
+        # bound back to a top-level ``cv.<name>`` attribute.
+        qualname = getattr(validator, "__qualname__", "") or ""
+        if "float_with_unit" in qualname:
+            units = _extract_validator_units(validator)
+            if units:
+                return RefinedType("float_with_unit", unit_options=units)
         # Fall back to name-based matching for closures and partials
         # that lose identity but keep the name.
-        name = (
-            getattr(validator, "__name__", None) or getattr(validator, "__qualname__", None) or ""
-        ).lower()
+        name = (getattr(validator, "__name__", None) or qualname).lower()
         for k, t in by_name.items():
             if k in name:
                 return t
@@ -2416,12 +2698,18 @@ def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], str]:  # noqa
 
 def _apply_refined_types(
     entries: list[dict],
-    refined: dict[tuple[str, ...], str],
+    refined: dict[tuple[str, ...], RefinedType],
 ) -> None:
     """Promote entry types from string → boolean/float/... where known.
 
     Only acts on entries currently typed ``string`` so we don't
-    override the schema's explicit type assignments.
+    override the schema's explicit type assignments — EXCEPT for
+    ``float_with_unit``, which we always apply because it carries
+    extra info (``unit_options``) the schema bundle can't express.
+    The schema bundle's ``float`` typing for those entries is
+    technically the runtime type after coercion, but the YAML shape
+    the user types is a string with a unit suffix; the
+    ``float_with_unit`` type captures both halves.
     """
     if not refined:
         return
@@ -2430,8 +2718,14 @@ def _apply_refined_types(
         for entry in items:
             sub_path = (*path, entry["key"])
             new_type = refined.get(sub_path)
-            if new_type and entry.get("type") == "string":
-                entry["type"] = new_type
+            if new_type is not None:
+                if new_type.type == "float_with_unit":
+                    # Always apply — see docstring. Carries unit_options
+                    # the schema bundle can't represent.
+                    entry["type"] = new_type.type
+                    entry["unit_options"] = list(new_type.unit_options or [])
+                elif entry.get("type") == "string":
+                    entry["type"] = new_type.type
             inner = entry.get("config_entries")
             if inner:
                 walk(inner, sub_path)
