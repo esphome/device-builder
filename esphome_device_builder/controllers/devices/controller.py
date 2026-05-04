@@ -58,6 +58,7 @@ from ..config import (
     set_device_metadata,
 )
 from ..firmware.helpers import _find_esphome_cmd
+from ._yaml_search import search_yaml_devices
 from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
     _apply_featured_presets,
@@ -310,42 +311,15 @@ class DevicesController:
         # in normal use; this lock backstops the case where a slow
         # request from a stuck client overlaps with a fresh one.
         async with self._yaml_search_lock:
-            per_file_cap = _YAML_SEARCH_PER_FILE_MATCH_CAP
-            results: list[dict] = []
-            total_matches = 0
-            live_configurations: set[str] = set()
-
-            for device in self._scanner.devices:
-                if total_matches >= max_results:
-                    break
-                live_configurations.add(device.configuration)
-
-                path = Path(self._db.settings.rel_path(device.configuration))
-                lines = await self._yaml_search_cache.get_lines(device.configuration, path)
-                if lines is None:
-                    continue
-
-                matches: list[dict] = []
-                for i, line in enumerate(lines, start=1):
-                    haystack = line if case_sensitive else line.lower()
-                    if needle in haystack:
-                        matches.append({"line_number": i, "line_text": line})
-                        if len(matches) >= per_file_cap:
-                            break
-                    if total_matches + len(matches) >= max_results:
-                        break
-
-                if matches:
-                    results.append(
-                        {
-                            "configuration": device.configuration,
-                            "device_name": device.name,
-                            "friendly_name": device.friendly_name or device.name,
-                            "matches": matches,
-                        }
-                    )
-                    total_matches += len(matches)
-
+            results, live_configurations = await search_yaml_devices(
+                devices=self._scanner.devices,
+                cache=self._yaml_search_cache,
+                rel_path=lambda c: Path(self._db.settings.rel_path(c)),
+                needle=needle,
+                case_sensitive=case_sensitive,
+                max_results=max_results,
+                per_file_cap=_YAML_SEARCH_PER_FILE_MATCH_CAP,
+            )
             self._yaml_search_cache.prune(live_configurations)
             return results
 

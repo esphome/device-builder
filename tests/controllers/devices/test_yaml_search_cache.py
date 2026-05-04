@@ -144,6 +144,50 @@ async def test_missing_file_returns_none_and_clears_stale(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_unreadable_file_returns_none_and_clears_stale(tmp_path: Path) -> None:
+    """File stats OK but read fails → ``None`` + cache entry removed.
+
+    Covers the rare race where a YAML is rm'd between the
+    cache's ``stat`` and ``read_text`` calls (atomic-save churn,
+    aggressive cleanup tooling, etc.). The cache must treat this
+    the same way it treats a stat failure: prune the entry,
+    return ``None``, let the search loop skip the device.
+    """
+    cache = YamlSearchCache()
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("wifi:\n", encoding="utf-8")
+    # Warm the cache so we have an entry to evict.
+    first = await cache.get_lines("kitchen.yaml", path)
+    assert first == ["wifi:"]
+    # Bump mtime so the next call misses the warm-entry early-
+    # return and reaches the read path.
+    new_mtime = path.stat().st_mtime_ns + 1_000_000_000
+    os.utime(path, ns=(new_mtime, new_mtime))
+
+    # Now make ``read_text`` fail on the next call. Stat still
+    # works (the path is real); the failure is read-side only.
+    real_read = Path.read_text
+    call_count = 0
+
+    def _failing_read(self: Path, *args: object, **kwargs: object) -> str:
+        nonlocal call_count
+        call_count += 1
+        if self == path and call_count == 1:
+            msg = "I/O error mid-read"
+            raise OSError(msg)
+        return real_read(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    with patch.object(Path, "read_text", _failing_read):
+        result = await cache.get_lines("kitchen.yaml", path)
+
+    assert result is None
+    # Stale entry was pruned — a follow-up call (with read
+    # working again) re-reads from scratch.
+    refreshed = await cache.get_lines("kitchen.yaml", path)
+    assert refreshed == ["wifi:"]
+
+
+@pytest.mark.asyncio
 async def test_prune_drops_only_stale_entries(tmp_path: Path) -> None:
     """``prune(live)`` removes entries whose key isn't in *live*.
 
