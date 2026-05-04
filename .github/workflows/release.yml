@@ -67,7 +67,9 @@ jobs:
             echo "::error::Tag '${{ inputs.version }}' already exists. Pick a new version."
             exit 1
           elif ! grep -q "HTTP 404" <<<"$err"; then
-            echo "::error::Failed to check whether tag '${{ inputs.version }}' exists: $err"
+            echo "::error::Failed to check whether tag '${{ inputs.version }}' exists."
+            echo "gh api stderr:"
+            echo "$err"
             exit 1
           fi
 
