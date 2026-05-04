@@ -23,13 +23,13 @@ from esphome.storage_json import StorageJSON, ext_storage_path
 # Prefer the upstream single-call seam when present (the
 # ``resolve_packages`` proposal landing as esphome/esphome#16235).
 # Fall back to the two-step ``do_packages_pass`` + ``merge_packages``
-# that ESPHome's own pipeline strings together at
-# ``esphome.config:1010-1039`` today. Both imports are guarded by
-# ``try/except ImportError``: a future esphome that ships only
-# ``resolve_packages`` (deprecating or moving the two-step helpers)
-# would otherwise break our module-load. Once the dashboard's dep
-# floor moves past the release that shipped ``resolve_packages``,
-# the entire fallback path can be deleted in one commit.
+# that ESPHome's own ``validate_config`` pipeline strings together
+# today. Both imports are guarded by ``try/except ImportError``:
+# a future esphome that ships only ``resolve_packages`` (deprecating
+# or moving the two-step helpers) would otherwise break our module-
+# load. Once the dashboard's dep floor moves past the release that
+# shipped ``resolve_packages``, the entire fallback path can be
+# deleted in one commit.
 try:
     from esphome.components.packages import (  # type: ignore[attr-defined]
         resolve_packages as _resolve_packages,
@@ -640,8 +640,9 @@ def load_device_yaml(path: Path) -> dict | None:
     if not isinstance(config, dict):
         return None
     # ``packages:`` is a separate pass in the ESPHome pipeline (see
-    # ``esphome.config:1010-1039``): packages need to be loaded and
-    # merged so blocks they contribute (api / wifi / target-platform
+    # ``do_packages_pass`` + ``merge_packages`` in
+    # ``esphome.config.validate_config``): packages need to be loaded
+    # and merged so blocks they contribute (api / wifi / target-platform
     # / …) become top-level keys. Without this step a config that
     # puts those blocks behind ``packages:`` comes back from
     # ``yaml_util.load_yaml`` with everything still nested under
