@@ -974,17 +974,15 @@ class FirmwareController:
         except asyncio.CancelledError:
             # Runner-shutdown cancellation: the runner task itself
             # was cancelled (vs. a user-driven ``firmware/cancel``,
-            # which goes through ``_terminate_current_process``
-            # explicitly). Nudge the spawn before the
-            # ``CancelledError`` propagates so the build doesn't
-            # outlive the runner that started it. Pre-refactor the
-            # outer ``except asyncio.CancelledError`` in
-            # ``_execute_job`` did this; that branch now sees
-            # ``_current_process`` already restored to ``prev`` (the
-            # finally below) so the helper has to be the one that
-            # signals.
-            with suppress(ProcessLookupError):
-                proc.terminate()
+            # which calls ``_terminate_current_process`` from the
+            # cancel handler directly). Reuse the same group-aware
+            # termination helper here so SIGTERM walks the whole
+            # process group (esphome → platformio → gcc / esptool).
+            # ``proc.terminate()`` would only signal the python
+            # parent — on POSIX with ``start_new_session=True``
+            # that orphans the child tree and the build keeps
+            # running until the children finish on their own.
+            await self._terminate_current_process()
             raise
         finally:
             self._current_process = prev
