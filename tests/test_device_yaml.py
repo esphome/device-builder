@@ -143,6 +143,54 @@ esphome:
     assert friendly_name == "$missing"
 
 
+def test_parse_meta_resolves_substitution_in_comment() -> None:
+    """Substitutions in ``esphome.comment`` resolve like the other fields."""
+    yaml_content = """
+substitutions:
+  area: Outside
+esphome:
+  name: well
+  comment: "${area} sensor"
+"""
+    _, _, comment = parse_esphome_meta(yaml_content)
+    assert comment == "Outside sensor"
+
+
+def test_parse_meta_resolves_chained_substitutions() -> None:
+    """A substitution whose value references another substitution resolves fully.
+
+    Regression test for substitutions inside ``comment:`` not being
+    expanded when the substitution's own value contained a reference
+    (e.g. ``comment: "${area}, Well"`` + ``esphome.comment: ${comment}``).
+    """
+    yaml_content = """
+substitutions:
+  area: Outside
+  comment: "${area}, Well | Irrigation A"
+esphome:
+  name: well
+  comment: ${comment}
+"""
+    _, _, comment = parse_esphome_meta(yaml_content)
+    assert comment == "Outside, Well | Irrigation A"
+
+
+def test_parse_meta_circular_substitutions_terminate() -> None:
+    """Circular substitution references bail out instead of looping forever."""
+    yaml_content = """
+substitutions:
+  a: ${b}
+  b: ${a}
+esphome:
+  name: device
+  friendly_name: ${a}
+"""
+    # Should return without hanging; the exact stuck value is irrelevant
+    # — what matters is that the resolver terminates safely.
+    _, friendly_name, _ = parse_esphome_meta(yaml_content)
+    assert friendly_name in {"${a}", "${b}"}
+
+
 # ----------------------------------------------------------------------
 # compute_has_pending_changes
 # ----------------------------------------------------------------------

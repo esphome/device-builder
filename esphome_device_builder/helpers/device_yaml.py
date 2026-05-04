@@ -29,6 +29,11 @@ _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "
 # matches ``$name`` or ``${name}`` where name is alphanumeric + underscore.
 _SUBSTITUTION_RE = re.compile(r"\$(\{[a-zA-Z0-9_]*\}|[a-zA-Z0-9_]+)")
 
+# Cap on recursive substitution passes — protects against circular
+# references (``a: ${b}`` / ``b: ${a}``) without bailing on legitimately
+# deep chains a user might write.
+_SUBSTITUTION_MAX_PASSES = 16
+
 # ESPHome's ``esphome.name`` accepts lowercase ASCII letters, digits,
 # and hyphens — the same character class an mDNS hostname / API
 # endpoint can carry. A parsed value with anything else (dots, spaces,
@@ -592,9 +597,12 @@ def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | Non
     """
     Replace ``$var`` / ``${var}`` references in *value* with values from *subs*.
 
-    Unknown references are left untouched (mirrors esphome's
-    ``ignore_missing`` behaviour). Returns *value* unchanged when it
-    is ``None`` or contains no references.
+    Substitutions are expanded recursively so a substitution whose value
+    itself references another substitution (e.g. ``comment: "${area}, Well"``
+    paired with ``esphome.comment: ${comment}``) resolves to the fully
+    substituted string. Unknown references are left untouched (mirrors
+    esphome's ``ignore_missing`` behaviour). Returns *value* unchanged when
+    it is ``None`` or contains no references.
     """
     if value is None or "$" not in value:
         return value
@@ -604,4 +612,14 @@ def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | Non
         key = token[1:-1] if token.startswith("{") else token
         return subs.get(key, match.group(0))
 
-    return _SUBSTITUTION_RE.sub(repl, value)
+    # Re-run until the string stops changing — a single ``re.sub`` pass
+    # only walks the input once, so a reference whose replacement value
+    # contains another reference would otherwise be left half-resolved.
+    # Bounded to defend against circular substitutions.
+    for _ in range(_SUBSTITUTION_MAX_PASSES):
+        previous = value
+        value = _SUBSTITUTION_RE.sub(repl, value)
+        if value == previous or "$" not in value:
+            break
+
+    return value
