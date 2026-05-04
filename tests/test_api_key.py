@@ -15,6 +15,7 @@ import pytest
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
     config_has_top_level_block,
+    detect_platform_from_yaml,
     get_api_encryption_block,
     get_api_encryption_key,
     load_device_yaml,
@@ -108,6 +109,75 @@ def test_load_device_yaml_resolves_secrets(tmp_path: Path) -> None:
     )
     config = load_device_yaml(yaml_file)
     assert get_api_encryption_key(config) == "AAAA=="
+
+
+def test_load_device_yaml_merges_packages(tmp_path: Path) -> None:
+    """Top-level blocks contributed by ``packages:`` end up flat in the result.
+
+    Repro of #288: a BLE beacon (or any device sharing a common
+    package for api / wifi / ota / target-platform) had the
+    dashboard report ``api_encrypted=False``, ``target_platform=""``,
+    ``loaded_integrations=[]`` because the unmerged config still
+    had those keys nested under ``packages:`` instead of at the
+    top level. We delegate to ESPHome's own ``do_packages_pass`` +
+    ``merge_packages`` (the same two-step the compiler runs at
+    ``esphome.config:1010-1039``) so the dashboard sees what the
+    compiler sees.
+    """
+    (tmp_path / "common.yaml").write_text(
+        "esp32:\n"
+        "  board: esp32dev\n"
+        "api:\n"
+        '  encryption:\n    key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="\n'
+        "wifi:\n  ssid: x\n  password: y\n"
+    )
+    yaml_file = tmp_path / "ble.yaml"
+    yaml_file.write_text("esphome:\n  name: ble\npackages:\n  common: !include common.yaml\n")
+    config = load_device_yaml(yaml_file)
+    assert config is not None
+    # ``packages:`` itself is consumed by the merge — top-level
+    # keys are now what the user's compiled firmware actually has.
+    assert "packages" not in config
+    assert "esp32" in config
+    assert "api" in config
+    assert "wifi" in config
+    assert get_api_encryption_key(config) == "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+
+def test_detect_platform_from_yaml_falls_back_to_resolved_config(
+    tmp_path: Path,
+) -> None:
+    """Platform detection falls through to the resolved config on raw-scan miss.
+
+    The fast path (raw-text scan) survives mid-edit drafts but
+    can't see ``esp32:`` blocks pulled in via ``packages:``. The
+    slow path (full ``load_device_yaml`` with package merge) is
+    only invoked when the raw scan returned empty, so the typical
+    no-packages config still pays only the cheap regex.
+    """
+    (tmp_path / "board.yaml").write_text(
+        "esp32:\n  board: esp32dev\n  framework:\n    type: esp-idf\n"
+    )
+    yaml_file = tmp_path / "ble.yaml"
+    yaml_file.write_text("esphome:\n  name: ble\npackages:\n  board: !include board.yaml\n")
+    # Raw scan: no top-level ``esp32:`` line, so it returns "".
+    # Fallback: load + package-merge → ``esp32`` becomes top-level.
+    assert detect_platform_from_yaml(yaml_file) == "esp32"
+
+
+def test_detect_platform_from_yaml_keeps_raw_scan_for_inline_platform(
+    tmp_path: Path,
+) -> None:
+    """Top-level inline platform key resolves via the raw-scan fast path.
+
+    Pinning this avoids regressing the fast path: a future
+    refactor that always loaded the resolved config would parse
+    every YAML on every dashboard scan, which is what the cheap
+    regex was put in place to avoid.
+    """
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text("esphome:\n  name: kitchen\nesp8266:\n  board: nodemcuv2\n")
+    assert detect_platform_from_yaml(yaml_file) == "esp8266"
 
 
 # ---------------------------------------------------------------------------

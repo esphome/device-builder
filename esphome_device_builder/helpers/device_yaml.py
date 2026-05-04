@@ -10,15 +10,34 @@ a controller.
 from __future__ import annotations
 
 import base64
+import logging
 import re
 import secrets
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from esphome import const, yaml_util
+from esphome.components.packages import do_packages_pass, merge_packages
+from esphome.const import CONF_PACKAGES
 from esphome.storage_json import StorageJSON, ext_storage_path
 
+# Prefer the upstream single-call seam when present (proposed-but-not-
+# yet-merged ``esphome.components.packages.resolve_packages``). Falls
+# back to the two-step ``do_packages_pass`` + ``merge_packages`` that
+# ESPHome's own pipeline strings together at ``esphome.config:1010-1039``
+# today. Once an esphome release ships ``resolve_packages`` and the
+# dashboard's dep floor moves past it, the fallback can be deleted in
+# one commit.
+try:
+    from esphome.components.packages import (  # type: ignore[attr-defined]
+        resolve_packages as _resolve_packages,
+    )
+except ImportError:
+    _resolve_packages = None
+
 from ..models import Device, DeviceState
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..models import BoardCatalogEntry
@@ -177,16 +196,37 @@ def parse_platform_from_yaml(yaml_content: str) -> tuple[str, str, str]:
 
 def detect_platform_from_yaml(path: Path) -> str:
     """
-    Quick scan of a YAML file to find its platform key.
+    Find a YAML file's platform key.
 
-    Returns the empty string when the file is unreadable or contains no
-    top-level platform key.
+    First tries the cheap line-scan against the raw file (no parser
+    involved, survives mid-edit drafts). Falls back to a full
+    package-resolved load when the raw scan misses — configs that
+    place ``esp32:`` / ``esp8266:`` / etc. inside a ``packages:``
+    reference (BLE-beacon configs sharing a common board package,
+    Apollo's dashboard_import flow, …) only register that key after
+    package merge runs. Without the fallback those devices come
+    back with ``target_platform=""`` and the dashboard's web-flasher
+    gate (which checks the platform string) hides the option even
+    when the device is an ESP32.
+
+    Returns the empty string when neither path turns up a platform.
     """
     try:
-        platform, _, _ = parse_platform_from_yaml(path.read_text(encoding="utf-8"))
-        return platform
+        raw = path.read_text(encoding="utf-8")
     except Exception:
         return ""
+    try:
+        platform, _, _ = parse_platform_from_yaml(raw)
+    except Exception:
+        platform = ""
+    if platform:
+        return platform
+    config = load_device_yaml(path)
+    if isinstance(config, dict):
+        for key in config:
+            if key in _PLATFORM_KEYS:
+                return key
+    return ""
 
 
 def yaml_has_top_level_block(yaml_content: str, key: str) -> bool:
@@ -549,11 +589,25 @@ def _parse_inline_value(raw: str) -> str:
 def load_device_yaml(path: Path) -> dict | None:
     """Load *path* with ESPHome's YAML loader; return the top-level mapping.
 
-    Resolves ``!secret`` / ``!include`` / etc. like a real compile, and
-    returns ``None`` when the file isn't a mapping or fails to parse.
+    Resolves ``!secret`` / ``!include`` / etc. like a real compile,
+    runs ``do_packages_pass`` + ``merge_packages`` to flatten any
+    ``packages:`` block into the main config (so callers see what the
+    compiler actually sees — ``api:`` / ``wifi:`` / target-platform
+    blocks contributed by packages register as top-level keys here),
+    and returns ``None`` when the file isn't a mapping or fails to
+    parse.
+
+    Package resolution is best-effort: a remote (git) package needs
+    network access, an invalid package definition fails ESPHome's
+    voluptuous validator, etc. When the package pass throws we keep
+    the unmerged config rather than dropping it — better to surface
+    the local YAML than nothing, and the unmerged shape was the
+    pre-fix behaviour the dashboard already handled.
+
     Centralised so callers that need a parsed config — API-key
-    extraction, encryption-status checks, future config inspection —
-    share one entry point with the same error handling.
+    extraction, encryption-status checks, top-level-block detection
+    used by the device-card flags — share one entry point with the
+    same error handling and the same package-merge contract.
     """
     try:
         # ``yaml_util.load_yaml`` calls ``.open()`` on its argument, so
@@ -562,7 +616,36 @@ def load_device_yaml(path: Path) -> dict | None:
         config = yaml_util.load_yaml(path)
     except Exception:
         return None
-    return config if isinstance(config, dict) else None
+    if not isinstance(config, dict):
+        return None
+    # ``packages:`` is a separate pass in the ESPHome pipeline (see
+    # ``esphome.config:1010-1039``): packages need to be loaded
+    # (file open / git fetch / !include resolution) and then merged
+    # so blocks they contribute (api / wifi / target-platform / …)
+    # become top-level keys. Without this step a config that puts
+    # those blocks behind ``packages:`` comes back from
+    # ``yaml_util.load_yaml`` with everything still nested under
+    # ``packages:``, and the dashboard's flag detection silently
+    # misses them. ``_resolve_packages`` (when available) and the
+    # ``do_packages_pass`` + ``merge_packages`` fallback are both
+    # pure delegations to ESPHome internals — the loader and merge
+    # algorithm live upstream.
+    if isinstance(config.get(CONF_PACKAGES), (dict, list)):
+        try:
+            if _resolve_packages is not None:
+                config = _resolve_packages(config)
+            else:
+                config = do_packages_pass(config)
+                config = merge_packages(config)
+        except Exception:
+            # Best-effort: a bad / unreachable package shouldn't blank
+            # the device's metadata. Keep the unmerged shape so the
+            # raw-YAML fallback paths at the call sites still work.
+            # Log at debug — package errors are routine for offline
+            # / git-cache-cold setups and the user-facing surface
+            # already degrades gracefully.
+            _LOGGER.debug("Package merge failed for %s; using unmerged config", path, exc_info=True)
+    return config
 
 
 def get_api_encryption_block(config: dict | None) -> dict | None:
