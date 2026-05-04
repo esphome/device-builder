@@ -35,6 +35,41 @@ if TYPE_CHECKING:
     from ._yaml_search_cache import YamlSearchCache
 
 
+def scan_lines(
+    lines: list[str],
+    needle: str,
+    *,
+    case_sensitive: bool,
+    max_take: int,
+) -> list[dict]:
+    """Scan a single file's pre-split line list for *needle*.
+
+    Synchronous hot path of the search loop — pure Python work
+    against an already-loaded ``list[str]``, no I/O, no awaits.
+    Extracted so the benchmark suite can measure just the
+    line-scan cost (the rest of ``search_yaml_devices`` is
+    asyncio + cache machinery whose overhead would otherwise
+    dominate the signal).
+
+    Returns up to *max_take* matches. The caller folds two
+    upstream caps (``per_file_cap``, the remaining
+    ``max_results`` budget across the fleet) into a single
+    ``max_take`` value before calling.
+
+    *needle* must be pre-lowered when ``case_sensitive`` is
+    ``False`` — the caller lowers it once outside the per-file
+    loop so we don't re-lower the same needle for every device.
+    """
+    matches: list[dict] = []
+    for i, line in enumerate(lines, start=1):
+        haystack = line if case_sensitive else line.lower()
+        if needle in haystack:
+            matches.append({"line_number": i, "line_text": line})
+            if len(matches) >= max_take:
+                break
+    return matches
+
+
 class _DeviceLike(Protocol):
     """The narrow surface ``search_yaml_devices`` reads from each device.
 
@@ -113,15 +148,14 @@ async def search_yaml_devices(
             await asyncio.sleep(0)
             continue
 
-        matches: list[dict] = []
-        for i, line in enumerate(lines, start=1):
-            haystack = line if case_sensitive else line.lower()
-            if needle in haystack:
-                matches.append({"line_number": i, "line_text": line})
-                if len(matches) >= per_file_cap:
-                    break
-            if total_matches + len(matches) >= max_results:
-                break
+        # Fold per-file + remaining-budget caps into a single
+        # ``max_take`` and hand off to the synchronous scan
+        # helper. The previous inline loop had two break paths
+        # (per_file_cap and total_matches + len(matches) >=
+        # max_results); both collapse cleanly into
+        # ``min(per_file_cap, remaining)``.
+        max_take = min(per_file_cap, max_results - total_matches)
+        matches = scan_lines(lines, needle, case_sensitive=case_sensitive, max_take=max_take)
 
         if matches:
             results.append(
