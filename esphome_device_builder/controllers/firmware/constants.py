@@ -55,19 +55,23 @@ _NO_ESPHOME_MODULE_MARKER = "No module named 'esphome'"
 #     output uses parens around a bare percentage.
 #   * esptool serial flash (current): ``Writing at 0x10000 [bar]  84.8% NNN/NNN bytes...``
 #     Newer esptool releases dropped the parens and added an ASCII
-#     progress bar plus a decimal percentage. Anchored to the
+#     progress bar plus a decimal percentage. Pinned to the
 #     ``Writing at`` prefix so the wider ``\d{1,3}(?:\.\d+)?%``
 #     match doesn't fire on memory-usage / unpacking / stray-percent
-#     lines elsewhere in the build output. We capture the integer
-#     part and discard the decimal — the dashboard's progress bar
-#     is a single coarse 0-100 indicator, sub-percent precision is
-#     wasted resolution.
+#     lines elsewhere in the build output. The runner sets
+#     ``FORCE_COLOR=1`` / ``CLICOLOR_FORCE=1`` so esptool emits ANSI
+#     escape sequences (e.g. ``\x1b[2K`` clear-line) that prefix the
+#     output — DO NOT anchor with ``^\s*`` here, those escapes
+#     aren't whitespace and the anchor would silently fail in
+#     production while passing in plain-text tests. Capture the
+#     integer part and discard the decimal — the dashboard's
+#     progress bar is a single coarse 0-100 indicator.
 #   * ESPHome OTA upload:            ``Uploading: [====] 100% Done...``
 #     Anchored to the ``Uploading:`` prefix.
 _PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*\[\s*(\d{1,3})\s*%\s*\]"),
     re.compile(r"\(\s*(\d{1,3})\s*%\s*\)"),
-    re.compile(r"^\s*Writing at\b.*?(\d{1,3})(?:\.\d+)?\s*%"),
+    re.compile(r"Writing at\b.*?(\d{1,3})(?:\.\d+)?\s*%"),
     re.compile(r"^\s*Uploading:.*?\b(\d{1,3})\s*%"),
 )
 

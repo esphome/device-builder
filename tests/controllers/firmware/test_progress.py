@@ -78,6 +78,19 @@ class TestRealProgressLines:
                 "Writing at 0x000cf943 [=>     ]  42.5% 200000/579918 bytes...\r",
                 42,
             ),
+            # ANSI-prefixed line — the runner sets ``FORCE_COLOR=1`` /
+            # ``CLICOLOR_FORCE=1`` so esptool emits ``\x1b[2K`` clear-line
+            # escapes before each refresh. An anchored ``^\s*`` regex
+            # would silently fail in production (the escapes aren't
+            # whitespace) while passing in plain-text tests. Pinning
+            # this case prevents a future "tighten the regex" refactor
+            # from re-introducing the anchor and breaking serial install
+            # progress capture again — that's exactly the regression
+            # this PR fixes (issue #140).
+            (
+                "\x1b[2KWriting at 0x000cf943 [=>     ]  42.5% 200000/579918 bytes...",
+                42,
+            ),
         ],
     )
     def test_esptool_writing_marker_new(self, line: str, expected: int) -> None:
