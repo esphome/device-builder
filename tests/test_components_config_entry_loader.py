@@ -60,6 +60,23 @@ def test_load_config_entry_drops_non_string_unit_options() -> None:
     assert entry.unit_options == ["Hz", "kHz"]
 
 
+def test_load_config_entry_unit_options_all_filtered_returns_none() -> None:
+    """Lists with no string members fold back to ``None``.
+
+    Rather than emitting an empty list — a half-populated picker
+    would reach the frontend as a unit-less FLOAT_WITH_UNIT widget.
+    """
+    entry = _load_config_entry(
+        {
+            "key": "frequency",
+            "type": "float_with_unit",
+            "label": "Frequency",
+            "unit_options": [42, None, [], {}],
+        }
+    )
+    assert entry.unit_options is None
+
+
 def test_materialise_entry_preserves_unit_options() -> None:
     """The per-request copy carries ``unit_options`` through to the API response."""
     loaded = _load_config_entry(

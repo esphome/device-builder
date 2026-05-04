@@ -646,11 +646,12 @@ def _load_unit_options(raw: Any) -> list[str] | None:
     ``None`` for non-FLOAT_WITH_UNIT entries (the catalog omits the
     field entirely on those). Non-list / empty values fold back to
     ``None`` so a malformed catalog entry doesn't reach the frontend
-    as a half-populated picker.
+    as a half-populated picker — same shape as ``_load_options``.
     """
     if not isinstance(raw, list) or not raw:
         return None
-    return [str(item) for item in raw if isinstance(item, str)]
+    out = [str(item) for item in raw if isinstance(item, str)]
+    return out or None
 
 
 def _load_options(raw: Any) -> list[ConfigValueOption] | None:
