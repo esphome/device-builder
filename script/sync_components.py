@@ -31,6 +31,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import logging
 import re
@@ -422,6 +423,7 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
                 "type": "integer",
                 "label": "Channel",
                 "description": ("2.4GHz channel the AP should operate on (1-14). Defaults to 1."),
+                "default_value": 1,
                 "range": [1, 14],
                 "advanced": True,
                 "help_link": "https://esphome.io/components/wifi#access-point-mode",
@@ -1648,10 +1650,14 @@ def _convert_config_vars(
         if entry is None:
             continue
         # Per-(component, field) overrides patch up entries the schema
-        # generator couldn't model (e.g. ``api.encryption``).
+        # generator couldn't model (e.g. ``api.encryption``). Deep-copy
+        # so downstream apply-* passes can mutate ``config_entries``
+        # in place without leaking the change back into the static
+        # ``_FIELD_OVERRIDES`` dict (and across components when two
+        # entries share a shape, like ``uart.debug`` / ``ble_nus.debug``).
         override = _FIELD_OVERRIDES.get((component_id, key))
         if override is not None:
-            entry = {**entry, **override}
+            entry = {**entry, **copy.deepcopy(override)}
         # Cross-cutting infrastructure fields are only meaningful when
         # the named component is configured. Tag them so the frontend
         # can hide them by default.
