@@ -37,6 +37,17 @@ try:
 except ImportError:
     _resolve_packages = None
 
+# Same forward-compat pattern: prefer upstream's
+# ``has_remote_packages`` walker (esphome/esphome#16235) so the
+# local copy below can be deleted once the dep floor moves past
+# the release that ships it.
+try:
+    from esphome.components.packages import (  # type: ignore[attr-defined]
+        has_remote_packages as _upstream_has_remote_packages,
+    )
+except ImportError:
+    _upstream_has_remote_packages = None
+
 try:
     from esphome.components.packages import (
         do_packages_pass as _do_packages_pass,
@@ -60,6 +71,13 @@ _LOGGER = logging.getLogger(__name__)
 def _has_remote_packages(packages_subtree: object) -> bool:
     """Return True when the ``packages:`` subtree contains any remote ref.
 
+    Prefers the upstream ``has_remote_packages`` walker
+    (esphome/esphome#16235) when present — keeps the dashboard's
+    remote-detection in lockstep with the rest of the resolver
+    without having to track new remote-package shapes here. Falls
+    back to a local mirror of the same walk for older esphome
+    releases.
+
     A remote package triggers ``git clone`` / URL fetch synchronously
     inside ``do_packages_pass`` — first-run latency runs into 5-10
     minutes on a slow connection / large repo. The metadata refresh
@@ -70,25 +88,15 @@ def _has_remote_packages(packages_subtree: object) -> bool:
     the user compiles, ``StorageJSON.loaded_integrations`` /
     ``target_platform`` fill in the package-aware metadata anyway).
 
-    What counts as remote is delegated to ESPHome's own
-    ``is_remote_package`` (a dict with a ``url:`` key) plus the
-    git-shorthand string form (``github://user/repo@ref``,
-    ``gitlab://...``) — both are network-dependent. Local shapes
-    are ``IncludeFile`` (resolved ``!include`` — file-IO only) and
-    inline-dict config fragments. Hardcoding the remote-key list
-    here would drift the moment ESPHome adds a new remote shape;
-    using upstream's predicate keeps the gate in sync.
-
-    The walk descends ONLY into nested ``packages:`` blocks inside
-    local config fragments. ESPHome supports a local package
-    referencing a remote one through its own ``packages:`` key, so
-    we have to recurse there — but we DON'T recurse into arbitrary
-    config-fragment values (``wifi: { ssid: ... }`` shouldn't have
-    its scalar leaves treated as package definitions). That
-    distinction is what makes the recursion correct: a string AT
-    the package-definition position is remote, a string anywhere
-    else (a wifi password, a sensor name, …) isn't.
+    Local-fallback walk semantics (matched to upstream's): walks
+    ONLY nested ``packages:`` blocks inside local config fragments.
+    A string AT the package-definition position is remote
+    (``github://...`` shorthand); a string anywhere else (a wifi
+    password, a sensor name) isn't. ``IncludeFile`` is local (file
+    IO only).
     """
+    if _upstream_has_remote_packages is not None:
+        return _upstream_has_remote_packages(packages_subtree)
     if isinstance(packages_subtree, list):
         return any(_has_remote_packages(item) for item in packages_subtree)
     if not isinstance(packages_subtree, dict):
@@ -97,25 +105,28 @@ def _has_remote_packages(packages_subtree: object) -> bool:
         # which yaml_util returns as ``IncludeFile`` (file-IO only,
         # no network), and we want to allow that.
         return False
-    for definition in packages_subtree.values():
-        if isinstance(definition, str):
-            # Shorthand at the package-definition level
-            # (``github://...``) is always remote. Strings deeper
-            # inside config fragments don't reach this branch
-            # because we only recurse into nested ``packages:``
-            # blocks, not arbitrary value subtrees.
+    return any(_definition_is_remote(definition) for definition in packages_subtree.values())
+
+
+def _definition_is_remote(definition: object) -> bool:
+    """Return True when *definition* is a remote package def or has remote nested."""
+    if isinstance(definition, str):
+        # Shorthand at the package-definition level
+        # (``github://...``) is always remote. Strings deeper
+        # inside config fragments don't reach this branch because
+        # the caller only recurses into nested ``packages:``
+        # blocks, not arbitrary value subtrees.
+        return True
+    if isinstance(definition, dict):
+        if _is_remote_package is not None and _is_remote_package(definition):
             return True
-        if isinstance(definition, dict):
-            if _is_remote_package is not None and _is_remote_package(definition):
-                return True
-            # Local config fragment — recurse ONLY into its own
-            # nested ``packages:`` key (if any). Walking into
-            # arbitrary keys (``wifi:`` / ``sensor:`` / …) would
-            # over-trigger on benign string values.
-            nested = definition.get(CONF_PACKAGES)
-            if nested is not None and _has_remote_packages(nested):
-                return True
-        # Anything else (``IncludeFile``, scalars) is local.
+        # Local config fragment — recurse ONLY into its own
+        # nested ``packages:`` key (if any). Walking into
+        # arbitrary keys (``wifi:`` / ``sensor:`` / …) would
+        # over-trigger on benign string values.
+        nested = definition.get(CONF_PACKAGES)
+        return nested is not None and _has_remote_packages(nested)
+    # ``IncludeFile`` / scalars / None — local.
     return False
 
 
