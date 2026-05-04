@@ -1,0 +1,71 @@
+name: Generate release notes
+description: |
+  Build the device-builder release notes from merged PRs since the previous
+  tag. Mirrors the label-driven categorisation in release-drafter.yml and,
+  on top of that, expands every "Bump frontend to X.Y.Z" PR in place: the
+  frontend GitHub releases between the previous and current pinned versions
+  are fetched and their bullets are dropped into the matching backend
+  category. Bump PRs themselves never appear in the rendered notes.
+
+inputs:
+  version:
+    description: Version being released (used in log lines, not in the body).
+    required: true
+  previous-tag:
+    description: Previous release tag to diff against. Empty for the first release.
+    required: false
+    default: ""
+  commitish:
+    description: Branch name or commit SHA the release is being cut from.
+    required: true
+  github-token:
+    description: |
+      GitHub token. Needs read access to this repo *and* to the frontend repo
+      (for the release bodies). The default GITHUB_TOKEN works for public
+      repos; the release workflow passes its app token here.
+    required: true
+  frontend-repo:
+    description: Frontend repo in OWNER/REPO form.
+    required: false
+    default: esphome/device-builder-frontend
+  frontend-dep-name:
+    description: Frontend distribution name as it appears in pyproject.toml's `dependencies`.
+    required: false
+    default: esphome-device-builder-frontend
+
+outputs:
+  release-notes:
+    description: The rendered release-notes body.
+    value: ${{ steps.generate.outputs.release-notes }}
+  release-notes-file:
+    description: |
+      Path to a file containing the rendered notes. Prefer this over
+      `release-notes` when piping into `gh release create --notes-file`,
+      since multi-line outputs can be brittle to reinterpolate.
+    value: ${{ steps.generate.outputs.release-notes-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      with:
+        python-version: "3.13"
+
+    - name: Install Python dependencies
+      shell: bash
+      run: pip install --no-cache-dir PyGithub PyYAML
+
+    - name: Generate release notes
+      id: generate
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+        VERSION: ${{ inputs.version }}
+        PREVIOUS_TAG: ${{ inputs.previous-tag }}
+        COMMITISH: ${{ inputs.commitish }}
+        FRONTEND_REPO: ${{ inputs.frontend-repo }}
+        FRONTEND_DEP_NAME: ${{ inputs.frontend-dep-name }}
+      run: python "${{ github.action_path }}/generate_notes.py"

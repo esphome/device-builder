@@ -120,6 +120,10 @@ select = [
 # behind try/except ImportError, and several subprocess invocations are inherent.
 "script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415"]
 "tests/*" = ["S105", "S106"] # hardcoded test credentials
+# GitHub Action helpers: prints are CI-log diagnostics, lazy imports keep the
+# module importable for unit tests without PyGithub installed, and the temp
+# file path is a runner-controlled location not user input.
+".github/actions/*" = ["T20", "S108", "PLC0415", "BLE001"]
 
 [tool.codespell]
 skip = "*.json,*/definitions/*"

@@ -1,9 +1,9 @@
-# Release-drafter config — drives the rolling draft maintained by
-# .github/workflows/release-drafter.yml. Each merged PR's label
-# decides which section it lands in; the version bump (major/minor/
-# patch) is derived from the labels too. Mirrors matter-server's
-# convention so contributors familiar with that repo land in the
-# right place by default.
+# Release-notes config — read by .github/actions/generate-release-notes/
+# at release time. Each merged PR's label decides which section it lands
+# in; the action also expands "Bump frontend to ..." PRs by inlining the
+# matching frontend release notes under the same backend categories.
+# Mirrors matter-server's category convention so contributors familiar
+# with that repo land in the right place by default.
 
 name-template: "$RESOLVED_VERSION"
 tag-template: "$RESOLVED_VERSION"
@@ -40,11 +40,12 @@ template: |
 
   $CHANGES
 
-# Label-driven version resolution. ``breaking-change`` bumps major,
-# ``new-feature`` / ``enhancement`` bumps minor, anything else patch.
-# The drafter doesn't pick the actual tag — the maintainer types it
-# when publishing — but ``$RESOLVED_VERSION`` shows up in the draft
-# title as a suggestion.
+# Label-to-bump mapping kept for documentation. The release workflow
+# picks the actual version itself (auto-release.yml increments the
+# beta/patch suffix; manual stable releases pass the version into
+# release.yml directly), so these fields aren't consumed by the
+# generator — they're a reference for which labels imply which kind
+# of version bump.
 version-resolver:
   major:
     labels:

@@ -147,23 +147,66 @@ jobs:
         with:
           # Tag doesn't exist yet — it's created when the draft release
           # is published. Build from the SHA the workflow ran on, which
-          # is also what release-drafter targets via commitish.
+          # is also what the generate-release-notes action targets via
+          # commitish.
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Generate release notes (draft)
-        uses: release-drafter/release-drafter@563bf132657a13ded0b01fcb723c5a58cdd824e2  # v7.2.1
-        with:
-          config-name: release-drafter.yml
-          version: ${{ inputs.version }}
-          tag: ${{ inputs.version }}
-          name: ${{ inputs.version }}
-          commitish: ${{ github.sha }}
-          publish: false
-          prerelease: ${{ needs.validate.outputs.is-prerelease }}
+      - name: Resolve previous release tag
+        id: previous
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Latest non-draft release that isn't the one we're about to
+          # cut. ``--exclude-drafts`` already strips draft entries left
+          # over from a prior attempt; ``grep -v`` defends against the
+          # rare case where ``inputs.version`` matches a published tag
+          # that the validate job somehow let through.
+          tag=$(gh release list --exclude-drafts --limit 5 \
+            --json tagName --jq '.[].tagName' \
+            | grep -v "^${{ inputs.version }}$" | head -n 1 || true)
+          if [ -z "$tag" ]; then
+            echo "No previous release found — emitting full first-release notes."
+          else
+            echo "Previous release: $tag"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: notes
+        uses: ./.github/actions/generate-release-notes
+        with:
+          version: ${{ inputs.version }}
+          previous-tag: ${{ steps.previous.outputs.tag }}
+          commitish: ${{ github.sha }}
+          github-token: ${{ steps.app-token.outputs.token }}
+
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          NOTES_FILE: ${{ steps.notes.outputs.release-notes-file }}
+          IS_PRERELEASE: ${{ needs.validate.outputs.is-prerelease }}
+        run: |
+          set -euo pipefail
+          # Reruns of this job may find an existing draft from the
+          # previous attempt — edit it in place rather than failing on
+          # a duplicate-tag error from ``gh release create``.
+          if gh release view "${{ inputs.version }}" >/dev/null 2>&1; then
+            gh release edit "${{ inputs.version }}" \
+              --notes-file "$NOTES_FILE" \
+              --target "${{ github.sha }}" \
+              --draft \
+              --prerelease="$IS_PRERELEASE"
+          else
+            gh release create "${{ inputs.version }}" \
+              --notes-file "$NOTES_FILE" \
+              --target "${{ github.sha }}" \
+              --title "${{ inputs.version }}" \
+              --draft \
+              --prerelease="$IS_PRERELEASE"
+          fi
 
       - name: Download dist artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
