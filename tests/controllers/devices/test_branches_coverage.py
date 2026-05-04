@@ -55,7 +55,7 @@ from .conftest import (
 )
 
 
-def _device(name: str, *, ip: str = "") -> Device:
+def _device(name: str, *, ip: str = "", ip_addresses: list[str] | None = None) -> Device:
     return Device(
         name=name,
         friendly_name=name.title(),
@@ -63,6 +63,7 @@ def _device(name: str, *, ip: str = "") -> Device:
         address=f"{name}.local",
         state=DeviceState.ONLINE,
         ip=ip,
+        ip_addresses=list(ip_addresses) if ip_addresses else [],
     )
 
 
@@ -328,14 +329,14 @@ def test_on_ip_change_skips_when_ip_unchanged(
     benchmarks (not just a soft "feels slow" complaint).
     """
     controller = make_controller(tmp_path)
-    device = _device("kitchen", ip="192.168.1.42")
+    device = _device("kitchen", ip="192.168.1.42", ip_addresses=["192.168.1.42"])
     controller._scanner._devices_by_name = {"kitchen": [device]}  # type: ignore[attr-defined]
     captured = capture_devices_events(controller, EventType.DEVICE_UPDATED)
     spawned: list[Any] = []
     controller._db.create_background_task = spawned.append
 
-    # Same IP → no-op.
-    controller._on_ip_change("kitchen", "192.168.1.42")
+    # Same primary + same list → no-op.
+    controller._on_ip_change("kitchen", "192.168.1.42", ["192.168.1.42"])
 
     assert captured == []
     assert spawned == []

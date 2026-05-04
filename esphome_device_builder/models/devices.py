@@ -27,10 +27,19 @@ class Device(DataClassORJSONMixin):
     board_id: str = ""
     target_platform: str = ""
     address: str = ""  # mDNS hostname from StorageJSON (e.g. "my_device.local")
-    # Last-known resolved IP. Populated by mDNS resolution and DNS
+    # Last-known resolved IP — primary IPv4 when available, else the
+    # first scoped IPv6. Populated by mDNS resolution and DNS
     # pre-resolve in the ping sweep, persisted through the device-builder
     # metadata sidecar so the OTA address cache survives a restart.
     ip: str = ""
+    # Every IP currently announced by the device, IPv4 first then any
+    # scoped IPv6 entries (link-local addresses keep the ``%scope``
+    # suffix). Populated from zeroconf's ``parsed_scoped_addresses``
+    # so the dashboard can surface a multi-homed device's full set —
+    # ``ip`` only holds the primary picked for OTA cache args.
+    # Runtime-only: not persisted to the metadata sidecar; the next
+    # mDNS pass repopulates after a restart.
+    ip_addresses: list[str] = field(default_factory=list)
     web_port: int | None = None
     current_version: str = ""
     deployed_version: str = ""

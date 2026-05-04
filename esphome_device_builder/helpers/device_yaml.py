@@ -397,6 +397,11 @@ def load_device_from_storage(
 
     deployed_config_hash = previous.deployed_config_hash if previous else ""
     state = previous.state if previous else DeviceState.UNKNOWN
+    # mDNS-derived view that isn't persisted in the metadata sidecar;
+    # carry it across reloads so a re-scan triggered by an unrelated
+    # YAML edit doesn't blank the dashboard's IP list until the next
+    # mDNS broadcast lands.
+    ip_addresses = list(previous.ip_addresses) if previous else []
 
     has_pending = compute_has_pending_changes(
         yaml_mtime=yaml_mtime,
@@ -456,6 +461,7 @@ def load_device_from_storage(
         # ``esphome.address``.
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
         ip=ip,
+        ip_addresses=ip_addresses,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
         deployed_version=deployed,

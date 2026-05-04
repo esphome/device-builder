@@ -365,24 +365,23 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
 async def test_dispatch_added_cache_hit_propagates_full_txt_bundle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A cache-hit Added event applies IP + version + config_hash + api_encryption.
+    """A cache-hit Added event applies IPs + version + config_hash + api_encryption.
 
     Anchors the full bundle so a refactor that drops one of the
     apply-* calls (or reorders in a way that hides a missing one)
-    surfaces here. Also the V4 preference: apply_ip receives the
-    V4 address even though the info also carries V6.
+    surfaces here. Also the V4-primary preference: ``device.ip``
+    holds the IPv4 even when the info also carries V6, while
+    ``device.ip_addresses`` keeps every announced address.
     """
     device = _device()
     monitor, _callbacks = _make_monitor([device])
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
-
-    def _addresses(mode: Any) -> list[str]:
-        # IPVersion.V4Only first, then V6Only on the fallback call.
-        return ["10.0.0.5"] if "V4" in repr(mode) else ["fe80::1%en0"]
-
-    fake_info.parsed_scoped_addresses = _addresses
+    # ``_apply_service_info`` calls ``parsed_scoped_addresses(IPVersion.All)``
+    # — return the full announced set (V4 + V6) so we can assert the
+    # primary picks V4 and the full list lands on the device.
+    fake_info.parsed_scoped_addresses = lambda _mode: ["10.0.0.5", "fe80::1%en0"]
     fake_info.decoded_properties = {
         "version": "2026.5.0",
         "config_hash": "abcd1234",
@@ -401,6 +400,7 @@ async def test_dispatch_added_cache_hit_propagates_full_txt_bundle(
 
         assert device.state == DeviceState.ONLINE
         assert device.ip == "10.0.0.5"
+        assert device.ip_addresses == ["10.0.0.5", "fe80::1%en0"]
         assert device.deployed_version == "2026.5.0"
         assert device.deployed_config_hash == "abcd1234"
         assert device.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
@@ -413,23 +413,19 @@ async def test_dispatch_added_cache_hit_propagates_full_txt_bundle(
 async def test_dispatch_added_cache_hit_falls_back_to_v6_when_no_v4(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No V4 in the cached info → ``apply_ip`` gets the first scoped V6.
+    """V6-only announcement → primary is the first scoped V6 address.
 
-    Pin the ``parsed_scoped_addresses(V4Only) or
-    parsed_scoped_addresses(V6Only)`` short-circuit. Empty V4 list
-    falls through; if the second call also returned empty, no
-    apply_ip happens.
+    Pin the V4-preference fallback in ``_pick_ipv4``: with no IPv4
+    in the announced set, ``device.ip`` lands on the first V6 entry
+    so the OTA cache args still have a target. The full list flows
+    through to ``ip_addresses`` either way.
     """
     device = _device(state=DeviceState.UNKNOWN)
     monitor, _callbacks = _make_monitor([device])
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
-
-    def _addresses(mode: Any) -> list[str]:
-        return [] if "V4" in repr(mode) else ["fe80::1%en0"]
-
-    fake_info.parsed_scoped_addresses = _addresses
+    fake_info.parsed_scoped_addresses = lambda _mode: ["fe80::1%en0"]
     fake_info.decoded_properties = {}
     monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
 
@@ -442,6 +438,7 @@ async def test_dispatch_added_cache_hit_falls_back_to_v6_when_no_v4(
             ServiceStateChange.Added,
         )
         assert device.ip == "fe80::1%en0"
+        assert device.ip_addresses == ["fe80::1%en0"]
     finally:
         await _stop_and_drain(monitor)
 
@@ -1227,16 +1224,35 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
 
 
 def test_apply_ip_short_circuits_when_value_unchanged() -> None:
-    """``apply_ip`` is a no-op when every matching device already has *ip*.
+    """``apply_ip`` is a no-op when both primary + list already match.
 
-    Pin the dedupe so a refactor that drops the
-    ``_any_matching_device_differs`` guard surfaces here — without
-    it, every mDNS announcement would re-fire DEVICE_UPDATED for
-    the same IP and the UI would thrash.
+    Pin the dedupe so a refactor that drops the device-state
+    comparison surfaces here — without it, every mDNS announcement
+    would re-fire DEVICE_UPDATED for the same IP and the UI would
+    thrash.
     """
-    device = _device(ip="10.0.0.1")
+    device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1"])
     monitor, callbacks = _make_monitor([device])
 
     monitor.apply_ip("kitchen", "10.0.0.1")
 
     assert callbacks.calls_for("on_ip_change") == []
+
+
+def test_apply_ip_addresses_fires_when_list_changes_but_primary_does_not() -> None:
+    """A device picking up a V6 address while keeping its V4 still fires.
+
+    The dedupe has to look at both ``ip`` and ``ip_addresses`` so a
+    dual-stack device whose V4 was already known surfaces its
+    newly-announced V6 too.
+    """
+    device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1"])
+    monitor, callbacks = _make_monitor([device])
+
+    monitor.apply_ip_addresses("kitchen", ["10.0.0.1", "fe80::1%en0"])
+
+    assert callbacks.calls_for("on_ip_change") == [
+        ("on_ip_change", "kitchen", "10.0.0.1", ["10.0.0.1", "fe80::1%en0"]),
+    ]
+    assert device.ip == "10.0.0.1"
+    assert device.ip_addresses == ["10.0.0.1", "fe80::1%en0"]

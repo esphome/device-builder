@@ -276,13 +276,12 @@ async def test_offline_via_ping_still_resolved() -> None:
 
 @pytest.mark.asyncio
 async def test_resolve_picks_ipv4_for_apply_ip() -> None:
-    """``apply_ip`` gets the IPv4 address even when V6 is present.
+    """Active resolve forwards every IP; primary picks IPv4 when present.
 
-    ``Device.ip`` only carries one address; cross-subnet ICMP and
-    the device-list display both prefer V4. The address-cache CLI
-    args still consume every IP via a different code path
-    (``_build_address_cache_args``), so we don't lose V6
-    reachability by picking V4 here.
+    ``Device.ip`` only carries one address — cross-subnet ICMP and
+    OTA cache args both prefer V4 — but ``Device.ip_addresses``
+    keeps the full announced set so the dashboard can surface every
+    IP a multi-homed device claims.
     """
     devices = [_device(loaded_integrations=["web_server"])]
     monitor, _ = _make_monitor(
@@ -293,6 +292,7 @@ async def test_resolve_picks_ipv4_for_apply_ip() -> None:
     await monitor._resolve_non_api_mdns_targets()
 
     assert devices[0].ip == "192.168.1.42"
+    assert devices[0].ip_addresses == ["fe80::1%en0", "192.168.1.42", "fe80::2%en0"]
 
 
 @pytest.mark.asyncio

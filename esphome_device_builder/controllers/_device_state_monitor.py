@@ -82,8 +82,13 @@ _SOURCE_PRIORITY = {"unknown": 0, "ping": 1, "mqtt": 2, "mdns": 3}
 StateChangeCallback = Callable[[str, DeviceState, str], None]
 
 # Callback fired when mDNS resolves (or clears) a device's IP address.
-# Empty string signals the device went offline / was removed from mDNS.
-IPChangeCallback = Callable[[str, str], None]
+# ``primary`` is the IPv4 we lock onto for ICMP / OTA cache args (or
+# the first scoped IPv6 when a host has no V4); ``addresses`` is the
+# full announced list — IPv4 first, then any scoped IPv6 entries —
+# so the dashboard can surface every IP a multi-homed device claims.
+# Empty primary + empty list signals the device went offline / was
+# removed from mDNS.
+IPChangeCallback = Callable[[str, str, list[str]], None]
 
 # Callback fired when the mDNS ``version`` TXT record reports a
 # different firmware version than last seen for a device.
@@ -305,19 +310,49 @@ class DeviceStateMonitor:
 
     def apply_ip(self, name: str, ip: str) -> bool:
         """
-        Record an IP observation. Empty string clears the stored IP.
+        Record a single-IP observation. Empty string clears the stored IPs.
 
         Returns True when the IP actually changed and the change was
-        forwarded to the callback. Dedupe is done against the
-        configured devices' current ``ip`` field rather than a
-        separate monitor cache so a Device that's been rebuilt with
-        ``previous=None`` (e.g. an atomic save's brief
-        REMOVE+re-ADD scan churn) still gets repopulated by the
-        next mDNS announcement.
+        forwarded to the callback. Used by sources that only know one
+        address per device (MQTT discovery, DNS resolve fallback);
+        callers with the full announced set should reach for
+        :meth:`apply_ip_addresses` instead so the multi-IP view stays
+        accurate.
         """
-        if not self._any_matching_device_differs(name, "ip", ip):
+        return self._dispatch_ip(name, ip, [ip] if ip else [])
+
+    def apply_ip_addresses(self, name: str, addresses: list[str]) -> bool:
+        """
+        Record the full set of announced IPs for *name*.
+
+        Picks an IPv4 primary via :func:`_pick_ipv4` (falling back to
+        the first scoped IPv6 when no V4 is present) so ``device.ip``
+        keeps its "single IP we'll hand to ICMP / OTA" shape, and
+        forwards the complete list so ``device.ip_addresses`` reflects
+        what the device is broadcasting. Empty list clears both.
+        """
+        primary = _pick_ipv4(addresses) if addresses else ""
+        return self._dispatch_ip(name, primary, addresses)
+
+    def _dispatch_ip(self, name: str, primary: str, addresses: list[str]) -> bool:
+        """
+        Shared dedupe + dispatch for both apply_ip variants.
+
+        Dedupe is done against the configured devices' current ``ip``
+        and ``ip_addresses`` fields rather than a separate monitor
+        cache so a Device that's been rebuilt with ``previous=None``
+        (e.g. an atomic save's brief REMOVE+re-ADD scan churn) still
+        gets repopulated by the next mDNS announcement. Either side
+        differing is enough to fire — a host that picks up an IPv6
+        address while keeping the same IPv4 still surfaces in the
+        dashboard.
+        """
+        devices = self._get_devices_by_name(name)
+        if not devices:
             return False
-        self._on_ip_change(name, ip)
+        if all(d.ip == primary and d.ip_addresses == addresses for d in devices):
+            return False
+        self._on_ip_change(name, primary, addresses)
         return True
 
     def apply_version(self, name: str, version: str) -> bool:
@@ -784,14 +819,15 @@ class DeviceStateMonitor:
         # had already labelled the device — same shape the browser
         # callback uses on its way into this method.
         self.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
-        # Prefer V4; fall back to scoped V6 (link-local needs the
-        # ``%scope`` suffix to connect at all). Matches the upstream
-        # esphome dashboard's ``parsed_scoped_addresses`` usage.
-        addresses = info.parsed_scoped_addresses(IPVersion.V4Only) or info.parsed_scoped_addresses(
-            IPVersion.V6Only
-        )
-        if addresses:
-            self.apply_ip(device_name, addresses[0])
+        # Pull every announced address (IPv4 first, then scoped IPv6
+        # — link-local entries keep the ``%scope`` suffix that's
+        # required to connect at all). ``apply_ip_addresses`` picks
+        # the IPv4 primary for ``device.ip`` and forwards the whole
+        # list so ``device.ip_addresses`` reflects what's actually
+        # broadcast — a multi-homed dual-stack device used to surface
+        # only its V4 here.
+        if addresses := info.parsed_scoped_addresses(IPVersion.All):
+            self.apply_ip_addresses(device_name, addresses)
         # ``decoded_properties`` is a ``dict[str, str | None]`` — zeroconf
         # already handles the UTF-8 decode and None-on-bad-bytes for us.
         props = info.decoded_properties
@@ -869,7 +905,7 @@ class DeviceStateMonitor:
                 # we want mDNS to be the single source of truth for
                 # devices that respond to it.
                 self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                self.apply_ip(device.name, _pick_ipv4(addresses))
+                self.apply_ip_addresses(device.name, addresses)
             # No OFFLINE branch — deliberate. The browser path can
             # trust mDNS in both directions because the
             # ServiceBrowser delivers a ``Removed`` event when a
@@ -957,14 +993,11 @@ class DeviceStateMonitor:
                 cached := self.get_cached_addresses(device.address)
             ):
                 self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                # Prefer IPv4 for ``apply_ip`` (the per-device single
-                # IP) so the device-list display and any ad-hoc ICMP
-                # probe both pick the cross-subnet-friendly entry. The
-                # OTA cache args built in
-                # ``_build_address_cache_args`` consume every cached
-                # IP separately, so we don't lose V6 reachability by
-                # picking V4 here.
-                self.apply_ip(device.name, _pick_ipv4(cached))
+                # Forward every cached IP so the dashboard shows all
+                # of them; ``apply_ip_addresses`` picks an IPv4 primary
+                # for ``device.ip`` so ICMP probes and OTA cache args
+                # still hit the cross-subnet-friendly entry.
+                self.apply_ip_addresses(device.name, cached)
                 continue
             if self._dns_cache.has_cached_failure(device.address):
                 dns_skipped.append(device)

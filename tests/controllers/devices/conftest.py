@@ -97,6 +97,10 @@ class RecordingStateMonitor:
         self.calls.append(("apply_ip", name, ip))
         return True
 
+    def apply_ip_addresses(self, name: str, addresses: list[str]) -> bool:
+        self.calls.append(("apply_ip_addresses", name, list(addresses)))
+        return True
+
     def apply_version(self, name: str, version: str) -> bool:
         self.calls.append(("apply_version", name, version))
         return True

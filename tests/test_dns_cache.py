@@ -233,11 +233,11 @@ async def test_ping_sweep_pre_resolves_via_dns_cache(fake_resolver) -> None:
     """A ping sweep populates the DNS cache and pings the resolved IP."""
     devices = [_device()]
     state_changes: list[tuple[str, object, str]] = []
-    ip_changes: list[tuple[str, str]] = []
+    ip_changes: list[tuple[str, str, list[str]]] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,
         on_state_change=lambda n, s, src: state_changes.append((n, s, src)),
-        on_ip_change=lambda n, ip: ip_changes.append((n, ip)),
+        on_ip_change=lambda n, ip, addrs: ip_changes.append((n, ip, list(addrs))),
     )
 
     resolver = fake_resolver(["10.0.0.1"])
@@ -258,7 +258,7 @@ async def test_ping_sweep_pre_resolves_via_dns_cache(fake_resolver) -> None:
         await monitor._ping_sweep()
 
     assert pinged == ["10.0.0.1"]
-    assert ip_changes == [("kitchen", "10.0.0.1")]
+    assert ip_changes == [("kitchen", "10.0.0.1", ["10.0.0.1"])]
     # DNS cache is now warm — ``get_cached_dns_addresses`` should hit
     # without triggering another resolver call.
     assert monitor.get_cached_dns_addresses("esp.example.com") == ["10.0.0.1"]
@@ -267,11 +267,11 @@ async def test_ping_sweep_pre_resolves_via_dns_cache(fake_resolver) -> None:
 async def test_ping_sweep_does_not_apply_ip_for_local_hosts(fake_resolver) -> None:
     """``.local`` devices keep their mDNS-owned IP — DNS doesn't write."""
     devices = [_device(address="kitchen.local")]
-    ip_changes: list[tuple[str, str]] = []
+    ip_changes: list[tuple[str, str, list[str]]] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,
         on_state_change=lambda *_: None,
-        on_ip_change=lambda n, ip: ip_changes.append((n, ip)),
+        on_ip_change=lambda n, ip, addrs: ip_changes.append((n, ip, list(addrs))),
     )
 
     resolver = fake_resolver(["192.168.1.50"])
@@ -304,11 +304,11 @@ async def test_ping_sweep_rescues_local_device_from_zeroconf_cache() -> None:
     """
     devices = [_device(address="winefridge.local", name="winefridge")]
     state_changes: list[tuple[str, object, str]] = []
-    ip_changes: list[tuple[str, str]] = []
+    ip_changes: list[tuple[str, str, list[str]]] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,
         on_state_change=lambda n, s, src: state_changes.append((n, s, src)),
-        on_ip_change=lambda n, ip: ip_changes.append((n, ip)),
+        on_ip_change=lambda n, ip, addrs: ip_changes.append((n, ip, list(addrs))),
     )
 
     pinged: list[str] = []
@@ -329,7 +329,7 @@ async def test_ping_sweep_rescues_local_device_from_zeroconf_cache() -> None:
 
     assert pinged == []
     assert state_changes == [("winefridge", DeviceState.ONLINE, "mdns")]
-    assert ip_changes == [("winefridge", "192.168.213.11")]
+    assert ip_changes == [("winefridge", "192.168.213.11", ["192.168.213.11"])]
     assert monitor.priority_for("winefridge") == "mdns"
 
 
@@ -615,25 +615,31 @@ def test_on_ip_change_persists_non_empty_value() -> None:
         [device], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_ip_change("kitchen", "10.0.0.1")
+    controller._on_ip_change("kitchen", "10.0.0.1", ["10.0.0.1", "fe80::1%en0"])
 
     assert device.ip == "10.0.0.1"
+    assert device.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
     assert len(scheduled) == 1
 
 
 def test_on_ip_change_skips_persist_for_empty_value() -> None:
     """Empty IP (device went offline) doesn't schedule a write — keeps the cache warm."""
     device = Device(
-        name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml", ip="10.0.0.1"
+        name="kitchen",
+        friendly_name="Kitchen",
+        configuration="kitchen.yaml",
+        ip="10.0.0.1",
+        ip_addresses=["10.0.0.1"],
     )
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
         [device], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_ip_change("kitchen", "")
+    controller._on_ip_change("kitchen", "", [])
 
     assert device.ip == ""
+    assert device.ip_addresses == []
     assert scheduled == []
 
 

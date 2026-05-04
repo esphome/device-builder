@@ -77,10 +77,12 @@ def test_ip_change_fans_out_to_every_matching_device() -> None:
         create_background_task=_close_coro,
     )
 
-    controller._on_ip_change("kitchen", "10.0.0.5")
+    controller._on_ip_change("kitchen", "10.0.0.5", ["10.0.0.5"])
 
     assert a.ip == "10.0.0.5"
     assert b.ip == "10.0.0.5"
+    assert a.ip_addresses == ["10.0.0.5"]
+    assert b.ip_addresses == ["10.0.0.5"]
     assert len(captured) == 2
     assert sorted(e.data["device"].configuration for e in captured) == [
         "kitchen (1).yaml",

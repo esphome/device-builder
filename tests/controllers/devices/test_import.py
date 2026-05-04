@@ -331,7 +331,7 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
     assert ctrl._state_monitor.calls == [
         ("apply", "kitchen", DeviceState.ONLINE, "mdns", True),
         ("get_cached_addresses", "kitchen.local"),
-        ("apply_ip", "kitchen", "192.168.1.42"),
+        ("apply_ip_addresses", "kitchen", ["192.168.1.42"]),
         ("probe_device", "kitchen", "kitchen"),
     ]
 

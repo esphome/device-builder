@@ -906,7 +906,7 @@ class DevicesController:
         self._state_monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
         cached = self._state_monitor.get_cached_addresses(f"{mdns_name}.local")
         if cached:
-            self._state_monitor.apply_ip(name, cached[0])
+            self._state_monitor.apply_ip_addresses(name, cached)
         # Eagerly probe the esphomelib service so the new card lands
         # with version / config_hash / api_encryption populated, not
         # just IP. The device on the network is still broadcasting
@@ -1215,21 +1215,33 @@ class DevicesController:
                 {"configuration": device.configuration, "state": state.value},
             )
 
-    def _on_ip_change(self, name: str, ip: str) -> None:
+    def _on_ip_change(self, name: str, ip: str, addresses: list[str]) -> None:
         """
-        Forward IP updates onto the event bus and persist non-empty values.
+        Forward IP updates onto the event bus and persist the primary value.
 
-        ``ip=""`` means the device dropped off mDNS — we keep the
-        last-known IP on disk so the OTA address cache stays warm
-        across the device's offline window. The DNS pre-resolve and
-        next mDNS resolve will overwrite it on reconnect.
+        ``ip=""`` (with an empty *addresses* list) means the device
+        dropped off mDNS — we keep the last-known primary on disk so
+        the OTA address cache stays warm across the device's offline
+        window. The DNS pre-resolve and next mDNS resolve will
+        overwrite it on reconnect.
+
+        Only ``ip`` is persisted; ``addresses`` is the live mDNS view
+        and gets repopulated by the next monitor pass after a restart.
         """
+        new_addresses = list(addresses)
         for device in self._devices_by_name(name):
-            if device.ip == ip:
+            if device.ip == ip and device.ip_addresses == new_addresses:
                 continue
+            ip_changed = device.ip != ip
             device.ip = ip
-            _LOGGER.debug("Device %s (%s) IP: %s", name, device.configuration, ip or "(cleared)")
-            if ip:
+            device.ip_addresses = list(new_addresses)
+            _LOGGER.debug(
+                "Device %s (%s) IPs: %s",
+                name,
+                device.configuration,
+                ", ".join(new_addresses) or "(cleared)",
+            )
+            if ip and ip_changed:
                 self._db.create_background_task(
                     self._persist_device_ip_async(device.configuration, ip)
                 )
