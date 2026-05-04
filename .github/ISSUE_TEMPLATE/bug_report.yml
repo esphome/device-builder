@@ -51,9 +51,9 @@ body:
       label: How did you install it?
       multiple: false
       options:
+        - PyPI
         - Wheel from a GitHub release
         - From source (script/setup)
-        - PyPI (once available)
         - ESPHome container (preview toggle)
         - Home Assistant add-on (preview toggle)
         - Other / not sure
