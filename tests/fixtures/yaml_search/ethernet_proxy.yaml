@@ -1,0 +1,65 @@
+---
+esphome:
+  name: "ethernet-tv-cabinet"
+
+esp32:
+  board: esp32-evb
+  framework:
+    type: esp-idf
+
+# Ethernet connection — this device has no WiFi.
+ethernet:
+  type: LAN8720
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  clk_mode: GPIO0_IN
+  phy_addr: 0
+
+# Enable logging.
+logger:
+
+# Enable Home Assistant API.
+api:
+
+# Enable over-the-air updates.
+ota:
+  platform: esphome
+
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+bluetooth_proxy:
+  active: true
+
+
+# Sync time with Home Assistant.
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# Text sensors with general information.
+text_sensor:
+  # Expose ESPHome version as sensor.
+  - platform: version
+    name: TV Cabinet ESPHome Version
+
+# Sensors with general information.
+sensor:
+  # Uptime sensor.
+  - platform: uptime
+    name: TV Cabinet Uptime
+
+# Exposed switches.
+switch:
+  # Switch to restart the device.
+  - platform: restart
+    name: TV Cabinet Restart
+  - platform: gpio
+    pin: GPIO32
+    name: "TV Cabinet Relay #1"
+    id: relay1
+  - platform: gpio
+    pin: GPIO33
+    name: "TV Cabinet Relay #2"
+    id: relay2

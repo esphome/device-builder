@@ -1,0 +1,23 @@
+substitutions:
+  name: packaged-device
+  friendly_name: Packaged Device
+
+packages:
+  remote_package:
+    url: https://github.com/example/example-package
+    ref: main
+    files: [device.yaml]
+    refresh: 1s
+
+esphome:
+  name: ${name}
+  name_add_mac_suffix: false
+  friendly_name: ${friendly_name}
+
+api:
+
+runtime_stats:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password

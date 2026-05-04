@@ -20,6 +20,12 @@ repos:
     hooks:
       - id: check-toml
       - id: check-yaml
+        # Test fixtures intentionally contain ESPHome-specific
+        # custom tags (``!secret``, ``!include``) that the plain
+        # PyYAML loader can't resolve. The fixtures are read as
+        # raw text by the YAML-search code path under test, not
+        # parsed.
+        exclude: ^tests/fixtures/
       - id: check-json
         exclude: ^\.vscode/
       - id: check-ast
