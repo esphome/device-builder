@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/diffuser.png
-- images/lovelace_card_example.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Alfawise-SJ-7/diffuser.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Alfawise-SJ-7/lovelace_card_example.png
 docs_url: https://devices.esphome.io/devices/Alfawise-SJ-7/
 featured_components:
 - id: name_fan

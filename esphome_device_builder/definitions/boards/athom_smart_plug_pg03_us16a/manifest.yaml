@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/athom_PG03-US16A.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-Smart-Plug-PG03-US16A/athom_PG03-US16A.webp
 tags:
 - relay
 - compact

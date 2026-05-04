@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/currysmarter.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/CurrySmarter-16A-v1.1-Plug/currysmarter.jpg
 tags:
 - relay
 - compact

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/frankever-fk-pw801us.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/FrankEver-FK-PW801US/frankever-fk-pw801us.jpg
 tags:
 - relay
 - compact

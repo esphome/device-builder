@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Gosund-WO1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gosund-WO1/Gosund-WO1.jpg
 tags:
 - relay
 - compact

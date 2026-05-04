@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/chip.jpg
-- images/image.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/chip.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/image.png
 docs_url: https://devices.esphome.io/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/
 featured_components:
 - id: rgb_lightstrip1

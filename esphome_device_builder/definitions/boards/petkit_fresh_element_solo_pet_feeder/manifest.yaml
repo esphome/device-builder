@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/Petkit-Fresh-Element-Solo-Pet-Feeder-Product.jpg
-- images/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-A.png
-- images/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-B.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Product.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-A.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-B.png
 pins:
 - gpio: 5
   available: false

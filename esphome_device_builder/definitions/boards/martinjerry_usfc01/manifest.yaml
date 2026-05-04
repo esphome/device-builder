@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/MJ-usfc01.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MartinJerry-USFC01/MJ-usfc01.jpg
 docs_url: https://devices.esphome.io/devices/MartinJerry-USFC01/
 featured_components:
 - id: fan_tuya_1

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/tantan-wp3-plug.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TanTan-WP3/tantan-wp3-plug.jpg
 tags:
 - relay
 - compact

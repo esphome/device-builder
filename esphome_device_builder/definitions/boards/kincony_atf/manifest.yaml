@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/esp32-sd-card-pins.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-ATF/esp32-sd-card-pins.jpg
 pins:
 - gpio: 4
   available: false

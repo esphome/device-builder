@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/TYWE3L.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Wipro-20W-LED-RGB-Batten-Light-DS22000/TYWE3L.png
 pins:
 - gpio: 4
   available: false

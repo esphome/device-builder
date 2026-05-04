@@ -10,9 +10,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/MicroPLC.png
-- images/pinout_MicroPLC.png
-- images/diagram.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Homemaster-MicroPLC/MicroPLC.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Homemaster-MicroPLC/pinout_MicroPLC.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Homemaster-MicroPLC/diagram.png
 tags:
 - relay
 pins:

@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/AS105.png
-- images/pinout.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/AS105.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/pinout.png
 docs_url: https://devices.esphome.io/devices/Oyajia-LED-Ceiling-light-AS105/
 featured_components:
 - id: white_light

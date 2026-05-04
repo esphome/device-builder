@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/disassembled.jpg
-- images/assembled.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WIFI-Sprinkler-Controller/disassembled.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WIFI-Sprinkler-Controller/assembled.jpg
 pins:
 - gpio: 0
   available: false

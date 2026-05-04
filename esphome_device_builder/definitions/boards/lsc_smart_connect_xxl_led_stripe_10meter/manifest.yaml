@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/LSC-Smart-Connect-XXL-LED-Stripe-3202086.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter/LSC-Smart-Connect-XXL-LED-Stripe-3202086.png
 docs_url: https://devices.esphome.io/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter/
 featured_components:
 - id: white_light

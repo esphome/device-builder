@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/anwio-a19-top-down.jpg
-- images/anwio-a19-board-view.jpg
-- images/anwio-a19-board-view-2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-top-down.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-board-view.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-board-view-2.jpg
 docs_url: https://devices.esphome.io/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/
 featured_components:
 - id: device

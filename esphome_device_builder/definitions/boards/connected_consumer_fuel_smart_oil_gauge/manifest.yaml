@@ -8,13 +8,13 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Product-Image.jpg
-- images/Connections-Front.jpg
-- images/Connections-Back.jpg
-- images/Flashing-Front.jpg
-- images/Flashing-Edge.jpg
-- images/Ultrasonic.jpg
-- images/IC-Locations.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Product-Image.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Connections-Front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Connections-Back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Flashing-Front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Flashing-Edge.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/Ultrasonic.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/IC-Locations.jpg
 pins:
 - gpio: 2
   available: false

@@ -11,10 +11,10 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/mq-7.png
-- images/mq-7-heater-mod.webp
-- images/mq-7-device.png
-- images/mq-7-history.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MQ-7/mq-7.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MQ-7/mq-7-heater-mod.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MQ-7/mq-7-device.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MQ-7/mq-7-history.png
 docs_url: https://devices.esphome.io/devices/MQ-7/
 featured_components:
 - id: temperature_sensor_id

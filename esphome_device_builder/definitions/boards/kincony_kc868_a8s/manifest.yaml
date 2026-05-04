@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/kc868-a8s.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-A8S/kc868-a8s.jpg
 tags:
 - relay
 pins:

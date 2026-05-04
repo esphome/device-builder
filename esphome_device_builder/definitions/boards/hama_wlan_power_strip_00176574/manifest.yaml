@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/index.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hama-WLAN-Power-Strip-00176574/index.png
 tags:
 - relay
 - compact

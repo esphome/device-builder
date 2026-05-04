@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Mirabella-Genio-WiFi-LED-Strip-Light.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mirabella-Genio-WiFi-LED-Strip-Light/Mirabella-Genio-WiFi-LED-Strip-Light.jpg
 pins:
 - gpio: 0
   available: false

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/BlitzWolf-BW-SHP8-Power-Monitoring-Wall-Outlet.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BW-SHP8-Power-Monitoring-Wall-Outlet/BlitzWolf-BW-SHP8-Power-Monitoring-Wall-Outlet.jpg
 tags:
 - relay
 - compact

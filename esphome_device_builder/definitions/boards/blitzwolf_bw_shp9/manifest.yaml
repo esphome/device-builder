@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/BlitzWolf-BW-SHP9-Power-strip.jpg
-- images/BlitzWolf-BW-SHP9-Power-strip-measurement.jpg
-- images/BlitzWolf-BW-SHP9-Power-strip-outside.jpg
-- images/BlitzWolf-BW-SHP9-Power-strip-inside.jpg
-- images/BlitzWolf-BW-SHP9-Power-strip-connector.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BW-SHP9/BlitzWolf-BW-SHP9-Power-strip.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BW-SHP9/BlitzWolf-BW-SHP9-Power-strip-measurement.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BW-SHP9/BlitzWolf-BW-SHP9-Power-strip-outside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BW-SHP9/BlitzWolf-BW-SHP9-Power-strip-inside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BW-SHP9/BlitzWolf-BW-SHP9-Power-strip-connector.jpg
 tags:
 - relay
 - compact

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/390a449d-16dd-4ad4-8420-243c7c56df39.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Brilliant-Smart-20696-CCT-light/390a449d-16dd-4ad4-8420-243c7c56df39.jpeg
 pins:
 - gpio: 12
   available: false

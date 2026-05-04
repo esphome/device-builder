@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/SonoffTHR316.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-THR316/SonoffTHR316.jpg
 tags:
 - relay
 - sonoff

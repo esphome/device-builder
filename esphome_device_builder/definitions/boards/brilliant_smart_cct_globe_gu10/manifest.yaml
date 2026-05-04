@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/BL20887.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Brilliant-Smart-CCT-Globe-GU10/BL20887.png
 pins:
 - gpio: 5
   available: false

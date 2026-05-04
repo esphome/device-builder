@@ -11,10 +11,10 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/Shelly-Pro-RGBWW-PM.png
-- images/Shelly-Pro-Internal-Front.jpg
-- images/Shelly-Pro-Internal-Back.jpg
-- images/Pro-addon-interface.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Pro-RGBWW-PM/Shelly-Pro-RGBWW-PM.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Pro-RGBWW-PM/Shelly-Pro-Internal-Front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Pro-RGBWW-PM/Shelly-Pro-Internal-Back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Pro-RGBWW-PM/Pro-addon-interface.png
 tags:
 - shelly
 pins:

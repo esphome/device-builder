@@ -10,7 +10,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Smart_Powermeter.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Smart-Powermeter/Smart_Powermeter.jpg
 pins:
 - gpio: 1
   available: false

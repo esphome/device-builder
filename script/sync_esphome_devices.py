@@ -59,6 +59,7 @@ _DEVICES_REPO_BRANCH = "main"
 _DEVICES_SUBDIR = Path("src/docs/devices")
 _DEVICES_PAGE_BASE = "https://devices.esphome.io/devices"
 _DEVICES_REPO_BLOB_BASE = "https://github.com/esphome/esphome-devices/blob/main"
+_DEVICES_REPO_RAW_BASE = "https://raw.githubusercontent.com/esphome/esphome-devices/main"
 
 _SOURCE_TYPE = "esphome-devices"
 
@@ -1211,12 +1212,14 @@ def _make_record(  # noqa: PLR0911 — distinct skip reasons each get their own 
         record["hardware"] = {"connectivity": list(connectivity)}
 
     if src.images:
-        # The loader (``_resolve_images``) resolves manifest entries
-        # relative to the board directory; storing them with the
-        # ``images/`` prefix preserves the upstream order. Without
-        # this prefix the explicit references don't resolve and the
-        # loader silently falls back to alphabetic auto-discovery.
-        record["images"] = [f"images/{name}" for name in src.images]
+        # Reference upstream raw URLs directly so the wheel doesn't have
+        # to ship hundreds of MB of mirrored device photos. The loader
+        # (``_resolve_images``) passes ``http(s)://`` entries through
+        # untouched.
+        record["images"] = [
+            f"{_DEVICES_REPO_RAW_BASE}/{_DEVICES_SUBDIR.as_posix()}/{src.folder_name}/{name}"
+            for name in src.images
+        ]
 
     tags = _build_tags(src.folder_name, type_field)
     if tags:
@@ -1282,12 +1285,13 @@ def _build_source_block(folder_name: str, revision: str, content_hash: str) -> d
 
 def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
     """
-    Write ``boards/<id>/manifest.yaml`` and refresh the images.
+    Write ``boards/<id>/manifest.yaml``.
 
     Skips with a warning when *target_dir* already holds a non-imported
-    manifest (slug collision with a hand-curated board). Otherwise
-    cleans the existing ``images/`` subdir before copying so an
-    upstream image-set shrink doesn't leave stale files behind.
+    manifest (slug collision with a hand-curated board). Images are
+    referenced as upstream raw URLs in the manifest itself (see
+    ``_build_record``); any pre-existing local ``images/`` subdir from
+    older syncs is removed so the wheel doesn't carry stale mirrors.
     """
     target_dir = _BOARDS_DIR / record["id"]
     if not _is_writable_target(target_dir):
@@ -1300,18 +1304,7 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
 
     images_dir = target_dir / "images"
     if images_dir.is_dir():
-        # Wipe the directory first so a removed upstream image
-        # disappears from the local copy too. Only the ``images/``
-        # subdir is touched — the manifest itself is overwritten
-        # below in a single write.
         shutil.rmtree(images_dir)
-    if src.images:
-        images_dir.mkdir()
-        device_dir = src.page_path.parent
-        for image_name in src.images:
-            src_path = device_dir / image_name
-            if src_path.is_file():
-                shutil.copy2(src_path, images_dir / image_name)
 
     manifest_path = target_dir / "manifest.yaml"
     manifest_path.write_text(_dump_manifest(record), encoding="utf-8")

@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/grps1.radome.jpg
-- images/grps1.features.example.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Presence-Sensor-1/grps1.radome.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Presence-Sensor-1/grps1.features.example.jpg
 pins:
 - gpio: 4
   available: false

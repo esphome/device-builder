@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/B32M_1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B32M/B32M_1.jpg
 tags:
 - relay
 pins:

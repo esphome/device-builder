@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/device.jpg
-- images/board.jpg
-- images/disassembling.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tomzn-TOB9-VAP/device.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tomzn-TOB9-VAP/board.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tomzn-TOB9-VAP/disassembling.jpg
 pins:
 - gpio: 17
   available: false

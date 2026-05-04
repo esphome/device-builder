@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/IMG_0642.JPG
-- images/IMG_0643.JPG
-- images/IMG_0644.JPG
-- images/IMG_0645.JPG
-- images/nx-sp201-blue.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/NX-SP201-Smart-Plug/IMG_0642.JPG
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/NX-SP201-Smart-Plug/IMG_0643.JPG
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/NX-SP201-Smart-Plug/IMG_0644.JPG
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/NX-SP201-Smart-Plug/IMG_0645.JPG
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/NX-SP201-Smart-Plug/nx-sp201-blue.jpg
 tags:
 - relay
 - compact

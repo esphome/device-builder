@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/levoit-core-300s.jpg
-- images/levoit-core-300s-flashing.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Levoit-Core-300s/levoit-core-300s.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Levoit-Core-300s/levoit-core-300s-flashing.jpeg
 docs_url: https://devices.esphome.io/devices/Levoit-Core-300s/
 featured_components:
 - id: sensor_wifi_signal_1

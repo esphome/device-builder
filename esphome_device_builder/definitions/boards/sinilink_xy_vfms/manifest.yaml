@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/sinilink-xy-wfms.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinilink-XY-VFMS/sinilink-xy-wfms.png
 tags:
 - relay
 pins:

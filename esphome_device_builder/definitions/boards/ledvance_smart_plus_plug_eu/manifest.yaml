@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/image.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDVANCE-SMART-PLUS-PLUG-EU/image.webp
 tags:
 - relay
 - compact

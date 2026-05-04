@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Tapo-L900-Box.jpg
-- images/Tapo-L900-PCB-Front.jpg
-- images/Tapo-L900-PCB-Back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tapo-L900-5EU/Tapo-L900-Box.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tapo-L900-5EU/Tapo-L900-PCB-Front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tapo-L900-5EU/Tapo-L900-PCB-Back.jpg
 docs_url: https://devices.esphome.io/devices/Tapo-L900-5EU/
 featured_components:
 - id: strip_light_pushbutton

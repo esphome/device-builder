@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/device_main.jpg
-- images/pcb_front.jpg
-- images/soldering.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/OXT-WiFi-4CH/device_main.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/OXT-WiFi-4CH/pcb_front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/OXT-WiFi-4CH/soldering.jpg
 tags:
 - relay
 pins:

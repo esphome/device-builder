@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/device.webp
-- images/chip.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/device.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/chip.jpg
 docs_url: https://devices.esphome.io/devices/Goldair-GPOC2415-Smart-Heater/
 featured_components:
 - id: climate_tuya_1

@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/exterior.png
-- images/test-pads.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Energizer-Smart-Plug/exterior.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Energizer-Smart-Plug/test-pads.png
 tags:
 - relay
 - compact

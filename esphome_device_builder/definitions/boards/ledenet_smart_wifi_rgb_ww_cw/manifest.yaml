@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/LEDENET-Smart-WiFi-RGB-WW-CW.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDENET-Smart-WiFi-RGB-WW-CW/LEDENET-Smart-WiFi-RGB-WW-CW.jpg
 pins:
 - gpio: 0
   available: false

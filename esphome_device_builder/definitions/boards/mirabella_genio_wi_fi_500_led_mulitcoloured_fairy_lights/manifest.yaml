@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights.jpg
 pins:
 - gpio: 4
   available: false

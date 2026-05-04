@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/T-Dongle-LILYGO_16_1024x1024.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Lilygo-TDongle-S3/T-Dongle-LILYGO_16_1024x1024.webp
 pins:
 - gpio: 0
   available: false

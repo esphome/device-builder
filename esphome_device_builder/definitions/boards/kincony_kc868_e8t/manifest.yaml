@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/kc868-e8t.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-E8T/kc868-e8t.jpg
 tags:
 - relay
 pins:

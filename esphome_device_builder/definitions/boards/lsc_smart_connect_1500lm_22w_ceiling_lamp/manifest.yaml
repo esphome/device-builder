@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/image.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp/image.png
 docs_url: https://devices.esphome.io/devices/LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp/
 featured_components:
 - id: light_beken_spi_led_strip_1

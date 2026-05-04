@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/sonoff-POWR316-external.png
-- images/sonoff-POWR316-internal-labels.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-POWR316-16a/sonoff-POWR316-external.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-POWR316-16a/sonoff-POWR316-internal-labels.png
 tags:
 - relay
 - sonoff

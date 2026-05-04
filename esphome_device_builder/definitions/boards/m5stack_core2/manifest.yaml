@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/core2_01.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/M5Stack-Core2/core2_01.png
 pins:
 - gpio: 39
   available: false

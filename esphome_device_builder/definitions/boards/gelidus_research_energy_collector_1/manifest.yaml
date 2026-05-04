@@ -11,11 +11,11 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/grec1.top.bare.jpg
-- images/grec1.enclosed.side.jpg
-- images/grec1.j2.circuit.jpg
-- images/photo.sens.1m.jpg
-- images/grec1.j2.connection.pins.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.top.bare.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.enclosed.side.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.circuit.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/photo.sens.1m.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.connection.pins.jpg
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Energy-Collector-1/
 featured_components:
 - id: sensor_energy_pulse_meter

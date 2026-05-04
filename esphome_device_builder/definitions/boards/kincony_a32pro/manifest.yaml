@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/A32Pro-10.jpg
-- images/A32Pro_diagram.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-A32Pro/A32Pro-10.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-A32Pro/A32Pro_diagram.jpg
 tags:
 - relay
 pins:

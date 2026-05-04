@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/ESR3532.png
-- images/unit-disassembled.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EttroIT-ESR35xx/ESR3532.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EttroIT-ESR35xx/unit-disassembled.png
 docs_url: https://devices.esphome.io/devices/EttroIT-ESR35xx/
 featured_components:
 - id: mlock

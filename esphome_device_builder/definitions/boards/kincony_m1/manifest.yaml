@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/M1-2_01.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-M1/M1-2_01.jpg
 pins:
 - gpio: 32
   available: false

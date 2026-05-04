@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Sonoff_SV.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-SV/Sonoff_SV.jpg
 tags:
 - relay
 - sonoff

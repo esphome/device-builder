@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/asp-200.png
-- images/asp-200-pcb.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Aspen-ASP-200-Smart-Window-Fan/asp-200.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Aspen-ASP-200-Smart-Window-Fan/asp-200-pcb.jpg
 docs_url: https://devices.esphome.io/devices/Aspen-ASP-200-Smart-Window-Fan/
 featured_components:
 - id: fan_tuya_1

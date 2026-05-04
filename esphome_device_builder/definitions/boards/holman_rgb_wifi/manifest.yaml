@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/holman_rgb_controller.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Holman-RGB-Wifi/holman_rgb_controller.png
 pins:
 - gpio: 0
   available: false

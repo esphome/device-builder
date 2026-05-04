@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/BlitzWolf-BW-SHP6.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BW-SHP6/BlitzWolf-BW-SHP6.jpg
 tags:
 - relay
 - compact

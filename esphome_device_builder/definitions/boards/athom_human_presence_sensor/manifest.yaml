@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Athom-Human-Presence-Sensor.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-Human-Presence-Sensor/Athom-Human-Presence-Sensor.webp
 pins:
 - gpio: 0
   available: false

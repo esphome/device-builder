@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/inside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-POW-R1/inside.jpg
 tags:
 - relay
 - sonoff

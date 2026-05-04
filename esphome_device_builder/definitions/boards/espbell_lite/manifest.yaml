@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/espbell.jpg
-- images/notification.jpg
-- images/ha.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESPBell-LITE/espbell.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESPBell-LITE/notification.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESPBell-LITE/ha.jpg
 pins:
 - gpio: 4
   available: false

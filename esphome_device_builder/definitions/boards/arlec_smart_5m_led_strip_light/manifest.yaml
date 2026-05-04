@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Arlec-Smart-5m-LED-Strip-Light.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-Smart-5m-LED-Strip-Light/Arlec-Smart-5m-LED-Strip-Light.jpg
 pins:
 - gpio: 4
   available: false

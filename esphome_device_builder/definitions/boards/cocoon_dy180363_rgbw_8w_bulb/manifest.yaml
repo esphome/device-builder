@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/DY180363.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Cocoon-DY180363-RGBW-8W-Bulb/DY180363.png
 pins:
 - gpio: 4
   available: false

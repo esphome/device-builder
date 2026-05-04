@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/nous_L1T.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nous-L1t/nous_L1T.webp
 pins:
 - gpio: 3
   available: false

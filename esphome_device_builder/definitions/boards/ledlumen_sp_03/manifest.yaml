@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/ledlumen-sp-03.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDLUMEN-SP-03/ledlumen-sp-03.webp
 tags:
 - relay
 - compact

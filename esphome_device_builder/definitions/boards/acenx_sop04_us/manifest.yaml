@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/sop04-us.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Acenx-SOP04-US/sop04-us.jpg
 tags:
 - relay
 - compact

@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/Sonoff-DualR3-Lite-PCB.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-Dual-R3/Sonoff-DualR3-Lite-PCB.jpg
 tags:
 - relay
 - sonoff

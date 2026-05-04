@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Havells-Glamax-Smart-WiFi-RGB-LED-Bulb-Music-Sync-9W-B22-08.jpg
-- images/bulb-dismantled.jpg
-- images/chip-wired.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb/Havells-Glamax-Smart-WiFi-RGB-LED-Bulb-Music-Sync-9W-B22-08.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb/bulb-dismantled.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb/chip-wired.jpg
 docs_url: https://devices.esphome.io/devices/Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb/
 featured_components:
 - id: light_rgbww_1

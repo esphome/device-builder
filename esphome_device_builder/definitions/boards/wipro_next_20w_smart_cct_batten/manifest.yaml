@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/wipro-wiring-pcb.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Wipro-Next-20W-Smart-CCT-Batten/wipro-wiring-pcb.jpg
 pins:
 - gpio: 5
   available: false

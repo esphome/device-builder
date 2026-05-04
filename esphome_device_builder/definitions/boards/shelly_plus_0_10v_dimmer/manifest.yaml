@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/shelly_plus_0-10v_dimmer.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-0-10V-Dimmer/shelly_plus_0-10v_dimmer.jpeg
 tags:
 - shelly
 pins:

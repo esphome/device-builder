@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/refoss_P11.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/refoss-p11-plug/refoss_P11.webp
 tags:
 - relay
 - compact

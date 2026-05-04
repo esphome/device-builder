@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Globe-34873.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Globe-Edison-Bulb-34873/Globe-34873.jpg
 pins:
 - gpio: 12
   available: false

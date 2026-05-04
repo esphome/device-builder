@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/6952HA-packet.jpg
-- images/6952HA-manual-flashing.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/6952HA-packet.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/6952HA-manual-flashing.jpg
 docs_url: https://devices.esphome.io/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/
 featured_components:
 - id: button_1

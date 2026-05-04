@@ -10,8 +10,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/M5stack-AirQsensorDisplay.jpeg
-- images/M5stack-AirQ.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/M5Stack-AirQ/M5stack-AirQsensorDisplay.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/M5Stack-AirQ/M5stack-AirQ.webp
 pins:
 - gpio: 0
   available: false

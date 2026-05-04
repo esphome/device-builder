@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Athom-GU10-Bulb.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-GU10-Bulb/Athom-GU10-Bulb.png
 pins:
 - gpio: 4
   available: false

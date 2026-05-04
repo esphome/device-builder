@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/WSM-1A_cover.jpg
-- images/WSM-1A_ports.jpg
-- images/WSM-1A_Board.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ADS-WSM-1A/WSM-1A_cover.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ADS-WSM-1A/WSM-1A_ports.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ADS-WSM-1A/WSM-1A_Board.jpg
 pins:
 - gpio: 15
   available: false

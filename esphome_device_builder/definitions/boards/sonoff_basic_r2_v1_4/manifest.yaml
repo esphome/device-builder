@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Sonoff-BASIC-R2-v1.4_pcb.jpg
-- images/Sonoff-BASIC-R2-v1.4_pcb_rear.jpg
-- images/SonoffBasicR2-2023-Top.jpg
-- images/SonoffBasicR2-2023-Bottom.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/Sonoff-BASIC-R2-v1.4_pcb.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/Sonoff-BASIC-R2-v1.4_pcb_rear.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/SonoffBasicR2-2023-Top.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/SonoffBasicR2-2023-Bottom.jpg
 tags:
 - relay
 - sonoff

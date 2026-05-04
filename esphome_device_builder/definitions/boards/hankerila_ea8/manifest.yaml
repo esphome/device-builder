@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/hankerila-ea8.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hankerila-EA8/hankerila-ea8.jpg
 tags:
 - relay
 pins:

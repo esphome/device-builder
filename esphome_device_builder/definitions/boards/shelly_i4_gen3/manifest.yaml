@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/Shelly_i4_Gen3.png
-- images/Plus-addon-interface.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-i4-Gen3/Shelly_i4_Gen3.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-i4-Gen3/Plus-addon-interface.png
 tags:
 - shelly
 pins:

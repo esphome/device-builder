@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Topgreener-TGWF500D.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Topgreener-TGWF500D/Topgreener-TGWF500D.png
 docs_url: https://devices.esphome.io/devices/Topgreener-TGWF500D/
 featured_components:
 - id: light_tuya_1

@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/B8M_1.jpg
-- images/B8M-diagram.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B8M/B8M_1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B8M/B8M-diagram.jpg
 tags:
 - relay
 pins:

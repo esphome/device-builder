@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/S09.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Generic-S09-Temperature-Humidity-Clock-IR/S09.jpg
 pins:
 - gpio: 6
   available: false

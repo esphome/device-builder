@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/MP22W.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Minoston-Outdoor-Smart-Plug-MP22W/MP22W.png
 tags:
 - relay
 - compact

@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/guition-esp32-s3-4848s040.jpg
-- images/guition-esp32-s3-4848s040-connector.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Guition-ESP32-S3-4848S040/guition-esp32-s3-4848s040.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Guition-ESP32-S3-4848S040/guition-esp32-s3-4848s040-connector.jpg
 pins:
 - gpio: 1
   available: false

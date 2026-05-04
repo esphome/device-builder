@@ -11,10 +11,10 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/led-array.jpg
-- images/potting.jpg
-- images/pinout.jpg
-- images/soldered.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/wyze-bulb-color/led-array.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/wyze-bulb-color/potting.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/wyze-bulb-color/pinout.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/wyze-bulb-color/soldered.jpg
 pins:
 - gpio: 13
   available: false

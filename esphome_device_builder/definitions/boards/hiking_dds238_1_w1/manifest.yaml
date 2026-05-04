@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Hiking-DDS238-1-W1.jpg
-- images/Hiking-DDS238-1-W1-inside.jpg
-- images/Hiking-DDS238-1-W1-MCU.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1-inside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1-MCU.jpg
 pins:
 - gpio: 14
   available: false

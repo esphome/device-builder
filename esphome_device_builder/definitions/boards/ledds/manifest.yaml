@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/ledds-on-front-1440p.jpg
-- images/enclosure-pcb-side-angle-1440p.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDDs/ledds-on-front-1440p.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDDs/enclosure-pcb-side-angle-1440p.jpg
 docs_url: https://devices.esphome.io/devices/LEDDs/
 product_url: https://github.com/VasilKalchev/LEDDs
 featured_components:

@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/top.jpg
-- images/inside-top.jpg
-- images/inside-bottom.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KTNNKG-Wifi-KG2201-W/top.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KTNNKG-Wifi-KG2201-W/inside-top.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KTNNKG-Wifi-KG2201-W/inside-bottom.jpg
 tags:
 - relay
 pins:

@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/AG8-3.jpg
-- images/AG8_Smart_Controller_diagram.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AG8/AG8-3.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AG8/AG8_Smart_Controller_diagram.jpg
 pins:
 - gpio: 15
   available: false

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/tesla-dimmer.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TESLA-EDM-01AA-EU/tesla-dimmer.webp
 docs_url: https://devices.esphome.io/devices/TESLA-EDM-01AA-EU/
 product_url: https://www.teslasmart.com/tesla-smart-switch-dimmer-touch
 featured_components:

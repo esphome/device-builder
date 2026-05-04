@@ -11,14 +11,14 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/image1.jpg
-- images/image2.jpg
-- images/image3.jpg
-- images/image4.jpg
-- images/image5.jpg
-- images/image6.jpg
-- images/image7.jpg
-- images/image8.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image3.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image4.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image5.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image6.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image7.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/GL-iNet-GL-S10/image8.jpg
 pins:
 - gpio: 12
   available: false

@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Tekkar-Gen3.png
-- images/cb3s.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tekkar-Gen3-CurtainSwitch/Tekkar-Gen3.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tekkar-Gen3-CurtainSwitch/cb3s.png
 docs_url: https://devices.esphome.io/devices/Tekkar-Gen3-CurtainSwitch/
 featured_components:
 - id: led_green

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/moes-ir-thermostat.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Moes-IR-Thermostat-S16Pro/moes-ir-thermostat.jpg
 docs_url: https://devices.esphome.io/devices/Moes-IR-Thermostat-S16Pro/
 featured_components:
 - id: climate_primary

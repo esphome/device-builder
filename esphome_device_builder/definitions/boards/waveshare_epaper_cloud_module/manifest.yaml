@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/waveshare213_front.jpg
-- images/waveshare213_back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Waveshare-epaper-cloud-module/waveshare213_front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Waveshare-epaper-cloud-module/waveshare213_back.jpg
 pins:
 - gpio: 12
   available: false

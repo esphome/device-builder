@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/mi-smart-led-bulb-parts.jpg
-- images/mi-smart-led-bulb-inside.jpg
-- images/mi-smart-led-bulb-flash-pins.jpg
-- images/mi-smart-led-bulb-pinout.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mi-Smart-LED-Bulb/mi-smart-led-bulb-parts.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mi-Smart-LED-Bulb/mi-smart-led-bulb-inside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mi-Smart-LED-Bulb/mi-smart-led-bulb-flash-pins.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mi-Smart-LED-Bulb/mi-smart-led-bulb-pinout.jpg
 pins:
 - gpio: 5
   available: false

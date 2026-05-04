@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/button_s_a.jpg
-- images/schematic.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TeXXmo-IoT-Button/button_s_a.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TeXXmo-IoT-Button/schematic.png
 pins:
 - gpio: 5
   available: false

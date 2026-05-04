@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/pcb.jpg
-- images/pcb_back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Govee-H6086-E27-5W-500lm-RGBCCT-bulb/pcb.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Govee-H6086-E27-5W-500lm-RGBCCT-bulb/pcb_back.jpg
 pins:
 - gpio: 6
   available: false

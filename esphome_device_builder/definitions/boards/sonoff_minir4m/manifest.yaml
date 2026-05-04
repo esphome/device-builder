@@ -11,10 +11,10 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/sonoff-mini-r4m.jpg
-- images/view_top.jpg
-- images/view_side.jpg
-- images/view_ic.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-MINIR4M/sonoff-mini-r4m.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-MINIR4M/view_top.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-MINIR4M/view_side.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-MINIR4M/view_ic.jpg
 tags:
 - relay
 - sonoff

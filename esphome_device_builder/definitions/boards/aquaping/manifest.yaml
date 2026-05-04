@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/aquaping7.jpeg
-- images/screenshot.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AquaPing/aquaping7.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AquaPing/screenshot.jpg
 docs_url: https://devices.esphome.io/devices/AquaPing/
 product_url: https://github.com/microphonon/acoustic-leak-detector/tree/main/Home_Assistant
 featured_components:

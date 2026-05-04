@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/LUTEC-Origo.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LUTEC-Origo/LUTEC-Origo.jpg
 pins:
 - gpio: 2
   available: false

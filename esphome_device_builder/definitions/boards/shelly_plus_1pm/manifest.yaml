@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/shelly_plus_1pm_pinout.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-1PM/shelly_plus_1pm_pinout.jpg
 tags:
 - relay
 - shelly

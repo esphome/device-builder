@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/CCRCWFIO2PK.jpg
-- images/CCRCWFIO2PK-disassembled.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/prime-CCRCWFIO2PK-plug/CCRCWFIO2PK.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/prime-CCRCWFIO2PK-plug/CCRCWFIO2PK-disassembled.jpg
 tags:
 - relay
 - compact

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/image.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/image.png
 docs_url: https://devices.esphome.io/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/
 featured_components:
 - id: light_rgbww

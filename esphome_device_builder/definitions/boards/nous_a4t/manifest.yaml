@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/A4T_00.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nous-A4t/A4T_00.jpg
 tags:
 - relay
 - compact

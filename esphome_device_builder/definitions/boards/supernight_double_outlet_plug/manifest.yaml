@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/SUPERNIGHT-Double-Outlet-Plug.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SUPERNIGHT-Double-Outlet-Plug/SUPERNIGHT-Double-Outlet-Plug.jpg
 tags:
 - relay
 - compact

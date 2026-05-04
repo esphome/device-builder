@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Mirabella-Door-Window-Sensor.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mirabella-Door-Window-Sensor/Mirabella-Door-Window-Sensor.jpg
 docs_url: https://devices.esphome.io/devices/Mirabella-Door-Window-Sensor/
 featured_components:
 - id: sensor_adc_1

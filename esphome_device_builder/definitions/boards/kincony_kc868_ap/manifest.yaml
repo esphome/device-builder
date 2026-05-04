@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/kc868-ap.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-AP/kc868-ap.jpg
 pins:
 - gpio: 0
   available: false

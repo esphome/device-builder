@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/AIO-Hybrid-1.jpg
-- images/AIO-Hybrid_diagram.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AIO/AIO-Hybrid-1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AIO/AIO-Hybrid_diagram.jpg
 tags:
 - relay
 pins:

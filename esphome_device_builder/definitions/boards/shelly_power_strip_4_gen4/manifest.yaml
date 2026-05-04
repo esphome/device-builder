@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/index.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Power-Strip-4-Gen4/index.png
 tags:
 - relay
 - compact

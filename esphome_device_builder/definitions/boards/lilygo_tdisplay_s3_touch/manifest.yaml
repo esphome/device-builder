@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/tdisplay-s3-touch.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Lilygo-TDisplay-S3-Touch/tdisplay-s3-touch.webp
 pins:
 - gpio: 0
   available: false

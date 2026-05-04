@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/F8-1.jpg
-- images/F8-2.jpg
-- images/F8-3.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-F8/F8-1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-F8/F8-2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-F8/F8-3.jpg
 tags:
 - relay
 pins:

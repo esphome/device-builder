@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/NXG-100_with_app_Black_320x192.jpg
-- images/NXG-100_pcb.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nexx-NXG-100/NXG-100_with_app_Black_320x192.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nexx-NXG-100/NXG-100_pcb.jpg
 tags:
 - relay
 pins:

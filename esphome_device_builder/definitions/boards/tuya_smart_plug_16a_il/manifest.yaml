@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/tuya-smart-plug-16A-IL-front.png
-- images/tuya-smart-plug-16A-IL-back.png
-- images/tuya-smart-plug-16A-IL-dissasemble.png
-- images/tuya-smart-plug-16A-IL-breakout.png
-- images/tuya-smart-plug-16A-IL-flasher.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-front.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-back.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-dissasemble.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-breakout.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/tuya-smart-plug-16A-IL-flasher.png
 tags:
 - relay
 - compact

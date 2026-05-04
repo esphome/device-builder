@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Whole.jpg
-- images/ESP-Pinout.jpg
-- images/ESP-Pinout2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/XtendLan-IP66-Dual/Whole.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/XtendLan-IP66-Dual/ESP-Pinout.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/XtendLan-IP66-Dual/ESP-Pinout2.jpg
 tags:
 - relay
 - compact

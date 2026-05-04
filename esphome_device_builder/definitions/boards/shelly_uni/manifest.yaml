@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/shelly_uni_625x625.webp
-- images/shelly_uni_scheme-1536x717.jpg
-- images/shelly_uni_gpio.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Uni/shelly_uni_625x625.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Uni/shelly_uni_scheme-1536x717.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Uni/shelly_uni_gpio.jpg
 tags:
 - shelly
 pins:

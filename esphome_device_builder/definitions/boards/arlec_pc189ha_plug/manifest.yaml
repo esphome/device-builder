@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Arlec-PC189HA-Plug.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-PC189HA-Plug/Arlec-PC189HA-Plug.jpg
 tags:
 - relay
 - compact

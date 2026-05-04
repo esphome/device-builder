@@ -9,8 +9,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/MultiBoard.png
-- images/Multiboard_Pinout.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-Multiboard/MultiBoard.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-Multiboard/Multiboard_Pinout.png
 pins:
 - gpio: 25
   available: false

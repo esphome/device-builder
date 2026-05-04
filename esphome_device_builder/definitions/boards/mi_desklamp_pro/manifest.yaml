@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/screws_Image.jpg
-- images/board_Image.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mi-Desklamp-Pro/screws_Image.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mi-Desklamp-Pro/board_Image.jpg
 pins:
 - gpio: 2
   available: false

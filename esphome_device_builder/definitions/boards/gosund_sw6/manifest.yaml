@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/gosund_SW6.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gosund-SW6/gosund_SW6.jpg
 pins:
 - gpio: 0
   available: false

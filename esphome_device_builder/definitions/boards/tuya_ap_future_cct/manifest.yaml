@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Tuya-AP-Future-CCT.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-AP-Future-CCT/Tuya-AP-Future-CCT.png
 pins:
 - gpio: 5
   available: false

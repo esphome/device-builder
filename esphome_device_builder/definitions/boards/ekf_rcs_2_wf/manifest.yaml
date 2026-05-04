@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/0.jpg
-- images/1.jpg
-- images/3.jpg
-- images/4.jpg
-- images/5.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/0.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/3.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/4.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/EKF-RCS-2-WF/5.jpg
 tags:
 - relay
 - compact

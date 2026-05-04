@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/product.png
-- images/PCB_Pinout.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-HT-Gen3/product.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-HT-Gen3/PCB_Pinout.png
 tags:
 - shelly
 pins:

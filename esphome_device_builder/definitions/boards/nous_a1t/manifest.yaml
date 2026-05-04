@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/neo_render4_tasmota.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Nous-A1t/neo_render4_tasmota.jpg
 tags:
 - relay
 - compact

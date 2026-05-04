@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/athom-plug-au-v2.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-Smart-Plug-PG05V2-AU10A/athom-plug-au-v2.webp
 tags:
 - relay
 - compact

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/eWeLink-SANT-SUD01-PCIe-power-remote.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/eWeLink-SANT-SUD01/eWeLink-SANT-SUD01-PCIe-power-remote.jpg
 pins:
 - gpio: 0
   available: false

@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/image.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-Relay-X1/image.jpg
 tags:
 - relay
 pins:

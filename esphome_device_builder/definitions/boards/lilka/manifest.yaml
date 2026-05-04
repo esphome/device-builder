@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/lilka.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Lilka/lilka.jpeg
 pins:
 - gpio: 0
   available: false

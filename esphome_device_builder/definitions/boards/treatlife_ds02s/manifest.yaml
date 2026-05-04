@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Treatlife-DS02S.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TreatLife-DS02S/Treatlife-DS02S.png
 docs_url: https://devices.esphome.io/devices/TreatLife-DS02S/
 featured_components:
 - id: light_tuya_1

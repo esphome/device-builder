@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/ahrise_ahr-083.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/AHRise-AHR-083/ahrise_ahr-083.jpg
 tags:
 - relay
 - compact

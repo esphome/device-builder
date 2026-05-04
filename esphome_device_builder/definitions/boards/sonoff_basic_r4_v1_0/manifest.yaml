@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/sonoff_basic_r4.webp
-- images/sonoff_basic_r4_pcb.webp
-- images/sonoff_basic_r4_pcb_rear.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/sonoff_basic_r4.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/sonoff_basic_r4_pcb.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/sonoff_basic_r4_pcb_rear.webp
 tags:
 - relay
 - sonoff

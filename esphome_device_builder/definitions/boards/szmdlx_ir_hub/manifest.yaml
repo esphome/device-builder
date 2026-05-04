@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/irhub1.jpg
-- images/irhub2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SZMDLX-IR-Hub/irhub1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SZMDLX-IR-Hub/irhub2.jpg
 pins:
 - gpio: 13
   available: false

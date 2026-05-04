@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/ed1-board.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Citilab-ED1/ed1-board.jpg
 pins:
 - gpio: 2
   available: false

@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/module.png
-- images/bottom-top-vew.png
-- images/Wire-diagram.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Horus-Blind-Controller/module.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Horus-Blind-Controller/bottom-top-vew.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Horus-Blind-Controller/Wire-diagram.png
 pins:
 - gpio: 4
   available: false

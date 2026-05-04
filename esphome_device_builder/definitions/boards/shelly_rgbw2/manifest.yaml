@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Shelly-RGBW2.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-RGBW2/Shelly-RGBW2.png
 tags:
 - shelly
 pins:

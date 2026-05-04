@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/geeni4.jpg
-- images/20251115_163733.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-4-outlet-surge-strip/geeni4.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geeni-4-outlet-surge-strip/20251115_163733.jpg
 tags:
 - relay
 - compact

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/ledvance-e27-rgbw.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LEDVANCE-E27-RGBW/ledvance-e27-rgbw.jpg
 docs_url: https://devices.esphome.io/devices/LEDVANCE-E27-RGBW/
 featured_components:
 - id: light_rgbw

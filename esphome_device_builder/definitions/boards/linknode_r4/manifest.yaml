@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/LinkNodeR4.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LinkNode-R4/LinkNodeR4.jpg
 tags:
 - relay
 pins:

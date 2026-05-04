@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/Shelly-Plus-RGBW-PM.png
-- images/Plus-addon-interface.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-RGBW-PM/Shelly-Plus-RGBW-PM.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-RGBW-PM/Plus-addon-interface.png
 tags:
 - shelly
 pins:

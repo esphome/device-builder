@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/ar01-01-enclosure_front.jpg
-- images/ar01-06-top_pcb_removed_from_enclosure.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-AR01-IR-Controller/ar01-01-enclosure_front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-AR01-IR-Controller/ar01-06-top_pcb_removed_from_enclosure.jpg
 pins:
 - gpio: 0
   available: false

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/led.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Holman-4x34mm-spotlight/led.jpg
 docs_url: https://devices.esphome.io/devices/Holman-4x34mm-spotlight/
 featured_components:
 - id: rgb_led

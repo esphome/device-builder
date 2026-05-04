@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/shelly-1-gen4.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-1-Gen4/shelly-1-gen4.webp
 tags:
 - relay
 - shelly

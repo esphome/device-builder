@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/top.jpg
-- images/inside-1.jpg
-- images/inside-2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/QIACHIP-Smart-Switch/top.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/QIACHIP-Smart-Switch/inside-1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/QIACHIP-Smart-Switch/inside-2.jpg
 tags:
 - relay
 pins:

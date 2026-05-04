@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/sinvitron-outside.jpg
-- images/sinvitron-inside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/sinvitron-outside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/sinvitron-inside.jpg
 pins:
 - gpio: 4
   available: false

@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Sinilink.png
-- images/Sinilink_bare.png
-- images/wfusb_pinout.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinilink-XY-WFUSB-USB-Switch-Relay/Sinilink.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinilink-XY-WFUSB-USB-Switch-Relay/Sinilink_bare.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinilink-XY-WFUSB-USB-Switch-Relay/wfusb_pinout.jpg
 tags:
 - relay
 pins:

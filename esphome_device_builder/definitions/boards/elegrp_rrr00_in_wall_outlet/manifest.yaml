@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/RRR00-front-amazon.jpg
-- images/backDetail.jpg
-- images/relays.jpg
-- images/wifiModuleFront.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/RRR00-front-amazon.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/backDetail.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/relays.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Elegrp-RRR00-in-wall-outlet/wifiModuleFront.jpg
 tags:
 - relay
 - compact

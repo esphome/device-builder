@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/20240712_102440.jpg
-- images/20240712_102657.jpg
-- images/20240712_102703.jpg
-- images/cbu_module_pinout.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/bauhn-5-way-powerboard/20240712_102440.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/bauhn-5-way-powerboard/20240712_102657.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/bauhn-5-way-powerboard/20240712_102703.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/bauhn-5-way-powerboard/cbu_module_pinout.png
 tags:
 - relay
 - compact

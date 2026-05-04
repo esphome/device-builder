@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Loetad-EU3S-Power-Monitoring-Plug.jpg
-- images/Loetad-EU3S-Power-Monitoring-Plug-Reference.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Loetad-EU3S-Power-Monitoring-Plug/Loetad-EU3S-Power-Monitoring-Plug.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Loetad-EU3S-Power-Monitoring-Plug/Loetad-EU3S-Power-Monitoring-Plug-Reference.jpg
 tags:
 - relay
 - compact

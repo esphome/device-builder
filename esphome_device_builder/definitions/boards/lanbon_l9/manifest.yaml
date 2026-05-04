@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/lanbon-l9.jpeg
-- images/lanbon-l9-header.png
-- images/lanbon-l9-esphome.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Lanbon-L9/lanbon-l9.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Lanbon-L9/lanbon-l9-header.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Lanbon-L9/lanbon-l9-esphome.png
 pins:
 - gpio: 5
   available: false

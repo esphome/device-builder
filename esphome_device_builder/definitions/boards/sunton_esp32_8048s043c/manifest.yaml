@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/Sunton-esp32-8048s043.jpg
-- images/Sunton-esp32-8048s043-connector.jpg
-- images/Sunton-esp32-8048s043-gpio.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sunton-ESP32-8048S043C/Sunton-esp32-8048s043.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sunton-ESP32-8048S043C/Sunton-esp32-8048s043-connector.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sunton-ESP32-8048S043C/Sunton-esp32-8048s043-gpio.jpeg
 pins:
 - gpio: 2
   available: false

@@ -10,9 +10,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/Oeegoo_light.png
-- images/IMG_20230415_sm.jpg
-- images/IMG_20230807_sm.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035/Oeegoo_light.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035/IMG_20230415_sm.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035/IMG_20230807_sm.jpg
 pins:
 - gpio: 3
   available: false

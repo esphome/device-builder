@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/PC190HA.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-GridConnect-Smart-Plug-PC190HA/PC190HA.png
 tags:
 - relay
 - compact

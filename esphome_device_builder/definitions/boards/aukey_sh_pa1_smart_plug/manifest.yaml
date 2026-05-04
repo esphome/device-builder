@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/aukey-plug.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Aukey-SH-PA1-Smart-Plug/aukey-plug.jpg
 tags:
 - relay
 - compact

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Athom-Plug-AU.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-Smart-Plug-AU/Athom-Plug-AU.png
 tags:
 - relay
 - compact

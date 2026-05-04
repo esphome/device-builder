@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/WallSide.jpeg
-- images/SocketSide.jpeg
-- images/ESPboard.jpeg
-- images/GPIOs.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Azpen-Home-With-USB/WallSide.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Azpen-Home-With-USB/SocketSide.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Azpen-Home-With-USB/ESPboard.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Azpen-Home-With-USB/GPIOs.jpeg
 tags:
 - relay
 - compact

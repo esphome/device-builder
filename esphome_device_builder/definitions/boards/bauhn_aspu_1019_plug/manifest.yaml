@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/bauhn_ASPU-1019.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Bauhn-ASPU-1019-Plug/bauhn_ASPU-1019.webp
 tags:
 - relay
 - compact

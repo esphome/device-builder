@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/XS-SSA05-Overview.png
-- images/XS-SSA05-Flashing-Pins.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Xiangshang-XS-SSA05/XS-SSA05-Overview.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Xiangshang-XS-SSA05/XS-SSA05-Flashing-Pins.jpg
 tags:
 - relay
 - compact

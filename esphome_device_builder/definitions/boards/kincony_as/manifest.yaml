@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/KinCony-AS-1.jpg
-- images/KinCony-AS-5.jpg
-- images/KinCony-AS-7.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AS/KinCony-AS-1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AS/KinCony-AS-5.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-AS/KinCony-AS-7.jpg
 pins:
 - gpio: 16
   available: false

@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/zentec-outside.jpg
-- images/zentec-inside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zentec-Smart-Plug/zentec-outside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zentec-Smart-Plug/zentec-inside.jpg
 tags:
 - relay
 - compact

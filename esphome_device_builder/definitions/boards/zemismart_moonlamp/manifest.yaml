@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Moonlamp.jpg
-- images/BottomView.jpg
-- images/LEDLayout.jpg
-- images/SolderingPoints.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Moonlamp/Moonlamp.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Moonlamp/BottomView.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Moonlamp/LEDLayout.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Moonlamp/SolderingPoints.png
 pins:
 - gpio: 4
   available: false

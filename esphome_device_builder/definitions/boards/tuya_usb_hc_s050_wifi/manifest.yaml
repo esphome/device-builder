@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/tuya-hc-s050-wifi.jpg
-- images/tuya-hc-s050-wifi-pcb-flashing.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/tuya-hc-s050-wifi.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/tuya-hc-s050-wifi-pcb-flashing.jpg
 tags:
 - relay
 docs_url: https://devices.esphome.io/devices/Tuya-USB-HC-S050-WIFI/

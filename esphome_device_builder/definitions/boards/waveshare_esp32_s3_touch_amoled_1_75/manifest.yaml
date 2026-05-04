@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/Waveshare-ESP32-S3-Touch-AMOLED-1.75.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/Waveshare-ESP32-S3-Touch-AMOLED-1.75.png
 pins:
 - gpio: 46
   available: false

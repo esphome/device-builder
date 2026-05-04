@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/sonoff-iplug-wi-fi-smart-plug-s60-type-e-f.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-S60TPF/sonoff-iplug-wi-fi-smart-plug-s60-type-e-f.png
 tags:
 - relay
 - compact

@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/B4-1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B4/B4-1.jpg
 tags:
 - relay
 pins:

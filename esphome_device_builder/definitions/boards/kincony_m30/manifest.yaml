@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/M30.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-M30/M30.jpg
 pins:
 - gpio: 12
   available: false

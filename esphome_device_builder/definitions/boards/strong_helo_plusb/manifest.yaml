@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/strong_HELO-PLUSB-EU.webp
-- images/mcu_pinout.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Strong-Helo-PLUSB/strong_HELO-PLUSB-EU.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Strong-Helo-PLUSB/mcu_pinout.jpg
 tags:
 - relay
 pins:

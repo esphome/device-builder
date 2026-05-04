@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/xiaomi-philips-smart-2.jpg
-- images/pinout.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Xiaomi-Philips-Zhirui-Downlight/xiaomi-philips-smart-2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Xiaomi-Philips-Zhirui-Downlight/pinout.png
 pins:
 - gpio: 12
   available: false

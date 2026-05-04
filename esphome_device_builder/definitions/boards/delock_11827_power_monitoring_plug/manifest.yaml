@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Delock-11827-Power-Monitoring-Smart-Plug-Box.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Delock-11827-Power-Monitoring-Plug/Delock-11827-Power-Monitoring-Smart-Plug-Box.jpg
 tags:
 - relay
 - compact

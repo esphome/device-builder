@@ -11,10 +11,10 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/grgdo1.top.bare.jpg
-- images/grgdo1.jpg
-- images/grgdo1.dht22.jpg
-- images/features.secplus.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.top.bare.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.dht22.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/features.secplus.jpg
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Garage-Door-Opener-1/
 featured_components:
 - id: id_prefix_dry_contact_open

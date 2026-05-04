@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Delock-11826-Power-Smart-Plug.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Delock-11826-Power-Plug/Delock-11826-Power-Smart-Plug.jpg
 tags:
 - relay
 - compact

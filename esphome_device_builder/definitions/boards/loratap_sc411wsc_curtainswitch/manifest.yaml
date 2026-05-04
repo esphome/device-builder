@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/LoraTap-SC411WSC.JPG
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LoraTap-SC411WSC-CurtainSwitch/LoraTap-SC411WSC.JPG
 docs_url: https://devices.esphome.io/devices/LoraTap-SC411WSC-CurtainSwitch/
 featured_components:
 - id: open_cover_switch

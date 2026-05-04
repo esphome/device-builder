@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/ESP-01S-1-Channel-Relay.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP-01S-1-channel-relay/ESP-01S-1-Channel-Relay.jpg
 tags:
 - relay
 pins:

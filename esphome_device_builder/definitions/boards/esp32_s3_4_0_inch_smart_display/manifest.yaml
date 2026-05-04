@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/ESP32-S3-4.0-Inch-Smart-Display.jpg
-- images/ESP32-S3-4.0-Inch-Smart-Display_animation.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/ESP32-S3-4.0-Inch-Smart-Display.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/ESP32-S3-4.0-Inch-Smart-Display_animation.jpg
 pins:
 - gpio: 1
   available: false

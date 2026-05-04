@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/MJ-RP-FC01.jpg
-- images/rp-fc01-board.jpg
-- images/rp-fc01-flash-diagram.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Martin-Jerry-RP-FC01/MJ-RP-FC01.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Martin-Jerry-RP-FC01/rp-fc01-board.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Martin-Jerry-RP-FC01/rp-fc01-flash-diagram.png
 docs_url: https://devices.esphome.io/devices/Martin-Jerry-RP-FC01/
 product_url: https://github.com/esphome/esphome-devices
 featured_components:

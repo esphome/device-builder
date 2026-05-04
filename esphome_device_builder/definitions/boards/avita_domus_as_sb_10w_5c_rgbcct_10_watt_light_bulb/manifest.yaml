@@ -8,14 +8,14 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/avita_domus_AS-SB-10W-5C.jpg
-- images/tuya_firmware_version.png
-- images/led_pcb.jpg
-- images/main_pcb_top.jpg
-- images/main_pcb_bottom.jpg
-- images/wb3l_wifi_module.jpg
-- images/programmin.jpg
-- images/bulb_without_cup.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/avita_domus_AS-SB-10W-5C.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/tuya_firmware_version.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/led_pcb.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/main_pcb_top.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/main_pcb_bottom.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/wb3l_wifi_module.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/programmin.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/bulb_without_cup.jpg
 docs_url: https://devices.esphome.io/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/
 product_url: https://github.com/kprasadvnsi/Avita_Domus_AS-SB-10W-5C_RGBCCT_10Watt_Light_Bulb-esphome
 featured_components:

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Athom-EU-Plug.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-Smart-Plug-TP29/Athom-EU-Plug.png
 tags:
 - relay
 - compact

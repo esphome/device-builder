@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/M5Stack-Dial.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/M5Stack-Dial/M5Stack-Dial.png
 pins:
 - gpio: 3
   available: false

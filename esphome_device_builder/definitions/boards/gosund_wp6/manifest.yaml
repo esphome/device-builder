@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/gosund_WP6.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Gosund-WP6/gosund_WP6.jpeg
 tags:
 - relay
 - compact

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/jdong_x6060.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/JDONG-X6060-lamp/jdong_x6060.jpeg
 docs_url: https://devices.esphome.io/devices/JDONG-X6060-lamp/
 featured_components:
 - id: light_rgbww

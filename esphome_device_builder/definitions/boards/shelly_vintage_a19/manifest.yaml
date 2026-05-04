@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Shelly_Vintage_A60_x1-938x938.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Vintage-A19/Shelly_Vintage_A60_x1-938x938.png
 tags:
 - shelly
 pins:

@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/615DhD4alaL._SL1500_.jpg
-- images/case.jpg
-- images/pins.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Martin-Jerry-RP-SD01/615DhD4alaL._SL1500_.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Martin-Jerry-RP-SD01/case.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Martin-Jerry-RP-SD01/pins.jpg
 pins:
 - gpio: 2
   available: false

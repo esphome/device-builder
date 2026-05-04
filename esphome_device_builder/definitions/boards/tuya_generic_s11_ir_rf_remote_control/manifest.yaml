@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/S11.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Generic-S11-IR-RF-Remote-Control/S11.png
 docs_url: https://devices.esphome.io/devices/Tuya-Generic-S11-IR-RF-Remote-Control/
 featured_components:
 - id: binary_sensor_gpio_1

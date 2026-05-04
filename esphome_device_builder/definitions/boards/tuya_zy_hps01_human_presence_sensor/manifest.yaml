@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/ZY_HPS01.png
-- images/cb3s.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/ZY_HPS01.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/cb3s.png
 docs_url: https://devices.esphome.io/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/
 featured_components:
 - id: binary_sensor_tuya_1

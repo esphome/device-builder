@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/smartpoint_wifi_smart_remote_controller.jpeg
-- images/top-removed.jpg
-- images/underside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/smartpoint_wifi_smart_remote_controller.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/top-removed.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Smartpoint-Wifi-Smart-Remote-Controller/underside.jpg
 pins:
 - gpio: 13
   available: false

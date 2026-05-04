@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/kc868-e16p.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-E16P/kc868-e16p.jpg
 tags:
 - relay
 pins:

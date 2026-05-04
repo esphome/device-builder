@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/header.png
-- images/pins.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/myStrom-Wifi-Button/header.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/myStrom-Wifi-Button/pins.png
 pins:
 - gpio: 4
   available: false

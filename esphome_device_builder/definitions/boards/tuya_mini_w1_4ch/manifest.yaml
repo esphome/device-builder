@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/front.jpg
-- images/back.jpg
-- images/soldering.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Mini-W1-4CH/front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Mini-W1-4CH/back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Mini-W1-4CH/soldering.jpg
 tags:
 - relay
 pins:

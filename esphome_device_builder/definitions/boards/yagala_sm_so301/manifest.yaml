@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/product_image.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Yagala-SM-SO301/product_image.jpg
 tags:
 - relay
 - compact

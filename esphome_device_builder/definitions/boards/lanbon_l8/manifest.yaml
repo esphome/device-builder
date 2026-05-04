@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/lanbon-l8-us-white.png
-- images/lanbon-l8-eu-black.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/lanbon_l8/lanbon-l8-us-white.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/lanbon_l8/lanbon-l8-eu-black.png
 pins:
 - gpio: 5
   available: false

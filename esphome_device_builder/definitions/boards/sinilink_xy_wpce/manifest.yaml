@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/sinilink_XY-WPCE.webp
-- images/sinilink_XY-WPCE_pinout.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinilink-XY-WPCE/sinilink_XY-WPCE.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sinilink-XY-WPCE/sinilink_XY-WPCE_pinout.webp
 pins:
 - gpio: 4
   available: false

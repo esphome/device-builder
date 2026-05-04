@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/umax-wifi-plug-duo.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/UMAX-U-Smart-Wifi-Plug-Duo/umax-wifi-plug-duo.jpeg
 tags:
 - relay
 - compact

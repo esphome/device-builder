@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/product.jpg
-- images/ESP12F.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BH-AP2501/product.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/BlitzWolf-BH-AP2501/ESP12F.jpg
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BH-AP2501/
 product_url: https://github.com/wildekek/BlitzHome-BH-AP2501
 featured_components:

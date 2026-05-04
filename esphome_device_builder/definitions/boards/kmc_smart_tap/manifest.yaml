@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/KMC-Smart-Tap.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KMC-Smart-Tap/KMC-Smart-Tap.jpg
 tags:
 - relay
 - compact

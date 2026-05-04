@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Brilliant-Lighting-BL20925-Power-Monitoring-Plug.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Brilliant-Lighting-BL20925-Power-Monitoring-Plug/Brilliant-Lighting-BL20925-Power-Monitoring-Plug.jpeg
 tags:
 - relay
 - compact

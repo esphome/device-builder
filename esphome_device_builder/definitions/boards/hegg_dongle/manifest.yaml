@@ -8,12 +8,12 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/hegg-wrapped-top.jpg
-- images/hegg-wrapped-bottom.jpg
-- images/heggback.jpg
-- images/heggfront.jpg
-- images/heggDataGND.jpg
-- images/hegg-bent-pins.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/hegg-wrapped-top.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/hegg-wrapped-bottom.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/heggback.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/heggfront.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/heggDataGND.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Hegg-Dongle/hegg-bent-pins.jpeg
 pins:
 - gpio: 12
   available: false

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/magichome_single_color.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/MagicHome-ZJ-WFMN-C-Single-Color/magichome_single_color.png
 pins:
 - gpio: 12
   available: false

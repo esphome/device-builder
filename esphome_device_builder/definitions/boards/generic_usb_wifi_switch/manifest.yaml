@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/generic-usb-switch-cbu.jpg
-- images/generic-usb-switch-3out.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Generic-USB-Wifi-Switch/generic-usb-switch-cbu.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Generic-USB-Wifi-Switch/generic-usb-switch-3out.jpg
 tags:
 - relay
 pins:

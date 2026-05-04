@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/cloudfree-cf-p1.jpg
-- images/cloudfree-cf-p1-back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/CloudFree-CF-P1/cloudfree-cf-p1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/CloudFree-CF-P1/cloudfree-cf-p1-back.jpg
 tags:
 - relay
 - compact

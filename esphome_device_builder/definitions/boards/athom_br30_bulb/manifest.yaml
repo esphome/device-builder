@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Athom-BR30-Bulb.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Athom-BR30-Bulb/Athom-BR30-Bulb.png
 pins:
 - gpio: 4
   available: false

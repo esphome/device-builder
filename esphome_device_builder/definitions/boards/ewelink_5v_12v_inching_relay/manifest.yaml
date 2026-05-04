@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/device.png
-- images/programming-pins.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/eWelink-5V-12V-Inching-Relay/device.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/eWelink-5V-12V-Inching-Relay/programming-pins.png
 tags:
 - relay
 pins:

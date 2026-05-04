@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/denver-shp-102-box.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Denver-SHP-102/denver-shp-102-box.jpg
 tags:
 - relay
 - compact

@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/device.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8DO/device.png
 pins:
 - gpio: 0
   available: false

@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/deta_6014HA.png
-- images/Converted.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/DETA-Mechanism-Switch-6014HA/deta_6014HA.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/DETA-Mechanism-Switch-6014HA/Converted.png
 pins:
 - gpio: 12
   available: false

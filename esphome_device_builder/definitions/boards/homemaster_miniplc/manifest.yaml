@@ -10,9 +10,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/MiniPLC.png
-- images/pinout.png
-- images/system_block_diagram.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Homemaster-MiniPLC/MiniPLC.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Homemaster-MiniPLC/pinout.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Homemaster-MiniPLC/system_block_diagram.png
 tags:
 - relay
 pins:

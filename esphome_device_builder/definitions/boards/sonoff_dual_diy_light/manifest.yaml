@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/sonoff_dual_r2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Sonoff-Dual-DIY-light/sonoff_dual_r2.jpg
 tags:
 - relay
 - sonoff

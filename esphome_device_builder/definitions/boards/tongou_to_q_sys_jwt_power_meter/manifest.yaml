@@ -8,14 +8,14 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/product-image.webp
-- images/device-disassembled.webp
-- images/internal-mains-attachments.webp
-- images/mcu.webp
-- images/CBU-board.webp
-- images/CBU-board-2.webp
-- images/TO-Q-SYS-JWT-1.png
-- images/TO-Q-SYS-JWT-2.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/product-image.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/device-disassembled.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/internal-mains-attachments.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/mcu.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/CBU-board.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/CBU-board-2.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/TO-Q-SYS-JWT-1.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tongou-TO-Q-SYS-JWT-power-meter/TO-Q-SYS-JWT-2.png
 docs_url: https://devices.esphome.io/devices/Tongou-TO-Q-SYS-JWT-power-meter/
 product_url: https://github.com/dshcherb/TO-Q-SYS-JWT-meter-esphome
 featured_components:

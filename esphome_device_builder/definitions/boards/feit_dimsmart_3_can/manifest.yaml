@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Feit-DIMSMART-3-CAN.jpg
-- images/board.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Feit-DIMSMART-3-CAN/Feit-DIMSMART-3-CAN.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Feit-DIMSMART-3-CAN/board.jpg
 docs_url: https://devices.esphome.io/devices/Feit-DIMSMART-3-CAN/
 featured_components:
 - id: dimmer_switch

@@ -10,7 +10,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Smart-Plant.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Smart-Plant/Smart-Plant.png
 pins:
 - gpio: 1
   available: false

@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/tuya-smart-plug-20.jpg
-- images/hardware-closeup.jpg
-- images/programming.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-20A/tuya-smart-plug-20.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-20A/hardware-closeup.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-20A/programming.jpg
 tags:
 - relay
 - compact

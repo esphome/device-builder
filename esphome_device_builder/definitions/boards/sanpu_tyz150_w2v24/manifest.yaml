@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/devices.png
-- images/mechanical.png
-- images/CB3L.png
-- images/extract_from_unit.png
-- images/flashing_points.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/devices.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/mechanical.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/CB3L.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/extract_from_unit.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/SANPU-TYZ150-W2V24/flashing_points.png
 docs_url: https://devices.esphome.io/devices/SANPU-TYZ150-W2V24/
 featured_components:
 - id: light_cwww_1

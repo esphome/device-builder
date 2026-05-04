@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/ESP32-B16M-2.jpg
-- images/B16M-diagram.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B16M/ESP32-B16M-2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-B16M/B16M-diagram.jpg
 tags:
 - relay
 pins:

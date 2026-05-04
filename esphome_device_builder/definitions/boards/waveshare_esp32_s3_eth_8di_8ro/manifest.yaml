@@ -10,8 +10,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/image1.jpg
-- images/image2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8RO/image1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8RO/image2.jpg
 tags:
 - relay
 pins:

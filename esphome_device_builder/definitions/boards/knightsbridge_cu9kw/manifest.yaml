@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/knightsbridge-cu9kw.jpg
-- images/knightsbridge-op9kw.jpg
-- images/knightsbridge-cu9kw-disassembly.jpg
-- images/knightsbridge-cu9kw-ESP-board.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-cu9kw.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-op9kw.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-cu9kw-disassembly.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Knightsbridge-CU9KW/knightsbridge-cu9kw-ESP-board.jpg
 tags:
 - relay
 - compact

@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/geekbes_YM-WS-1.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Geekbes-YM-WS-1/geekbes_YM-WS-1.png
 tags:
 - relay
 - compact

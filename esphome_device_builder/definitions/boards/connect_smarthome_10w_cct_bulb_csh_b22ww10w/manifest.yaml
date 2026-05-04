@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/connect_smarthome_CSH-B22WW10W.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Connect-SmartHome-10W-CCT-Bulb-CSH-B22WW10W/connect_smarthome_CSH-B22WW10W.jpg
 pins:
 - gpio: 5
   available: false

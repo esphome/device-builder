@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/shelly-pro-2.jpg
-- images/shift-register.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Pro-2/shelly-pro-2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Pro-2/shift-register.jpg
 tags:
 - relay
 - shelly

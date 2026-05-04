@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/front.jpg
-- images/back.jpg
-- images/pcb.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSPS5-Tuya-1-2-3-Gang-Switch/front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSPS5-Tuya-1-2-3-Gang-Switch/back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/LSPS5-Tuya-1-2-3-Gang-Switch/pcb.jpg
 pins:
 - gpio: 8
   available: false

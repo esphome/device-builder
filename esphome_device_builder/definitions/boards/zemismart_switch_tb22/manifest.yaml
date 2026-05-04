@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/zemismart-tb23.jpg
-- images/board-front.jpeg
-- images/board-back.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Switch-TB22/zemismart-tb23.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Switch-TB22/board-front.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Zemismart-Switch-TB22/board-back.jpeg
 pins:
 - gpio: 0
   available: false

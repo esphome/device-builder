@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/cb2s.jpg
-- images/plugs.jpg
-- images/plug-with-box.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-20A-WHDZ03/cb2s.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-20A-WHDZ03/plugs.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Smart-Plug-20A-WHDZ03/plug-with-box.jpg
 tags:
 - relay
 - compact

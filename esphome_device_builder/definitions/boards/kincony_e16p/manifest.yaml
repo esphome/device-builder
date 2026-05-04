@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/E16P-1_07.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-E16P/E16P-1_07.jpg
 tags:
 - relay
 pins:

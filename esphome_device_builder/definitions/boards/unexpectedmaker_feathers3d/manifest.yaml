@@ -10,8 +10,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/main_features_feathers3d.jpg
-- images/pins_feathers3d.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/UnexpectedMaker-FeatherS3D/main_features_feathers3d.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/UnexpectedMaker-FeatherS3D/pins_feathers3d.jpg
 pins:
 - gpio: 4
   available: false

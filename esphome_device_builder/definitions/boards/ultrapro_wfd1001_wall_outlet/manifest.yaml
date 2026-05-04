@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/ultrapro-wfd1001-wall-outlet-v1.0.4.jpg
-- images/ultrapro-wfd1001-label-sticker.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/ultrapro-wfd1001-wall-outlet-v1.0.4.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/ultrapro-wfd1001-label-sticker.png
 tags:
 - relay
 - compact

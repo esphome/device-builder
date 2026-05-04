@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/N30-1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-N30/N30-1.jpg
 docs_url: https://devices.esphome.io/devices/KinCony-N30/
 featured_components:
 - id: n30_1_current_1

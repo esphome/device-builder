@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/kc868-m16.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-KC868-M16/kc868-m16.jpg
 pins:
 - gpio: 34
   available: false

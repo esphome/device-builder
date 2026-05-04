@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/pcb-labeled.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mi-Desklamp/pcb-labeled.jpg
 pins:
 - gpio: 2
   available: false

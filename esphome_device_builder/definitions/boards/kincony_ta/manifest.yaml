@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/TA1.jpg
-- images/TA2.jpg
-- images/TA3.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-TA/TA1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-TA/TA2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-TA/TA3.jpg
 pins:
 - gpio: 0
   available: false

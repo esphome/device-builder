@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/IRC03.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-Generic-IRC03-IR-Blaster/IRC03.jpg
 pins:
 - gpio: 9
   available: false

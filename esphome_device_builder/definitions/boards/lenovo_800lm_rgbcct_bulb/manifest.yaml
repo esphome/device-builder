@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/lenovo_ZG38C02978.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Lenovo-800lm-RGBCCT-Bulb/lenovo_ZG38C02978.webp
 pins:
 - gpio: 4
   available: false

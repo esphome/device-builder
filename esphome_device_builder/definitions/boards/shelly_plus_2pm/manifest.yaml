@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/shellyplus2pm_pcb_versions.png
-- images/ESP32-U4WDH_versions.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-2PM/shellyplus2pm_pcb_versions.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Plus-2PM/ESP32-U4WDH_versions.png
 tags:
 - shelly
 pins:

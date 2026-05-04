@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/mirabella-genio-wi-fi-ses-led-candle.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Mirabella-Genio-Wi-Fi-SES-LED-Candle/mirabella-genio-wi-fi-ses-led-candle.jpg
 pins:
 - gpio: 12
   available: false

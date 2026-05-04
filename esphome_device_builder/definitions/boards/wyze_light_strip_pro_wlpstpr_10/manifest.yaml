@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/wlpstpr_pads.jpg
-- images/wlpstpr_io.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/WYZE-Light-Strip-Pro-WLPSTPR-10/wlpstpr_pads.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/WYZE-Light-Strip-Pro-WLPSTPR-10/wlpstpr_io.jpg
 pins:
 - gpio: 2
   available: false

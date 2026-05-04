@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/Pinouts.webp
-- images/esp32s3supermini.jpeg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/Pinouts.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/esp32s3supermini.jpeg
 pins:
 - gpio: 48
   available: false

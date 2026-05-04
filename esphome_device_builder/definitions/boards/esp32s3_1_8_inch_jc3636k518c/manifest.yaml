@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/JC3636K518C.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/ESP32S3-1.8-inch-JC3636K518C/JC3636K518C.webp
 pins:
 - gpio: 47
   available: false

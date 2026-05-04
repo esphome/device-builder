@@ -8,10 +8,10 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Arlec-FL052HA-Security-Flood-Light.png
-- images/1019.jpg
-- images/0320.jpg
-- images/0520.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/Arlec-FL052HA-Security-Flood-Light.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/1019.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/0320.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Arlec-FL052HA-Security-Flood-Light/0520.jpg
 pins:
 - gpio: 14
   available: false

@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/m5stickcplus2.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/M5Stack-M5StickC-PLUS2/m5stickcplus2.png
 pins:
 - gpio: 2
   available: false

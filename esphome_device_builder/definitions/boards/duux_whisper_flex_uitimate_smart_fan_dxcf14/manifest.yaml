@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/duux_DXCF14.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Duux-Whisper-Flex-UItimate-Smart-Fan-DXCF14/duux_DXCF14.png
 docs_url: https://devices.esphome.io/devices/Duux-Whisper-Flex-UItimate-Smart-Fan-DXCF14/
 featured_components:
 - id: fan_tuya_1

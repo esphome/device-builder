@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/tinxy1.jpg
-- images/tinxy2.jpg
-- images/tinxy3.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tinxy-4N-Fan-Regulator/tinxy1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tinxy-4N-Fan-Regulator/tinxy2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tinxy-4N-Fan-Regulator/tinxy3.jpg
 tags:
 - relay
 pins:

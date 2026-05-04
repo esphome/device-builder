@@ -8,12 +8,12 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/h801.jpg
-- images/h801-board-front.jpg
-- images/h801-board-back.jpg
-- images/h801-pir_sensor.jpg
-- images/H802WiFi-1.jpg
-- images/h802-board-photo-annotated.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h801.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h801-board-front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h801-board-back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h801-pir_sensor.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/H802WiFi-1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/H801-RGBW-LED-Controller/h802-board-photo-annotated.jpg
 pins:
 - gpio: 4
   available: false

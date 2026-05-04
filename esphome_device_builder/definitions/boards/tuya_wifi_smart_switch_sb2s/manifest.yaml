@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Tuya-WiFi-Smart-Switch-SB2S-front.jpg
-- images/Tuya-WiFi-Smart-Switch-SB2S-pcb-front.jpg
-- images/Tuya-WiFi-Smart-Switch-SB2S-pcb-back.jpg
-- images/Tuya-WiFi-Smart-Switch-SB2S-submodule-front.jpg
-- images/Tuya-WiFi-Smart-Switch-SB2S-submodule-back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/Tuya-WiFi-Smart-Switch-SB2S-front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/Tuya-WiFi-Smart-Switch-SB2S-pcb-front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/Tuya-WiFi-Smart-Switch-SB2S-pcb-back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/Tuya-WiFi-Smart-Switch-SB2S-submodule-front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/Tuya-WiFi-Smart-Switch-SB2S-submodule-back.jpg
 docs_url: https://devices.esphome.io/devices/Tuya-WiFi-Smart-Switch-SB2S/
 featured_components:
 - id: relay

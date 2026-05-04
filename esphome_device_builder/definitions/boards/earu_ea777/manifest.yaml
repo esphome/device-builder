@@ -11,7 +11,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/esp32.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Earu-EA777/esp32.png
 docs_url: https://devices.esphome.io/devices/Earu-EA777/
 featured_components:
 - id: phase_a_voltage

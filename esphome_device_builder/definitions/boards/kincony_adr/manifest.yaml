@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/esp32-ac-dimmer-adr-1.jpg
-- images/ADR-lamp.jpg
-- images/ADR-fan.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-ADR/esp32-ac-dimmer-adr-1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-ADR/ADR-lamp.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-ADR/ADR-fan.jpg
 pins:
 - gpio: 25
   available: false

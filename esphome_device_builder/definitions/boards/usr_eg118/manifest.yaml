@@ -11,8 +11,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/USR-EG118.png
-- images/USR-M100-expansion.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/USR-EG118/USR-EG118.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/USR-EG118/USR-M100-expansion.png
 pins:
 - gpio: 1
   available: false

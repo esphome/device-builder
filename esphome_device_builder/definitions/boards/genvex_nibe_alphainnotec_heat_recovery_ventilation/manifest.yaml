@@ -10,7 +10,7 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/ECO-375-mark2-lukket.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Genvex-Nibe-AlphaInnotec-heat-recovery-ventilation/ECO-375-mark2-lukket.jpg
 docs_url: https://devices.esphome.io/devices/Genvex-Nibe-AlphaInnotec-heat-recovery-ventilation/
 featured_components:
 - id: binary_sensor_modbus_controller_1

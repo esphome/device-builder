@@ -8,7 +8,7 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/teckin-ss42.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Teckin-SS42/teckin-ss42.webp
 tags:
 - relay
 - compact

@@ -11,9 +11,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/T16M-1.jpg
-- images/T16M-2.jpg
-- images/T16M-3.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-T16M/T16M-1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-T16M/T16M-2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-T16M/T16M-3.jpg
 tags:
 - relay
 pins:

@@ -8,9 +8,9 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/closeup.jpg
-- images/connection-jumper.jpg
-- images/connection-serial.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tinxy-1N-16A-Relay/closeup.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tinxy-1N-16A-Relay/connection-jumper.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Tinxy-1N-16A-Relay/connection-serial.jpg
 tags:
 - relay
 pins:

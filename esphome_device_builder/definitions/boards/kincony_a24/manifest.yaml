@@ -10,8 +10,8 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/ESP32_A24.jpg
-- images/A24-1_07.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-A24/ESP32_A24.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/KinCony-A24/A24-1_07.jpg
 tags:
 - relay
 pins:

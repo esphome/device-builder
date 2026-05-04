@@ -8,8 +8,8 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/image.jpg
-- images/image2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/IoT-devices-GGreg20-V3/image.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/IoT-devices-GGreg20-V3/image2.jpg
 pins:
 - gpio: 0
   available: false

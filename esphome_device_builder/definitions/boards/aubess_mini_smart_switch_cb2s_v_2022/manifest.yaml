@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Aubess-Mini-Smart-Switch-V2022-Product-image.jpg
-- images/Aubess-Mini-Smart-Switch-V2022-General-View.jpg
-- images/Aubess-Mini-Smart-Switch-V2022-bottom.jpg
-- images/Aubess-Mini-Smart-Switch-V2022-Pinout1.jpg
-- images/Aubess-Mini-Smart-Switch-V2022-Pinout2.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/Aubess-Mini-Smart-Switch-V2022-Product-image.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/Aubess-Mini-Smart-Switch-V2022-General-View.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/Aubess-Mini-Smart-Switch-V2022-bottom.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/Aubess-Mini-Smart-Switch-V2022-Pinout1.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/Aubess-Mini-Smart-Switch-V2022-Pinout2.jpg
 docs_url: https://devices.esphome.io/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/
 featured_components:
 - id: relay

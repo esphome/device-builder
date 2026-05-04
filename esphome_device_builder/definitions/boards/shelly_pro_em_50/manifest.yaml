@@ -10,9 +10,9 @@ hardware:
   - wifi
   - bluetooth
 images:
-- images/shelly-pro-em-50.jpg
-- images/pcb-front.jpg
-- images/pcb-back.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Pro-EM-50/shelly-pro-em-50.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Pro-EM-50/pcb-front.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Shelly-Pro-EM-50/pcb-back.jpg
 tags:
 - shelly
 pins:

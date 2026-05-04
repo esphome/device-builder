@@ -8,11 +8,11 @@ hardware:
   connectivity:
   - wifi
 images:
-- images/Ledkia-LED-Cord-DIMMER-device.webp
-- images/Ledkia-LED-Cord-DIMMER-manual.png
-- images/Ledkia-LED-Cord-DIMMER-topside.jpg
-- images/Ledkia-LED-Cord-DIMMER-underside.jpg
-- images/Ledkia-LED-Cord-DIMMER-connections.JPG
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Ledkia-LED-Cord-DIMMER-SWITCH/Ledkia-LED-Cord-DIMMER-device.webp
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Ledkia-LED-Cord-DIMMER-SWITCH/Ledkia-LED-Cord-DIMMER-manual.png
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Ledkia-LED-Cord-DIMMER-SWITCH/Ledkia-LED-Cord-DIMMER-topside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Ledkia-LED-Cord-DIMMER-SWITCH/Ledkia-LED-Cord-DIMMER-underside.jpg
+- https://raw.githubusercontent.com/esphome/esphome-devices/main/src/docs/devices/Ledkia-LED-Cord-DIMMER-SWITCH/Ledkia-LED-Cord-DIMMER-connections.JPG
 docs_url: https://devices.esphome.io/devices/Ledkia-LED-Cord-DIMMER-SWITCH/
 featured_components:
 - id: light_tuya_1
