@@ -20,9 +20,9 @@ inputs:
     required: true
   github-token:
     description: |
-      GitHub token. Needs read access to this repo *and* to the frontend repo
-      (for the release bodies). The default GITHUB_TOKEN works for public
-      repos; the release workflow passes its app token here.
+      GitHub token used to read this repo's PRs and tags. The frontend
+      repo is read anonymously (it's public) so the token only needs
+      access to the calling repo — no cross-repo install required.
     required: true
   frontend-repo:
     description: Frontend repo in OWNER/REPO form.

@@ -192,8 +192,17 @@ jobs:
           set -euo pipefail
           # Reruns of this job may find an existing draft from the
           # previous attempt — edit it in place rather than failing on
-          # a duplicate-tag error from ``gh release create``.
-          if gh release view "${{ inputs.version }}" >/dev/null 2>&1; then
+          # a duplicate-tag error from ``gh release create``. If the
+          # release somehow already exists *and* has been published,
+          # bail out: the validate step rejects existing tags so this
+          # would only happen on an out-of-band publish, and silently
+          # flipping a public release back to draft would be worse
+          # than failing loudly.
+          if existing=$(gh release view "${{ inputs.version }}" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [ "$existing" != "true" ]; then
+              echo "::error::Release ${{ inputs.version }} already exists and is not a draft; refusing to overwrite."
+              exit 1
+            fi
             gh release edit "${{ inputs.version }}" \
               --notes-file "$NOTES_FILE" \
               --target "${{ github.sha }}" \
