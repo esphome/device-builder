@@ -73,7 +73,7 @@ def test_signal_process_group_returns_false_for_dead_pid() -> None:
     # Spawn + wait + reap, then try to signal. The pid is now dead so
     # ``os.getpgid`` raises ``ProcessLookupError`` and our helper has
     # to return False rather than propagate.
-    proc = subprocess.Popen([sys.executable, "-c", "pass"])  # noqa: S603
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
     proc.wait()
     assert _signal_process_group(proc.pid, signal.SIGTERM) is False
 
