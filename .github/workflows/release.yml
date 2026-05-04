@@ -1,11 +1,12 @@
 name: Release
 
-# Cuts a release. Manual via ``workflow_dispatch`` or called by
-# ``auto-release.yml``. The GitHub release is an output — do not
-# publish one by hand.
+# Cuts a release. Triggered manually via ``workflow_dispatch`` or
+# dispatched by ``auto-release.yml``. The GitHub release tag is
+# created when the release is flipped to public — do not push a
+# tag by hand.
 #
-# version must match channel: ``release`` → ``X.Y.Z``,
-# ``prerelease`` → ``X.Y.ZbN``.
+# Version format determines the channel: ``X.Y.Z`` is a stable
+# release, ``X.Y.ZbN`` is a prerelease.
 
 on:
   workflow_dispatch:
@@ -14,27 +15,6 @@ on:
         description: "Version number (e.g. 2026.5.0 or 2026.5.0b1)"
         required: true
         type: string
-      channel:
-        description: "Release channel"
-        required: true
-        type: choice
-        default: release
-        options:
-          - release
-          - prerelease
-  workflow_call:
-    inputs:
-      version:
-        description: "Version number (e.g. 2026.5.0 or 2026.5.0b1)"
-        required: true
-        type: string
-      channel:
-        description: "Release channel: 'release' or 'prerelease'"
-        required: true
-        type: string
-    secrets:
-      ESPHOME_GITHUB_APP_PRIVATE_KEY:
-        required: true
 
 env:
   PYTHON_VERSION: "3.13"
@@ -42,43 +22,36 @@ env:
 permissions:
   contents: read
 
+# Only one release run at a time, ever. A second run queues behind
+# the first rather than cancelling it — cancelling mid-publish could
+# leave PyPI and the GitHub release in inconsistent states.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   validate:
-    name: Validate version + channel
+    name: Validate version
     runs-on: ubuntu-latest
     outputs:
-      is_prerelease: ${{ steps.check.outputs.is_prerelease }}
+      is-prerelease: ${{ steps.check.outputs.is-prerelease }}
     steps:
-      - name: Validate version format against channel
+      - name: Validate version format
         id: check
         run: |
           set -euo pipefail
           VERSION='${{ inputs.version }}'
-          CHANNEL='${{ inputs.channel }}'
-          RELEASE_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
-          PRERELEASE_RE='^[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$'
 
-          case "$CHANNEL" in
-            release)
-              if ! [[ "$VERSION" =~ $RELEASE_RE ]]; then
-                echo "::error::channel='release' requires version X.Y.Z (got '$VERSION')."
-                exit 1
-              fi
-              echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
-              ;;
-            prerelease)
-              if ! [[ "$VERSION" =~ $PRERELEASE_RE ]]; then
-                echo "::error::channel='prerelease' requires version X.Y.ZbN (got '$VERSION')."
-                exit 1
-              fi
-              echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "::error::Unknown channel '$CHANNEL' (expected 'release' or 'prerelease')."
-              exit 1
-              ;;
-          esac
-          echo "✅ version $VERSION is valid for channel $CHANNEL"
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is-prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "✅ $VERSION is a stable release."
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$ ]]; then
+            echo "is-prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "✅ $VERSION is a prerelease."
+          else
+            echo "::error::Version '$VERSION' must be X.Y.Z (release) or X.Y.ZbN (prerelease)."
+            exit 1
+          fi
 
       - name: Reject already-existing tag
         env:
@@ -141,26 +114,13 @@ jobs:
           name: dist
           path: dist/
 
-  release:
-    name: Tag and create GitHub release
+  draft-release:
+    name: Draft GitHub release and attach assets
     needs: [validate, build]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: read
-    outputs:
-      release_url: ${{ steps.drafter.outputs.html_url }}
+      contents: read    # actions/checkout uses the implicit GITHUB_TOKEN
     steps:
-      - name: Validate GitHub App configuration
-        env:
-          GITHUB_APP_CLIENT_ID: ${{ vars.ESPHOME_GITHUB_APP_CLIENT_ID }}
-        run: |
-          if [ -z "$GITHUB_APP_CLIENT_ID" ]; then
-            echo "::error::Missing GitHub App Client ID."
-            echo "::error::Set Actions variable ESPHOME_GITHUB_APP_CLIENT_ID and ensure it is shared with this repository."
-            exit 1
-          fi
-
       - name: Mint GitHub App token
         id: app-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3  # v3.1.1
@@ -175,31 +135,23 @@ jobs:
       - name: Check out code from GitHub
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          # Tag doesn't exist yet — it's created when the draft release
+          # is published. Build from the SHA the workflow ran on, which
+          # is also what release-drafter targets via commitish.
           ref: ${{ github.sha }}
-          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Create and push tag
-        run: |
-          git tag -a "${{ inputs.version }}" -m "Release ${{ inputs.version }}" "${{ github.sha }}"
-          git push origin "${{ inputs.version }}"
-
-      - name: Generate release notes and publish GitHub release
-        id: drafter
+      - name: Generate release notes (draft)
         uses: release-drafter/release-drafter@563bf132657a13ded0b01fcb723c5a58cdd824e2  # v7.2.1
         with:
           config-name: release-drafter.yml
           version: ${{ inputs.version }}
           tag: ${{ inputs.version }}
           name: ${{ inputs.version }}
-          publish: true
-          prerelease: ${{ needs.validate.outputs.is_prerelease }}
+          commitish: ${{ github.sha }}
+          publish: false
+          prerelease: ${{ needs.validate.outputs.is-prerelease }}
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
@@ -209,21 +161,36 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Attach artifacts to GitHub release
+      - name: Clear existing assets on draft release
+        # On a partial-failure rerun the draft release may already
+        # carry assets from the previous attempt. Strip them so the
+        # upload starts from a clean slate — ``--clobber`` only
+        # overwrites same-name files and would leave stale assets
+        # (e.g. from a different version bump) hanging around.
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh release view "${{ inputs.version }}" --json assets --jq '.assets[].name' \
+            | while IFS= read -r asset; do
+                [ -z "$asset" ] && continue
+                gh release delete-asset "${{ inputs.version }}" "$asset" --yes
+              done
+
+      - name: Attach artifacts to draft release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh release upload "${{ inputs.version }}" dist/*
 
   publish-pypi:
     name: Publish to PyPI
-    needs: release
+    needs: draft-release
     runs-on: ubuntu-latest
-    # Drop ``continue-on-error`` after the first successful publish.
-    continue-on-error: true
     permissions:
       contents: read
-      id-token: write
-    environment: pypi
+      id-token: write   # OIDC for PyPI Trusted Publishing
+    environment:
+      name: pypi
+      url: https://pypi.org/project/esphome-device-builder/${{ inputs.version }}/
     steps:
       - name: Download dist artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
@@ -234,4 +201,39 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
         with:
+          # Skip dists already on PyPI so a partial-failure rerun
+          # (e.g. release-edit failed after PyPI succeeded) doesn't
+          # blow up on the duplicate version.
           skip-existing: true
+
+  publish-release:
+    name: Publish GitHub release
+    needs: [validate, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment:
+      name: gh-release
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.version }}
+    steps:
+      - name: Mint GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3  # v3.1.1
+        with:
+          client-id: ${{ vars.ESPHOME_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ESPHOME_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Publish release
+        # Flipping draft → public causes GitHub to create the tag at
+        # the recorded ``commitish`` SHA, attributed to the app token
+        # (esphome[bot]).
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh release edit "${{ inputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --draft=false \
+            --prerelease=${{ needs.validate.outputs.is-prerelease }}
