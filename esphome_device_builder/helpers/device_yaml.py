@@ -611,12 +611,14 @@ def load_device_yaml(path: Path) -> dict | None:
     """Load *path* with ESPHome's YAML loader; return the top-level mapping.
 
     Resolves ``!secret`` / ``!include`` / etc. like a real compile,
-    runs ``do_packages_pass`` + ``merge_packages`` to flatten any
-    ``packages:`` block into the main config (so callers see what the
-    compiler actually sees — ``api:`` / ``wifi:`` / target-platform
-    blocks contributed by packages register as top-level keys here),
-    and returns ``None`` when the file isn't a mapping or fails to
-    parse.
+    flattens any ``packages:`` block into the main config via
+    ESPHome's package-resolution internals (the single-call
+    ``resolve_packages`` on newer ESPHome, the two-step
+    ``do_packages_pass`` + ``merge_packages`` fallback on older
+    builds), so callers see what the compiler actually sees —
+    ``api:`` / ``wifi:`` / target-platform blocks contributed by
+    packages register as top-level keys here — and returns
+    ``None`` when the file isn't a mapping or fails to parse.
 
     Package resolution is best-effort: a remote (git) package needs
     network access, an invalid package definition fails ESPHome's
