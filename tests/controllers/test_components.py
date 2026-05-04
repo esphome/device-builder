@@ -268,7 +268,6 @@ def test_resolve_platform_returns_none_for_unknown_board_id() -> None:
     elsewhere.
     """
     boards_cat = BoardCatalog()
-    boards_cat.load()
     cat = ComponentCatalog(_Container(boards=boards_cat))
     assert cat._resolve_platform(None, board_id="no-such-board-zzz") is None
 
