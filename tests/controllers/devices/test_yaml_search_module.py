@@ -30,6 +30,7 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.controllers.devices._yaml_search import (
+    MAX_LINES_PER_FILE,
     search_yaml_devices,
 )
 from esphome_device_builder.controllers.devices._yaml_search_cache import (
@@ -182,6 +183,61 @@ async def test_case_sensitive_distinguishes_case(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Caps
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_max_lines_per_file_caps_pathological_files(tmp_path: Path) -> None:
+    """Files past ``MAX_LINES_PER_FILE`` lines are scanned only up to the cap.
+
+    Pathological configs (machine-generated YAML, runaway lambda
+    blocks) would otherwise tie up the per-keystroke search loop
+    while we walk tens of thousands of lines for a no-match
+    needle. The cap defends the worst case — substring matches
+    past line ``MAX_LINES_PER_FILE`` silently drop out, so the
+    loop's hot path stays bounded.
+
+    Pin the contract:
+    - a match at the cap boundary IS returned (last in-range line);
+    - a match past the cap is NOT returned (first out-of-range
+      line should be invisible to search);
+    - the line numbers in the result remain 1-indexed against the
+      scanned slice (which is the same as the file line number,
+      since we slice from line 1).
+    """
+    cache = YamlSearchCache()
+    # ``MAX_LINES_PER_FILE`` lines of filler then two unique-needle
+    # lines: the first lands exactly AT the cap (last scanned line),
+    # the second lands past the cap (must be invisible).
+    filler = "\n".join("# noise" for _ in range(MAX_LINES_PER_FILE - 1))
+    content = f"{filler}\n# tag-at-cap\n# tag-past-cap\n"
+    devices = [_seed(tmp_path, "huge", content)]
+
+    results, _ = await search_yaml_devices(
+        devices=devices,
+        cache=cache,
+        rel_path=_rel(tmp_path),
+        needle="tag-at-cap",
+        case_sensitive=False,
+        max_results=50,
+        per_file_cap=10,
+    )
+    assert results[0]["matches"] == [
+        {"line_number": MAX_LINES_PER_FILE, "line_text": "# tag-at-cap"}
+    ]
+
+    # Same file, different needle that only appears past the cap.
+    # ``cache`` is reused; the in-memory line list still holds the
+    # full file (we cap the search, not the cache).
+    results, _ = await search_yaml_devices(
+        devices=devices,
+        cache=cache,
+        rel_path=_rel(tmp_path),
+        needle="tag-past-cap",
+        case_sensitive=False,
+        max_results=50,
+        per_file_cap=10,
+    )
+    assert results == []
 
 
 @pytest.mark.asyncio

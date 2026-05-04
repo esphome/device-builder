@@ -37,9 +37,16 @@ from __future__ import annotations
 
 from pytest_codspeed import BenchmarkFixture
 
-from esphome_device_builder.controllers.devices._yaml_search import scan_lines
+from esphome_device_builder.controllers.devices._yaml_search import (
+    MAX_LINES_PER_FILE,
+    scan_lines,
+)
 
-_TARGET_LINES = 5000
+# Pin the benchmark fixture's line count to the production
+# pathological-file cap so the two stay in sync — if the cap
+# moves, the benchmark moves with it and we keep measuring
+# "the largest file the search loop actually scans".
+_TARGET_LINES = MAX_LINES_PER_FILE
 
 
 def _generate_yaml(target_lines: int) -> list[str]:

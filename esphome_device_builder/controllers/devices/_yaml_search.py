@@ -35,6 +35,19 @@ if TYPE_CHECKING:
     from ._yaml_search_cache import YamlSearchCache
 
 
+# Largest line index that can ever appear in a search hit. Files
+# longer than this are still cached in full, but the search loop
+# scans only the first ``MAX_LINES_PER_FILE`` lines — a defence
+# against pathological configs (machine-generated YAML, runaway
+# lambda blocks, accidentally-checked-in build output) tying up
+# the per-keystroke search loop while we walk tens of thousands
+# of lines for a no-match needle. Set high enough that no
+# realistic packaged ESPHome config (hundreds of sensors) hits
+# it, but low enough that the worst case stays sub-millisecond
+# warm-cache.
+MAX_LINES_PER_FILE = 5000
+
+
 def scan_lines(
     lines: list[str],
     needle: str,
@@ -54,7 +67,9 @@ def scan_lines(
     Returns up to *max_take* matches. The caller folds two
     upstream caps (``per_file_cap``, the remaining
     ``max_results`` budget across the fleet) into a single
-    ``max_take`` value before calling.
+    ``max_take`` value before calling. The
+    ``MAX_LINES_PER_FILE`` pathological-file cap is also applied
+    by the caller via a pre-slice on *lines*.
 
     *needle* must be pre-lowered when ``case_sensitive`` is
     ``False`` — the caller lowers it once outside the per-file
@@ -148,6 +163,17 @@ async def search_yaml_devices(
             await asyncio.sleep(0)
             continue
 
+        # Pathologically-large files (machine-generated configs,
+        # accidentally-checked-in build output, runaway lambda
+        # blocks) would otherwise tie up the per-keystroke search
+        # for tens of milliseconds while we scan tens of thousands
+        # of lines for a no-match needle. Cap the scan window to
+        # ``MAX_LINES_PER_FILE``; substring matches past that line
+        # silently drop out of search results. The cache still
+        # holds the full file (so the editor's other code paths
+        # see the real content) — only the search loop is bounded.
+        scannable = lines if len(lines) <= MAX_LINES_PER_FILE else lines[:MAX_LINES_PER_FILE]
+
         # Fold per-file + remaining-budget caps into a single
         # ``max_take`` and hand off to the synchronous scan
         # helper. The previous inline loop had two break paths
@@ -155,7 +181,7 @@ async def search_yaml_devices(
         # max_results); both collapse cleanly into
         # ``min(per_file_cap, remaining)``.
         max_take = min(per_file_cap, max_results - total_matches)
-        matches = scan_lines(lines, needle, case_sensitive=case_sensitive, max_take=max_take)
+        matches = scan_lines(scannable, needle, case_sensitive=case_sensitive, max_take=max_take)
 
         if matches:
             results.append(
