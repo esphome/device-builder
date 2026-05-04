@@ -57,6 +57,20 @@ _EXPECTATIONS: list[tuple[str, list[tuple[str, str, bool | None, str | None]]]] 
         ],
     ),
     (
+        "uart",
+        [
+            # Same custom-validator-wrapper pattern as wifi.ap.
+            ("debug", "nested", None, None),
+        ],
+    ),
+    (
+        "ble_nus",
+        [
+            # Reuses uart's maybe_empty_debug — share the override.
+            ("debug", "nested", None, None),
+        ],
+    ),
+    (
         "api",
         [
             ("encryption", "nested", None, None),

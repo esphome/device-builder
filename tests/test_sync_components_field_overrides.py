@@ -60,3 +60,31 @@ def test_api_encryption_override_still_present() -> None:
     assert override["type"] == "nested"
     assert override["advanced"] is False
     assert any(e["key"] == "key" for e in override["config_entries"])
+
+
+def test_uart_debug_override_renders_as_nested_group_on_main_form() -> None:
+    """``uart.debug`` flips from string to a non-advanced nested group with a Direction picker."""
+    override = _FIELD_OVERRIDES.get(("uart", "debug"))
+    assert override is not None, "missing uart.debug override"
+    assert override["type"] == "nested"
+    assert override["advanced"] is False
+    inner = {e["key"]: e for e in override["config_entries"]}
+    assert set(inner) == {"direction", "debug_prefix", "dummy_receiver", "after"}
+    # ``direction`` is the canonical BOTH/RX/TX picker, not free-form.
+    assert {o["value"] for o in inner["direction"]["options"]} == {"BOTH", "RX", "TX"}
+    # ``after`` is the inner accumulator-config nested group.
+    assert inner["after"]["type"] == "nested"
+    after_inner = {e["key"] for e in inner["after"]["config_entries"]}
+    assert after_inner == {"bytes", "timeout", "delimiter"}
+
+
+def test_ble_nus_debug_override_shares_uart_debug_shape() -> None:
+    """``ble_nus.debug`` reuses ``uart.maybe_empty_debug`` upstream — overrides stay in lockstep."""
+    uart_override = _FIELD_OVERRIDES[("uart", "debug")]
+    ble_override = _FIELD_OVERRIDES.get(("ble_nus", "debug"))
+    assert ble_override is not None, "missing ble_nus.debug override"
+    # Description is per-component; everything else mirrors uart.
+    assert ble_override["type"] == uart_override["type"]
+    assert ble_override["config_entries"] == uart_override["config_entries"]
+    assert ble_override["description"] != uart_override["description"]
+    assert "BLE NUS" in ble_override["description"]
