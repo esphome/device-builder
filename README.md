@@ -1,6 +1,6 @@
 # ESPHome Device Builder Dashboard
 
-[![codecov](https://codecov.io/gh/esphome/device-builder/branch/main/graph/badge.svg)](https://codecov.io/gh/esphome/device-builder) [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/esphome/device-builder)
+[![PyPI version](https://img.shields.io/pypi/v/esphome-device-builder.svg)](https://pypi.org/project/esphome-device-builder/) [![codecov](https://codecov.io/gh/esphome/device-builder/branch/main/graph/badge.svg)](https://codecov.io/gh/esphome/device-builder) [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/esphome/device-builder)
 
 > **Status:** in active development. Roughly alpha, closing on beta. Issues
 > and feedback welcome — please check existing issues / the
@@ -17,7 +17,27 @@ managing automations, and pushing firmware updates.
 The dashboard isn't yet wired into the ESPHome container or the Home Assistant
 add-on as an opt-in preview — that's coming soon. In the meantime:
 
-**Install from a [GitHub release](https://github.com/esphome/device-builder/releases):**
+**Install from [PyPI](https://pypi.org/project/esphome-device-builder/):**
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install esphome-device-builder
+
+esphome-device-builder ~/esphome-configs
+```
+
+To try a pre-release (beta), pass `--pre` to `pip install`.
+
+The server starts on `http://localhost:6052`. Run with `--help` for the
+full flag set.
+
+<details>
+<summary>Install from a GitHub release</summary>
+
+Every build is published to PyPI, so the install above is the
+preferred path. The same wheels are mirrored on the
+[GitHub releases page](https://github.com/esphome/device-builder/releases) —
+handy as a fallback if PyPI is unreachable.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -28,8 +48,7 @@ pip install "https://github.com/esphome/device-builder/releases/download/<versio
 esphome-device-builder ~/esphome-configs
 ```
 
-The server starts on `http://localhost:6052`. Run with `--help` for the
-full flag set. A PyPI release is on the way.
+</details>
 
 **From source** (requires [uv](https://docs.astral.sh/uv/)):
 
