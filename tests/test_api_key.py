@@ -8,10 +8,14 @@ indicator.
 
 from __future__ import annotations
 
+import importlib
+import sys
+import types
 from pathlib import Path
 from unittest import mock
 
 import pytest
+from esphome.components import packages as _real_esphome_packages
 
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
@@ -204,6 +208,48 @@ def test_detect_platform_from_yaml_skips_load_when_no_packages_block(
     spy.assert_not_called()
 
 
+def test_detect_platform_from_yaml_swallows_parser_exceptions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mid-edit drafts can't crash the platform detector.
+
+    ``parse_platform_from_yaml`` is regex-based and fairly
+    forgiving, but a future tightening that started raising on
+    weird input shouldn't blank the dashboard's platform flag.
+    Stub the parser to raise and confirm the caller catches and
+    falls through to the empty-string return rather than
+    propagating.
+    """
+    yaml_file = tmp_path / "broken.yaml"
+    yaml_file.write_text("esphome:\n  name: x\n")
+    monkeypatch.setattr(
+        device_yaml,
+        "parse_platform_from_yaml",
+        mock.MagicMock(side_effect=ValueError("simulated parser failure")),
+    )
+    assert detect_platform_from_yaml(yaml_file) == ""
+
+
+def test_detect_platform_from_yaml_returns_empty_when_resolved_config_has_no_platform(
+    tmp_path: Path,
+) -> None:
+    """``packages:`` present but the merged config has no platform key.
+
+    Pins the final ``return ""`` after the resolved-config walk —
+    the load fired (raw scan missed AND ``packages:`` was in the
+    raw text), the merge succeeded, but no platform key landed at
+    the top level. Realistic shape: a `packages:` reference that
+    contributes only api / wifi / sensor blocks, with the
+    platform expected to come from ``StorageJSON`` post-compile.
+    """
+    (tmp_path / "common.yaml").write_text(
+        "wifi:\n  ssid: x\n  password: y\n"  # no platform key here
+    )
+    yaml_file = tmp_path / "ble.yaml"
+    yaml_file.write_text("esphome:\n  name: ble\npackages:\n  common: !include common.yaml\n")
+    assert detect_platform_from_yaml(yaml_file) == ""
+
+
 def test_load_device_yaml_uses_two_step_when_resolve_packages_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -275,6 +321,64 @@ def test_load_device_yaml_recovers_when_merge_raises(
     # Merge raised → caller keeps the unmerged shape rather than
     # crashing or returning ``None``.
     assert "packages" in config
+
+
+def test_module_import_handles_missing_resolve_packages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Module load survives an esphome that lacks ``resolve_packages``.
+
+    Pins the ``except ImportError: _resolve_packages = None`` branch
+    at module load. Reloads ``device_yaml`` against a stubbed
+    ``esphome.components.packages`` that has only the two-step
+    helpers — the typical shape of ESPHome releases that ship
+    BEFORE esphome/esphome#16235 lands. Without the import guard
+    the module would fail to import on those releases.
+    """
+    real_packages = _real_esphome_packages
+    stub = types.SimpleNamespace(
+        do_packages_pass=real_packages.do_packages_pass,
+        merge_packages=real_packages.merge_packages,
+        # Intentionally NO ``resolve_packages`` attribute — that's
+        # the upstream-not-yet-shipped state.
+    )
+    monkeypatch.setitem(sys.modules, "esphome.components.packages", stub)
+    reloaded = importlib.reload(device_yaml)
+    try:
+        assert reloaded._resolve_packages is None
+        assert reloaded._do_packages_pass is real_packages.do_packages_pass
+        assert reloaded._merge_packages is real_packages.merge_packages
+    finally:
+        # Restore so subsequent tests see the real module.
+        monkeypatch.setitem(sys.modules, "esphome.components.packages", real_packages)
+        importlib.reload(device_yaml)
+
+
+def test_module_import_handles_missing_two_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Module load survives an esphome that drops the two-step helpers.
+
+    Pins the ``except ImportError`` branch on the
+    ``do_packages_pass`` / ``merge_packages`` import. Belt-and-
+    suspenders for the day esphome ships only ``resolve_packages``
+    and removes / renames the two-step. Without the guard the
+    module would fail to import once the dep floor moves.
+    """
+    real_packages = _real_esphome_packages
+    stub = types.SimpleNamespace(
+        # Only ``resolve_packages`` exposed — no two-step helpers.
+        resolve_packages=getattr(real_packages, "resolve_packages", lambda c: c),
+    )
+    monkeypatch.setitem(sys.modules, "esphome.components.packages", stub)
+    reloaded = importlib.reload(device_yaml)
+    try:
+        assert reloaded._do_packages_pass is None
+        assert reloaded._merge_packages is None
+        assert reloaded._resolve_packages is stub.resolve_packages
+    finally:
+        monkeypatch.setitem(sys.modules, "esphome.components.packages", real_packages)
+        importlib.reload(device_yaml)
 
 
 def test_load_device_yaml_falls_back_when_both_imports_missing(
