@@ -78,16 +78,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux covers the oldest and newest supported Python (3.12
-        # and 3.14); 3.13 sits between them and rarely surfaces
-        # anything 3.12 and 3.14 don't. Windows and macOS only run
-        # on the newest Python — enough to catch OS-specific
-        # regressions without paying for extra runs on slower runners.
+        # Linux only runs on 3.12 (the oldest supported Python) — the
+        # ``test-esphome-channels`` job below already covers 3.14 on
+        # Linux against beta and dev esphome, which is a strict
+        # superset of "stable esphome on 3.14 / Linux". Windows and
+        # macOS only run on the newest Python — enough to catch
+        # OS-specific regressions without paying for extra runs on
+        # slower runners.
         include:
           - os: ubuntu-latest
             python-version: "3.12"
-          - os: ubuntu-latest
-            python-version: "3.14"
           - os: windows-latest
             python-version: "3.14"
           - os: macos-latest
@@ -134,7 +134,7 @@ jobs:
           fail_ci_if_error: false
 
   test-esphome-channels:
-    name: Pytest (esphome ${{ matrix.channel }})
+    name: Pytest (esphome ${{ matrix.channel }} / Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     # Probes the dashboard against the next two esphome release
     # channels on a single Linux 3.14 runner. The ``test`` matrix
@@ -150,6 +150,7 @@ jobs:
       matrix:
         include:
           - channel: beta
+            python-version: "3.14"
             # ``--prerelease=allow`` opts into pre-release versions
             # (uv's flag — pip's ``--pre`` doesn't apply here).
             # ``--upgrade`` makes uv pick the highest one even if a
@@ -157,6 +158,7 @@ jobs:
             install: uv pip install --system --upgrade --prerelease=allow esphome
             allow_failure: false
           - channel: dev
+            python-version: "3.14"
             # The ``dev`` branch is ESPHome's nightly working copy;
             # it can break at any time and we want the signal but
             # not the gate.
@@ -172,10 +174,10 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
