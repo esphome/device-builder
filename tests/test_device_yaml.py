@@ -7,7 +7,7 @@ hand-rolled text scanning makes regression risk meaningful.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -687,16 +687,24 @@ def test_load_device_records_firmware_bin_mtime_when_present(tmp_path: Path) -> 
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
-def test_load_device_uses_storage_target_platform_over_yaml(tmp_path: Path) -> None:
-    """When StorageJSON carries ``target_platform``, it wins over YAML detection.
+def test_load_device_uses_storage_core_platform_over_yaml(tmp_path: Path) -> None:
+    """When StorageJSON carries ``core_platform``, it wins over YAML detection.
 
-    StorageJSON's ``target_platform`` is post-codegen — what
+    ``core_platform`` is the post-codegen platform key — what
     actually compiled. The YAML's ``esp32:`` / ``esp8266:`` block
     is what the user typed, which can drift from reality if
     ESPHome remapped it during validation. Pin the
     StorageJSON-wins precedence so a regression that
     short-circuited to ``detect_platform_from_yaml`` would
     surface here as the YAML-derived value leaking through.
+
+    Frontend issue #137: the column rendered uppercase
+    ``ESP32`` straight from ``StorageJSON.target_platform``
+    while uncompiled devices pulled lowercase ``esp32`` from the
+    YAML scan. ``core_platform`` is upstream's lowercase platform
+    key (added in esphome#9028), always canonical regardless of
+    chip variant — so a fleet of mixed compile states now shows
+    ``esp32`` end-to-end.
     """
     yaml_path = tmp_path / "kitchen.yaml"
     # YAML says esp32 …
@@ -705,15 +713,134 @@ def test_load_device_uses_storage_target_platform_over_yaml(tmp_path: Path) -> N
         encoding="utf-8",
     )
     # … but StorageJSON records rp2040 (post-codegen truth).
-    # ``StorageJSON.load`` reads ``target_platform`` from the
-    # JSON's ``esp_platform`` key (upstream's wire-name); override
-    # both to keep the on-disk shape consistent.
+    # ``core_platform`` is the lowercase platform key upstream
+    # writes alongside the uppercase ``target_platform`` chip
+    # variant; override both to keep the on-disk shape consistent.
     write_storage_json(
         tmp_path,
         "kitchen.yaml",
-        overrides={"esp_platform": "rp2040", "target_platform": "rp2040"},
+        overrides={
+            "core_platform": "rp2040",
+            "esp_platform": "RP2040",
+            "target_platform": "RP2040",
+        },
     )
 
     device = load_device_from_storage(yaml_path)
 
     assert device.target_platform == "rp2040"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_uses_core_platform_for_esp32_variants(tmp_path: Path) -> None:
+    """ESP32 variants land as ``esp32`` (the platform key), not the chip variant.
+
+    ``StorageJSON.target_platform`` is the upstream-canonical
+    chip variant (``ESP32S3`` here) — the right level of detail
+    for chip-mismatch verification but the wrong level for the
+    frontend's PLATFORM column, where the user expects the
+    family name (``esp32``) to match the YAML key. The loader
+    pulls from ``core_platform`` (lowercase platform key, always
+    ``esp32`` for any ESP32 variant) so a heterogeneous ESP32-
+    S3/C3 fleet renders consistently against plain ``esp32``
+    boards. Variant-level info is still available to chip
+    verification, which reads ``StorageJSON.target_platform``
+    directly at the firmware-controller call site.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: kitchen\nesp32:\n  variant: esp32s3\n",
+        encoding="utf-8",
+    )
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        overrides={
+            "core_platform": "esp32",
+            "esp_platform": "ESP32S3",
+            "target_platform": "ESP32S3",
+        },
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.target_platform == "esp32"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_falls_back_to_yaml_when_core_platform_missing(tmp_path: Path) -> None:
+    """Pre-2025.6 ``StorageJSON`` (no ``core_platform``) falls back to YAML scan.
+
+    ``core_platform`` was added in esphome#9028 (2025.6+). A
+    StorageJSON written by an older esphome carries
+    ``target_platform`` (uppercase variant) but no
+    ``core_platform``. Rather than lowercase the variant
+    (which would surface ``esp32s3`` in the column for ESP32-S3
+    boards — re-introducing the inconsistency #137 closed), the
+    loader falls back to ``detect_platform_from_yaml``, which
+    returns the lowercase platform key from the YAML's top-level
+    ``esp32:`` / ``esp8266:`` block. Same end value either way.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: kitchen\nesp32:\n  variant: esp32s3\n",
+        encoding="utf-8",
+    )
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        # Pre-2025.6 shape: ``core_platform`` absent, only the
+        # uppercase variant in ``target_platform``.
+        overrides={
+            "core_platform": None,
+            "esp_platform": "ESP32S3",
+            "target_platform": "ESP32S3",
+        },
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.target_platform == "esp32"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_handles_storage_without_core_platform_attr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``StorageJSON`` from older esphome (< 2025.6) lacks ``core_platform`` entirely.
+
+    pyproject's floor is ``esphome>=2024.1.0`` so the attribute
+    can be missing on the loaded object — not just ``None``.
+    Direct attribute access would raise ``AttributeError`` and
+    blow up the device scan. ``getattr`` with a default keeps
+    the loader compatible while we wait for the dep floor to
+    move past 2025.6.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n",
+        encoding="utf-8",
+    )
+
+    class _LegacyStorage:
+        # Pre-#9028 ``StorageJSON`` shape — no ``core_platform``
+        # attribute at all. Carries the upstream-canonical chip
+        # variant uppercase as ``target_platform``.
+        name = "kitchen"
+        friendly_name = None
+        comment = None
+        address = ""
+        web_port = None
+        target_platform = "ESP32C3"
+        firmware_bin_path = None
+        esphome_version = ""
+        loaded_integrations: ClassVar[list[str]] = []
+
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.device_yaml.StorageJSON.load",
+        staticmethod(lambda _p: _LegacyStorage()),
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.target_platform == "esp32"

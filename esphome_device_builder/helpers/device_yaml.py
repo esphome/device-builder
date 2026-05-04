@@ -474,10 +474,38 @@ def load_device_from_storage(
     deployed = storage.esphome_version or "" if storage else ""
     update_available = bool(deployed and deployed != const.__version__)
 
+    # ``Device.target_platform`` is the lowercase platform *key*
+    # (``esp32``, ``esp8266``, ``rp2040``, …) — the value the
+    # frontend's PLATFORM column renders. Source order:
+    #
+    # 1. ``storage.core_platform`` — post-codegen ground truth
+    #    written by upstream's ``StorageJSON.from_esphome_core``
+    #    (esphome#9028, 2025.6+). Always the lowercase platform
+    #    key, never the chip variant. ``getattr`` with a default
+    #    keeps this working on older ``esphome`` installs where
+    #    ``StorageJSON`` doesn't carry the attribute at all —
+    #    pyproject's floor is ``esphome>=2024.1.0`` so the
+    #    pre-#9028 path is reachable.
+    # 2. ``detect_platform_from_yaml(path)`` — the YAML's top-level
+    #    platform key, also lowercase. Picks up never-compiled
+    #    devices and pre-2025.6 ``StorageJSON`` files that don't
+    #    carry ``core_platform`` yet.
+    #
+    # ``storage.target_platform`` is deliberately NOT a fallback:
+    # upstream uppercases it AND resolves it to the chip variant
+    # for ESP32 boards (``ESP32S3``, ``ESP32C3``), so a fleet with
+    # mixed compile states would otherwise show ``esp32s3`` next
+    # to ``esp32`` for the same family — the inconsistency
+    # frontend issue #137 was opened against. Chip-variant info
+    # for ``_verify_chip`` is read from StorageJSON directly at
+    # the call site, where the variant *is* the right level of
+    # detail.
     target_platform = ""
-    if storage and storage.target_platform:
-        target_platform = storage.target_platform
-    else:
+    if storage:
+        core_platform = getattr(storage, "core_platform", None)
+        if core_platform:
+            target_platform = core_platform.lower()
+    if not target_platform:
         target_platform = detect_platform_from_yaml(path)
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []

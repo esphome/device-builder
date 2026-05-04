@@ -1063,9 +1063,19 @@ class FirmwareController:
         Verify the chip on the serial port matches the device config.
 
         Runs ``esptool chip-id`` to detect the actual chip, then
-        compares against the target platform in the device config.
+        compares against the chip variant recorded in StorageJSON.
         Raises ValueError on mismatch so the job fails early with a
         clear error message.
+
+        Reads from ``StorageJSON.target_platform`` (the upstream-
+        canonical chip variant — ``ESP32S3`` / ``ESP32C3`` / plain
+        ``ESP8266``) rather than ``Device.target_platform`` (which
+        carries the lowercase platform *key*, e.g. ``esp32`` for
+        every ESP32 family member, and would false-positive on a
+        chip-vs-variant mismatch). Skipped when StorageJSON is
+        absent — pre-compile installs have no compile-time truth
+        to compare against, and esphome's own flash error covers
+        the wrong-chip case there.
 
         The verify subprocess is registered as ``_current_process``
         for the duration of its run so an early ``firmware/cancel``
@@ -1080,19 +1090,14 @@ class FirmwareController:
         if not job.port or job.port.upper() == "OTA" or not job.port.startswith("/dev"):
             return  # only check serial ports
 
-        device = None
-        if self._db.devices:
-            target_name = job.configuration.removesuffix(".yaml").removesuffix(".yml")
-            device = next(
-                (d for d in self._db.devices.get_devices() if d.name == target_name),
-                None,
-            )
+        loop = asyncio.get_running_loop()
+        storage = await loop.run_in_executor(
+            None, lambda: StorageJSON.load(ext_storage_path(job.configuration))
+        )
+        if storage is None or not storage.target_platform:
+            return  # never compiled or no platform recorded — nothing to verify
 
-        expected_platform = ""
-        if device and device.target_platform:
-            expected_platform = device.target_platform.lower()
-        if not expected_platform:
-            return  # can't verify without knowing expected platform
+        expected_platform = storage.target_platform.lower()
 
         async with self._tracked_subprocess(
             sys.executable,

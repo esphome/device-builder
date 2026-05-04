@@ -577,6 +577,7 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
         address = "kitchen.lan"
         web_port = None
         target_platform = ""
+        core_platform = None
         firmware_bin_path = None
         esphome_version = ""
         loaded_integrations: ClassVar[list[str]] = []

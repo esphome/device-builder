@@ -18,6 +18,15 @@ output can be controlled while the real subsequent build still
 runs through the same wrapper (substitute returns a no-op
 success-exit script for non-esptool calls).
 
+The expected chip variant comes from a real StorageJSON sidecar
+seeded via ``write_storage_json`` — ``_verify_chip`` reads
+``StorageJSON.target_platform`` directly (the upstream-canonical
+chip variant) rather than ``Device.target_platform`` (which now
+carries the platform *key*, not the variant). Tests redirect
+``ext_storage_path`` in the firmware controller's namespace so
+``StorageJSON.load`` finds the sidecar at
+``tmp_path/.esphome/storage/<configuration>.json``.
+
 Branches the runner depends on:
 
 - Chip matches → no error, build proceeds, status COMPLETED.
@@ -32,9 +41,10 @@ Branches the runner depends on:
 - Non-serial port shapes (``OTA``, IPv4, hostname, Windows
   ``COMx``) → no esptool call (the helper only probes
   ``/dev/*`` paths).
-- ``self._db.devices`` returns no matching device → skip the
-  chip check, build still runs.
-- Device matched but ``target_platform`` empty → skip the chip
+- StorageJSON missing → skip the chip check, build still runs
+  (pre-compile install has no compile-time truth to verify
+  against; esphome's own flash error catches a wrong-chip case).
+- StorageJSON with empty ``target_platform`` → skip the chip
   check, build still runs.
 
 Without these the chip-id pre-flight (~54 lines, the longest
@@ -56,6 +66,7 @@ import pytest
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware import controller as controller_module
 from esphome_device_builder.models import EventType, JobStatus
+from tests._storage_fixtures import write_storage_json
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -82,6 +93,27 @@ def _seed_yaml(tmp_path: Path, name: str = "kitchen.yaml") -> None:
     (tmp_path / name).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
 
+def _seed_storage(
+    tmp_path: Path,
+    *,
+    configuration: str = "kitchen.yaml",
+    target_platform: str = "ESP32C3",
+) -> Path:
+    """Write a StorageJSON sidecar so ``_verify_chip`` can read the chip variant.
+
+    Defaults to ``ESP32C3`` to match upstream's wire format —
+    ``StorageJSON.from_esphome_core`` resolves ESP32 variants to
+    their uppercase short name (no hyphen). Pass another value
+    (``ESP32S3``, ``ESP8266``, …) to drive the mismatch and
+    no-detection branches.
+    """
+    return write_storage_json(
+        tmp_path,
+        configuration,
+        overrides={"esp_platform": target_platform, "target_platform": target_platform},
+    )
+
+
 # A no-op script for the actual build subprocess. Exit 0 produces
 # a clean COMPLETED job once chip-id has passed.
 _BUILD_SCRIPT_OK = "import sys\nsys.exit(0)\n"
@@ -93,54 +125,47 @@ _BUILD_SCRIPT_OK = "import sys\nsys.exit(0)\n"
 
 
 @dataclass
-class _StubDevice:
-    """Narrow stand-in for ``Device`` — only the attributes ``_verify_chip`` reads.
-
-    Mirrors the conftest's "minimal test doubles fail fast on
-    unexpected attribute access" pattern. A regression that
-    teaches ``_verify_chip`` to read a new field (e.g. ``board``
-    or ``platform``) crashes with ``AttributeError`` here
-    instead of silently conjuring a ``MagicMock`` value.
-    """
-
-    name: str
-    target_platform: str
-
-
-@dataclass
 class _StubDevices:
     """Narrow ``DevicesController`` stand-in.
 
-    Exposes only the surface ``_verify_chip`` and
-    ``_build_cache_args`` actually read:
-
-    - ``get_devices()`` — for the chip lookup by YAML name.
-    - ``get_address_cache_args(configuration)`` — for the OTA
-      address-cache CLI flags ``_build_cache_args`` adds to
-      install/upload commands when ``port == "OTA"``.
-
+    ``_verify_chip`` no longer reads from the devices controller —
+    chip variant comes from ``StorageJSON`` directly — but the
+    runner's ``_build_cache_args`` still calls
+    ``get_address_cache_args`` on the install/upload paths.
     Returning ``[]`` for the address-cache args keeps the build
     command shape minimal (``--mdns-address-cache`` / ``--dns-
     address-cache`` skipped) — orthogonal to the chip-id branches
     these tests exercise.
     """
 
-    devices: list[_StubDevice]
-
-    def get_devices(self) -> list[_StubDevice]:
-        return self.devices
-
     def get_address_cache_args(self, _configuration: str) -> list[str]:
         return []
 
 
-def _wire_devices(
-    controller: FirmwareController, *, name: str = "kitchen", target_platform: str = "esp32-c3"
-) -> None:
-    """Attach a fake ``DevicesController`` whose ``get_devices`` returns one entry."""
-    controller._db.devices = _StubDevices(  # type: ignore[attr-defined]
-        devices=[_StubDevice(name=name, target_platform=target_platform)]
-    )
+def _wire_devices(controller: FirmwareController) -> None:
+    """Attach a no-op ``DevicesController`` stub for ``_build_cache_args``."""
+    controller._db.devices = _StubDevices()  # type: ignore[attr-defined]
+
+
+@pytest.fixture(autouse=True)
+def _redirect_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Redirect ``ext_storage_path`` to ``tmp_path/.esphome/storage/``.
+
+    The production helper resolves through ``CORE.config_path``
+    which isn't set in isolated tests; the redirect makes
+    ``StorageJSON.load(ext_storage_path(filename))`` (called from
+    ``_verify_chip``) read the sidecar ``_seed_storage`` lays
+    down. Same pattern as ``test_download.py``'s redirect — the
+    fixture is autouse so every test in this module is covered
+    without a per-test ``@pytest.mark.usefixtures`` decoration.
+    """
+    storage_dir = tmp_path / ".esphome" / "storage"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    def _ext(configuration: str) -> Path:
+        return storage_dir / f"{configuration}.json"
+
+    monkeypatch.setattr(controller_module, "ext_storage_path", _ext)
 
 
 def _patch_subprocess(
@@ -252,20 +277,21 @@ async def test_install_serial_chip_match_proceeds_to_completed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Detected chip matches device's ``target_platform`` → build runs to COMPLETED.
+    """Detected chip matches StorageJSON's chip variant → build runs to COMPLETED.
 
     The happy path through the chip-id pre-flight: the runner
-    sees a serial port, looks up the device, spawns esptool,
-    parses ``Detecting chip type... ESP32-C3``, normalises both
-    sides (``esp32-c3`` → ``esp32c3``), confirms equality, and
+    sees a serial port, loads StorageJSON, spawns esptool, parses
+    ``Detecting chip type... ESP32-C3``, normalises both sides
+    (``esp32c3`` matches ``esp32c3``), confirms equality, and
     returns without raising. ``_execute_job`` then proceeds to
     the actual build subprocess.
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
-    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _wire_devices(controller)
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
+    _seed_storage(tmp_path, target_platform="ESP32C3")
 
     record = _patch_subprocess(
         monkeypatch,
@@ -293,7 +319,7 @@ async def test_serial_chip_mismatch_marks_failed_with_message(
 ) -> None:
     """Mismatch raises → status FAILED, error message names both sides.
 
-    Device YAML says ``esp32-c3``, esptool detects ``ESP32-S3`` —
+    StorageJSON records ``ESP32C3``, esptool detects ``ESP32-S3`` —
     a wrong-board misconfiguration that would otherwise let the
     user flash a build for a different chip and brick the device.
     The ``ValueError`` thrown by the chip check propagates into
@@ -308,9 +334,10 @@ async def test_serial_chip_mismatch_marks_failed_with_message(
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
-    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _wire_devices(controller)
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
+    _seed_storage(tmp_path, target_platform="ESP32C3")
 
     record = _patch_subprocess(
         monkeypatch,
@@ -326,7 +353,7 @@ async def test_serial_chip_mismatch_marks_failed_with_message(
     assert record["build_calls"] == []
     assert job.status == JobStatus.FAILED
     assert job.error is not None
-    assert "esp32-c3" in job.error.lower()
+    assert "esp32c3" in job.error.lower().replace("-", "")
     assert "esp32s3" in job.error.lower().replace("-", "")
     assert "wrong board" in job.error.lower()
     assert captured["job_failed"]
@@ -355,9 +382,10 @@ async def test_install_serial_no_chip_detected_proceeds_to_completed(
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
-    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _wire_devices(controller)
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
+    _seed_storage(tmp_path, target_platform="ESP32C3")
 
     record = _patch_subprocess(
         monkeypatch,
@@ -380,7 +408,7 @@ async def test_install_serial_no_chip_detected_proceeds_to_completed(
 
 
 # ---------------------------------------------------------------------------
-# Skip branches: OTA, missing device, missing target_platform
+# Skip branches: non-serial port, missing StorageJSON, empty target_platform
 # ---------------------------------------------------------------------------
 
 
@@ -425,9 +453,10 @@ async def test_install_non_dev_port_skips_chip_check(
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
-    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _wire_devices(controller)
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
+    _seed_storage(tmp_path, target_platform="ESP32C3")
 
     record = _patch_subprocess(
         monkeypatch,
@@ -443,19 +472,20 @@ async def test_install_non_dev_port_skips_chip_check(
 
 
 @pytest.mark.asyncio
-async def test_install_serial_no_matching_device_skips_check(
+async def test_install_serial_no_storage_skips_check(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No device in the scanner's list with this YAML's name → skip check.
+    """No StorageJSON sidecar for this YAML → skip check.
 
-    A serial install for a YAML the scanner hasn't seen yet
-    (e.g. just-created file the periodic scan hasn't picked up)
-    has no ``target_platform`` to compare against. Skipping is
+    A serial install for a YAML that's never been compiled (or
+    whose ``.esphome/storage/`` cache was wiped) has no
+    compile-time ground truth to compare against. Skipping is
     the safer default — the user explicitly chose the port and
-    we'd rather let the build proceed than fail on a check we
-    can't run.
+    esphome's own flash error covers the wrong-chip case below
+    us. Failing the install here would block first-time flashes
+    for any new YAML.
 
     Pin both halves of the contract: esptool must NOT spawn
     (would block forever) AND the build subprocess must STILL
@@ -465,20 +495,20 @@ async def test_install_serial_no_matching_device_skips_check(
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
-    # Devices controller is present but has no matching device.
-    controller._db.devices = _StubDevices(devices=[])  # type: ignore[attr-defined]
+    _wire_devices(controller)
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
+    # No ``_seed_storage`` — sidecar absent.
 
     record = _patch_subprocess(monkeypatch, chip_id_output=b"never invoked")
 
     job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
     await _run_until_terminal(controller)
 
-    # No device match → no platform → early return before esptool spawn.
+    # No StorageJSON → no platform → early return before esptool spawn.
     assert record["esptool_calls"] == []
     # The build subprocess MUST still run — a regression that
-    # short-circuited the job entirely on missing-device would
+    # short-circuited the job entirely on missing-storage would
     # also leave esptool_calls empty + status COMPLETED, but
     # silently no-op the install.
     assert record["build_calls"], "build subprocess should still have run"
@@ -486,30 +516,28 @@ async def test_install_serial_no_matching_device_skips_check(
 
 
 @pytest.mark.asyncio
-async def test_install_serial_device_without_target_platform_skips_check(
+async def test_install_serial_storage_without_target_platform_skips_check(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Device matched but ``target_platform`` empty → skip.
+    """StorageJSON present but ``target_platform`` empty → skip.
 
-    ``Device.target_platform`` carries the chip family
-    (``esp32-c3`` / ``esp8266`` / ...). It can come from a few
-    sources — the StorageJSON sidecar after a successful compile,
-    YAML detection on first scan, or restored monitor state —
-    so empty is uncommon but possible (e.g. a YAML the parser
-    couldn't extract a platform from). Without something to
-    compare against the chip-id check has nothing to act on;
-    skip and let the build proceed for the real reason.
+    ``StorageJSON.target_platform`` is normally populated by
+    ``from_esphome_core`` after a successful compile, but a
+    partially-written or hand-edited sidecar can carry an empty
+    string. Without a chip variant there's nothing to compare
+    against; skip and let the build proceed for the real reason.
 
     Pin both halves: esptool skipped AND build still runs (same
-    contract as the no-matching-device case).
+    contract as the no-storage case).
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
-    _wire_devices(controller, name="kitchen", target_platform="")
+    _wire_devices(controller)
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
+    _seed_storage(tmp_path, target_platform="")
 
     record = _patch_subprocess(monkeypatch, chip_id_output=b"never invoked")
 
@@ -553,9 +581,10 @@ async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
-    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _wire_devices(controller)
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
+    _seed_storage(tmp_path, target_platform="ESP32C3")
 
     real = controller_module.create_subprocess_exec
     verify_spawned = asyncio.Event()
@@ -637,9 +666,10 @@ async def test_cancel_during_verify_chip_marks_job_cancelled(
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
-    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _wire_devices(controller)
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
+    _seed_storage(tmp_path, target_platform="ESP32C3")
 
     real = controller_module.create_subprocess_exec
     cancel_armed = False
@@ -842,9 +872,13 @@ async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
-    _wire_devices(controller, name="kitchen", target_platform="esp32-c3")
+    _wire_devices(controller)
     _set_esphome_cmd(controller)
     _seed_yaml(tmp_path)
+    # Port is OTA so ``_verify_chip`` returns before reading storage,
+    # but seed it anyway to keep the test independent of skip-branch
+    # ordering — the post-spawn cancel check is what's under test.
+    _seed_storage(tmp_path, target_platform="ESP32C3")
 
     real = controller_module.create_subprocess_exec
     terminate_calls: list[asyncio.subprocess.Process | None] = []
