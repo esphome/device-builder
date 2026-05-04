@@ -7,7 +7,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
-from .constants import DEFAULT_HOST, DEFAULT_INGRESS_PORT, DEFAULT_PORT
+from .constants import DEFAULT_HOST, DEFAULT_INGRESS_PORT, DEFAULT_PORT, __version__
 from .controllers.config import DashboardSettings
 from .device_builder import DeviceBuilder
 
@@ -48,6 +48,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="ESPHome Device Builder",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=_format_version(),
+        help="Print version information and exit",
     )
     parser.add_argument(
         "configuration",
@@ -140,6 +146,24 @@ def main() -> None:
 
     device_builder = DeviceBuilder(settings)
     device_builder.run()
+
+
+def _format_version() -> str:
+    """
+    Build the string shown by ``--version``.
+
+    Always reports the device builder package version (read from the
+    installed wheel's metadata, which the release workflow stamps via
+    ``pyproject.toml``). Appends the bundled ESPHome version in
+    parentheses when the optional ``[esphome]`` extra is importable —
+    that's the matching pair an operator pastes into a bug report.
+    """
+    base = f"esphome-device-builder {__version__}"
+    try:
+        from esphome.const import __version__ as esphome_version  # noqa: PLC0415
+    except ImportError:
+        return base
+    return f"{base} (esphome {esphome_version})"
 
 
 def _validate_credentials(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:

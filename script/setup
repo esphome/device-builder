@@ -34,4 +34,4 @@ fi
 echo ""
 echo "Development environment ready!"
 echo "Activate with: source $VENV_DIR/bin/activate"
-echo "Run with:      esphome-device-builder ./configs --verbose"
+echo "Run with:      esphome-device-builder ./configs --log-level debug"
