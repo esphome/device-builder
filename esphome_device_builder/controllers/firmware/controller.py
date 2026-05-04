@@ -206,11 +206,12 @@ class FirmwareController:
           ``storage/``, plus every top-level non-``.json`` file, and
         * wipes PlatformIO's own ``cache_dir`` / ``packages_dir`` /
           ``platforms_dir`` / ``core_dir`` resolved from PlatformIO's
-          config — for venv users that's ``~/.platformio/{packages,
-          platforms,core}``, where the toolchains and frameworks
-          actually live. The HA add-on / docker images keep these
-          inside the data dir so the blast radius is contained
-          there.
+          config. ``core_dir`` is the umbrella that contains the
+          other three by default, so for venv users this collapses
+          to wiping the entire ``~/.platformio/`` tree — toolchains,
+          framework packages, and the download cache. The HA add-on
+          / docker images keep these inside the data dir so the
+          blast radius is contained there.
 
         The next compile re-fetches external components and
         re-downloads toolchains from scratch — slow to recover from

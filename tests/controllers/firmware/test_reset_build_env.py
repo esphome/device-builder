@@ -10,10 +10,15 @@ pipeline as compile/upload via ``_build_command`` mapping
   it onto the queue in the documented PUT-then-FIRE order.
 - ``_build_command`` for ``RESET_BUILD_ENV`` produces
   ``[*esphome_cmd, '--dashboard', 'clean-all', <config_dir>]``
-  with no ``--device`` and no cache args — the broader filesystem
-  cleanup (``.esphome/`` minus ``storage/``, plus PlatformIO's
-  ``cache_dir`` / ``packages_dir`` / ``platforms_dir`` /
-  ``core_dir``) is then esphome's responsibility.
+  with no ``--device``. Cache args come from ``_build_cache_args``
+  in the runtime flow, which already returns ``[]`` for
+  non-OTA jobs — ``_build_command`` itself trusts what the
+  caller hands it and will splice cache args in if you pass
+  them directly (the second test below pins that). The broader
+  filesystem cleanup (``.esphome/`` minus ``storage/``, plus
+  PlatformIO's ``cache_dir`` / ``packages_dir`` /
+  ``platforms_dir`` / ``core_dir``) is then esphome's
+  responsibility.
 
 The actual subprocess streaming / exit-handling pipeline is
 already covered by ``test_execute_job_e2e.py`` (which exercises
