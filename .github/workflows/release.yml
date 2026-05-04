@@ -170,11 +170,15 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh release view "${{ inputs.version }}" --json assets --jq '.assets[].name' \
-            | while IFS= read -r asset; do
-                [ -z "$asset" ] && continue
-                gh release delete-asset "${{ inputs.version }}" "$asset" --yes
-              done
+          set -euo pipefail
+          # Capture before iterating so a ``gh release view`` failure
+          # (auth, missing draft, ...) aborts the step instead of
+          # being swallowed by the pipeline.
+          assets=$(gh release view "${{ inputs.version }}" --json assets --jq '.assets[].name')
+          while IFS= read -r asset; do
+            [ -z "$asset" ] && continue
+            gh release delete-asset "${{ inputs.version }}" "$asset" --yes
+          done <<< "$assets"
 
       - name: Attach artifacts to draft release
         env:
