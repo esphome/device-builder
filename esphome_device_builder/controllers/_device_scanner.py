@@ -117,9 +117,21 @@ class _DeviceIndex:
         bucket = self._devices_by_name.get(name)
         return list(bucket) if bucket else []
 
-    def cache_key(self, path: Path) -> _CacheKey | None:
-        """Return the change-detection cache key for *path*, or ``None``."""
-        return self._cache_keys.get(path)
+    def cache_key(self, path: Path) -> _CacheKey:
+        """Return the change-detection cache key for a tracked *path*.
+
+        Raises ``KeyError`` if *path* is not in the index. The
+        non-Optional return is the lockstep invariant in API form:
+        every path in ``_devices`` has a cache key, and the only
+        legitimate caller is one that just verified *path* is
+        tracked (e.g. the result of ``find_path_by_filename`` or
+        a key in ``by_path``). A miss here is an invariant break,
+        not a "look before you leap" miss — surface it loudly
+        instead of returning ``None`` (which a caller could pass
+        through to ``set`` and silently store as a cache key,
+        breaking change detection on the next scan).
+        """
+        return self._cache_keys[path]
 
     def find_path_by_filename(self, filename: str) -> Path | None:
         """Locate the tracked path whose ``Path.name`` equals *filename*."""
@@ -160,16 +172,31 @@ class _DeviceIndex:
     def rebuild_in_path_order(self, path_order: Iterable[Path]) -> None:
         """Re-key ``_devices`` / ``_cache_keys`` in *path_order*.
 
-        ``devices`` is a user-visible read; without this rebuild the
-        post-scan iteration order is set-derived and the dashboard
-        sees a different device list every restart. Filtered to
-        paths actually present so a YAML that failed to load
-        (caught + skipped in ``_load_devices``) doesn't trigger a
-        ``KeyError`` here. ``_devices_by_name`` doesn't need a
-        parallel re-sort — its values are name-keyed lists whose
-        iteration order isn't user-visible.
+        ``devices`` is a user-visible read; without this rebuild
+        the post-scan iteration order is set-derived and the
+        dashboard sees a different device list every restart.
+        ``_devices_by_name`` doesn't need a parallel re-sort —
+        its values are name-keyed lists whose iteration order
+        isn't user-visible.
+
+        ``path_order`` may carry extra paths that were never
+        indexed (a YAML that failed to load is in the scanner's
+        ``path_to_cache_key`` but not here) — those are filtered.
+        It must NOT omit any currently-indexed path: dropping
+        a path from ``_devices`` while leaving it in
+        ``_devices_by_name`` would silently break the lockstep
+        invariant. Removals must go through :meth:`pop` first.
         """
         ordered = list(path_order)
+        ordered_set = set(ordered)
+        # Refuse to silently drop any tracked path — that would
+        # leave a Device stranded in the name buckets.
+        missing = self._devices.keys() - ordered_set
+        if missing:
+            raise ValueError(
+                f"rebuild_in_path_order is missing {len(missing)} indexed path(s); "
+                "call pop() before rebuild to remove devices."
+            )
         self._devices = {p: self._devices[p] for p in ordered if p in self._devices}
         self._cache_keys = {p: self._cache_keys[p] for p in ordered if p in self._cache_keys}
 
@@ -264,11 +291,11 @@ class DeviceScanner:
             # so the OSError fallback below is race-free regardless
             # of future lock discipline (today the lock serializes
             # every writer; tomorrow's caller might not respect it).
-            # Non-None by lockstep: ``find_path_by_filename`` just
-            # located ``path`` in the index, so it's in
-            # ``_cache_keys`` too.
+            # ``cache_key`` returns ``_CacheKey`` (raises ``KeyError``
+            # if the path isn't tracked) — the lockstep invariant
+            # makes a miss here impossible since
+            # ``find_path_by_filename`` just located *path*.
             previous_cache_key = self._index.cache_key(path)
-            assert previous_cache_key is not None
             loop = asyncio.get_running_loop()
             loaded = await loop.run_in_executor(None, self._load_devices, {path})
             device = loaded.get(path)

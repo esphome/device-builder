@@ -155,9 +155,10 @@ def test_pop_removes_from_every_map_and_returns_device() -> None:
     popped = index.pop(path)
 
     assert popped is device
-    assert index.by_path == {}
+    assert dict(index.by_path) == {}
     assert index.get_by_name("kitchen") == []
-    assert index.cache_key(path) is None
+    with pytest.raises(KeyError):
+        index.cache_key(path)
 
 
 def test_pop_returns_none_for_unknown_path() -> None:
@@ -232,13 +233,14 @@ def test_rebuild_in_path_order_re_keys_devices_and_cache_keys() -> None:
     assert [d.name for d in index.devices] == ["alpha", "mike", "zebra"]
 
 
-def test_rebuild_in_path_order_drops_paths_no_longer_present() -> None:
-    """Paths absent from the supplied order are dropped from the maps.
+def test_rebuild_in_path_order_ignores_extra_paths_never_indexed() -> None:
+    """Extra paths in *path_order* that aren't in the index are silently filtered.
 
     A YAML that failed to load (skipped + logged in
-    ``_load_devices``) sits in ``path_to_cache_key`` from the
-    outer scan but never made it into the index. The rebuild
-    filter keeps that asymmetry from KeyError-ing.
+    ``_load_devices``) sits in the scanner's ``path_to_cache_key``
+    but never made it into the index. ``rebuild_in_path_order``
+    is called with ``path_to_cache_key.keys()`` so it has to
+    tolerate those phantom paths without ``KeyError``-ing.
     """
     index = _DeviceIndex()
     a = Path("/cfg/a.yaml")
@@ -250,7 +252,29 @@ def test_rebuild_in_path_order_drops_paths_no_longer_present() -> None:
     index.rebuild_in_path_order([a, b, c])
 
     assert list(index.by_path.keys()) == [a, b]
-    assert index.cache_key(c) is None
+    with pytest.raises(KeyError):
+        index.cache_key(c)
+
+
+def test_rebuild_in_path_order_rejects_omitting_indexed_paths() -> None:
+    """A *path_order* that omits a tracked path raises ``ValueError``.
+
+    Silently dropping a path from ``_devices`` while leaving its
+    Device in the name buckets would break the lockstep
+    invariant. The scanner's ``_do_scan`` already pops removed
+    paths via ``pop()`` *before* calling ``rebuild_in_path_order``,
+    so this assertion holds in practice; pin the structural
+    refusal so a future caller that forgets to pop first surfaces
+    immediately rather than as an mDNS-fanout flake later.
+    """
+    index = _DeviceIndex()
+    a = Path("/cfg/a.yaml")
+    b = Path("/cfg/b.yaml")
+    index.set(a, _device("a", "a.yaml"), (0, 0, 0.0, 0))
+    index.set(b, _device("b", "b.yaml"), (0, 0, 0.0, 0))
+
+    with pytest.raises(ValueError, match=r"missing 1 indexed path"):
+        index.rebuild_in_path_order([a])  # omits b — must refuse
 
 
 # ---------------------------------------------------------------------------
