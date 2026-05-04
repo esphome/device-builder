@@ -56,7 +56,12 @@ pins:
   features:
   - adc
   available: true
-  notes: Available on FPC connector
+  notes: FPC connector — default pin for the bundled PIR motion module
+- gpio: 4
+  label: ACCESSORY_PWR
+  available: false
+  occupied_by: Accessory power switch (controls FPC module power rail)
+  notes: Internal GPIO switch, ALWAYS_ON with setup_priority 2000 — must latch high before FPC modules enumerate
 - gpio: 5
   label: RGB_LED
   features:
@@ -95,16 +100,14 @@ pins:
   - adc
   available: true
   notes: Available on FPC connector
-- gpio: 30
-  label: RX
-  features:
-  - uart_rx
-  available: true
-- gpio: 31
-  label: TX
+- gpio: 16
+  label: TXD0
   features:
   - uart_tx
-  available: true
+- gpio: 17
+  label: RXD0
+  features:
+  - uart_rx
 featured_components:
 - id: i2c_bus
   component_id: i2c
@@ -131,6 +134,22 @@ featured_components:
     id: aht20
     name: AHT20 Temperature & Humidity
     variant: AHT20
+- id: accessory_power
+  component_id: switch.gpio
+  name: Accessory Power Rail
+  description: |
+    Internal GPIO switch that gates power to the FPC accessory connectors.
+    Must be ALWAYS_ON with an early setup_priority so the AHT20, PIR, RGB+buzzer
+    and other plug-in modules are powered before they enumerate. Marked
+    ``internal`` so it doesn't surface as a user-controllable entity.
+  fields:
+    id: accessory_power
+    pin:
+      value: 4
+    name: Accessory Power
+    restore_mode: ALWAYS_ON
+    setup_priority: 2000
+    internal: true
 - id: pir_motion
   component_id: binary_sensor.gpio
   name: PIR Motion Module (MH-SR602)
@@ -142,6 +161,42 @@ featured_components:
     pin:
       value: 3
     device_class: motion
+- id: boot_button
+  component_id: binary_sensor.gpio
+  name: Boot Button (onboard)
+  description: |
+    Physical pushbutton on the dev board tied to GPIO9. Active-low with the
+    chip's internal pull-up, so configure with ``mode: INPUT_PULLUP`` and
+    ``inverted: true``. Doubles as the bootloader strapping pin — hold while
+    powering the board to enter download mode.
+  fields:
+    id: boot_button
+    name: Boot Button
+    pin:
+      value:
+        number: 9
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+- id: button_module
+  component_id: binary_sensor.gpio
+  name: Button Module (FPC accessory)
+  description: |
+    Plug-in pushbutton accessory module. Wired to GPIO6 on the FPC connector;
+    active-low with internal pull-up so the ``inverted`` flag turns "pressed"
+    into the on state.
+  fields:
+    id: button_1
+    name: Button 1
+    pin:
+      value:
+        number: 6
+        mode:
+          input: true
+          pullup: true
+        inverted: true
 - id: rgb_strip
   component_id: light.esp32_rmt_led_strip
   name: RGB LED Strip (addon module)
