@@ -770,31 +770,6 @@ class FirmwareController:
                 "CLICOLOR_FORCE": "1",
                 "PYTHONUNBUFFERED": "1",
             }
-            proc = await create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                env=env,
-                # Put the whole esphome → platformio → gcc tree in its
-                # own process group so ``_terminate_current_process``
-                # can signal the entire chain, not just the python
-                # parent. Without this, killing the parent leaves the
-                # compiler children orphaned and the build keeps
-                # running until they finish on their own — exactly the
-                # "stop compile doesn't work" symptom.
-                start_new_session=True,
-            )
-            self._current_process = proc
-
-            # Honour a cancel that landed in the gap between
-            # ``_verify_chip`` finishing and ``create_subprocess_exec``
-            # returning — without this, an early Stop click during
-            # the brief async window where ``_current_process`` was
-            # ``None`` lets the install run to completion before the
-            # post-``proc.wait()`` cancel check sees the flag.
-            if job.job_id in self._cancel_requested:
-                await self._terminate_current_process()
-
             has_error_in_output = False
             # Captured at append time because the in-flight trim can
             # elide the offending line before the post-exit handler
@@ -803,7 +778,6 @@ class FirmwareController:
             # handler render a specific actionable message even
             # after a long noisy build trims the head.
             saw_no_esphome_module = False
-            assert proc.stdout is not None  # type narrowing
 
             def _check_error(text: str) -> None:
                 nonlocal has_error_in_output, saw_no_esphome_module
@@ -832,37 +806,64 @@ class FirmwareController:
                         {"job_id": job.job_id, "progress": progress},
                     )
 
-            # ``iter_lines_with_progress`` splits on `\n` _or_ `\r` so
-            # carriage-return-based in-place updates (esptool's
-            # `Writing at 0x... (5%)\r`, PlatformIO's progress bars)
-            # survive the pipe instead of getting buffered until the
-            # next newline. Each chunk keeps its trailing terminator
-            # so the frontend can decide whether to append a new line
-            # or overwrite the last one.
-            async for line in iter_lines_with_progress(proc.stdout):
-                job.output.append(line)
-                # Bound mid-run memory growth. Without this, a build
-                # that streams gigabytes of stderr (chatty
-                # external_components fetch loop, esptool stuck on a
-                # repeating error) holds every line in memory until
-                # the subprocess exits — only the post-completion
-                # ``_trim_job_output`` in the ``finally`` block ever
-                # ran. Trim down to a smaller keep size than the
-                # trigger so the next ``cap - keep`` appends don't
-                # each pay an O(cap) slice copy. Concretely with the
-                # current constants: cap=4000, keep=2000, so 2000
-                # lines fit between trims.
-                if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
-                    _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
-                self._db.bus.fire(
-                    EventType.JOB_OUTPUT,
-                    {"job_id": job.job_id, "line": line},
-                )
-                _check_error(line)
-                _check_progress(line)
+            async with self._tracked_subprocess(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=env,
+                # Put the whole esphome → platformio → gcc tree in its
+                # own process group so ``_terminate_current_process``
+                # can signal the entire chain, not just the python
+                # parent. Without this, killing the parent leaves the
+                # compiler children orphaned and the build keeps
+                # running until they finish on their own — exactly the
+                # "stop compile doesn't work" symptom.
+                start_new_session=True,
+            ) as proc:
+                # Honour a cancel that landed in the gap between
+                # ``_verify_chip`` finishing and ``create_subprocess_exec``
+                # returning — without this, an early Stop click during
+                # the brief async window where ``_current_process`` was
+                # ``None`` lets the install run to completion before the
+                # post-``proc.wait()`` cancel check sees the flag.
+                if job.job_id in self._cancel_requested:
+                    await self._terminate_current_process()
 
-            exit_code = await proc.wait()
-            job.exit_code = exit_code
+                assert proc.stdout is not None  # type narrowing
+
+                # ``iter_lines_with_progress`` splits on `\n` _or_ `\r`
+                # so carriage-return-based in-place updates (esptool's
+                # `Writing at 0x... (5%)\r`, PlatformIO's progress
+                # bars) survive the pipe instead of getting buffered
+                # until the next newline. Each chunk keeps its
+                # trailing terminator so the frontend can decide
+                # whether to append a new line or overwrite the last
+                # one.
+                async for line in iter_lines_with_progress(proc.stdout):
+                    job.output.append(line)
+                    # Bound mid-run memory growth. Without this, a
+                    # build that streams gigabytes of stderr (chatty
+                    # external_components fetch loop, esptool stuck on
+                    # a repeating error) holds every line in memory
+                    # until the subprocess exits — only the post-
+                    # completion ``_trim_job_output`` in the
+                    # ``finally`` block ever ran. Trim down to a
+                    # smaller keep size than the trigger so the next
+                    # ``cap - keep`` appends don't each pay an O(cap)
+                    # slice copy. Concretely with the current
+                    # constants: cap=4000, keep=2000, so 2000 lines
+                    # fit between trims.
+                    if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
+                        _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
+                    self._db.bus.fire(
+                        EventType.JOB_OUTPUT,
+                        {"job_id": job.job_id, "line": line},
+                    )
+                    _check_error(line)
+                    _check_progress(line)
+
+                exit_code = await proc.wait()
+                job.exit_code = exit_code
 
             # If the user cancelled this job mid-run, the subprocess
             # exits non-zero (terminated by signal). Honour that
@@ -898,8 +899,9 @@ class FirmwareController:
                 )
 
         except asyncio.CancelledError:
-            if self._current_process:
-                self._current_process.terminate()
+            # ``_tracked_subprocess`` already terminated the spawn
+            # on its way out; this branch only needs to finalise
+            # the job model and fire the event.
             _mark_job_terminal(job, JobStatus.CANCELLED)
             self._cancel_requested.discard(job.job_id)
             self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
@@ -941,20 +943,30 @@ class FirmwareController:
         """
         Spawn a subprocess that's visible to ``firmware/cancel``.
 
-        Use this for **every** subprocess invocation in the runner
-        path — pre-flight checks (``_verify_chip``-style) AND any
-        future probe that the runner adds. Setting
-        ``_current_process`` is what lets a concurrent
-        ``firmware/cancel`` actually land SIGTERM on the running
-        spawn; a direct ``create_subprocess_exec`` call without
-        this registration silently regresses the issue-#136 fix —
-        the cancel handler walks ``_current_process`` and no-ops on
-        ``None``, the user clicks Stop, nothing visible happens,
-        and the orphaned subprocess runs to completion in the
-        background.
+        Required for every ``create_subprocess_exec`` call in the
+        runner path — both the main install/upload spawn in
+        ``_execute_job`` and pre-flight probes like
+        ``_verify_chip``. Setting ``_current_process`` is what lets
+        a concurrent ``firmware/cancel`` actually land SIGTERM on
+        the running spawn; a direct ``create_subprocess_exec`` call
+        without this registration silently regresses the
+        issue-#136 fix — the cancel handler walks
+        ``_current_process``, no-ops on ``None``, the user clicks
+        Stop, nothing visible happens, and the orphaned subprocess
+        runs to completion in the background.
 
-        Restores the prior ``_current_process`` value on exit so
-        the wrapper composes safely if a future caller nests them.
+        Two cleanup contracts on exit:
+
+        - Normal exit / non-cancellation exception: restore the
+          prior ``_current_process`` value so nested usage (a
+          future spawn site that itself wraps another) doesn't
+          accidentally null out an outer registration.
+        - ``asyncio.CancelledError`` (runner-task shutdown):
+          terminate the spawn before propagating, so the build
+          can't outlive the runner that started it. The outer
+          ``except asyncio.CancelledError`` in ``_execute_job``
+          handles the job-finalisation half and relies on this
+          helper for the terminate.
 
         Pairs with ``_raise_if_cancelled`` — wrap each spawn, then
         call the helper after to short-circuit if the cancel landed
@@ -965,6 +977,21 @@ class FirmwareController:
         self._current_process = proc
         try:
             yield proc
+        except asyncio.CancelledError:
+            # Runner-shutdown cancellation: the runner task itself
+            # was cancelled (vs. a user-driven ``firmware/cancel``,
+            # which goes through ``_terminate_current_process``
+            # explicitly). Nudge the spawn before the
+            # ``CancelledError`` propagates so the build doesn't
+            # outlive the runner that started it. Pre-refactor the
+            # outer ``except asyncio.CancelledError`` in
+            # ``_execute_job`` did this; that branch now sees
+            # ``_current_process`` already restored to ``prev`` (the
+            # finally below) so the helper has to be the one that
+            # signals.
+            with suppress(ProcessLookupError):
+                proc.terminate()
+            raise
         finally:
             self._current_process = prev
 
