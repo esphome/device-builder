@@ -231,9 +231,8 @@ def test_platform_manifest_refines_unit_coerced_field(loader) -> None:
     fields but NOT the per-instance `reference_voltage` — that lives
     on the platform schema (`mcp3008.sensor`). If
     `_enumerate_platform_manifests` regresses, this catalog field
-    silently falls back to `float`-with-string-default and the
-    silent-Add-button class of bug returns. Pin the refinement here
-    so an upstream rename / restructure trips CI.
+    silently falls back to `float`-with-string-default. Pin the
+    refinement here so an upstream rename / restructure trips CI.
     """
     refined = {}
     for platform_manifest in _enumerate_platform_manifests(loader, "mcp3008"):

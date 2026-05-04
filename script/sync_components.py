@@ -2165,9 +2165,10 @@ def _audit_catalog_for_unit_mismatches(catalog: list[dict]) -> None:
     ``default_value`` is a unit-suffixed string the frontend's
     number input won't accept.
 
-    Surfacing as a sync-time WARNING gives us actionable telemetry
-    to add the validator to ``_FLOAT_WITH_UNIT_VALIDATORS`` (or
-    ``_UNIT_FALLBACKS``) before users hit the silent-Add-button bug.
+    Surfacing as a sync-time WARNING gives actionable telemetry to
+    add the validator to ``_FLOAT_WITH_UNIT_VALIDATORS`` (or
+    ``_UNIT_FALLBACKS``) before users hit the silent-validation
+    failure on the affected fields.
     """
     mismatches: list[tuple[str, str, str]] = []
     for component in catalog:

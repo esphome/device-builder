@@ -9,10 +9,8 @@ in-memory ``ConfigEntry`` model the API serves to the frontend:
   per-request copy the API responds with
 
 Every field exposed to the frontend has to make it through both
-helpers — Copilot caught one (``unit_options``) drifting on PR #271
-because both helpers were silently dropping the new field. Pin the
-round-trip here so any future field addition either gets covered or
-lights up CI.
+helpers; pin the round-trip here so any future field addition
+either gets covered or lights up CI.
 """
 
 from __future__ import annotations
