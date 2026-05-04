@@ -31,3 +31,8 @@ configs/
 /__pycache__
 *.lock
 /.claude
+
+# Coverage artefacts (left behind by ``uv run pytest --cov``)
+.coverage
+.coverage.*
+htmlcov/
