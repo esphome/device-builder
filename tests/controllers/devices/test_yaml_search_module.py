@@ -208,10 +208,11 @@ async def test_total_results_cap_short_circuits_walk(tmp_path: Path) -> None:
     """Walk stops once ``max_results`` is reached.
 
     Pin both halves: total-matches cap is honoured, AND
-    ``live_configurations`` only contains devices we actually
-    visited (not the full input iterable). The cache-prune key
-    contract — devices we never walked stay in the cache for
-    the next search.
+    ``live_configurations`` reflects the *full* input device
+    list — not just the walked subset. The cache-prune key
+    contract: capped searches must not evict warm entries for
+    unwalked-but-still-live devices, otherwise the next
+    keystroke re-reads them from disk.
     """
     cache = YamlSearchCache()
     devices = [
@@ -233,10 +234,10 @@ async def test_total_results_cap_short_circuits_walk(tmp_path: Path) -> None:
 
     total_matches = sum(len(r["matches"]) for r in results)
     assert total_matches <= 2
-    # ``c`` and ``d`` were never visited because the cap was hit
-    # after walking ``a`` and ``b`` (both got their match before
-    # the next-iteration top-of-loop check fires).
-    assert "d" not in {p.removesuffix(".yaml") for p in live}
+    # All four devices in the input list — ``c`` and ``d`` were
+    # never walked because the cap was hit after ``a`` and ``b``,
+    # but they're still live so prune() must not evict them.
+    assert live == {"a.yaml", "b.yaml", "c.yaml", "d.yaml"}
 
 
 # ---------------------------------------------------------------------------

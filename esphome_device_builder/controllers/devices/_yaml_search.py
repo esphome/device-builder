@@ -87,15 +87,23 @@ async def search_yaml_devices(
       fleet. Walk stops once this is reached.
     - ``per_file_cap`` — per-file cap so a chatty match doesn't
       crowd out hits from other devices.
+
+    ``live_configurations`` is the *full* set of input device
+    configurations regardless of where the walk short-circuited
+    on ``max_results``. The caller uses it to prune cache entries
+    for devices that have actually disappeared; if it only
+    reflected the walked subset, a capped search would
+    spuriously evict warm entries for unwalked-but-still-live
+    devices and the next keystroke would re-read them from disk.
     """
+    devices_list = list(devices)
+    live_configurations: set[str] = {d.configuration for d in devices_list}
     results: list[dict] = []
     total_matches = 0
-    live_configurations: set[str] = set()
 
-    for device in devices:
+    for device in devices_list:
         if total_matches >= max_results:
             break
-        live_configurations.add(device.configuration)
 
         path = rel_path(device.configuration)
         lines = await cache.get_lines(device.configuration, path)
