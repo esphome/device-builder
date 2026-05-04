@@ -452,6 +452,7 @@ def make_controller() -> MakeControllerFactory:
         # (just an asyncio.Lock + empty dict) so set it on every
         # bypass-init controller for parity with __init__.
         controller._yaml_search_cache = YamlSearchCache()
+        controller._yaml_search_lock = asyncio.Lock()
 
         if with_state_monitor:
             controller._state_monitor = RecordingStateMonitor()

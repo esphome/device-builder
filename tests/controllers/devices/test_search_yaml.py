@@ -23,6 +23,7 @@ the expected paths and pre-populates ``_scanner.devices``.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -252,6 +253,57 @@ async def test_search_yaml_caps_total_results(
 # ---------------------------------------------------------------------------
 # Robustness: missing / unreadable files
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_yaml_serialises_concurrent_calls(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Concurrent ``search_yaml`` calls run one-at-a-time via the lock.
+
+    The command is I/O-bound — one ``stat`` per device + reads on
+    cache misses — so two concurrent searches against the same
+    fleet would just double the disk pressure without helping
+    latency. The frontend's debounce keeps the depth low, but a
+    slow request from a stuck client must not fan out to N
+    parallel walks. Pin the contract by tracking the maximum
+    concurrent depth observed inside the cache helper:
+    one search active at any given moment, even when two
+    high-level callers race.
+    """
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [_device("kitchen")]
+    _seed_yaml(tmp_path, "kitchen", "wifi:\n")
+
+    in_flight = 0
+    max_in_flight = 0
+    real_get_lines = controller._yaml_search_cache.get_lines
+
+    async def _spy_get_lines(*args: object, **kwargs: object) -> list[str] | None:
+        nonlocal in_flight, max_in_flight
+        in_flight += 1
+        max_in_flight = max(max_in_flight, in_flight)
+        try:
+            # Yield once so the other coroutine has a chance to
+            # interleave inside the same call if the lock isn't
+            # holding it back.
+            await asyncio.sleep(0)
+            return await real_get_lines(*args, **kwargs)  # type: ignore[arg-type]
+        finally:
+            in_flight -= 1
+
+    controller._yaml_search_cache.get_lines = _spy_get_lines  # type: ignore[assignment]
+
+    a, b = await asyncio.gather(
+        controller.search_yaml(query="wifi"),
+        controller.search_yaml(query="wifi"),
+    )
+
+    # Both calls produced the same hit set — serialised, not
+    # cancelled — and the lock kept them strictly one-at-a-time.
+    assert a == b
+    assert max_in_flight == 1
 
 
 @pytest.mark.asyncio

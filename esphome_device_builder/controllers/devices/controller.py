@@ -122,6 +122,15 @@ class DevicesController:
         # bookkeeping doesn't sprawl across this controller. See
         # ``_yaml_search_cache.YamlSearchCache``.
         self._yaml_search_cache = YamlSearchCache()
+        # Global search lock — ``yaml/search`` is I/O-bound (one
+        # ``stat`` per device + reads on cache misses), so two
+        # concurrent searches against the same fleet would just
+        # double the disk pressure without helping latency. Serialise
+        # to one in-flight call per controller; the frontend's
+        # debounce + concurrency-of-1 gate keeps the queue depth low
+        # in normal use, and a slow request from a stuck client
+        # won't fan out to N parallel walks.
+        self._yaml_search_lock = asyncio.Lock()
 
         self._scanner = DeviceScanner(
             config_dir=self._db.settings.config_dir,
@@ -294,44 +303,51 @@ class DevicesController:
             return []
         needle = needle_raw if case_sensitive else needle_raw.lower()
 
-        per_file_cap = _YAML_SEARCH_PER_FILE_MATCH_CAP
-        results: list[dict] = []
-        total_matches = 0
-        live_configurations: set[str] = set()
+        # Global search lock: serialise the I/O-bound walk so two
+        # concurrent searches don't double up on stat / read calls
+        # against the same fleet. The frontend's per-keystroke
+        # debounce + concurrency-of-1 gate keeps the queue shallow
+        # in normal use; this lock backstops the case where a slow
+        # request from a stuck client overlaps with a fresh one.
+        async with self._yaml_search_lock:
+            per_file_cap = _YAML_SEARCH_PER_FILE_MATCH_CAP
+            results: list[dict] = []
+            total_matches = 0
+            live_configurations: set[str] = set()
 
-        for device in self._scanner.devices:
-            if total_matches >= max_results:
-                break
-            live_configurations.add(device.configuration)
-
-            path = Path(self._db.settings.rel_path(device.configuration))
-            lines = await self._yaml_search_cache.get_lines(device.configuration, path)
-            if lines is None:
-                continue
-
-            matches: list[dict] = []
-            for i, line in enumerate(lines, start=1):
-                haystack = line if case_sensitive else line.lower()
-                if needle in haystack:
-                    matches.append({"line_number": i, "line_text": line})
-                    if len(matches) >= per_file_cap:
-                        break
-                if total_matches + len(matches) >= max_results:
+            for device in self._scanner.devices:
+                if total_matches >= max_results:
                     break
+                live_configurations.add(device.configuration)
 
-            if matches:
-                results.append(
-                    {
-                        "configuration": device.configuration,
-                        "device_name": device.name,
-                        "friendly_name": device.friendly_name or device.name,
-                        "matches": matches,
-                    }
-                )
-                total_matches += len(matches)
+                path = Path(self._db.settings.rel_path(device.configuration))
+                lines = await self._yaml_search_cache.get_lines(device.configuration, path)
+                if lines is None:
+                    continue
 
-        self._yaml_search_cache.prune(live_configurations)
-        return results
+                matches: list[dict] = []
+                for i, line in enumerate(lines, start=1):
+                    haystack = line if case_sensitive else line.lower()
+                    if needle in haystack:
+                        matches.append({"line_number": i, "line_text": line})
+                        if len(matches) >= per_file_cap:
+                            break
+                    if total_matches + len(matches) >= max_results:
+                        break
+
+                if matches:
+                    results.append(
+                        {
+                            "configuration": device.configuration,
+                            "device_name": device.name,
+                            "friendly_name": device.friendly_name or device.name,
+                            "matches": matches,
+                        }
+                    )
+                    total_matches += len(matches)
+
+            self._yaml_search_cache.prune(live_configurations)
+            return results
 
     # ------------------------------------------------------------------
     # API commands — CRUD
