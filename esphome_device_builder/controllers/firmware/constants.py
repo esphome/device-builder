@@ -141,11 +141,3 @@ _MAX_OUTPUT_LINES_RETAINED = 2000
 _MAX_OUTPUT_LINES_INFLIGHT = _MAX_OUTPUT_LINES_RETAINED * 2
 _INFLIGHT_TRIM_KEEP = _MAX_OUTPUT_LINES_RETAINED
 _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
-
-# Subdirectories of ``<config_dir>/.esphome/`` that ``RESET_BUILD_ENV``
-# wipes. Order is informational only — each is removed independently.
-_RESET_BUILD_ENV_TARGETS = (
-    "build",
-    "external_components",
-    "platformio_cache",
-)

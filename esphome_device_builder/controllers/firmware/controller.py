@@ -16,7 +16,6 @@ import gzip
 import importlib
 import logging
 import os
-import shutil
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -46,7 +45,6 @@ from .constants import (
     _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_PRIMARY_TERMINAL_JOBS,
     _PRIMARY_JOB_TYPES,
-    _RESET_BUILD_ENV_TARGETS,
     _TERMINAL_JOB_STATUSES,
 )
 from .helpers import (
@@ -201,12 +199,24 @@ class FirmwareController:
         """
         Queue a full reset of the build environment.
 
-        Wipes per-device build outputs, external component checkouts,
-        and the PlatformIO download cache. The next compile re-fetches
-        external components and re-downloads toolchains from scratch
-        — slow to recover from but the most thorough way to escape a
-        poisoned cache. Runs through the same single-job queue as
-        compile/upload so it can't race a build in progress.
+        Shells out to ``esphome clean-all <config_dir>`` (matching
+        the legacy dashboard's ``EsphomeCleanAllHandler``), which:
+
+        * wipes every ``<config_dir>/.esphome/`` subdir except
+          ``storage/``, plus every top-level non-``.json`` file, and
+        * wipes PlatformIO's own ``cache_dir`` / ``packages_dir`` /
+          ``platforms_dir`` / ``core_dir`` resolved from PlatformIO's
+          config — for venv users that's ``~/.platformio/{packages,
+          platforms,core}``, where the toolchains and frameworks
+          actually live. The HA add-on / docker images keep these
+          inside the data dir so the blast radius is contained
+          there.
+
+        The next compile re-fetches external components and
+        re-downloads toolchains from scratch — slow to recover from
+        but the most thorough way to escape a poisoned cache. Runs
+        through the same single-job queue as compile/upload so it
+        can't race a build in progress.
         """
         job = self._create_job("", JobType.RESET_BUILD_ENV)
         return await self._enqueue(job)
@@ -732,12 +742,6 @@ class FirmwareController:
         await self._persist_jobs()
 
         try:
-            # RESET_BUILD_ENV doesn't shell out — handle it inline.
-            # Errors fall through to the existing except blocks below.
-            if job.job_type == JobType.RESET_BUILD_ENV:
-                await self._reset_build_env(job)
-                return
-
             # Pre-flight: verify chip type for serial uploads
             if job.job_type in (JobType.UPLOAD, JobType.INSTALL):
                 await self._verify_chip(job)
@@ -1053,75 +1057,6 @@ class FirmwareController:
             job_label=f"job {self._current_job.job_id}" if self._current_job else "job ?",
         )
 
-    async def _reset_build_env(self, job: FirmwareJob) -> None:
-        """
-        Run a ``RESET_BUILD_ENV`` job to completion or cancellation.
-
-        Streams progress lines through the same ``JOB_OUTPUT`` event
-        used by compile/upload jobs and finalises ``job.status``
-        before returning. Mid-run cancellation is honoured between
-        targets, not during a single ``rmtree``.
-        """
-        esphome_root = self._db.settings.config_dir / ".esphome"
-        loop = asyncio.get_running_loop()
-
-        def _emit(text: str) -> None:
-            line = text if text.endswith("\n") else text + "\n"
-            job.output.append(line)
-            self._db.bus.fire(
-                EventType.JOB_OUTPUT,
-                {"job_id": job.job_id, "line": line},
-            )
-
-        _emit(f"Resetting build environment under {esphome_root}")
-
-        # Batch every ``os.stat`` into one executor hop instead of N
-        # separate ``run_in_executor(None, target.exists)`` awaits.
-        # We can't run the whole function in an executor because the
-        # per-step ``_emit`` fires ``bus.fire(JOB_OUTPUT, ...)`` and
-        # listeners call ``asyncio.Queue.put_nowait`` (not thread-safe
-        # off the loop), so live followers would corrupt their queues
-        # if the emit ran from a worker thread. Probing all the stats
-        # up front keeps emit + ``rmtree`` on the loop while still
-        # being fully non-blocking. TOCTOU race against a concurrent
-        # external delete is the same shape the original sequential
-        # stat / rmtree had — ``rmtree`` would raise on a missing
-        # target either way.
-        def _probe() -> tuple[bool, dict[str, bool]]:
-            if not esphome_root.exists():
-                return False, {}
-            return True, {name: (esphome_root / name).exists() for name in _RESET_BUILD_ENV_TARGETS}
-
-        esphome_exists, target_exists = await loop.run_in_executor(None, _probe)
-
-        if not esphome_exists:
-            _emit("Nothing to do — .esphome/ does not exist yet.")
-        else:
-            for name in _RESET_BUILD_ENV_TARGETS:
-                # rmtree isn't interruptible from another coroutine,
-                # so we can only stop before starting the next target.
-                if job.job_id in self._cancel_requested:
-                    _emit("Reset cancelled by user.")
-                    self._finalize_cancelled(job)
-                    return
-
-                if not target_exists[name]:
-                    _emit(f"  skipped (not present): {name}/")
-                    continue
-                _emit(f"  removing {name}/ ...")
-                await loop.run_in_executor(None, shutil.rmtree, esphome_root / name)
-                _emit(f"  removed {name}/")
-
-        _emit(
-            "Reset complete — the next compile will re-download "
-            "toolchains and re-fetch external components."
-        )
-        job.exit_code = 0
-        job.progress = 100
-        _mark_job_terminal(job, JobStatus.COMPLETED)
-        self._db.bus.fire(EventType.JOB_COMPLETED, {"job": job})
-        _LOGGER.info("Job %s reset_build_env completed", job.job_id)
-
     async def _verify_chip(self, job: FirmwareJob) -> None:
         """
         Verify the chip on the serial port matches the device config.
@@ -1221,6 +1156,12 @@ class FirmwareController:
             JobType.INSTALL: "run",
             JobType.CLEAN: "clean",
             JobType.RENAME: "rename",
+            # ``clean-all`` takes the config *directory* as its
+            # positional, not a YAML file. ``reset_build_env`` queues
+            # with ``configuration=""`` so ``rel_path("")`` resolves
+            # back to the config_dir at the call site — same shape
+            # as the legacy dashboard's ``EsphomeCleanAllHandler``.
+            JobType.RESET_BUILD_ENV: "clean-all",
         }
         # cache_args go before the subcommand — esphome's argparse parses
         # them on the top-level parser, not the per-subcommand one.

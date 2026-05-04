@@ -27,6 +27,7 @@ every dashboard build with no test failure.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 from contextlib import suppress
@@ -615,45 +616,53 @@ async def test_compile_progress_lines_fire_job_progress(
 
 
 # ---------------------------------------------------------------------------
-# RESET_BUILD_ENV — early-return branch in _execute_job
+# RESET_BUILD_ENV — routes through the same subprocess pipeline
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_run_queue_routes_reset_build_env_through_inline_handler(
+async def test_run_queue_routes_reset_build_env_through_clean_all_subprocess(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
-    """A RESET_BUILD_ENV job runs inline and never reaches the spawn path.
+    """A RESET_BUILD_ENV job shells out to ``esphome clean-all <config_dir>``.
 
-    ``_execute_job``'s first action after marking RUNNING is a
-    type-switch on RESET_BUILD_ENV that delegates to
-    ``_reset_build_env`` and returns. Pin the dispatch via the
-    public submission API so a regression that fell through would
-    surface here — the spawn / command-building path crashes on
-    an empty ``job.configuration`` (RESET_BUILD_ENV has none) long
-    before any subprocess fires, but either way the test catches
-    it: the build directory wouldn't be wiped and the job wouldn't
-    cleanly complete.
+    The runner has no per-job-type branch any more — every job
+    routes through ``_build_command`` and ``create_subprocess_exec``.
+    Mirrors the legacy ``EsphomeCleanAllHandler`` shape so the
+    upstream ``writer.clean_all`` does the actual cleanup (every
+    ``.esphome/`` subdir except ``storage/``, plus PlatformIO's
+    real cache directories).
+
+    Pin the dispatch by capturing the argv the spawned subprocess
+    sees. A regression that re-introduces an inline rmtree
+    (or that drops the ``clean-all`` mapping from ``_build_command``)
+    surfaces here — argv either won't have ``clean-all`` or the
+    config_dir positional, or the subprocess won't fire at all.
     """
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     _wire_real_queue(controller)
-    # Spy on _trim_job_output so we can also assert the post-exit
-    # trim path isn't even reached for the RESET branch (it
-    # short-circuits on the early return).
-    controller._esphome_cmd = []
-    # Seed a target dir so the RESET_BUILD_ENV runner has work to do.
-    (tmp_path / ".esphome" / "build").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".esphome" / "build" / "sentinel").write_text("x", encoding="utf-8")
+    # Subprocess writes its argv to a sidecar file we can inspect
+    # after the run — stdin/stdout aren't a clean channel here
+    # because the runner pattern-matches stdout for error markers.
+    argv_log = tmp_path / "argv.json"
+    _fake_esphome(
+        controller,
+        "import json, sys\n"
+        f"open({str(argv_log)!r}, 'w').write(json.dumps(sys.argv))\n"
+        "sys.exit(0)\n",
+    )
 
     job = await controller.reset_build_env()
     captured = await _run_until_terminal(controller)
 
     assert job.status == JobStatus.COMPLETED
-    assert job.progress == 100
+    assert job.exit_code == 0
     assert captured["job_completed"]
-    # The build dir was wiped — proves the inline RESET handler ran,
-    # not just that the runner exited cleanly.
-    assert not (tmp_path / ".esphome" / "build").exists()
+
+    argv = json.loads(argv_log.read_text(encoding="utf-8"))
+    # argv[0] is CPython's ``-c`` placeholder; the rest is exactly
+    # what ``_build_command`` produced for the queued job.
+    assert argv[1:] == ["--dashboard", "clean-all", str(tmp_path)]
 
 
 # ---------------------------------------------------------------------------

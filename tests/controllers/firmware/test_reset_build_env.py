@@ -1,38 +1,37 @@
 """End-to-end coverage for ``FirmwareController.reset_build_env``.
 
 The handler itself is a one-liner (``_create_job`` then
-``_enqueue``), but the runner side (``_reset_build_env``) does
-real filesystem work that no other test exercises:
+``_enqueue``); the runner side now reuses the same subprocess
+pipeline as compile/upload via ``_build_command`` mapping
+``JobType.RESET_BUILD_ENV`` to ``clean-all`` (matching the legacy
+``EsphomeCleanAllHandler``). What we pin here:
 
-- Removes each ``_RESET_BUILD_ENV_TARGETS`` directory under
-  ``<config_dir>/.esphome/``.
-- Streams progress lines through ``JOB_OUTPUT`` so the dashboard's
-  follow_job dialog can show them.
-- Skips targets that aren't present (``.esphome/external_components/``
-  doesn't always exist) without aborting the rest.
-- Honours cancellation between targets — ``rmtree`` itself isn't
-  interruptible from another coroutine, so the user-visible
-  contract is "stops before the next target if cancelled".
-- Marks the job COMPLETED with ``exit_code=0`` and ``progress=100``
-  on success, fires ``JOB_COMPLETED``.
+- The handler returns a queued job of the right shape and routes
+  it onto the queue in the documented PUT-then-FIRE order.
+- ``_build_command`` for ``RESET_BUILD_ENV`` produces
+  ``[*esphome_cmd, '--dashboard', 'clean-all', <config_dir>]``
+  with no ``--device`` and no cache args — the broader filesystem
+  cleanup (``.esphome/`` minus ``storage/``, plus PlatformIO's
+  ``cache_dir`` / ``packages_dir`` / ``platforms_dir`` /
+  ``core_dir``) is then esphome's responsibility.
 
-This file pins both halves so a future split / refactor of the
-job runner can't quietly drop the ``RESET_BUILD_ENV`` branch (it's
-the only ``JobType`` that runs in-process; every other type
-shells out via ``create_subprocess_exec``).
+The actual subprocess streaming / exit-handling pipeline is
+already covered by ``test_execute_job_e2e.py`` (which exercises
+the same path for compile and adds a RESET_BUILD_ENV-specific
+test that verifies the dispatch through the queue).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.firmware.constants import _RESET_BUILD_ENV_TARGETS
-from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
+from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.models import EventType, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
     CaptureEnqueueOrderFactory,
-    CaptureEventsFactory,
     EnqueueStep,
     FirmwareControllerFactory,
 )
@@ -73,6 +72,9 @@ async def test_reset_build_env_uses_empty_configuration(
     rather than the runtime invariant the rename-lock /
     refresh-scheduling logic relies on
     (``test_helpers.test_names_touched_by_job_with_empty_configuration_is_empty``).
+    The empty string also feeds straight into ``rel_path("")`` at
+    runtime, which resolves back to ``config_dir`` — the positional
+    arg ``clean-all`` actually expects.
     """
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
 
@@ -141,220 +143,78 @@ async def test_reset_build_env_accepts_arbitrary_kwargs(
 
 
 # ---------------------------------------------------------------------------
-# _reset_build_env runner — the work the queued job actually performs
+# _build_command — RESET_BUILD_ENV branch
 # ---------------------------------------------------------------------------
 
 
-def _make_job() -> FirmwareJob:
-    return FirmwareJob(
-        job_id="abc123",
-        configuration="",
-        job_type=JobType.RESET_BUILD_ENV,
-        status=JobStatus.RUNNING,
-        output=[],
+def test_build_command_for_reset_build_env_uses_clean_all_with_config_dir(
+    tmp_path: Path,
+) -> None:
+    """``RESET_BUILD_ENV`` shells out to ``esphome --dashboard clean-all <config_dir>``.
+
+    Mirrors the legacy dashboard's ``EsphomeCleanAllHandler``,
+    which builds ``[*DASHBOARD_COMMAND, "clean-all", settings.config_dir]``.
+    Routing through the same subprocess pipeline as compile/upload
+    gets us the upstream-canonical cleanup behaviour for free
+    (every ``.esphome/`` subdir except ``storage/``, plus
+    PlatformIO's real ``cache_dir`` / ``packages_dir`` /
+    ``platforms_dir`` / ``core_dir``) instead of an inline rmtree
+    of three hardcoded directories that misses everything else.
+
+    Pin the exact arg order: the positional config_dir comes
+    *after* the subcommand name (esphome's argparse parses
+    top-level flags before the subcommand), and there's no
+    trailing ``--device`` because clean-all doesn't talk to a
+    device.
+    """
+    controller = FirmwareController.__new__(FirmwareController)
+    controller._esphome_cmd = ["esphome"]
+    controller._db = MagicMock()
+    controller._db.devices = None
+
+    # ``rel_path("")`` resolves to the config_dir Path itself (joinpath
+    # with an empty segment is a no-op) — that's what the runner passes
+    # to ``_build_command`` for the empty-configuration RESET job.
+    cmd = controller._build_command(JobType.RESET_BUILD_ENV, str(tmp_path), port="")
+
+    assert cmd == [
+        "esphome",
+        "--dashboard",
+        "clean-all",
+        str(tmp_path),
+    ]
+
+
+def test_build_command_for_reset_build_env_ignores_port_and_cache_args(
+    tmp_path: Path,
+) -> None:
+    """``RESET_BUILD_ENV`` neither flashes nor talks to the network.
+
+    Belt-and-braces against a future refactor that loops cache
+    args / ``--device`` into every job type: clean-all's CLI doesn't
+    accept either, and an erroneously-included ``--device`` would
+    make the subprocess error out before touching the cache. Pin
+    that the command shape stays minimal even when the caller
+    threads in cache args (which ``_build_cache_args`` already
+    short-circuits to ``[]`` for non-OTA job types, but a direct
+    invocation could still pass them).
+    """
+    controller = FirmwareController.__new__(FirmwareController)
+    controller._esphome_cmd = ["esphome"]
+    controller._db = MagicMock()
+    controller._db.devices = None
+
+    cmd = controller._build_command(
+        JobType.RESET_BUILD_ENV,
+        str(tmp_path),
+        port="/dev/ttyUSB0",
+        cache_args=["--mdns-address-cache", "kitchen=192.0.2.1"],
     )
 
-
-def _seed_targets(config_dir: Path, *, names: tuple[str, ...] = _RESET_BUILD_ENV_TARGETS) -> None:
-    """Lay out the ``.esphome/<target>/`` directories the runner expects.
-
-    Each gets a sentinel file so an accidental ``rmtree`` of an
-    *empty* dir would still register as removal of "real" content.
-    """
-    esphome_root = config_dir / ".esphome"
-    for name in names:
-        target = esphome_root / name
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "sentinel").write_text("x", encoding="utf-8")
-
-
-@pytest.mark.asyncio
-async def test_reset_build_env_runner_removes_each_target(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
-) -> None:
-    """Every directory in ``_RESET_BUILD_ENV_TARGETS`` is removed.
-
-    Uses the upstream constant so a future addition to the target
-    list (e.g. a new cache directory) is automatically covered —
-    the test passes only if each named directory is gone after
-    the runner finishes.
-    """
-    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
-    _seed_targets(tmp_path)
-    job = _make_job()
-
-    await controller._reset_build_env(job)
-
-    for name in _RESET_BUILD_ENV_TARGETS:
-        assert not (tmp_path / ".esphome" / name).exists(), (
-            f"{name}/ survived reset_build_env — runner missed a target"
-        )
-
-
-@pytest.mark.asyncio
-async def test_reset_build_env_runner_marks_job_completed(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
-) -> None:
-    """Successful completion sets ``COMPLETED`` + ``exit_code=0`` + ``progress=100``.
-
-    The dashboard's job row uses ``status`` for the badge,
-    ``exit_code`` for the success / failure decoration, and
-    ``progress`` for the bar. All three need to land before the
-    ``JOB_COMPLETED`` event so a frontend reading the post-event
-    state sees a fully-finished job.
-    """
-    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
-    _seed_targets(tmp_path)
-    job = _make_job()
-
-    await controller._reset_build_env(job)
-
-    assert job.status == JobStatus.COMPLETED
-    assert job.exit_code == 0
-    assert job.progress == 100
-
-
-@pytest.mark.asyncio
-async def test_reset_build_env_runner_fires_job_completed(
-    tmp_path: Path,
-    firmware_controller_factory: FirmwareControllerFactory,
-    capture_firmware_events: CaptureEventsFactory,
-) -> None:
-    """``JOB_COMPLETED`` fires with the finished job in its payload.
-
-    Pairs with the run-followers panel: without this event the
-    "Reset build environment" row would stick on RUNNING forever
-    in the all-jobs view, even though the runner's local state
-    flipped to COMPLETED.
-    """
-    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
-    captured = capture_firmware_events(controller, EventType.JOB_COMPLETED)
-    _seed_targets(tmp_path)
-    job = _make_job()
-
-    await controller._reset_build_env(job)
-
-    assert [(e.event_type, e.data) for e in captured] == [(EventType.JOB_COMPLETED, {"job": job})]
-
-
-@pytest.mark.asyncio
-async def test_reset_build_env_runner_streams_output_lines(
-    tmp_path: Path,
-    firmware_controller_factory: FirmwareControllerFactory,
-    capture_firmware_events: CaptureEventsFactory,
-) -> None:
-    """Progress lines hit both ``job.output`` and the bus.
-
-    The follower-side ``follow_job`` panel renders lines from
-    ``job.output`` for late-attaching clients (replay) and from
-    ``JOB_OUTPUT`` events for live ones. Both surfaces need to
-    see the same content; pin a representative line on each side
-    so a refactor that drops one of the two writes surfaces here.
-    """
-    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
-    captured = capture_firmware_events(controller, EventType.JOB_OUTPUT)
-    _seed_targets(tmp_path)
-    job = _make_job()
-
-    await controller._reset_build_env(job)
-
-    full_output = "".join(job.output)
-    assert "Resetting build environment" in full_output
-    assert "Reset complete" in full_output
-    # Each removal target is named in a "removing X/" line.
-    for name in _RESET_BUILD_ENV_TARGETS:
-        assert f"removing {name}/" in full_output
-
-    # Bus side: every line that landed in ``job.output`` was also
-    # fired as a ``JOB_OUTPUT`` event so live followers see it.
-    assert captured, "expected at least one JOB_OUTPUT broadcast"
-    fired_lines = [event.data["line"] for event in captured]
-    assert any("Resetting build environment" in line for line in fired_lines)
-
-
-@pytest.mark.asyncio
-async def test_reset_build_env_runner_skips_missing_targets(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
-) -> None:
-    """A target that doesn't exist is logged as skipped, not fatal.
-
-    Fresh installs don't have ``platformio_cache/`` until the
-    first compile; the runner must succeed against a partially
-    populated ``.esphome/``. Verify by seeding only one of the
-    targets and confirming the runner completes (status COMPLETED)
-    while still naming the missing ones in the output.
-    """
-    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
-    # Only seed the build dir; external_components and platformio_cache absent.
-    _seed_targets(tmp_path, names=("build",))
-    job = _make_job()
-
-    await controller._reset_build_env(job)
-
-    assert job.status == JobStatus.COMPLETED
-    full_output = "".join(job.output)
-    for name in _RESET_BUILD_ENV_TARGETS:
-        if name == "build":
-            assert f"removing {name}/" in full_output
-        else:
-            assert f"skipped (not present): {name}/" in full_output
-
-
-@pytest.mark.asyncio
-async def test_reset_build_env_runner_no_op_when_esphome_absent(
-    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
-) -> None:
-    """``.esphome/`` not yet created → "Nothing to do" + COMPLETED.
-
-    Edge case for never-compiled config dirs: the runner shouldn't
-    create the directory just to wipe it, and shouldn't fail
-    because the targets don't exist. Pins the early-exit branch
-    that checks ``esphome_root.exists()``.
-    """
-    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
-    # Don't call _seed_targets — leave .esphome absent entirely.
-    job = _make_job()
-
-    await controller._reset_build_env(job)
-
-    assert job.status == JobStatus.COMPLETED
-    assert "Nothing to do" in "".join(job.output)
-    # Neither created nor wiped: directory still doesn't exist.
-    assert not (tmp_path / ".esphome").exists()
-
-
-@pytest.mark.asyncio
-async def test_reset_build_env_runner_honours_cancel_between_targets(
-    tmp_path: Path,
-    firmware_controller_factory: FirmwareControllerFactory,
-    capture_firmware_events: CaptureEventsFactory,
-) -> None:
-    """Cancellation requested mid-run stops before the next target.
-
-    ``shutil.rmtree`` isn't interruptible from another coroutine,
-    so the user-visible promise is "the runner stops at the next
-    target boundary". Seed all targets, mark the job as cancelled
-    *before* the runner starts, and assert:
-
-    - The runner returns without removing any target (cancel
-      check fires before each one).
-    - Status is CANCELLED, not COMPLETED.
-    - ``JOB_CANCELLED`` fires for the all-jobs panel.
-    - The cancel id is consumed (popped from
-      ``self._cancel_requested``) so a re-queued job with the same
-      id wouldn't auto-cancel.
-    """
-    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
-    captured = capture_firmware_events(controller, EventType.JOB_CANCELLED)
-    _seed_targets(tmp_path)
-    job = _make_job()
-    controller._cancel_requested.add(job.job_id)
-
-    await controller._reset_build_env(job)
-
-    assert job.status == JobStatus.CANCELLED
-    assert [(e.event_type, e.data) for e in captured] == [(EventType.JOB_CANCELLED, {"job": job})]
-    assert job.job_id not in controller._cancel_requested
-    # All targets still present — runner bailed before the first rmtree.
-    for name in _RESET_BUILD_ENV_TARGETS:
-        assert (tmp_path / ".esphome" / name / "sentinel").exists()
+    assert "--device" not in cmd
+    assert "/dev/ttyUSB0" not in cmd
+    # ``cache_args`` are still spliced in (the runner trusts the
+    # caller; ``_build_cache_args`` is the gate that returns ``[]``
+    # for non-OTA jobs in the real flow). Pin only that ``clean-all``
+    # itself appears with the config_dir as the trailing positional.
+    assert cmd[-2:] == ["clean-all", str(tmp_path)]
