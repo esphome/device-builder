@@ -593,6 +593,7 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
         options=entry.options,
         allow_custom_value=entry.allow_custom_value,
         range=entry.range,
+        unit_options=entry.unit_options,
         multi_value=entry.multi_value,
         templatable=entry.templatable,
         depends_on=entry.depends_on,
@@ -637,6 +638,19 @@ def _load_pin_features(raw: Any) -> list[PinFeature]:
         if feat is not None:
             out.append(feat)
     return out
+
+
+def _load_unit_options(raw: Any) -> list[str] | None:
+    """Normalise the JSON ``unit_options`` field into a list of strings.
+
+    ``None`` for non-FLOAT_WITH_UNIT entries (the catalog omits the
+    field entirely on those). Non-list / empty values fold back to
+    ``None`` so a malformed catalog entry doesn't reach the frontend
+    as a half-populated picker.
+    """
+    if not isinstance(raw, list) or not raw:
+        return None
+    return [str(item) for item in raw if isinstance(item, str)]
 
 
 def _load_options(raw: Any) -> list[ConfigValueOption] | None:
@@ -684,6 +698,7 @@ def _load_config_entry(data: dict) -> ConfigEntry:
         options=_load_options(data.get("options")),
         allow_custom_value=bool(data.get("allow_custom_value", False)),
         range=range_val,
+        unit_options=_load_unit_options(data.get("unit_options")),
         multi_value=bool(data.get("multi_value", False)),
         templatable=bool(data.get("templatable", False)),
         depends_on=data.get("depends_on"),
