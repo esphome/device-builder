@@ -33,6 +33,7 @@ from ...helpers.device_yaml import (
 )
 from ...helpers.event_bus import Event, StreamControls, stream_events
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
+from ...helpers.mac_addresses import derive_interface_macs
 from ...helpers.process import kill_quietly
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...helpers.yaml import merge_component_yaml, rewrite_esphome_name
@@ -157,6 +158,7 @@ class DevicesController:
             on_version_change=self._on_version_change,
             on_config_hash_change=self._on_config_hash_change,
             on_api_encryption_change=self._on_api_encryption_change,
+            on_mac_address_change=self._on_mac_address_change,
             on_importable_added=self._on_importable_added,
             on_importable_removed=self._on_importable_removed,
             is_ignored=self.ignored_devices.__contains__,
@@ -1392,8 +1394,12 @@ class DevicesController:
         board_id = str(md.get("board_id", ""))
         if not board_id:
             board_id = self._derive_board_id_from_yaml(config_dir, filename)
+        mac_address = str(md.get("mac_address", ""))
         return DeviceFileMetadata(
-            board_id=board_id, ip=ip, expected_config_hash=expected_config_hash
+            board_id=board_id,
+            ip=ip,
+            expected_config_hash=expected_config_hash,
+            mac_address=mac_address,
         )
 
     def _derive_board_id_from_yaml(self, config_dir: Path, filename: str) -> str:
@@ -1667,6 +1673,41 @@ class DevicesController:
                 device.configuration,
                 old_version or "?",
                 version,
+            )
+            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+
+    def _on_mac_address_change(self, name: str, mac: str) -> None:
+        """
+        Apply a MAC address observed via mDNS and derive interface MACs.
+
+        The mDNS broadcast is always the device's primary MAC (Wi-Fi
+        STA / eFuse base on ESP32, the single MAC on RP2040). When
+        the YAML loads ``ethernet`` or any ``esp32_ble*`` /
+        ``bluetooth_*`` integration we compute the corresponding
+        interface MAC via :func:`derive_interface_macs` so the drawer
+        can show every MAC the device owns without forcing the
+        firmware to broadcast all of them.
+
+        Persists ``mac_address`` to the per-device metadata sidecar
+        so the dashboard shows the value immediately on restart —
+        ESPHome devices stay mDNS-silent until probed. The derived
+        MACs aren't persisted: they're deterministic from primary +
+        ``loaded_integrations``, so a YAML edit that toggles
+        bluetooth picks up the new derived MAC on the next reload
+        without going through a stale-cache window. The early-return
+        on equality skips both the in-memory write and the sidecar
+        I/O on a steady-state announcement, keeping the typical
+        "same value re-broadcast every 60s" cycle off-disk.
+        """
+        for device in self._devices_by_name(name):
+            if device.mac_address == mac:
+                continue
+            device.mac_address = mac
+            device.ethernet_mac, device.bluetooth_mac = derive_interface_macs(
+                mac, device.target_platform, device.loaded_integrations
+            )
+            self._db.create_background_task(
+                self._persist_device_metadata_async(device.configuration, mac_address=mac)
             )
             self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 

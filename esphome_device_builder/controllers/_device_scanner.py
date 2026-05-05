@@ -34,6 +34,7 @@ class DeviceFileMetadata(NamedTuple):
     board_id: str
     ip: str
     expected_config_hash: str = ""
+    mac_address: str = ""
 
 
 class ScanChange(StrEnum):
@@ -379,6 +380,7 @@ class DeviceScanner:
                     metadata.board_id,
                     metadata.ip,
                     metadata.expected_config_hash,
+                    metadata.mac_address,
                     previous=self._index.by_path.get(path),
                 )
             except Exception:
