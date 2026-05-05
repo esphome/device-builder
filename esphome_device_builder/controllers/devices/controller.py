@@ -1001,10 +1001,10 @@ class DevicesController:
         """Persist the cross-restart "we already tried, gave up" marker — one executor hop.
 
         Combines the YAML ``stat()`` and the sidecar write into a
-        single closure handed to ``run_in_executor``. The standalone
-        old standalone-stamp shape used to take two hops
-        (one to stat, one to write); on a fleet-wide cold-start
-        each saved hop is a thread-pool slot back to the pool.
+        single closure handed to ``run_in_executor``. The earlier
+        standalone-stamp shape took two hops (one to stat, one to
+        write); on a fleet-wide cold-start each saved hop is a
+        thread-pool slot back to the pool.
 
         The wall-clock half is sampled inside the closure too, so
         the stamp captures the same instant the file's mtime was
