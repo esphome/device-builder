@@ -740,6 +740,14 @@ class DevicesController:
             try:
                 await action(configuration)
                 results.append({"configuration": configuration, "success": True})
+            except asyncio.CancelledError:
+                # Re-raise CancelledError explicitly — on Python
+                # versions where it subclasses ``Exception`` the
+                # broad ``except`` below would otherwise swallow a
+                # WS-shutdown / request-cancel and quietly keep
+                # running the rest of the bulk loop (and the
+                # post-batch scan) detached from the caller.
+                raise
             except Exception as exc:
                 results.append(
                     {
