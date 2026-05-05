@@ -1340,6 +1340,84 @@ async def test_run_loud_logs_unexpected_after_expected_failure(
     assert errors[0].exc_info is not None
 
 
+@pytest.mark.asyncio
+async def test_run_collapses_repeat_unexpected_errors_to_debug(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Repeat unexpected exceptions log DEBUG with class+message, no traceback.
+
+    Covers the suppressed-traceback DEBUG branch in
+    ``_log_reconnect_failure``'s unexpected-error path. The first
+    occurrence still emits one ERROR with traceback (proven in
+    ``test_run_loud_logs_unexpected_after_expected_failure``);
+    every subsequent occurrence with the gate already tripped
+    falls back to DEBUG so a tight failure loop doesn't dump the
+    same trace into the log every ``_RECONNECT_DELAY``. Pin: the
+    DEBUG line still includes the exception class name and message
+    so the operator can tell what's repeating without raising the
+    log level back to ERROR.
+    """
+    monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    call_count = 0
+    third_call = asyncio.Event()
+
+    async def _always_runtime_error(_client_id: str) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 3:
+            third_call.set()
+        msg = "kaboom"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(monitor, "_connect_and_listen", _always_runtime_error)
+
+    caplog.set_level("DEBUG", logger=monitor_module.__name__)
+
+    run_task = asyncio.create_task(monitor._run())
+    try:
+        await asyncio.wait_for(third_call.wait(), timeout=2.0)
+    finally:
+        run_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await run_task
+
+    errors = [
+        r
+        for r in caplog.records
+        if r.name == monitor_module.__name__ and r.levelname == "ERROR" and "error" in r.message
+    ]
+    debugs = [
+        r
+        for r in caplog.records
+        if r.name == monitor_module.__name__
+        and r.levelname == "DEBUG"
+        and "suppressed traceback" in r.message
+    ]
+    # Exactly one ERROR (first hit) and at least one DEBUG-suppressed
+    # follow-up — the repeats. Anything more than one ERROR means the
+    # gate didn't trip; zero DEBUG means the suppressed branch was
+    # never reached.
+    assert len(errors) == 1, [(r.levelname, r.message) for r in errors]
+    assert len(debugs) >= 1
+    # Every DEBUG must include the exception class + message — that's
+    # the whole point of capturing ``as err`` in the broad branch.
+    for record in debugs:
+        assert "RuntimeError" in record.message
+        assert "kaboom" in record.message
+        # And no traceback should be attached at this level — the
+        # promise of "suppressed traceback" is meaningful only if it
+        # actually drops the exc_info too.
+        assert record.exc_info is None
+
+
 # ---------------------------------------------------------------------------
 # Pure helpers — _extract_ip / _decode_payload
 # ---------------------------------------------------------------------------
