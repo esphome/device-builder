@@ -966,28 +966,38 @@ class DevicesController:
           mid-flight) by allowing a re-check after the TTL.
 
         Disk reads (``Path.stat``, the ``.device-builder.json``
-        parse) go through the default executor so a cold-start
-        fleet sweep doesn't stall the event loop. A negative age
-        (clock skew, NTP step, future-dated stamp) clamps to zero;
-        without that clamp a bad sidecar value could lock out the
-        regen indefinitely.
+        parse) batch into a single executor job so a cold-start
+        fleet sweep neither stalls the event loop nor double-books
+        the default thread pool. A negative age (clock skew, NTP
+        step, future-dated stamp) clamps to zero; without that
+        clamp a bad sidecar value could lock out the regen
+        indefinitely.
         """
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
         config_path = self._db.settings.rel_path(configuration)
-        try:
-            stat_result, md = await asyncio.gather(
-                loop.run_in_executor(None, config_path.stat),
-                loop.run_in_executor(None, get_device_metadata, config_dir, configuration),
-            )
-        except OSError:
+
+        def _read() -> tuple[float, dict[str, Any]] | None:
+            # One executor hop for both reads — paying for two
+            # parallel ``run_in_executor`` jobs would just consume
+            # two slots in the shared default thread pool for work
+            # that's already serial on disk anyway.
+            try:
+                mtime = config_path.stat().st_mtime
+            except OSError:
+                return None
+            return mtime, get_device_metadata(config_dir, configuration)
+
+        result = await loop.run_in_executor(None, _read)
+        if result is None:
             return False
+        current_mtime, md = result
         cached_mtime = md.get("regen_failed_mtime")
         cached_at = md.get("regen_failed_at")
         if not cached_mtime or not cached_at:
             return False
         try:
-            mtime_matches = float(cached_mtime) == stat_result.st_mtime
+            mtime_matches = float(cached_mtime) == current_mtime
             age = max(0.0, time.time() - float(cached_at))
         except (TypeError, ValueError):
             return False
