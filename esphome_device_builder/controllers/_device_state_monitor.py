@@ -1171,10 +1171,28 @@ class DeviceStateMonitor:
             self.apply_config_hash(device_name, config_hash)
         if mac := props.get("mac"):
             self.apply_mac_address(device_name, mac)
-        # Always apply api_encryption — empty / missing TXT is itself
-        # a meaningful signal (device is broadcasting plaintext) and
-        # apply_api_encryption distinguishes it from "never seen".
-        self.apply_api_encryption(device_name, props.get("api_encryption") or "")
+        # Apply api_encryption ONLY when the TXT key is actually
+        # present in this announcement (value can be empty — that's
+        # the meaningful "device confirmed plaintext" signal). When
+        # the TXT key is absent we keep the device's current value
+        # as the last-known truth: a transient / fragmented mDNS
+        # re-announcement that omits the TXT used to overwrite a
+        # previously-truthy ``api_encryption_active`` with ``""``,
+        # flipping the dashboard's lock indicator to "mismatch" /
+        # "pending" and prompting the user to reinstall a device
+        # that was actually fine. Tri-state on the model side
+        # (``"…"`` / ``""`` / ``None``) already encodes
+        # "confirmed-encrypted / confirmed-plaintext / unknown"; the
+        # apply path was conflating "TXT absent in *this*
+        # announcement" with "TXT absent on the device", which is
+        # only true once we observe the absence directly. Older
+        # firmwares that never broadcast the TXT remain at the
+        # ``None`` initial — the frontend's ``getEncryptionState``
+        # falls back to the YAML's ``api_encrypted`` flag in that
+        # case, which is the right behaviour.
+        api_encryption = props.get("api_encryption")
+        if api_encryption is not None:
+            self.apply_api_encryption(device_name, api_encryption)
 
     async def _ping_loop(self) -> None:
         # First sweep after the short bootstrap window — gives mDNS a

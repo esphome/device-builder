@@ -484,17 +484,61 @@ async def test_dispatch_added_cache_hit_falls_back_to_v6_when_no_v4(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_added_with_empty_api_encryption_pushes_empty_string(
+async def test_dispatch_added_with_explicit_empty_api_encryption_pushes_empty_string(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Missing api_encryption TXT means plaintext; pushed as empty string.
+    """TXT key explicitly empty means plaintext-confirmed → pushed as empty string.
 
-    The empty-string-vs-None distinction matters: ``None`` means
-    "never seen", ``""`` means "service seen, no encryption
-    advertised → confirmed plaintext". The frontend keys colour-
-    coding off this tri-state.
+    The tri-state on the model side is ``"…"`` (encrypted) /
+    ``""`` (confirmed plaintext) / ``None`` (never observed). An
+    *explicit* empty TXT value is a real signal — the device is
+    advertising the key but with no value, which esphome emits when
+    encryption is genuinely off in the running firmware. Pin that
+    we still hand that down to ``apply_api_encryption``.
     """
     device = _device(api_encryption_active=None)
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    fake_info.decoded_properties = {"api_encryption": ""}
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert device.api_encryption_active == ""
+    finally:
+        await _stop_and_drain(monitor)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_added_without_api_encryption_txt_preserves_last_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT key absent in the announcement → current value is preserved.
+
+    Regression test for the "switching to ping clears
+    ``api_encryption`` and the dashboard prompts to reinstall" bug.
+    The two states ``""`` (TXT explicitly empty — plaintext
+    confirmed) and ``None`` (TXT key absent in *this* announcement)
+    used to collapse to the same applied ``""`` via
+    ``props.get("api_encryption") or ""``, so a transient /
+    fragmented re-announcement that omitted the TXT silently
+    overwrote a previously-truthy value with ``""`` and flipped the
+    frontend's lock indicator to "mismatch" / "pending → reinstall".
+
+    Now: TXT absent is treated as "no signal in this announcement",
+    and the device's last-known value (``"Noise…"`` here) survives.
+    """
+    truthy = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    device = _device(api_encryption_active=truthy)
     monitor, _callbacks = _make_monitor([device])
 
     fake_info = MagicMock()
@@ -511,7 +555,43 @@ async def test_dispatch_added_with_empty_api_encryption_pushes_empty_string(
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
         )
-        assert device.api_encryption_active == ""
+        # Truthy survives.
+        assert device.api_encryption_active == truthy
+    finally:
+        await _stop_and_drain(monitor)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_added_without_api_encryption_txt_keeps_unknown_at_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT key absent + device starts at ``None`` → stays at ``None``.
+
+    Older firmwares that never broadcast the TXT (pre-encryption-TXT
+    rollout) leave the device at the ``None`` initial — the
+    frontend's ``getEncryptionState`` falls back to the YAML's
+    ``api_encrypted`` flag in that case, which is the right
+    behaviour for a device whose actual encryption state is
+    genuinely unknowable from mDNS alone.
+    """
+    device = _device(api_encryption_active=None)
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    fake_info.decoded_properties = {}
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert device.api_encryption_active is None
     finally:
         await _stop_and_drain(monitor)
 
