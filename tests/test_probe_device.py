@@ -190,3 +190,48 @@ async def test_apply_service_info_claims_online() -> None:
     assert callbacks.calls_for("on_state_change") == [
         ("on_state_change", "kitchen", DeviceState.ONLINE, "mdns")
     ]
+
+
+@pytest.mark.asyncio
+async def test_apply_service_info_routes_mac_txt_to_apply_mac_address() -> None:
+    """A populated ``mac`` TXT lands at ``apply_mac_address``.
+
+    Pins the wiring at the TXT-extraction site
+    (``_apply_service_info_to_device``) where the broadcast value
+    is plucked out of ``decoded_properties`` alongside ``version`` /
+    ``config_hash``. Without this hop the canonical-form
+    normalization + dedupe never runs and the drawer / sidecar
+    don't get populated from the broadcast.
+    """
+    monitor = _make_monitor()
+    monitor._state_source = {}
+    device = Device(
+        name="kitchen",
+        friendly_name="Kitchen",
+        configuration="kitchen.yaml",
+        address="kitchen.local",
+        state=DeviceState.UNKNOWN,
+    )
+    monitor._get_devices = lambda: [device]
+    monitor._get_devices_by_name = lambda name: [device] if device.name == name else []
+    callbacks = RecordingMonitorCallbacks([device])
+    monitor._on_state_change = callbacks.on_state_change
+    monitor._on_ip_change = callbacks.on_ip_change
+    monitor._on_version_change = callbacks.on_version_change
+    monitor._on_config_hash_change = callbacks.on_config_hash_change
+    monitor._on_api_encryption_change = callbacks.on_api_encryption_change
+    monitor._on_mac_address_change = callbacks.on_mac_address_change
+    monitor._reachability = None
+
+    fake_info = MagicMock()
+    fake_info.parsed_scoped_addresses.return_value = []
+    # Wire-form value (lowercase 12-hex-char, no separators) — what
+    # ESPHome firmware actually broadcasts. The callback receives
+    # the canonical form because ``apply_mac_address`` normalizes
+    # before invoking the change callback.
+    fake_info.decoded_properties = {"mac": "94c9601f8cf1"}
+    monitor._apply_service_info("kitchen", fake_info)
+
+    assert callbacks.calls_for("on_mac_address_change") == [
+        ("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")
+    ]

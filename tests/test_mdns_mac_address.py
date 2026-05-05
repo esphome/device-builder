@@ -190,6 +190,20 @@ def test_apply_mac_address_rejects_wrong_length() -> None:
     assert callbacks.calls == []
 
 
+def test_apply_mac_address_rejects_correct_length_non_hex() -> None:
+    """A 12-char-after-stripping value with non-hex chars is dropped.
+
+    The length check passes (12 chars) but ``int(_, 16)`` raises
+    ``ValueError``; ``_normalize_mac`` catches and returns empty so
+    a corrupt TXT can't pollute the sidecar with a value that
+    looks the right shape but doesn't decode to a real MAC.
+    """
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
+    # 12 chars, but the 'Z' isn't valid hex.
+    assert monitor.apply_mac_address("kitchen", "94c9601f8cZZ") is False
+    assert callbacks.calls == []
+
+
 def test_apply_mac_address_refires_after_device_rebuild() -> None:
     """A rebuilt Device with empty MAC gets repopulated by the next mDNS event.
 
@@ -427,3 +441,31 @@ def test_on_mac_address_change_clears_stale_derived_macs_on_change() -> None:
     assert device.mac_address == "94:C9:60:1F:8C:F0"
     assert device.ethernet_mac == ""
     assert device.bluetooth_mac == ""
+
+
+def test_on_mac_address_change_rederives_ethernet_and_bluetooth_when_primary_changes() -> None:
+    """A new primary on an ESP32 with ethernet + bluetooth re-derives both.
+
+    Pins the inverse of the "clears stale" case: when the
+    integrations *are* still loaded, the derived MACs must shift
+    to track the new base. A factory replacement (same YAML, new
+    physical board) is the realistic trigger — the broadcast MAC
+    changes and every interface MAC has to follow.
+    """
+    device = _device_kitchen(
+        target_platform="esp32",
+        loaded_integrations=["api", "wifi", "ethernet", "esp32_ble_tracker"],
+        mac_address="94:C9:60:1F:8C:00",
+        ethernet_mac="94:C9:60:1F:8C:03",  # base + 3 from the old primary
+        bluetooth_mac="94:C9:60:1F:8C:02",  # base + 2 from the old primary
+    )
+    scheduled: list[object] = []
+    controller, _captured = make_devices_controller_with_bus(
+        [device], create_background_task=_record_scheduled(scheduled)
+    )
+
+    controller._on_mac_address_change("kitchen", "AA:BB:CC:DD:EE:F0")
+
+    assert device.mac_address == "AA:BB:CC:DD:EE:F0"
+    assert device.ethernet_mac == "AA:BB:CC:DD:EE:F3"
+    assert device.bluetooth_mac == "AA:BB:CC:DD:EE:F2"
