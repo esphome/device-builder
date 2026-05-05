@@ -170,6 +170,9 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
         ip="192.168.1.42",
         expected_config_hash="deadbeef",
         mac_address="94:C9:60:1F:8C:F1",
+        build_size_bytes=12345678,
+        build_size_dir_mtime=1714900000,
+        build_size_info_mtime=1714900050,
     )
     pre = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
     # Sanity that the seeding above wrote everything we expect.
@@ -177,6 +180,9 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
     assert pre["ip"] == "192.168.1.42"
     assert pre["expected_config_hash"] == "deadbeef"
     assert pre["mac_address"] == "94:C9:60:1F:8C:F1"
+    assert pre["build_size_bytes"] == 12345678
+    assert pre["build_size_dir_mtime"] == 1714900000
+    assert pre["build_size_info_mtime"] == 1714900050
 
     await controller._archive_single("kitchen.yaml")
 

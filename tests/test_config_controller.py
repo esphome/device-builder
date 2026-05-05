@@ -241,6 +241,57 @@ def test_set_device_metadata_clears_mac_on_empty(tmp_path: Path) -> None:
     assert "mac_address" not in get_device_metadata(tmp_path, "kitchen.yaml")
 
 
+def test_set_device_metadata_persists_build_size_triple(tmp_path: Path) -> None:
+    """The (bytes, dir_mtime, info_mtime) triple round-trips together.
+
+    Both halves of the freshness pair gate the cache, the bytes
+    field carries the cached total, and all three are written
+    atomically by a single ``set_device_metadata`` call. Persisting
+    lets a backend restart skip the heavy recursive walk for every
+    device whose pair hasn't moved.
+    """
+    set_device_metadata(
+        tmp_path,
+        "kitchen.yaml",
+        build_size_bytes=12345678,
+        build_size_dir_mtime=1714900000,
+        build_size_info_mtime=1714900050,
+    )
+
+    md = get_device_metadata(tmp_path, "kitchen.yaml")
+    assert md["build_size_bytes"] == 12345678
+    assert md["build_size_dir_mtime"] == 1714900000
+    assert md["build_size_info_mtime"] == 1714900050
+
+
+def test_set_device_metadata_clears_build_size_on_zero(tmp_path: Path) -> None:
+    """Passing ``0`` for any field actively clears it.
+
+    Used by the archive flow's volatile-field scrub: the build
+    tree is wiped, so the cached triple would describe a directory
+    that no longer exists.
+    """
+    set_device_metadata(
+        tmp_path,
+        "kitchen.yaml",
+        build_size_bytes=12345678,
+        build_size_dir_mtime=1714900000,
+        build_size_info_mtime=1714900050,
+    )
+    set_device_metadata(
+        tmp_path,
+        "kitchen.yaml",
+        build_size_bytes=0,
+        build_size_dir_mtime=0,
+        build_size_info_mtime=0,
+    )
+
+    md = get_device_metadata(tmp_path, "kitchen.yaml")
+    assert "build_size_bytes" not in md
+    assert "build_size_dir_mtime" not in md
+    assert "build_size_info_mtime" not in md
+
+
 def test_remove_device_metadata_clears_only_target(tmp_path: Path) -> None:
     """Removing one device's entry leaves siblings intact."""
     set_device_metadata(tmp_path, "a.yaml", board_id="esp32")

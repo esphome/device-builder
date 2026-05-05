@@ -35,6 +35,7 @@ class DeviceFileMetadata(NamedTuple):
     ip: str
     expected_config_hash: str = ""
     mac_address: str = ""
+    build_size_bytes: int = 0
 
 
 class ScanChange(StrEnum):
@@ -381,6 +382,7 @@ class DeviceScanner:
                     metadata.ip,
                     metadata.expected_config_hash,
                     metadata.mac_address,
+                    metadata.build_size_bytes,
                     previous=self._index.by_path.get(path),
                 )
             except Exception:

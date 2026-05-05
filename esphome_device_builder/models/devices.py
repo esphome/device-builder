@@ -132,6 +132,16 @@ class Device(DataClassORJSONMixin):
     # allocation scheme, so we don't derive there. Per
     # Espressif's table this is base + 2 to the last octet.
     bluetooth_mac: str = ""
+    # Total bytes under the per-device ``.esphome/build/<name>/``
+    # tree at last walk. ``0`` when the device hasn't been compiled
+    # yet (no StorageJSON / no build artifacts on disk) or when the
+    # cached value hasn't been populated since startup. The walk is
+    # gated on the build directory's mtime: only a real compile
+    # bumps it forward, so a steady-state dashboard reload reuses
+    # the cached total without re-walking. Stored alongside the
+    # mtime in the metadata sidecar so a backend restart picks up
+    # the cached total without an N-device cold-start walk.
+    build_size_bytes: int = 0
 
 
 @dataclass
