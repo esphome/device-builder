@@ -1281,16 +1281,23 @@ class DevicesController:
         recent probe.
         """
         while True:
-            info = self._state_monitor.get_mdns_cache_info(device_name)
-            if info is not None and info.ttl_remaining_seconds > 0:
-                # Cache still alive — sleep until just past
-                # expiry, then re-check rather than probing
-                # immediately. A fresh announce arriving during
-                # the sleep would re-arm the cache and the
-                # recheck spares us a redundant wire query.
-                await asyncio.sleep(info.ttl_remaining_seconds + _MDNS_REFRESH_PADDING_SECONDS)
+            # Use the A/AAAA-specific TTL — not the union-of-types
+            # ``get_mdns_cache_info``: PTR has a 4500s TTL and
+            # stays cached for ages, so a sleep keyed on it
+            # would never wake up to refresh A. We're driving
+            # the loop off the A record's much shorter 120s
+            # decay because that's the one we actually need to
+            # keep alive for the drawer's freshness display.
+            a_ttl_remaining = self._state_monitor.get_mdns_a_record_ttl_remaining(device_name)
+            if a_ttl_remaining is not None and a_ttl_remaining > 0:
+                # A still alive — sleep until just past expiry,
+                # then re-check rather than probing immediately.
+                # A fresh announce arriving during the sleep
+                # would re-arm the cache and the recheck spares
+                # us a redundant wire query.
+                await asyncio.sleep(a_ttl_remaining + _MDNS_REFRESH_PADDING_SECONDS)
                 continue
-            # Cache expired or absent — probe the wire to refresh
+            # A expired or absent — probe the wire to refresh
             # it. The padding before the first probe also gives
             # the subscription's initial snapshot a chance to
             # land before we issue our first query.

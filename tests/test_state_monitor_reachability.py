@@ -36,7 +36,7 @@ from zeroconf import (
     Zeroconf,
     current_time_millis,
 )
-from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_PTR
+from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR
 
 import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import (
@@ -360,6 +360,56 @@ def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
         assert info.ttl_remaining_seconds == pytest.approx(90.0, abs=0.5)
     finally:
         zc.close()
+
+
+def test_get_mdns_a_record_ttl_remaining_picks_min_across_a_aaaa() -> None:
+    """A and AAAA expire independently — return the smaller remaining TTL.
+
+    The drawer's refresh loop uses this method (not
+    ``get_mdns_cache_info``) to schedule its next probe so the
+    sleep is keyed on the *address* records' decay, not a
+    longer-TTL PTR. Pin the min-across-A/AAAA shape so a future
+    change picking max (or only A) doesn't sleep too long.
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        a_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 30_000,  # 90s remaining
+        )
+        aaaa_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_AAAA,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=b"\x20\x01" + b"\x00" * 14,
+            created=current_time_millis() - 80_000,  # 40s remaining
+        )
+        zc.cache.async_add_records([a_rec, aaaa_rec])
+
+        monitor = _make_monitor([_make_device()], None)
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        ttl_remaining = monitor.get_mdns_a_record_ttl_remaining("kitchen")
+        assert ttl_remaining is not None
+        # AAAA's 40s wins (smaller).
+        assert ttl_remaining == pytest.approx(40.0, abs=0.5)
+    finally:
+        zc.close()
+
+
+def test_get_mdns_a_record_ttl_remaining_no_records_returns_none() -> None:
+    """An empty A/AAAA cache → ``None`` so the loop probes immediately."""
+    monitor = _make_monitor([_make_device()], None)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[])
+    monitor._zeroconf = fake_zeroconf
+
+    assert monitor.get_mdns_a_record_ttl_remaining("kitchen") is None
 
 
 def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:

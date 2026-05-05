@@ -404,6 +404,47 @@ class DeviceStateMonitor:
             return
         self._apply_resolved_addresses(name, addresses)
 
+    def _get_address_records(self, name: str) -> list[Any]:
+        """Return cached A and AAAA records for *name*, or ``[]``.
+
+        Used by both :meth:`get_mdns_a_record_ttl_remaining`
+        (which scopes to address records to drive the refresh
+        loop) and :meth:`get_mdns_cache_info` (which folds the
+        addresses into a union with SRV / TXT / PTR for the
+        drawer's "last seen" display).
+        """
+        if self._zeroconf is None:
+            return []
+        cache = self._zeroconf.zeroconf.cache
+        local_name = f"{name}.local."
+        return [
+            *cache.get_all_by_details(local_name, _TYPE_A, _CLASS_IN),
+            *cache.get_all_by_details(local_name, _TYPE_AAAA, _CLASS_IN),
+        ]
+
+    def get_mdns_a_record_ttl_remaining(self, name: str) -> float | None:
+        """Return the minimum remaining TTL across cached A/AAAA records.
+
+        Distinct from :meth:`get_mdns_cache_info` because the
+        drawer's refresh loop needs the A-record-specific
+        expiry to schedule its next wire query — not the
+        union-of-types "last seen" age the snapshot uses for
+        display. PTR has a 4500s TTL and stays cached for
+        ages, so a sleep based on the PTR's remaining TTL
+        would never trigger the A-record refresh that's the
+        whole point of the loop.
+
+        Returns the smallest remaining TTL across whatever
+        A/AAAA records are cached (covers the case where one
+        family expires before the other), or ``None`` if no
+        A/AAAA is cached.
+        """
+        records = self._get_address_records(name)
+        if not records:
+            return None
+        now_ms = current_time_millis()
+        return max(0.0, min(float(r.get_remaining_ttl(now_ms)) for r in records))
+
     def get_mdns_cache_info(self, name: str) -> MdnsCacheInfo | None:
         """
         Read the truthful "last heard via mDNS" age + remaining TTL.
@@ -441,11 +482,9 @@ class DeviceStateMonitor:
         if self._zeroconf is None:
             return None
         cache = self._zeroconf.zeroconf.cache
-        local_name = f"{name}.local."
         service_name = f"{name}.{_ESPHOME_SERVICE_TYPE}"
         records: list[Any] = [
-            *cache.get_all_by_details(local_name, _TYPE_A, _CLASS_IN),
-            *cache.get_all_by_details(local_name, _TYPE_AAAA, _CLASS_IN),
+            *self._get_address_records(name),
             *cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN),
             *cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN),
         ]

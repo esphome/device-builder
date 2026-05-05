@@ -40,7 +40,6 @@ from esphome_device_builder.controllers._device_state_monitor import (
     _MDNS_REFRESH_PADDING_SECONDS,
 )
 from esphome_device_builder.controllers._reachability_tracker import (
-    MdnsCacheInfo,
     ReachabilityTracker,
 )
 from esphome_device_builder.helpers.api import CommandError
@@ -116,11 +115,12 @@ def _wire_reachability(
     state_monitor = MagicMock()
     state_monitor.priority_for = MagicMock(return_value=ReachabilitySource.PING)
     state_monitor.refresh_mdns = AsyncMock()
-    # The refresh loop reads ``get_mdns_cache_info`` to decide
-    # how long to sleep before the next probe. Returning ``None``
-    # makes it sleep just the padding (~1s); returning a MagicMock
-    # would raise ``TypeError`` on the ``+`` arithmetic.
-    state_monitor.get_mdns_cache_info = MagicMock(return_value=None)
+    # The refresh loop reads ``get_mdns_a_record_ttl_remaining``
+    # to decide how long to sleep before the next probe.
+    # Returning ``None`` makes it sleep just the padding (~1s);
+    # a default MagicMock would raise ``TypeError`` on the ``+``
+    # arithmetic.
+    state_monitor.get_mdns_a_record_ttl_remaining = MagicMock(return_value=None)
     controller._state_monitor = state_monitor
     return tracker
 
@@ -544,13 +544,10 @@ async def test_refresh_loop_sleeps_until_cache_expiry(
     _wire_reachability(controller, tracker, bus)
     _seed_device(controller)
     state_monitor = controller._state_monitor
-    # Two cache reads cover the two iterations: first fresh
+    # Two A-TTL reads cover the two iterations: first fresh
     # (90s remaining), then expired (None — typical post-refresh
     # state if the device didn't respond).
-    state_monitor.get_mdns_cache_info.side_effect = [
-        MdnsCacheInfo(age_seconds=30.0, ttl_remaining_seconds=90.0),
-        None,
-    ]
+    state_monitor.get_mdns_a_record_ttl_remaining.side_effect = [90.0, None]
     state_monitor.priority_for.return_value = ReachabilitySource.MDNS
 
     sleep_durations: list[float] = []
@@ -599,13 +596,9 @@ async def test_refresh_loop_skips_wire_query_when_recheck_finds_fresh_cache(
     _seed_device(controller)
     state_monitor = controller._state_monitor
     state_monitor.priority_for.return_value = ReachabilitySource.MDNS
-    # Three reads: fresh (90s) → fresh again (60s, an announce
-    # arrived) → empty (cache evicted).
-    state_monitor.get_mdns_cache_info.side_effect = [
-        MdnsCacheInfo(age_seconds=30.0, ttl_remaining_seconds=90.0),
-        MdnsCacheInfo(age_seconds=60.0, ttl_remaining_seconds=60.0),
-        None,
-    ]
+    # Three A-TTL reads: fresh (90s) → fresh again (60s, an
+    # announce arrived) → empty (cache evicted).
+    state_monitor.get_mdns_a_record_ttl_remaining.side_effect = [90.0, 60.0, None]
 
     sleep_count = 0
 
