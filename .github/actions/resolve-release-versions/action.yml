@@ -9,13 +9,16 @@ description: |
 
   Diff-base rules (applied to ``inputs.version``, or to the computed
   next prerelease when none is supplied):
-    - stable ``X.Y.Z``       → most recent stable; fall back to last beta
+    - stable ``X.Y.Z``       → most recent stable; **empty** when none exists
     - first beta ``X.Y.Zb1`` → most recent stable; fall back to last beta
     - later beta ``X.Y.ZbN`` → most recent beta;   fall back to last stable
 
-  The two beta cases differ because ``b1`` opens a new version cycle —
-  reviewers want to see everything that accumulated since the previous
-  shipped version, not an empty diff against a missing predecessor.
+  Stable cuts deliberately do *not* fall back to a beta: the very first
+  stable should diff against the project's whole history (or be skipped
+  entirely by the caller), not against the last beta — beta tags don't
+  represent a stable shipping baseline. The two beta cases differ
+  because ``b1`` opens a new version cycle and wants to show everything
+  that's accumulated since the previous shipped version.
 
   Next-version bump (used when ``inputs.version`` is empty), keyed on
   ``inputs.mode``:
@@ -159,7 +162,8 @@ runs:
 
         # Resolve the diff base by channel.
         if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          previous="${latest_stable:-$latest_beta}"
+          # No fallback to beta — see the action description.
+          previous="$latest_stable"
         elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+b([0-9]+)$ ]]; then
           if [ "${BASH_REMATCH[1]}" -eq 1 ]; then
             previous="${latest_stable:-$latest_beta}"
