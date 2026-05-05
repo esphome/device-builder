@@ -95,8 +95,24 @@ runs:
         # One pass over the recent published releases populates the
         # buckets we need. ``--exclude-drafts`` strips any draft (the
         # rolling previews, or a leftover from a failed release attempt).
-        mapfile -t tags < <(gh release list --exclude-drafts --limit 50 \
-          --json tagName --jq '.[].tagName')
+        #
+        # Capture into a variable first rather than ``mapfile < <(gh ...)``:
+        # process substitution swallows the inner command's exit status, so
+        # an auth/network failure on ``gh`` would silently produce an empty
+        # array and the resolver would happily compute "no prior releases"
+        # version numbers.
+        if ! tags_raw=$(gh release list --exclude-drafts --limit 50 \
+            --json tagName --jq '.[].tagName'); then
+          echo "::error::gh release list failed."
+          exit 1
+        fi
+        tags=()
+        if [ -n "$tags_raw" ]; then
+          # ``mapfile <<< ""`` produces a one-element array containing the
+          # empty string; the guard keeps a "no releases yet" run distinct
+          # from a "got one empty tag" run.
+          mapfile -t tags <<< "$tags_raw"
+        fi
 
         latest_stable=""
         latest_beta=""
