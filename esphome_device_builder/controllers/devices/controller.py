@@ -890,117 +890,104 @@ class DevicesController:
                 # *and* the failure stamp is still within the TTL,
                 # replay would fail the same way — turn it into a
                 # no-op. Done here rather than in the sync caller
-                # because it does ``stat()`` + a metadata-sidecar
-                # read; on a cold-start fleet sweep that adds up
-                # fast on the event loop.
+                # because the ``stat()`` + metadata-sidecar read
+                # would stall the event loop on a fleet-wide
+                # cold-start sweep.
                 if await self._regen_already_failed_recently_async(configuration):
                     self._regenerate_failed.add(configuration)
                     return
                 async with self._regenerate_lock:
-                    config_path = str(self._db.settings.rel_path(configuration))
-                    cmd = [
-                        *self._esphome_cmd,
-                        "--dashboard",
-                        "compile",
-                        "--only-generate",
-                        config_path,
-                    ]
-                    try:
-                        proc = await create_subprocess_exec(
-                            *cmd,
-                            stdout=asyncio.subprocess.DEVNULL,
-                            stderr=asyncio.subprocess.PIPE,
-                        )
-                        _, stderr = await proc.communicate()
-                    except Exception:
-                        _LOGGER.debug(
-                            "Storage regenerate spawn failed for %s",
+                    if await self._spawn_only_generate(configuration):
+                        # ``--only-generate`` writes build_info.json
+                        # with the canonical config_hash before
+                        # exiting, same as a real compile. Persist
+                        # it so the drawer can show "Local: <hash>"
+                        # before the first real flash; also clear
+                        # any leftover regen-failure stamp now
+                        # that the YAML generates cleanly.
+                        await self._persist_expected_config_hash(configuration)
+                        await self._persist_device_metadata_async(
                             configuration,
-                            exc_info=True,
+                            regen_failed_mtime=0.0,
+                            regen_failed_at=0.0,
                         )
+                        await self._scanner.reload(configuration)
+                    else:
                         self._regenerate_failed.add(configuration)
                         await self._persist_regen_failed_stamp(configuration)
-                        return
-                    if proc.returncode != 0:
-                        _LOGGER.debug(
-                            "Storage regenerate for %s exited %s: %s",
-                            configuration,
-                            proc.returncode,
-                            stderr.decode(errors="replace").strip()[:500],
-                        )
-                        self._regenerate_failed.add(configuration)
-                        await self._persist_regen_failed_stamp(configuration)
-                        return
-                    # ``--only-generate`` writes build_info.json with
-                    # the canonical config_hash before exiting, same as
-                    # a real compile. Persist it to the metadata
-                    # sidecar so the drawer can show "Local: <hash>"
-                    # before the first real flash. Also clear any
-                    # previously-cached regen-failure stamp — the
-                    # YAML now generates cleanly.
-                    await self._persist_expected_config_hash(configuration)
-                    await self._persist_device_metadata_async(
-                        configuration,
-                        regen_failed_mtime=0.0,
-                        regen_failed_at=0.0,
-                    )
-                    await self._scanner.reload(configuration)
             finally:
                 self._regenerate_pending.discard(configuration)
 
         self._db.create_background_task(_run())
 
+    async def _spawn_only_generate(self, configuration: str) -> bool:
+        """Run ``esphome compile --only-generate`` once. Return True iff exit-0.
+
+        Both failure modes (spawn raised, or the subprocess exited
+        non-zero) get logged at debug and produce ``False`` so the
+        caller takes the same persist-failure-stamp branch in
+        either case. Pulled out of ``_run()`` so the two failure
+        paths don't have to duplicate the marker-set + persist
+        sequence.
+        """
+        config_path = str(self._db.settings.rel_path(configuration))
+        cmd = [*self._esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
+        try:
+            proc = await create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+        except Exception:
+            _LOGGER.debug("Storage regenerate spawn failed for %s", configuration, exc_info=True)
+            return False
+        if proc.returncode != 0:
+            _LOGGER.debug(
+                "Storage regenerate for %s exited %s: %s",
+                configuration,
+                proc.returncode,
+                stderr.decode(errors="replace").strip()[:500],
+            )
+            return False
+        return True
+
     async def _regen_already_failed_recently_async(self, configuration: str) -> bool:
         """Return True iff the persisted failure stamp is unchanged-and-fresh.
 
-        Both halves have to hold:
+        Both halves have to hold for the guard to fire:
 
         * The YAML's current ``stat.st_mtime`` equals the cached
-          ``regen_failed_mtime`` — the file is the exact same one
-          we already tried (any edit moves the mtime forward).
+          ``regen_failed_mtime`` — same file as last time (any
+          edit moves the mtime forward).
         * Less than ``_REGEN_FAILURE_TTL_SECONDS`` has elapsed
-          since the cached ``regen_failed_at`` wall-clock stamp —
-          transient external causes (git package server, DNS,
-          ESPHome update mid-flight) get a re-check after that.
+          since the cached ``regen_failed_at`` — covers transient
+          external causes (git package server, DNS, ESPHome
+          mid-flight) by allowing a re-check after the TTL.
 
-        Async because the disk reads (``Path.stat`` and the
-        ``.device-builder.json`` parse via ``get_device_metadata``)
-        would otherwise stall the event loop on a fleet-wide
-        cold-start regenerate sweep — both go through the default
-        executor.
-
-        A negative age (system clock moved backwards, NTP step,
-        bad sidecar value with ``regen_failed_at`` in the future)
-        is *not* treated as "still fresh"; we clamp at zero and
-        let the equality on mtime decide. Otherwise a future-dated
-        stamp would lock out the regen indefinitely.
-
-        Equality comparison on the mtime works because both sides
-        come from the same filesystem during the same backend
-        lifecycle's view of the file. There's no cross-mount
-        precision worry the way there is for the build-size cache
-        (which is keyed off whole-second mtimes deliberately for
-        cross-FS robustness); for regen we only care about "is
-        this the exact same file we already tried", and a
-        sub-second precision difference means the user touched
-        the file — the retry signal we want.
+        Disk reads (``Path.stat``, the ``.device-builder.json``
+        parse) go through the default executor so a cold-start
+        fleet sweep doesn't stall the event loop. A negative age
+        (clock skew, NTP step, future-dated stamp) clamps to zero;
+        without that clamp a bad sidecar value could lock out the
+        regen indefinitely.
         """
-        config_path = self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
+        config_dir = self._db.settings.config_dir
+        config_path = self._db.settings.rel_path(configuration)
         try:
-            stat_result = await loop.run_in_executor(None, config_path.stat)
+            stat_result, md = await asyncio.gather(
+                loop.run_in_executor(None, config_path.stat),
+                loop.run_in_executor(None, get_device_metadata, config_dir, configuration),
+            )
         except OSError:
             return False
-        current_mtime = stat_result.st_mtime
-        md = await loop.run_in_executor(
-            None, get_device_metadata, self._db.settings.config_dir, configuration
-        )
         cached_mtime = md.get("regen_failed_mtime")
         cached_at = md.get("regen_failed_at")
         if not cached_mtime or not cached_at:
             return False
         try:
-            mtime_matches = float(cached_mtime) == current_mtime
+            mtime_matches = float(cached_mtime) == stat_result.st_mtime
             age = max(0.0, time.time() - float(cached_at))
         except (TypeError, ValueError):
             return False
