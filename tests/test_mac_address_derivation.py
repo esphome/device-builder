@@ -131,6 +131,21 @@ def test_short_primary_yields_empty() -> None:
     assert derive_interface_macs("94:C9:60", "esp32", ["ethernet"]) == ("", "")
 
 
+def test_correct_length_non_hex_primary_yields_empty() -> None:
+    """A 17-char value with non-hex chars in the last octet is rejected.
+
+    A corrupt or hand-edited sidecar entry could end up the right
+    length but carry junk in the trailing octet ``ZZ``. Without an
+    explicit hex check the offset math would raise ``ValueError``
+    deep inside ``_offset_last_octet``; the helper instead returns
+    empty so the caller treats the device as "no derived MACs".
+    """
+    assert derive_interface_macs("94:C9:60:1F:8C:ZZ", "esp32", ["ethernet"]) == (
+        "",
+        "",
+    )
+
+
 def test_uncanonical_primary_yields_empty() -> None:
     """Compact 12-hex-char input (the broadcast form) is rejected.
 

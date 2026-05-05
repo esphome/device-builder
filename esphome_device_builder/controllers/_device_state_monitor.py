@@ -103,11 +103,13 @@ _SOURCE_PRIORITY: dict[str, int] = {
 }
 
 
-# Allowed separators between the six octets of a MAC. ``:`` is the
-# canonical wire format ESPHome firmware broadcasts today, but we
-# normalize away ``-`` (Windows-style) and ``.`` (Cisco) too so a
-# future firmware change or vendored tool can't slip a non-canonical
-# form into the dedupe path or the sidecar.
+# Allowed separators between the six octets of a MAC.
+# ESPHome firmware today broadcasts the compact 12-hex-char form
+# (no separators); the dashboard's *canonical* form
+# (``XX:XX:XX:XX:XX:XX``, applied at ingest by ``_normalize_mac``)
+# uses ``:``. We normalize away ``-`` (Windows-style) and ``.``
+# (Cisco) too so a future firmware change or vendored tool can't
+# slip a non-canonical form into the dedupe path or the sidecar.
 _MAC_SEPARATORS = str.maketrans("", "", ":-.")
 
 
@@ -170,11 +172,12 @@ ConfigHashChangeCallback = Callable[[str, str], None]
 ApiEncryptionChangeCallback = Callable[[str, str], None]
 
 # Callback fired when the mDNS ``mac`` TXT record reports a different
-# MAC than last seen for a device. The value is the lowercase
-# 12-hex-char form ESPHome firmware broadcasts (no colons); the
-# frontend pretty-prints at display time. Empty / missing TXT skips
-# the callback — devices on firmware predating the ``mac`` broadcast
-# stay with whatever value they already had.
+# MAC than last seen for a device. The value passed has already been
+# normalized by :func:`_normalize_mac` to the canonical
+# ``XX:XX:XX:XX:XX:XX`` form (uppercase, colon-separated); the
+# frontend renders it directly with no per-display formatter. Empty /
+# missing TXT skips the callback — devices on firmware predating the
+# ``mac`` broadcast stay with whatever value they already had.
 MacAddressChangeCallback = Callable[[str, str], None]
 
 # Callback fired when zeroconf turns up a previously-unseen device that
@@ -704,12 +707,13 @@ class DeviceStateMonitor:
 
         Returns True when the MAC actually changed and the change was
         forwarded to the callback. The broadcast value is normalized
-        via :func:`_normalize_mac` (lowercase, separators stripped) so
-        the dedupe + persisted sidecar stay canonical even if a
-        future firmware switches case or separator style. Empty / non-
-        hex inputs are dropped so a broadcast that happens to omit the
-        ``mac`` TXT (older firmware, non-ESPHome services that share
-        the type) doesn't blank out an already-known MAC.
+        via :func:`_normalize_mac` (uppercased, separators stripped,
+        re-inserted as ``XX:XX:XX:XX:XX:XX``) so the dedupe +
+        persisted sidecar + frontend wire all stay canonical even if
+        a future firmware switches case or separator style. Empty /
+        non-hex inputs are dropped so a broadcast that happens to
+        omit the ``mac`` TXT (older firmware, non-ESPHome services
+        that share the type) doesn't blank out an already-known MAC.
         """
         if self._on_mac_address_change is None:
             return False
@@ -1266,11 +1270,22 @@ class DeviceStateMonitor:
             for device, addresses in zip(batch, resolved, strict=True):
                 if isinstance(addresses, list) and addresses:
                     target = addresses[0]
-                    # mDNS owns IP tracking for ``.local`` hosts; only
-                    # backfill from DNS for non-mDNS hosts so a stale
-                    # DNS result can't clobber the live mDNS value.
-                    if not is_local_hostname(device.address):
-                        self.apply_ip(device.name, target)
+                    # Apply the resolved target so the drawer / table
+                    # have an IP to show. ``apply_ip`` already
+                    # preserves an existing multi-IP set when the
+                    # incoming target is already in it (the typical
+                    # case for a ``.local`` host with an active
+                    # ``_esphomelib._tcp`` broadcast — the ping
+                    # target is the IPv4 primary the browser
+                    # callback already populated). For ``.local``
+                    # hosts that don't broadcast ``_esphomelib._tcp``
+                    # (non-API ESPHome devices, the
+                    # zwave-proxy-seeedw5500 case) this is the only
+                    # path that ever populates ``device.ip``, so a
+                    # ping-source-only device would otherwise show
+                    # an em-dash in the drawer's IP row even after
+                    # successful pings.
+                    self.apply_ip(device.name, target)
                     ping_targets.append((device, target))
                 else:
                     # DNS cache says we can't resolve this hostname

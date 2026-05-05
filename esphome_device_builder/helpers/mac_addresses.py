@@ -91,8 +91,16 @@ def derive_interface_macs(
     derived values, so a YAML edit that toggles bluetooth picks up
     the new derived MAC on the very next reload.
     """
-    # 17 = ``XX:XX:XX:XX:XX:XX`` — six octets joined by five colons.
+    # 17 = ``XX:XX:XX:XX:XX:XX`` — six octets joined by five
+    # colons. Validate hex on the trailing octet too: a corrupt /
+    # hand-edited sidecar entry of the right length but bad chars
+    # would otherwise raise ``ValueError`` deep inside
+    # ``_offset_last_octet`` rather than returning empty here.
     if not primary or len(primary) != 17:
+        return "", ""
+    try:
+        int(primary[-2:], 16)
+    except ValueError:
         return "", ""
 
     has_ethernet = _has_ethernet(loaded_integrations)
