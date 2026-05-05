@@ -164,13 +164,18 @@ VersionChangeCallback = Callable[[str, str], None]
 ConfigHashChangeCallback = Callable[[str, str], None]
 
 # Callback fired when the mDNS ``api_encryption`` TXT record reports a
-# different value than last seen. Empty string means the device's
-# service announcement was seen but the TXT was absent — i.e. the
-# device is broadcasting plaintext API. A non-empty value (e.g.
+# different value than last seen. Empty string means the TXT key was
+# *present in the announcement* with an empty value — i.e. the device
+# is explicitly broadcasting plaintext API. A non-empty value (e.g.
 # ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``) confirms encryption is
-# live on the device. The "no mDNS seen yet" case never fires this
-# callback at all, so the device controller can keep that state as
-# ``None`` to mean "trust whatever the YAML says".
+# live on the device.
+#
+# The "no signal" case (mDNS seen but TXT key absent in this
+# announcement, or no mDNS seen at all) never fires this callback —
+# the apply path at ``_apply_service_info`` gates on the key being
+# present in ``props`` so a quiet re-announce doesn't clobber a
+# previously-confirmed value. The device controller keeps that state
+# as ``None`` to mean "trust whatever the YAML says".
 ApiEncryptionChangeCallback = Callable[[str, str], None]
 
 # Callback fired when the mDNS ``mac`` TXT record reports a different
@@ -681,13 +686,21 @@ class DeviceStateMonitor:
         """
         Record the device's broadcast API encryption status.
 
-        Empty string means the mDNS service was seen but the
-        ``api_encryption`` TXT was absent — i.e. the device is
-        running plaintext API. A non-empty value (e.g.
+        Empty string means the mDNS announcement explicitly carried
+        an empty ``api_encryption`` TXT — the device is confirming
+        plaintext API. A non-empty value (e.g.
         ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``) confirms encryption
-        is active. The "never seen" case is represented by the
-        device's ``api_encryption_active`` staying ``None``; the
-        device controller treats that as "trust the YAML".
+        is active.
+
+        Callers must NOT translate "TXT key absent in this
+        announcement" into ``""`` — that conflates a transient quiet
+        re-announce with a real plaintext confirmation, which clobbers
+        the last-known truthy value and trips the frontend's
+        "reinstall to apply" prompt. ``_apply_service_info`` gates on
+        the TXT key being present in ``props`` so absence skips the
+        call entirely; the device's ``api_encryption_active`` stays
+        ``None`` (or whatever was last confirmed) until a real
+        observation lands.
 
         Returns True when the value actually changed and the change
         was forwarded to the callback.
