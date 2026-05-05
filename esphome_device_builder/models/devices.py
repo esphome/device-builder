@@ -100,16 +100,20 @@ class Device(DataClassORJSONMixin):
     # Drives the four-state lock indicator on the device card / table:
     # active, pending-flash, mismatch, plaintext.
     api_encryption_active: str | None = None
-    # Lowercase 12-hex-char MAC observed in the device's
+    # Canonical ``XX:XX:XX:XX:XX:XX`` MAC observed in the device's
     # ``_esphomelib._tcp.local.`` ``mac`` TXT record (e.g.
-    # ``"94c9601f8cf1"``). Empty string when mDNS hasn't surfaced
-    # one yet — the broadcast is reliable for ESPHome firmware so a
-    # blank typically means "device hasn't been seen this session".
-    # Wire format stays raw; the frontend pretty-prints to
-    # ``94:c9:60:1f:8c:f1`` at display time. On ESP32 this is the
-    # Wi-Fi STA MAC (which equals the eFuse base MAC for the
-    # 4-universally-administered default); on RP2040 / RP2350
-    # there's only one MAC across interfaces and this is it.
+    # ``"94:C9:60:1F:8C:F1"``). Empty string when mDNS hasn't
+    # surfaced one yet — the broadcast is reliable for ESPHome
+    # firmware so a blank typically means "device hasn't been
+    # seen this session". The wire form ESPHome currently
+    # broadcasts is lowercase 12-hex-char with no separators; we
+    # normalize at ingest (``_normalize_mac``) so the in-memory
+    # model, sidecar, and frontend wire all carry one canonical
+    # form regardless of what the firmware happens to send. On
+    # ESP32 this is the Wi-Fi STA MAC (which equals the eFuse
+    # base MAC for the 4-universally-administered default); on
+    # RP2040 / RP2350 there's only one MAC across interfaces and
+    # that's it.
     mac_address: str = ""
     # Derived ethernet MAC for devices whose YAML loads the
     # ``ethernet`` integration. Empty string when the device has no

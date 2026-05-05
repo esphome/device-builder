@@ -3,9 +3,12 @@
 ESPHome firmware broadcasts a ``mac`` TXT record on the
 ``_esphomelib._tcp`` mDNS service so dashboards can show the
 hardware address without a separate query. The TXT value is the
-lowercase 12-hex-char form (no colons); the frontend pretty-prints
-to ``94:c9:60:1f:8c:f1`` at display time. Same monitor → controller
-shape as the other TXT pipelines in ``test_mdns_version.py`` and
+lowercase 12-hex-char form (no colons); the dashboard normalizes
+at ingest to the canonical ``XX:XX:XX:XX:XX:XX`` form so the
+in-memory model, sidecar, and frontend wire all carry one shape
+regardless of which case / separator style the firmware happens
+to broadcast. Same monitor → controller pipeline as the other TXT
+records covered by ``test_mdns_version.py`` /
 ``test_mdns_config_hash.py``.
 
 The MAC is persisted to the per-device metadata sidecar so it
@@ -22,7 +25,10 @@ from typing import Any
 
 from esphome_device_builder.models import Device, DeviceState, EventType
 
-from .conftest import make_devices_controller_with_bus, make_state_monitor_with_callbacks
+from .conftest import (
+    make_devices_controller_with_bus,
+    make_state_monitor_with_callbacks,
+)
 
 
 def _device(**overrides: Any) -> Device:
@@ -38,10 +44,10 @@ def _device(**overrides: Any) -> Device:
 
 
 def test_apply_mac_address_first_observation_fires_callback() -> None:
-    """A MAC we haven't seen before reaches the controller."""
+    """A MAC we haven't seen before reaches the controller in canonical form."""
     monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_mac_address("kitchen", "94c9601f8cf1") is True
-    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94c9601f8cf1")]
+    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")]
 
 
 def test_apply_mac_address_dedupes_same_value() -> None:
@@ -53,7 +59,7 @@ def test_apply_mac_address_dedupes_same_value() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_mac_address("kitchen", "94c9601f8cf1")
     monitor.apply_mac_address("kitchen", "94c9601f8cf1")
-    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94c9601f8cf1")]
+    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")]
 
 
 def test_apply_mac_address_fires_on_change() -> None:
@@ -66,8 +72,8 @@ def test_apply_mac_address_fires_on_change() -> None:
     monitor.apply_mac_address("kitchen", "94c9601f8cf1")
     monitor.apply_mac_address("kitchen", "aabbccddeeff")
     assert callbacks.calls == [
-        ("on_mac_address_change", "kitchen", "94c9601f8cf1"),
-        ("on_mac_address_change", "kitchen", "aabbccddeeff"),
+        ("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1"),
+        ("on_mac_address_change", "kitchen", "AA:BB:CC:DD:EE:FF"),
     ]
 
 
@@ -96,52 +102,74 @@ def test_apply_mac_address_unknown_device_is_no_op() -> None:
 # Normalization at ingest
 #
 # ESPHome firmware broadcasts a lowercase 12-hex-char MAC today, but
-# the dashboard normalizes at ingest so the dedupe + persisted sidecar
-# stay canonical even if a future firmware switches case or
-# separator style. The wire is not the source of truth — the
-# normalized form is.
+# the dashboard normalizes at ingest to ``XX:XX:XX:XX:XX:XX`` so the
+# dedupe + persisted sidecar + frontend wire all carry one canonical
+# form even if a future firmware switches case or separator style.
 # ----------------------------------------------------------------------
 
 
-def test_apply_mac_address_normalizes_uppercase() -> None:
-    """Uppercase MACs collapse to lowercase before storage."""
+def test_apply_mac_address_normalizes_lowercase_to_canonical() -> None:
+    """Lowercase 12-hex-char wire form (today's broadcast shape) → uppercase colon-form."""
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
+    monitor.apply_mac_address("kitchen", "94c9601f8cf1")
+    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")]
+
+
+def test_apply_mac_address_normalizes_uppercase_compact() -> None:
+    """Uppercase 12-hex-char input also lands as canonical."""
     monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_mac_address("kitchen", "94C9601F8CF1")
-    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94c9601f8cf1")]
+    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")]
 
 
-def test_apply_mac_address_strips_colon_separators() -> None:
-    """Colon-separated MACs land as 12 contiguous hex chars."""
+def test_apply_mac_address_already_canonical_is_idempotent() -> None:
+    """Already-canonical input passes through unchanged.
+
+    A MAC normalized once shouldn't shift form on the second
+    pass — important because the controller stores canonical form
+    on the device, and a re-broadcast feeds back through the same
+    normalize path.
+    """
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
+    monitor.apply_mac_address("kitchen", "94:C9:60:1F:8C:F1")
+    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")]
+
+
+def test_apply_mac_address_strips_lowercase_colon_separators() -> None:
+    """Lowercase colon-separated MAC normalizes to uppercase canonical."""
     monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_mac_address("kitchen", "94:c9:60:1f:8c:f1")
-    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94c9601f8cf1")]
+    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")]
 
 
 def test_apply_mac_address_strips_dash_separators() -> None:
-    """Windows-style ``94-c9-60-...`` normalizes the same way."""
+    """Windows-style ``94-C9-60-...`` normalizes the same way."""
     monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_mac_address("kitchen", "94-C9-60-1F-8C-F1")
-    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94c9601f8cf1")]
+    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")]
 
 
 def test_apply_mac_address_strips_dot_separators() -> None:
     """Cisco-style ``94c9.601f.8cf1`` normalizes the same way."""
     monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     monitor.apply_mac_address("kitchen", "94c9.601f.8cf1")
-    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94c9601f8cf1")]
+    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")]
 
 
 def test_apply_mac_address_normalized_dedupes_against_stored() -> None:
-    """An uppercase re-broadcast of a stored lowercase MAC dedupes.
+    """A non-canonical re-broadcast of a stored canonical MAC dedupes.
 
     The whole point of normalizing at ingest: the dashboard
     shouldn't write a sidecar entry every time the firmware happens
-    to switch case style. The dedupe is keyed off the normalized
+    to switch case style. The dedupe is keyed off the canonical
     form so equivalence holds across surface formats.
     """
-    devices = [_device(mac_address="94c9601f8cf1")]
+    devices = [_device(mac_address="94:C9:60:1F:8C:F1")]
     monitor, callbacks = make_state_monitor_with_callbacks(devices)
-    assert monitor.apply_mac_address("kitchen", "94:C9:60:1F:8C:F1") is False
+    # Wire form (lowercase 12-hex) — what the firmware actually broadcasts.
+    assert monitor.apply_mac_address("kitchen", "94c9601f8cf1") is False
+    # Dash-separated — what some vendored tools might use.
+    assert monitor.apply_mac_address("kitchen", "94-C9-60-1F-8C-F1") is False
     assert callbacks.calls == []
 
 
@@ -171,24 +199,29 @@ def test_apply_mac_address_refires_after_device_rebuild() -> None:
     the device's own field, so the next mDNS announcement should
     repopulate without short-circuiting on a stale cache.
     """
-    devices = [_device(mac_address="94c9601f8cf1")]
+    devices = [_device(mac_address="94:C9:60:1F:8C:F1")]
     monitor, callbacks = make_state_monitor_with_callbacks(devices)
 
-    # Steady state: the device already has the MAC, so a repeat
-    # announcement is a no-op.
+    # Steady state: the device already has the canonical MAC, so a
+    # repeat broadcast (in the wire form) is a no-op.
     monitor.apply_mac_address("kitchen", "94c9601f8cf1")
     assert callbacks.calls == []
 
     # Atomic-save churn rebuilds the Device with empty fields. The
     # next mDNS announcement should write the MAC back through the
-    # callback.
+    # callback, in canonical form.
     devices[0].mac_address = ""
     monitor.apply_mac_address("kitchen", "94c9601f8cf1")
-    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94c9601f8cf1")]
+    assert callbacks.calls == [("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1")]
 
 
 # ----------------------------------------------------------------------
 # DevicesController._on_mac_address_change — full pipe + persistence
+#
+# The controller-level callback receives the *already normalized*
+# MAC (the monitor's ``apply_mac_address`` does the normalization
+# before invoking the change callback), so these tests pass the
+# canonical form directly.
 # ----------------------------------------------------------------------
 
 
@@ -229,9 +262,9 @@ def test_on_mac_address_change_updates_device_and_fires_event() -> None:
         [device], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_mac_address_change("kitchen", "94c9601f8cf1")
+    controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F1")
 
-    assert device.mac_address == "94c9601f8cf1"
+    assert device.mac_address == "94:C9:60:1F:8C:F1"
     assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
 
 
@@ -243,7 +276,7 @@ def test_on_mac_address_change_persists_to_sidecar() -> None:
         [device], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_mac_address_change("kitchen", "94c9601f8cf1")
+    controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F1")
 
     assert len(scheduled) == 1
 
@@ -257,13 +290,13 @@ def test_on_mac_address_change_skips_persist_when_unchanged() -> None:
     broadcast short-circuits before either the in-memory write or
     the executor-bound ``set_device_metadata`` call.
     """
-    device = _device_kitchen(mac_address="94c9601f8cf1")
+    device = _device_kitchen(mac_address="94:C9:60:1F:8C:F1")
     scheduled: list[object] = []
     controller, captured = make_devices_controller_with_bus(
         [device], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_mac_address_change("kitchen", "94c9601f8cf1")
+    controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F1")
 
     assert scheduled == []
     assert captured == []
@@ -276,7 +309,7 @@ def test_on_mac_address_change_unknown_device_is_noop() -> None:
         [], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_mac_address_change("ghost", "94c9601f8cf1")
+    controller._on_mac_address_change("ghost", "94:C9:60:1F:8C:F1")
 
     assert scheduled == []
     assert captured == []
@@ -298,10 +331,10 @@ def test_on_mac_address_change_derives_ethernet_mac_on_esp32() -> None:
         [device], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_mac_address_change("kitchen", "94c9601f8cf0")
+    controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
 
-    assert device.mac_address == "94c9601f8cf0"
-    assert device.ethernet_mac == "94c9601f8cf3"
+    assert device.mac_address == "94:C9:60:1F:8C:F0"
+    assert device.ethernet_mac == "94:C9:60:1F:8C:F3"
     assert device.bluetooth_mac == ""
 
 
@@ -316,11 +349,11 @@ def test_on_mac_address_change_derives_bluetooth_mac_on_esp32() -> None:
         [device], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_mac_address_change("kitchen", "94c9601f8cf0")
+    controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
 
-    assert device.mac_address == "94c9601f8cf0"
+    assert device.mac_address == "94:C9:60:1F:8C:F0"
     assert device.ethernet_mac == ""
-    assert device.bluetooth_mac == "94c9601f8cf2"
+    assert device.bluetooth_mac == "94:C9:60:1F:8C:F2"
 
 
 def test_on_mac_address_change_derives_ethernet_equal_primary_on_rp2040() -> None:
@@ -339,10 +372,10 @@ def test_on_mac_address_change_derives_ethernet_equal_primary_on_rp2040() -> Non
         [device], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_mac_address_change("kitchen", "94c9601f8cf0")
+    controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
 
-    assert device.mac_address == "94c9601f8cf0"
-    assert device.ethernet_mac == "94c9601f8cf0"
+    assert device.mac_address == "94:C9:60:1F:8C:F0"
+    assert device.ethernet_mac == "94:C9:60:1F:8C:F0"
     assert device.bluetooth_mac == ""
 
 
@@ -362,8 +395,35 @@ def test_on_mac_address_change_clears_derived_on_unknown_platform() -> None:
         [device], create_background_task=_record_scheduled(scheduled)
     )
 
-    controller._on_mac_address_change("kitchen", "94c9601f8cf0")
+    controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
 
-    assert device.mac_address == "94c9601f8cf0"
+    assert device.mac_address == "94:C9:60:1F:8C:F0"
+    assert device.ethernet_mac == ""
+    assert device.bluetooth_mac == ""
+
+
+def test_on_mac_address_change_clears_stale_derived_macs_on_change() -> None:
+    """A new primary MAC overwrites previously-derived ethernet/bluetooth.
+
+    A device whose YAML drops the ``ethernet`` integration after
+    a re-flash would otherwise carry a stale ``ethernet_mac`` until
+    the next reload. Recomputing on every change ensures the
+    derived fields can never lag behind the integration loadout.
+    """
+    device = _device_kitchen(
+        target_platform="esp32",
+        loaded_integrations=["api", "wifi"],  # no ethernet, no bluetooth
+        mac_address="94:C9:60:1F:8C:00",
+        ethernet_mac="94:C9:60:1F:8C:03",  # stale from a prior loadout
+        bluetooth_mac="94:C9:60:1F:8C:02",
+    )
+    scheduled: list[object] = []
+    controller, _captured = make_devices_controller_with_bus(
+        [device], create_background_task=_record_scheduled(scheduled)
+    )
+
+    controller._on_mac_address_change("kitchen", "94:C9:60:1F:8C:F0")
+
+    assert device.mac_address == "94:C9:60:1F:8C:F0"
     assert device.ethernet_mac == ""
     assert device.bluetooth_mac == ""

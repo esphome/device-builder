@@ -285,10 +285,11 @@ def set_device_metadata(
     string clears it (e.g. after a YAML edit invalidates the prior
     compile).
 
-    ``mac_address`` is the lowercase 12-hex-char MAC from the mDNS
-    ``mac`` TXT record. Persisted so the dashboard renders the
-    address immediately on startup, before the first mDNS probe
-    response. Passing an empty string clears it.
+    ``mac_address`` is the canonical ``XX:XX:XX:XX:XX:XX`` MAC
+    from the mDNS ``mac`` TXT record (normalized at ingest).
+    Persisted so the dashboard renders the address immediately on
+    startup, before the first mDNS probe response. Passing an
+    empty string clears it.
     """
     with metadata_transaction(config_dir) as data:
         entry = data.setdefault(filename, {})

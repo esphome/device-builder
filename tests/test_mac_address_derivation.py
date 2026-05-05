@@ -8,6 +8,10 @@ across interfaces. The dashboard renders every derived MAC in the
 device drawer so users can match a device to its router-side
 ethernet MAC, BLE scanner readings, etc. without forcing the
 firmware to broadcast each one.
+
+All MACs in / out of :func:`derive_interface_macs` are in the
+canonical ``XX:XX:XX:XX:XX:XX`` form that
+:func:`controllers._device_state_monitor._normalize_mac` produces.
 """
 
 from __future__ import annotations
@@ -22,46 +26,50 @@ class TestEsp32:
 
     def test_ethernet_offsets_last_octet_by_three(self) -> None:
         """``ethernet`` integration → base + 3 to last octet."""
-        ethernet, bluetooth = derive_interface_macs("94c9601f8cf0", "esp32", ["ethernet"])
-        assert ethernet == "94c9601f8cf3"
+        ethernet, bluetooth = derive_interface_macs("94:C9:60:1F:8C:F0", "esp32", ["ethernet"])
+        assert ethernet == "94:C9:60:1F:8C:F3"
         assert bluetooth == ""
 
     def test_bluetooth_offsets_last_octet_by_two(self) -> None:
         """Any ``esp32_ble*`` integration → base + 2 to last octet."""
-        ethernet, bluetooth = derive_interface_macs("94c9601f8cf0", "esp32", ["esp32_ble_tracker"])
+        ethernet, bluetooth = derive_interface_macs(
+            "94:C9:60:1F:8C:F0", "esp32", ["esp32_ble_tracker"]
+        )
         assert ethernet == ""
-        assert bluetooth == "94c9601f8cf2"
+        assert bluetooth == "94:C9:60:1F:8C:F2"
 
     def test_bluetooth_matches_bluetooth_proxy_prefix(self) -> None:
         """``bluetooth_proxy`` (no ``esp32_`` prefix) still flips the bit."""
-        ethernet, bluetooth = derive_interface_macs("94c9601f8cf0", "esp32", ["bluetooth_proxy"])
+        ethernet, bluetooth = derive_interface_macs(
+            "94:C9:60:1F:8C:F0", "esp32", ["bluetooth_proxy"]
+        )
         assert ethernet == ""
-        assert bluetooth == "94c9601f8cf2"
+        assert bluetooth == "94:C9:60:1F:8C:F2"
 
     def test_both_integrations_derive_both(self) -> None:
         """A device with ethernet + bluetooth surfaces both derived MACs."""
         ethernet, bluetooth = derive_interface_macs(
-            "94c9601f8cf0",
+            "94:C9:60:1F:8C:F0",
             "esp32",
             ["api", "ethernet", "esp32_ble_tracker", "wifi"],
         )
-        assert ethernet == "94c9601f8cf3"
-        assert bluetooth == "94c9601f8cf2"
+        assert ethernet == "94:C9:60:1F:8C:F3"
+        assert bluetooth == "94:C9:60:1F:8C:F2"
 
     def test_no_integrations_yields_empty(self) -> None:
         """A pure Wi-Fi device with no extras has no derived MACs."""
-        ethernet, bluetooth = derive_interface_macs("94c9601f8cf0", "esp32", ["api", "wifi"])
+        ethernet, bluetooth = derive_interface_macs("94:C9:60:1F:8C:F0", "esp32", ["api", "wifi"])
         assert ethernet == ""
         assert bluetooth == ""
 
     def test_last_octet_overflow_wraps_modulo_256(self) -> None:
-        """``0xff`` + 3 → ``0x02``; the upper octets stay put.
+        """``0xFF`` + 3 → ``0x02``; the upper octets stay put.
 
         Mirrors ESP-IDF behaviour where the offset is added with
         modular wrapping rather than carrying into the next byte.
         """
-        ethernet, _ = derive_interface_macs("94c9601f8cff", "esp32", ["ethernet"])
-        assert ethernet == "94c9601f8c02"
+        ethernet, _ = derive_interface_macs("94:C9:60:1F:8C:FF", "esp32", ["ethernet"])
+        assert ethernet == "94:C9:60:1F:8C:02"
 
     @pytest.mark.parametrize(
         "platform",
@@ -70,10 +78,10 @@ class TestEsp32:
     def test_other_esp32_variants_use_same_offsets(self, platform: str) -> None:
         """ESP32 variants share the eFuse layout and offset table."""
         ethernet, bluetooth = derive_interface_macs(
-            "94c9601f8cf0", platform, ["ethernet", "esp32_ble"]
+            "94:C9:60:1F:8C:F0", platform, ["ethernet", "esp32_ble"]
         )
-        assert ethernet == "94c9601f8cf3"
-        assert bluetooth == "94c9601f8cf2"
+        assert ethernet == "94:C9:60:1F:8C:F3"
+        assert bluetooth == "94:C9:60:1F:8C:F2"
 
 
 class TestSingleMacPlatforms:
@@ -81,21 +89,21 @@ class TestSingleMacPlatforms:
 
     def test_rp2040_ethernet_equals_primary(self) -> None:
         """W5500-on-RP2040 reuses the single platform MAC."""
-        ethernet, bluetooth = derive_interface_macs("94c9601f8cf0", "rp2040", ["ethernet"])
-        assert ethernet == "94c9601f8cf0"
+        ethernet, bluetooth = derive_interface_macs("94:C9:60:1F:8C:F0", "rp2040", ["ethernet"])
+        assert ethernet == "94:C9:60:1F:8C:F0"
         # No bluetooth derivation: Pico W's BT lives on the CYW43439
         # with its own MAC the dashboard can't compute from RP-side
         # data.
         assert bluetooth == ""
 
     def test_rp2350_ethernet_equals_primary(self) -> None:
-        ethernet, bluetooth = derive_interface_macs("94c9601f8cf0", "rp2350", ["ethernet"])
-        assert ethernet == "94c9601f8cf0"
+        ethernet, bluetooth = derive_interface_macs("94:C9:60:1F:8C:F0", "rp2350", ["ethernet"])
+        assert ethernet == "94:C9:60:1F:8C:F0"
         assert bluetooth == ""
 
     def test_rp2040_no_ethernet_yields_empty(self) -> None:
         """Without the ``ethernet`` integration the row stays hidden."""
-        ethernet, bluetooth = derive_interface_macs("94c9601f8cf0", "rp2040", ["api", "wifi"])
+        ethernet, bluetooth = derive_interface_macs("94:C9:60:1F:8C:F0", "rp2040", ["api", "wifi"])
         assert ethernet == ""
         assert bluetooth == ""
 
@@ -107,16 +115,27 @@ class TestEdgeCases:
         assert derive_interface_macs("", "esp32", ["ethernet"]) == ("", "")
 
     def test_short_primary_yields_empty(self) -> None:
-        """A primary that's not 12 chars short-circuits before any math."""
-        assert derive_interface_macs("94c960", "esp32", ["ethernet"]) == ("", "")
+        """A primary that's not the canonical 17-char form short-circuits before any math."""
+        assert derive_interface_macs("94:C9:60", "esp32", ["ethernet"]) == ("", "")
+
+    def test_uncanonical_primary_yields_empty(self) -> None:
+        """Compact 12-hex-char input (the broadcast form) is rejected.
+
+        ``derive_interface_macs`` is wired downstream of
+        ``_normalize_mac``; a non-canonical input here means a caller
+        skipped the normalization step. Returning empty rather than
+        guessing keeps the offset math from operating on
+        unvalidated bytes.
+        """
+        assert derive_interface_macs("94c9601f8cf0", "esp32", ["ethernet"]) == ("", "")
 
     def test_unknown_platform_yields_empty(self) -> None:
         """A platform we haven't validated (e.g. ``bk72xx``) → no derivation."""
-        assert derive_interface_macs("94c9601f8cf0", "bk72xx", ["ethernet", "esp32_ble"]) == (
+        assert derive_interface_macs("94:C9:60:1F:8C:F0", "bk72xx", ["ethernet", "esp32_ble"]) == (
             "",
             "",
         )
 
     def test_empty_platform_yields_empty(self) -> None:
         """``target_platform`` blank (never compiled) → no derivation."""
-        assert derive_interface_macs("94c9601f8cf0", "", ["ethernet"]) == ("", "")
+        assert derive_interface_macs("94:C9:60:1F:8C:F0", "", ["ethernet"]) == ("", "")

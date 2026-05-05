@@ -410,12 +410,12 @@ def load_device_from_storage(
     hasn't been compiled yet, in which case ``has_pending_changes``
     falls back to the mtime check.
 
-    *mac_address* is the lowercase 12-hex-char MAC observed in the
-    device's mDNS ``mac`` TXT, persisted to the sidecar so the
-    drawer / table render the address immediately on startup —
-    ESPHome devices stay mDNS-silent until probed, and the sidecar
-    bridges the gap until the discovery sweep prompts a fresh
-    announcement.
+    *mac_address* is the canonical ``XX:XX:XX:XX:XX:XX`` MAC
+    observed in the device's mDNS ``mac`` TXT (normalized at
+    ingest), persisted to the sidecar so the drawer / table
+    render the address immediately on startup — ESPHome devices
+    stay mDNS-silent until probed, and the sidecar bridges the gap
+    until the discovery sweep prompts a fresh announcement.
 
     *previous* is the prior in-memory Device for this path, when one
     exists. Runtime-only fields populated by monitors (``state``,

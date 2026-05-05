@@ -112,22 +112,25 @@ _MAC_SEPARATORS = str.maketrans("", "", ":-.")
 
 
 def _normalize_mac(value: str) -> str:
-    """Canonicalise a broadcast MAC to lowercase 12-hex-char form.
+    """Canonicalise a broadcast MAC to ``XX:XX:XX:XX:XX:XX`` form.
 
-    Returns ``""`` when the input doesn't shape into a 48-bit hex MAC
-    after stripping ``:`` / ``-`` / ``.`` separators — callers treat
-    that the same as "TXT absent" and skip the apply path. Done at
-    ingest so the dedupe + sidecar stay canonical regardless of which
-    case / separator style the firmware happens to broadcast.
+    Strips ``:`` / ``-`` / ``.`` separators, uppercases, validates
+    the result is 12 hex chars, then re-inserts ``:`` between every
+    octet. Returns ``""`` when the input doesn't shape into a
+    48-bit hex MAC — callers treat that the same as "TXT absent"
+    and skip the apply path. Done at ingest so the dedupe, sidecar,
+    in-memory model, and frontend wire all carry one canonical form
+    regardless of which case / separator style the firmware happens
+    to broadcast.
     """
-    stripped = value.translate(_MAC_SEPARATORS)
+    stripped = value.translate(_MAC_SEPARATORS).upper()
     if len(stripped) != 12:
         return ""
     try:
         int(stripped, 16)
     except ValueError:
         return ""
-    return stripped.lower()
+    return ":".join(stripped[i : i + 2] for i in range(0, 12, 2))
 
 
 # Callback signature used by DeviceStateMonitor to push state changes

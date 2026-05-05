@@ -57,15 +57,15 @@ def _has_bluetooth(loaded_integrations: list[str]) -> bool:
 def _offset_last_octet(primary: str, offset: int) -> str:
     """Return *primary* with the last octet incremented by *offset* (mod 256).
 
-    *primary* is the lowercase 12-hex-char form
+    *primary* is the canonical ``XX:XX:XX:XX:XX:XX`` form
     :func:`controllers._device_state_monitor._normalize_mac` produces.
     The last two hex chars cover the trailing octet; we wrap modulo
     256 to mirror the ESP-IDF behaviour where the offset addition
-    can roll a high-byte value (``0xff`` + 3 → ``0x02``) without
+    can roll a high-byte value (``0xFF`` + 3 → ``0x02``) without
     touching the upper octets.
     """
     last = int(primary[-2:], 16)
-    return f"{primary[:-2]}{(last + offset) % 256:02x}"
+    return f"{primary[:-2]}{(last + offset) % 256:02X}"
 
 
 def derive_interface_macs(
@@ -82,12 +82,17 @@ def derive_interface_macs(
     ``mac_address``, so a single-MAC platform like RP2040 with
     ethernet just renders one row.
 
+    *primary* must be in the canonical ``XX:XX:XX:XX:XX:XX`` form
+    that :func:`_normalize_mac` produces; all output MACs match
+    that shape so the wire surface is uniform.
+
     The derivation is deterministic and side-effect-free; we recompute
     on every primary-MAC observation rather than persisting the
     derived values, so a YAML edit that toggles bluetooth picks up
     the new derived MAC on the very next reload.
     """
-    if not primary or len(primary) != 12:
+    # 17 = ``XX:XX:XX:XX:XX:XX`` — six octets joined by five colons.
+    if not primary or len(primary) != 17:
         return "", ""
 
     has_ethernet = _has_ethernet(loaded_integrations)
