@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.controllers.config import set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
@@ -453,6 +454,13 @@ def make_controller() -> MakeControllerFactory:
         # bypass-init controller for parity with __init__.
         controller._yaml_search_cache = YamlSearchCache()
         controller._yaml_search_lock = asyncio.Lock()
+
+        # Per-signal reachability tracker. Real instance (not a
+        # mock) because the surface is small and tests that drive
+        # ``_on_scan_change(REMOVED)`` reach into ``clear()``;
+        # giving everyone the production class keeps the bypass
+        # closer to ``__init__``'s wiring.
+        controller._reachability = ReachabilityTracker()
 
         if with_state_monitor:
             controller._state_monitor = RecordingStateMonitor()

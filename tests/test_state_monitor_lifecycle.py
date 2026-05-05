@@ -29,6 +29,7 @@ from zeroconf import ServiceStateChange
 
 import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.models import Device, DeviceState
 
 from .conftest import RecordingMonitorCallbacks
@@ -97,6 +98,7 @@ def _make_monitor(
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
     monitor._on_importable_added = callbacks.on_importable_added
     monitor._on_importable_removed = callbacks.on_importable_removed
+    monitor._reachability = None
     monitor._dns_cache = MagicMock()
     return monitor, callbacks
 
@@ -357,6 +359,43 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
         assert device.state == DeviceState.OFFLINE
         assert device.ip == ""
         assert "kitchen" not in monitor._state_source
+    finally:
+        await _stop_and_drain(monitor)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_removed_event_clears_reachability_tracker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dispatch path's Removed branch wipes the tracker for the device.
+
+    Drives the actual browser dispatch closure (rather than
+    replaying the branch by hand) so a future refactor that
+    relocates the ``self._reachability.clear(device_name)`` call
+    out of the closure is caught here. The other reachability
+    tests cover the helper-level contract; this one pins the
+    end-to-end edge.
+    """
+    device = _device(state=DeviceState.ONLINE)
+    monitor, _callbacks = _make_monitor([device])
+    tracker = ReachabilityTracker()
+    monitor._reachability = tracker
+    tracker.observe("kitchen", "mdns")
+    tracker.observe("kitchen", "ping")
+    monitor._state_source["kitchen"] = "mdns"
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Removed,
+        )
+        snap = tracker.snapshot(
+            "kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip=""
+        )
+        assert snap["mdns_last_seen_seconds_ago"] is None
+        assert snap["ping_last_seen_seconds_ago"] is None
     finally:
         await _stop_and_drain(monitor)
 

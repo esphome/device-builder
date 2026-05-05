@@ -83,6 +83,50 @@ async def test_subscribe_events_unsubscribes_on_cancellation() -> None:
     )
 
 
+async def test_subscribe_events_excludes_device_reachability() -> None:
+    """``DEVICE_REACHABILITY`` events do not reach broadcast subscribers.
+
+    The per-device ``devices/subscribe_reachability`` stream is the
+    only intended consumer of these events. Without the explicit
+    exclusion in ``_cmd_subscribe_events``, every freshness ping
+    (mDNS announce, ICMP success, MQTT discover) would broadcast
+    to every connected client — pinning the bounded queue's
+    backpressure terminator at fleet scale and tearing the
+    connection down.
+    """
+    db = _make_db()
+    client = FakeWebSocketClient()
+
+    handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if client.results:
+            break
+
+    # Fire a reachability event — the broadcast subscriber should
+    # *not* see it. Sanity-check with a normal event afterwards
+    # so a regression that drops everything (not just
+    # reachability) shows up too.
+    db.bus.fire(
+        EventType.DEVICE_REACHABILITY,
+        {"device": "kitchen", "active_source": "mdns"},
+    )
+    db.bus.fire(EventType.DEVICE_UPDATED, {"device": MagicMock(to_dict=lambda: {"x": 1})})
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if client.events:
+            break
+
+    # Only the device_updated event landed — no reachability_state.
+    event_names = [name for (_mid, name, _data) in client.events]
+    assert "device_reachability" not in event_names
+    assert "device_updated" in event_names
+
+    handler_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await handler_task
+
+
 async def test_subscribe_events_listener_forwards_bus_events() -> None:
     """While parked, fired bus events reach the client as send_event calls.
 

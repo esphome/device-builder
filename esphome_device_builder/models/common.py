@@ -44,6 +44,16 @@ class EventType(StrEnum):
     # Device online/offline state changes
     DEVICE_STATE_CHANGED = "device_state_changed"
 
+    # Per-device reachability detail change — fired alongside
+    # ``DEVICE_STATE_CHANGED`` (and on its own when only the per-signal
+    # last-seen / rtt move) for any subscriber filtering by device.
+    # The drawer subscribes to these via the ``devices/subscribe_reachability``
+    # WS command; the broadcast ``subscribe_events`` excludes this
+    # type explicitly (see ``_cmd_subscribe_events``) so a connected
+    # client doesn't receive a freshness event for every device on
+    # every mDNS announce.
+    DEVICE_REACHABILITY = "device_reachability"
+
     # Discoverable device changes
     IMPORTABLE_DEVICE_ADDED = "importable_device_added"
     IMPORTABLE_DEVICE_REMOVED = "importable_device_removed"

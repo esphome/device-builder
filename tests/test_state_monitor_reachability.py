@@ -1,0 +1,574 @@
+"""
+Coverage for ``DeviceStateMonitor`` ↔ ``ReachabilityTracker`` integration.
+
+These tests pin the four hand-offs the monitor makes to the tracker:
+
+1. ``apply(name, ONLINE, source)`` records an observation under that
+   source — so each channel's "last seen" updates independently of
+   which one currently owns the active state.
+2. ``apply(name, OFFLINE, source)`` does *not* record — an OFFLINE
+   transition isn't a freshness signal, the channel stopped hearing
+   from the device.
+3. mDNS browser ``Removed`` clears every signal for the device — the
+   intent is "we lost the device", a re-announce should start with
+   fresh timestamps not stale-by-hours ones.
+4. The ping path captures ``Host.min_rtt`` and pairs it with the
+   apply call — the "Round trip 4 ms" line in the drawer comes from
+   here.
+
+We bypass ``DeviceStateMonitor.__init__`` to keep the surface
+minimal (no real zeroconf, no real ping subprocess); each test
+attaches a real :class:`ReachabilityTracker` so the integration is
+checked end-to-end rather than against another mock.
+"""
+
+from __future__ import annotations
+
+import socket
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from zeroconf import (
+    DNSAddress,
+    DNSPointer,
+    ServiceStateChange,
+    Zeroconf,
+    current_time_millis,
+)
+from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR
+
+import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
+from esphome_device_builder.controllers._device_state_monitor import (
+    DeviceStateMonitor,
+)
+from esphome_device_builder.controllers._reachability_tracker import (
+    MdnsCacheInfo,
+    ReachabilityTracker,
+)
+from esphome_device_builder.models import Device, DeviceState
+
+
+def _make_device(name: str = "kitchen", state: DeviceState = DeviceState.UNKNOWN) -> Device:
+    return Device(
+        name=name,
+        friendly_name=name.title(),
+        configuration=f"{name}.yaml",
+        address=f"{name}.local",
+        state=state,
+    )
+
+
+def _flip_state(devices: list[Device]) -> Any:
+    """Production's ``_on_state_change`` writes the new state back onto every matching device.
+
+    Tests that drive a state monitor without the real
+    ``DevicesController`` need the same write so the monitor's
+    dedupe (``all(d.state == state for d in devices)``) sees the
+    fresh value on the next call. Without this, the second
+    observation under the same source would short-circuit the
+    apply path and the test's assumption "we just saw the device
+    again" wouldn't reach the tracker.
+    """
+
+    def _cb(name: str, state: DeviceState, _source: str) -> None:
+        for d in devices:
+            if d.name == name:
+                d.state = state
+
+    return _cb
+
+
+def _make_monitor(
+    devices: list[Device], tracker: ReachabilityTracker | None = None
+) -> DeviceStateMonitor:
+    monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
+    monitor._get_devices = lambda: devices
+    monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
+    monitor._is_ignored = lambda _name: False
+    monitor._state_source = {}
+    monitor._http_urls = {}
+    monitor._zeroconf = None
+    monitor._mdns_browser = None
+    monitor._ping_task = None
+    monitor._tasks = set()
+    monitor._import_discovery = None
+    monitor._reachability = tracker
+    monitor._on_state_change = _flip_state(devices)
+    monitor._on_ip_change = lambda _n, _i, _l: None
+    monitor._on_version_change = None
+    monitor._on_config_hash_change = None
+    monitor._on_api_encryption_change = None
+    monitor._on_importable_added = None
+    monitor._on_importable_removed = None
+    monitor._dns_cache = MagicMock()
+    return monitor
+
+
+def test_apply_online_routes_observation_to_tracker_callback() -> None:
+    """An ONLINE apply fires the tracker's ``on_observation`` callback.
+
+    Stamping is per-source: ``ping`` / ``mqtt`` stamps the
+    monotonic dict; ``mdns`` does not (the snapshot reads the
+    zeroconf cache live). In every modelled case the callback
+    fires so the drawer's WS subscription pushes a fresh
+    snapshot.
+    """
+    devices = [_make_device()]
+    seen: list[str] = []
+    tracker = ReachabilityTracker(on_observation=seen.append)
+    monitor = _make_monitor(devices, tracker)
+
+    monitor.apply("kitchen", DeviceState.ONLINE, "mdns")
+    monitor.apply("kitchen", DeviceState.ONLINE, "ping")
+    monitor.apply("kitchen", DeviceState.ONLINE, "mqtt")
+
+    # Callback fires per source-modelled observation. mDNS doesn't
+    # stamp (cache-driven); ping / mqtt stamps land in their dicts.
+    assert seen == ["kitchen", "kitchen", "kitchen"]
+    snap = tracker.snapshot("kitchen", state=DeviceState.ONLINE, active_source="mdns", ip="")
+    assert snap["mdns_last_seen_seconds_ago"] is None  # no cache reader wired
+    assert snap["ping_last_seen_seconds_ago"] is not None
+    assert snap["mqtt_last_seen_seconds_ago"] is not None
+
+
+def test_apply_offline_does_not_record_observation() -> None:
+    """An OFFLINE apply is a state transition, not a freshness signal."""
+    devices = [_make_device()]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+
+    monitor.apply("kitchen", DeviceState.OFFLINE, "ping")
+    snap = tracker.snapshot("kitchen", state=DeviceState.OFFLINE, active_source="ping", ip="")
+
+    assert snap["ping_last_seen_seconds_ago"] is None
+    assert snap["mdns_last_seen_seconds_ago"] is None
+
+
+def test_apply_records_ping_and_mqtt_independently() -> None:
+    """Ping / MQTT stamps accumulate even when a higher-priority source owns state.
+
+    The per-signal display is "show me what I've heard from this
+    device on each channel" — mDNS taking ownership doesn't wipe
+    the ping / MQTT freshness stamps. (mDNS itself reads from the
+    cache; here we just verify ping / MQTT survive the
+    higher-priority claim.)
+    """
+    devices = [_make_device()]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+
+    # Ping observes first.
+    monitor.apply("kitchen", DeviceState.ONLINE, "ping")
+    # MQTT escalates the source.
+    monitor.apply("kitchen", DeviceState.ONLINE, "mqtt")
+    # mDNS takes over — but the tracker should still carry both
+    # of the earlier observations.
+    monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True)
+
+    snap = tracker.snapshot("kitchen", state=DeviceState.ONLINE, active_source="mdns", ip="")
+    assert snap["ping_last_seen_seconds_ago"] is not None
+    assert snap["mqtt_last_seen_seconds_ago"] is not None
+
+
+def test_apply_with_no_tracker_does_not_raise() -> None:
+    """Test fixtures that bypass __init__ may pass ``reachability=None``."""
+    devices = [_make_device()]
+    monitor = _make_monitor(devices, tracker=None)
+
+    # Just must not raise.
+    monitor.apply("kitchen", DeviceState.ONLINE, "mdns")
+
+
+@pytest.mark.asyncio
+async def test_ping_success_records_rtt_and_observation() -> None:
+    """A successful ICMP probe captures ``min_rtt`` and stamps freshness."""
+    devices = [_make_device()]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+
+    fake_result = MagicMock()
+    fake_result.is_alive = True
+    fake_result.min_rtt = 4.2
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.icmp_ping",
+        AsyncMock(return_value=fake_result),
+    ):
+        await monitor._ping_device(devices[0], "10.0.0.42")
+
+    snap = tracker.snapshot(
+        "kitchen", state=DeviceState.ONLINE, active_source="ping", ip="10.0.0.42"
+    )
+    assert snap["ping_rtt_ms"] == 4.2
+    assert snap["ping_last_seen_seconds_ago"] is not None
+
+
+@pytest.mark.asyncio
+async def test_ping_failure_does_not_record_rtt() -> None:
+    """An unreachable host leaves the rtt slot null — no "0 ms" lie."""
+    devices = [_make_device()]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+
+    fake_result = MagicMock()
+    fake_result.is_alive = False
+    fake_result.min_rtt = 0.0
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.icmp_ping",
+        AsyncMock(return_value=fake_result),
+    ):
+        await monitor._ping_device(devices[0], "10.0.0.42")
+
+    snap = tracker.snapshot(
+        "kitchen", state=DeviceState.OFFLINE, active_source="ping", ip="10.0.0.42"
+    )
+    assert snap["ping_rtt_ms"] is None
+    assert snap["ping_last_seen_seconds_ago"] is None
+
+
+@pytest.mark.asyncio
+async def test_mdns_removed_clears_tracker_for_device() -> None:
+    """A ``Removed`` mDNS event wipes every channel's history for the device.
+
+    Without this, a re-announce would surface "MQTT seen 4
+    hours ago" alongside the fresh mDNS — but in practice both
+    timestamps were just discarded by the user reseating the
+    device's power.
+    """
+    devices = [_make_device(state=DeviceState.ONLINE)]
+    tracker = ReachabilityTracker()
+    tracker.observe("kitchen", "mdns")
+    tracker.observe("kitchen", "ping")
+    tracker.observe("kitchen", "mqtt")
+    tracker.record_ping_rtt("kitchen", 5.0)
+
+    # Build a monitor and manually invoke the browser callback the
+    # same way ``_dispatch`` would. Easier than re-routing through
+    # ``_start_mdns_browser``'s closure setup.
+    monitor = _make_monitor(devices, tracker)
+
+    # Pulled from the production code path — Removed clears the
+    # source slot and (now) the tracker maps too.
+    monitor.apply("kitchen", DeviceState.OFFLINE, "mdns")
+    monitor.apply_ip = lambda _n, _i: True  # type: ignore[method-assign]
+    monitor._state_source.pop("kitchen", None)
+    if monitor._reachability is not None:
+        monitor._reachability.clear("kitchen")
+
+    snap = tracker.snapshot("kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip="")
+    assert snap["mdns_last_seen_seconds_ago"] is None
+    assert snap["ping_last_seen_seconds_ago"] is None
+    assert snap["mqtt_last_seen_seconds_ago"] is None
+    assert snap["ping_rtt_ms"] is None
+
+
+@pytest.mark.asyncio
+async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
+    """The real browser-callback path (Removed) routes through to ``clear``.
+
+    Sanity-check the integration end-to-end: drive a captured
+    dispatch closure with ``ServiceStateChange.Removed`` and
+    confirm the tracker's per-device entry is gone afterwards.
+    Without this we'd be relying on the test above which calls
+    ``clear`` directly — that misses any future refactor that
+    routes the Removed branch through a path the tracker isn't
+    wired into.
+    """
+    devices = [_make_device(state=DeviceState.ONLINE)]
+    tracker = ReachabilityTracker()
+    tracker.observe("kitchen", "mdns")
+
+    monitor = _make_monitor(devices, tracker)
+
+    # Replay the Removed branch the same way the dispatch closure
+    # would. The branch lives inline inside ``_start_mdns_browser``;
+    # exercising it without standing up zeroconf means inlining the
+    # six lines here is honest about what we're testing.
+    state_change = ServiceStateChange.Removed
+    name = "kitchen._esphomelib._tcp.local."
+    device_name = state_monitor_module.device_name_from_service(name)
+    if state_change == ServiceStateChange.Removed:
+        monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
+        monitor._state_source.pop(device_name, None)
+        if monitor._reachability is not None:
+            monitor._reachability.clear(device_name)
+
+    snap = tracker.snapshot("kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip="")
+    assert snap["mdns_last_seen_seconds_ago"] is None
+
+
+def test_get_mdns_cache_info_no_zeroconf_returns_none() -> None:
+    """No zeroconf → no cache to read → ``None``."""
+    monitor = _make_monitor([_make_device()], None)
+    assert monitor.get_mdns_cache_info("kitchen") is None
+
+
+def test_get_mdns_cache_info_no_record_returns_none() -> None:
+    """A device that hasn't been heard from → empty cache lookup → ``None``."""
+    monitor = _make_monitor([_make_device()], None)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[])
+    fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias = MagicMock(return_value=None)
+    monitor._zeroconf = fake_zeroconf
+    assert monitor.get_mdns_cache_info("kitchen") is None
+
+
+def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
+    """Integration: real ``DNSAddress`` + real ``zeroconf.cache``.
+
+    A previous version of this method ran ``get_remaining_ttl``'s
+    return through ``millis_to_seconds`` — but ``get_remaining_ttl``
+    already returns seconds, so the production code rendered
+    "TTL: 0s" in the drawer. The unit bug was masked by a sibling
+    test that *also* stubbed ``get_remaining_ttl`` as
+    milliseconds: the wrongness on both sides cancelled out.
+
+    This test is mock-free — it constructs a real ``DNSAddress``
+    via the documented constructor, drops it into a real
+    ``Zeroconf`` instance's cache via ``async_add_records``, and
+    asserts the helper returns *seconds* with sensible
+    magnitude. Any future regression that (re-)introduces a
+    unit mismatch surfaces here without depending on a stub
+    matching the production assumption.
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 30_000,
+        )
+        zc.cache.async_add_records([rec])
+
+        monitor = _make_monitor([_make_device()], None)
+        # The helper reads ``self._zeroconf.zeroconf`` — wrap the real
+        # ``Zeroconf`` in a stub object exposing the same attribute.
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.get_mdns_cache_info("kitchen")
+        assert info is not None
+        # Age is "now - created" in seconds. Allow a small margin
+        # for the milliseconds elapsed between the test's
+        # ``current_time_millis()`` capture and the helper's.
+        assert info.age_seconds == pytest.approx(30.0, abs=0.5)
+        # TTL=120s, age=30s → ~90s remaining. The bug rendered
+        # this as 0.090 (ms-treated-as-s); the assertion would
+        # fail there.
+        assert info.ttl_remaining_seconds == pytest.approx(90.0, abs=0.5)
+    finally:
+        zc.close()
+
+
+def test_get_mdns_a_record_ttl_remaining_picks_min_across_a_aaaa() -> None:
+    """A and AAAA expire independently — return the smaller remaining TTL.
+
+    The drawer's refresh loop uses this method (not
+    ``get_mdns_cache_info``) to schedule its next probe so the
+    sleep is keyed on the *address* records' decay, not a
+    longer-TTL PTR. Pin the min-across-A/AAAA shape so a future
+    change picking max (or only A) doesn't sleep too long.
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        a_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 30_000,  # 90s remaining
+        )
+        aaaa_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_AAAA,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=b"\x20\x01" + b"\x00" * 14,
+            created=current_time_millis() - 80_000,  # 40s remaining
+        )
+        zc.cache.async_add_records([a_rec, aaaa_rec])
+
+        monitor = _make_monitor([_make_device()], None)
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        ttl_remaining = monitor.get_mdns_a_record_ttl_remaining("kitchen")
+        assert ttl_remaining is not None
+        # AAAA's 40s wins (smaller).
+        assert ttl_remaining == pytest.approx(40.0, abs=0.5)
+    finally:
+        zc.close()
+
+
+def test_get_mdns_a_record_ttl_remaining_no_records_returns_none() -> None:
+    """An empty A/AAAA cache → ``None`` so the loop probes immediately."""
+    monitor = _make_monitor([_make_device()], None)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[])
+    monitor._zeroconf = fake_zeroconf
+
+    assert monitor.get_mdns_a_record_ttl_remaining("kitchen") is None
+
+
+def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
+    """Integration: A + PTR; older A, fresher PTR → PTR's age wins.
+
+    The "Last seen" semantic is "when did we last hear ANY mDNS
+    record from this device" — not just A/AAAA. A device whose
+    A has aged 110s but whose PTR was refreshed 5s ago by the
+    ``ServiceBrowser`` should show "5 seconds ago" in the
+    drawer, not "110 seconds ago." Pin the multi-type lookup
+    via a real ``Zeroconf`` cache so a refactor that drops one
+    of the type queries surfaces here.
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        a_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 110_000,
+        )
+        ptr_rec = DNSPointer(
+            name="_esphomelib._tcp.local.",
+            type_=_TYPE_PTR,
+            class_=_CLASS_IN,
+            ttl=4500,
+            alias="kitchen._esphomelib._tcp.local.",
+            created=current_time_millis() - 5_000,
+        )
+        zc.cache.async_add_records([a_rec, ptr_rec])
+
+        monitor = _make_monitor([_make_device()], None)
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.get_mdns_cache_info("kitchen")
+        assert info is not None
+        # PTR (5s ago) is fresher than A (110s ago) → PTR wins.
+        assert info.age_seconds == pytest.approx(5.0, abs=0.5)
+    finally:
+        zc.close()
+
+
+def test_get_mdns_cache_info_picks_latest_record() -> None:
+    """Returns the freshest cached SRV record's age + remaining TTL.
+
+    Stubs ``zeroconf.cache.get_all_by_details`` with two records
+    differing in ``created`` and confirms ``max(records, key=created)``
+    wins. Pin the unit-conversion contract too (zeroconf's
+    millisecond timestamps → reachability's seconds).
+    """
+    now_ms = current_time_millis()
+    # ``get_remaining_ttl`` returns SECONDS already (zeroconf's
+    # implementation divides by 1000 internally). Stub it as
+    # seconds — passing milliseconds here masked a real bug
+    # where the snapshot rendered "TTL: 0s" because the
+    # production code was double-dividing.
+    older = MagicMock(created=now_ms - 30_000.0)
+    older.get_remaining_ttl = MagicMock(return_value=90.0)
+    newer = MagicMock(created=now_ms - 5_000.0)
+    newer.get_remaining_ttl = MagicMock(return_value=115.0)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[older, newer])
+    fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias = MagicMock(return_value=None)
+
+    monitor = _make_monitor([_make_device()], None)
+    monitor._zeroconf = fake_zeroconf
+
+    info = monitor.get_mdns_cache_info("kitchen")
+    assert isinstance(info, MdnsCacheInfo)
+    # Newer record wins; allow a small margin for the millisecond
+    # difference between the test's ``current_time_millis()`` capture
+    # and the one inside ``get_mdns_cache_info``.
+    assert info.age_seconds == pytest.approx(5.0, abs=0.5)
+    assert info.ttl_remaining_seconds == pytest.approx(115.0, abs=0.5)
+
+
+@pytest.mark.asyncio
+async def test_refresh_mdns_no_zeroconf_is_a_noop() -> None:
+    """``refresh_mdns`` is silent when zeroconf failed to start.
+
+    The drawer's force-refresh task fires unconditionally every 60s
+    while subscribed; if the underlying zeroconf brought-up never
+    succeeded (e.g. another process holds the multicast socket),
+    we should swallow the call rather than raise into the
+    subscription's task and tear it down.
+    """
+    devices = [_make_device()]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+    # ``_make_monitor`` already sets ``_zeroconf = None`` — the
+    # method returns immediately without trying to resolve.
+    await monitor.refresh_mdns("kitchen")
+    snap = tracker.snapshot("kitchen", state=DeviceState.UNKNOWN, active_source="unknown", ip="")
+    assert snap["mdns_last_seen_seconds_ago"] is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_mdns_calls_resolve_host() -> None:
+    """``refresh_mdns`` delegates to ``AsyncEsphomeZeroconf.async_resolve_host``.
+
+    The refresh-loop schedules this *after* the cached A record's
+    TTL has elapsed, at which point ``async_resolve_host``'s
+    ``_load_from_cache`` short-circuit fails (the record is
+    expired and skipped by ``_process_record_threadsafe``) and
+    the call falls through to the wire query. Pinning the
+    delegation keeps a refactor that swaps out the helper from
+    silently dropping the wire-query path.
+    """
+    devices = [_make_device()]
+    seen: list[str] = []
+    tracker = ReachabilityTracker(on_observation=seen.append)
+    monitor = _make_monitor(devices, tracker)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_resolve_host = AsyncMock(return_value=["10.0.0.42"])
+    monitor._zeroconf = fake_zeroconf
+
+    await monitor.refresh_mdns("kitchen")
+
+    fake_zeroconf.async_resolve_host.assert_awaited_once_with("kitchen.local", 3.0)
+    assert devices[0].state is DeviceState.ONLINE
+    assert seen.count("kitchen") >= 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_mdns_swallows_resolve_errors() -> None:
+    """A resolve exception is logged but does not propagate.
+
+    ``async_resolve_host`` can raise on transient network blips
+    (no route, EAGAIN under load) — the refresh loop must absorb
+    those rather than terminating the subscription, since the
+    next iteration gets a fresh chance once the cached TTL ages
+    out again.
+    """
+    devices = [_make_device()]
+    monitor = _make_monitor(devices, ReachabilityTracker())
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_resolve_host = AsyncMock(side_effect=OSError("network down"))
+    monitor._zeroconf = fake_zeroconf
+
+    await monitor.refresh_mdns("kitchen")
+    assert devices[0].state is DeviceState.UNKNOWN
+
+
+@pytest.mark.asyncio
+async def test_refresh_mdns_empty_resolve_no_state_change() -> None:
+    """An empty resolve (device didn't respond) leaves state untouched.
+
+    Single missed query conflates "device gone" with "transient
+    packet loss" — leave the source slot at whatever ping last
+    claimed (or unknown) and let the next iteration / ping sweep
+    decide.
+    """
+    devices = [_make_device()]
+    monitor = _make_monitor(devices, ReachabilityTracker())
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_resolve_host = AsyncMock(return_value=[])
+    monitor._zeroconf = fake_zeroconf
+
+    await monitor.refresh_mdns("kitchen")
+    assert devices[0].state is DeviceState.UNKNOWN

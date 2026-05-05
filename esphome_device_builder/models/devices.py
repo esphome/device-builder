@@ -16,6 +16,26 @@ class DeviceState(StrEnum):
     OFFLINE = "offline"
 
 
+class ReachabilitySource(StrEnum):
+    """Channel a device's online state was last observed on.
+
+    The state monitor's source priority — ``mdns`` > ``mqtt`` >
+    ``ping`` > ``unknown`` — is implemented in the explicit
+    ``_SOURCE_PRIORITY`` mapping in
+    ``controllers/_device_state_monitor.py``; the enum just names
+    the string values that map flows through. The drawer surfaces
+    the current ``active_source`` next to the active Reachability
+    row so the user can see which channel is driving the
+    indicator. ``StrEnum`` so the value crosses the WS boundary as
+    a plain string without an extra serialization layer.
+    """
+
+    UNKNOWN = "unknown"
+    PING = "ping"
+    MQTT = "mqtt"
+    MDNS = "mdns"
+
+
 @dataclass
 class Device(DataClassORJSONMixin):
     """A configured ESPHome device."""

@@ -30,6 +30,7 @@ def _make_monitor() -> DeviceStateMonitor:
     monitor._zeroconf = MagicMock()
     monitor._zeroconf.zeroconf = MagicMock()
     monitor._tasks = set()
+    monitor._reachability = None
     return monitor
 
 
@@ -177,6 +178,7 @@ async def test_apply_service_info_claims_online() -> None:
     monitor._on_version_change = callbacks.on_version_change
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
+    monitor._reachability = None
 
     fake_info = MagicMock()
     fake_info.parsed_scoped_addresses.return_value = []

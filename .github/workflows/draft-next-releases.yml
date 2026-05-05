@@ -75,8 +75,16 @@ jobs:
           mode: ${{ matrix.kind }}
           github-token: ${{ steps.app-token.outputs.token }}
 
+      # The next three steps are skipped for the stable matrix entry
+      # when no prior stable exists — there's no meaningful preview to
+      # render against an empty diff base, and we'd rather show nothing
+      # than fall back to "since last beta" (which doesn't represent a
+      # stable shipping baseline). The prerelease entry is unaffected;
+      # ``previous-tag`` can be empty there only on a never-released
+      # project, where the generator's "first release" path is fine.
       - name: Generate release notes
         id: notes
+        if: matrix.kind != 'stable' || steps.versions.outputs.previous-tag != ''
         uses: ./.github/actions/generate-release-notes
         with:
           version: ${{ steps.versions.outputs.version }}
@@ -89,7 +97,9 @@ jobs:
         # click into the draft from the releases list — it's the
         # signal that this draft is a preview, not something to hit
         # the publish button on. The ``kind`` controls which workflow
-        # the header points the maintainer to.
+        # the header points the maintainer to. Prose lines are left
+        # unwrapped and GitHub re-flows them on render.
+        if: matrix.kind != 'stable' || steps.versions.outputs.previous-tag != ''
         shell: python
         env:
           NOTES_FILE: ${{ steps.notes.outputs.release-notes-file }}
@@ -103,27 +113,32 @@ jobs:
           kind = os.environ["KIND"]
           notes = Path(os.environ["NOTES_FILE"])
 
+          # Source lines wrap to keep the file readable; the rendered
+          # output stays a single paragraph per ``>`` line because adjacent
+          # string literals concatenate and only the explicit ``\n``s
+          # introduce line breaks. Trailing spaces on continued fragments
+          # matter — without them, words would run together at the joins.
           if kind == "stable":
               instr = (
-                  "Stable releases are cut by manually running the\n"
-                  f"> [Release workflow]({repo}/actions/workflows/release.yml),\n"
-                  "> which creates and publishes its own version-tagged draft."
+                  "Stable releases are cut by manually running the "
+                  f"[Release workflow]({repo}/actions/workflows/release.yml), "
+                  "which creates and publishes its own version-tagged draft."
               )
           else:
               instr = (
-                  "Prereleases are cut by the\n"
-                  f"> [Auto Release workflow]({repo}/actions/workflows/auto-release.yml)\n"
-                  "> nightly (or manually from the same workflow), which creates\n"
-                  "> and publishes its own version-tagged draft."
+                  "Prereleases are cut by the "
+                  f"[Auto Release workflow]({repo}/actions/workflows/auto-release.yml) "
+                  "nightly (or manually from the same workflow), which creates "
+                  "and publishes its own version-tagged draft."
               )
 
           header = (
               "> ⚠️ **Maintainer note — do not publish this draft.**\n"
               ">\n"
-              f"> This is a rolling preview of the next {kind}. {instr}\n"
-              "> Publishing this draft is rejected by a repository ruleset\n"
-              "> anyway — only that workflow can create release tags — so\n"
-              "> the rolling preview is purely a read-only changelog view.\n"
+              f"> This is a rolling preview of the next {kind}. {instr} "
+              "Publishing this draft is rejected by a repository ruleset "
+              "anyway — only that workflow can create release tags — so "
+              "the rolling preview is purely a read-only changelog view.\n"
               "\n"
               "---\n"
               "\n"
@@ -131,6 +146,7 @@ jobs:
           notes.write_text(header + notes.read_text())
 
       - name: Create or update the rolling draft
+        if: matrix.kind != 'stable' || steps.versions.outputs.previous-tag != ''
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           NOTES_FILE: ${{ steps.notes.outputs.release-notes-file }}

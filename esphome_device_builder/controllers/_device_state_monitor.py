@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from operator import attrgetter
 from typing import Any
 
 from esphome.zeroconf import (
@@ -33,9 +34,19 @@ try:
 except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
 
+from zeroconf import current_time_millis, millis_to_seconds
+from zeroconf.const import (
+    _CLASS_IN,
+    _TYPE_A,
+    _TYPE_AAAA,
+    _TYPE_SRV,
+    _TYPE_TXT,
+)
+
 from ..helpers.hostname import is_local_hostname, normalize_hostname
-from ..models import AdoptableDevice, Device, DeviceState
+from ..models import AdoptableDevice, Device, DeviceState, ReachabilitySource
 from ._dns_cache import DNSCache
+from ._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
 
 _LOGGER = logging.getLogger(__name__)
 _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
@@ -63,6 +74,16 @@ _PING_BOOTSTRAP_DELAY = 10  # seconds before the first ping sweep
 # stacking N timeouts back-to-back.
 _PING_BATCH_SIZE = 24
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
+# Padding added to the cached A record's TTL when the drawer's
+# refresh loop schedules its next probe. We sleep ``ttl + this``
+# so by the time we wake up the cache record has aged past
+# expiry, ``_load_from_cache`` short-circuits fail, and
+# ``async_resolve_host`` actually goes on the wire (it
+# short-circuits otherwise). Keep small — extra padding is just
+# a window where the drawer's mDNS row reads "Waiting for first
+# broadcast…" between the record's natural expiry and our
+# scheduled wake-up.
+_MDNS_REFRESH_PADDING_SECONDS = 1.0
 # Timeout for the per-sweep mDNS hostname resolves we issue for
 # non-API devices. 3s is enough on a working LAN even when the
 # device is briefly slow to respond, and keeps the whole resolve
@@ -74,7 +95,12 @@ _MDNS_HOSTNAME_RESOLVE_TIMEOUT = 3.0
 # override an existing one when its priority is greater than or equal
 # to the current source's. Keep ``unknown`` at zero so any source can
 # claim a device that no source has yet labelled.
-_SOURCE_PRIORITY = {"unknown": 0, "ping": 1, "mqtt": 2, "mdns": 3}
+_SOURCE_PRIORITY: dict[str, int] = {
+    ReachabilitySource.UNKNOWN: 0,
+    ReachabilitySource.PING: 1,
+    ReachabilitySource.MQTT: 2,
+    ReachabilitySource.MDNS: 3,
+}
 
 # Callback signature used by DeviceStateMonitor to push state changes
 # back to its owner. The owner decides what to do with the new state
@@ -176,6 +202,7 @@ class DeviceStateMonitor:
         on_api_encryption_change: ApiEncryptionChangeCallback | None = None,
         on_importable_added: ImportableAddedCallback | None = None,
         on_importable_removed: ImportableRemovedCallback | None = None,
+        reachability: ReachabilityTracker | None = None,
         is_ignored: Callable[[str], bool] | None = None,
         get_devices_by_name: Callable[[str], list[Device]] | None = None,
     ) -> None:
@@ -201,6 +228,12 @@ class DeviceStateMonitor:
         self._on_importable_removed = on_importable_removed
         self._is_ignored = is_ignored or (lambda _name: False)
         self._state_source: dict[str, str] = {}  # device name → "mdns" | "ping"
+        # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
+        # ping RTT). Optional dependency: callers that don't care
+        # about reachability metadata (the existing tests, in-process
+        # usages that just want state-change forwarding) can pass
+        # ``None`` and the monitor's observation hooks become no-ops.
+        self._reachability = reachability
         # ``DashboardImportDiscovery`` is the upstream esphome class
         # that watches the same ``_esphomelib._tcp.local.`` browser for
         # ``package_import_url`` TXT records and turns them into
@@ -262,9 +295,29 @@ class DeviceStateMonitor:
                 _LOGGER.debug("zeroconf close failed", exc_info=True)
             self._zeroconf = None
 
-    def priority_for(self, name: str) -> str:
-        """Return the source currently authoritative for *name* (or "unknown")."""
-        return self._state_source.get(name, "unknown")
+    def set_reachability(self, tracker: ReachabilityTracker) -> None:
+        """Wire (or rewire) the per-signal freshness tracker.
+
+        ``DevicesController`` builds the state monitor first so the
+        tracker can take ``get_mdns_cache_info`` as its mDNS cache
+        reader; this setter completes the wire-back so the
+        monitor's ``apply`` path can route observations into the
+        tracker.
+        """
+        self._reachability = tracker
+
+    def priority_for(self, name: str) -> ReachabilitySource:
+        """Return the source currently authoritative for *name*.
+
+        Returns :data:`ReachabilitySource.UNKNOWN` when no source has
+        claimed the device. Callers comparing against literal source
+        strings keep working because :class:`ReachabilitySource` is a
+        :class:`StrEnum` and equality with the underlying ``str``
+        passes through. Made enum-typed so the drawer's reachability
+        subscription can dispatch on it without a string-typo
+        landing as silent UNKNOWN.
+        """
+        return ReachabilitySource(self._state_source.get(name, ReachabilitySource.UNKNOWN))
 
     def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
         """
@@ -291,7 +344,18 @@ class DeviceStateMonitor:
             )
             return False
 
-        current_source = self._state_source.get(name, "unknown")
+        # Record the per-signal observation regardless of whether the
+        # priority check below ends up ignoring the new state. The user-
+        # facing intent is "show every channel we're hearing on,
+        # independently" — a higher-priority source claiming the device
+        # shouldn't hide that ping or MQTT also just answered. The
+        # ONLINE filter avoids treating "lost" signals (the OFFLINE
+        # flips ping / mqtt issue when the source itself drops) as
+        # freshness.
+        if state == DeviceState.ONLINE and self._reachability is not None:
+            self._reachability.observe(name, source)
+
+        current_source = self._state_source.get(name, ReachabilitySource.UNKNOWN)
         if _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(current_source, 0):
             return False
         # Dedupe must look at *every* matching device, not just the
@@ -308,6 +372,175 @@ class DeviceStateMonitor:
         self._state_source[name] = source
         self._on_state_change(name, state, source)
         return True
+
+    async def refresh_mdns(self, name: str) -> None:
+        """Re-query a device's mDNS A/AAAA records via the wire.
+
+        Caller (the drawer's reachability subscription) is
+        expected to schedule this *after* the cached A record's
+        TTL has elapsed — at that point ``async_resolve_host``'s
+        ``load_from_cache`` short-circuit fails (the record is
+        expired and skipped by ``_process_record_threadsafe``),
+        the call falls through to ``async_request``, and we
+        actually go on the wire.
+
+        ESPHome devices are mDNS-silent except in response to
+        probes, so this is the only mechanism that keeps an
+        A record alive once it ages out. The
+        ``ServiceBrowser``-managed PTR has a 4500s TTL and is
+        kept alive by the browser, but A's 120s TTL decays on
+        its own and the browser does not re-query A.
+
+        No-op when zeroconf failed to start.
+        """
+        if self._zeroconf is None:
+            return
+        try:
+            addresses = await self._zeroconf.async_resolve_host(
+                f"{name}.local", _MDNS_HOSTNAME_RESOLVE_TIMEOUT
+            )
+        except Exception:
+            _LOGGER.debug("mDNS refresh of %s failed", name, exc_info=True)
+            return
+        self._apply_resolved_addresses(name, addresses)
+
+    def _get_address_records(self, name: str) -> list[Any]:
+        """Return cached A and AAAA records for *name*, or ``[]``.
+
+        Used by both :meth:`get_mdns_a_record_ttl_remaining`
+        (which scopes to address records to drive the refresh
+        loop) and :meth:`get_mdns_cache_info` (which folds the
+        addresses into a union with SRV / TXT / PTR for the
+        drawer's "last seen" display).
+        """
+        if self._zeroconf is None:
+            return []
+        cache = self._zeroconf.zeroconf.cache
+        local_name = f"{name}.local."
+        return [
+            *cache.get_all_by_details(local_name, _TYPE_A, _CLASS_IN),
+            *cache.get_all_by_details(local_name, _TYPE_AAAA, _CLASS_IN),
+        ]
+
+    def get_mdns_a_record_ttl_remaining(self, name: str) -> float | None:
+        """Return the minimum remaining TTL across cached A/AAAA records.
+
+        Distinct from :meth:`get_mdns_cache_info` because the
+        drawer's refresh loop needs the A-record-specific
+        expiry to schedule its next wire query — not the
+        union-of-types "last seen" age the snapshot uses for
+        display. PTR has a 4500s TTL and stays cached for
+        ages, so a sleep based on the PTR's remaining TTL
+        would never trigger the A-record refresh that's the
+        whole point of the loop.
+
+        Returns the smallest remaining TTL across whatever
+        A/AAAA records are cached (covers the case where one
+        family expires before the other), or ``None`` if no
+        A/AAAA is cached.
+        """
+        records = self._get_address_records(name)
+        if not records:
+            return None
+        now_ms = current_time_millis()
+        return max(0.0, min(float(r.get_remaining_ttl(now_ms)) for r in records))
+
+    def get_mdns_cache_info(self, name: str) -> MdnsCacheInfo | None:
+        """
+        Read the truthful "last heard via mDNS" age + remaining TTL.
+
+        Returns the most-recent ``DNSRecord.created`` across
+        every cached record we have for the device, paired with
+        the matching record's
+        :meth:`zeroconf.DNSRecord.get_remaining_ttl`. The records
+        we look at:
+
+        * ``A`` / ``AAAA`` at ``<name>.local.`` — the IP-address
+          announces (120s TTL by default).
+        * ``SRV`` / ``TXT`` at ``<name>._esphomelib._tcp.local.``
+          — the API service-instance records (only present for
+          devices running the native API).
+        * ``PTR`` at ``_esphomelib._tcp.local.`` filtered to
+          alias matches — the long-TTL pointer record
+          (~4500s) the ``ServiceBrowser`` keeps alive.
+
+        Walking multiple record types matters because each one
+        has its own TTL: A/AAAA decay at 120s, but the PTR
+        kept alive by the browser stays fresh for tens of
+        minutes. After A expires, an SRV refresh from a probe
+        — or even just the still-live PTR — still tells us
+        "we heard mDNS for this device N seconds ago"
+        truthfully, which is what the drawer's "Last seen"
+        line is asking. Only when *every* record we know about
+        has been evicted from the cache do we return ``None``
+        (and the drawer hides the mDNS row).
+
+        Returns ``None`` when zeroconf isn't running, or when
+        the cache has nothing under any of the record types we
+        check.
+        """
+        if self._zeroconf is None:
+            return None
+        cache = self._zeroconf.zeroconf.cache
+        service_name = f"{name}.{_ESPHOME_SERVICE_TYPE}"
+        records: list[Any] = [
+            *self._get_address_records(name),
+            *cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN),
+            *cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN),
+        ]
+        # PTR is owned by the type-domain (``_esphomelib._tcp.local.``)
+        # and carries the service-instance as its ``alias`` —
+        # zeroconf already exposes ``current_entry_with_name_and_alias``
+        # for exactly this lookup so we don't have to walk every
+        # PTR and filter ourselves. Helper filters expired
+        # internally, which is fine for the 4500s-TTL PTR (won't
+        # expire in any realistic drawer-open window).
+        ptr = cache.current_entry_with_name_and_alias(_ESPHOME_SERVICE_TYPE, service_name)
+        if ptr is not None:
+            records.append(ptr)
+        if not records:
+            return None
+        # Don't filter expired records — the drawer wants the
+        # truthful "last seen" age even when the cached record
+        # has aged past its TTL. With multiple record types
+        # contributing, the PTR (~4500s TTL) typically
+        # outlives A/AAAA (120s) so the row stays populated
+        # via the PTR's ``created`` even during the brief
+        # expiry-to-refresh window for the address records.
+        # The row only hides once *every* cached record has
+        # been evicted, which the empty-check above handles.
+        now_ms = current_time_millis()
+        latest = max(records, key=attrgetter("created"))
+        # ``DNSAddress.created`` is millis; ``now_ms - created`` is
+        # millis, hence ``millis_to_seconds`` here.
+        age_s = max(0.0, millis_to_seconds(now_ms - latest.created))
+        # ``get_remaining_ttl`` already returns seconds (the
+        # impl divides by 1000.0 internally). Don't convert again
+        # — that would turn "108 seconds remaining" into 0.108
+        # and render as "TTL: 0s".
+        ttl_remaining_s = max(0.0, float(latest.get_remaining_ttl(now_ms)))
+        return MdnsCacheInfo(age_seconds=age_s, ttl_remaining_seconds=ttl_remaining_s)
+
+    def _apply_resolved_addresses(
+        self, name: str, addresses: list[str] | BaseException | None
+    ) -> None:
+        """Funnel a successful active-resolve into the apply path.
+
+        Both the per-subscription :meth:`refresh_mdns` and the
+        batch :meth:`_resolve_non_api_mdns_targets` need the same
+        "non-empty address list → claim mDNS-ONLINE + record IPs"
+        treatment. Sharing the branch keeps the deliberate
+        no-OFFLINE-on-miss rule (documented at the call site in
+        :meth:`_resolve_non_api_mdns_targets`) consistent across
+        both paths.
+
+        ``addresses`` accepts the union ``asyncio.gather(...,
+        return_exceptions=True)`` produces so the batch path can
+        thread its results in without a per-element type check.
+        """
+        if isinstance(addresses, list) and addresses:
+            self.apply(name, DeviceState.ONLINE, "mdns", claim=True)
+            self.apply_ip_addresses(name, addresses)
 
     def apply_ip(self, name: str, ip: str) -> bool:
         """
@@ -603,6 +836,8 @@ class DeviceStateMonitor:
                 self.apply(device_name, DeviceState.OFFLINE, "mdns")
                 self.apply_ip(device_name, "")
                 self._state_source.pop(device_name, None)
+                if self._reachability is not None:
+                    self._reachability.clear(device_name)
                 return
 
             # ``claim=True`` so mDNS takes ownership even when the
@@ -912,17 +1147,15 @@ class DeviceStateMonitor:
             return_exceptions=True,
         )
         for device, addresses in zip(candidates, results, strict=True):
-            if isinstance(addresses, list) and addresses:
-                # Trust mDNS for ONLINE — the active A-record query
-                # answered, so the device is live on this LAN. Claim
-                # under the ``mdns`` source (priority 3) so the
-                # subsequent ICMP sweep skips this device entirely.
-                # Keeping ping / DNS traffic to a minimum for
-                # fleets that broadcast is a deliberate trade-off:
-                # we want mDNS to be the single source of truth for
-                # devices that respond to it.
-                self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                self.apply_ip_addresses(device.name, addresses)
+            # Trust mDNS for ONLINE — the active A-record query
+            # answered, so the device is live on this LAN. Claim
+            # under the ``mdns`` source (priority 3) so the
+            # subsequent ICMP sweep skips this device entirely.
+            # Keeping ping / DNS traffic to a minimum for fleets
+            # that broadcast is a deliberate trade-off: we want
+            # mDNS to be the single source of truth for devices
+            # that respond to it.
+            self._apply_resolved_addresses(device.name, addresses)
             # No OFFLINE branch — deliberate. The browser path can
             # trust mDNS in both directions because the
             # ServiceBrowser delivers a ``Removed`` event when a
@@ -1042,8 +1275,8 @@ class DeviceStateMonitor:
         """
         if device.state != DeviceState.ONLINE:
             return True
-        source = self._state_source.get(device.name, "unknown")
-        return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY["ping"]
+        source = self._state_source.get(device.name, ReachabilitySource.UNKNOWN)
+        return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY[ReachabilitySource.PING]
 
     async def _ping_device(self, device: Device, target: str) -> None:
         # Treat any failure mode as "not reachable" → OFFLINE, not as
@@ -1054,9 +1287,18 @@ class DeviceStateMonitor:
         # grey forever — once mDNS / MQTT / ping have all tried, the
         # signal is "we couldn't reach this device". A subsequent
         # successful ping will flip it right back to ONLINE.
+        rtt_ms: float | None = None
         try:
             result = await icmp_ping(target, count=1, timeout=3, privileged=False)
             is_alive = result.is_alive
+            # icmplib's ``Host.min_rtt`` is the lowest round-trip in
+            # milliseconds across the count we sent (1 here). Capture
+            # it before discarding ``result`` so the drawer can show
+            # "4 ms" beside the Ping row. ``min_rtt`` is 0.0 on a
+            # failed ping which would surface as "0 ms" — gate on
+            # ``is_alive`` so failures stay null.
+            if is_alive:
+                rtt_ms = float(result.min_rtt)
         except Exception as exc:
             # ``.local`` hosts on systems without Avahi / mdnsd hit
             # this every sweep; the traceback adds nothing and floods
@@ -1064,6 +1306,8 @@ class DeviceStateMonitor:
             _LOGGER.debug("Ping of %s (%s) failed: %s", device.name, target, exc)
             is_alive = False
         new_state = DeviceState.ONLINE if is_alive else DeviceState.OFFLINE
+        if is_alive and rtt_ms is not None and self._reachability is not None:
+            self._reachability.record_ping_rtt(device.name, rtt_ms)
         self.apply(device.name, new_state, "ping")
 
 
