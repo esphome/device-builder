@@ -30,7 +30,8 @@ configs/
 .cache/
 /__pycache__
 *.lock
-/.claude
+/.claude/*
+!/.claude/skills/
 
 # Coverage artefacts (left behind by ``uv run pytest --cov``)
 .coverage
