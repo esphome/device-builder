@@ -20,6 +20,7 @@ tests exercise the actual coroutine the production code spawns.
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -31,6 +32,7 @@ from esphome_device_builder.controllers.config import (
     set_device_metadata,
 )
 from esphome_device_builder.controllers.devices import DevicesController
+from tests._storage_fixtures import write_storage_json
 
 from .conftest import MakeControllerFactory
 
@@ -803,3 +805,137 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
     await _drain(controller)
 
     assert len(spawn_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Real ``_finalize_regen_success`` — covers the in-executor closure that
+# reads ``build_info.json`` and writes the sidecar in one transaction.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Success path runs the real ``_finalize_regen_success`` end-to-end.
+
+    Other tests in this file mock the finalize helper to verify that
+    the spawn-success branch invokes it; this one lets it execute so
+    the in-executor closure (``read_build_info_hash`` →
+    ``set_device_metadata``) gets exercised against real fixtures.
+    Asserts the sidecar after the run carries the canonical hash AND
+    has the leftover regen-failure stamp cleared in the same write.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    # Pre-seed a leftover failure stamp from a notional prior backend
+    # so the test can verify it's cleared in the same transaction
+    # that writes the new hash.
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        regen_failed_mtime=1.0,
+        regen_failed_at=2.0,
+    )
+
+    # StorageJSON sidecar pointing at a build dir + build_info.json
+    # carrying the canonical hash. ``read_build_info_hash`` reads
+    # both during the executor closure.
+    build_path = tmp_path / ".esphome" / "build" / "kitchen"
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_path / ".pioenvs" / "firmware.bin",
+        build_path=build_path,
+    )
+    build_path.mkdir(parents=True, exist_ok=True)
+    (build_path / "build_info.json").write_text(
+        # 0x5a94a12d — same hash the metadata-resolver tests use,
+        # matches ``acfloatmonitor32.yaml``'s post-codegen value.
+        '{"config_hash": 1519690029, "build_time": 1700000000, '
+        '"build_time_str": "2025-11-14 12:00:00", '
+        '"esphome_version": "2026.5.0-dev"}',
+        encoding="utf-8",
+    )
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    # Hash got written and the leftover stamps got cleared in the
+    # same transaction — both halves of the closure.
+    assert md.get("expected_config_hash") == "5a94a12d"
+    assert "regen_failed_mtime" not in md
+    assert "regen_failed_at" not in md
+
+
+@pytest.mark.asyncio
+async def test_regenerate_success_clears_stamp_when_build_info_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Success spawn but no ``build_info.json`` → log warn, still clear stamps.
+
+    Pins the "missing build_info.json" branch in
+    ``_finalize_regen_success``: when ``read_build_info_hash``
+    returns ``None`` the closure still writes the cleared regen
+    stamps (so the next restart picks up the now-good YAML), and
+    the caller logs a warning rather than silently dropping the
+    case.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        regen_failed_mtime=1.0,
+        regen_failed_at=2.0,
+    )
+
+    # No StorageJSON sidecar → ``read_build_info_hash`` returns
+    # None.
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="esphome_device_builder.controllers.devices.controller",
+    ):
+        controller._schedule_storage_regenerate("kitchen.yaml")
+        await _drain(controller)
+
+    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    # Stamps cleared even though the hash couldn't be read — the
+    # YAML now generates cleanly, the missing build_info.json is
+    # a separate concern surfaced by the warning log.
+    assert "expected_config_hash" not in md
+    assert "regen_failed_mtime" not in md
+    assert "regen_failed_at" not in md
+    assert any(
+        "Could not read config_hash from build_info.json" in record.message
+        for record in caplog.records
+    )
