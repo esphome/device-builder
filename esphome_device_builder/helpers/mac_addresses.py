@@ -83,8 +83,9 @@ def derive_interface_macs(
     ethernet just renders one row.
 
     *primary* must be in the canonical ``XX:XX:XX:XX:XX:XX`` form
-    that :func:`_normalize_mac` produces; all output MACs match
-    that shape so the wire surface is uniform.
+    that :func:`controllers._device_state_monitor._normalize_mac`
+    produces; all output MACs match that shape so the wire
+    surface is uniform.
 
     The derivation is deterministic and side-effect-free; we recompute
     on every primary-MAC observation rather than persisting the

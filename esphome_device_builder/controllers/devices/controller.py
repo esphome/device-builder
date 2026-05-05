@@ -1351,7 +1351,7 @@ class DevicesController:
 
     def _resolve_device_metadata(self, config_dir: Path, filename: str) -> DeviceFileMetadata:
         """
-        Resolve a device's persisted ``board_id``, ``ip``, and config hash.
+        Resolve a device's persisted ``board_id`` / ``ip`` / config hash / MAC.
 
         ``board_id`` priority:
           1. The metadata sidecar — set explicitly when the user
@@ -1384,6 +1384,17 @@ class DevicesController:
         wrote a wrong hash (e.g. the pre-codegen subprocess hash
         the dashboard used to compute) — the next scan after this
         change picks up the canonical value automatically.
+
+        ``mac_address`` is the canonical ``XX:XX:XX:XX:XX:XX`` form
+        last observed on the device's mDNS ``mac`` TXT, persisted
+        to the sidecar so the dashboard renders the value
+        immediately on restart (ESPHome devices are mDNS-silent
+        until probed). Empty when the device hasn't been seen yet
+        — the next mDNS announcement repopulates via
+        :meth:`_on_mac_address_change`. The derived
+        ``ethernet_mac`` / ``bluetooth_mac`` are recomputed by
+        :func:`derive_interface_macs` at ``Device`` construction
+        time, not stored in the sidecar.
         """
         md = get_device_metadata(config_dir, filename)
         ip = str(md.get("ip", ""))
