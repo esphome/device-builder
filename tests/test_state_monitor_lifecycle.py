@@ -100,6 +100,7 @@ def _make_monitor(
     monitor._on_importable_removed = callbacks.on_importable_removed
     monitor._reachability = None
     monitor._dns_cache = MagicMock()
+    monitor._presence = None  # ping loop runs unconditionally in tests
     return monitor, callbacks
 
 

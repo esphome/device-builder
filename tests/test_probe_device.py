@@ -31,6 +31,7 @@ def _make_monitor() -> DeviceStateMonitor:
     monitor._zeroconf.zeroconf = MagicMock()
     monitor._tasks = set()
     monitor._reachability = None
+    monitor._presence = None
     return monitor
 
 

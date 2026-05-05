@@ -31,6 +31,7 @@ from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
+from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
 
 _LOGGER = logging.getLogger(__name__)
@@ -68,6 +69,15 @@ class DeviceBuilder:
         """Initialize the Device Builder."""
         self.settings = settings
         self.bus = EventBus()
+        # Reference-counted "is anyone watching the dashboard?" gate.
+        # The ``subscribe_events`` body wraps itself in
+        # ``presence.subscriber()`` so consumers — currently the
+        # state monitor's ICMP ping loop — can park while the gate
+        # is closed and resume on the 0→1 transition. Mirrors the
+        # legacy dashboard's ``ping_request`` / ``self._subscribers``
+        # pair so a quiet network with no observers generates no
+        # ICMP traffic.
+        self.subscriber_presence = SubscriberPresence()
         self.loop: asyncio.AbstractEventLoop | None = None
         # Held so ``stop()`` can shut the pool down explicitly. Created
         # eagerly here (not in start()) so a test or caller that probes
@@ -313,14 +323,21 @@ class DeviceBuilder:
         # could trip the bounded queue's backpressure terminator
         # under fleet load.
         broadcast_event_types = [et for et in EventType if et is not EventType.DEVICE_REACHABILITY]
-        await stream_events(
-            client=client,
-            message_id=message_id,
-            bus=self.bus,
-            event_types=broadcast_event_types,
-            handle_event=_handle_event,
-            send_initial=_send_initial,
-        )
+        # Hold a presence reference for the lifetime of the stream so
+        # idle-time ICMP discovery resumes the moment a client
+        # subscribes and pauses again on disconnect. The 0→1
+        # transition wakes any awaiter on
+        # ``presence.wait_for_subscriber``; the 1→0 transition
+        # re-arms the gate so the next idle period takes effect.
+        with self.subscriber_presence.subscriber():
+            await stream_events(
+                client=client,
+                message_id=message_id,
+                bus=self.bus,
+                event_types=broadcast_event_types,
+                handle_event=_handle_event,
+                send_initial=_send_initial,
+            )
 
     def create_background_task(self, coro: Any) -> asyncio.Task:
         """Create a tracked background task."""

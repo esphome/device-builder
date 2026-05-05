@@ -102,6 +102,7 @@ def _make_monitor(
     monitor._on_importable_added = None
     monitor._on_importable_removed = None
     monitor._dns_cache = MagicMock()
+    monitor._presence = None
     return monitor
 
 

@@ -160,6 +160,7 @@ class DevicesController:
             on_importable_added=self._on_importable_added,
             on_importable_removed=self._on_importable_removed,
             is_ignored=self.ignored_devices.__contains__,
+            presence=self._db.subscriber_presence,
         )
         # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
         # ping RTT) feeding the device drawer's Reachability section.

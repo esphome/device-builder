@@ -25,6 +25,7 @@ from esphome_device_builder.helpers.event_bus import (
     EventBus,
     StreamBackpressureError,
 )
+from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 from esphome_device_builder.models import EventType
 
 from .conftest import FakeWebSocketClient
@@ -33,11 +34,13 @@ from .conftest import FakeWebSocketClient
 def _make_db() -> DeviceBuilder:
     """Build a minimally-initialised DeviceBuilder for the handler.
 
-    Only ``self.bus`` and ``self.devices`` are read by
+    Only ``self.bus``, ``self.devices``, and
+    ``self.subscriber_presence`` are read by
     ``_cmd_subscribe_events``; everything else can be a stub.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
     db.bus = EventBus()
+    db.subscriber_presence = SubscriberPresence()
     db.devices = None  # skip the initial-snapshot branch
     return db
 
@@ -179,6 +182,7 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
     db.bus = EventBus()
+    db.subscriber_presence = SubscriberPresence()
 
     devices_mock = MagicMock()
     devices_mock.get_devices.return_value = []
