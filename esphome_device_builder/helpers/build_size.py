@@ -185,21 +185,54 @@ def find_stale_build_dirs(config_dir: Path, filenames: list[str]) -> list[str]:
     demand.
     """
     stale: list[str] = []
+    # Load the metadata file once for the whole sweep — the
+    # per-device entries live in a single JSON blob, and
+    # ``get_device_metadata`` would re-parse it from disk N times
+    # in the loop otherwise. The fleet sweep is the cheap-cost
+    # path the cache exists to keep cheap; one read is correct.
+    full_metadata = _load_full_metadata(config_dir)
     for filename in filenames:
         build_dir = resolve_build_dir(filename)
         if build_dir is None:
             continue
         current = get_build_dir_signal(build_dir)
-        if not current.dir_mtime and not current.info_mtime:
-            continue  # build dir vanished; cached zero is correct
-        md = get_device_metadata(config_dir, filename)
+        entry = full_metadata.get(filename, {})
         cached = BuildDirSignal(
-            dir_mtime=int(md.get("build_size_dir_mtime") or 0),
-            info_mtime=int(md.get("build_size_info_mtime") or 0),
+            dir_mtime=int(entry.get("build_size_dir_mtime") or 0),
+            info_mtime=int(entry.get("build_size_info_mtime") or 0),
         )
+        # Equality covers every case correctly: dir-gone +
+        # cache-empty short-circuits ((0, 0) == (0, 0)),
+        # dir-gone + cache-populated falls through to walk
+        # (which clears), dir-present + cache-stale falls
+        # through to walk. We *don't* short-circuit on
+        # "current is empty" — that case used to be skipped
+        # but it leaked stale non-zero cache state forever
+        # when a user manually wiped a build dir.
         if current != cached:
             stale.append(filename)
     return stale
+
+
+def _load_full_metadata(config_dir: Path) -> dict[str, dict]:
+    """Read the per-device metadata file once. Returns ``{}`` on any error.
+
+    Used by :func:`find_stale_build_dirs` to amortize the JSON
+    parse across an N-device fleet sweep into a single read.
+    The format is a plain dict-of-dicts keyed on the device's
+    YAML filename; missing entries / wrong shapes return ``{}``
+    so callers can treat them as "no cached data."
+    """
+    # Local import to keep ``controllers`` out of the top-level
+    # import surface for this helper, which a few module-level
+    # consumers rely on staying side-effect-free.
+    from ..controllers.config import _load_metadata  # noqa: PLC0415
+
+    try:
+        raw = _load_metadata(config_dir)
+    except Exception:
+        return {}
+    return {k: v for k, v in raw.items() if isinstance(v, dict)}
 
 
 def refresh_build_size_if_stale(

@@ -209,7 +209,7 @@ def test_failed_job_does_not_schedule_refresh() -> None:
 
 
 def test_clean_job_skips_full_refresh_but_pokes_build_size() -> None:
-    """CLEAN doesn't run the YAML-hash / flash-bookkeeping path, but the build-size cache must update.
+    """CLEAN skips the hash / flash bookkeeping path but pokes the build-size cache.
 
     The build tree has just been wiped, so the cached
     ``build_size_bytes`` triple is now stale (pre-clean

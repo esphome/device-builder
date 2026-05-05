@@ -1904,11 +1904,13 @@ class DevicesController:
         await self._scanner.reload(configuration)
         if flashed:
             self._sync_deployed_hash_after_flash(configuration)
-        # Compile bumps the build directory's mtime, which is what
-        # gates the cached size walk. Hand off to the build-size
-        # worker so the drawer / table show an up-to-date "Build
-        # size" value the next time the frontend reads the
-        # device list.
+        # A real compile moves the freshness pair the build-size
+        # cache keys off (build-dir mtime + ``build_info.json``
+        # mtime); hand off to the build-size worker so the drawer
+        # / table show an up-to-date "Build size" value the next
+        # time the frontend reads the device list. The worker
+        # short-circuits when the pair didn't actually move (e.g.
+        # an UPLOAD-only job that didn't recompile).
         self._build_size.request(configuration)
 
     async def _persist_expected_config_hash(self, configuration: str) -> None:

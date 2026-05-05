@@ -1,0 +1,408 @@
+"""Tests for the single-worker ``BuildSizeRefresher``.
+
+Covers the queue-and-drain shape end-to-end: requests get
+coalesced into the pending set, the worker wakes on the event,
+walks one configuration at a time, fires the ``on_refreshed``
+callback when the underlying helper actually changed something,
+and survives per-iteration errors. The helper itself is mocked so
+the test doesn't need a real build directory; what's being
+validated here is the *plumbing* between ``request()`` /
+``enqueue_stale_fleet()`` / the worker loop.
+
+Synchronization uses ``asyncio.Event`` rather than sleep-poll
+loops — every test signals "the worker is done with the work I
+care about" via a fixture-installed callback hook so the test
+just ``await``s on a single event with a generous timeout.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+import pytest
+
+from esphome_device_builder.controllers._build_size_refresher import BuildSizeRefresher
+from esphome_device_builder.helpers.build_size import (
+    BuildDirSignal,
+    BuildSizeRefreshResult,
+)
+
+# Generous upper bound for any single worker-tick we wait on.
+# Real refreshes complete in microseconds since everything's
+# mocked — the timeout exists to surface deadlocks rather than
+# wait-time, so a regression where the worker stops draining
+# fails fast instead of hanging the suite.
+_TIMEOUT = 5.0
+
+
+def _make(
+    tmp_path: Path,
+    *,
+    filenames: list[str] | None = None,
+    on_refreshed=None,
+) -> tuple[BuildSizeRefresher, list[str]]:
+    """Build a refresher + the list its ``on_refreshed`` callback appends to."""
+    refreshed: list[str] = []
+
+    async def _default_callback(configuration: str) -> None:
+        refreshed.append(configuration)
+
+    refresher = BuildSizeRefresher(
+        config_dir=tmp_path,
+        get_filenames=lambda: filenames or [],
+        on_refreshed=on_refreshed or _default_callback,
+    )
+    return refresher, refreshed
+
+
+# ----------------------------------------------------------------------
+# Synchronous primitives — no worker running
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_request_adds_to_pending_set_and_wakes_event(tmp_path: Path) -> None:
+    """``request`` is sync, idempotent, and signals the wake event."""
+    refresher, _ = _make(tmp_path)
+    refresher.request("kitchen.yaml")
+    refresher.request("kitchen.yaml")  # dedupe
+    refresher.request("bedroom.yaml")
+    assert refresher._pending == {"kitchen.yaml", "bedroom.yaml"}
+    assert refresher._wake.is_set()
+
+
+@pytest.mark.asyncio
+async def test_start_is_idempotent(tmp_path: Path) -> None:
+    """A second ``start`` while the worker is alive is a no-op."""
+    refresher, _ = _make(tmp_path)
+    refresher.start()
+    first_task = refresher._worker_task
+    refresher.start()
+    assert refresher._worker_task is first_task
+    await refresher.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_with_no_running_worker_is_noop(tmp_path: Path) -> None:
+    """``stop`` on a never-started refresher must not raise."""
+    refresher, _ = _make(tmp_path)
+    await refresher.stop()  # no exception
+    assert refresher._worker_task is None
+
+
+# ----------------------------------------------------------------------
+# Worker drain loop
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_worker_drains_pending_and_fires_on_refreshed(tmp_path: Path) -> None:
+    """A request lands in the queue; the worker walks + fires the callback."""
+    done = asyncio.Event()
+    refreshed: list[str] = []
+
+    async def _on_refreshed(configuration: str) -> None:
+        refreshed.append(configuration)
+        done.set()
+
+    refresher, _ = _make(tmp_path, on_refreshed=_on_refreshed)
+
+    def _refresh(_config_dir: Path, _configuration: str) -> BuildSizeRefreshResult:
+        return BuildSizeRefreshResult(
+            size_bytes=1024,
+            signal=BuildDirSignal(dir_mtime=10, info_mtime=20),
+        )
+
+    with patch(
+        "esphome_device_builder.controllers._build_size_refresher.refresh_build_size_if_stale",
+        side_effect=_refresh,
+    ):
+        refresher.start()
+        refresher.request("kitchen.yaml")
+        await asyncio.wait_for(done.wait(), timeout=_TIMEOUT)
+        await refresher.stop()
+
+    assert refreshed == ["kitchen.yaml"]
+    assert refresher._pending == set()
+
+
+@pytest.mark.asyncio
+async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -> None:
+    """Refresh returning ``None`` (cache hit) → no ``on_refreshed`` invoke.
+
+    Sequences two requests: ``cached.yaml`` returns ``None`` from
+    the helper (cache hit, callback skipped), ``stale.yaml``
+    returns a real result that fires the callback. Waiting on the
+    second one's callback proves the worker took the
+    "continue past skipped callback" branch *and* came back
+    around to drain the next item — i.e. the cache-hit short-
+    circuit doesn't break the drain loop.
+    """
+    success = asyncio.Event()
+    refreshed: list[str] = []
+
+    async def _on_refreshed(configuration: str) -> None:
+        refreshed.append(configuration)
+        success.set()
+
+    def _refresh(_config_dir: Path, configuration: str):
+        if configuration == "cached.yaml":
+            return None
+        return BuildSizeRefreshResult(
+            size_bytes=42,
+            signal=BuildDirSignal(dir_mtime=1, info_mtime=2),
+        )
+
+    refresher, _ = _make(tmp_path, on_refreshed=_on_refreshed)
+    with patch(
+        "esphome_device_builder.controllers._build_size_refresher.refresh_build_size_if_stale",
+        side_effect=_refresh,
+    ):
+        refresher.start()
+        refresher.request("cached.yaml")
+        refresher.request("stale.yaml")
+        await asyncio.wait_for(success.wait(), timeout=_TIMEOUT)
+        await refresher.stop()
+
+    # Only the stale device fired the callback — the cached one
+    # short-circuited at the ``if result is None: continue``
+    # branch.
+    assert refreshed == ["stale.yaml"]
+
+
+@pytest.mark.asyncio
+async def test_worker_logs_and_continues_on_refresh_exception(tmp_path: Path, caplog: Any) -> None:
+    """A per-iteration walk error logs + keeps the worker alive for the next item.
+
+    Uses a log-event handler to wait for the failure log to land,
+    plus a separate event for the successful follow-up — pending
+    set's pop order is arbitrary, so synchronizing on both
+    independently is necessary to avoid a race where the test
+    asserts before either has actually run.
+    """
+    error_seen = asyncio.Event()
+    success_seen = asyncio.Event()
+    refreshed: list[str] = []
+
+    class _LogTrap(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if "Build-size refresh failed for broken.yaml" in record.getMessage():
+                error_seen.set()
+
+    async def _on_refreshed(configuration: str) -> None:
+        refreshed.append(configuration)
+        success_seen.set()
+
+    def _refresh(_config_dir: Path, configuration: str):
+        if configuration == "broken.yaml":
+            raise RuntimeError("disk on fire")
+        return BuildSizeRefreshResult(
+            size_bytes=42,
+            signal=BuildDirSignal(dir_mtime=1, info_mtime=2),
+        )
+
+    refresher, _ = _make(tmp_path, on_refreshed=_on_refreshed)
+    handler = _LogTrap()
+    logging.getLogger("esphome_device_builder.controllers._build_size_refresher").addHandler(
+        handler
+    )
+    caplog.set_level(logging.ERROR)
+    try:
+        with patch(
+            "esphome_device_builder.controllers._build_size_refresher.refresh_build_size_if_stale",
+            side_effect=_refresh,
+        ):
+            refresher.start()
+            refresher.request("broken.yaml")
+            refresher.request("kitchen.yaml")
+            await asyncio.wait_for(error_seen.wait(), timeout=_TIMEOUT)
+            await asyncio.wait_for(success_seen.wait(), timeout=_TIMEOUT)
+            await refresher.stop()
+    finally:
+        logging.getLogger("esphome_device_builder.controllers._build_size_refresher").removeHandler(
+            handler
+        )
+
+    assert refreshed == ["kitchen.yaml"]
+
+
+@pytest.mark.asyncio
+async def test_worker_logs_and_continues_on_callback_exception(tmp_path: Path, caplog: Any) -> None:
+    """``on_refreshed`` raising must not kill the worker either."""
+    error_seen = asyncio.Event()
+    success_seen = asyncio.Event()
+
+    class _LogTrap(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if "on_refreshed callback failed for broken.yaml" in record.getMessage():
+                error_seen.set()
+
+    async def _bad_callback(configuration: str) -> None:
+        if configuration == "broken.yaml":
+            raise RuntimeError("scanner blew up")
+        success_seen.set()
+
+    def _refresh(_config_dir: Path, _configuration: str) -> BuildSizeRefreshResult:
+        return BuildSizeRefreshResult(
+            size_bytes=1,
+            signal=BuildDirSignal(dir_mtime=1, info_mtime=1),
+        )
+
+    refresher, _ = _make(tmp_path, on_refreshed=_bad_callback)
+    handler = _LogTrap()
+    logging.getLogger("esphome_device_builder.controllers._build_size_refresher").addHandler(
+        handler
+    )
+    caplog.set_level(logging.ERROR)
+    try:
+        with patch(
+            "esphome_device_builder.controllers._build_size_refresher.refresh_build_size_if_stale",
+            side_effect=_refresh,
+        ):
+            refresher.start()
+            refresher.request("broken.yaml")
+            await asyncio.wait_for(error_seen.wait(), timeout=_TIMEOUT)
+            # Worker is still alive — request a second one and
+            # confirm it's serviced normally.
+            refresher.request("kitchen.yaml")
+            await asyncio.wait_for(success_seen.wait(), timeout=_TIMEOUT)
+            await refresher.stop()
+    finally:
+        logging.getLogger("esphome_device_builder.controllers._build_size_refresher").removeHandler(
+            handler
+        )
+
+
+# ----------------------------------------------------------------------
+# enqueue_stale_fleet — phase-A sweep wiring
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enqueue_stale_fleet_pushes_divergent_filenames(tmp_path: Path) -> None:
+    """``find_stale_build_dirs`` returns a list → each one ends up in pending."""
+    refresher, _ = _make(tmp_path, filenames=["a.yaml", "b.yaml", "c.yaml"])
+    with patch(
+        "esphome_device_builder.controllers._build_size_refresher.find_stale_build_dirs",
+        return_value=["a.yaml", "c.yaml"],
+    ):
+        await refresher.enqueue_stale_fleet()
+
+    assert refresher._pending == {"a.yaml", "c.yaml"}
+
+
+@pytest.mark.asyncio
+async def test_enqueue_stale_fleet_empty_filenames_skips_executor(tmp_path: Path) -> None:
+    """No configured devices → no executor handoff at all."""
+    calls: list[Any] = []
+
+    def _track(*args: Any, **_kw: Any) -> Any:
+        calls.append(args)
+        return []
+
+    refresher, _ = _make(tmp_path, filenames=[])
+    with patch(
+        "esphome_device_builder.controllers._build_size_refresher.find_stale_build_dirs",
+        side_effect=_track,
+    ):
+        await refresher.enqueue_stale_fleet()
+
+    assert calls == []  # short-circuited before scheduling anything
+    assert refresher._pending == set()
+
+
+# ----------------------------------------------------------------------
+# Initial fleet sweep + stop() error paths
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_worker_logs_when_initial_fleet_sweep_raises(tmp_path: Path, caplog: Any) -> None:
+    """Initial sweep raising must not kill the worker — log + carry on."""
+    sweep_failed = asyncio.Event()
+    success = asyncio.Event()
+
+    class _LogTrap(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if "Initial build-size fleet sweep failed" in record.getMessage():
+                sweep_failed.set()
+
+    refreshed: list[str] = []
+
+    async def _on_refreshed(configuration: str) -> None:
+        refreshed.append(configuration)
+        success.set()
+
+    def _refresh(_config_dir: Path, _configuration: str) -> BuildSizeRefreshResult:
+        return BuildSizeRefreshResult(
+            size_bytes=1,
+            signal=BuildDirSignal(dir_mtime=1, info_mtime=1),
+        )
+
+    refresher, _ = _make(tmp_path, filenames=["a.yaml"], on_refreshed=_on_refreshed)
+    handler = _LogTrap()
+    logging.getLogger("esphome_device_builder.controllers._build_size_refresher").addHandler(
+        handler
+    )
+    caplog.set_level(logging.ERROR)
+    try:
+        with (
+            patch(
+                "esphome_device_builder.controllers._build_size_refresher.find_stale_build_dirs",
+                side_effect=RuntimeError("metadata corrupt"),
+            ),
+            patch(
+                "esphome_device_builder.controllers._build_size_refresher.refresh_build_size_if_stale",
+                side_effect=_refresh,
+            ),
+        ):
+            refresher.start()
+            await asyncio.wait_for(sweep_failed.wait(), timeout=_TIMEOUT)
+            # Worker is still alive — a fresh request gets serviced.
+            refresher.request("a.yaml")
+            await asyncio.wait_for(success.wait(), timeout=_TIMEOUT)
+            await refresher.stop()
+    finally:
+        logging.getLogger("esphome_device_builder.controllers._build_size_refresher").removeHandler(
+            handler
+        )
+
+    assert refreshed == ["a.yaml"]
+
+
+@pytest.mark.asyncio
+async def test_stop_logs_unexpected_worker_exception(tmp_path: Path, caplog: Any) -> None:
+    """Anything other than ``CancelledError`` from the worker gets logged.
+
+    The worker's outer ``while True:`` doesn't catch errors raised
+    *outside* the per-iteration ``try`` (e.g. an executor that
+    explodes before reaching the per-iteration handler). Those
+    propagate through ``await self._worker_task`` during ``stop``;
+    we log so the failure isn't invisible during a clean
+    shutdown.
+    """
+    refresher, _ = _make(tmp_path)
+
+    async def _failing_worker(self_: BuildSizeRefresher) -> None:
+        # Block until cancelled by ``stop()``, then convert the
+        # cancellation into an unexpected exception. This is what
+        # an "outside the per-iteration try" failure looks like
+        # at the await boundary in ``stop()``.
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise RuntimeError("worker exploded") from None
+
+    caplog.set_level(logging.ERROR)
+    with patch.object(BuildSizeRefresher, "_worker", _failing_worker):
+        refresher.start()
+        # Yield once so the worker actually starts awaiting; without
+        # this, ``stop`` cancels before the task entered the try.
+        await asyncio.sleep(0)
+        await refresher.stop()
+
+    assert any("Build-size worker failed during shutdown" in r.message for r in caplog.records)

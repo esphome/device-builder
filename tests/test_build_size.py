@@ -2,11 +2,18 @@
 
 The helper walks ``.esphome/build/<device>/`` to compute the total
 size of a device's compile artifacts. The walk is heavy + I/O-bound,
-so callers gate it behind a stat-only ``get_build_dir_mtime`` check
-and persist the (mtime, bytes) pair in the per-device metadata
-sidecar. These tests cover the helper itself; the controller's
-mtime-gated refresh path is exercised in
-``test_maybe_refresh_build_size``.
+so callers gate it behind a freshness pair (``BuildDirSignal``:
+``dir_mtime`` + ``build_info_mtime``) and persist the
+``(size_bytes, dir_mtime, info_mtime)`` triple in the per-device
+metadata sidecar — either side of the pair moving counts as
+stale, see ``helpers/build_size.py``'s module docstring for the
+empirical matrix that drove the pair-vs-single-stat decision.
+
+These tests cover the helper itself plus the
+``BuildSizeRefresher`` worker's behaviour is exercised through
+``tests/controllers/firmware/test_refresh.py`` (the
+``test_clean_job_skips_full_refresh_but_pokes_build_size`` case
+that pins the post-CLEAN refresh hand-off).
 """
 
 from __future__ import annotations
@@ -541,6 +548,43 @@ def test_find_stale_build_dirs_returns_only_divergent_filenames(tmp_path: Path) 
 def test_find_stale_build_dirs_empty_list_returns_empty(tmp_path: Path) -> None:
     """No devices in → no executor work, no walks, no stale list."""
     assert find_stale_build_dirs(tmp_path, []) == []
+
+
+def test_find_stale_build_dirs_handles_corrupt_metadata_file(tmp_path: Path) -> None:
+    """A metadata read that raises falls back to "no cached data" → all stale.
+
+    A corrupt ``.device-builder.json`` (truncated, permissions
+    issue) shouldn't crash the cold-start fleet sweep. The
+    helper treats the read failure as "no cached entries", so
+    every device whose build dir exists returns as stale on
+    that pass.
+    """
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    build_dir = tmp_path / "build" / "kitchen"
+    build_dir.mkdir(parents=True)
+
+    class _FakeStorage:
+        build_path = str(build_dir)
+
+    with (
+        patch(
+            "esphome_device_builder.controllers.config._load_metadata",
+            side_effect=OSError("permission denied"),
+        ),
+        patch(
+            "esphome_device_builder.helpers.build_size.ext_storage_path",
+            return_value=tmp_path / "fake.json",
+        ),
+        patch(
+            "esphome_device_builder.helpers.build_size.StorageJSON.load",
+            return_value=_FakeStorage(),
+        ),
+    ):
+        result = find_stale_build_dirs(config_dir, ["kitchen.yaml"])
+
+    # No cached pair → drift detected → kitchen flagged stale.
+    assert result == ["kitchen.yaml"]
 
 
 def test_refresh_build_size_if_stale_returns_none_when_no_storage(tmp_path: Path) -> None:

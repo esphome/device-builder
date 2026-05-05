@@ -136,11 +136,14 @@ class Device(DataClassORJSONMixin):
     # tree at last walk. ``0`` when the device hasn't been compiled
     # yet (no StorageJSON / no build artifacts on disk) or when the
     # cached value hasn't been populated since startup. The walk is
-    # gated on the build directory's mtime: only a real compile
-    # bumps it forward, so a steady-state dashboard reload reuses
-    # the cached total without re-walking. Stored alongside the
-    # mtime in the metadata sidecar so a backend restart picks up
-    # the cached total without an N-device cold-start walk.
+    # gated on a freshness pair (the build dir's top-level mtime
+    # *and* ``build_info.json``'s mtime) — either side moving
+    # counts as stale. Both halves are persisted alongside the
+    # cached total in the metadata sidecar so a backend restart
+    # picks up the value without an N-device cold-start walk; only
+    # devices whose pair drifted from what was persisted get
+    # re-walked. See ``helpers/build_size.py`` for the empirical
+    # matrix that drove the pair-vs-single-stat decision.
     build_size_bytes: int = 0
 
 

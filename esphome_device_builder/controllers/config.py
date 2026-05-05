@@ -318,31 +318,24 @@ def set_device_metadata(
             entry["comment"] = comment
         if ip:
             entry["ip"] = ip
-        if expected_config_hash is not None:
-            if expected_config_hash:
-                entry["expected_config_hash"] = expected_config_hash
+        # Tri-state fields: ``None`` means "leave alone", a truthy
+        # value writes, an explicit falsy (``""`` / ``0``) clears.
+        # Loop over the (key, value) pairs so adding a new
+        # tri-state field doesn't bump this function's branch
+        # count (ruff PLR0912 caps at 12).
+        for key, value in (
+            ("expected_config_hash", expected_config_hash),
+            ("mac_address", mac_address),
+            ("build_size_bytes", build_size_bytes),
+            ("build_size_dir_mtime", build_size_dir_mtime),
+            ("build_size_info_mtime", build_size_info_mtime),
+        ):
+            if value is None:
+                continue
+            if value:
+                entry[key] = value
             else:
-                entry.pop("expected_config_hash", None)
-        if mac_address is not None:
-            if mac_address:
-                entry["mac_address"] = mac_address
-            else:
-                entry.pop("mac_address", None)
-        if build_size_bytes is not None:
-            if build_size_bytes:
-                entry["build_size_bytes"] = build_size_bytes
-            else:
-                entry.pop("build_size_bytes", None)
-        if build_size_dir_mtime is not None:
-            if build_size_dir_mtime:
-                entry["build_size_dir_mtime"] = build_size_dir_mtime
-            else:
-                entry.pop("build_size_dir_mtime", None)
-        if build_size_info_mtime is not None:
-            if build_size_info_mtime:
-                entry["build_size_info_mtime"] = build_size_info_mtime
-            else:
-                entry.pop("build_size_info_mtime", None)
+                entry.pop(key, None)
 
 
 def get_device_metadata(config_dir: Path, filename: str) -> dict[str, Any]:

@@ -91,18 +91,23 @@ class BuildSizeRefresher:
         self._worker_task = asyncio.create_task(self._worker())
 
     async def stop(self) -> None:
-        """Cancel the worker and wait for it to exit cleanly."""
+        """Cancel the worker and wait for it to exit cleanly.
+
+        ``CancelledError`` is the expected exit and gets
+        suppressed silently. Anything else is unexpected — a
+        per-iteration ``except`` in the worker missed something —
+        and gets logged so the failure isn't invisible during a
+        clean controller shutdown.
+        """
         if self._worker_task is None:
             return
         self._worker_task.cancel()
         try:
             await self._worker_task
-        except (asyncio.CancelledError, Exception):
-            # Cancellation surfaces as ``CancelledError``; any
-            # other exception means a per-iteration ``except``
-            # missed something, which we still don't want to
-            # propagate up the controller's ``stop()`` chain.
+        except asyncio.CancelledError:
             pass
+        except Exception:
+            _LOGGER.exception("Build-size worker failed during shutdown")
         self._worker_task = None
 
     async def enqueue_stale_fleet(self) -> None:
