@@ -48,7 +48,7 @@ inputs:
   github-token:
     description: |
       Token used to call ``gh release list``. Leave empty to use the
-      implicit ``${{ github.token }}``, which has the read access
+      workflow's implicit ``github.token``, which has the read access
       needed for the release list. Callers that want to use an app
       token (e.g. for consistency with the rest of their workflow)
       can pass it explicitly.
