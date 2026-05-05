@@ -18,6 +18,7 @@ that pins the post-CLEAN refresh hand-off).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -77,22 +78,23 @@ def test_compute_build_dir_size_skips_directories(tmp_path: Path) -> None:
 def test_compute_build_dir_size_swallows_per_entry_errors(tmp_path: Path) -> None:
     """A vanishing file mid-walk doesn't fail the whole operation.
 
-    Concurrent compile cleanup can yank entries between the
-    ``rglob`` and the ``stat`` call. Returning the partial total
-    is better than crashing the dashboard.
+    Concurrent compile cleanup can yank entries between
+    ``os.walk`` returning the filename and ``os.path.getsize``
+    stat'ing it. Returning the partial total is better than
+    crashing the dashboard.
     """
     (tmp_path / "good.bin").write_bytes(b"x" * 100)
-    bad = tmp_path / "vanished.bin"
-    bad.write_bytes(b"y" * 200)
+    bad_path = str(tmp_path / "vanished.bin")
+    (tmp_path / "vanished.bin").write_bytes(b"y" * 200)
 
-    real_stat = Path.stat
+    real_getsize = os.path.getsize
 
-    def fake_stat(self: Path, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if self == bad:
+    def fake_getsize(path: str) -> int:
+        if path == bad_path:
             raise OSError("file disappeared")
-        return real_stat(self, *args, **kwargs)
+        return real_getsize(path)
 
-    with patch.object(Path, "stat", fake_stat):
+    with patch("esphome_device_builder.helpers.build_size.os.path.getsize", fake_getsize):
         # 100 from good.bin; the bad one is skipped.
         assert compute_build_dir_size(tmp_path) == 100
 

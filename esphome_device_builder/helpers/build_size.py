@@ -51,6 +51,7 @@ callers treat that the same as "no cached value, total = 0".
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -327,17 +328,28 @@ def compute_build_dir_size(build_dir: Path) -> int:
     walk during a concurrent compile) is swallowed so the total
     reflects what we could see rather than failing the whole
     operation.
+
+    Walks via ``os.walk()`` rather than ``Path.rglob`` — the
+    former delegates to ``os.scandir()`` since Python 3.5, which
+    gets cached ``d_type`` from ``readdir()`` so we don't pay a
+    syscall just to know "is this a file or a dir". ``rglob``
+    allocates a ``Path`` per entry and re-stats for ``is_file()``,
+    which roughly doubles the syscall count on big build trees
+    (PlatformIO checkouts can be 10k+ files).
     """
-    if not build_dir.exists():
-        return 0
     total = 0
-    for entry in build_dir.rglob("*"):
-        try:
-            if entry.is_file():
-                total += entry.stat().st_size
-        except OSError:
-            # File vanished mid-walk (concurrent compile cleanup,
-            # symlink target removed, …). Skip and keep going —
-            # a partial total is better than no total.
-            continue
+    # ``onerror`` swallows top-level failures (missing dir,
+    # permission denied at root). Per-file ``getsize`` errors
+    # are caught individually below so a vanishing file mid-walk
+    # doesn't kill the whole operation.
+    for dirpath, _dirnames, filenames in os.walk(build_dir, onerror=lambda _e: None):
+        for filename in filenames:
+            try:
+                total += os.path.getsize(os.path.join(dirpath, filename))
+            except OSError:
+                # File vanished mid-walk (concurrent compile
+                # cleanup, symlink target removed, …). Skip and
+                # keep going — a partial total is better than
+                # no total.
+                continue
     return total
