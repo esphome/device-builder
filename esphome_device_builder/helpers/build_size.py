@@ -188,8 +188,8 @@ def find_stale_build_dirs(config_dir: Path, filenames: list[str]) -> list[str]:
         current = get_build_dir_signal(build_dir)
         entry = full_metadata.get(filename, {})
         cached = BuildDirSignal(
-            dir_mtime=int(entry.get("build_size_dir_mtime") or 0),
-            info_mtime=int(entry.get("build_size_info_mtime") or 0),
+            dir_mtime=coerce_sidecar_int(entry.get("build_size_dir_mtime")),
+            info_mtime=coerce_sidecar_int(entry.get("build_size_info_mtime")),
         )
         # Equality covers every case correctly: dir-gone +
         # cache-empty short-circuits ((0, 0) == (0, 0)),
@@ -259,8 +259,8 @@ def refresh_build_size_if_stale(
     current = get_build_dir_signal(build_dir)
     md = get_device_metadata(config_dir, filename)
     cached = BuildDirSignal(
-        dir_mtime=int(md.get("build_size_dir_mtime") or 0),
-        info_mtime=int(md.get("build_size_info_mtime") or 0),
+        dir_mtime=coerce_sidecar_int(md.get("build_size_dir_mtime")),
+        info_mtime=coerce_sidecar_int(md.get("build_size_info_mtime")),
     )
     # Pure equality check across the whole pair. Crucially this
     # short-circuits the "build dir is missing AND we never had
@@ -282,6 +282,24 @@ def refresh_build_size_if_stale(
         build_size_info_mtime=current.info_mtime,
     )
     return BuildSizeRefreshResult(size_bytes=size, signal=current)
+
+
+def coerce_sidecar_int(value: object) -> int:
+    """Coerce a cached sidecar value to ``int``; ``0`` on any failure.
+
+    Same defensive shape ``_resolve_device_metadata`` uses for the
+    cached size — a hand-edited or partially-written sidecar
+    could land here with a non-numeric value (``None``, an
+    object, a decimal-string like ``"12.7"``). Falling back to
+    ``0`` matches the "never walked" sentinel and lets the next
+    refresh repopulate from the build dir.
+    """
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def get_build_dir_mtime(path: Path) -> int:

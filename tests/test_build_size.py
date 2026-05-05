@@ -22,12 +22,15 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
 from esphome_device_builder.helpers.build_size import (
     BuildDirSignal,
+    coerce_sidecar_int,
     compute_build_dir_size,
     find_stale_build_dirs,
     get_build_dir_mtime,
@@ -102,6 +105,34 @@ def test_compute_build_dir_size_swallows_per_entry_errors(tmp_path: Path) -> Non
 # ----------------------------------------------------------------------
 # get_build_dir_mtime
 # ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (1714900000, 1714900000),
+        ("1714900000", 1714900000),
+        (None, 0),
+        (0, 0),
+        ("", 0),
+        ("not-a-number", 0),
+        ("12.7", 0),  # int() rejects fractional strings
+        ({}, 0),
+        ([], 0),
+        (12.9, 12),  # truncates floats — same as ``int()`` on numeric values
+    ],
+)
+def test_coerce_sidecar_int(value: object, expected: int) -> None:
+    """``coerce_sidecar_int`` falls back to ``0`` on every shape ``int()`` rejects.
+
+    Same defensive shape both ``find_stale_build_dirs`` /
+    ``refresh_build_size_if_stale`` (cached mtimes) and
+    ``_resolve_device_metadata`` (cached size) use. Corrupt /
+    hand-edited sidecar entries shouldn't crash the per-device
+    hot path; the next ``BuildSizeRefresher`` pass repopulates
+    fresh values.
+    """
+    assert coerce_sidecar_int(value) == expected
 
 
 def test_get_build_dir_mtime_returns_whole_seconds(tmp_path: Path) -> None:

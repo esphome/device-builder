@@ -23,6 +23,7 @@ from esphome.components.dashboard_import import import_config
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 
 from ...helpers.api import CommandError, api_command
+from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import compute_yaml_config_hash, read_build_info_hash
 from ...helpers.device_yaml import (
     generate_device_yaml,
@@ -1425,17 +1426,13 @@ class DevicesController:
         if not board_id:
             board_id = self._derive_board_id_from_yaml(config_dir, filename)
         mac_address = str(md.get("mac_address", ""))
-        # Defensive ``int()`` coercion: a hand-edited / partially-
-        # written sidecar could land here with a non-numeric value
-        # (e.g. ``null``, an object). The metadata resolver is on
-        # the scanner's per-device hot path and a single corrupt
-        # entry shouldn't fail the whole scan — fall back to ``0``
-        # (the same sentinel ``set_device_metadata`` writes when
-        # clearing) and let the next walk re-populate.
-        try:
-            build_size_bytes = int(md.get("build_size_bytes") or 0)
-        except (TypeError, ValueError):
-            build_size_bytes = 0
+        # ``coerce_sidecar_int`` handles the bad-data fall-throughs
+        # (``None`` / object / decimal-string / etc.) — same
+        # defensive shape used by the build-size cache reads in
+        # ``helpers/build_size.py``. The metadata resolver is on
+        # the scanner's per-device hot path; a single corrupt
+        # entry shouldn't fail the whole scan.
+        build_size_bytes = coerce_sidecar_int(md.get("build_size_bytes"))
         return DeviceFileMetadata(
             board_id=board_id,
             ip=ip,
