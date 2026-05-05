@@ -198,6 +198,48 @@ async def test_delete_bulk_returns_per_device_success_with_mixed_outcomes(
     assert len(scan_calls) == 1
 
 
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_archive_bulk_returns_per_device_success_with_mixed_outcomes(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+) -> None:
+    """``archive_bulk`` returns one ``{configuration, success, error?}`` per item.
+
+    Mirrors ``delete_bulk``'s shape so the dashboard's bulk-archive
+    flow can consume a single result list instead of fanning out N
+    ``devices/archive`` calls. Pin: existing devices report success
+    and their YAML moves into ``archive/``, missing ones report
+    ``success=False``, traversal-style names get rejected with
+    ``CommandError(INVALID_ARGS)``, and the scanner only fires once
+    for the whole batch.
+    """
+    controller = make_controller(tmp_path)
+    kitchen_yaml, _ = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    bedroom_yaml, _ = await seed_device(tmp_path, "bedroom.yaml", with_build_dir=True)
+
+    results = await controller.archive_bulk(
+        configurations=["kitchen.yaml", "ghost.yaml", "../etc/passwd", "bedroom.yaml"]
+    )
+
+    assert results[0] == {"configuration": "kitchen.yaml", "success": True}
+    assert results[1]["configuration"] == "ghost.yaml"
+    assert results[1]["success"] is False
+    assert "ghost.yaml" in results[1]["error"]
+    assert results[2]["configuration"] == "../etc/passwd"
+    assert results[2]["success"] is False
+    assert results[3] == {"configuration": "bedroom.yaml", "success": True}
+
+    assert not kitchen_yaml.exists()
+    assert not bedroom_yaml.exists()
+    assert (tmp_path / "archive" / "kitchen.yaml").exists()
+    assert (tmp_path / "archive" / "bedroom.yaml").exists()
+    # Only one scan for the whole batch.
+    scan_calls = [c for c in controller._scanner.calls if c == ("scan",)]
+    assert len(scan_calls) == 1
+
+
 # ---------------------------------------------------------------------------
 # get_api_key public-API wiring
 # ---------------------------------------------------------------------------

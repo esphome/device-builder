@@ -13,7 +13,7 @@ import contextlib
 import logging
 import os
 import shutil
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -701,10 +701,44 @@ class DevicesController:
 
         Returns one ``{configuration, success, error?}`` dict per device.
         """
+        return await self._run_bulk_per_device(configurations, self._delete_single)
+
+    @api_command("devices/archive_bulk")
+    async def archive_bulk(
+        self, *, configurations: list[str], **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        """
+        Archive multiple devices at once.
+
+        Returns one ``{configuration, success, error?}`` dict per device.
+        Mirrors ``delete_bulk`` so the frontend's bulk-archive flow can
+        consume a single per-device result list instead of fanning out
+        N separate ``devices/archive`` calls.
+        """
+
+        async def _archive(configuration: str) -> None:
+            _validate_archive_configuration(configuration)
+            await self._archive_single(configuration)
+
+        return await self._run_bulk_per_device(configurations, _archive)
+
+    async def _run_bulk_per_device(
+        self,
+        configurations: list[str],
+        action: Callable[[str], Awaitable[None]],
+    ) -> list[dict[str, Any]]:
+        """Run *action* per configuration; return one result dict each.
+
+        Shared shape behind ``delete_bulk`` and ``archive_bulk``: each
+        item in the returned list is ``{configuration, success}`` plus
+        ``error`` (the exception's ``str``) on failure. A single
+        ``_scanner.scan()`` runs after the whole batch — bulk teardown
+        otherwise N-squares the bus traffic the dashboard subscribes to.
+        """
         results: list[dict[str, Any]] = []
         for configuration in configurations:
             try:
-                await self._delete_single(configuration)
+                await action(configuration)
                 results.append({"configuration": configuration, "success": True})
             except Exception as exc:
                 results.append(
