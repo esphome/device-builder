@@ -47,13 +47,13 @@ inputs:
     default: prerelease
   github-token:
     description: |
-      Token used to call ``gh release list``. Defaults to the
+      Token used to call ``gh release list``. Leave empty to use the
       implicit ``${{ github.token }}``, which has the read access
       needed for the release list. Callers that want to use an app
       token (e.g. for consistency with the rest of their workflow)
       can pass it explicitly.
     required: false
-    default: ${{ github.token }}
+    default: ""
 
 outputs:
   version:
@@ -82,7 +82,7 @@ runs:
       id: resolve
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.github-token }}
+        GH_TOKEN: ${{ inputs.github-token || github.token }}
         VERSION_INPUT: ${{ inputs.version }}
         MODE: ${{ inputs.mode }}
       run: |
