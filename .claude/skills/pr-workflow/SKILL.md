@@ -61,45 +61,29 @@ the companion PR there.
 
 ## 6. Push and create the PR
 
+**Always read `.github/PULL_REQUEST_TEMPLATE.md` from the repo at
+PR-creation time and use it verbatim as the body** — do not
+reproduce, paraphrase, or trim the template anywhere else, or it
+will silently drift out of sync as the template evolves.
+
+When filling in the template:
+
+- Replace the `<!-- ... -->` prompt comments with the actual prose
+  for that section. Do not delete anything else.
+- **Leave all the checkboxes in place.** Do not remove rows you
+  aren't ticking — release-drafter / the auto-labeller and the
+  human reviewer both rely on the full list being present.
+- Tick exactly one "Types of changes" box (see step 3). For the
+  Frontend coordination and Checklist sections, only tick boxes
+  you have actually verified; leave the rest as `- [ ]`.
+
 ```bash
 git push -u origin <branch-name>
+# Read .github/PULL_REQUEST_TEMPLATE.md, fill it in as above,
+# write the result to a temp file, then:
 gh pr create --repo esphome/device-builder --base main \
   --title "Imperative subject under 70 chars" \
-  --body "$(cat <<'EOF'
-# What does this implement/fix?
-
-<one paragraph: what changed and why>
-
-**Related issue or feature (if applicable):**
-
-- fixes #<issue-number>
-
-## Types of changes
-
-- [ ] Bugfix (non-breaking change which fixes an issue) — `bugfix`
-- [ ] New feature (non-breaking change which adds functionality) — `new-feature`
-- [x] Enhancement to an existing feature — `enhancement`
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected) — `breaking-change`
-- [ ] Refactor (no behaviour change) — `refactor`
-- [ ] Documentation only — `docs`
-- [ ] Maintenance / chore — `maintenance`
-- [ ] CI / workflow change — `ci`
-- [ ] Dependencies bump — `dependencies`
-
-## Frontend coordination
-
-- [x] No frontend change needed
-- [ ] Companion frontend PR: esphome/device-builder-frontend#<number>
-
-## Checklist
-
-- [x] The code change is tested and works locally.
-- [x] Pre-commit hooks pass (`ruff`, `codespell`, yaml/json/python checks).
-- [x] Tests have been added or updated under `tests/` where applicable.
-- [x] `components.json` has **not** been hand-edited (regenerate via `script/sync_components.py` if a sync is needed).
-- [x] Architecture-level changes are reflected in `docs/ARCHITECTURE.md` and/or `docs/API.md`.
-EOF
-)"
+  --body-file /tmp/pr-body.md
 ```
 
 The keep-the-checklist-honest rule applies — only tick a checklist
