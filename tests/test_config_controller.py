@@ -214,6 +214,33 @@ def test_set_device_metadata_clears_expected_config_hash_on_empty(
     assert "expected_config_hash" not in get_device_metadata(tmp_path, "kitchen.yaml")
 
 
+def test_set_device_metadata_persists_mac_address(tmp_path: Path) -> None:
+    """``mac_address=...`` round-trips through ``get_device_metadata``.
+
+    Persisted so the dashboard surfaces the MAC immediately on
+    backend restart — ESPHome devices are mDNS-silent until probed,
+    so a runtime-only field renders blank for the discovery sweep's
+    bootstrap window.
+    """
+    set_device_metadata(tmp_path, "kitchen.yaml", mac_address="94:C9:60:1F:8C:F1")
+
+    assert get_device_metadata(tmp_path, "kitchen.yaml") == {"mac_address": "94:C9:60:1F:8C:F1"}
+
+
+def test_set_device_metadata_clears_mac_on_empty(tmp_path: Path) -> None:
+    """``mac_address=""`` actively clears the persisted MAC.
+
+    Mirrors ``expected_config_hash``'s tri-state (``None`` →
+    no-change, ``""`` → clear, value → set) — a deleted device's
+    archive flow uses the empty-string path to wipe the volatile
+    fields.
+    """
+    set_device_metadata(tmp_path, "kitchen.yaml", mac_address="94:C9:60:1F:8C:F1")
+    set_device_metadata(tmp_path, "kitchen.yaml", mac_address="")
+
+    assert "mac_address" not in get_device_metadata(tmp_path, "kitchen.yaml")
+
+
 def test_remove_device_metadata_clears_only_target(tmp_path: Path) -> None:
     """Removing one device's entry leaves siblings intact."""
     set_device_metadata(tmp_path, "a.yaml", board_id="esp32")

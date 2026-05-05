@@ -100,6 +100,38 @@ class Device(DataClassORJSONMixin):
     # Drives the four-state lock indicator on the device card / table:
     # active, pending-flash, mismatch, plaintext.
     api_encryption_active: str | None = None
+    # Canonical ``XX:XX:XX:XX:XX:XX`` MAC observed in the device's
+    # ``_esphomelib._tcp.local.`` ``mac`` TXT record (e.g.
+    # ``"94:C9:60:1F:8C:F1"``). Empty string when mDNS hasn't
+    # surfaced one yet — the broadcast is reliable for ESPHome
+    # firmware so a blank typically means "device hasn't been
+    # seen this session". The wire form ESPHome currently
+    # broadcasts is lowercase 12-hex-char with no separators; we
+    # normalize at ingest (``_normalize_mac``) so the in-memory
+    # model, sidecar, and frontend wire all carry one canonical
+    # form regardless of what the firmware happens to send. On
+    # ESP32 this is the Wi-Fi STA MAC (which equals the eFuse
+    # base MAC for the 4-universally-administered default); on
+    # RP2040 / RP2350 there's only one MAC across interfaces and
+    # that's it.
+    mac_address: str = ""
+    # Derived ethernet MAC for devices whose YAML loads the
+    # ``ethernet`` integration. Empty string when the device has no
+    # ethernet integration or no primary MAC has been observed yet.
+    # On ESP32 this is the base MAC + 3 to the last octet, per
+    # Espressif's MAC allocation table; on RP2040 / RP2350 it
+    # equals ``mac_address`` (single-MAC platforms). The drawer
+    # renders this row only when present and distinct from
+    # ``mac_address``.
+    ethernet_mac: str = ""
+    # Derived Bluetooth MAC for devices whose YAML loads any
+    # ``esp32_ble*`` / ``bluetooth_*`` integration. Empty string
+    # when no bluetooth integration is loaded or no primary MAC
+    # has been observed yet. ESP32 only — RP2040 bluetooth
+    # support routes through a separate radio chip with its own
+    # allocation scheme, so we don't derive there. Per
+    # Espressif's table this is base + 2 to the last octet.
+    bluetooth_mac: str = ""
 
 
 @dataclass

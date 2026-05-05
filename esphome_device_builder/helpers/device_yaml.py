@@ -49,6 +49,7 @@ except ImportError:
     _merge_packages = None  # type: ignore[assignment]
 
 from ..models import Device, DeviceState
+from .mac_addresses import derive_interface_macs
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -387,6 +388,7 @@ def load_device_from_storage(
     board_id: str = "",
     ip: str = "",
     expected_config_hash: str = "",
+    mac_address: str = "",
     *,
     previous: Device | None = None,
 ) -> Device:
@@ -407,6 +409,13 @@ def load_device_from_storage(
     apart from "device has older firmware"; empty when the device
     hasn't been compiled yet, in which case ``has_pending_changes``
     falls back to the mtime check.
+
+    *mac_address* is the canonical ``XX:XX:XX:XX:XX:XX`` MAC
+    observed in the device's mDNS ``mac`` TXT (normalized at
+    ingest), persisted to the sidecar so the drawer / table
+    render the address immediately on startup — ESPHome devices
+    stay mDNS-silent until probed, and the sidecar bridges the gap
+    until the discovery sweep prompts a fresh announcement.
 
     *previous* is the prior in-memory Device for this path, when one
     exists. Runtime-only fields populated by monitors (``state``,
@@ -526,6 +535,14 @@ def load_device_from_storage(
         or config_has_top_level_block(resolved_config, "api")
         or yaml_has_top_level_block(yaml_content, "api")
     )
+    # Derived interface MACs: deterministic from
+    # ``mac_address`` + ``target_platform`` + ``loaded_integrations``,
+    # so we recompute on construction rather than persisting in the
+    # sidecar — a YAML edit that toggles bluetooth picks up the new
+    # derived MAC on the next reload, no stale-cache window.
+    ethernet_mac, bluetooth_mac = derive_interface_macs(
+        mac_address, target_platform, loaded_integrations
+    )
     api_encrypted = get_api_encryption_block(
         resolved_config
     ) is not None or yaml_has_api_encryption(yaml_content)
@@ -571,6 +588,9 @@ def load_device_from_storage(
         ),
         api_enabled=api_enabled,
         api_encrypted=api_encrypted,
+        mac_address=mac_address,
+        ethernet_mac=ethernet_mac,
+        bluetooth_mac=bluetooth_mac,
     )
 
 

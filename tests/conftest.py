@@ -395,6 +395,10 @@ class RecordingMonitorCallbacks:
         self.calls.append(("on_api_encryption_change", name, encryption))
         self._flip(name, "api_encryption_active", encryption)
 
+    def on_mac_address_change(self, name: str, mac: str) -> None:
+        self.calls.append(("on_mac_address_change", name, mac))
+        self._flip(name, "mac_address", mac)
+
     def on_importable_added(self, device: AdoptableDevice) -> None:
         self.calls.append(("on_importable_added", device))
 
@@ -422,5 +426,6 @@ def make_state_monitor_with_callbacks(
         on_version_change=callbacks.on_version_change,
         on_config_hash_change=callbacks.on_config_hash_change,
         on_api_encryption_change=callbacks.on_api_encryption_change,
+        on_mac_address_change=callbacks.on_mac_address_change,
     )
     return monitor, callbacks

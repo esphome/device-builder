@@ -268,6 +268,7 @@ def set_device_metadata(
     comment: str | None = None,
     ip: str | None = None,
     expected_config_hash: str | None = None,
+    mac_address: str | None = None,
 ) -> None:
     """
     Set metadata fields for a device.
@@ -283,6 +284,12 @@ def set_device_metadata(
     the running firmware matches the compiled config. Passing an empty
     string clears it (e.g. after a YAML edit invalidates the prior
     compile).
+
+    ``mac_address`` is the canonical ``XX:XX:XX:XX:XX:XX`` MAC
+    from the mDNS ``mac`` TXT record (normalized at ingest).
+    Persisted so the dashboard renders the address immediately on
+    startup, before the first mDNS probe response. Passing an
+    empty string clears it.
     """
     with metadata_transaction(config_dir) as data:
         entry = data.setdefault(filename, {})
@@ -299,6 +306,11 @@ def set_device_metadata(
                 entry["expected_config_hash"] = expected_config_hash
             else:
                 entry.pop("expected_config_hash", None)
+        if mac_address is not None:
+            if mac_address:
+                entry["mac_address"] = mac_address
+            else:
+                entry.pop("mac_address", None)
 
 
 def get_device_metadata(config_dir: Path, filename: str) -> dict[str, Any]:
@@ -337,6 +349,12 @@ _VOLATILE_DEVICE_METADATA_FIELDS: frozenset[str] = frozenset(
         # available artifact and would be misleading on the next
         # compile.
         "expected_config_hash",
+        # Last MAC observed via mDNS. Stable per device but tied
+        # to the running firmware — on archive the YAML may later
+        # be redeployed to a different physical board, and a
+        # stale persisted MAC would render until the next mDNS
+        # announce overwrote it.
+        "mac_address",
     }
 )
 
