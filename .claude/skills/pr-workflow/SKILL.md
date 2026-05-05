@@ -32,9 +32,9 @@ not skip or abbreviate.
 
 `.github/workflows/pr-labels.yaml` parses the PR description for a
 `- [x] ... \`<label>\`` line and applies the canonical label
-automatically. Failing to tick a box (or ticking more than one
-where the intent is ambiguous) blocks the PR. Pick whichever fits
-best from:
+automatically. The job fails if zero boxes are ticked **or** if
+more than one is ticked — always tick exactly one. Pick whichever
+fits best from:
 
 `breaking-change`, `new-feature`, `enhancement`, `bugfix`,
 `refactor`, `docs`, `maintenance`, `ci`, `dependencies`.
