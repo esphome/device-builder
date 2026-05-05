@@ -1124,6 +1124,134 @@ async def test_run_reconnects_on_connect_and_listen_failure(
     assert monitor._last_seen == {}
 
 
+@pytest.mark.asyncio
+async def test_run_collapses_repeat_unreachable_errors_to_debug(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Repeat unreachable-broker errors stay at DEBUG, not ERROR+traceback.
+
+    When the broker is offline for a long time the reconnect loop
+    fires every ``_RECONNECT_DELAY`` seconds. Logging a full ERROR
+    with traceback on each tick floods journalctl / Home Assistant's
+    log view (issue #324). The first failure should still be loud
+    (WARNING, no traceback for expected ``TimeoutError`` /
+    ``OSError`` / ``ConnectionError``) so the operator sees the
+    broker went away; subsequent identical failures collapse to
+    DEBUG so the file doesn't fill with copies of the same trace.
+    """
+    monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    call_count = 0
+    third_call = asyncio.Event()
+
+    async def _always_timeout(_client_id: str) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 3:
+            third_call.set()
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(monitor, "_connect_and_listen", _always_timeout)
+
+    caplog.set_level("DEBUG", logger=monitor_module.__name__)
+
+    run_task = asyncio.create_task(monitor._run())
+    try:
+        await asyncio.wait_for(third_call.wait(), timeout=2.0)
+    finally:
+        run_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await run_task
+
+    unreachable = [
+        r
+        for r in caplog.records
+        if r.name == monitor_module.__name__ and "unreachable" in r.message
+    ]
+    # Exactly one WARNING for the first transition into "unreachable",
+    # the rest collapsed to DEBUG. ``exc_info`` must be None on every
+    # such record — pin that there's no traceback being attached.
+    warnings = [r for r in unreachable if r.levelname == "WARNING"]
+    debugs = [r for r in unreachable if r.levelname == "DEBUG"]
+    assert len(warnings) == 1, [r.levelname for r in unreachable]
+    assert len(debugs) >= 1
+    for record in unreachable:
+        assert record.exc_info is None
+
+
+@pytest.mark.asyncio
+async def test_run_resets_log_gate_after_successful_session(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A successful broker session re-arms the loud-warning gate.
+
+    Without the reset, a broker that goes down → up → down again
+    would only WARN once (on the very first failure) and silently
+    DEBUG every subsequent outage forever, defeating the point of
+    surfacing it in the operator's log. Pin: after
+    ``_connect_and_listen`` returns cleanly, the next failure logs
+    WARNING again.
+    """
+    monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    # Sequence of behaviours per ``_connect_and_listen`` call:
+    # 1. fail (TimeoutError) — first WARNING
+    # 2. succeed (return cleanly) — gate reset
+    # 3. fail (TimeoutError) — should be a *second* WARNING, not DEBUG
+    behaviours = ["fail", "succeed", "fail"]
+    third_failure = asyncio.Event()
+
+    async def _scripted(_client_id: str) -> None:
+        if not behaviours:
+            third_failure.set()
+            await asyncio.Event().wait()
+        action = behaviours.pop(0)
+        if action == "fail":
+            if not behaviours:
+                third_failure.set()
+            raise TimeoutError("timed out")
+        # ``succeed`` — return cleanly, simulating a session that
+        # ran for a while and then closed.
+
+    monkeypatch.setattr(monitor, "_connect_and_listen", _scripted)
+
+    caplog.set_level("DEBUG", logger=monitor_module.__name__)
+
+    run_task = asyncio.create_task(monitor._run())
+    try:
+        await asyncio.wait_for(third_failure.wait(), timeout=2.0)
+        # Give the loop one extra tick to log the third failure
+        # before we tear it down.
+        await asyncio.sleep(0.05)
+    finally:
+        run_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await run_task
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.name == monitor_module.__name__
+        and r.levelname == "WARNING"
+        and "unreachable" in r.message
+    ]
+    assert len(warnings) == 2, [r.message for r in warnings]
+
+
 # ---------------------------------------------------------------------------
 # Pure helpers — _extract_ip / _decode_payload
 # ---------------------------------------------------------------------------

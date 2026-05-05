@@ -130,22 +130,65 @@ class DeviceMqttMonitor:
         _LOGGER.info("MQTT discovery starting — broker=%s:%s", self._broker.host, self._broker.port)
 
         delay = int(_RECONNECT_DELAY)
+        # Track whether the *previous* attempt failed with an expected
+        # connection error. While a broker stays down we'd otherwise
+        # log a full ERROR + traceback every ``_RECONNECT_DELAY`` seconds
+        # — bug #324. Log the first failure and the recovery loudly,
+        # collapse the in-between repeats to DEBUG.
+        previous_failed = False
         while True:
             try:
                 await self._connect_and_listen(client_id)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                _LOGGER.exception(
-                    "MQTT broker %s:%s error — reconnecting in %ss",
-                    self._broker.host,
-                    self._broker.port,
-                    delay,
-                )
+            except (TimeoutError, OSError, ConnectionError) as err:
+                if previous_failed:
+                    _LOGGER.debug(
+                        "MQTT broker %s:%s still unreachable (%s) — reconnecting in %ss",
+                        self._broker.host,
+                        self._broker.port,
+                        err,
+                        delay,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "MQTT broker %s:%s unreachable (%s) — reconnecting in %ss",
+                        self._broker.host,
+                        self._broker.port,
+                        err,
+                        delay,
+                    )
+                    previous_failed = True
                 # Drop last-seen but leave device state alone so a brief
                 # broker blip doesn't trigger an offline storm.
                 self._last_seen.clear()
                 await asyncio.sleep(_RECONNECT_DELAY)
+            except Exception:
+                # Unexpected exception class — keep the loud ERROR with
+                # traceback so genuine bugs are visible, but still gate
+                # repeats so a tight failure loop doesn't flood logs.
+                if previous_failed:
+                    _LOGGER.debug(
+                        "MQTT broker %s:%s error (suppressed traceback) — reconnecting in %ss",
+                        self._broker.host,
+                        self._broker.port,
+                        delay,
+                    )
+                else:
+                    _LOGGER.exception(
+                        "MQTT broker %s:%s error — reconnecting in %ss",
+                        self._broker.host,
+                        self._broker.port,
+                        delay,
+                    )
+                    previous_failed = True
+                self._last_seen.clear()
+                await asyncio.sleep(_RECONNECT_DELAY)
+            else:
+                # ``_connect_and_listen`` returned cleanly (broker closed
+                # us, ``stop()`` triggered shutdown, etc.). Reset the
+                # gate so the next failure logs loudly again.
+                previous_failed = False
 
     async def _connect_and_listen(self, client_id: str) -> None:
         assert paho_mqtt is not None  # type narrowing — checked in start()
