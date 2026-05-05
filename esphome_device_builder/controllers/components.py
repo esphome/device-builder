@@ -33,6 +33,39 @@ _LOGGER = logging.getLogger(__name__)
 
 _COMPONENTS_JSON = Path(__file__).resolve().parent.parent / "definitions" / "components.json"
 
+# Catalog ids for components that ESPHome auto-loads as transport /
+# helper modules but that the dashboard's Add Configuration picker
+# should not surface as user-facing choices. ESPHome pulls these in
+# automatically when the user adds the public-facing component (e.g.
+# adding ``web_server:`` causes ESPHome to also load ``web_server_idf``
+# / ``web_server_base`` based on the framework). Listing them here is
+# harmless if a user does add one explicitly — ESPHome's own validator
+# accepts the form — but they're confusing noise in the picker.
+#
+# Tradeoff: hand-curated rather than derived from each component's
+# ``auto_load`` chain. Deriving would auto-track new internals as
+# ESPHome adds them, but every legitimate user-facing component that
+# *also* appears in some other component's auto_load list (network,
+# wifi via captive_portal, etc.) would need an opt-out exception —
+# and missing one of those filters out a real choice. Hand-curated
+# fails closed: missing an internal here just leaves a confusing-but-
+# harmless extra option, which the user explicitly preferred ("better
+# to manually exclude than miss one — these are rare edge cases",
+# issue #325). Extend by adding to the set; a JSON regen via
+# ``script/sync_components.py`` is not required for this filter to
+# take effect.
+#
+# Public (non-underscore) name because ``script/sync_components.py``
+# imports this constant so the generator and the runtime loader
+# share one source of truth — extending the denylist edits one set,
+# not two.
+INTERNAL_COMPONENT_IDS: frozenset[str] = frozenset(
+    {
+        "web_server_base",
+        "web_server_idf",
+    }
+)
+
 
 class ComponentCatalog:
     """In-memory component catalog with search and pagination."""
@@ -67,7 +100,13 @@ class ComponentCatalog:
         # platform-locale-encoding trap that bit Windows on read_text
         # without an explicit encoding.
         data = loads(_COMPONENTS_JSON.read_bytes())
-        self._components = [_load_component(c) for c in data.get("components", [])]
+        # Drop ESPHome internal-helper / auto-load-target components
+        # — see ``INTERNAL_COMPONENT_IDS`` for the why.
+        self._components = [
+            _load_component(c)
+            for c in data.get("components", [])
+            if c.get("id") not in INTERNAL_COMPONENT_IDS
+        ]
         self._by_id = {c.id: c for c in self._components}
         self._build_featured_registry()
         _LOGGER.info(

@@ -74,6 +74,14 @@ _IMAGE_BASE_URL = "https://esphome.io/images/"
 # for the ESPHome team to identify.
 _USER_AGENT = "esphome-device-builder-backend (https://github.com/esphome/device-builder-dashboard)"
 
+# Re-import the runtime catalog's internal-helper denylist so the
+# generator and the runtime loader share one source of truth — see
+# ``controllers/components.py`` for the rationale (issue #325).
+sys.path.insert(0, str(_REPO_ROOT))
+from esphome_device_builder.controllers.components import (  # noqa: E402
+    INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
+)
+
 # Top-level platform domains in the schema (also keys in our category enum).
 # Components keyed as ``<id>.<domain>`` in the schema files — e.g.
 # ``dht.sensor`` lives in dht.json under the key ``dht.sensor``.
@@ -884,6 +892,13 @@ def build_catalog(
             continue
         for entry in entries:
             if limit and entry["id"] not in limit:
+                continue
+            # Skip ESPHome internal-helper / auto-load-target
+            # components — they're noise in the picker. The runtime
+            # ``ComponentCatalog.load`` carries the same filter so
+            # this stays a redundant belt-and-braces; the actual
+            # bug fix is the runtime side.
+            if entry["id"] in _INTERNAL_COMPONENT_IDS:
                 continue
             out.append(entry)
 
