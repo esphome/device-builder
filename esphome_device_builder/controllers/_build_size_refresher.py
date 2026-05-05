@@ -102,6 +102,21 @@ class BuildSizeRefresher:
         per-iteration ``except`` in the worker missed something —
         and gets logged so the failure isn't invisible during a
         clean controller shutdown.
+
+        A subtlety worth knowing: if the worker is mid-walk
+        inside ``loop.run_in_executor(None, ...)`` when ``stop()``
+        fires, cancelling the task only abandons the *await* — the
+        underlying executor thread keeps running until the walk
+        finishes (Python doesn't expose a way to interrupt a
+        running thread). For build-size refresh the work is just
+        a directory walk + one sidecar write per device, so the
+        thread completes on its own within a few seconds at
+        worst; ``DeviceBuilder.stop()`` then calls
+        ``loop.shutdown_default_executor()`` which waits on the
+        residual thread, so process shutdown still drains
+        cleanly. We accept this over a bespoke cancellation
+        channel into the walk, because process shutdown is the
+        only ``stop()`` caller and the trailing write is harmless.
         """
         if self._worker_task is None:
             return

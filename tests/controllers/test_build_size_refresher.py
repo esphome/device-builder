@@ -134,28 +134,31 @@ async def test_worker_drains_pending_and_fires_on_refreshed(tmp_path: Path) -> N
 async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -> None:
     """Refresh returning ``None`` (cache hit) → no ``on_refreshed`` invoke.
 
-    Sequences two requests: ``cached.yaml`` returns ``None`` from
-    the helper (cache hit, callback skipped), ``stale.yaml``
-    returns a real result that fires the callback. Waiting on the
-    second one's callback proves the worker took the
-    "continue past skipped callback" branch *and* came back
-    around to drain the next item — i.e. the cache-hit short-
-    circuit doesn't break the drain loop.
+    Single-request shape so the assertion isn't sensitive to
+    ``set.pop()`` ordering: a cache-hit refresh returns ``None``
+    and the worker has to take the ``if result is None:
+    continue`` branch *without* invoking the callback. A
+    ``refresh_done`` event fires after the executor returns, so
+    the test can drive ``stop()`` deterministically once the
+    short-circuit has actually been exercised.
     """
-    success = asyncio.Event()
     refreshed: list[str] = []
 
     async def _on_refreshed(configuration: str) -> None:
         refreshed.append(configuration)
-        success.set()
 
-    def _refresh(_config_dir: Path, configuration: str):
-        if configuration == "cached.yaml":
-            return None
-        return BuildSizeRefreshResult(
-            size_bytes=42,
-            signal=BuildDirSignal(dir_mtime=1, info_mtime=2),
-        )
+    refresh_done = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _refresh(_config_dir: Path, _configuration: str):
+        # ``call_soon_threadsafe`` only guarantees the event
+        # gets scheduled to fire on the loop — the worker may
+        # not have resumed yet when ``refresh_done.wait()``
+        # returns. The follow-up ``await asyncio.sleep(0)``
+        # cedes control back to the worker so the
+        # ``if result is None: continue`` branch actually
+        # executes before ``stop()`` cancels.
+        loop.call_soon_threadsafe(refresh_done.set)
 
     refresher, _ = _make(tmp_path, on_refreshed=_on_refreshed)
     with patch(
@@ -164,14 +167,16 @@ async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -
     ):
         refresher.start()
         refresher.request("cached.yaml")
-        refresher.request("stale.yaml")
-        await asyncio.wait_for(success.wait(), timeout=_TIMEOUT)
+        await asyncio.wait_for(refresh_done.wait(), timeout=_TIMEOUT)
+        # Yield once so the worker actually executes the
+        # ``continue`` branch before stop() cancels it.
+        await asyncio.sleep(0)
         await refresher.stop()
 
-    # Only the stale device fired the callback — the cached one
-    # short-circuited at the ``if result is None: continue``
-    # branch.
-    assert refreshed == ["stale.yaml"]
+    # The cache-hit branch must short-circuit without firing the
+    # callback. A regression that drops the ``if result is None:
+    # continue`` guard would invoke ``on_refreshed`` here.
+    assert refreshed == []
 
 
 @pytest.mark.asyncio
