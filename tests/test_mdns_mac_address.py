@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.models import Device, DeviceState, EventType
 
 from .conftest import (
@@ -96,6 +97,22 @@ def test_apply_mac_address_unknown_device_is_no_op() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([_device()])
     assert monitor.apply_mac_address("not-configured", "94c9601f8cf1") is False
     assert callbacks.calls == []
+
+
+def test_apply_mac_address_no_op_when_callback_unwired() -> None:
+    """A monitor built without ``on_mac_address_change`` is a no-op.
+
+    The callback is optional in :class:`DeviceStateMonitor`'s
+    constructor — older callers (in-process usages, smaller test
+    fixtures) skip it. ``apply_mac_address`` must short-circuit
+    cleanly without dereferencing the ``None`` callback.
+    """
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [_device()],
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    assert monitor.apply_mac_address("kitchen", "94c9601f8cf1") is False
 
 
 # ----------------------------------------------------------------------
