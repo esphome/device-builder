@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.models import Device, EventType
@@ -276,3 +278,33 @@ def test_board_id_from_sidecar_takes_priority_over_yaml(tmp_path: Path, monkeypa
 
     assert metadata.board_id == "esp32-poe"
     derive.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [None, "not-a-number", {}, [], "12.7"],
+)
+def test_corrupt_build_size_bytes_falls_back_to_zero(
+    tmp_path: Path, monkeypatch: Any, bad_value: Any
+) -> None:
+    """A non-numeric ``build_size_bytes`` in the sidecar coerces to 0.
+
+    Defensive coverage for the metadata resolver's hot path: a
+    hand-edited or partially-written sidecar entry could land with
+    a value that ``int()`` can't accept (``None``, an object, a
+    decimal string). The resolver runs per-device on every scan
+    so a single corrupt entry shouldn't fail the whole scan; the
+    fallback ``0`` matches the "never walked" sentinel and the
+    next ``BuildSizeRefresher`` pass repopulates from the build
+    dir.
+    """
+    config_dir = tmp_path
+    filename = "kitchen.yaml"
+    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    _stub_get_metadata(monkeypatch, {"board_id": "esp32", "build_size_bytes": bad_value})
+
+    controller = _make_controller(monkeypatch)
+    metadata = controller._resolve_device_metadata(config_dir, filename)
+
+    assert metadata.build_size_bytes == 0

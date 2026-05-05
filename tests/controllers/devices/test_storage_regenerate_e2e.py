@@ -664,6 +664,55 @@ async def test_regenerate_runs_when_yaml_missing_for_stamp_check(
 
 
 @pytest.mark.asyncio
+async def test_regenerate_clamps_negative_stamp_age(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A future-dated ``regen_failed_at`` (clock skew, NTP step) is clamped to "fresh".
+
+    Without the ``max(0.0, ...)`` clamp, ``time.time() -
+    cached_at`` could be a large negative number — still less
+    than the TTL, so the guard would correctly skip the regen,
+    but only by accident of float comparison semantics. Pin the
+    clamp explicitly so a future refactor that drops it doesn't
+    silently change the contract.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
+    current_mtime = yaml_path.stat().st_mtime
+    # Stamp claims the failure happened *in the future*.
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        regen_failed_mtime=current_mtime,
+        regen_failed_at=2_000_000_000.0,  # roughly year 2033
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.time.time",
+        lambda: 1700000000.0,
+    )
+
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
+        spawn_calls.append(args)
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert spawn_calls == []
+
+
+@pytest.mark.asyncio
 async def test_regenerate_runs_when_only_one_stamp_half_present(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

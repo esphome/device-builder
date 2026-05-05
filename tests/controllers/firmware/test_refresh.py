@@ -142,6 +142,10 @@ def _make_controller() -> tuple[Any, list[tuple[str, bool, bool]]]:
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
     controller._scanner = MagicMock()
+    # The build-size refresher's ``request`` is the post-CLEAN
+    # hand-off; mock it so tests can assert per-job behaviour
+    # without needing the full worker lifecycle.
+    controller._build_size = MagicMock()
     controller._refresh_after_firmware_job = _capturing_refresh  # type: ignore[method-assign]
     return controller, captured
 
@@ -204,14 +208,24 @@ def test_failed_job_does_not_schedule_refresh() -> None:
     assert captured == []
 
 
-def test_clean_job_does_not_schedule_refresh() -> None:
-    """CLEAN doesn't move the binary mtime in a way that affects has_pending."""
+def test_clean_job_skips_full_refresh_but_pokes_build_size() -> None:
+    """CLEAN skips the hash / flash bookkeeping path but pokes the build-size cache.
+
+    The build tree has just been wiped, so the cached
+    ``build_size_bytes`` triple is now stale (pre-clean
+    non-zero, current dir mtime → 0). The job-completion hook
+    pokes the build-size worker for this device; the worker's
+    pair-equality short-circuit then walks once to clear the
+    cache. ``_refresh_after_firmware_job`` (hash recompute,
+    optimistic flash sync) doesn't apply to CLEAN.
+    """
     controller, captured = _make_controller()
     job = _job(JobType.CLEAN, JobStatus.COMPLETED)
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
     assert captured == []
+    controller._build_size.request.assert_called_once_with("kitchen.yaml")
 
 
 def test_reset_build_env_does_not_schedule_refresh() -> None:
@@ -222,6 +236,29 @@ def test_reset_build_env_does_not_schedule_refresh() -> None:
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
     assert captured == []
+
+
+def test_unhandled_job_type_with_configuration_falls_through_silently() -> None:
+    """Job types outside CLEAN/COMPILE/UPLOAD/INSTALL/RENAME bail at the type check.
+
+    Belt-and-braces test for the post-CLEAN dispatch table — a
+    ``RESET_BUILD_ENV`` job that did happen to carry a
+    configuration (or any future job type we haven't wired
+    explicitly) bails at the ``if job_type not in (...)`` guard
+    *after* the empty-configuration short-circuit, leaving the
+    refresh + build-size hooks alone.
+    """
+    controller, captured = _make_controller()
+    job = _job(
+        JobType.RESET_BUILD_ENV,
+        JobStatus.COMPLETED,
+        configuration="kitchen.yaml",
+    )
+
+    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    assert captured == []
+    controller._build_size.request.assert_not_called()
 
 
 def test_event_without_job_payload_is_safe() -> None:
@@ -270,6 +307,7 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
     controller._scanner = RecordingScanner()
+    controller._build_size = MagicMock()
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
@@ -306,6 +344,7 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
     controller._scanner = RecordingScanner()
+    controller._build_size = MagicMock()
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
@@ -334,6 +373,7 @@ async def test_refresh_after_upload_skips_hash_compute(tmp_path: Path, monkeypat
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
     controller._scanner = RecordingScanner()
+    controller._build_size = MagicMock()
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=False, flashed=True)
 

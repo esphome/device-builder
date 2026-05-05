@@ -271,6 +271,9 @@ def set_device_metadata(
     mac_address: str | None = None,
     regen_failed_mtime: float | None = None,
     regen_failed_at: float | None = None,
+    build_size_bytes: int | None = None,
+    build_size_dir_mtime: int | None = None,
+    build_size_info_mtime: int | None = None,
 ) -> None:
     """
     Set metadata fields for a device.
@@ -302,8 +305,25 @@ def set_device_metadata(
     the YAML's mtime has actually moved past the cached stamp,
     OR when the cached stamp is older than the controller's
     failure-TTL (so transient external problems eventually get
-    re-checked). Pass ``0`` on either to clear (used on success
-    and on archive's volatile scrub).
+    re-checked). The two fields are written together by
+    :meth:`DevicesController._persist_regen_failed_stamp`; the
+    success / archive paths clear them by passing ``0.0`` to
+    *both* — clearing only one half leaves the other behind, so
+    callers should always touch the pair as a unit.
+
+    ``build_size_bytes`` caches the total size of the per-device
+    ``.esphome/build/<name>/`` tree at the freshness pair
+    captured by the last walk. The pair is split because each
+    half catches a class of compile-time changes the other
+    misses: ``build_size_dir_mtime`` moves on entry-set churn
+    (PlatformIO atomic-replaces, sibling add/remove),
+    ``build_size_info_mtime`` moves on every real ESPHome
+    recompile (``write_file_if_changed`` rewrites
+    ``build_info.json``). Either side moving counts as stale,
+    so a freshly-restarted dashboard re-walks any device whose
+    pair drifted from what was persisted. Pass ``0`` for any
+    field to clear (used by the archive flow's volatile-field
+    scrub).
     """
     with metadata_transaction(config_dir) as data:
         entry = data.setdefault(filename, {})
@@ -317,11 +337,21 @@ def set_device_metadata(
             entry["ip"] = ip
         # Tri-state fields: ``None`` means "leave alone", a truthy
         # value writes, an explicit falsy (``""`` / ``0``) clears.
+        # The numeric stamps below (``regen_failed_*`` /
+        # ``build_size_*``) all carry timestamps or sizes whose
+        # legitimate values are strictly positive — ``0`` is
+        # therefore safe as the explicit-clear sentinel.
+        # Loop over the (key, value) pairs so adding a new
+        # tri-state field doesn't bump this function's branch
+        # count (ruff PLR0912 caps at 12).
         for key, value in (
             ("expected_config_hash", expected_config_hash),
             ("mac_address", mac_address),
             ("regen_failed_mtime", regen_failed_mtime),
             ("regen_failed_at", regen_failed_at),
+            ("build_size_bytes", build_size_bytes),
+            ("build_size_dir_mtime", build_size_dir_mtime),
+            ("build_size_info_mtime", build_size_info_mtime),
         ):
             if value is None:
                 continue
@@ -380,6 +410,14 @@ _VOLATILE_DEVICE_METADATA_FIELDS: frozenset[str] = frozenset(
         # the next scan retries the regen.
         "regen_failed_mtime",
         "regen_failed_at",
+        # Cached size of the per-device build directory at the
+        # freshness pair captured alongside it. Archive wipes the
+        # build tree (``_wipe_device_build_dir``) so the cached
+        # triple would describe a directory that no longer
+        # exists.
+        "build_size_bytes",
+        "build_size_dir_mtime",
+        "build_size_info_mtime",
     }
 )
 

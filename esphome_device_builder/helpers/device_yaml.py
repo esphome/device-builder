@@ -389,6 +389,7 @@ def load_device_from_storage(
     ip: str = "",
     expected_config_hash: str = "",
     mac_address: str = "",
+    build_size_bytes: int = 0,
     *,
     previous: Device | None = None,
 ) -> Device:
@@ -416,6 +417,15 @@ def load_device_from_storage(
     render the address immediately on startup — ESPHome devices
     stay mDNS-silent until probed, and the sidecar bridges the gap
     until the discovery sweep prompts a fresh announcement.
+
+    *build_size_bytes* is the cached total size of the per-device
+    ``.esphome/build/<name>/`` tree at the freshness pair
+    (build-dir mtime + ``build_info.json`` mtime) captured by the
+    last walk. Threaded through the scanner so the drawer / table
+    render the size immediately on startup; recomputation is
+    driven by :class:`BuildSizeRefresher` (the single-worker
+    refresh queue) gated on the freshness-pair equality check, so
+    a steady-state re-scan stays off the heavy I/O path.
 
     *previous* is the prior in-memory Device for this path, when one
     exists. Runtime-only fields populated by monitors (``state``,
@@ -591,6 +601,7 @@ def load_device_from_storage(
         mac_address=mac_address,
         ethernet_mac=ethernet_mac,
         bluetooth_mac=bluetooth_mac,
+        build_size_bytes=build_size_bytes,
     )
 
 
