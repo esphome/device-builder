@@ -31,6 +31,7 @@ from ...helpers.device_yaml import (
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
+from ...helpers.event_bus import Event, StreamControls, stream_events
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.process import kill_quietly
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
@@ -45,6 +46,7 @@ from ...models import (
     EventType,
     JobStatus,
     JobType,
+    ReachabilitySource,
     StreamEvent,
     UpdateDeviceResponse,
     WizardResponse,
@@ -52,6 +54,7 @@ from ...models import (
 from .._device_mqtt_coordinator import DeviceMqttCoordinator
 from .._device_scanner import DeviceFileMetadata, DeviceScanner, ScanChange
 from .._device_state_monitor import DeviceStateMonitor
+from .._reachability_tracker import ReachabilityTracker
 from ..config import (
     get_device_metadata,
     remove_device_metadata,
@@ -138,6 +141,14 @@ class DevicesController:
             get_metadata=self._resolve_device_metadata,
             on_change=self._on_scan_change,
         )
+        # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
+        # ping RTT) feeding the device drawer's Reachability section.
+        # Lives here on the controller so the subscribe handler can
+        # call ``snapshot()`` on demand; observations come in via the
+        # state monitor, which we hand the same instance to below.
+        self._reachability = ReachabilityTracker(
+            on_observation=self._on_reachability_observation,
+        )
         self._state_monitor = DeviceStateMonitor(
             get_devices=self._get_devices,
             get_devices_by_name=self._scanner.get_by_name,
@@ -148,6 +159,7 @@ class DevicesController:
             on_api_encryption_change=self._on_api_encryption_change,
             on_importable_added=self._on_importable_added,
             on_importable_removed=self._on_importable_removed,
+            reachability=self._reachability,
             is_ignored=self.ignored_devices.__contains__,
         )
         # MQTT routes its observations through the same state monitor so
@@ -1138,6 +1150,110 @@ class DevicesController:
             return {"cancelled": False}
         return {"cancelled": client.cancel_stream(stream_id)}
 
+    @api_command("devices/subscribe_reachability")
+    async def subscribe_reachability(
+        self,
+        *,
+        device_name: str,
+        client: Any = None,
+        message_id: str = "",
+        **kwargs: Any,
+    ) -> None:
+        """
+        Stream per-signal reachability for a single device.
+
+        Drawer-only: while the device drawer is open the frontend
+        opens this stream so it can show "mDNS heard 12s ago, ping
+        47s ago, MQTT 2 min ago, RTT 4 ms" without bloating the
+        broadcast ``subscribe_events`` channel for every other
+        connected client. Pair with ``devices/stop_stream`` (or a
+        WS disconnect) to unsubscribe.
+
+        Wire shape:
+          → ``{"command": "devices/subscribe_reachability",
+                "message_id": "<id>",
+                "args": {"device_name": "kitchen"}}``
+          ← ``{"event": "reachability_state", "message_id": "<id>",
+                "data": <ReachabilitySnapshot>}``  (initial + on every change)
+          ← ``{"result": {"subscribed": true}, "message_id": "<id>"}``
+          → ``{"command": "devices/stop_stream",
+                "args": {"stream_id": "<id>"}}``  (to end the stream)
+
+        While subscribed AND the device's active source is mDNS,
+        the backend force-refreshes the A record every 60s so a
+        stale broadcast doesn't keep the displayed "last seen" age
+        growing forever. Ping-source devices are already covered by
+        the regular ping sweep; MQTT-source by the discover-publish
+        loop. Both feed the tracker through the same path the
+        initial subscription read.
+        """
+        if client is None:
+            return
+        if not device_name:
+            raise CommandError(ErrorCode.INVALID_MESSAGE, "device_name is required")
+        if self.get_reachability_snapshot(device_name) is None:
+            raise CommandError(ErrorCode.NOT_FOUND, f"No configured device named {device_name!r}")
+
+        # Register so a peer ``devices/stop_stream`` (or this client's
+        # cleanup on disconnect) cancels the running task.
+        task = asyncio.current_task()
+        assert task is not None
+        client.register_stream(message_id, task)
+
+        refresh_task: asyncio.Task | None = None
+
+        async def _send_initial(controls: StreamControls) -> None:
+            snapshot = self.get_reachability_snapshot(device_name)
+            if snapshot is not None:
+                await client.send_event(message_id, "reachability_state", snapshot)
+            await client.send_result(message_id, {"subscribed": True})
+
+        def _handle_event(event: Event, controls: StreamControls) -> None:
+            data = event.data
+            if data.get("device") != device_name:
+                # The bus event is broadcast (one listener for every
+                # subscriber); filter inside the closure so each
+                # subscriber only forwards the events for its device.
+                return
+            controls.push("reachability_state", data)
+
+        try:
+            # Spawn the 60s mDNS refresh loop alongside the stream
+            # so it gets cancelled together with the subscription
+            # when the WS disconnects or ``devices/stop_stream``
+            # cancels this task.
+            refresh_task = asyncio.create_task(self._reachability_refresh_loop(device_name))
+            await stream_events(
+                client=client,
+                message_id=message_id,
+                bus=self._db.bus,
+                event_types=[EventType.DEVICE_REACHABILITY],
+                handle_event=_handle_event,
+                send_initial=_send_initial,
+            )
+        finally:
+            if refresh_task is not None:
+                refresh_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await refresh_task
+            client.unregister_stream(message_id)
+
+    async def _reachability_refresh_loop(self, device_name: str) -> None:
+        """Force-refresh mDNS for *device_name* every 60s while mDNS is the active source.
+
+        Quiet when active source is ping (the regular sweep already
+        runs every 60s) or MQTT (the discover-publish loop already
+        ticks every 2s). The tick is unconditional sleep then check
+        — sleeping first means a fast mDNS device that's actively
+        announcing doesn't get an extra resolve just because someone
+        opened the drawer; the existing subscription's initial
+        snapshot already shows the freshness.
+        """
+        while True:
+            await asyncio.sleep(60)
+            if self._state_monitor.priority_for(device_name) is ReachabilitySource.MDNS:
+                await self.refresh_device_mdns(device_name)
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -1298,6 +1414,60 @@ class DevicesController:
         O(1) lookup.
         """
         return self._scanner.get_by_name(name)
+
+    def _build_reachability_snapshot(self, name: str) -> dict[str, object] | None:
+        """
+        Stitch state + tracker fields into the reachability wire shape.
+
+        The state monitor owns ``state`` / ``active_source`` / ``ip``;
+        the tracker owns the per-signal freshness fields. Both
+        ``get_reachability_snapshot`` (initial WS subscribe) and
+        ``_on_reachability_observation`` (per-event push) need the
+        merged dict, so the device-lookup + delegate-to-tracker
+        combo lives once here. Returns ``None`` when no configured
+        device matches *name*.
+        """
+        bucket = self._scanner.get_by_name(name)
+        if not bucket:
+            return None
+        first = bucket[0]
+        return self._reachability.snapshot(
+            name,
+            state=first.state,
+            active_source=self._state_monitor.priority_for(name),
+            ip=first.ip,
+        )
+
+    def _on_reachability_observation(self, name: str) -> None:
+        """
+        Forward a reachability freshness observation onto the event bus.
+
+        Fires :data:`EventType.DEVICE_REACHABILITY` carrying the full
+        wire-shape snapshot for *name*. The device drawer's per-device
+        subscription filters by ``data["device"]`` and pushes the
+        snapshot to the client. The event is *not* forwarded by the
+        broadcast ``subscribe_events`` channel — adding a periodic
+        per-device freshness ping to every connected client would
+        bloat the bus for no UI gain.
+        """
+        snapshot = self._build_reachability_snapshot(name)
+        if snapshot is None:
+            return
+        self._db.bus.fire(EventType.DEVICE_REACHABILITY, snapshot)
+
+    def get_reachability_snapshot(self, name: str) -> dict[str, object] | None:
+        """Return the current reachability snapshot for *name*, or ``None``.
+
+        Public so the WS ``subscribe_device_reachability`` handler can
+        seed its initial event without going through the bus. Returns
+        ``None`` when no configured device matches *name* (the
+        subscription handler maps that to a NOT_FOUND error).
+        """
+        return self._build_reachability_snapshot(name)
+
+    async def refresh_device_mdns(self, name: str) -> None:
+        """Force-refresh a device's mDNS A record. No-op if zeroconf is down."""
+        await self._state_monitor.refresh_mdns(name)
 
     def _on_state_change(self, name: str, state: DeviceState, source: str) -> None:
         """Forward state monitor updates onto the event bus."""

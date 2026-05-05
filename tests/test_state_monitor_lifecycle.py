@@ -97,6 +97,7 @@ def _make_monitor(
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
     monitor._on_importable_added = callbacks.on_importable_added
     monitor._on_importable_removed = callbacks.on_importable_removed
+    monitor._reachability = None
     monitor._dns_cache = MagicMock()
     return monitor, callbacks
 

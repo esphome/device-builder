@@ -16,6 +16,25 @@ class DeviceState(StrEnum):
     OFFLINE = "offline"
 
 
+class ReachabilitySource(StrEnum):
+    """Channel a device's online state was last observed on.
+
+    The state monitor's source priority is encoded here as the
+    member declaration order — :data:`MDNS` wins over :data:`MQTT`
+    wins over :data:`PING` wins over :data:`UNKNOWN`. The drawer
+    surfaces the current ``active_source`` next to the active
+    Reachability row so the user can see which channel is driving
+    the indicator. ``StrEnum`` so the value crosses the WS
+    boundary as a plain string without an extra serialization
+    layer.
+    """
+
+    UNKNOWN = "unknown"
+    PING = "ping"
+    MQTT = "mqtt"
+    MDNS = "mdns"
+
+
 @dataclass
 class Device(DataClassORJSONMixin):
     """A configured ESPHome device."""

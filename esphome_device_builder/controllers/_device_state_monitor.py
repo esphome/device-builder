@@ -34,8 +34,9 @@ except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
 
 from ..helpers.hostname import is_local_hostname, normalize_hostname
-from ..models import AdoptableDevice, Device, DeviceState
+from ..models import AdoptableDevice, Device, DeviceState, ReachabilitySource
 from ._dns_cache import DNSCache
+from ._reachability_tracker import ReachabilityTracker
 
 _LOGGER = logging.getLogger(__name__)
 _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
@@ -74,7 +75,12 @@ _MDNS_HOSTNAME_RESOLVE_TIMEOUT = 3.0
 # override an existing one when its priority is greater than or equal
 # to the current source's. Keep ``unknown`` at zero so any source can
 # claim a device that no source has yet labelled.
-_SOURCE_PRIORITY = {"unknown": 0, "ping": 1, "mqtt": 2, "mdns": 3}
+_SOURCE_PRIORITY: dict[str, int] = {
+    ReachabilitySource.UNKNOWN: 0,
+    ReachabilitySource.PING: 1,
+    ReachabilitySource.MQTT: 2,
+    ReachabilitySource.MDNS: 3,
+}
 
 # Callback signature used by DeviceStateMonitor to push state changes
 # back to its owner. The owner decides what to do with the new state
@@ -176,6 +182,7 @@ class DeviceStateMonitor:
         on_api_encryption_change: ApiEncryptionChangeCallback | None = None,
         on_importable_added: ImportableAddedCallback | None = None,
         on_importable_removed: ImportableRemovedCallback | None = None,
+        reachability: ReachabilityTracker | None = None,
         is_ignored: Callable[[str], bool] | None = None,
         get_devices_by_name: Callable[[str], list[Device]] | None = None,
     ) -> None:
@@ -201,6 +208,12 @@ class DeviceStateMonitor:
         self._on_importable_removed = on_importable_removed
         self._is_ignored = is_ignored or (lambda _name: False)
         self._state_source: dict[str, str] = {}  # device name → "mdns" | "ping"
+        # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
+        # ping RTT). Optional dependency: callers that don't care
+        # about reachability metadata (the existing tests, in-process
+        # usages that just want state-change forwarding) can pass
+        # ``None`` and the monitor's observation hooks become no-ops.
+        self._reachability = reachability
         # ``DashboardImportDiscovery`` is the upstream esphome class
         # that watches the same ``_esphomelib._tcp.local.`` browser for
         # ``package_import_url`` TXT records and turns them into
@@ -262,9 +275,18 @@ class DeviceStateMonitor:
                 _LOGGER.debug("zeroconf close failed", exc_info=True)
             self._zeroconf = None
 
-    def priority_for(self, name: str) -> str:
-        """Return the source currently authoritative for *name* (or "unknown")."""
-        return self._state_source.get(name, "unknown")
+    def priority_for(self, name: str) -> ReachabilitySource:
+        """Return the source currently authoritative for *name*.
+
+        Returns :data:`ReachabilitySource.UNKNOWN` when no source has
+        claimed the device. Callers comparing against literal source
+        strings keep working because :class:`ReachabilitySource` is a
+        :class:`StrEnum` and equality with the underlying ``str``
+        passes through. Made enum-typed so the drawer's reachability
+        subscription can dispatch on it without a string-typo
+        landing as silent UNKNOWN.
+        """
+        return ReachabilitySource(self._state_source.get(name, ReachabilitySource.UNKNOWN))
 
     def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
         """
@@ -291,7 +313,18 @@ class DeviceStateMonitor:
             )
             return False
 
-        current_source = self._state_source.get(name, "unknown")
+        # Record the per-signal observation regardless of whether the
+        # priority check below ends up ignoring the new state. The user-
+        # facing intent is "show every channel we're hearing on,
+        # independently" — a higher-priority source claiming the device
+        # shouldn't hide that ping or MQTT also just answered. The
+        # ONLINE filter avoids treating "lost" signals (the OFFLINE
+        # flips ping / mqtt issue when the source itself drops) as
+        # freshness.
+        if state == DeviceState.ONLINE and self._reachability is not None:
+            self._reachability.observe(name, source)
+
+        current_source = self._state_source.get(name, ReachabilitySource.UNKNOWN)
         if _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(current_source, 0):
             return False
         # Dedupe must look at *every* matching device, not just the
@@ -308,6 +341,29 @@ class DeviceStateMonitor:
         self._state_source[name] = source
         self._on_state_change(name, state, source)
         return True
+
+    async def refresh_mdns(self, name: str) -> None:
+        """Force-refresh a device's mDNS A record.
+
+        Called by the drawer's reachability subscription on its 60s
+        timer while the active source is mDNS. Re-issues an
+        :meth:`AsyncEsphomeZeroconf.async_resolve_host` against
+        ``<name>.local`` and feeds any addresses back through the
+        normal apply path so ``_mdns_last_seen`` and the IP fields
+        all stay current. No-op when zeroconf failed to start.
+        """
+        if self._zeroconf is None:
+            return
+        try:
+            addresses = await self._zeroconf.async_resolve_host(
+                f"{name}.local", _MDNS_HOSTNAME_RESOLVE_TIMEOUT
+            )
+        except Exception:
+            _LOGGER.debug("mDNS refresh of %s failed", name, exc_info=True)
+            return
+        if isinstance(addresses, list) and addresses:
+            self.apply(name, DeviceState.ONLINE, "mdns", claim=True)
+            self.apply_ip_addresses(name, addresses)
 
     def apply_ip(self, name: str, ip: str) -> bool:
         """
@@ -603,6 +659,8 @@ class DeviceStateMonitor:
                 self.apply(device_name, DeviceState.OFFLINE, "mdns")
                 self.apply_ip(device_name, "")
                 self._state_source.pop(device_name, None)
+                if self._reachability is not None:
+                    self._reachability.clear(device_name)
                 return
 
             # ``claim=True`` so mDNS takes ownership even when the
@@ -1042,8 +1100,8 @@ class DeviceStateMonitor:
         """
         if device.state != DeviceState.ONLINE:
             return True
-        source = self._state_source.get(device.name, "unknown")
-        return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY["ping"]
+        source = self._state_source.get(device.name, ReachabilitySource.UNKNOWN)
+        return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY[ReachabilitySource.PING]
 
     async def _ping_device(self, device: Device, target: str) -> None:
         # Treat any failure mode as "not reachable" → OFFLINE, not as
@@ -1054,9 +1112,18 @@ class DeviceStateMonitor:
         # grey forever — once mDNS / MQTT / ping have all tried, the
         # signal is "we couldn't reach this device". A subsequent
         # successful ping will flip it right back to ONLINE.
+        rtt_ms: float | None = None
         try:
             result = await icmp_ping(target, count=1, timeout=3, privileged=False)
             is_alive = result.is_alive
+            # icmplib's ``Host.min_rtt`` is the lowest round-trip in
+            # milliseconds across the count we sent (1 here). Capture
+            # it before discarding ``result`` so the drawer can show
+            # "4 ms" beside the Ping row. ``min_rtt`` is 0.0 on a
+            # failed ping which would surface as "0 ms" — gate on
+            # ``is_alive`` so failures stay null.
+            if is_alive:
+                rtt_ms = float(getattr(result, "min_rtt", 0.0))
         except Exception as exc:
             # ``.local`` hosts on systems without Avahi / mdnsd hit
             # this every sweep; the traceback adds nothing and floods
@@ -1064,6 +1131,8 @@ class DeviceStateMonitor:
             _LOGGER.debug("Ping of %s (%s) failed: %s", device.name, target, exc)
             is_alive = False
         new_state = DeviceState.ONLINE if is_alive else DeviceState.OFFLINE
+        if is_alive and rtt_ms is not None and self._reachability is not None:
+            self._reachability.record_ping_rtt(device.name, rtt_ms)
         self.apply(device.name, new_state, "ping")
 
 
