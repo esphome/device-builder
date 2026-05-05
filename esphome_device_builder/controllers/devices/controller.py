@@ -141,14 +141,14 @@ class DevicesController:
             get_metadata=self._resolve_device_metadata,
             on_change=self._on_scan_change,
         )
-        # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
-        # ping RTT) feeding the device drawer's Reachability section.
-        # Lives here on the controller so the subscribe handler can
-        # call ``snapshot()`` on demand; observations come in via the
-        # state monitor, which we hand the same instance to below.
-        self._reachability = ReachabilityTracker(
-            on_observation=self._on_reachability_observation,
-        )
+        # Build the state monitor first so the reachability tracker
+        # can take its ``get_mdns_cache_info`` bound method directly
+        # as the mDNS cache reader (no wrapper lambda — bound
+        # methods already match the ``Callable[[str], MdnsCacheInfo
+        # | None]`` shape). Wire the tracker back onto the monitor
+        # after construction; the monitor only invokes
+        # ``self._reachability`` at observation time so the
+        # initial ``None`` is fine.
         self._state_monitor = DeviceStateMonitor(
             get_devices=self._get_devices,
             get_devices_by_name=self._scanner.get_by_name,
@@ -159,9 +159,18 @@ class DevicesController:
             on_api_encryption_change=self._on_api_encryption_change,
             on_importable_added=self._on_importable_added,
             on_importable_removed=self._on_importable_removed,
-            reachability=self._reachability,
             is_ignored=self.ignored_devices.__contains__,
         )
+        # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
+        # ping RTT) feeding the device drawer's Reachability section.
+        # Lives here on the controller so the subscribe handler can
+        # call ``snapshot()`` on demand; observations come in via the
+        # state monitor.
+        self._reachability = ReachabilityTracker(
+            on_observation=self._on_reachability_observation,
+            mdns_cache_reader=self._state_monitor.get_mdns_cache_info,
+        )
+        self._state_monitor.set_reachability(self._reachability)
         # MQTT routes its observations through the same state monitor so
         # source-priority is enforced in one place.
         self._mqtt_coordinator = DeviceMqttCoordinator(

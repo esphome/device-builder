@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from operator import attrgetter
 from typing import Any
 
 from esphome.zeroconf import (
@@ -33,10 +34,13 @@ try:
 except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
 
+from zeroconf import current_time_millis, millis_to_seconds
+from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA
+
 from ..helpers.hostname import is_local_hostname, normalize_hostname
 from ..models import AdoptableDevice, Device, DeviceState, ReachabilitySource
 from ._dns_cache import DNSCache
-from ._reachability_tracker import ReachabilityTracker
+from ._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
 
 _LOGGER = logging.getLogger(__name__)
 _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
@@ -275,6 +279,17 @@ class DeviceStateMonitor:
                 _LOGGER.debug("zeroconf close failed", exc_info=True)
             self._zeroconf = None
 
+    def set_reachability(self, tracker: ReachabilityTracker) -> None:
+        """Wire (or rewire) the per-signal freshness tracker.
+
+        ``DevicesController`` builds the state monitor first so the
+        tracker can take ``get_mdns_cache_info`` as its mDNS cache
+        reader; this setter completes the wire-back so the
+        monitor's ``apply`` path can route observations into the
+        tracker.
+        """
+        self._reachability = tracker
+
     def priority_for(self, name: str) -> ReachabilitySource:
         """Return the source currently authoritative for *name*.
 
@@ -362,6 +377,53 @@ class DeviceStateMonitor:
             _LOGGER.debug("mDNS refresh of %s failed", name, exc_info=True)
             return
         self._apply_resolved_addresses(name, addresses)
+
+    def get_mdns_cache_info(self, name: str) -> MdnsCacheInfo | None:
+        """
+        Read the truthful "last heard via mDNS" age + remaining TTL.
+
+        Reaches into ``zeroconf.cache`` for the device's
+        ``<name>.local.`` A and AAAA records and returns
+        ``(age_seconds, ttl_remaining_seconds)`` based on
+        :attr:`zeroconf.DNSAddress.created` (refreshed on every
+        announce) and
+        :meth:`zeroconf.DNSAddress.get_remaining_ttl`. Both values
+        come from the *device's actual broadcast*, not from when
+        we last polled the cache — so the drawer's "Last seen"
+        reflects the real announce age even when zeroconf
+        suppresses ``ServiceStateChange.Updated`` callbacks for
+        same-content TTL refreshes.
+
+        Returns ``None`` when zeroconf isn't running, or when the
+        device has been evicted from the cache (e.g. its TTL
+        expired without a renewing announce). The drawer's
+        snapshot maps that to a hidden mDNS row.
+
+        Why A/AAAA (not SRV): the SRV record only exists on
+        devices running the ESPHome native API
+        (``_esphomelib._tcp.local.``). A device with only
+        web_server / MQTT / OTA still announces an A/AAAA under
+        ``<hostname>.local.``, which is what we care about for
+        "is this host reachable on the LAN". A and AAAA share the
+        same TTL on a single zeroconf announce so picking the
+        most-recently-created across both gives the truthful
+        last-heard.
+        """
+        if self._zeroconf is None:
+            return None
+        cache = self._zeroconf.zeroconf.cache
+        local_name = f"{name}.local."
+        records = [
+            *cache.get_all_by_details(local_name, _TYPE_A, _CLASS_IN),
+            *cache.get_all_by_details(local_name, _TYPE_AAAA, _CLASS_IN),
+        ]
+        if not records:
+            return None
+        latest = max(records, key=attrgetter("created"))
+        now_ms = current_time_millis()
+        age_s = max(0.0, millis_to_seconds(now_ms - latest.created))
+        ttl_remaining_s = max(0.0, millis_to_seconds(latest.get_remaining_ttl(now_ms)))
+        return MdnsCacheInfo(age_seconds=age_s, ttl_remaining_seconds=ttl_remaining_s)
 
     def _apply_resolved_addresses(
         self, name: str, addresses: list[str] | BaseException | None

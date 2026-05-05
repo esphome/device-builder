@@ -402,11 +402,16 @@ def test_observation_fires_bus_event_for_known_device(
     fired: list[Any] = []
     bus.add_listener(EventType.DEVICE_REACHABILITY, fired.append)
 
-    tracker.observe("kitchen", "mdns")
+    # Use a ping observation — mDNS is cache-driven and the
+    # bypass-init test fixture doesn't wire a cache reader, so an
+    # mDNS observe would still fire the callback but the snapshot
+    # would have null mDNS fields. Ping stamps directly so we can
+    # also pin the snapshot's payload shape end-to-end.
+    tracker.observe("kitchen", "ping")
 
     assert len(fired) == 1
     assert fired[0].data["device"] == "kitchen"
-    assert fired[0].data["mdns_last_seen_seconds_ago"] is not None
+    assert fired[0].data["ping_last_seen_seconds_ago"] is not None
 
 
 def test_observation_for_deleted_device_is_dropped(

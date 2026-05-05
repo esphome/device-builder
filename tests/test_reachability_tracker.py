@@ -1,13 +1,13 @@
 """
 Unit coverage for :class:`ReachabilityTracker`.
 
-The tracker is a pure data-shape: four monotonic-time dicts plus a
-snapshot serializer. These tests pin its observable contract — what
-shapes ``snapshot()`` returns for empty / partial / full state, that
-``clear()`` actually removes every dict's entry, that the observation
-callback fires on each ``observe`` and ``record_ping_rtt`` call but
-*not* on ``clear``, and that ``snapshot()`` clamps the relative-time
-math to zero so a future-timed entry can't surface as ``-0.001s ago``.
+The tracker mixes two freshness sources:
+
+* ``ping`` / ``mqtt`` — direct stamps in ``time.monotonic()`` dicts.
+* ``mdns`` — read via the injected ``mdns_cache_reader`` from
+  zeroconf's actual cache. Tests pass a fake reader rather than
+  spinning up zeroconf, so we can drive the (age, ttl_remaining)
+  return values directly.
 
 We patch ``time.monotonic`` rather than relying on real wall-clock so
 the relative-time assertions can be exact (no flakes from a busy CI
@@ -20,9 +20,14 @@ from typing import Any
 from unittest.mock import patch
 
 from esphome_device_builder.controllers._reachability_tracker import (
+    MdnsCacheInfo,
     ReachabilityTracker,
 )
 from esphome_device_builder.models import DeviceState
+
+# Tests pass ``dict.get`` directly as the ``MdnsCacheReader`` —
+# bound-method already matches the ``Callable[[str], MdnsCacheInfo
+# | None]`` shape, so no wrapper factory is needed.
 
 
 def _snapshot(
@@ -48,18 +53,46 @@ def test_snapshot_empty_returns_all_nulls() -> None:
         "active_source": "unknown",
         "ip": "",
         "mdns_last_seen_seconds_ago": None,
+        "mdns_ttl_remaining_seconds": None,
         "ping_last_seen_seconds_ago": None,
         "mqtt_last_seen_seconds_ago": None,
         "ping_rtt_ms": None,
     }
 
 
-def test_observe_records_each_source_independently() -> None:
-    """Three different sources each fill their own slot; a fourth one is no-op."""
+def test_snapshot_uses_mdns_cache_reader() -> None:
+    """MDNS freshness comes from the injected cache reader, not from ``observe``.
+
+    ``observe(name, "mdns")`` deliberately does NOT stamp a value
+    (zeroconf can suppress ``Updated`` callbacks for same-content
+    TTL refreshes — stamping at the call site would lie). The
+    snapshot reads truth from the cache reader.
+    """
+    info = MdnsCacheInfo(age_seconds=12.4, ttl_remaining_seconds=107.6)
+    tracker = ReachabilityTracker(
+        mdns_cache_reader={"kitchen": info}.get,
+    )
+
+    snap = _snapshot(tracker)
+    assert snap["mdns_last_seen_seconds_ago"] == 12.4
+    assert snap["mdns_ttl_remaining_seconds"] == 107.6
+
+
+def test_snapshot_mdns_null_when_cache_reader_returns_none() -> None:
+    """No cache entry → null mDNS fields, drawer hides the row."""
+    tracker = ReachabilityTracker(mdns_cache_reader={}.get)
+
+    snap = _snapshot(tracker)
+    assert snap["mdns_last_seen_seconds_ago"] is None
+    assert snap["mdns_ttl_remaining_seconds"] is None
+
+
+def test_observe_records_ping_and_mqtt_stamps() -> None:
+    """Ping / mqtt observe stamps the per-source dict; mdns does not."""
     with patch("time.monotonic") as monotonic:
         monotonic.return_value = 1000.0
         tracker = ReachabilityTracker()
-        tracker.observe("kitchen", "mdns")
+        tracker.observe("kitchen", "mdns")  # no stamp — cache-only
         monotonic.return_value = 1010.0
         tracker.observe("kitchen", "ping")
         monotonic.return_value = 1015.0
@@ -70,7 +103,10 @@ def test_observe_records_each_source_independently() -> None:
         monotonic.return_value = 1020.0
         snap = _snapshot(tracker)
 
-    assert snap["mdns_last_seen_seconds_ago"] == 20.0
+    # mDNS has no stamp; the cache reader wasn't injected so it
+    # comes through as None — exactly the "no truth available"
+    # signal the drawer needs to hide the row.
+    assert snap["mdns_last_seen_seconds_ago"] is None
     assert snap["ping_last_seen_seconds_ago"] == 10.0
     assert snap["mqtt_last_seen_seconds_ago"] == 5.0
 
@@ -151,31 +187,32 @@ def test_snapshot_clamps_negative_relative_time_to_zero() -> None:
     Without the clamp, a microsecond-level reordering between
     ``observe()`` capturing ``time.monotonic()`` and ``snapshot()``
     re-reading it on a different core surfaces as
-    "-0.001 seconds ago" in the UI.
+    "-0.001 seconds ago" in the UI. mDNS is cache-driven so
+    can't hit this race; ping / MQTT use the stamp path.
     """
     with patch("time.monotonic") as monotonic:
         monotonic.return_value = 1000.0
         tracker = ReachabilityTracker()
-        tracker.observe("kitchen", "mdns")
+        tracker.observe("kitchen", "ping")
 
         # Pretend the snapshot caller's clock is slightly *behind*
         # the observation's clock — clamp should pin to 0.
         monotonic.return_value = 999.999
         snap = _snapshot(tracker)
 
-    assert snap["mdns_last_seen_seconds_ago"] == 0.0
+    assert snap["ping_last_seen_seconds_ago"] == 0.0
 
 
 def test_observations_isolated_per_device() -> None:
     """Two devices' freshness maps don't bleed into each other."""
-    tracker = ReachabilityTracker()
-    tracker.observe("kitchen", "mdns")
+    info = MdnsCacheInfo(age_seconds=3.0, ttl_remaining_seconds=117.0)
+    tracker = ReachabilityTracker(mdns_cache_reader={"kitchen": info}.get)
     tracker.observe("garage", "ping")
 
     kitchen = _snapshot(tracker, "kitchen", active_source="mdns", ip="10.0.0.42")
     garage = _snapshot(tracker, "garage", active_source="ping", ip="10.0.0.43")
 
-    assert kitchen["mdns_last_seen_seconds_ago"] is not None
+    assert kitchen["mdns_last_seen_seconds_ago"] == 3.0
     assert kitchen["ping_last_seen_seconds_ago"] is None
     assert garage["mdns_last_seen_seconds_ago"] is None
     assert garage["ping_last_seen_seconds_ago"] is not None

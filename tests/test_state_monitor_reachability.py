@@ -28,13 +28,14 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from zeroconf import ServiceStateChange
+from zeroconf import ServiceStateChange, current_time_millis
 
 import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
 )
 from esphome_device_builder.controllers._reachability_tracker import (
+    MdnsCacheInfo,
     ReachabilityTracker,
 )
 from esphome_device_builder.models import Device, DeviceState
@@ -96,18 +97,31 @@ def _make_monitor(
     return monitor
 
 
-def test_apply_online_records_observation_under_source() -> None:
-    """An ONLINE apply lands in the tracker under the named source."""
+def test_apply_online_routes_observation_to_tracker_callback() -> None:
+    """An ONLINE apply fires the tracker's ``on_observation`` callback.
+
+    Stamping is per-source: ``ping`` / ``mqtt`` stamps the
+    monotonic dict; ``mdns`` does not (the snapshot reads the
+    zeroconf cache live). In every modelled case the callback
+    fires so the drawer's WS subscription pushes a fresh
+    snapshot.
+    """
     devices = [_make_device()]
-    tracker = ReachabilityTracker()
+    seen: list[str] = []
+    tracker = ReachabilityTracker(on_observation=seen.append)
     monitor = _make_monitor(devices, tracker)
 
     monitor.apply("kitchen", DeviceState.ONLINE, "mdns")
-    snap = tracker.snapshot("kitchen", state=DeviceState.ONLINE, active_source="mdns", ip="")
+    monitor.apply("kitchen", DeviceState.ONLINE, "ping")
+    monitor.apply("kitchen", DeviceState.ONLINE, "mqtt")
 
-    assert snap["mdns_last_seen_seconds_ago"] is not None
-    assert snap["ping_last_seen_seconds_ago"] is None
-    assert snap["mqtt_last_seen_seconds_ago"] is None
+    # Callback fires per source-modelled observation. mDNS doesn't
+    # stamp (cache-driven); ping / mqtt stamps land in their dicts.
+    assert seen == ["kitchen", "kitchen", "kitchen"]
+    snap = tracker.snapshot("kitchen", state=DeviceState.ONLINE, active_source="mdns", ip="")
+    assert snap["mdns_last_seen_seconds_ago"] is None  # no cache reader wired
+    assert snap["ping_last_seen_seconds_ago"] is not None
+    assert snap["mqtt_last_seen_seconds_ago"] is not None
 
 
 def test_apply_offline_does_not_record_observation() -> None:
@@ -123,12 +137,14 @@ def test_apply_offline_does_not_record_observation() -> None:
     assert snap["mdns_last_seen_seconds_ago"] is None
 
 
-def test_apply_records_each_source_independently() -> None:
-    """All three channels accumulate timestamps even when one owns the state.
+def test_apply_records_ping_and_mqtt_independently() -> None:
+    """Ping / MQTT stamps accumulate even when a higher-priority source owns state.
 
     The per-signal display is "show me what I've heard from this
-    device on each channel" — a higher-priority source claiming
-    the device must not wipe the other channels' freshness.
+    device on each channel" — mDNS taking ownership doesn't wipe
+    the ping / MQTT freshness stamps. (mDNS itself reads from the
+    cache; here we just verify ping / MQTT survive the
+    higher-priority claim.)
     """
     devices = [_make_device()]
     tracker = ReachabilityTracker()
@@ -143,7 +159,6 @@ def test_apply_records_each_source_independently() -> None:
     monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True)
 
     snap = tracker.snapshot("kitchen", state=DeviceState.ONLINE, active_source="mdns", ip="")
-    assert snap["mdns_last_seen_seconds_ago"] is not None
     assert snap["ping_last_seen_seconds_ago"] is not None
     assert snap["mqtt_last_seen_seconds_ago"] is not None
 
@@ -274,6 +289,49 @@ async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
     assert snap["mdns_last_seen_seconds_ago"] is None
 
 
+def test_get_mdns_cache_info_no_zeroconf_returns_none() -> None:
+    """No zeroconf → no cache to read → ``None``."""
+    monitor = _make_monitor([_make_device()], None)
+    assert monitor.get_mdns_cache_info("kitchen") is None
+
+
+def test_get_mdns_cache_info_no_record_returns_none() -> None:
+    """A device that hasn't been heard from → empty cache lookup → ``None``."""
+    monitor = _make_monitor([_make_device()], None)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[])
+    monitor._zeroconf = fake_zeroconf
+    assert monitor.get_mdns_cache_info("kitchen") is None
+
+
+def test_get_mdns_cache_info_picks_latest_record() -> None:
+    """Returns the freshest cached SRV record's age + remaining TTL.
+
+    Stubs ``zeroconf.cache.get_all_by_details`` with two records
+    differing in ``created`` and confirms ``max(records, key=created)``
+    wins. Pin the unit-conversion contract too (zeroconf's
+    millisecond timestamps → reachability's seconds).
+    """
+    now_ms = current_time_millis()
+    older = MagicMock(created=now_ms - 30_000.0)
+    older.get_remaining_ttl = MagicMock(return_value=90_000.0)
+    newer = MagicMock(created=now_ms - 5_000.0)
+    newer.get_remaining_ttl = MagicMock(return_value=115_000.0)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[older, newer])
+
+    monitor = _make_monitor([_make_device()], None)
+    monitor._zeroconf = fake_zeroconf
+
+    info = monitor.get_mdns_cache_info("kitchen")
+    assert isinstance(info, MdnsCacheInfo)
+    # Newer record wins; allow a small margin for the millisecond
+    # difference between the test's ``current_time_millis()`` capture
+    # and the one inside ``get_mdns_cache_info``.
+    assert info.age_seconds == pytest.approx(5.0, abs=0.5)
+    assert info.ttl_remaining_seconds == pytest.approx(115.0, abs=0.5)
+
+
 @pytest.mark.asyncio
 async def test_refresh_mdns_no_zeroconf_is_a_noop() -> None:
     """``refresh_mdns`` is silent when zeroconf failed to start.
@@ -296,9 +354,18 @@ async def test_refresh_mdns_no_zeroconf_is_a_noop() -> None:
 
 @pytest.mark.asyncio
 async def test_refresh_mdns_resolves_and_marks_online() -> None:
-    """A successful resolve flips state ONLINE and bumps mDNS last-seen."""
+    """A successful resolve flips state ONLINE and triggers an mDNS observation.
+
+    With the cache-driven mDNS model, the test asserts the
+    integration *call* (resolve happened, state went ONLINE,
+    observation callback fired) rather than the stamp value —
+    truthful freshness comes from the zeroconf cache reader,
+    which a unit-test stub at this layer would only re-prove
+    is wired in.
+    """
     devices = [_make_device()]
-    tracker = ReachabilityTracker()
+    seen: list[str] = []
+    tracker = ReachabilityTracker(on_observation=seen.append)
     monitor = _make_monitor(devices, tracker)
     fake_zeroconf = MagicMock()
     fake_zeroconf.async_resolve_host = AsyncMock(return_value=["10.0.0.42"])
@@ -307,10 +374,14 @@ async def test_refresh_mdns_resolves_and_marks_online() -> None:
     await monitor.refresh_mdns("kitchen")
 
     fake_zeroconf.async_resolve_host.assert_awaited_once_with("kitchen.local", 3.0)
-    snap = tracker.snapshot(
-        "kitchen", state=DeviceState.ONLINE, active_source="mdns", ip="10.0.0.42"
-    )
-    assert snap["mdns_last_seen_seconds_ago"] is not None
+    assert devices[0].state is DeviceState.ONLINE
+    # apply(ONLINE, "mdns") fires the observation callback so the
+    # drawer's WS subscription pushes a fresh snapshot. The
+    # callback fires twice: once for the apply, once for the
+    # follow-up apply_ip_addresses... actually only once because
+    # apply_ip doesn't go through observe. Pin the at-least-one
+    # contract.
+    assert seen.count("kitchen") >= 1
 
 
 @pytest.mark.asyncio
