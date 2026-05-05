@@ -36,7 +36,11 @@ import pytest
 
 from esphome_device_builder.api.ws import WebSocketClient
 from esphome_device_builder.controllers._device_scanner import ScanChange
+from esphome_device_builder.controllers._device_state_monitor import (
+    _MDNS_REFRESH_PADDING_SECONDS,
+)
 from esphome_device_builder.controllers._reachability_tracker import (
+    MdnsCacheInfo,
     ReachabilityTracker,
 )
 from esphome_device_builder.helpers.api import CommandError
@@ -112,6 +116,11 @@ def _wire_reachability(
     state_monitor = MagicMock()
     state_monitor.priority_for = MagicMock(return_value=ReachabilitySource.PING)
     state_monitor.refresh_mdns = AsyncMock()
+    # The refresh loop reads ``get_mdns_cache_info`` to decide
+    # how long to sleep before the next probe. Returning ``None``
+    # makes it sleep just the padding (~1s); returning a MagicMock
+    # would raise ``TypeError`` on the ``+`` arithmetic.
+    state_monitor.get_mdns_cache_info = MagicMock(return_value=None)
     controller._state_monitor = state_monitor
     return tracker
 
@@ -474,19 +483,11 @@ def test_scan_change_removed_clears_tracker(
 async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Tick the 60s loop manually; mDNS-source ticks resolve, others don't.
+    """Tick the loop manually; mDNS-source ticks resolve, others don't.
 
-    Drives the loop body directly instead of waiting 60 real
-    seconds, then asserts the call pattern. Confirms the gate
-    keeps the network quiet on ping/mqtt-source devices.
-
-    Loop order is **sleep-then-refresh**: with cache-based
-    snapshot reads, the initial drawer snapshot already reflects
-    the device's most recent announce. Refreshing on subscribe
-    would clobber the displayed truth with a "just heard"
-    announce on every drawer-open. The 60s tick afterwards is
-    defence-in-depth that keeps A/AAAA records alive when the
-    ServiceBrowser only refreshes the PTR.
+    Drives the loop body directly instead of waiting real seconds,
+    then asserts the call pattern. Confirms the gate keeps the
+    network quiet on ping/mqtt-source devices.
     """
     controller = make_controller(tmp_path)
     tracker = ReachabilityTracker()
@@ -501,7 +502,7 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     ]
 
     # Patch sleep to exit the loop after two iterations so we don't
-    # park for 60s real time. The third call raises ``CancelledError``,
+    # park for real time. The third call raises ``CancelledError``,
     # same shape as production cancellation.
     iterations = 0
 
@@ -521,4 +522,107 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     # priority probe runs. Total: 1 refresh across two ticks.
     assert state_monitor.refresh_mdns.await_count == 1
     state_monitor.refresh_mdns.assert_awaited_with("kitchen")
-    state_monitor.refresh_mdns.assert_awaited_with("kitchen")
+
+
+@pytest.mark.asyncio
+async def test_refresh_loop_sleeps_until_cache_expiry(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Sleep duration tracks the cached A record's remaining TTL.
+
+    The cache-aware sleep is the whole point of the redesign:
+    ``async_resolve_host`` short-circuits on cache hit, so a
+    fixed-interval probe within the cache's lifetime would
+    never go on the wire. Sleeping ``ttl_remaining + padding``
+    means the next iteration runs after the cache record has
+    aged past expiry, the cache check fails, and the wire query
+    fires for real.
+    """
+    controller = make_controller(tmp_path)
+    tracker = ReachabilityTracker()
+    bus = EventBus()
+    _wire_reachability(controller, tracker, bus)
+    _seed_device(controller)
+    state_monitor = controller._state_monitor
+    # Two cache reads cover the two iterations: first fresh
+    # (90s remaining), then expired (None — typical post-refresh
+    # state if the device didn't respond).
+    state_monitor.get_mdns_cache_info.side_effect = [
+        MdnsCacheInfo(age_seconds=30.0, ttl_remaining_seconds=90.0),
+        None,
+    ]
+    state_monitor.priority_for.return_value = ReachabilitySource.MDNS
+
+    sleep_durations: list[float] = []
+    iterations = 0
+
+    async def recording_sleep(delay: float) -> None:
+        nonlocal iterations
+        sleep_durations.append(delay)
+        iterations += 1
+        if iterations >= 2:
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError), pytest.MonkeyPatch.context() as m:
+        m.setattr("asyncio.sleep", recording_sleep)
+        await controller._reachability_refresh_loop("kitchen")
+
+    # First sleep: TTL=90s + padding.
+    # Second sleep: cache empty (info=None) → padding.
+    assert sleep_durations[0] == pytest.approx(90.0 + _MDNS_REFRESH_PADDING_SECONDS)
+    assert sleep_durations[1] == pytest.approx(_MDNS_REFRESH_PADDING_SECONDS)
+
+
+@pytest.mark.asyncio
+async def test_refresh_loop_skips_wire_query_when_recheck_finds_fresh_cache(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An mDNS announce arriving during the sleep re-arms the cache; no wire query.
+
+    Sequence:
+      1. Cache TTL=90s → sleep 91s.
+      2. Recheck finds fresh cache (a passive announce landed
+         during our sleep, e.g. ``ttl_remaining=60s``) → sleep
+         again, **no wire query**.
+      3. Recheck finds expired cache → wire query fires.
+
+    Pin that the wire query is gated on "still expired at
+    recheck time," not "we slept based on an earlier reading."
+    Without this, an unrelated mDNS announce landing during the
+    sleep would still get clobbered by a redundant wire query
+    on wake-up.
+    """
+    controller = make_controller(tmp_path)
+    tracker = ReachabilityTracker()
+    bus = EventBus()
+    _wire_reachability(controller, tracker, bus)
+    _seed_device(controller)
+    state_monitor = controller._state_monitor
+    state_monitor.priority_for.return_value = ReachabilitySource.MDNS
+    # Three reads: fresh (90s) → fresh again (60s, an announce
+    # arrived) → empty (cache evicted).
+    state_monitor.get_mdns_cache_info.side_effect = [
+        MdnsCacheInfo(age_seconds=30.0, ttl_remaining_seconds=90.0),
+        MdnsCacheInfo(age_seconds=60.0, ttl_remaining_seconds=60.0),
+        None,
+    ]
+
+    sleep_count = 0
+
+    async def fast_sleep(_: float) -> None:
+        nonlocal sleep_count
+        sleep_count += 1
+        # Cancel after the third sleep — by then we've covered
+        # the two fresh-cache iterations + the start of the
+        # expired-cache iteration's padding sleep, but
+        # ``CancelledError`` raised here preempts the wire
+        # query on this iteration. The assertion below confirms
+        # ``refresh_mdns`` was never awaited.
+        if sleep_count >= 3:
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError), pytest.MonkeyPatch.context() as m:
+        m.setattr("asyncio.sleep", fast_sleep)
+        await controller._reachability_refresh_loop("kitchen")
+
+    state_monitor.refresh_mdns.assert_not_awaited()

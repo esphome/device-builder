@@ -371,10 +371,8 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     # production code was double-dividing.
     older = MagicMock(created=now_ms - 30_000.0)
     older.get_remaining_ttl = MagicMock(return_value=90.0)
-    older.is_expired = MagicMock(return_value=False)
     newer = MagicMock(created=now_ms - 5_000.0)
     newer.get_remaining_ttl = MagicMock(return_value=115.0)
-    newer.is_expired = MagicMock(return_value=False)
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[older, newer])
 
@@ -411,136 +409,66 @@ async def test_refresh_mdns_no_zeroconf_is_a_noop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_mdns_skips_wire_query_when_cache_is_fresh() -> None:
-    """A fresh cache entry (TTL > threshold) skips the wire query.
+async def test_refresh_mdns_calls_resolve_host() -> None:
+    """``refresh_mdns`` delegates to ``AsyncEsphomeZeroconf.async_resolve_host``.
 
-    The whole point of the threshold gate is to avoid burning
-    multicast traffic on devices whose own re-announces are
-    keeping the cache fresh. Stub ``get_mdns_cache_info`` to
-    return a healthy 90s remaining → the patched
-    ``AddressResolver.async_request`` must never fire.
-    """
-    devices = [_make_device()]
-    monitor = _make_monitor(devices, ReachabilityTracker())
-    monitor._zeroconf = MagicMock()
-    monitor.get_mdns_cache_info = MagicMock(  # type: ignore[method-assign]
-        return_value=MdnsCacheInfo(age_seconds=30.0, ttl_remaining_seconds=90.0)
-    )
-
-    fake_resolver = MagicMock()
-    fake_resolver.async_request = AsyncMock(return_value=True)
-    fake_resolver.parsed_scoped_addresses = MagicMock(return_value=["10.0.0.42"])
-    with patch(
-        "esphome_device_builder.controllers._device_state_monitor.AddressResolver",
-        return_value=fake_resolver,
-    ):
-        await monitor.refresh_mdns("kitchen")
-
-    fake_resolver.async_request.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_refresh_mdns_probes_wire_when_cache_near_expiry() -> None:
-    """A cache entry under the threshold (or absent) triggers a wire query.
-
-    Stubs ``AddressResolver`` so the test never touches real
-    multicast. Pins:
-      * ``async_request`` is awaited once with the timeout
-        constant the production helper uses.
-      * The resolved addresses route through ``apply_*`` so
-        the device flips ONLINE.
+    The refresh-loop schedules this *after* the cached A record's
+    TTL has elapsed, at which point ``async_resolve_host``'s
+    ``_load_from_cache`` short-circuit fails (the record is
+    expired and skipped by ``_process_record_threadsafe``) and
+    the call falls through to the wire query. Pinning the
+    delegation keeps a refactor that swaps out the helper from
+    silently dropping the wire-query path.
     """
     devices = [_make_device()]
     seen: list[str] = []
     tracker = ReachabilityTracker(on_observation=seen.append)
     monitor = _make_monitor(devices, tracker)
-    monitor._zeroconf = MagicMock()
-    monitor.get_mdns_cache_info = MagicMock(  # type: ignore[method-assign]
-        return_value=MdnsCacheInfo(age_seconds=115.0, ttl_remaining_seconds=5.0)
-    )
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_resolve_host = AsyncMock(return_value=["10.0.0.42"])
+    monitor._zeroconf = fake_zeroconf
 
-    fake_resolver = MagicMock()
-    fake_resolver.async_request = AsyncMock(return_value=True)
-    fake_resolver.parsed_scoped_addresses = MagicMock(return_value=["10.0.0.42"])
-    with patch(
-        "esphome_device_builder.controllers._device_state_monitor.AddressResolver",
-        return_value=fake_resolver,
-    ):
-        await monitor.refresh_mdns("kitchen")
+    await monitor.refresh_mdns("kitchen")
 
-    fake_resolver.async_request.assert_awaited_once_with(monitor._zeroconf.zeroconf, 2000)
+    fake_zeroconf.async_resolve_host.assert_awaited_once_with("kitchen.local", 3.0)
     assert devices[0].state is DeviceState.ONLINE
     assert seen.count("kitchen") >= 1
-
-
-@pytest.mark.asyncio
-async def test_refresh_mdns_probes_wire_when_cache_is_empty() -> None:
-    """No cache entry at all → wire query fires (the threshold is "or absent")."""
-    devices = [_make_device()]
-    monitor = _make_monitor(devices, ReachabilityTracker())
-    monitor._zeroconf = MagicMock()
-    monitor.get_mdns_cache_info = MagicMock(return_value=None)  # type: ignore[method-assign]
-
-    fake_resolver = MagicMock()
-    fake_resolver.async_request = AsyncMock(return_value=True)
-    fake_resolver.parsed_scoped_addresses = MagicMock(return_value=[])
-    with patch(
-        "esphome_device_builder.controllers._device_state_monitor.AddressResolver",
-        return_value=fake_resolver,
-    ):
-        await monitor.refresh_mdns("kitchen")
-
-    fake_resolver.async_request.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_refresh_mdns_swallows_resolve_errors() -> None:
     """A resolve exception is logged but does not propagate.
 
-    ``async_request`` can raise on transient network blips
-    (no route, EAGAIN under load) — the per-subscription refresh
-    task must absorb those rather than terminating the
-    subscription, since the next 60s tick gets a fresh chance.
+    ``async_resolve_host`` can raise on transient network blips
+    (no route, EAGAIN under load) — the refresh loop must absorb
+    those rather than terminating the subscription, since the
+    next iteration gets a fresh chance once the cached TTL ages
+    out again.
     """
     devices = [_make_device()]
     monitor = _make_monitor(devices, ReachabilityTracker())
-    monitor._zeroconf = MagicMock()
-    monitor.get_mdns_cache_info = MagicMock(return_value=None)  # type: ignore[method-assign]
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_resolve_host = AsyncMock(side_effect=OSError("network down"))
+    monitor._zeroconf = fake_zeroconf
 
-    fake_resolver = MagicMock()
-    fake_resolver.async_request = AsyncMock(side_effect=OSError("network down"))
-    with patch(
-        "esphome_device_builder.controllers._device_state_monitor.AddressResolver",
-        return_value=fake_resolver,
-    ):
-        # No raise, no state change.
-        await monitor.refresh_mdns("kitchen")
+    await monitor.refresh_mdns("kitchen")
     assert devices[0].state is DeviceState.UNKNOWN
 
 
 @pytest.mark.asyncio
 async def test_refresh_mdns_empty_resolve_no_state_change() -> None:
-    """An empty address list (no answer) leaves state untouched.
+    """An empty resolve (device didn't respond) leaves state untouched.
 
-    Same shape as the OFFLINE silence rule on the active-resolve
-    path: a single missed query conflates "device gone" with
-    "transient packet loss", so we don't unilaterally flip OFFLINE
-    on an empty result. The next tick or the periodic ping sweep
-    decides.
+    Single missed query conflates "device gone" with "transient
+    packet loss" — leave the source slot at whatever ping last
+    claimed (or unknown) and let the next iteration / ping sweep
+    decide.
     """
     devices = [_make_device()]
     monitor = _make_monitor(devices, ReachabilityTracker())
-    monitor._zeroconf = MagicMock()
-    monitor.get_mdns_cache_info = MagicMock(return_value=None)  # type: ignore[method-assign]
-
-    fake_resolver = MagicMock()
-    fake_resolver.async_request = AsyncMock(return_value=False)
-    fake_resolver.parsed_scoped_addresses = MagicMock(return_value=[])
-    with patch(
-        "esphome_device_builder.controllers._device_state_monitor.AddressResolver",
-        return_value=fake_resolver,
-    ):
-        await monitor.refresh_mdns("kitchen")
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_resolve_host = AsyncMock(return_value=[])
+    monitor._zeroconf = fake_zeroconf
 
     await monitor.refresh_mdns("kitchen")
     assert devices[0].state is DeviceState.UNKNOWN

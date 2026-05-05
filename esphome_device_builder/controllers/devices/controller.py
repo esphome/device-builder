@@ -53,7 +53,7 @@ from ...models import (
 )
 from .._device_mqtt_coordinator import DeviceMqttCoordinator
 from .._device_scanner import DeviceFileMetadata, DeviceScanner, ScanChange
-from .._device_state_monitor import DeviceStateMonitor
+from .._device_state_monitor import _MDNS_REFRESH_PADDING_SECONDS, DeviceStateMonitor
 from .._reachability_tracker import ReachabilityTracker
 from ..config import (
     get_device_metadata,
@@ -1248,36 +1248,53 @@ class DevicesController:
             client.unregister_stream(message_id)
 
     async def _reachability_refresh_loop(self, device_name: str) -> None:
-        """Periodically force-refresh the A/AAAA cache while subscribed.
+        """Schedule mDNS refreshes off the cached A record's expiry.
 
         Quiet when active source is ping (the regular sweep already
         runs every 60s) or MQTT (the discover-publish loop already
         ticks every 2s).
 
-        **Sleep first, then refresh.** With cache-based snapshot
-        reads (``get_mdns_cache_info`` reads ``DNSAddress.created``
-        directly), the initial snapshot the subscriber gets
-        already reflects the device's most recent A/AAAA announce
-        — nothing to "freshen." Running the refresh up-front
-        would just fire an active resolve on every drawer-open,
-        populating the cache with a brand-new ``created`` and
-        showing "TTL: 120s · now" for every subscribe regardless
-        of when the device last actually announced. Sleeping
-        first preserves the displayed truth on open.
+        Why scheduled-on-expiry rather than fixed-interval: the
+        canonical ``async_resolve_host`` short-circuits on cache
+        hit (``_load_from_cache`` returns the cached value if
+        the record is present and not expired), so a
+        fixed-interval probe within the cache's lifetime
+        wouldn't actually go on the wire — we'd just keep
+        re-reading the same cached entry until it eventually
+        ages out and the next iteration finally reaches
+        ``async_request``.
 
-        Why we still need the 60s tick: ``ServiceBrowser`` only
-        keeps the *PTR* record alive (that's the record the
-        browser subscribes to); the A and AAAA records, which
-        we read for ``mdns_last_seen``, decay on their own TTL
-        and zeroconf's reaper evicts them once expired. Without
-        an active resolve, an actually-online quiet device (or
-        any device that lost a few same-content TTL-refresh
-        announces to multicast packet loss) would have its
-        A record expire and the drawer's mDNS row would
-        disappear even though the device is fine.
+        On every iteration, re-read the cached A record's
+        remaining TTL. If a fresh entry is alive, sleep until it
+        ages out (``ttl_remaining + padding``) then loop —
+        rechecking after the sleep handles the case where an
+        unrelated mDNS announce reached us during the sleep
+        window and re-armed the cache; we just sleep again for
+        the new lifetime instead of issuing a redundant query.
+        Only when the recheck shows expired / absent does the
+        wire query fire — by then ``_load_from_cache`` will fail
+        and ``async_resolve_host`` will actually go on the wire.
+        ESPHome devices are mDNS-silent except in response to
+        probes; ``ServiceBrowser`` only keeps the PTR record
+        (4500s TTL) alive, not A/AAAA (120s). Without this loop
+        the A record decays unrecoverably 120s after the most
+        recent probe.
         """
         while True:
-            await asyncio.sleep(60)
+            info = self._state_monitor.get_mdns_cache_info(device_name)
+            if info is not None and info.ttl_remaining_seconds > 0:
+                # Cache still alive — sleep until just past
+                # expiry, then re-check rather than probing
+                # immediately. A fresh announce arriving during
+                # the sleep would re-arm the cache and the
+                # recheck spares us a redundant wire query.
+                await asyncio.sleep(info.ttl_remaining_seconds + _MDNS_REFRESH_PADDING_SECONDS)
+                continue
+            # Cache expired or absent — probe the wire to refresh
+            # it. The padding before the first probe also gives
+            # the subscription's initial snapshot a chance to
+            # land before we issue our first query.
+            await asyncio.sleep(_MDNS_REFRESH_PADDING_SECONDS)
             if self._state_monitor.priority_for(device_name) is ReachabilitySource.MDNS:
                 await self.refresh_device_mdns(device_name)
 

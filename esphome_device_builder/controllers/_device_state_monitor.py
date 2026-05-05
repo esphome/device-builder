@@ -68,18 +68,16 @@ _PING_BOOTSTRAP_DELAY = 10  # seconds before the first ping sweep
 # stacking N timeouts back-to-back.
 _PING_BATCH_SIZE = 24
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
-# When the drawer's per-subscription refresh tick runs, only
-# actually probe the wire if the cached A record is within this
-# many seconds of expiry. Healthy ESPHome devices re-announce A
-# at TTL/2 (~60s for the default 120s TTL), so the cache stays
-# fresh on its own most of the time and an unconditional
-# every-tick query would just add multicast traffic. The
-# threshold is a safety margin for the case where the device's
-# announce is delayed or lost (multicast packet loss on busy
-# networks): we kick a wire query in time to refresh the cache
-# before zeroconf evicts the record and the drawer's mDNS row
-# disappears.
-_MDNS_REFRESH_THRESHOLD_SECONDS = 10.0
+# Padding added to the cached A record's TTL when the drawer's
+# refresh loop schedules its next probe. We sleep ``ttl + this``
+# so by the time we wake up the cache record has aged past
+# expiry, ``_load_from_cache`` short-circuits fail, and
+# ``async_resolve_host`` actually goes on the wire (it
+# short-circuits otherwise). Keep small — extra padding is just
+# a window where the drawer's mDNS row reads "Waiting for first
+# broadcast…" between the record's natural expiry and our
+# scheduled wake-up.
+_MDNS_REFRESH_PADDING_SECONDS = 1.0
 # Timeout for the per-sweep mDNS hostname resolves we issue for
 # non-API devices. 3s is enough on a working LAN even when the
 # device is briefly slow to respond, and keeps the whole resolve
@@ -370,50 +368,34 @@ class DeviceStateMonitor:
         return True
 
     async def refresh_mdns(self, name: str) -> None:
-        """Conditionally re-query a device's mDNS A/AAAA records.
+        """Re-query a device's mDNS A/AAAA records via the wire.
 
-        Called by the drawer's reachability subscription on a
-        periodic timer while mDNS is the active source. Only
-        actually probes the wire when the cached A/AAAA record is
-        within :data:`_MDNS_REFRESH_THRESHOLD_SECONDS` of expiring
-        (or already expired) — a healthy device's own re-announces
-        keep the cache fresh on their own, so unconditional polling
-        would just add multicast traffic for no gain.
+        Caller (the drawer's reachability subscription) is
+        expected to schedule this *after* the cached A record's
+        TTL has elapsed — at that point ``async_resolve_host``'s
+        ``load_from_cache`` short-circuit fails (the record is
+        expired and skipped by ``_process_record_threadsafe``),
+        the call falls through to ``async_request``, and we
+        actually go on the wire.
 
-        Why bypass the cache when we DO probe: the canonical
-        :meth:`AsyncEsphomeZeroconf.async_resolve_host` calls
-        ``load_from_cache`` first and short-circuits on a hit
-        without going on the wire. That's the right shape for
-        general callers who just need an IP — but it's wrong for
-        keeping the cache alive, which is what the drawer wants.
-        ESPHome A records have a 120s TTL while the
-        ``ServiceBrowser``-managed PTR has a 4500s TTL, so the
-        browser's refresh cycle does *not* refresh A. Once we've
-        decided we need to probe, we issue
-        ``AddressResolver.async_request`` directly so the device's
-        response refreshes the cache entry's ``created`` timestamp.
+        ESPHome devices are mDNS-silent except in response to
+        probes, so this is the only mechanism that keeps an
+        A record alive once it ages out. The
+        ``ServiceBrowser``-managed PTR has a 4500s TTL and is
+        kept alive by the browser, but A's 120s TTL decays on
+        its own and the browser does not re-query A.
+
         No-op when zeroconf failed to start.
         """
         if self._zeroconf is None:
             return
-        # Skip the wire query when the cache still has plenty of
-        # life left — a fresh device re-announce within the next
-        # ``threshold`` seconds will refresh the entry on its own.
-        # Reading the cache here pre-decides whether to spend a
-        # multicast query.
-        info = self.get_mdns_cache_info(name)
-        if info is not None and info.ttl_remaining_seconds > _MDNS_REFRESH_THRESHOLD_SECONDS:
-            return
-        resolver = AddressResolver(f"{name}.local.")
         try:
-            await resolver.async_request(self._zeroconf.zeroconf, _MDNS_RESOLVE_TIMEOUT_MS)
+            addresses = await self._zeroconf.async_resolve_host(
+                f"{name}.local", _MDNS_HOSTNAME_RESOLVE_TIMEOUT
+            )
         except Exception:
             _LOGGER.debug("mDNS refresh of %s failed", name, exc_info=True)
             return
-        # ``async_request`` populates the cache as a side-effect;
-        # ``parsed_scoped_addresses`` reads the same record back
-        # so we can route it through the normal apply path.
-        addresses = resolver.parsed_scoped_addresses(IPVersion.All)
         self._apply_resolved_addresses(name, addresses)
 
     def get_mdns_cache_info(self, name: str) -> MdnsCacheInfo | None:
@@ -457,20 +439,20 @@ class DeviceStateMonitor:
         ]
         if not records:
             return None
-        # Filter expired records. zeroconf's cache reaper sweeps
-        # lazily, so a device that's gone offline keeps its
-        # post-TTL record around — without this gate the drawer
-        # would render "2 minutes ago · TTL: 0s" indefinitely
-        # for a powered-off device because we'd happily read
-        # the stale ``created`` value. ``is_expired`` walks the
-        # same ``created + TTL <= now`` math zeroconf uses to
-        # decide eviction, so we honour the contract a moment
-        # earlier than the reaper happens to run.
+        # Don't filter expired records — the drawer wants the
+        # truthful "last seen" age even when the cached A has
+        # aged past its TTL. The PTR record (4500s) keeps the
+        # device's existence alive in mDNS-land regardless of
+        # A/AAAA expiry; surfacing "Last seen 122s ago, TTL: 0s"
+        # is more accurate than hiding the row entirely just
+        # because A's 120s TTL ran out before our refresh tick
+        # fired. The expiry+1s refresh loop keeps the gap to a
+        # few seconds in practice; once the reaper actually
+        # evicts the record, ``get_all_by_details`` returns
+        # nothing and the row hides correctly via the
+        # ``records`` empty-check above.
         now_ms = current_time_millis()
-        live = [r for r in records if not r.is_expired(now_ms)]
-        if not live:
-            return None
-        latest = max(live, key=attrgetter("created"))
+        latest = max(records, key=attrgetter("created"))
         # ``DNSAddress.created`` is millis; ``now_ms - created`` is
         # millis, hence ``millis_to_seconds`` here.
         age_s = max(0.0, millis_to_seconds(now_ms - latest.created))
