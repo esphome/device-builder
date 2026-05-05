@@ -238,6 +238,29 @@ def test_reset_build_env_does_not_schedule_refresh() -> None:
     assert captured == []
 
 
+def test_unhandled_job_type_with_configuration_falls_through_silently() -> None:
+    """Job types outside CLEAN/COMPILE/UPLOAD/INSTALL/RENAME bail at the type check.
+
+    Belt-and-braces test for the post-CLEAN dispatch table — a
+    ``RESET_BUILD_ENV`` job that did happen to carry a
+    configuration (or any future job type we haven't wired
+    explicitly) bails at the ``if job_type not in (...)`` guard
+    *after* the empty-configuration short-circuit, leaving the
+    refresh + build-size hooks alone.
+    """
+    controller, captured = _make_controller()
+    job = _job(
+        JobType.RESET_BUILD_ENV,
+        JobStatus.COMPLETED,
+        configuration="kitchen.yaml",
+    )
+
+    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    assert captured == []
+    controller._build_size.request.assert_not_called()
+
+
 def test_event_without_job_payload_is_safe() -> None:
     """Defensive: ``data["job"]`` missing must not raise."""
     controller, captured = _make_controller()
