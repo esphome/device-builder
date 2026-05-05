@@ -419,8 +419,20 @@ class DeviceStateMonitor:
         ]
         if not records:
             return None
-        latest = max(records, key=attrgetter("created"))
+        # Filter expired records. zeroconf's cache reaper sweeps
+        # lazily, so a device that's gone offline keeps its
+        # post-TTL record around — without this gate the drawer
+        # would render "2 minutes ago · TTL: 0s" indefinitely
+        # for a powered-off device because we'd happily read
+        # the stale ``created`` value. ``is_expired`` walks the
+        # same ``created + TTL <= now`` math zeroconf uses to
+        # decide eviction, so we honour the contract a moment
+        # earlier than the reaper happens to run.
         now_ms = current_time_millis()
+        live = [r for r in records if not r.is_expired(now_ms)]
+        if not live:
+            return None
+        latest = max(live, key=attrgetter("created"))
         # ``DNSAddress.created`` is millis; ``now_ms - created`` is
         # millis, hence ``millis_to_seconds`` here.
         age_s = max(0.0, millis_to_seconds(now_ms - latest.created))

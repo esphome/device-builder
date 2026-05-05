@@ -24,11 +24,13 @@ checked end-to-end rather than against another mock.
 
 from __future__ import annotations
 
+import socket
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from zeroconf import ServiceStateChange, current_time_millis
+from zeroconf import DNSAddress, ServiceStateChange, Zeroconf, current_time_millis
+from zeroconf.const import _CLASS_IN, _TYPE_A
 
 import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import (
@@ -304,6 +306,55 @@ def test_get_mdns_cache_info_no_record_returns_none() -> None:
     assert monitor.get_mdns_cache_info("kitchen") is None
 
 
+def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
+    """Integration: real ``DNSAddress`` + real ``zeroconf.cache``.
+
+    A previous version of this method ran ``get_remaining_ttl``'s
+    return through ``millis_to_seconds`` — but ``get_remaining_ttl``
+    already returns seconds, so the production code rendered
+    "TTL: 0s" in the drawer. The unit bug was masked by a sibling
+    test that *also* stubbed ``get_remaining_ttl`` as
+    milliseconds: the wrongness on both sides cancelled out.
+
+    This test is mock-free — it constructs a real ``DNSAddress``
+    via the documented constructor, drops it into a real
+    ``Zeroconf`` instance's cache via ``async_add_records``, and
+    asserts the helper returns *seconds* with sensible
+    magnitude. Any future regression that (re-)introduces a
+    unit mismatch surfaces here without depending on a stub
+    matching the production assumption.
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 30_000,
+        )
+        zc.cache.async_add_records([rec])
+
+        monitor = _make_monitor([_make_device()], None)
+        # The helper reads ``self._zeroconf.zeroconf`` — wrap the real
+        # ``Zeroconf`` in a stub object exposing the same attribute.
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.get_mdns_cache_info("kitchen")
+        assert info is not None
+        # Age is "now - created" in seconds. Allow a small margin
+        # for the milliseconds elapsed between the test's
+        # ``current_time_millis()`` capture and the helper's.
+        assert info.age_seconds == pytest.approx(30.0, abs=0.5)
+        # TTL=120s, age=30s → ~90s remaining. The bug rendered
+        # this as 0.090 (ms-treated-as-s); the assertion would
+        # fail there.
+        assert info.ttl_remaining_seconds == pytest.approx(90.0, abs=0.5)
+    finally:
+        zc.close()
+
+
 def test_get_mdns_cache_info_picks_latest_record() -> None:
     """Returns the freshest cached SRV record's age + remaining TTL.
 
@@ -320,8 +371,10 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     # production code was double-dividing.
     older = MagicMock(created=now_ms - 30_000.0)
     older.get_remaining_ttl = MagicMock(return_value=90.0)
+    older.is_expired = MagicMock(return_value=False)
     newer = MagicMock(created=now_ms - 5_000.0)
     newer.get_remaining_ttl = MagicMock(return_value=115.0)
+    newer.is_expired = MagicMock(return_value=False)
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[older, newer])
 

@@ -1248,30 +1248,38 @@ class DevicesController:
             client.unregister_stream(message_id)
 
     async def _reachability_refresh_loop(self, device_name: str) -> None:
-        """Force-refresh mDNS for *device_name* every 60s while mDNS is the active source.
+        """Periodically force-refresh the A/AAAA cache while subscribed.
 
         Quiet when active source is ping (the regular sweep already
         runs every 60s) or MQTT (the discover-publish loop already
         ticks every 2s).
 
-        **Refresh first, then sleep.** ESPHome devices re-announce
-        mDNS at TTL/2 (~60s for the default 120s TTL), but zeroconf
-        only fires ``ServiceStateChange.Updated`` when the record
-        content actually changes — a same-record TTL refresh
-        typically does *not* trigger a callback. So
-        ``_mdns_last_seen`` can stay at the original ``Added``
-        timestamp for many minutes even on a fully-online device,
-        and the initial snapshot the drawer receives shows stale
-        ages. Running the refresh before the first sleep makes the
-        cache lookup (or short active resolve) bump
-        ``_mdns_last_seen`` within ~ms of the subscription
-        starting, so the drawer's "Last seen" reads fresh
-        immediately rather than after a 60s wait.
+        **Sleep first, then refresh.** With cache-based snapshot
+        reads (``get_mdns_cache_info`` reads ``DNSAddress.created``
+        directly), the initial snapshot the subscriber gets
+        already reflects the device's most recent A/AAAA announce
+        — nothing to "freshen." Running the refresh up-front
+        would just fire an active resolve on every drawer-open,
+        populating the cache with a brand-new ``created`` and
+        showing "TTL: 120s · now" for every subscribe regardless
+        of when the device last actually announced. Sleeping
+        first preserves the displayed truth on open.
+
+        Why we still need the 60s tick: ``ServiceBrowser`` only
+        keeps the *PTR* record alive (that's the record the
+        browser subscribes to); the A and AAAA records, which
+        we read for ``mdns_last_seen``, decay on their own TTL
+        and zeroconf's reaper evicts them once expired. Without
+        an active resolve, an actually-online quiet device (or
+        any device that lost a few same-content TTL-refresh
+        announces to multicast packet loss) would have its
+        A record expire and the drawer's mDNS row would
+        disappear even though the device is fine.
         """
         while True:
+            await asyncio.sleep(60)
             if self._state_monitor.priority_for(device_name) is ReachabilitySource.MDNS:
                 await self.refresh_device_mdns(device_name)
-            await asyncio.sleep(60)
 
     # ------------------------------------------------------------------
     # Internals

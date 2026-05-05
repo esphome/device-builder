@@ -480,10 +480,13 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     seconds, then asserts the call pattern. Confirms the gate
     keeps the network quiet on ping/mqtt-source devices.
 
-    Loop order is **refresh-then-sleep** (so the initial drawer
-    snapshot picks up a fresh resolve immediately rather than
-    waiting 60s). First iteration's ``priority_for`` decides
-    whether refresh runs *before* the first sleep.
+    Loop order is **sleep-then-refresh**: with cache-based
+    snapshot reads, the initial drawer snapshot already reflects
+    the device's most recent announce. Refreshing on subscribe
+    would clobber the displayed truth with a "just heard"
+    announce on every drawer-open. The 60s tick afterwards is
+    defence-in-depth that keeps A/AAAA records alive when the
+    ServiceBrowser only refreshes the PTR.
     """
     controller = make_controller(tmp_path)
     tracker = ReachabilityTracker()
@@ -492,14 +495,9 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     _seed_device(controller)
 
     state_monitor = controller._state_monitor
-    # The third value covers the loop's third ``priority_for`` call
-    # before its ``CancelledError``-raising sleep. Padding the list
-    # rather than using ``return_value`` keeps the per-iteration
-    # progression explicit.
     state_monitor.priority_for.side_effect = [
+        ReachabilitySource.PING,
         ReachabilitySource.MDNS,
-        ReachabilitySource.PING,
-        ReachabilitySource.PING,
     ]
 
     # Patch sleep to exit the loop after two iterations so we don't
@@ -517,9 +515,10 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
         m.setattr("asyncio.sleep", fast_sleep)
         await controller._reachability_refresh_loop("kitchen")
 
-    # First iteration: source = mdns → refresh fires before sleep.
-    # Second iteration: source = ping → no refresh, just sleep.
-    # Total: 1 refresh across two iterations.
+    # First iteration: sleep, then source = ping → no refresh.
+    # Second iteration: sleep, then source = mdns → one refresh.
+    # Third iteration: sleep raises CancelledError before the
+    # priority probe runs. Total: 1 refresh across two ticks.
     assert state_monitor.refresh_mdns.await_count == 1
     state_monitor.refresh_mdns.assert_awaited_with("kitchen")
     state_monitor.refresh_mdns.assert_awaited_with("kitchen")
