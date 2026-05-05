@@ -100,10 +100,10 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     )
     persist_calls: list[str] = []
 
-    async def _fake_persist(_self: Any, configuration: str) -> None:
+    async def _fake_finalize(_self: Any, configuration: str) -> None:
         persist_calls.append(configuration)
 
-    monkeypatch.setattr(DevicesController, "_persist_expected_config_hash", _fake_persist)
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", _fake_finalize)
 
     await controller.update_config(
         configuration="kitchen.yaml", content="esphome:\n  name: kitchen\n"

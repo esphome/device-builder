@@ -306,7 +306,7 @@ def set_device_metadata(
     OR when the cached stamp is older than the controller's
     failure-TTL (so transient external problems eventually get
     re-checked). The two fields are written together by
-    :meth:`DevicesController._persist_regen_failed_stamp`; the
+    :meth:`DevicesController._stamp_regen_failure`; the
     success / archive paths clear them by passing ``0.0`` to
     *both* — clearing only one half leaves the other behind, so
     callers should always touch the pair as a unit.

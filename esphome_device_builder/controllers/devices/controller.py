@@ -889,32 +889,26 @@ class DevicesController:
                 # failed. If the file hasn't been touched since
                 # *and* the failure stamp is still within the TTL,
                 # replay would fail the same way — turn it into a
-                # no-op. Done here rather than in the sync caller
-                # because the ``stat()`` + metadata-sidecar read
-                # would stall the event loop on a fleet-wide
-                # cold-start sweep.
+                # no-op. The check itself batches its disk reads
+                # into one executor hop.
                 if await self._regen_already_failed_recently_async(configuration):
                     self._regenerate_failed.add(configuration)
                     return
                 async with self._regenerate_lock:
-                    if await self._spawn_only_generate(configuration):
-                        # ``--only-generate`` writes build_info.json
-                        # with the canonical config_hash before
-                        # exiting, same as a real compile. Persist
-                        # it so the drawer can show "Local: <hash>"
-                        # before the first real flash; also clear
-                        # any leftover regen-failure stamp now
-                        # that the YAML generates cleanly.
-                        await self._persist_expected_config_hash(configuration)
-                        await self._persist_device_metadata_async(
-                            configuration,
-                            regen_failed_mtime=0.0,
-                            regen_failed_at=0.0,
-                        )
-                        await self._scanner.reload(configuration)
-                    else:
-                        self._regenerate_failed.add(configuration)
-                        await self._persist_regen_failed_stamp(configuration)
+                    success = await self._spawn_only_generate(configuration)
+                if success:
+                    # ``--only-generate`` writes build_info.json
+                    # with the canonical config_hash before
+                    # exiting, same as a real compile. The single
+                    # executor hop below reads that hash and
+                    # writes the sidecar in one transaction, also
+                    # clearing the regen-failure stamp now that
+                    # the YAML generates cleanly.
+                    await self._finalize_regen_success(configuration)
+                    await self._scanner.reload(configuration)
+                else:
+                    self._regenerate_failed.add(configuration)
+                    await self._stamp_regen_failure(configuration)
             finally:
                 self._regenerate_pending.discard(configuration)
 
@@ -1003,27 +997,77 @@ class DevicesController:
             return False
         return mtime_matches and age < _REGEN_FAILURE_TTL_SECONDS
 
-    async def _persist_regen_failed_stamp(self, configuration: str) -> None:
-        """Stamp the YAML's mtime + wall-clock as a "we already tried, gave up" marker.
+    async def _stamp_regen_failure(self, configuration: str) -> None:
+        """Persist the cross-restart "we already tried, gave up" marker — one executor hop.
 
-        Read in :meth:`_regen_already_failed_recently_async` on the
-        next ``_schedule_storage_regenerate`` call. Any edit to
-        the YAML moves the mtime forward and bypasses the guard
-        naturally; the wall-clock pair lets the TTL release the
-        guard for transient external problems even when the YAML
-        is untouched.
+        Combines the YAML ``stat()`` and the sidecar write into a
+        single closure handed to ``run_in_executor``. The standalone
+        old standalone-stamp shape used to take two hops
+        (one to stat, one to write); on a fleet-wide cold-start
+        each saved hop is a thread-pool slot back to the pool.
+
+        The wall-clock half is sampled inside the closure too, so
+        the stamp captures the same instant the file's mtime was
+        observed instead of straddling a hop.
         """
+        config_dir = self._db.settings.config_dir
         config_path = self._db.settings.rel_path(configuration)
-        loop = asyncio.get_running_loop()
-        try:
-            stat = await loop.run_in_executor(None, config_path.stat)
-        except OSError:
-            return  # file vanished mid-regen; nothing useful to stamp
-        await self._persist_device_metadata_async(
-            configuration,
-            regen_failed_mtime=stat.st_mtime,
-            regen_failed_at=time.time(),
-        )
+
+        def _stamp() -> None:
+            try:
+                mtime = config_path.stat().st_mtime
+            except OSError:
+                return  # file vanished mid-regen; nothing useful to stamp
+            set_device_metadata(
+                config_dir,
+                configuration,
+                regen_failed_mtime=mtime,
+                regen_failed_at=time.time(),
+            )
+
+        await asyncio.get_running_loop().run_in_executor(None, _stamp)
+
+    async def _finalize_regen_success(self, configuration: str) -> None:
+        """Read the post-only-generate hash and clear the failure stamp — one executor hop.
+
+        Used to be three separate awaits — read ``build_info.json``,
+        write the hash, write the cleared regen stamp — totalling
+        three executor hops and two sidecar transactions. The
+        closure here folds them together: one ``read_build_info_hash``
+        call, one ``set_device_metadata`` transaction that writes
+        ``expected_config_hash`` and clears
+        ``regen_failed_mtime`` / ``regen_failed_at`` atomically.
+
+        See :meth:`_persist_expected_config_hash` for the rationale
+        on why the hash is read off ``build_info.json`` rather than
+        recomputed in-process — a missing / malformed file is
+        unexpected on this code path so the warning log lives there.
+        """
+        config_dir = self._db.settings.config_dir
+        yaml_path = self._db.settings.rel_path(configuration)
+
+        def _finalize() -> str | None:
+            new_hash = read_build_info_hash(yaml_path)
+            kwargs: dict[str, Any] = {
+                "regen_failed_mtime": 0.0,
+                "regen_failed_at": 0.0,
+            }
+            if new_hash:
+                kwargs["expected_config_hash"] = new_hash
+            set_device_metadata(config_dir, configuration, **kwargs)
+            return new_hash
+
+        new_hash = await asyncio.get_running_loop().run_in_executor(None, _finalize)
+        if not new_hash:
+            _LOGGER.warning(
+                "Could not read config_hash from build_info.json for %s — "
+                "the drawer's Local hash may stay stale until the next flash. "
+                "If this persists across compiles, check that ESPHome's "
+                "build_info.json schema hasn't changed.",
+                configuration,
+            )
+            return
+        _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
 
     @api_command("devices/get_api_key")
     async def get_api_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:
