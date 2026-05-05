@@ -91,17 +91,15 @@ class ReachabilityTracker:
         """
         Record the round-trip from a successful ICMP probe.
 
-        Called from the state monitor's ping path. The accompanying
-        ``observe(name, "ping")`` is fired separately by the apply
-        flow when the new state is ONLINE, so callers don't need to
-        thread "did we already observe?" logic — just record the rtt
-        when icmplib hands one back. Notification fires here too so
-        an RTT-only update (rare; same ONLINE state, fresh number)
-        still pushes to the subscriber.
+        Pure write — does *not* fire ``on_observation``. The state
+        monitor's ping path always pairs this with ``apply(name,
+        ONLINE, "ping")`` immediately after, which routes through
+        ``observe(name, "ping")`` and fires the callback once.
+        Firing here too would push two events for one ping. Future
+        callers that want a notification should call ``observe()``
+        explicitly after recording.
         """
         self._ping_rtt_ms[name] = rtt_ms
-        if self._on_observation is not None:
-            self._on_observation(name)
 
     def clear(self, name: str) -> None:
         """

@@ -272,3 +272,84 @@ async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
 
     snap = tracker.snapshot("kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip="")
     assert snap["mdns_last_seen_seconds_ago"] is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_mdns_no_zeroconf_is_a_noop() -> None:
+    """``refresh_mdns`` is silent when zeroconf failed to start.
+
+    The drawer's force-refresh task fires unconditionally every 60s
+    while subscribed; if the underlying zeroconf brought-up never
+    succeeded (e.g. another process holds the multicast socket),
+    we should swallow the call rather than raise into the
+    subscription's task and tear it down.
+    """
+    devices = [_make_device()]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+    # ``_make_monitor`` already sets ``_zeroconf = None`` — the
+    # method returns immediately without trying to resolve.
+    await monitor.refresh_mdns("kitchen")
+    snap = tracker.snapshot("kitchen", state=DeviceState.UNKNOWN, active_source="unknown", ip="")
+    assert snap["mdns_last_seen_seconds_ago"] is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_mdns_resolves_and_marks_online() -> None:
+    """A successful resolve flips state ONLINE and bumps mDNS last-seen."""
+    devices = [_make_device()]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_resolve_host = AsyncMock(return_value=["10.0.0.42"])
+    monitor._zeroconf = fake_zeroconf
+
+    await monitor.refresh_mdns("kitchen")
+
+    fake_zeroconf.async_resolve_host.assert_awaited_once_with("kitchen.local", 3.0)
+    snap = tracker.snapshot(
+        "kitchen", state=DeviceState.ONLINE, active_source="mdns", ip="10.0.0.42"
+    )
+    assert snap["mdns_last_seen_seconds_ago"] is not None
+
+
+@pytest.mark.asyncio
+async def test_refresh_mdns_swallows_resolve_errors() -> None:
+    """A resolve exception is logged but does not propagate.
+
+    ``async_resolve_host`` can raise on transient network blips
+    (no route, EAGAIN under load) — the per-subscription refresh
+    task must absorb those rather than terminating the
+    subscription, since the next 60s tick gets a fresh chance.
+    """
+    devices = [_make_device()]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_resolve_host = AsyncMock(side_effect=OSError("network down"))
+    monitor._zeroconf = fake_zeroconf
+
+    # No raise, no state change.
+    await monitor.refresh_mdns("kitchen")
+    assert devices[0].state is DeviceState.UNKNOWN
+
+
+@pytest.mark.asyncio
+async def test_refresh_mdns_empty_resolve_no_state_change() -> None:
+    """An empty address list (no answer) leaves state untouched.
+
+    Same shape as the OFFLINE silence rule on the active-resolve
+    path: a single missed query conflates "device gone" with
+    "transient packet loss", so we don't unilaterally flip OFFLINE
+    on an empty result. The next tick or the periodic ping sweep
+    decides.
+    """
+    devices = [_make_device()]
+    tracker = ReachabilityTracker()
+    monitor = _make_monitor(devices, tracker)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_resolve_host = AsyncMock(return_value=[])
+    monitor._zeroconf = fake_zeroconf
+
+    await monitor.refresh_mdns("kitchen")
+    assert devices[0].state is DeviceState.UNKNOWN

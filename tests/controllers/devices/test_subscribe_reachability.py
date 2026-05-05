@@ -35,6 +35,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from esphome_device_builder.api.ws import WebSocketClient
+from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers._reachability_tracker import (
     ReachabilityTracker,
 )
@@ -79,13 +80,29 @@ def _record_sends(client: WebSocketClient) -> tuple[list[Any], list[Any]]:
     return events, results
 
 
-def _wire_reachability(controller: Any, tracker: ReachabilityTracker, bus: EventBus) -> None:
+def _wire_reachability(
+    controller: Any,
+    tracker: ReachabilityTracker,
+    bus: EventBus,
+    *,
+    wire_callback: bool = False,
+) -> ReachabilityTracker:
     """Stitch tracker + bus + state monitor stub onto a bypass-init controller.
 
     ``make_controller`` builds a minimal ``DevicesController`` that
     skips ``__init__``, so the reachability + bus wiring isn't
     there. Most tests don't care; these do.
+
+    ``wire_callback=True`` rebuilds the tracker with
+    ``on_observation`` pointing at the controller's
+    ``_on_reachability_observation`` so a ``tracker.observe(...)``
+    call fans out to a real bus fire — exercises the production
+    path end-to-end. Returns the tracker actually wired (a fresh
+    instance when ``wire_callback`` is set, otherwise the one
+    passed in).
     """
+    if wire_callback:
+        tracker = ReachabilityTracker(on_observation=controller._on_reachability_observation)
     controller._reachability = tracker
     controller._db.bus = bus
     # The handler reads ``priority_for`` on the state monitor to
@@ -96,6 +113,7 @@ def _wire_reachability(controller: Any, tracker: ReachabilityTracker, bus: Event
     state_monitor.priority_for = MagicMock(return_value=ReachabilitySource.PING)
     state_monitor.refresh_mdns = AsyncMock()
     controller._state_monitor = state_monitor
+    return tracker
 
 
 def _seed_device(controller: Any, name: str = "kitchen") -> Device:
@@ -341,6 +359,110 @@ async def test_cancel_via_stop_stream_detaches_listener(
     assert bus._listeners.get(EventType.DEVICE_REACHABILITY, set()) == set()
     # The stream registry entry was popped on cancel_stream.
     assert "m1" not in client._stream_tasks
+
+
+@pytest.mark.asyncio
+async def test_subscribe_without_client_returns_silently(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """No ``client`` arg → early return, no exception, no work.
+
+    Mirrors ``stop_stream``'s early-return guard. Dispatch flows
+    that don't carry a per-connection client (legacy REST shim,
+    programmatic callers) shouldn't crash on subscribe — they
+    just get a no-op back.
+    """
+    controller = make_controller(tmp_path)
+    tracker = ReachabilityTracker()
+    bus = EventBus()
+    _wire_reachability(controller, tracker, bus)
+    _seed_device(controller)
+
+    # No raise; nothing on the bus.
+    await controller.subscribe_reachability(device_name="kitchen", message_id="m1")
+    assert bus._listeners.get(EventType.DEVICE_REACHABILITY, set()) == set()
+
+
+def test_observation_fires_bus_event_for_known_device(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A real ``tracker.observe`` fans out to a ``DEVICE_REACHABILITY`` bus event.
+
+    Wires the tracker's ``on_observation`` callback all the way to
+    the controller's ``_on_reachability_observation`` (production
+    shape) so the assertion is on the actual bus fire — not on the
+    intermediate snapshot helper. Pins the contract that an
+    observation produces exactly one bus event with the wire-shape
+    payload.
+    """
+    controller = make_controller(tmp_path)
+    bus = EventBus()
+    _seed_device(controller)
+    tracker = _wire_reachability(controller, ReachabilityTracker(), bus, wire_callback=True)
+    fired: list[Any] = []
+    bus.add_listener(EventType.DEVICE_REACHABILITY, fired.append)
+
+    tracker.observe("kitchen", "mdns")
+
+    assert len(fired) == 1
+    assert fired[0].data["device"] == "kitchen"
+    assert fired[0].data["mdns_last_seen_seconds_ago"] is not None
+
+
+def test_observation_for_deleted_device_is_dropped(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An observation that races a device deletion fires no event.
+
+    The state monitor's per-source maps live on the tracker, not
+    keyed against the device catalog — so a stale observation can
+    arrive after the YAML is gone. The controller's
+    ``_on_reachability_observation`` looks the name up in the
+    scanner; on miss it bails out instead of firing an event
+    with a half-built snapshot.
+    """
+    controller = make_controller(tmp_path)
+    tracker = ReachabilityTracker()
+    bus = EventBus()
+    _wire_reachability(controller, tracker, bus)
+    # Scanner has no devices.
+    controller._scanner.get_by_name = lambda _name: []
+    fired: list[Any] = []
+    bus.add_listener(EventType.DEVICE_REACHABILITY, fired.append)
+
+    controller._on_reachability_observation("ghost")
+    assert fired == []
+
+
+def test_scan_change_removed_clears_tracker(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Deleting a device's YAML clears its per-signal tracker entries.
+
+    Without this, the four maps would accumulate one row per device
+    that ever lived in the catalog. The mDNS browser's ``Removed``
+    branch clears the tracker for the *broadcast* gone case, but
+    YAML deletion has its own scan-change path.
+    """
+    controller = make_controller(tmp_path)
+    tracker = ReachabilityTracker()
+    bus = EventBus()
+    _wire_reachability(controller, tracker, bus)
+    device = _seed_device(controller)
+    tracker.observe("kitchen", "mdns")
+    tracker.observe("kitchen", "ping")
+
+    # Stub ``revisit_all_importables`` (called on REMOVED) so we
+    # don't have to hand-build an import_discovery. The tracker
+    # clear is what we're pinning down.
+    controller._state_monitor.revisit_all_importables = MagicMock()
+    controller._regenerate_failed = set()
+
+    controller._on_scan_change(ScanChange.REMOVED, device)
+
+    snap = tracker.snapshot("kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip="")
+    assert snap["mdns_last_seen_seconds_ago"] is None
+    assert snap["ping_last_seen_seconds_ago"] is None
 
 
 @pytest.mark.asyncio

@@ -86,8 +86,16 @@ def test_observe_fires_callback_per_call() -> None:
     assert seen == ["kitchen", "kitchen"]
 
 
-def test_record_ping_rtt_sets_field_and_fires_callback() -> None:
-    """``record_ping_rtt`` writes the rtt and notifies even without ``observe``."""
+def test_record_ping_rtt_sets_field_without_firing_callback() -> None:
+    """``record_ping_rtt`` is a pure write — does NOT fire ``on_observation``.
+
+    The state monitor's ping path always pairs ``record_ping_rtt``
+    with ``apply(name, ONLINE, "ping")`` (which routes through
+    ``observe`` and fires the callback once). Firing here too
+    would push two events for one ping — wasted bus traffic. Pin
+    the contract so a future change that adds a redundant fire
+    here gets flagged.
+    """
     seen: list[str] = []
     tracker = ReachabilityTracker(on_observation=seen.append)
     tracker.record_ping_rtt("kitchen", 4.2)
@@ -98,7 +106,8 @@ def test_record_ping_rtt_sets_field_and_fires_callback() -> None:
     # the RTT). RTT alone leaves the timestamp untouched so the
     # rendered "last seen" doesn't claim freshness from a stale ping.
     assert snap["ping_last_seen_seconds_ago"] is None
-    assert seen == ["kitchen"]
+    # No notification — the paired ``observe`` is what fires.
+    assert seen == []
 
 
 def test_clear_removes_every_signal_for_a_device() -> None:

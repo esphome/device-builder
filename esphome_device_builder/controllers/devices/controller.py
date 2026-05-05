@@ -1400,6 +1400,13 @@ class DevicesController:
         # only surfaces what should actually appear.
         if kind is ScanChange.REMOVED:
             self._state_monitor.revisit_all_importables()
+            # Drop reachability history for the gone device. Without
+            # this, the four per-signal maps would accumulate one
+            # entry per device that's ever lived in the catalog,
+            # since nothing else clears them — the mDNS Removed
+            # branch only fires when the device's broadcast goes
+            # away, not when its YAML is deleted.
+            self._reachability.clear(device.name)
 
     def _devices_by_name(self, name: str) -> list[Device]:
         """Every configured device whose ``name`` field matches ``name``.
