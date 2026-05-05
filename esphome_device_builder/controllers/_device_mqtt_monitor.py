@@ -89,12 +89,19 @@ class DeviceMqttMonitor:
         # device name → monotonic timestamp of the last MQTT response
         self._last_seen: dict[str, float] = {}
         # Set by ``_connect_and_listen`` the moment CONNACK succeeds.
-        # Read+cleared in ``_run``'s except branches so the loud-log
-        # gates re-arm only when we actually managed to connect this
-        # session — not when ``_connect_and_listen`` returns cleanly
-        # (which production rarely does, since the inner TaskGroup
-        # parks until cancelled or raises).
+        # Read+cleared in ``_log_reconnect_failure`` so the loud-log
+        # gates below re-arm only when we actually managed to connect
+        # this session — not when ``_connect_and_listen`` returns
+        # cleanly (which production rarely does, since the inner
+        # TaskGroup parks until cancelled or raises). Bug #324.
         self._connected_this_session = False
+        # Per-category log gates. Each flips True after a loud log
+        # and back to False on the next failure that observed a
+        # successful CONNACK. Tracked separately so a TimeoutError
+        # loop doesn't suppress the first appearance of a different
+        # unexpected exception class.
+        self._connect_error_logged = False
+        self._unexpected_error_logged = False
 
     @staticmethod
     def is_available() -> bool:
@@ -136,81 +143,79 @@ class DeviceMqttMonitor:
         client_id = f"esphome-dashboard-{secrets.token_hex(6)}"
         _LOGGER.info("MQTT discovery starting — broker=%s:%s", self._broker.host, self._broker.port)
 
-        delay = int(_RECONNECT_DELAY)
-        # Per-category log gates. Each flips True after a loud log
-        # and back to False on the next iteration that observed a
-        # successful CONNACK (signalled via
-        # ``self._connected_this_session``). Tracked separately so a
-        # TimeoutError loop doesn't suppress the first appearance of
-        # a *different* unexpected exception. Bug #324.
-        connect_error_logged = False
-        unexpected_error_logged = False
         while True:
             try:
                 await self._connect_and_listen(client_id)
             except asyncio.CancelledError:
                 raise
             except (TimeoutError, OSError, ConnectionError) as err:
-                if self._connected_this_session:
-                    # The session reached CONNACK before raising — the
-                    # broker recovered between the last failure and
-                    # this one. Re-arm both gates so this fresh outage
-                    # logs loudly again.
-                    connect_error_logged = False
-                    unexpected_error_logged = False
-                    self._connected_this_session = False
-                if connect_error_logged:
-                    _LOGGER.debug(
-                        "MQTT broker %s:%s still unreachable (%s) — reconnecting in %ss",
-                        self._broker.host,
-                        self._broker.port,
-                        err,
-                        delay,
-                    )
-                else:
-                    _LOGGER.warning(
-                        "MQTT broker %s:%s unreachable (%s) — reconnecting in %ss",
-                        self._broker.host,
-                        self._broker.port,
-                        err,
-                        delay,
-                    )
-                    connect_error_logged = True
-                # Drop last-seen but leave device state alone so a brief
-                # broker blip doesn't trigger an offline storm.
-                self._last_seen.clear()
-                await asyncio.sleep(_RECONNECT_DELAY)
+                self._log_reconnect_failure(err, expected=True)
             except Exception as err:
-                # Unexpected exception class — keep the loud ERROR with
-                # traceback so genuine bugs are visible, but still gate
-                # repeats so a tight failure loop doesn't flood logs.
-                if self._connected_this_session:
-                    connect_error_logged = False
-                    unexpected_error_logged = False
-                    self._connected_this_session = False
-                if unexpected_error_logged:
-                    # Include the exception class + message even with
-                    # the traceback gated so the operator can still
-                    # tell what's repeating.
-                    _LOGGER.debug(
-                        "MQTT broker %s:%s error %s: %s "
-                        "(suppressed traceback) — reconnecting in %ss",
-                        self._broker.host,
-                        self._broker.port,
-                        type(err).__name__,
-                        err,
-                        delay,
-                    )
-                else:
-                    _LOGGER.exception(
-                        "MQTT broker %s:%s error — reconnecting in %ss",
-                        self._broker.host,
-                        self._broker.port,
-                        delay,
-                    )
-                    unexpected_error_logged = True
-                self._last_seen.clear()
-                await asyncio.sleep(_RECONNECT_DELAY)
+                self._log_reconnect_failure(err, expected=False)
+            # Drop last-seen on any failure but leave device state
+            # alone so a brief broker blip doesn't trigger an offline
+            # storm.
+            self._last_seen.clear()
+            await asyncio.sleep(_RECONNECT_DELAY)
+
+    def _log_reconnect_failure(self, err: BaseException, *, expected: bool) -> None:
+        """Log a reconnect failure, collapsing repeats while gates are tripped.
+
+        ``expected`` (TimeoutError / OSError / ConnectionError) and
+        unexpected exceptions track separate gates so a TimeoutError
+        loop doesn't suppress the first appearance of a different
+        exception class. A successful CONNACK during the failed
+        iteration re-arms both gates so the next outage logs loudly
+        again — tracked via ``self._connected_this_session``.
+        """
+        delay = int(_RECONNECT_DELAY)
+        if self._connected_this_session:
+            self._connect_error_logged = False
+            self._unexpected_error_logged = False
+            self._connected_this_session = False
+
+        if expected:
+            if self._connect_error_logged:
+                _LOGGER.debug(
+                    "MQTT broker %s:%s still unreachable (%s) — reconnecting in %ss",
+                    self._broker.host,
+                    self._broker.port,
+                    err,
+                    delay,
+                )
+            else:
+                _LOGGER.warning(
+                    "MQTT broker %s:%s unreachable (%s) — reconnecting in %ss",
+                    self._broker.host,
+                    self._broker.port,
+                    err,
+                    delay,
+                )
+                self._connect_error_logged = True
+            return
+
+        # Unexpected exception class — keep the loud ERROR with
+        # traceback the first time round so genuine bugs are visible.
+        # Repeats fall back to a DEBUG line that still includes the
+        # class + message so the operator can tell what's looping
+        # without flipping the log level.
+        if self._unexpected_error_logged:
+            _LOGGER.debug(
+                "MQTT broker %s:%s error %s: %s (suppressed traceback) — reconnecting in %ss",
+                self._broker.host,
+                self._broker.port,
+                type(err).__name__,
+                err,
+                delay,
+            )
+            return
+        _LOGGER.exception(
+            "MQTT broker %s:%s error — reconnecting in %ss",
+            self._broker.host,
+            self._broker.port,
+            delay,
+        )
+        self._unexpected_error_logged = True
 
     async def _connect_and_listen(self, client_id: str) -> None:
         assert paho_mqtt is not None  # type narrowing — checked in start()
