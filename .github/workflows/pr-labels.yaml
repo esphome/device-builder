@@ -1,32 +1,90 @@
 ---
 name: PR Labels
 
-# Every PR must carry exactly one of the labels release-drafter
-# knows how to slot into a release-notes section. Without this
-# guard a contributor can quietly skip labelling and their PR
-# disappears from the next changelog.
+# Each PR must carry exactly one of the labels release-drafter knows
+# how to slot into a release-notes section. We derive that label from
+# the "Types of changes" checkbox in the PR template and apply it
+# automatically — most external contributors can't label their own
+# PRs. The job only fails when no checkbox is ticked.
 
 # yamllint disable-line rule:truthy
 on:
-  pull_request:
+  pull_request_target:
     types:
       - opened
+      - edited
       - synchronize
       - labeled
       - unlabeled
     branches:
       - main
 
-permissions: {}
+permissions:
+  pull-requests: write
 
 jobs:
-  pr_labels:
-    name: Verify
+  apply_label:
+    name: Apply
     runs-on: ubuntu-latest
     steps:
-      - name: 🏷 Verify PR has a valid label
-        uses: ludeeus/action-require-labels@7ef0dba93830452589680da7cdea2e2c4c0f8dff  # 1.1.0
+      - name: 🏷 Apply label from PR description checkbox
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
         with:
-          labels: >-
-            breaking-change, bugfix, refactor, new-feature, enhancement,
-            maintenance, ci, dependencies, docs
+          script: |
+            const known = [
+              'breaking-change', 'bugfix', 'refactor',
+              'new-feature', 'enhancement', 'maintenance',
+              'ci', 'dependencies', 'docs',
+            ];
+
+            // Match `- [x] ... `<label>`` lines in the PR body. The
+            // PR template puts the canonical label name in backticks
+            // at the end of each "Types of changes" bullet.
+            const body = context.payload.pull_request.body || '';
+            const re = /^\s*-\s*\[x\][^`\n]*`([^`]+)`/gim;
+            const ticked = [];
+            for (const m of body.matchAll(re)) {
+              const name = m[1];
+              if (known.includes(name) && !ticked.includes(name)) {
+                ticked.push(name);
+              }
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            if (ticked.length === 0) {
+              core.setFailed(
+                'No "Types of changes" checkbox is ticked in the PR ' +
+                'description. Edit the description and tick exactly ' +
+                'one box so this PR can be release-noted.'
+              );
+              return;
+            }
+            if (ticked.length > 1) {
+              core.setFailed(
+                `Multiple "Types of changes" checkboxes are ticked ` +
+                `(${ticked.join(', ')}). Tick exactly one.`
+              );
+              return;
+            }
+
+            const desired = ticked[0];
+            const current = (context.payload.pull_request.labels || [])
+              .map(l => l.name);
+
+            // Strip any stale labels from the known set so a
+            // contributor changing their mind in the description
+            // doesn't leave the previous label behind.
+            for (const name of current) {
+              if (known.includes(name) && name !== desired) {
+                await github.rest.issues.removeLabel({
+                  owner, repo, issue_number, name,
+                }).catch(() => {});
+              }
+            }
+            if (!current.includes(desired)) {
+              await github.rest.issues.addLabels({
+                owner, repo, issue_number, labels: [desired],
+              });
+            }
