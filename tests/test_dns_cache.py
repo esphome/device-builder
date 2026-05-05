@@ -264,8 +264,19 @@ async def test_ping_sweep_pre_resolves_via_dns_cache(fake_resolver) -> None:
     assert monitor.get_cached_dns_addresses("esp.example.com") == ["10.0.0.1"]
 
 
-async def test_ping_sweep_does_not_apply_ip_for_local_hosts(fake_resolver) -> None:
-    """``.local`` devices keep their mDNS-owned IP — DNS doesn't write."""
+async def test_ping_sweep_applies_ip_for_local_hosts(fake_resolver) -> None:
+    """``.local`` devices reachable only via ping get their resolved IP applied.
+
+    Non-API ESPHome devices (no ``_esphomelib._tcp`` broadcast)
+    only surface in the ping sweep. Without applying the
+    DNS/mDNS-resolved address to ``device.ip`` the drawer / table
+    would show an em-dash for the IP row even after successful
+    pings — the
+    ``zwave-proxy-seeedw5500.local``-shows-no-IP-while-ping-active
+    bug. ``apply_ip``'s "preserve existing list when target is in
+    it" branch keeps a richer multi-IP set populated by mDNS
+    safe; this test pins the empty-existing case.
+    """
     devices = [_device(address="kitchen.local")]
     ip_changes: list[tuple[str, str, list[str]]] = []
     monitor = DeviceStateMonitor(
@@ -288,7 +299,7 @@ async def test_ping_sweep_does_not_apply_ip_for_local_hosts(fake_resolver) -> No
     ):
         await monitor._ping_sweep()
 
-    assert ip_changes == []
+    assert ip_changes == [("kitchen", "192.168.1.50", ["192.168.1.50"])]
 
 
 async def test_ping_sweep_rescues_local_device_from_zeroconf_cache() -> None:
