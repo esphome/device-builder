@@ -13,6 +13,7 @@ import contextlib
 import logging
 import os
 import shutil
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
@@ -80,6 +81,18 @@ if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long the persisted "regen failed" stamp is honoured before a
+# restart-time check is allowed to re-spawn ``--only-generate`` for
+# the same untouched YAML. The in-memory ``_regenerate_failed`` set
+# blocks within a session until the user edits the YAML; the TTL
+# only applies cross-restart, so a transient external problem
+# (git package server flaky, DNS hiccup) eventually recovers
+# without forcing the user to touch the file. One hour is short
+# enough that "I'll come back to this in a bit and restart" works,
+# long enough that a debugger restarting the dashboard 10x in a
+# row doesn't churn through 10 spawns on the same broken config.
+_REGEN_FAILURE_TTL_SECONDS: float = 3600.0
 
 # Per-file match cap for ``yaml/search``. Each device contributes
 # at most this many lines so a chatty match (a query of ``:``
@@ -815,6 +828,20 @@ class DevicesController:
         * ``_regenerate_failed`` skips YAMLs whose last attempt
           failed; entries are cleared in ``_on_scan_change`` when the
           file's cache key changes (i.e. the user actually edited it).
+        * ``regen_failed_mtime`` + ``regen_failed_at`` in the
+          metadata sidecar is the *cross-restart* version of the
+          same skip. The previous backend stamped the YAML's
+          mtime alongside ``time.time()``; a fresh start that
+          finds those two intact and within ``_REGEN_FAILURE_TTL``
+          short-circuits without spawning another ``esphome
+          compile`` on the same broken config. Two retry signals
+          release the guard:
+
+          * The user edits the YAML — its mtime moves past the
+            stamp, so the equality check fails naturally.
+          * The TTL elapses — covers transient external problems
+            (git package server flaky, DNS hiccup) where the
+            user shouldn't have to touch the YAML to recover.
         * ``_regenerate_lock`` serialises the subprocess itself so we
           never spawn more than one esphome compile at a time.
 
@@ -828,9 +855,17 @@ class DevicesController:
         if configuration in self._regenerate_pending:
             return  # already scheduled, don't queue a duplicate.
         if configuration in self._regenerate_failed:
-            # Last attempt failed and the YAML hasn't changed since;
-            # rerunning would just produce the same error and burn a
-            # subprocess. Wait for an UPDATED scan to clear the marker.
+            # Last attempt this session failed and the YAML hasn't
+            # changed since; rerunning would produce the same error.
+            return
+        # Cross-restart skip: the previous backend persisted the
+        # YAML's mtime + wall-clock when the regen failed. If the
+        # file hasn't been touched since *and* the failure stamp
+        # is still within the TTL, replay would fail the same way
+        # — turn it into a no-op. The user editing the YAML or
+        # the TTL elapsing both release the guard.
+        if self._regen_already_failed_recently(configuration):
+            self._regenerate_failed.add(configuration)
             return
 
         async def _run() -> None:
@@ -859,6 +894,7 @@ class DevicesController:
                             exc_info=True,
                         )
                         self._regenerate_failed.add(configuration)
+                        await self._persist_regen_failed_stamp(configuration)
                         return
                     if proc.returncode != 0:
                         _LOGGER.debug(
@@ -868,18 +904,88 @@ class DevicesController:
                             stderr.decode(errors="replace").strip()[:500],
                         )
                         self._regenerate_failed.add(configuration)
+                        await self._persist_regen_failed_stamp(configuration)
                         return
                     # ``--only-generate`` writes build_info.json with
                     # the canonical config_hash before exiting, same as
                     # a real compile. Persist it to the metadata
                     # sidecar so the drawer can show "Local: <hash>"
-                    # before the first real flash.
+                    # before the first real flash. Also clear any
+                    # previously-cached regen-failure stamp — the
+                    # YAML now generates cleanly.
                     await self._persist_expected_config_hash(configuration)
+                    await self._persist_device_metadata_async(
+                        configuration,
+                        regen_failed_mtime=0.0,
+                        regen_failed_at=0.0,
+                    )
                     await self._scanner.reload(configuration)
             finally:
                 self._regenerate_pending.discard(configuration)
 
         self._db.create_background_task(_run())
+
+    def _regen_already_failed_recently(self, configuration: str) -> bool:
+        """Return True iff the persisted failure stamp is unchanged-and-fresh.
+
+        Both halves have to hold:
+
+        * The YAML's current ``stat.st_mtime`` equals the cached
+          ``regen_failed_mtime`` — the file is the exact same one
+          we already tried (any edit moves the mtime forward).
+        * Less than ``_REGEN_FAILURE_TTL_SECONDS`` has elapsed
+          since the cached ``regen_failed_at`` wall-clock stamp —
+          transient external causes (git package server, DNS,
+          ESPHome update mid-flight) get a re-check after that.
+
+        Equality comparison on the mtime works because both sides
+        come from the same filesystem during the same backend
+        lifecycle's view of the file. There's no cross-mount
+        precision worry the way there is for the build-size cache
+        (which is keyed off whole-second mtimes deliberately for
+        cross-FS robustness); for regen we only care about "is
+        this the exact same file we already tried", and a
+        sub-second precision difference means the user touched
+        the file — the retry signal we want.
+        """
+        config_path = self._db.settings.rel_path(configuration)
+        try:
+            current_mtime = config_path.stat().st_mtime
+        except OSError:
+            return False
+        md = get_device_metadata(self._db.settings.config_dir, configuration)
+        cached_mtime = md.get("regen_failed_mtime")
+        cached_at = md.get("regen_failed_at")
+        if not cached_mtime or not cached_at:
+            return False
+        try:
+            mtime_matches = float(cached_mtime) == current_mtime
+            age = time.time() - float(cached_at)
+        except (TypeError, ValueError):
+            return False
+        return mtime_matches and age < _REGEN_FAILURE_TTL_SECONDS
+
+    async def _persist_regen_failed_stamp(self, configuration: str) -> None:
+        """Stamp the YAML's mtime + wall-clock as a "we already tried, gave up" marker.
+
+        Read in :meth:`_regen_already_failed_recently` on the
+        next ``_schedule_storage_regenerate`` call. Any edit to
+        the YAML moves the mtime forward and bypasses the guard
+        naturally; the wall-clock pair lets the TTL release the
+        guard for transient external problems even when the YAML
+        is untouched.
+        """
+        config_path = self._db.settings.rel_path(configuration)
+        loop = asyncio.get_running_loop()
+        try:
+            stat = await loop.run_in_executor(None, config_path.stat)
+        except OSError:
+            return  # file vanished mid-regen; nothing useful to stamp
+        await self._persist_device_metadata_async(
+            configuration,
+            regen_failed_mtime=stat.st_mtime,
+            regen_failed_at=time.time(),
+        )
 
     @api_command("devices/get_api_key")
     async def get_api_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:

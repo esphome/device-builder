@@ -269,6 +269,8 @@ def set_device_metadata(
     ip: str | None = None,
     expected_config_hash: str | None = None,
     mac_address: str | None = None,
+    regen_failed_mtime: float | None = None,
+    regen_failed_at: float | None = None,
 ) -> None:
     """
     Set metadata fields for a device.
@@ -290,6 +292,18 @@ def set_device_metadata(
     Persisted so the dashboard renders the address immediately on
     startup, before the first mDNS probe response. Passing an
     empty string clears it.
+
+    ``regen_failed_mtime`` is the YAML's mtime when the last
+    ``--only-generate`` storage-regen attempt failed; pair it with
+    ``regen_failed_at`` (the wall-clock time the failure was
+    recorded). Together they let a backend restart skip retrying
+    the same broken config (missing ``!secret`` / ``!include`` /
+    unreachable git package) — the next attempt only runs when
+    the YAML's mtime has actually moved past the cached stamp,
+    OR when the cached stamp is older than the controller's
+    failure-TTL (so transient external problems eventually get
+    re-checked). Pass ``0`` on either to clear (used on success
+    and on archive's volatile scrub).
     """
     with metadata_transaction(config_dir) as data:
         entry = data.setdefault(filename, {})
@@ -301,16 +315,20 @@ def set_device_metadata(
             entry["comment"] = comment
         if ip:
             entry["ip"] = ip
-        if expected_config_hash is not None:
-            if expected_config_hash:
-                entry["expected_config_hash"] = expected_config_hash
+        # Tri-state fields: ``None`` means "leave alone", a truthy
+        # value writes, an explicit falsy (``""`` / ``0``) clears.
+        for key, value in (
+            ("expected_config_hash", expected_config_hash),
+            ("mac_address", mac_address),
+            ("regen_failed_mtime", regen_failed_mtime),
+            ("regen_failed_at", regen_failed_at),
+        ):
+            if value is None:
+                continue
+            if value:
+                entry[key] = value
             else:
-                entry.pop("expected_config_hash", None)
-        if mac_address is not None:
-            if mac_address:
-                entry["mac_address"] = mac_address
-            else:
-                entry.pop("mac_address", None)
+                entry.pop(key, None)
 
 
 def get_device_metadata(config_dir: Path, filename: str) -> dict[str, Any]:
@@ -355,6 +373,13 @@ _VOLATILE_DEVICE_METADATA_FIELDS: frozenset[str] = frozenset(
         # stale persisted MAC would render until the next mDNS
         # announce overwrote it.
         "mac_address",
+        # YAML mtime + wall-clock timestamp at the last failed
+        # storage-regen attempt. Archive moves the YAML; a future
+        # unarchive may put it back with a fresh mtime, so any
+        # cached failure stamp would be meaningless. Cleared so
+        # the next scan retries the regen.
+        "regen_failed_mtime",
+        "regen_failed_at",
     }
 )
 

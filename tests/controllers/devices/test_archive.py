@@ -170,6 +170,8 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
         ip="192.168.1.42",
         expected_config_hash="deadbeef",
         mac_address="94:C9:60:1F:8C:F1",
+        regen_failed_mtime=1700000000.5,
+        regen_failed_at=1700000005.0,
     )
     pre = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
     # Sanity that the seeding above wrote everything we expect.
@@ -177,6 +179,8 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
     assert pre["ip"] == "192.168.1.42"
     assert pre["expected_config_hash"] == "deadbeef"
     assert pre["mac_address"] == "94:C9:60:1F:8C:F1"
+    assert pre["regen_failed_mtime"] == 1700000000.5
+    assert pre["regen_failed_at"] == 1700000005.0
 
     await controller._archive_single("kitchen.yaml")
 
@@ -186,7 +190,10 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
     # (the previous shape) fails here. The MAC counts as volatile
     # (the YAML may later be redeployed to a different physical
     # board on unarchive) and must be scrubbed alongside ``ip`` /
-    # ``expected_config_hash``.
+    # ``expected_config_hash``. ``regen_failed_mtime`` /
+    # ``regen_failed_at`` are volatile too — archive moves the
+    # YAML, and a future unarchive may put it back with a fresh
+    # mtime, so any cached failure stamp would be meaningless.
     assert post == {
         "board_id": "esp32-c3-devkitm-1",
         "friendly_name": "Kitchen Sensor",

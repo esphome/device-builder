@@ -26,6 +26,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from esphome_device_builder.controllers.config import (
+    get_device_metadata,
+    set_device_metadata,
+)
 from esphome_device_builder.controllers.devices import DevicesController
 
 from .conftest import MakeControllerFactory
@@ -316,3 +320,437 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
     release.set()
     await _drain(controller)
     assert controller._regenerate_pending == set()
+
+
+# ---------------------------------------------------------------------------
+# Cross-restart failure persistence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_regenerate_persists_mtime_and_wallclock_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Failure → YAML mtime + wall-clock stamped into the metadata sidecar.
+
+    The whole point of the cross-restart guard: a backend reboot
+    that re-encounters the same broken YAML reads these stamps,
+    sees the mtime hasn't moved AND the failure is fresh, and
+    skips replaying the regen. The wall-clock side feeds the
+    TTL — without it, a transient external problem (git package
+    server flake) would never get re-checked.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
+    expected_mtime = yaml_path.stat().st_mtime
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        return _FakeProc(returncode=1, stderr=b"YAML parse error")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(
+        DevicesController,
+        "_persist_expected_config_hash",
+        AsyncMock(),
+    )
+    # Pin wall-clock so the assertion isn't racy.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.time.time",
+        lambda: 1700000000.0,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    assert md.get("regen_failed_mtime") == expected_mtime
+    assert md.get("regen_failed_at") == 1700000000.0
+
+
+@pytest.mark.asyncio
+async def test_regenerate_persists_stamp_on_spawn_oserror(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Spawn-raises path also stamps the failure marker.
+
+    Both failure exits — non-zero returncode and ``OSError`` from
+    the spawn itself — feed the same persistent guard. Catches
+    regressions where one branch persists and the other doesn't.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    expected_mtime = yaml_path.stat().st_mtime
+
+    async def _broken_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        raise OSError("esphome: command not found")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _broken_spawn,
+    )
+    monkeypatch.setattr(
+        DevicesController,
+        "_persist_expected_config_hash",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.time.time",
+        lambda: 1700000050.0,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    assert md.get("regen_failed_mtime") == expected_mtime
+    assert md.get("regen_failed_at") == 1700000050.0
+
+
+@pytest.mark.asyncio
+async def test_regenerate_clears_failure_stamp_on_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A subsequent successful regen wipes both halves of the failure stamp.
+
+    User edits the broken YAML → mtime moves → the next schedule
+    bypasses the cross-restart guard, the spawn succeeds, and the
+    stale ``regen_failed_mtime`` *and* ``regen_failed_at`` get
+    cleared so a future restart doesn't see them. Pairs with the
+    failure-persistence test above to pin the full set/clear cycle.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    # Simulate the leftover stamp from an earlier failed attempt.
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        regen_failed_mtime=1.0,
+        regen_failed_at=1700000000.0,
+    )
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(
+        DevicesController,
+        "_persist_expected_config_hash",
+        AsyncMock(),
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    md = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    assert "regen_failed_mtime" not in md
+    assert "regen_failed_at" not in md
+
+
+@pytest.mark.asyncio
+async def test_regenerate_skips_when_stamp_fresh_and_mtime_matches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Cross-restart skip: persisted stamp matches and is within TTL → no spawn.
+
+    Simulates the "broken config + backend restart" case. The
+    in-memory ``_regenerate_failed`` set is empty (fresh process)
+    but the sidecar carries the prior backend's failure stamp;
+    the schedule call must populate ``_regenerate_failed`` and
+    skip the spawn rather than burning another subprocess.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
+    current_mtime = yaml_path.stat().st_mtime
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        regen_failed_mtime=current_mtime,
+        regen_failed_at=1700000000.0,
+    )
+    # 60s after the stamp — well within the 1h TTL.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.time.time",
+        lambda: 1700000060.0,
+    )
+
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
+        spawn_calls.append(args)
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert spawn_calls == []
+    # The skip path also seeds the in-memory set so subsequent
+    # same-session schedules hit the cheaper guard instead of
+    # re-reading the sidecar.
+    assert controller._regenerate_failed == {"kitchen.yaml"}
+
+
+@pytest.mark.asyncio
+async def test_regenerate_retries_when_stamp_older_than_ttl(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """TTL elapsed: even with mtime untouched, the next restart retries.
+
+    Covers the user's "external package problem" case — a flaky
+    git server or ESPHome update that resolves on its own. The
+    YAML doesn't change but enough wall-clock time has passed
+    that we should re-check rather than blocking forever.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    current_mtime = yaml_path.stat().st_mtime
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        regen_failed_mtime=current_mtime,
+        regen_failed_at=1700000000.0,
+    )
+    # Advance the clock just past the 1h TTL.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.time.time",
+        lambda: 1700000000.0 + 3700.0,
+    )
+
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
+        spawn_calls.append(args)
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(
+        DevicesController,
+        "_persist_expected_config_hash",
+        AsyncMock(),
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert len(spawn_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """User edits the broken YAML → mtime moves → cross-restart guard releases.
+
+    The natural retry signal. Without this the user's only escape
+    from a bad regen would be deleting the metadata sidecar by
+    hand, which they can't reasonably be expected to know about.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    # Stamp from a prior failed attempt at an *older* mtime — the
+    # YAML has since been edited so the live stat doesn't match.
+    # The wall-clock stamp is fresh (within TTL) so only the mtime
+    # mismatch is what releases the guard.
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        regen_failed_mtime=1.0,
+        regen_failed_at=1700000000.0,
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.time.time",
+        lambda: 1700000060.0,
+    )
+
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
+        spawn_calls.append(args)
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(
+        DevicesController,
+        "_persist_expected_config_hash",
+        AsyncMock(),
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert len(spawn_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_regenerate_runs_when_yaml_missing_for_stamp_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """YAML file vanished between scan and schedule → guard is permissive.
+
+    A torn ``stat()`` (file removed mid-flight by an editor or
+    archive) returns ``OSError``; the guard treats that as "we
+    can't verify, let the spawn try" rather than silently
+    skipping. The spawn itself will then fail and re-stamp; the
+    important thing is we don't dead-end on a missing file.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    # Persist a stamp without ever creating the YAML — simulates the
+    # race window. The metadata sidecar's entry is keyed by filename,
+    # not file-existence.
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        regen_failed_mtime=12345.0,
+        regen_failed_at=1700000000.0,
+    )
+
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
+        spawn_calls.append(args)
+        return _FakeProc(returncode=1, stderr=b"missing")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    # The spawn ran (the stat() failed → guard didn't short-circuit).
+    assert len(spawn_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_regenerate_runs_when_only_one_stamp_half_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Half-written sidecar (only mtime, only wall-clock) → guard treats as absent.
+
+    The two stamp halves are written together; any state where
+    only one is present came from a partial write or a hand-edit
+    and shouldn't lock out retries indefinitely. Both-or-neither
+    is the contract the guard enforces.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    current_mtime = yaml_path.stat().st_mtime
+    # Only the mtime half — sidecar carries no wall-clock pair.
+    await asyncio.to_thread(
+        set_device_metadata,
+        tmp_path,
+        "kitchen.yaml",
+        regen_failed_mtime=current_mtime,
+    )
+
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
+        spawn_calls.append(args)
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(
+        DevicesController,
+        "_persist_expected_config_hash",
+        AsyncMock(),
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert len(spawn_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_regenerate_runs_when_stamp_has_corrupt_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A non-numeric stamp half (hand-edit, partial write) is treated as absent.
+
+    Production stamps via ``set_device_metadata`` only — but a
+    user editing ``.device-builder.json`` could leave the field as
+    a string or arbitrary object. The guard's ``float(...)``
+    coercion has to recover gracefully; otherwise a single bad
+    write would lock the device out of regen forever.
+    """
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    # Hand-edit shape — the value is a string, not a number.
+    raw_path = tmp_path / ".device-builder.json"
+    raw_path.write_text(
+        '{"kitchen.yaml": {"regen_failed_mtime": "garbage", "regen_failed_at": "garbage"}}',
+        encoding="utf-8",
+    )
+
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
+        spawn_calls.append(args)
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.create_subprocess_exec",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(
+        DevicesController,
+        "_persist_expected_config_hash",
+        AsyncMock(),
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert len(spawn_calls) == 1
