@@ -19,6 +19,7 @@ suite doesn't reach:
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from unittest.mock import patch
@@ -27,6 +28,7 @@ import pytest
 
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import (
+    INTERNAL_COMPONENT_IDS,
     ComponentCatalog,
     _FeaturedRecord,
     _load_options,
@@ -102,6 +104,66 @@ def test_load_warns_and_leaves_catalog_empty_when_components_json_missing(
     assert cat._components == []
     assert cat._by_id == {}
     assert any("Component catalog not found" in rec.message for rec in caplog.records)
+
+
+def test_load_filters_out_internal_helper_components(tmp_path: Path) -> None:
+    """Every id in ``INTERNAL_COMPONENT_IDS`` is dropped at load time.
+
+    These are ESPHome internal helpers auto-loaded by their public-
+    facing parent (e.g. ``web_server`` pulls in ``web_server_base``
+    / ``web_server_idf``). Surfacing them in the Add Configuration
+    picker is just noise — issue #325. The denylist drives the
+    filter, so the test loops over the live constant rather than
+    hard-coding the two current entries; that keeps this test honest
+    when the denylist is extended (and catches a regression that
+    drops the filter against the same set of inputs).
+    """
+    user_facing = {
+        "id": "web_server",
+        "name": "Web Server",
+        "category": "core",
+        "config_entries": [],
+    }
+    components = [user_facing] + [
+        {"id": cid, "name": cid, "category": "core", "config_entries": []}
+        for cid in INTERNAL_COMPONENT_IDS
+    ]
+    components_json = tmp_path / "components.json"
+    components_json.write_text(json.dumps({"components": components}))
+
+    cat = ComponentCatalog()
+    with patch(
+        "esphome_device_builder.controllers.components._COMPONENTS_JSON",
+        components_json,
+    ):
+        cat.load()
+
+    ids = {c.id for c in cat._components}
+    assert "web_server" in ids, "user-facing web_server entry must survive"
+    for cid in INTERNAL_COMPONENT_IDS:
+        assert cid not in ids, f"{cid} must be filtered out at load time"
+        assert cat._by_id.get(cid) is None
+
+
+def test_internal_component_ids_is_single_source_of_truth() -> None:
+    """The sync script imports the runtime denylist — one set, not two.
+
+    Previously the constant was duplicated between the runtime
+    catalog loader and the build-time JSON generator, and a future
+    contributor could update one and forget the other. The
+    contract now is: ``script/sync_components.py`` imports
+    ``INTERNAL_COMPONENT_IDS`` from
+    ``esphome_device_builder.controllers.components``. Pin that
+    invariant so a regression that re-duplicates the set or
+    diverges the values is caught here. Imported lazily because
+    the sync module is a script and pulls in heavier
+    dependencies; the import here is the assertion.
+    """
+    from script.sync_components import (  # noqa: PLC0415 — see docstring
+        _INTERNAL_COMPONENT_IDS as SYNC_INTERNAL_IDS,
+    )
+
+    assert SYNC_INTERNAL_IDS is INTERNAL_COMPONENT_IDS
 
 
 # ── get_integration_docs() ──────────────────────────────────────────
