@@ -16,6 +16,7 @@ lower-priority source can never override the state set by a higher one.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from operator import attrgetter
@@ -1196,6 +1197,22 @@ class DeviceStateMonitor:
                 await self._presence.wait_for_subscriber()
             await self._resolve_non_api_mdns_targets()
             await self._ping_sweep()
+            if self._presence is not None:
+                # Interruptible idle wait: bail early if the last
+                # subscriber leaves so the next one to connect
+                # doesn't sit through the rest of a stale interval.
+                # ``wait_for`` raises ``TimeoutError`` after
+                # ``_PING_INTERVAL`` when the gate stays open the
+                # whole time (the normal "still subscribed, sweep
+                # again" path). Either branch loops back to the top
+                # where ``wait_for_subscriber`` parks if the gate
+                # has since closed.
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._presence.wait_for_no_subscribers(),
+                        timeout=_PING_INTERVAL,
+                    )
+                continue
             await asyncio.sleep(_PING_INTERVAL)
 
     async def _resolve_non_api_mdns_targets(self) -> None:
