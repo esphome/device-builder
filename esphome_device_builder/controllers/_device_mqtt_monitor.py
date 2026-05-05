@@ -88,6 +88,13 @@ class DeviceMqttMonitor:
         self._task: asyncio.Task[None] | None = None
         # device name → monotonic timestamp of the last MQTT response
         self._last_seen: dict[str, float] = {}
+        # Set by ``_connect_and_listen`` the moment CONNACK succeeds.
+        # Read+cleared in ``_run``'s except branches so the loud-log
+        # gates re-arm only when we actually managed to connect this
+        # session — not when ``_connect_and_listen`` returns cleanly
+        # (which production rarely does, since the inner TaskGroup
+        # parks until cancelled or raises).
+        self._connected_this_session = False
 
     @staticmethod
     def is_available() -> bool:
@@ -130,19 +137,29 @@ class DeviceMqttMonitor:
         _LOGGER.info("MQTT discovery starting — broker=%s:%s", self._broker.host, self._broker.port)
 
         delay = int(_RECONNECT_DELAY)
-        # Track whether the *previous* attempt failed with an expected
-        # connection error. While a broker stays down we'd otherwise
-        # log a full ERROR + traceback every ``_RECONNECT_DELAY`` seconds
-        # — bug #324. Log the first failure and the recovery loudly,
-        # collapse the in-between repeats to DEBUG.
-        previous_failed = False
+        # Per-category log gates. Each flips True after a loud log
+        # and back to False on the next iteration that observed a
+        # successful CONNACK (signalled via
+        # ``self._connected_this_session``). Tracked separately so a
+        # TimeoutError loop doesn't suppress the first appearance of
+        # a *different* unexpected exception. Bug #324.
+        connect_error_logged = False
+        unexpected_error_logged = False
         while True:
             try:
                 await self._connect_and_listen(client_id)
             except asyncio.CancelledError:
                 raise
             except (TimeoutError, OSError, ConnectionError) as err:
-                if previous_failed:
+                if self._connected_this_session:
+                    # The session reached CONNACK before raising — the
+                    # broker recovered between the last failure and
+                    # this one. Re-arm both gates so this fresh outage
+                    # logs loudly again.
+                    connect_error_logged = False
+                    unexpected_error_logged = False
+                    self._connected_this_session = False
+                if connect_error_logged:
                     _LOGGER.debug(
                         "MQTT broker %s:%s still unreachable (%s) — reconnecting in %ss",
                         self._broker.host,
@@ -158,20 +175,30 @@ class DeviceMqttMonitor:
                         err,
                         delay,
                     )
-                    previous_failed = True
+                    connect_error_logged = True
                 # Drop last-seen but leave device state alone so a brief
                 # broker blip doesn't trigger an offline storm.
                 self._last_seen.clear()
                 await asyncio.sleep(_RECONNECT_DELAY)
-            except Exception:
+            except Exception as err:
                 # Unexpected exception class — keep the loud ERROR with
                 # traceback so genuine bugs are visible, but still gate
                 # repeats so a tight failure loop doesn't flood logs.
-                if previous_failed:
+                if self._connected_this_session:
+                    connect_error_logged = False
+                    unexpected_error_logged = False
+                    self._connected_this_session = False
+                if unexpected_error_logged:
+                    # Include the exception class + message even with
+                    # the traceback gated so the operator can still
+                    # tell what's repeating.
                     _LOGGER.debug(
-                        "MQTT broker %s:%s error (suppressed traceback) — reconnecting in %ss",
+                        "MQTT broker %s:%s error %s: %s "
+                        "(suppressed traceback) — reconnecting in %ss",
                         self._broker.host,
                         self._broker.port,
+                        type(err).__name__,
+                        err,
                         delay,
                     )
                 else:
@@ -181,14 +208,9 @@ class DeviceMqttMonitor:
                         self._broker.port,
                         delay,
                     )
-                    previous_failed = True
+                    unexpected_error_logged = True
                 self._last_seen.clear()
                 await asyncio.sleep(_RECONNECT_DELAY)
-            else:
-                # ``_connect_and_listen`` returned cleanly (broker closed
-                # us, ``stop()`` triggered shutdown, etc.). Reset the
-                # gate so the next failure logs loudly again.
-                previous_failed = False
 
     async def _connect_and_listen(self, client_id: str) -> None:
         assert paho_mqtt is not None  # type narrowing — checked in start()
@@ -223,6 +245,14 @@ class DeviceMqttMonitor:
                 raise ConnectionError(msg)
 
             _LOGGER.info("MQTT connected to %s:%s", self._broker.host, self._broker.port)
+            # Signal to ``_run`` that this iteration achieved a real
+            # connection — read+cleared in its except branches to
+            # re-arm the loud-log gates. Set here rather than relying
+            # on a clean ``_connect_and_listen`` return because the
+            # inner TaskGroup parks until cancelled or raises, so the
+            # ``else`` branch on the caller's ``try`` rarely runs in
+            # production.
+            self._connected_this_session = True
             client.subscribe(_DISCOVER_TOPIC)
             client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
 

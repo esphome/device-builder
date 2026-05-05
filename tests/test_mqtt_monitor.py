@@ -1187,18 +1187,20 @@ async def test_run_collapses_repeat_unreachable_errors_to_debug(
 
 
 @pytest.mark.asyncio
-async def test_run_resets_log_gate_after_successful_session(
+async def test_run_resets_log_gate_after_successful_connect(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A successful broker session re-arms the loud-warning gate.
+    """A successful CONNACK re-arms the loud-warning gate.
 
     Without the reset, a broker that goes down → up → down again
     would only WARN once (on the very first failure) and silently
     DEBUG every subsequent outage forever, defeating the point of
-    surfacing it in the operator's log. Pin: after
-    ``_connect_and_listen`` returns cleanly, the next failure logs
-    WARNING again.
+    surfacing it in the operator's log. The reset trigger is
+    ``self._connected_this_session = True`` (set inside
+    ``_connect_and_listen`` right after CONNACK), not a clean
+    return — production almost never sees a clean return because
+    the inner TaskGroup parks until cancelled or raises.
     """
     monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
 
@@ -1210,9 +1212,13 @@ async def test_run_resets_log_gate_after_successful_session(
 
     # Sequence of behaviours per ``_connect_and_listen`` call:
     # 1. fail (TimeoutError) — first WARNING
-    # 2. succeed (return cleanly) — gate reset
+    # 2. simulate a session that reached CONNACK and then was
+    #    closed by the broker (sets the in-session flag, then
+    #    raises an expected error). Production's equivalent is a
+    #    broker that accepted the connection, ran for a while, and
+    #    then dropped us — the gate must re-arm.
     # 3. fail (TimeoutError) — should be a *second* WARNING, not DEBUG
-    behaviours = ["fail", "succeed", "fail"]
+    behaviours = ["fail", "connect-then-drop", "fail"]
     third_failure = asyncio.Event()
 
     async def _scripted(_client_id: str) -> None:
@@ -1220,12 +1226,14 @@ async def test_run_resets_log_gate_after_successful_session(
             third_failure.set()
             await asyncio.Event().wait()
         action = behaviours.pop(0)
+        if not behaviours:
+            third_failure.set()
         if action == "fail":
-            if not behaviours:
-                third_failure.set()
             raise TimeoutError("timed out")
-        # ``succeed`` — return cleanly, simulating a session that
-        # ran for a while and then closed.
+        # ``connect-then-drop``: signal CONNACK success, then
+        # raise as if the broker dropped the session.
+        monitor._connected_this_session = True
+        raise ConnectionError("broker dropped session")
 
     monkeypatch.setattr(monitor, "_connect_and_listen", _scripted)
 
@@ -1249,7 +1257,87 @@ async def test_run_resets_log_gate_after_successful_session(
         and r.levelname == "WARNING"
         and "unreachable" in r.message
     ]
+    # Two WARNINGs: the first failure (start of outage A) and the
+    # connect-then-drop (start of outage B — gate re-armed by the
+    # CONNACK in between). The third failure is a continuation of
+    # outage B with no successful connect between them, so it
+    # collapses to DEBUG. Pinning this also catches the inverse
+    # regression: dropping the gate-reset entirely would only emit
+    # one WARNING here instead of two.
     assert len(warnings) == 2, [r.message for r in warnings]
+    debugs = [
+        r
+        for r in caplog.records
+        if r.name == monitor_module.__name__
+        and r.levelname == "DEBUG"
+        and "unreachable" in r.message
+    ]
+    assert len(debugs) == 1, [r.message for r in debugs]
+
+
+@pytest.mark.asyncio
+async def test_run_loud_logs_unexpected_after_expected_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A new unexpected exception after a connect-error loop still logs ERROR+traceback.
+
+    The two log gates (expected vs unexpected) are tracked
+    separately so a long ``TimeoutError`` outage can't suppress
+    the first appearance of an *unexpected* exception class —
+    that would hide a genuine bug behind the offline-broker
+    spam-suppression. Pin: after a TimeoutError WARNING, a
+    subsequent ``RuntimeError`` (unrelated category) logs at
+    ERROR level with traceback (``exc_info``) attached.
+    """
+    monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    # First call raises TimeoutError (expected, WARNING),
+    # second call raises RuntimeError (unexpected, must be loud).
+    behaviours: list[str] = ["timeout", "unexpected"]
+    second_call = asyncio.Event()
+
+    async def _scripted(_client_id: str) -> None:
+        if not behaviours:
+            second_call.set()
+            await asyncio.Event().wait()
+        action = behaviours.pop(0)
+        if not behaviours:
+            second_call.set()
+        if action == "timeout":
+            raise TimeoutError("timed out")
+        msg = "kaboom"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(monitor, "_connect_and_listen", _scripted)
+
+    caplog.set_level("DEBUG", logger=monitor_module.__name__)
+
+    run_task = asyncio.create_task(monitor._run())
+    try:
+        await asyncio.wait_for(second_call.wait(), timeout=2.0)
+        await asyncio.sleep(0.05)
+    finally:
+        run_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await run_task
+
+    errors = [
+        r
+        for r in caplog.records
+        if r.name == monitor_module.__name__ and r.levelname == "ERROR" and "error" in r.message
+    ]
+    assert len(errors) == 1, [(r.levelname, r.message) for r in errors]
+    # ``logger.exception`` attaches exc_info — pin the traceback is
+    # actually present so a regression that drops the exception
+    # context (or routes through DEBUG) surfaces here.
+    assert errors[0].exc_info is not None
 
 
 # ---------------------------------------------------------------------------
