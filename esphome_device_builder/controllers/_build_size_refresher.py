@@ -31,6 +31,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
+from typing import Any
 
 from ..helpers.build_size import find_stale_build_dirs, refresh_build_size_if_stale
 
@@ -39,8 +40,11 @@ _LOGGER = logging.getLogger(__name__)
 # Callback fired after a successful refresh actually changed the
 # cached triple. The owner uses it to reload the device through
 # the scanner so the in-memory ``Device.build_size_bytes`` picks
-# up the freshly-persisted value via the metadata resolver.
-RefreshedCallback = Callable[[str], Awaitable[None]]
+# up the freshly-persisted value via the metadata resolver. The
+# return value is ignored — typed ``Awaitable[Any]`` so the
+# scanner's existing ``async def reload(...) -> bool`` can be
+# wired directly without a no-return adapter wrapper.
+RefreshedCallback = Callable[[str], Awaitable[Any]]
 
 
 class BuildSizeRefresher:

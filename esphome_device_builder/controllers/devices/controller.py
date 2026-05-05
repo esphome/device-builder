@@ -1425,7 +1425,17 @@ class DevicesController:
         if not board_id:
             board_id = self._derive_board_id_from_yaml(config_dir, filename)
         mac_address = str(md.get("mac_address", ""))
-        build_size_bytes = int(md.get("build_size_bytes", 0) or 0)
+        # Defensive ``int()`` coercion: a hand-edited / partially-
+        # written sidecar could land here with a non-numeric value
+        # (e.g. ``null``, an object). The metadata resolver is on
+        # the scanner's per-device hot path and a single corrupt
+        # entry shouldn't fail the whole scan — fall back to ``0``
+        # (the same sentinel ``set_device_metadata`` writes when
+        # clearing) and let the next walk re-populate.
+        try:
+            build_size_bytes = int(md.get("build_size_bytes") or 0)
+        except (TypeError, ValueError):
+            build_size_bytes = 0
         return DeviceFileMetadata(
             board_id=board_id,
             ip=ip,

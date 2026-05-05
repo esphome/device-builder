@@ -141,22 +141,8 @@ def get_build_dir_signal(build_dir: Path) -> BuildDirSignal:
     """
     return BuildDirSignal(
         dir_mtime=get_build_dir_mtime(build_dir),
-        info_mtime=_stat_int_mtime(build_dir / "build_info.json"),
+        info_mtime=get_build_dir_mtime(build_dir / "build_info.json"),
     )
-
-
-def _stat_int_mtime(path: Path) -> int:
-    """Whole-second mtime stat. ``0`` when the path is missing.
-
-    Whole seconds for the same cross-filesystem reason
-    :func:`get_build_dir_mtime` truncates: FAT32 / older NFS /
-    CIFS round on write, and a fractional cached value would
-    never compare equal after a cross-mount move.
-    """
-    try:
-        return int(path.stat().st_mtime)
-    except OSError:
-        return 0
 
 
 def find_stale_build_dirs(config_dir: Path, filenames: list[str]) -> list[str]:
@@ -172,11 +158,14 @@ def find_stale_build_dirs(config_dir: Path, filenames: list[str]) -> list[str]:
     ``StorageJSON`` and stats the
     ``(dir_mtime, build_info_mtime)`` pair in whole seconds, then
     compares against the cached pair in the sidecar. The
-    filenames where *either* current ≠ cached (and a build dir
-    exists) are returned in the same order the caller passed
-    them. Devices with no StorageJSON / no ``build_path`` are
-    silently skipped — pre-first-compile devices have nothing to
-    walk.
+    filenames where *either* current ≠ cached are returned in the
+    same order the caller passed them — including the
+    ``current = (0, 0)`` but cached non-zero case, where the
+    build dir vanished after the last walk and the worker still
+    needs to clear the stale cached values. Devices with no
+    StorageJSON / no ``build_path`` are silently skipped —
+    pre-first-compile devices have nothing to walk in the first
+    place, so there's no cache state to clear either.
 
     Used at startup to catch CLI-driven compiles that ran while
     the dashboard wasn't watching, plus any other fleet-refresh
@@ -294,14 +283,15 @@ def refresh_build_size_if_stale(
     return BuildSizeRefreshResult(size_bytes=size, signal=current)
 
 
-def get_build_dir_mtime(build_dir: Path) -> int:
+def get_build_dir_mtime(path: Path) -> int:
     """
-    Stat the build dir's top-level mtime in whole seconds. ``0`` when gone.
+    Stat *path*'s mtime in whole seconds. ``0`` when the path is missing.
 
-    The top-level directory's mtime moves forward each time
-    PlatformIO writes into it, so this single ``stat()`` is enough
-    to dedupe a "did anything change?" check against the cached
-    value in the sidecar.
+    Used for both halves of the freshness pair —
+    :func:`get_build_dir_signal` calls it on the build dir
+    itself (entry-set churn) and on ``build_info.json``
+    (ESPHome's per-recompile rewrite). Same cross-filesystem
+    rationale either way.
 
     We deliberately truncate to whole seconds rather than carrying
     ``st_mtime``'s native float precision: filesystems that don't
@@ -315,12 +305,12 @@ def get_build_dir_mtime(build_dir: Path) -> int:
     drift around a real change — entirely fine for a heavy-I/O
     cache primarily meant to skip steady-state polls.
 
-    Returning ``0`` for a missing dir short-circuits the cache
+    Returning ``0`` for a missing path short-circuits the cache
     (any non-zero cached mtime wouldn't match) and naturally
     drives the cached size back to zero on the next refresh.
     """
     try:
-        return int(build_dir.stat().st_mtime)
+        return int(path.stat().st_mtime)
     except OSError:
         return 0
 
