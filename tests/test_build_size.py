@@ -19,7 +19,9 @@ from esphome_device_builder.controllers.config import (
     set_device_metadata,
 )
 from esphome_device_builder.helpers.build_size import (
+    BuildDirSignal,
     compute_build_dir_size,
+    find_stale_build_dirs,
     get_build_dir_mtime,
     refresh_build_size_if_stale,
     resolve_build_dir,
@@ -230,17 +232,15 @@ def test_refresh_build_size_if_stale_walks_and_persists_on_first_run(
         result = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
 
     assert result is not None
-    size, dir_mtime, info_mtime = result
-    # Walked total = both files: 4096 + body of build_info.json
     body_len = len('{"config_hash": "abc"}')
-    assert size == 4096 + body_len
-    assert dir_mtime == int(build_dir.stat().st_mtime)
-    assert info_mtime == int((build_dir / "build_info.json").stat().st_mtime)
+    assert result.size_bytes == 4096 + body_len
+    assert result.signal.dir_mtime == int(build_dir.stat().st_mtime)
+    assert result.signal.info_mtime == int((build_dir / "build_info.json").stat().st_mtime)
     # Triple is persisted so the next call short-circuits.
     md = get_device_metadata(config_dir, "kitchen.yaml")
-    assert md["build_size_bytes"] == size
-    assert md["build_size_dir_mtime"] == dir_mtime
-    assert md["build_size_info_mtime"] == info_mtime
+    assert md["build_size_bytes"] == result.size_bytes
+    assert md["build_size_dir_mtime"] == result.signal.dir_mtime
+    assert md["build_size_info_mtime"] == result.signal.info_mtime
 
 
 def test_refresh_build_size_if_stale_short_circuits_when_pair_matches(
@@ -307,9 +307,8 @@ def test_refresh_build_size_if_stale_re_walks_on_dir_mtime_change(
         result = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
 
     assert result is not None
-    size, _dir_mt, _info_mt = result
     body_len = len('{"config_hash": "abc"}')
-    assert size == 1024 + body_len  # actual, not stale 999
+    assert result.size_bytes == 1024 + body_len  # actual, not stale 999
 
 
 def test_refresh_build_size_if_stale_re_walks_on_info_mtime_change(
@@ -345,9 +344,8 @@ def test_refresh_build_size_if_stale_re_walks_on_info_mtime_change(
         result = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
 
     assert result is not None
-    size, _dir_mt, _info_mt = result
     body_len = len('{"config_hash": "abc"}')
-    assert size == 1024 + body_len  # actual, not stale 999
+    assert result.size_bytes == 1024 + body_len  # actual, not stale 999
 
 
 def test_refresh_build_size_if_stale_no_loop_when_build_dir_missing(
@@ -419,7 +417,8 @@ def test_refresh_build_size_if_stale_clears_cache_when_build_dir_disappears(
 
     # First call: cleared the cache (returned non-None to signal change).
     assert first is not None
-    assert first == (0, 0, 0)
+    assert first.size_bytes == 0
+    assert first.signal == BuildDirSignal(dir_mtime=0, info_mtime=0)
     # Second call: short-circuits on pair equality, no churn.
     assert second is None
     md = get_device_metadata(config_dir, "kitchen.yaml")
@@ -451,15 +450,14 @@ def test_refresh_build_size_if_stale_works_without_build_info_json(
         first = refresh_build_size_if_stale(config_dir, "kitchen.yaml")
 
     assert first is not None
-    size, dir_mt, info_mt = first
-    assert size == 1024
-    assert dir_mt > 0
-    assert info_mt == 0  # the explicit "no build_info.json" sentinel
+    assert first.size_bytes == 1024
+    assert first.signal.dir_mtime > 0
+    assert first.signal.info_mtime == 0  # explicit "no build_info.json"
     md = get_device_metadata(config_dir, "kitchen.yaml")
     # ``set_device_metadata`` clears keys passed as 0, so info_mtime
     # is intentionally absent rather than persisted as 0 — the
     # subsequent read defaults to 0 anyway.
-    assert md["build_size_dir_mtime"] == dir_mt
+    assert md["build_size_dir_mtime"] == first.signal.dir_mtime
     assert "build_size_info_mtime" not in md
 
     # Second call: nothing changed, so the helper short-circuits.
@@ -533,8 +531,6 @@ def test_find_stale_build_dirs_returns_only_divergent_filenames(tmp_path: Path) 
             side_effect=_fake_load,
         ),
     ):
-        from esphome_device_builder.helpers.build_size import find_stale_build_dirs
-
         result = find_stale_build_dirs(
             config_dir, ["fresh.yaml", "stale.yaml", "never_compiled.yaml"]
         )
@@ -544,8 +540,6 @@ def test_find_stale_build_dirs_returns_only_divergent_filenames(tmp_path: Path) 
 
 def test_find_stale_build_dirs_empty_list_returns_empty(tmp_path: Path) -> None:
     """No devices in → no executor work, no walks, no stale list."""
-    from esphome_device_builder.helpers.build_size import find_stale_build_dirs
-
     assert find_stale_build_dirs(tmp_path, []) == []
 
 

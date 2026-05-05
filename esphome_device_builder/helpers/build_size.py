@@ -2,7 +2,7 @@
 
 ESPHome compiles produce a meaty ``.esphome/build/<device>/`` tree —
 PlatformIO checkouts, framework toolchain output, intermediate ``.o``
-files, the linked binaries. A typical board lands at 50–250 MB, with
+files, the linked binaries. A typical board lands at 50-250 MB, with
 heavier configs (BLE-tracker fleets, multi-bus designs) easily past a
 gigabyte. The dashboard surfaces this size in the per-device drawer
 and as a hidden-by-default table column so a user planning a clean-up
@@ -51,6 +51,7 @@ callers treat that the same as "no cached value, total = 0".
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from esphome.storage_json import StorageJSON, ext_storage_path
@@ -58,6 +59,34 @@ from esphome.storage_json import StorageJSON, ext_storage_path
 from ..controllers.config import get_device_metadata, set_device_metadata
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class BuildDirSignal:
+    """Two-stat freshness signal for a per-device build directory.
+
+    ``dir_mtime`` and ``info_mtime`` are whole-second
+    ``int(stat.st_mtime)`` values; ``0`` means that path is
+    missing. Each catches a class of changes the other misses
+    (see the module docstring's empirical matrix), so the cache
+    treats inequality on either half as "stale".
+    """
+
+    dir_mtime: int
+    info_mtime: int
+
+
+@dataclass(frozen=True, slots=True)
+class BuildSizeRefreshResult:
+    """The persisted triple after a successful walk: size + freshness pair.
+
+    ``size_bytes`` is the recursive-walk sum;
+    ``signal`` is the freshness pair captured at walk time, used
+    to short-circuit the next call when the dir hasn't moved.
+    """
+
+    size_bytes: int
+    signal: BuildDirSignal
 
 
 def resolve_build_dir(filename: str) -> Path | None:
@@ -84,13 +113,13 @@ def resolve_build_dir(filename: str) -> Path | None:
     return Path(storage.build_path)
 
 
-def get_build_dir_signal(build_dir: Path) -> tuple[int, int]:
+def get_build_dir_signal(build_dir: Path) -> BuildDirSignal:
     """
-    Return ``(dir_mtime, build_info_mtime)`` — the freshness-pair signal.
+    Return the :class:`BuildDirSignal` freshness pair for *build_dir*.
 
-    Both are whole-second ints; ``0`` means that path is missing.
-    Tracking *both* because each catches a class of changes the
-    other misses — empirically verified:
+    Both stats are whole-second ints; ``0`` means that path is
+    missing. Tracking *both* because each catches a class of
+    changes the other misses — empirically verified:
 
     - **Dir mtime** moves on entry-set churn (sibling add /
       remove / rename, atomic-replace via ``os.replace``). Misses
@@ -110,9 +139,9 @@ def get_build_dir_signal(build_dir: Path) -> tuple[int, int]:
     file (``mtime == 0``) just means we lean on the dir mtime
     half until ESPHome catches up.
     """
-    return (
-        get_build_dir_mtime(build_dir),
-        _stat_int_mtime(build_dir / "build_info.json"),
+    return BuildDirSignal(
+        dir_mtime=get_build_dir_mtime(build_dir),
+        info_mtime=_stat_int_mtime(build_dir / "build_info.json"),
     )
 
 
@@ -160,13 +189,15 @@ def find_stale_build_dirs(config_dir: Path, filenames: list[str]) -> list[str]:
         build_dir = resolve_build_dir(filename)
         if build_dir is None:
             continue
-        current_dir, current_info = get_build_dir_signal(build_dir)
-        if not current_dir and not current_info:
+        current = get_build_dir_signal(build_dir)
+        if not current.dir_mtime and not current.info_mtime:
             continue  # build dir vanished; cached zero is correct
         md = get_device_metadata(config_dir, filename)
-        cached_dir = int(md.get("build_size_dir_mtime") or 0)
-        cached_info = int(md.get("build_size_info_mtime") or 0)
-        if current_dir != cached_dir or current_info != cached_info:
+        cached = BuildDirSignal(
+            dir_mtime=int(md.get("build_size_dir_mtime") or 0),
+            info_mtime=int(md.get("build_size_info_mtime") or 0),
+        )
+        if current != cached:
             stale.append(filename)
     return stale
 
@@ -174,7 +205,7 @@ def find_stale_build_dirs(config_dir: Path, filenames: list[str]) -> list[str]:
 def refresh_build_size_if_stale(
     config_dir: Path,
     filename: str,
-) -> tuple[int, int, int] | None:
+) -> BuildSizeRefreshResult | None:
     """
     Refresh the cached size when the build dir's freshness pair moved.
 
@@ -184,11 +215,10 @@ def refresh_build_size_if_stale(
     stat / walk / sidecar-write). Returns ``None`` when the
     cached pair was already fresh — the steady-state
     dashboard-poll path, where we want to skip every executor
-    handoff we can. When stale, returns the new
-    ``(size_bytes, dir_mtime, build_info_mtime)`` triple after
-    persisting it to the metadata sidecar; the caller uses the
-    non-None return as the signal to reload / fire
-    ``DEVICE_UPDATED``.
+    handoff we can. When stale, returns the freshly-persisted
+    :class:`BuildSizeRefreshResult` (size + freshness pair); the
+    caller uses the non-None return as the signal to reload /
+    fire ``DEVICE_UPDATED``.
 
     Sequencing is cheap-first-then-heavy:
     ``get_device_metadata`` → JSON read on a small file,
@@ -203,30 +233,32 @@ def refresh_build_size_if_stale(
     build_dir = resolve_build_dir(filename)
     if build_dir is None:
         return None
-    current_dir, current_info = get_build_dir_signal(build_dir)
+    current = get_build_dir_signal(build_dir)
     md = get_device_metadata(config_dir, filename)
-    cached_dir = int(md.get("build_size_dir_mtime") or 0)
-    cached_info = int(md.get("build_size_info_mtime") or 0)
+    cached = BuildDirSignal(
+        dir_mtime=int(md.get("build_size_dir_mtime") or 0),
+        info_mtime=int(md.get("build_size_info_mtime") or 0),
+    )
     # Pure equality check across the whole pair. Crucially this
     # short-circuits the "build dir is missing AND we never had
-    # one cached" case ((0, 0) == (0, 0) → fresh → return None);
-    # without that we'd walk the missing path on every poll and
-    # ``set_device_metadata`` would re-clear three fields that
-    # are already absent, with the non-None return retriggering a
-    # scanner.reload each time. The "dir vanished but cache was
-    # populated" case ((0, 0) ≠ (X, Y)) still falls through to
-    # walk so the cache gets cleared exactly once.
-    if (current_dir, current_info) == (cached_dir, cached_info):
+    # one cached" case (signal(0, 0) == signal(0, 0) → fresh →
+    # return None); without that we'd walk the missing path on
+    # every poll and ``set_device_metadata`` would re-clear
+    # three fields that are already absent, with the non-None
+    # return retriggering a scanner.reload each time. The "dir
+    # vanished but cache was populated" case still falls through
+    # to walk so the cache gets cleared exactly once.
+    if current == cached:
         return None
     size = compute_build_dir_size(build_dir)
     set_device_metadata(
         config_dir,
         filename,
         build_size_bytes=size,
-        build_size_dir_mtime=current_dir,
-        build_size_info_mtime=current_info,
+        build_size_dir_mtime=current.dir_mtime,
+        build_size_info_mtime=current.info_mtime,
     )
-    return size, current_dir, current_info
+    return BuildSizeRefreshResult(size_bytes=size, signal=current)
 
 
 def get_build_dir_mtime(build_dir: Path) -> int:
