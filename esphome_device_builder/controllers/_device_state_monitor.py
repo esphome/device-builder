@@ -361,6 +361,25 @@ class DeviceStateMonitor:
         except Exception:
             _LOGGER.debug("mDNS refresh of %s failed", name, exc_info=True)
             return
+        self._apply_resolved_addresses(name, addresses)
+
+    def _apply_resolved_addresses(
+        self, name: str, addresses: list[str] | BaseException | None
+    ) -> None:
+        """Funnel a successful active-resolve into the apply path.
+
+        Both the per-subscription :meth:`refresh_mdns` and the
+        batch :meth:`_resolve_non_api_mdns_targets` need the same
+        "non-empty address list → claim mDNS-ONLINE + record IPs"
+        treatment. Sharing the branch keeps the deliberate
+        no-OFFLINE-on-miss rule (documented at the call site in
+        :meth:`_resolve_non_api_mdns_targets`) consistent across
+        both paths.
+
+        ``addresses`` accepts the union ``asyncio.gather(...,
+        return_exceptions=True)`` produces so the batch path can
+        thread its results in without a per-element type check.
+        """
         if isinstance(addresses, list) and addresses:
             self.apply(name, DeviceState.ONLINE, "mdns", claim=True)
             self.apply_ip_addresses(name, addresses)
@@ -970,17 +989,15 @@ class DeviceStateMonitor:
             return_exceptions=True,
         )
         for device, addresses in zip(candidates, results, strict=True):
-            if isinstance(addresses, list) and addresses:
-                # Trust mDNS for ONLINE — the active A-record query
-                # answered, so the device is live on this LAN. Claim
-                # under the ``mdns`` source (priority 3) so the
-                # subsequent ICMP sweep skips this device entirely.
-                # Keeping ping / DNS traffic to a minimum for
-                # fleets that broadcast is a deliberate trade-off:
-                # we want mDNS to be the single source of truth for
-                # devices that respond to it.
-                self.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                self.apply_ip_addresses(device.name, addresses)
+            # Trust mDNS for ONLINE — the active A-record query
+            # answered, so the device is live on this LAN. Claim
+            # under the ``mdns`` source (priority 3) so the
+            # subsequent ICMP sweep skips this device entirely.
+            # Keeping ping / DNS traffic to a minimum for fleets
+            # that broadcast is a deliberate trade-off: we want
+            # mDNS to be the single source of truth for devices
+            # that respond to it.
+            self._apply_resolved_addresses(device.name, addresses)
             # No OFFLINE branch — deliberate. The browser path can
             # trust mDNS in both directions because the
             # ServiceBrowser delivers a ``Removed`` event when a
@@ -1123,7 +1140,7 @@ class DeviceStateMonitor:
             # failed ping which would surface as "0 ms" — gate on
             # ``is_alive`` so failures stay null.
             if is_alive:
-                rtt_ms = float(getattr(result, "min_rtt", 0.0))
+                rtt_ms = float(result.min_rtt)
         except Exception as exc:
             # ``.local`` hosts on systems without Avahi / mdnsd hit
             # this every sweep; the traceback adds nothing and floods

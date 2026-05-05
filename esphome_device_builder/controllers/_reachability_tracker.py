@@ -60,6 +60,17 @@ class ReachabilityTracker:
         # against a fresh ``time.monotonic()`` to compute "N seconds
         # ago" so a clock skip can't make a 5s-ago observation look
         # 5 minutes old.
+        #
+        # Size is bounded by the configured-device count — each
+        # observation overwrites its name's entry, never appends.
+        # ``clear(name)`` is the only pruner and runs from two
+        # paths: the mDNS browser's ``Removed`` event (broadcast
+        # went away, in ``_device_state_monitor.py``) and
+        # ``DevicesController._on_scan_change(REMOVED)`` (YAML
+        # deleted). An OFFLINE state from ping or MQTT timeout
+        # deliberately does *not* clear — the drawer still wants
+        # to surface "we last heard on MQTT 8 minutes ago" so the
+        # user can see when each channel went silent.
         self._mdns_last_seen: dict[str, float] = {}
         self._ping_last_seen: dict[str, float] = {}
         self._mqtt_last_seen: dict[str, float] = {}
