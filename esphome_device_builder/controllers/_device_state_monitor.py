@@ -35,7 +35,13 @@ except ImportError:  # pragma: no cover — icmplib is optional
     icmp_ping = None  # type: ignore[assignment]
 
 from zeroconf import current_time_millis, millis_to_seconds
-from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA
+from zeroconf.const import (
+    _CLASS_IN,
+    _TYPE_A,
+    _TYPE_AAAA,
+    _TYPE_SRV,
+    _TYPE_TXT,
+)
 
 from ..helpers.hostname import is_local_hostname, normalize_hostname
 from ..models import AdoptableDevice, Device, DeviceState, ReachabilitySource
@@ -402,55 +408,68 @@ class DeviceStateMonitor:
         """
         Read the truthful "last heard via mDNS" age + remaining TTL.
 
-        Reaches into ``zeroconf.cache`` for the device's
-        ``<name>.local.`` A and AAAA records and returns
-        ``(age_seconds, ttl_remaining_seconds)`` based on
-        :attr:`zeroconf.DNSAddress.created` (refreshed on every
-        announce) and
-        :meth:`zeroconf.DNSAddress.get_remaining_ttl`. Both values
-        come from the *device's actual broadcast*, not from when
-        we last polled the cache — so the drawer's "Last seen"
-        reflects the real announce age even when zeroconf
-        suppresses ``ServiceStateChange.Updated`` callbacks for
-        same-content TTL refreshes.
+        Returns the most-recent ``DNSRecord.created`` across
+        every cached record we have for the device, paired with
+        the matching record's
+        :meth:`zeroconf.DNSRecord.get_remaining_ttl`. The records
+        we look at:
 
-        Returns ``None`` when zeroconf isn't running, or when the
-        device has been evicted from the cache (e.g. its TTL
-        expired without a renewing announce). The drawer's
-        snapshot maps that to a hidden mDNS row.
+        * ``A`` / ``AAAA`` at ``<name>.local.`` — the IP-address
+          announces (120s TTL by default).
+        * ``SRV`` / ``TXT`` at ``<name>._esphomelib._tcp.local.``
+          — the API service-instance records (only present for
+          devices running the native API).
+        * ``PTR`` at ``_esphomelib._tcp.local.`` filtered to
+          alias matches — the long-TTL pointer record
+          (~4500s) the ``ServiceBrowser`` keeps alive.
 
-        Why A/AAAA (not SRV): the SRV record only exists on
-        devices running the ESPHome native API
-        (``_esphomelib._tcp.local.``). A device with only
-        web_server / MQTT / OTA still announces an A/AAAA under
-        ``<hostname>.local.``, which is what we care about for
-        "is this host reachable on the LAN". A and AAAA share the
-        same TTL on a single zeroconf announce so picking the
-        most-recently-created across both gives the truthful
-        last-heard.
+        Walking multiple record types matters because each one
+        has its own TTL: A/AAAA decay at 120s, but the PTR
+        kept alive by the browser stays fresh for tens of
+        minutes. After A expires, an SRV refresh from a probe
+        — or even just the still-live PTR — still tells us
+        "we heard mDNS for this device N seconds ago"
+        truthfully, which is what the drawer's "Last seen"
+        line is asking. Only when *every* record we know about
+        has been evicted from the cache do we return ``None``
+        (and the drawer hides the mDNS row).
+
+        Returns ``None`` when zeroconf isn't running, or when
+        the cache has nothing under any of the record types we
+        check.
         """
         if self._zeroconf is None:
             return None
         cache = self._zeroconf.zeroconf.cache
         local_name = f"{name}.local."
-        records = [
+        service_name = f"{name}.{_ESPHOME_SERVICE_TYPE}"
+        records: list[Any] = [
             *cache.get_all_by_details(local_name, _TYPE_A, _CLASS_IN),
             *cache.get_all_by_details(local_name, _TYPE_AAAA, _CLASS_IN),
+            *cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN),
+            *cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN),
         ]
+        # PTR is owned by the type-domain (``_esphomelib._tcp.local.``)
+        # and carries the service-instance as its ``alias`` —
+        # zeroconf already exposes ``current_entry_with_name_and_alias``
+        # for exactly this lookup so we don't have to walk every
+        # PTR and filter ourselves. Helper filters expired
+        # internally, which is fine for the 4500s-TTL PTR (won't
+        # expire in any realistic drawer-open window).
+        ptr = cache.current_entry_with_name_and_alias(_ESPHOME_SERVICE_TYPE, service_name)
+        if ptr is not None:
+            records.append(ptr)
         if not records:
             return None
         # Don't filter expired records — the drawer wants the
-        # truthful "last seen" age even when the cached A has
-        # aged past its TTL. The PTR record (4500s) keeps the
-        # device's existence alive in mDNS-land regardless of
-        # A/AAAA expiry; surfacing "Last seen 122s ago, TTL: 0s"
-        # is more accurate than hiding the row entirely just
-        # because A's 120s TTL ran out before our refresh tick
-        # fired. The expiry+1s refresh loop keeps the gap to a
-        # few seconds in practice; once the reaper actually
-        # evicts the record, ``get_all_by_details`` returns
-        # nothing and the row hides correctly via the
-        # ``records`` empty-check above.
+        # truthful "last seen" age even when the cached record
+        # has aged past its TTL. With multiple record types
+        # contributing, the PTR (~4500s TTL) typically
+        # outlives A/AAAA (120s) so the row stays populated
+        # via the PTR's ``created`` even during the brief
+        # expiry-to-refresh window for the address records.
+        # The row only hides once *every* cached record has
+        # been evicted, which the empty-check above handles.
         now_ms = current_time_millis()
         latest = max(records, key=attrgetter("created"))
         # ``DNSAddress.created`` is millis; ``now_ms - created`` is

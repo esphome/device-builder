@@ -29,8 +29,14 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from zeroconf import DNSAddress, ServiceStateChange, Zeroconf, current_time_millis
-from zeroconf.const import _CLASS_IN, _TYPE_A
+from zeroconf import (
+    DNSAddress,
+    DNSPointer,
+    ServiceStateChange,
+    Zeroconf,
+    current_time_millis,
+)
+from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_PTR
 
 import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import (
@@ -302,6 +308,7 @@ def test_get_mdns_cache_info_no_record_returns_none() -> None:
     monitor = _make_monitor([_make_device()], None)
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[])
+    fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias = MagicMock(return_value=None)
     monitor._zeroconf = fake_zeroconf
     assert monitor.get_mdns_cache_info("kitchen") is None
 
@@ -355,6 +362,48 @@ def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
         zc.close()
 
 
+def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
+    """Integration: A + PTR; older A, fresher PTR → PTR's age wins.
+
+    The "Last seen" semantic is "when did we last hear ANY mDNS
+    record from this device" — not just A/AAAA. A device whose
+    A has aged 110s but whose PTR was refreshed 5s ago by the
+    ``ServiceBrowser`` should show "5 seconds ago" in the
+    drawer, not "110 seconds ago." Pin the multi-type lookup
+    via a real ``Zeroconf`` cache so a refactor that drops one
+    of the type queries surfaces here.
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        a_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 110_000,
+        )
+        ptr_rec = DNSPointer(
+            name="_esphomelib._tcp.local.",
+            type_=_TYPE_PTR,
+            class_=_CLASS_IN,
+            ttl=4500,
+            alias="kitchen._esphomelib._tcp.local.",
+            created=current_time_millis() - 5_000,
+        )
+        zc.cache.async_add_records([a_rec, ptr_rec])
+
+        monitor = _make_monitor([_make_device()], None)
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.get_mdns_cache_info("kitchen")
+        assert info is not None
+        # PTR (5s ago) is fresher than A (110s ago) → PTR wins.
+        assert info.age_seconds == pytest.approx(5.0, abs=0.5)
+    finally:
+        zc.close()
+
+
 def test_get_mdns_cache_info_picks_latest_record() -> None:
     """Returns the freshest cached SRV record's age + remaining TTL.
 
@@ -375,6 +424,7 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     newer.get_remaining_ttl = MagicMock(return_value=115.0)
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[older, newer])
+    fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias = MagicMock(return_value=None)
 
     monitor = _make_monitor([_make_device()], None)
     monitor._zeroconf = fake_zeroconf
