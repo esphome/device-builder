@@ -1465,7 +1465,7 @@ class DevicesController:
     def get_reachability_snapshot(self, name: str) -> dict[str, object] | None:
         """Return the current reachability snapshot for *name*, or ``None``.
 
-        Public so the WS ``subscribe_device_reachability`` handler can
+        Public so the WS ``devices/subscribe_reachability`` handler can
         seed its initial event without going through the bus. Returns
         ``None`` when no configured device matches *name* (the
         subscription handler maps that to a NOT_FOUND error).

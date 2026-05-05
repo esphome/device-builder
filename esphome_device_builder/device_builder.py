@@ -303,11 +303,21 @@ class DeviceBuilder:
             # massive backlog.
             controls.push_or_terminate(event.event_type.value, serialized)
 
+        # ``DEVICE_REACHABILITY`` is intentionally excluded — it fires
+        # on every per-signal observation (every mDNS announce, every
+        # ping success, every MQTT discover response) for *every*
+        # configured device, which would push 60+ events/min/device
+        # at every connected client. The drawer's per-device
+        # subscription is the only consumer; broadcasting these
+        # would defeat the point of having a per-device stream and
+        # could trip the bounded queue's backpressure terminator
+        # under fleet load.
+        broadcast_event_types = [et for et in EventType if et is not EventType.DEVICE_REACHABILITY]
         await stream_events(
             client=client,
             message_id=message_id,
             bus=self.bus,
-            event_types=list(EventType),
+            event_types=broadcast_event_types,
             handle_event=_handle_event,
             send_initial=_send_initial,
         )

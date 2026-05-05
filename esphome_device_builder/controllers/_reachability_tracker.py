@@ -38,7 +38,7 @@ from collections.abc import Callable
 
 from ..models import DeviceState
 
-# Wire-format dict the drawer's ``subscribe_device_reachability`` event
+# Wire-format dict the drawer's ``devices/subscribe_reachability`` event
 # carries. Defined as a TypedDict-style note rather than a runtime type
 # so we don't pay for an extra dataclass — the dict is JSON-serialized
 # by the WS layer either way.
