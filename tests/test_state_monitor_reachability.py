@@ -313,10 +313,15 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     millisecond timestamps → reachability's seconds).
     """
     now_ms = current_time_millis()
+    # ``get_remaining_ttl`` returns SECONDS already (zeroconf's
+    # implementation divides by 1000 internally). Stub it as
+    # seconds — passing milliseconds here masked a real bug
+    # where the snapshot rendered "TTL: 0s" because the
+    # production code was double-dividing.
     older = MagicMock(created=now_ms - 30_000.0)
-    older.get_remaining_ttl = MagicMock(return_value=90_000.0)
+    older.get_remaining_ttl = MagicMock(return_value=90.0)
     newer = MagicMock(created=now_ms - 5_000.0)
-    newer.get_remaining_ttl = MagicMock(return_value=115_000.0)
+    newer.get_remaining_ttl = MagicMock(return_value=115.0)
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[older, newer])
 

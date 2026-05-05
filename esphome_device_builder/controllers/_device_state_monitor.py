@@ -421,8 +421,14 @@ class DeviceStateMonitor:
             return None
         latest = max(records, key=attrgetter("created"))
         now_ms = current_time_millis()
+        # ``DNSAddress.created`` is millis; ``now_ms - created`` is
+        # millis, hence ``millis_to_seconds`` here.
         age_s = max(0.0, millis_to_seconds(now_ms - latest.created))
-        ttl_remaining_s = max(0.0, millis_to_seconds(latest.get_remaining_ttl(now_ms)))
+        # ``get_remaining_ttl`` already returns seconds (the
+        # impl divides by 1000.0 internally). Don't convert again
+        # — that would turn "108 seconds remaining" into 0.108
+        # and render as "TTL: 0s".
+        ttl_remaining_s = max(0.0, float(latest.get_remaining_ttl(now_ms)))
         return MdnsCacheInfo(age_seconds=age_s, ttl_remaining_seconds=ttl_remaining_s)
 
     def _apply_resolved_addresses(
