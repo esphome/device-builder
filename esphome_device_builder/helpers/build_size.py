@@ -213,9 +213,10 @@ def _load_full_metadata(config_dir: Path) -> dict[str, dict]:
     YAML filename; missing entries / wrong shapes return ``{}``
     so callers can treat them as "no cached data."
     """
-    # Local import to keep ``controllers`` out of the top-level
-    # import surface for this helper, which a few module-level
-    # consumers rely on staying side-effect-free.
+    # Import the private helper locally so this module does not
+    # eagerly bind ``_load_metadata`` at import time. Public
+    # helpers from ``controllers.config`` are already imported
+    # at module load time above.
     from ..controllers.config import _load_metadata  # noqa: PLC0415
 
     try:
