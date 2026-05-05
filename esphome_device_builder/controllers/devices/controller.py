@@ -1243,16 +1243,26 @@ class DevicesController:
 
         Quiet when active source is ping (the regular sweep already
         runs every 60s) or MQTT (the discover-publish loop already
-        ticks every 2s). The tick is unconditional sleep then check
-        — sleeping first means a fast mDNS device that's actively
-        announcing doesn't get an extra resolve just because someone
-        opened the drawer; the existing subscription's initial
-        snapshot already shows the freshness.
+        ticks every 2s).
+
+        **Refresh first, then sleep.** ESPHome devices re-announce
+        mDNS at TTL/2 (~60s for the default 120s TTL), but zeroconf
+        only fires ``ServiceStateChange.Updated`` when the record
+        content actually changes — a same-record TTL refresh
+        typically does *not* trigger a callback. So
+        ``_mdns_last_seen`` can stay at the original ``Added``
+        timestamp for many minutes even on a fully-online device,
+        and the initial snapshot the drawer receives shows stale
+        ages. Running the refresh before the first sleep makes the
+        cache lookup (or short active resolve) bump
+        ``_mdns_last_seen`` within ~ms of the subscription
+        starting, so the drawer's "Last seen" reads fresh
+        immediately rather than after a 60s wait.
         """
         while True:
-            await asyncio.sleep(60)
             if self._state_monitor.priority_for(device_name) is ReachabilitySource.MDNS:
                 await self.refresh_device_mdns(device_name)
+            await asyncio.sleep(60)
 
     # ------------------------------------------------------------------
     # Internals

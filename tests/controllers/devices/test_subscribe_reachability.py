@@ -474,6 +474,11 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     Drives the loop body directly instead of waiting 60 real
     seconds, then asserts the call pattern. Confirms the gate
     keeps the network quiet on ping/mqtt-source devices.
+
+    Loop order is **refresh-then-sleep** (so the initial drawer
+    snapshot picks up a fresh resolve immediately rather than
+    waiting 60s). First iteration's ``priority_for`` decides
+    whether refresh runs *before* the first sleep.
     """
     controller = make_controller(tmp_path)
     tracker = ReachabilityTracker()
@@ -482,15 +487,19 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     _seed_device(controller)
 
     state_monitor = controller._state_monitor
+    # The third value covers the loop's third ``priority_for`` call
+    # before its ``CancelledError``-raising sleep. Padding the list
+    # rather than using ``return_value`` keeps the per-iteration
+    # progression explicit.
     state_monitor.priority_for.side_effect = [
-        ReachabilitySource.PING,
         ReachabilitySource.MDNS,
+        ReachabilitySource.PING,
+        ReachabilitySource.PING,
     ]
 
     # Patch sleep to exit the loop after two iterations so we don't
-    # park for 60s real time. The third call raises ``CancelledError``
-    # which the loop's ``except`` re-raises out — same shape as
-    # production cancellation.
+    # park for 60s real time. The third call raises ``CancelledError``,
+    # same shape as production cancellation.
     iterations = 0
 
     async def fast_sleep(_: float) -> None:
@@ -503,7 +512,9 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
         m.setattr("asyncio.sleep", fast_sleep)
         await controller._reachability_refresh_loop("kitchen")
 
-    # First tick: source was "ping" → no resolve. Second tick: "mdns"
-    # → one resolve. The total count is 1 across the two ticks.
+    # First iteration: source = mdns → refresh fires before sleep.
+    # Second iteration: source = ping → no refresh, just sleep.
+    # Total: 1 refresh across two iterations.
     assert state_monitor.refresh_mdns.await_count == 1
+    state_monitor.refresh_mdns.assert_awaited_with("kitchen")
     state_monitor.refresh_mdns.assert_awaited_with("kitchen")
