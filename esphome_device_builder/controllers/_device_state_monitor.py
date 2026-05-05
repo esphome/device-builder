@@ -68,6 +68,18 @@ _PING_BOOTSTRAP_DELAY = 10  # seconds before the first ping sweep
 # stacking N timeouts back-to-back.
 _PING_BATCH_SIZE = 24
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
+# When the drawer's per-subscription refresh tick runs, only
+# actually probe the wire if the cached A record is within this
+# many seconds of expiry. Healthy ESPHome devices re-announce A
+# at TTL/2 (~60s for the default 120s TTL), so the cache stays
+# fresh on its own most of the time and an unconditional
+# every-tick query would just add multicast traffic. The
+# threshold is a safety margin for the case where the device's
+# announce is delayed or lost (multicast packet loss on busy
+# networks): we kick a wire query in time to refresh the cache
+# before zeroconf evicts the record and the drawer's mDNS row
+# disappears.
+_MDNS_REFRESH_THRESHOLD_SECONDS = 10.0
 # Timeout for the per-sweep mDNS hostname resolves we issue for
 # non-API devices. 3s is enough on a working LAN even when the
 # device is briefly slow to respond, and keeps the whole resolve
@@ -358,24 +370,50 @@ class DeviceStateMonitor:
         return True
 
     async def refresh_mdns(self, name: str) -> None:
-        """Force-refresh a device's mDNS A record.
+        """Conditionally re-query a device's mDNS A/AAAA records.
 
-        Called by the drawer's reachability subscription on its 60s
-        timer while the active source is mDNS. Re-issues an
-        :meth:`AsyncEsphomeZeroconf.async_resolve_host` against
-        ``<name>.local`` and feeds any addresses back through the
-        normal apply path so ``_mdns_last_seen`` and the IP fields
-        all stay current. No-op when zeroconf failed to start.
+        Called by the drawer's reachability subscription on a
+        periodic timer while mDNS is the active source. Only
+        actually probes the wire when the cached A/AAAA record is
+        within :data:`_MDNS_REFRESH_THRESHOLD_SECONDS` of expiring
+        (or already expired) — a healthy device's own re-announces
+        keep the cache fresh on their own, so unconditional polling
+        would just add multicast traffic for no gain.
+
+        Why bypass the cache when we DO probe: the canonical
+        :meth:`AsyncEsphomeZeroconf.async_resolve_host` calls
+        ``load_from_cache`` first and short-circuits on a hit
+        without going on the wire. That's the right shape for
+        general callers who just need an IP — but it's wrong for
+        keeping the cache alive, which is what the drawer wants.
+        ESPHome A records have a 120s TTL while the
+        ``ServiceBrowser``-managed PTR has a 4500s TTL, so the
+        browser's refresh cycle does *not* refresh A. Once we've
+        decided we need to probe, we issue
+        ``AddressResolver.async_request`` directly so the device's
+        response refreshes the cache entry's ``created`` timestamp.
+        No-op when zeroconf failed to start.
         """
         if self._zeroconf is None:
             return
+        # Skip the wire query when the cache still has plenty of
+        # life left — a fresh device re-announce within the next
+        # ``threshold`` seconds will refresh the entry on its own.
+        # Reading the cache here pre-decides whether to spend a
+        # multicast query.
+        info = self.get_mdns_cache_info(name)
+        if info is not None and info.ttl_remaining_seconds > _MDNS_REFRESH_THRESHOLD_SECONDS:
+            return
+        resolver = AddressResolver(f"{name}.local.")
         try:
-            addresses = await self._zeroconf.async_resolve_host(
-                f"{name}.local", _MDNS_HOSTNAME_RESOLVE_TIMEOUT
-            )
+            await resolver.async_request(self._zeroconf.zeroconf, _MDNS_RESOLVE_TIMEOUT_MS)
         except Exception:
             _LOGGER.debug("mDNS refresh of %s failed", name, exc_info=True)
             return
+        # ``async_request`` populates the cache as a side-effect;
+        # ``parsed_scoped_addresses`` reads the same record back
+        # so we can route it through the normal apply path.
+        addresses = resolver.parsed_scoped_addresses(IPVersion.All)
         self._apply_resolved_addresses(name, addresses)
 
     def get_mdns_cache_info(self, name: str) -> MdnsCacheInfo | None:
