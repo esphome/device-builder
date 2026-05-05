@@ -111,12 +111,12 @@ class BuildSizeRefresher:
         running thread). For build-size refresh the work is just
         a directory walk + one sidecar write per device, so the
         thread completes on its own within a few seconds at
-        worst; the dashboard's eventual ``loop.shutdown_asyncgens()``
-        / ``loop.close()`` then waits on the default executor as
-        usual. We accept that over the alternative (a bespoke
-        cancellation channel into the walk), because process
-        shutdown is the only ``stop()`` caller and the residual
-        write is harmless.
+        worst; ``DeviceBuilder.stop()`` then calls
+        ``loop.shutdown_default_executor()`` which waits on the
+        residual thread, so process shutdown still drains
+        cleanly. We accept this over a bespoke cancellation
+        channel into the walk, because process shutdown is the
+        only ``stop()`` caller and the trailing write is harmless.
         """
         if self._worker_task is None:
             return

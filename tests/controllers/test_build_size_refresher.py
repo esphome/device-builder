@@ -151,9 +151,13 @@ async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -
     loop = asyncio.get_running_loop()
 
     def _refresh(_config_dir: Path, _configuration: str):
-        # Hop back onto the loop so the event flips after the
-        # ``run_in_executor`` await returns to the worker — i.e.
-        # *after* the short-circuit branch runs.
+        # ``call_soon_threadsafe`` only guarantees the event
+        # gets scheduled to fire on the loop — the worker may
+        # not have resumed yet when ``refresh_done.wait()``
+        # returns. The follow-up ``await asyncio.sleep(0)``
+        # cedes control back to the worker so the
+        # ``if result is None: continue`` branch actually
+        # executes before ``stop()`` cancels.
         loop.call_soon_threadsafe(refresh_done.set)
 
     refresher, _ = _make(tmp_path, on_refreshed=_on_refreshed)
