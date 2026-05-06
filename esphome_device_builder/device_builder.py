@@ -112,12 +112,14 @@ def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
         base = request.path[: -len(tail)] or "/"
     else:
         base = request.path
-    # Normalise to exactly one leading + trailing slash. ``lstrip``
-    # collapses ``//evil.com`` injection attempts to a single
-    # on-origin slash; ``rstrip`` collapses ``/dashboard//`` so the
-    # rendered ``<base href>`` doesn't produce ``//``-runs in
-    # resolved asset URLs. The trailing slash is then re-added.
-    return "/" + base.strip("/") + "/" if base.strip("/") else "/"
+    # Normalise to exactly one leading + trailing slash. ``strip``
+    # collapses both ``//evil.com`` injection attempts (back to a
+    # single on-origin slash) and ``/dashboard//`` runs (so the
+    # rendered ``<base href>`` doesn't produce ``//`` runs in
+    # resolved asset URLs); the leading + trailing slashes are then
+    # re-added.
+    normalized = base.strip("/")
+    return f"/{normalized}/" if normalized else "/"
 
 
 # Worker-thread budget for the default ``ThreadPoolExecutor``. asyncio's
