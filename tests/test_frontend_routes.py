@@ -220,6 +220,50 @@ async def test_register_frontend_escapes_base_href(
     assert '<base href="/&quot;' in body
 
 
+async def test_register_frontend_collapses_double_leading_slash_in_prefix(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``X-Forwarded-Prefix: //evil.com`` doesn't yield a protocol-relative base.
+
+    A protocol-relative ``<base href="//evil.com/">`` would point
+    relative URLs at an attacker-controlled origin. Collapse runs
+    of leading slashes to one so the value always resolves
+    on-origin.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/", headers={"X-Forwarded-Prefix": "//evil.com"})
+    body = await resp.text()
+    assert '<base href="/evil.com/" />' in body
+    assert '<base href="//evil.com' not in body
+
+
+async def test_register_frontend_multi_segment_deep_link_strips_full_tail(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Future SPA routes with multiple path segments get their full tail stripped.
+
+    The backend doesn't track the SPA route table — it slices the
+    aiohttp-matched ``tail`` off ``request.path`` directly. A
+    hypothetical ``/settings/network`` route resolves to base
+    ``/`` regardless of whether the backend's been told about it.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/settings/network")
+    body = await resp.text()
+    assert '<base href="/" />' in body
+
+
+async def test_register_frontend_shell_response_carries_vary_header(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``Vary: X-Forwarded-Prefix`` so caches don't serve cross-prefix shells."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    for path in ("/", "/device/foo.yaml", "/settings/network"):
+        resp = await client.get(path)
+        assert resp.status == 200, path
+        assert resp.headers.get("Vary") == "X-Forwarded-Prefix", path
+
+
 async def test_register_frontend_serves_top_level_license_sidecar(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:

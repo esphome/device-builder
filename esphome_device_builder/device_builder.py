@@ -71,26 +71,51 @@ _ASSET_EXTENSIONS = frozenset(
 # diff so a partial replacement is loud, not silent.
 _BASE_HREF_PLACEHOLDER = "__ESPHOME_BASE_HREF__"
 
-# Match SPA route tails so we can strip them off the request path
-# to recover the deployment base. Mirrors the routes registered in
-# ``app-shell.ts`` (``/``, ``/secrets``, ``/device/:id``); future
-# top-level routes need an entry here too.
-_SPA_ROUTE_TAIL_RE = re.compile(r"/(?:device(?:/[^/]*)?|secrets)/?$")
+# Header the rendered shell varies on. Reverse proxies that strip
+# a path prefix announce it via ``X-Forwarded-Prefix`` and the
+# rendered ``<base href>`` differs accordingly — without ``Vary``,
+# an intermediary cache could serve the wrong-prefix shell to a
+# different client. (Copilot-flagged.)
+_BASE_HREF_VARY = "X-Forwarded-Prefix"
 
 
-def _resolve_base_href(request: web.Request) -> str:
+def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
     """Pick the ``<base href>`` for *request*'s deployment.
 
-    Honours ``X-Forwarded-Prefix`` (reverse-proxy convention) when
-    present, otherwise strips the SPA route tail off
-    ``request.path`` to reveal the mount-point prefix. Always
-    returns a path with leading + trailing slashes.
+    Sources, in priority order:
+
+    1. ``X-Forwarded-Prefix`` header — the explicit signal from a
+       reverse proxy or ingress layer that's stripping a path
+       prefix. Required for any non-root deployment whose URLs
+       the backend can't infer from ``request.path`` alone (HA
+       add-on ingress, nginx subpath, …).
+    2. The ``request.path`` minus the matched SPA-fallback tail —
+       lets a direct deploy at ``/`` recover the (empty) prefix
+       without the operator having to set a header. Caller passes
+       the aiohttp ``match_info`` tail in directly so the backend
+       doesn't track the SPA route table.
+
+    Always returns a path with leading + trailing slashes;
+    collapses ``//evil.com``-style injection attempts to a single
+    leading slash.
     """
-    base = request.headers.get("X-Forwarded-Prefix", "").strip()
-    if not base:
-        base = _SPA_ROUTE_TAIL_RE.sub("", request.path)
-    if not base.startswith("/"):
-        base = "/" + base
+    forwarded = request.headers.get("X-Forwarded-Prefix", "").strip()
+    if forwarded:
+        base = forwarded
+    elif tail and request.path.endswith(tail):
+        # Slice the matched SPA tail off the request path to get
+        # the mount-point prefix. No SPA-route knowledge needed in
+        # the backend; the aiohttp router already matched the tail
+        # and we trust its match_info.
+        base = request.path[: -len(tail)] or "/"
+    else:
+        base = request.path
+    # Collapse any leading-slash run to exactly one so
+    # ``X-Forwarded-Prefix: //evil.com`` can't yield a
+    # protocol-relative ``<base href>`` that points at another
+    # origin. (Copilot-flagged.) Same for trailing slashes — keep
+    # exactly one.
+    base = "/" + base.lstrip("/")
     if not base.endswith("/"):
         base += "/"
     return base
@@ -621,12 +646,18 @@ class DeviceBuilder:
                 _BASE_HREF_PLACEHOLDER, html.escape(base_href, quote=True)
             )
 
-        def _render_shell(request: web.Request) -> web.Response:
-            return web.Response(
-                text=_shell_html(_resolve_base_href(request)),
+        def _render_shell(request: web.Request, *, tail: str = "") -> web.Response:
+            response = web.Response(
+                text=_shell_html(_resolve_base_href(request, tail=tail)),
                 content_type="text/html",
                 headers=shell_headers,
             )
+            # The rendered shell varies by ``X-Forwarded-Prefix`` —
+            # without ``Vary`` an intermediary cache could serve a
+            # response built for one prefix to a request behind a
+            # different proxy.
+            response.headers["Vary"] = _BASE_HREF_VARY
+            return response
 
         async def handle_index(request: web.Request) -> web.Response:
             return _render_shell(request)
@@ -665,7 +696,7 @@ class DeviceBuilder:
             # ``_ASSET_EXTENSIONS`` for the rationale.
             if tail and Path(tail).suffix.lower() in _ASSET_EXTENSIONS:
                 raise web.HTTPNotFound()
-            return _render_shell(request)
+            return _render_shell(request, tail=tail)
 
         app.router.add_static("/assets", assets_dir)
         app.router.add_get("/", handle_index)
