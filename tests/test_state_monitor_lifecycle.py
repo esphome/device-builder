@@ -96,6 +96,7 @@ def _make_monitor(
     monitor._on_version_change = callbacks.on_version_change
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
+    monitor._on_mac_address_change = callbacks.on_mac_address_change
     monitor._on_importable_added = callbacks.on_importable_added
     monitor._on_importable_removed = callbacks.on_importable_removed
     monitor._reachability = None
@@ -592,6 +593,222 @@ async def test_dispatch_added_without_api_encryption_txt_keeps_unknown_at_none(
             ServiceStateChange.Added,
         )
         assert device.api_encryption_active is None
+    finally:
+        await _stop_and_drain(monitor)
+
+
+# ---------------------------------------------------------------------------
+# Defense-in-depth: TXT-absent must preserve last-known value for the other
+# mDNS-derived fields too. Today these are protected by the truthy walrus
+# at the call site (``if version := props.get(...)``) plus an empty-guard
+# at the bottom of each ``apply_*`` method, but pinning the contract here
+# means a future refactor that "simplifies" away either guard surfaces as
+# a test failure rather than a silent regression on a quiet re-announce.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_added_without_version_txt_preserves_last_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT key absent in the announcement → stored ``deployed_version`` survives.
+
+    A transient / fragmented re-announcement that omits the
+    ``version`` TXT must NOT wipe the device's previously-observed
+    firmware version. Dropping it would flip the dashboard's
+    "Update available" pill on/off as devices re-announce.
+    """
+    device = _device(deployed_version="2026.5.0")
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    fake_info.decoded_properties = {}  # no version key at all
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert device.deployed_version == "2026.5.0"
+    finally:
+        await _stop_and_drain(monitor)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_added_with_empty_version_txt_preserves_last_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT key explicitly empty also preserves the stored value.
+
+    Older firmware that broadcasts ``version=`` (key present, value
+    empty) shouldn't blank out a device's known version either.
+    Empty has no meaningful semantic for ``version`` — there's no
+    such thing as a "confirmed empty version" the way there is for
+    ``api_encryption`` — so empty is just garbage and must be
+    treated the same as absent.
+    """
+    device = _device(deployed_version="2026.5.0")
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    fake_info.decoded_properties = {"version": ""}
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert device.deployed_version == "2026.5.0"
+    finally:
+        await _stop_and_drain(monitor)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_added_without_config_hash_txt_preserves_last_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT key absent → stored ``deployed_config_hash`` survives.
+
+    The hash drives the "running firmware out of sync with YAML"
+    indicator (paired with ``expected_config_hash``). A sparse
+    re-announcement that omits the TXT must NOT clear it — that
+    would falsely flip the pending-changes pill back on for a
+    device that's actually up to date.
+    """
+    device = _device(deployed_config_hash="5a94a12d")
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    fake_info.decoded_properties = {}  # no config_hash key
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert device.deployed_config_hash == "5a94a12d"
+    finally:
+        await _stop_and_drain(monitor)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_added_with_empty_config_hash_txt_preserves_last_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT key explicitly empty also preserves the stored hash.
+
+    Pre-#16145 firmware doesn't broadcast ``config_hash`` at all;
+    a device whose firmware was just downgraded shouldn't have its
+    cached hash blanked out by a quiet re-announce that happens to
+    carry an empty value.
+    """
+    device = _device(deployed_config_hash="5a94a12d")
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    fake_info.decoded_properties = {"config_hash": ""}
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert device.deployed_config_hash == "5a94a12d"
+    finally:
+        await _stop_and_drain(monitor)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_added_without_mac_txt_preserves_last_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT key absent → stored ``mac_address`` survives.
+
+    The MAC drives the drawer's primary-MAC row plus the derived
+    ethernet/bluetooth MACs on ESP32. A sparse re-announcement that
+    omits the TXT must NOT clear the cached value — the mDNS
+    broadcast is the only source for the field today, and dropping
+    it would render an em-dash where the user previously saw a real
+    address.
+    """
+    canonical = "94:C9:60:1F:8C:F1"
+    device = _device(mac_address=canonical)
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    fake_info.decoded_properties = {}  # no mac key
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert device.mac_address == canonical
+    finally:
+        await _stop_and_drain(monitor)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_added_with_empty_mac_txt_preserves_last_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT key explicitly empty / non-hex preserves the stored MAC.
+
+    There's no such thing as a "confirmed-empty MAC" the way there
+    is for ``api_encryption``'s plaintext signal — empty / garbage
+    here is just bad data from older firmware or a non-ESPHome
+    service that happens to share the type. Drop it and keep the
+    canonical value.
+    """
+    canonical = "94:C9:60:1F:8C:F1"
+    device = _device(mac_address=canonical)
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    fake_info.decoded_properties = {"mac": ""}
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert device.mac_address == canonical
     finally:
         await _stop_and_drain(monitor)
 
