@@ -86,6 +86,20 @@ _LIBRETINY_TARGET_PLATFORMS: frozenset[str] = frozenset(_LIBRETINY_FAMILY_COMPON
     "libretiny"
 }
 
+# Job types that produce build artifacts a clean would destroy.
+# A ``firmware/clean`` request that lands while one of these is
+# in-flight for the same configuration is rejected loudly rather
+# than supersede-cancelled — see the ``clean`` handler's docstring
+# for the rationale.
+_BUILD_PRODUCING_JOB_TYPES: frozenset[JobType] = frozenset(
+    {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL, JobType.RENAME}
+)
+
+# Statuses a job has *while in flight*. ``_jobs`` retains terminal
+# entries for the recent-jobs history, so any "is something
+# running for this configuration?" check has to filter for these.
+_ACTIVE_JOB_STATUSES: frozenset[JobStatus] = frozenset({JobStatus.QUEUED, JobStatus.RUNNING})
+
 
 def _resolve_download_component(target_platform: str | None) -> str:
     """Return the ``esphome.components`` module name for *target_platform*.
@@ -189,10 +203,48 @@ class FirmwareController:
 
     @api_command("firmware/clean")
     async def clean(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
-        """Queue a build clean job."""
+        """
+        Queue a build clean job.
+
+        Rejects with ``CommandError(INVALID_ARGS)`` when an active
+        compile / upload / install / rename job exists for the same
+        configuration. Other firmware commands rely on the
+        ``_enqueue`` supersede path to cancel-and-replace the running
+        job — that's the right shape for "user wants to retry the
+        compile" — but a clean wipes the build artifacts the running
+        job is producing, so a quietly-cancelled build that the user
+        didn't intend to abandon is the worse failure mode. Make the
+        user retry once the build settles instead. Two clean jobs
+        for the same configuration still supersede each other (the
+        second one is the user's intent regardless).
+        """
         await self._validate_configuration_boundary(configuration)
+        if blocker := self._active_build_for(configuration):
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"A {blocker.job_type.value} job is already in "
+                f"progress for {configuration}; wait for it to "
+                f"finish or cancel it before cleaning.",
+            )
         job = self._create_job(configuration, JobType.CLEAN)
         return await self._enqueue(job)
+
+    def _active_build_for(self, configuration: str) -> FirmwareJob | None:
+        """Return any in-flight build-producing job on *configuration*.
+
+        Filters ``_jobs`` by status (``_ACTIVE_JOB_STATUSES``) and
+        type (``_BUILD_PRODUCING_JOB_TYPES``). Used by ``clean`` to
+        reject rather than supersede when a destructive op would
+        wipe artifacts the running job is producing.
+        """
+        for active in self._jobs.values():
+            if active.configuration != configuration:
+                continue
+            if active.status not in _ACTIVE_JOB_STATUSES:
+                continue
+            if active.job_type in _BUILD_PRODUCING_JOB_TYPES:
+                return active
+        return None
 
     @api_command("firmware/reset_build_env")
     async def reset_build_env(self, **kwargs: Any) -> FirmwareJob:

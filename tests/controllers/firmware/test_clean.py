@@ -121,3 +121,119 @@ async def test_clean_registers_job_in_jobs_map(
     job = await controller.clean(configuration="kitchen.yaml")
 
     assert await controller.get_job(job_id=job.job_id) is job
+
+
+@pytest.mark.parametrize(
+    "active_type",
+    ["compile", "upload", "install", "rename"],
+)
+@pytest.mark.asyncio
+async def test_clean_rejects_when_active_build_for_same_configuration(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    active_type: str,
+) -> None:
+    """``clean`` refuses to run while a build is in flight.
+
+    Compile / upload / install / rename for the same configuration all block.
+    Other firmware commands rely on the ``_enqueue`` supersede
+    path to cancel-and-replace the running job — that's the right
+    shape for "user wants to retry the compile" — but a clean
+    wipes the build artifacts the running job is producing, so a
+    quietly-cancelled build that the user didn't intend to abandon
+    is the worse failure mode. Reject loudly with
+    ``CommandError(INVALID_ARGS)`` so the frontend can surface a
+    "wait for the build to finish" toast instead of silently
+    superseding.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    if active_type == "compile":
+        active = await controller.compile(configuration="kitchen.yaml")
+    elif active_type == "upload":
+        active = await controller.upload(configuration="kitchen.yaml", port="/dev/ttyUSB0")
+    elif active_type == "install":
+        active = await controller.install(configuration="kitchen.yaml")
+    else:
+        active = await controller.rename(configuration="kitchen.yaml", new_name="bedroom")
+    # Simulate the runner having picked it up. Same justified seam
+    # as ``test_supersede.py``'s RUNNING-carryover test — there's
+    # no public API for putting a job into RUNNING without
+    # spawning a real ``esphome``.
+    active.status = JobStatus.RUNNING
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.clean(configuration="kitchen.yaml")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    # Predecessor is still RUNNING — clean did NOT supersede it.
+    assert active.status == JobStatus.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_clean_succeeds_when_active_build_targets_different_configuration(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A different device's build doesn't block cleaning this one.
+
+    Sibling devices have independent build directories, so a
+    compile on ``kitchen.yaml`` shouldn't prevent a clean on
+    ``bedroom.yaml``.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    (tmp_path / "bedroom.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    other = await controller.compile(configuration="kitchen.yaml")
+    other.status = JobStatus.RUNNING
+
+    job = await controller.clean(configuration="bedroom.yaml")
+
+    assert job.status == JobStatus.QUEUED
+    assert job.job_type == JobType.CLEAN
+
+
+@pytest.mark.asyncio
+async def test_clean_supersedes_other_active_clean_on_same_configuration(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Two cleans for the same device still supersede.
+
+    Re-running clean is harmless (just deletes build files
+    already cleaned), and the second click is the user's
+    explicit intent. Only compile/upload/install/rename block.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    first = await controller.clean(configuration="kitchen.yaml")
+    first.status = JobStatus.RUNNING
+    controller._current_job = first
+
+    second = await controller.clean(configuration="kitchen.yaml")
+
+    assert second.status == JobStatus.QUEUED
+    assert second.job_type == JobType.CLEAN
+    assert second.job_id != first.job_id
+
+
+@pytest.mark.asyncio
+async def test_clean_succeeds_after_terminal_active_build(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A completed/failed/cancelled build doesn't block — only in-flight does.
+
+    Terminal jobs hang around in ``_jobs`` for the recent-jobs
+    history; the rejection check must filter them out so a
+    crashed compile doesn't permanently lock the device out of
+    cleaning.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    failed = await controller.compile(configuration="kitchen.yaml")
+    failed.status = JobStatus.FAILED
+
+    job = await controller.clean(configuration="kitchen.yaml")
+
+    assert job.status == JobStatus.QUEUED
