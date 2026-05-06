@@ -408,6 +408,118 @@ async def test_apply_presets_locked_without_value_fails_fast(
         _apply_featured_presets(record, {})
 
 
+async def test_apply_presets_drops_non_manifest_fields(
+    catalog: ComponentCatalog,
+) -> None:
+    """
+    Optional fields not in the manifest are stripped from the output.
+
+    The frontend's add-component form pre-fills every optional field
+    with its catalog default; submitting that whole map shouldn't
+    bloat the emitted YAML with values the manifest never asked for
+    (a light's ``gamma_correct: 2.8``, an output's ``frequency: 1kHz``,
+    ...). Required keys still ride through as a safety net.
+    """
+    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_strip")
+    assert record is not None
+    out = _apply_featured_presets(
+        record,
+        {
+            # Manifest keys — these stay.
+            "pin": 14,
+            "num_leds": 10,
+            "rgb_order": "GRB",
+            "name": "RGB LED Strip",
+            # Frontend default-fills the user never touched — these go.
+            "gamma_correct": 2.8,
+            "is_rgbw": False,
+            "is_wrgb": False,
+            "use_psram": True,
+            "default_transition_length": "1s",
+        },
+    )
+    assert "gamma_correct" not in out
+    assert "is_rgbw" not in out
+    assert "is_wrgb" not in out
+    assert "use_psram" not in out
+    assert "default_transition_length" not in out
+    # Manifest-supplied chipset preset filled in even though the user
+    # didn't submit it — manifest is authoritative.
+    assert out["chipset"] == "WS2812"
+    # Manifest fields the user did submit ride through unchanged.
+    assert out["pin"] == 14
+    assert out["num_leds"] == 10
+    assert out["rgb_order"] == "GRB"
+
+
+async def test_apply_presets_keeps_user_overridden_optional_field(
+    catalog: ComponentCatalog,
+) -> None:
+    """
+    A deliberate override of an optional field survives the filter.
+
+    The frontend echoes the catalog default for fields the user
+    didn't touch — those are stripped. But a value that differs from
+    the default is real user intent and must ride through, even when
+    the manifest doesn't curate the key.
+    """
+    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_strip")
+    assert record is not None
+    out = _apply_featured_presets(
+        record,
+        {
+            # Catalog default for ``gamma_correct`` is ``"2.8"`` —
+            # 1.5 is a deliberate override and must be kept.
+            "gamma_correct": 1.5,
+            # ``is_rgbw`` defaults to False — flipping to True is an
+            # override.
+            "is_rgbw": True,
+            # ``use_psram`` defaults to True — sending True is just an
+            # echo and gets dropped.
+            "use_psram": True,
+        },
+    )
+    assert out["gamma_correct"] == 1.5
+    assert out["is_rgbw"] is True
+    assert "use_psram" not in out
+
+
+async def test_apply_presets_strips_numeric_default_echo_across_types(
+    catalog: ComponentCatalog,
+) -> None:
+    """
+    Catalog stores numeric defaults as strings; a parsed-scalar echo still matches.
+
+    ``gamma_correct`` is stored in ``components.json`` as the string
+    ``"2.8"``. The frontend submits the parsed float ``2.8`` — the
+    stringified compare bridges the two so the unmodified default is
+    still recognised as noise.
+    """
+    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_strip")
+    assert record is not None
+    out = _apply_featured_presets(record, {"gamma_correct": 2.8})
+    assert "gamma_correct" not in out
+
+
+async def test_apply_presets_keeps_required_field_outside_manifest(
+    catalog: ComponentCatalog,
+) -> None:
+    """Required schema fields ride through even when the manifest omits them."""
+    # Build a synthetic featured record whose manifest only sets ``id``,
+    # then submit one of the underlying component's required fields and
+    # confirm it survives the filter rather than being treated as
+    # incidental frontend padding.
+    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.rgb_strip"))
+    assert record is not None
+    record.featured.fields = {"id": FieldPreset(value="rgb_strip")}
+    out = _apply_featured_presets(record, {"pin": 14, "num_leds": 10, "rgb_order": "GRB"})
+    # ``pin``, ``num_leds`` and ``rgb_order`` are schema-required — kept
+    # despite being absent from the manifest.
+    assert out["pin"] == 14
+    assert out["num_leds"] == 10
+    assert out["rgb_order"] == "GRB"
+
+
 # ---------------------------------------------------------------------------
 # YAML generation: top-level id auto-gen + nested entity sub-block autofill
 # ---------------------------------------------------------------------------
@@ -628,6 +740,58 @@ async def test_add_component_featured_non_entity_emits_id_only(
     assert "output:" in response.yaml
     assert "id: status_led_output" in response.yaml
     assert "name:" not in response.yaml.split("output:")[1]
+
+
+async def test_add_component_featured_drops_non_manifest_defaults(
+    catalog: ComponentCatalog, tmp_path: Any
+) -> None:
+    """
+    The emitted YAML for a featured component carries only manifest fields.
+
+    End-to-end check that bridges the two halves of the fix: the
+    frontend can submit a full form's worth of catalog defaults, and
+    the YAML still comes out as the curated short block the manifest
+    describes — no ``gamma_correct``/``is_rgbw``/``use_psram`` noise.
+    """
+    (tmp_path / "kit.yaml").write_text("esphome:\n  name: kit\napi:\n", "utf-8")
+    ctrl = _make_controller(catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="kit.yaml",
+        component_id="featured.apollo-esk-1.rgb_strip",
+        fields={
+            # Frontend default-fills:
+            "gamma_correct": 2.8,
+            "is_rgbw": False,
+            "is_wrgb": False,
+            "use_psram": True,
+            "default_transition_length": "1s",
+            "flash_transition_length": "0s",
+            "reset_high": "0 us",
+            "reset_low": "0 us",
+            "restore_mode": "ALWAYS_OFF",
+        },
+    )
+
+    yaml = response.yaml
+    assert "platform: esp32_rmt_led_strip" in yaml
+    # Manifest-curated fields land in the YAML.
+    assert "chipset: WS2812" in yaml
+    assert "num_leds: 10" in yaml
+    assert "rgb_order: GRB" in yaml
+    # Frontend's default-fills are stripped.
+    for noise in (
+        "gamma_correct",
+        "is_rgbw",
+        "is_wrgb",
+        "use_psram",
+        "default_transition_length",
+        "flash_transition_length",
+        "reset_high",
+        "reset_low",
+        "restore_mode",
+    ):
+        assert noise not in yaml, f"{noise} should have been filtered out"
 
 
 async def test_add_component_strips_mqtt_fields_when_no_mqtt_block(

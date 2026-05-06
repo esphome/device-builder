@@ -96,6 +96,7 @@ def _make_monitor(
     monitor._on_version_change = callbacks.on_version_change
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
+    monitor._on_mac_address_change = callbacks.on_mac_address_change
     monitor._on_importable_added = callbacks.on_importable_added
     monitor._on_importable_removed = callbacks.on_importable_removed
     monitor._reachability = None
@@ -592,6 +593,93 @@ async def test_dispatch_added_without_api_encryption_txt_keeps_unknown_at_none(
             ServiceStateChange.Added,
         )
         assert device.api_encryption_active is None
+    finally:
+        await _stop_and_drain(monitor)
+
+
+# ---------------------------------------------------------------------------
+# Defense-in-depth: TXT-absent / TXT-empty must preserve the device's
+# last-known value for every mDNS-derived field that doesn't have an
+# "explicit empty is meaningful" semantic (i.e. everything except
+# ``api_encryption`` — its plaintext-confirmed signal is covered above).
+#
+# Today these fields are protected by the truthy walrus at the call site
+# (``if version := props.get(...)``) plus an empty-guard at the bottom
+# of each ``apply_*`` method. Pinning the contract here means a future
+# refactor that "simplifies" away either guard surfaces as a test
+# failure rather than a silent regression on a quiet re-announce
+# (MTU fragmentation, source flipping mDNS → ping mid-flight, post-OTA
+# propagation, …).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("device_field", "txt_key", "stored_value"),
+    [
+        # Field on the Device, the TXT key it's read from, and a
+        # representative stored value to round-trip through the test.
+        # ``version`` drives the "Update available" pill;
+        # ``config_hash`` drives the "running firmware out of sync"
+        # indicator (paired with ``expected_config_hash``); ``mac``
+        # drives the drawer's primary-MAC row + the derived
+        # ethernet/bluetooth rows on ESP32.
+        ("deployed_version", "version", "2026.5.0"),
+        ("deployed_config_hash", "config_hash", "5a94a12d"),
+        ("mac_address", "mac", "94:C9:60:1F:8C:F1"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("make_props", "case_id"),
+    [
+        # Absent: a sparse re-announcement that didn't carry the TXT
+        # at all (the canonical fragmentation / OTA-propagation case).
+        (lambda _key: {}, "absent"),
+        # Explicitly empty: TXT key present but with empty value.
+        # No meaningful semantic for these fields (unlike
+        # ``api_encryption`` where empty = "plaintext confirmed"),
+        # so empty is treated the same as absent — drop it and keep
+        # the canonical value.
+        (lambda key: {key: ""}, "empty"),
+    ],
+    ids=lambda v: v if isinstance(v, str) else "",
+)
+@pytest.mark.asyncio
+async def test_dispatch_added_sparse_announce_preserves_last_known(
+    device_field: str,
+    txt_key: str,
+    stored_value: str,
+    make_props,
+    case_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT-absent / TXT-empty announcements preserve the stored field.
+
+    Six cases (3 fields x {absent, empty}). With either the call-
+    site walrus or the apply-method empty-guard intact the field
+    survives the announcement unchanged; if a future refactor
+    drops both, at least one of these parametrize legs fails
+    loudly.
+    """
+    device = _device(**{device_field: stored_value})
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    fake_info.decoded_properties = make_props(txt_key)
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert getattr(device, device_field) == stored_value, (
+            f"{device_field} wiped by sparse announce ({case_id})"
+        )
     finally:
         await _stop_and_drain(monitor)
 

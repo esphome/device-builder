@@ -221,13 +221,15 @@ featured_components:
   component_id: light.esp32_rmt_led_strip
   name: RGB LED Strip (addon module)
   description: |
-    Addressable LED strip from the RGB+buzzer addon. Defaults to 10 LEDs in
-    GRB order — adjust to match your strip.
+    Addressable LED strip from the RGB+buzzer addon. Ships with a 10-LED
+    WS2812 strip in GRB order — adjust ``num_leds`` / ``rgb_order`` /
+    ``chipset`` if you swap in a different strip.
   fields:
     id: rgb_strip
     name: RGB LED Strip
     pin:
       value: 14
+    chipset: WS2812
     num_leds: 10
     rgb_order: GRB
 - id: buzzer_output
@@ -243,10 +245,13 @@ featured_components:
   component_id: rtttl
   name: RTTTL Player (addon buzzer)
   description: |
-    Plays RTTTL ringtones through the piezo buzzer above. Wire the
-    ``output`` field to the buzzer output you just added.
+    Plays RTTTL ringtones through the piezo buzzer above. Wired to the
+    ``buzzer_output`` LEDC output that ships with the same addon.
   fields:
     id: rtttl_player
+    output:
+      value: buzzer_output
+      locked: true
 featured_bundles:
 - id: rgb_buzzer_module
   name: RGB LED + Buzzer Module

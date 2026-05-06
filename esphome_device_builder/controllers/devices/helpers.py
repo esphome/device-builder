@@ -215,6 +215,18 @@ def _apply_featured_presets(
       omission falls back to the preset's ``value`` (when set).
     - Plain default: filled in only when the user didn't supply one.
 
+    The manifest is authoritative for featured components, so optional
+    default-fills the frontend echoes back from the form (a light's
+    ``gamma_correct: 2.8``, an output's ``frequency: 1kHz``, and so on)
+    are stripped before the YAML render. The filter is intentionally
+    narrow: a non-manifest, non-required key is dropped only when its
+    submitted value equals the catalog ``default_value`` for that
+    entry — a deliberate override (``gamma_correct: 1.5``) survives.
+    Catalog defaults for numeric and time-period fields are stored as
+    strings (``'2.8'``, ``'0 us'``) while the frontend submits parsed
+    scalars; the comparison stringifies both sides so the round-trip
+    matches without false positives on real overrides.
+
     Pin-typed fields can arrive in two ESPHome shapes — bare GPIO
     (``pin: 12``) or rich mapping (``pin: {number: 12, mode: ..., inverted: ...}``).
     Equality / membership checks compare on the bare GPIO so a manifest's
@@ -263,7 +275,54 @@ def _apply_featured_presets(
             continue
         if not user_supplied and preset.value is not None:
             merged[key] = preset.value
-    return merged
+    keep_unconditional = set(record.featured.fields)
+    keep_unconditional.update(ce.key for ce in record.underlying.config_entries if ce.required)
+    return _strip_default_echoes(merged, entries_by_key, keep_unconditional)
+
+
+def _strip_default_echoes(
+    fields: dict[str, Any],
+    entries_by_key: dict[str, ConfigEntry],
+    keep_unconditional: set[str],
+) -> dict[str, Any]:
+    """
+    Drop fields that just echo their catalog default back at us.
+
+    Unknown keys (no matching catalog entry) and entries with no
+    ``default_value`` ride through — we have no baseline to call them
+    an echo of, and silently dropping a typo would mask input rather
+    than failing visibly.
+    """
+    filtered: dict[str, Any] = {}
+    for key, value in fields.items():
+        if key in keep_unconditional:
+            filtered[key] = value
+            continue
+        entry = entries_by_key.get(key)
+        if entry is None or entry.default_value is None:
+            filtered[key] = value
+            continue
+        if not _is_catalog_default_echo(value, entry.default_value):
+            filtered[key] = value
+    return filtered
+
+
+def _is_catalog_default_echo(value: Any, default: Any) -> bool:
+    """Return True when *value* is just an unmodified echo of *default*.
+
+    Plain ``==`` first (handles bool/bool, str/str, int/int matches),
+    then a stringified compare for the cross-type case where the
+    catalog stores numeric and time-period defaults as strings
+    (``'2.8'``, ``'0 us'``) and the frontend submits the parsed
+    scalar. Container values (dicts, lists) are never treated as an
+    echo — those are nested sub-blocks the user opts into explicitly,
+    and the catalog default is always ``None`` for them anyway.
+    """
+    if value == default:
+        return True
+    if isinstance(value, (dict, list)) or value is None:
+        return False
+    return str(value).strip() == str(default).strip()
 
 
 def _drop_unconfigured_dependent_fields(
