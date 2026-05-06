@@ -75,7 +75,7 @@ _BASE_HREF_PLACEHOLDER = "__ESPHOME_BASE_HREF__"
 # a path prefix announce it via ``X-Forwarded-Prefix`` and the
 # rendered ``<base href>`` differs accordingly — without ``Vary``,
 # an intermediary cache could serve the wrong-prefix shell to a
-# different client. (Copilot-flagged.)
+# different client.
 _BASE_HREF_VARY = "X-Forwarded-Prefix"
 
 
@@ -95,9 +95,11 @@ def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
        the aiohttp ``match_info`` tail in directly so the backend
        doesn't track the SPA route table.
 
-    Always returns a path with leading + trailing slashes;
-    collapses ``//evil.com``-style injection attempts to a single
-    leading slash.
+    Always returns a path with exactly one leading and one
+    trailing slash. Collapses runs of slashes on either end so
+    ``X-Forwarded-Prefix: //evil.com`` can't yield a
+    protocol-relative base, and ``/dashboard//`` can't produce
+    ``//`` runs in resolved asset URLs.
     """
     forwarded = request.headers.get("X-Forwarded-Prefix", "").strip()
     if forwarded:
@@ -110,15 +112,12 @@ def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
         base = request.path[: -len(tail)] or "/"
     else:
         base = request.path
-    # Collapse any leading-slash run to exactly one so
-    # ``X-Forwarded-Prefix: //evil.com`` can't yield a
-    # protocol-relative ``<base href>`` that points at another
-    # origin. (Copilot-flagged.) Same for trailing slashes — keep
-    # exactly one.
-    base = "/" + base.lstrip("/")
-    if not base.endswith("/"):
-        base += "/"
-    return base
+    # Normalise to exactly one leading + trailing slash. ``lstrip``
+    # collapses ``//evil.com`` injection attempts to a single
+    # on-origin slash; ``rstrip`` collapses ``/dashboard//`` so the
+    # rendered ``<base href>`` doesn't produce ``//``-runs in
+    # resolved asset URLs. The trailing slash is then re-added.
+    return "/" + base.strip("/") + "/" if base.strip("/") else "/"
 
 
 # Worker-thread budget for the default ``ThreadPoolExecutor``. asyncio's

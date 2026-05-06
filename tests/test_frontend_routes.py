@@ -209,15 +209,23 @@ async def test_register_frontend_missing_base_placeholder_raises(
 async def test_register_frontend_escapes_base_href(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """A hostile ``X-Forwarded-Prefix`` can't break out of the ``<base href>`` attribute."""
+    """A hostile ``X-Forwarded-Prefix`` can't break out of the ``<base href>`` attribute.
+
+    ``html.escape(..., quote=True)`` escapes ``"``/``<``/``>``/``&``,
+    so the closing-quote-then-script-tag payload becomes inert text
+    inside the attribute value rather than leaking past the
+    terminator.
+    """
     client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
     resp = await client.get("/", headers={"X-Forwarded-Prefix": '/"><script>alert(1)</script>'})
     body = await resp.text()
-    # Quote escapes the closing ``"`` so the attribute terminator
-    # stays inside ``href=...``; the literal ``<script>`` leaks
-    # through but as text, not a tag.
     assert "&quot;" in body
     assert '<base href="/&quot;' in body
+    # ``<script>`` and its closing tag escape to ``&lt;script&gt;``,
+    # so the literal tag never appears in the rendered HTML.
+    assert "<script>" not in body
+    assert "&lt;script&gt;" in body
+    assert "&lt;/script&gt;" in body
 
 
 async def test_register_frontend_collapses_double_leading_slash_in_prefix(
@@ -235,6 +243,25 @@ async def test_register_frontend_collapses_double_leading_slash_in_prefix(
     body = await resp.text()
     assert '<base href="/evil.com/" />' in body
     assert '<base href="//evil.com' not in body
+
+
+async def test_register_frontend_collapses_double_trailing_slash_in_prefix(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``X-Forwarded-Prefix: /dashboard//`` doesn't produce ``//`` in the base.
+
+    A trailing-double-slash would yield ``<base href="/dashboard//">``
+    so a relative ``app.HASH.js`` resolves to
+    ``/dashboard//app.HASH.js`` — the ``//`` run can confuse
+    middlewares (some collapse, some don't) and cache keys
+    upstream. Collapse to exactly one trailing slash so the
+    rendered base is canonical.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/", headers={"X-Forwarded-Prefix": "/dashboard//"})
+    body = await resp.text()
+    assert '<base href="/dashboard/" />' in body
+    assert '<base href="/dashboard//' not in body
 
 
 async def test_register_frontend_multi_segment_deep_link_strips_full_tail(
