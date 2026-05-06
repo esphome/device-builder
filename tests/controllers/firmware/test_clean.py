@@ -127,11 +127,16 @@ async def test_clean_registers_job_in_jobs_map(
     "active_type",
     ["compile", "upload", "install", "rename"],
 )
+@pytest.mark.parametrize(
+    "active_status",
+    [JobStatus.QUEUED, JobStatus.RUNNING],
+)
 @pytest.mark.asyncio
 async def test_clean_rejects_when_active_build_for_same_configuration(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
     active_type: str,
+    active_status: JobStatus,
 ) -> None:
     """``clean`` refuses to run while a build is in flight.
 
@@ -144,7 +149,9 @@ async def test_clean_rejects_when_active_build_for_same_configuration(
     is the worse failure mode. Reject loudly with
     ``CommandError(INVALID_ARGS)`` so the frontend can surface a
     "wait for the build to finish" toast instead of silently
-    superseding.
+    superseding. Both ``QUEUED`` (waiting in the queue) and
+    ``RUNNING`` (live) block — no point letting a clean overwrite
+    a build that's about to start either.
     """
     (tmp_path / "kitchen.yaml").write_text("")
     controller = firmware_controller_factory(with_queue=True)
@@ -156,18 +163,19 @@ async def test_clean_rejects_when_active_build_for_same_configuration(
         active = await controller.install(configuration="kitchen.yaml")
     else:
         active = await controller.rename(configuration="kitchen.yaml", new_name="bedroom")
-    # Simulate the runner having picked it up. Same justified seam
-    # as ``test_supersede.py``'s RUNNING-carryover test — there's
-    # no public API for putting a job into RUNNING without
-    # spawning a real ``esphome``.
-    active.status = JobStatus.RUNNING
+    # Submission lands the job in ``QUEUED``; the ``RUNNING``
+    # variant promotes it (same justified seam as
+    # ``test_supersede.py``'s RUNNING-carryover test — there's no
+    # public API for putting a job into RUNNING without spawning
+    # a real ``esphome``).
+    active.status = active_status
 
     with pytest.raises(CommandError) as excinfo:
         await controller.clean(configuration="kitchen.yaml")
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    # Predecessor is still RUNNING — clean did NOT supersede it.
-    assert active.status == JobStatus.RUNNING
+    # Predecessor is still in its original state — clean did NOT supersede it.
+    assert active.status == active_status
 
 
 @pytest.mark.asyncio

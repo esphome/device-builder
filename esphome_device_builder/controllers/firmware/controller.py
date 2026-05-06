@@ -222,9 +222,9 @@ class FirmwareController:
         if blocker := self._active_build_for(configuration):
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
-                f"A {blocker.job_type.value} job is already in "
-                f"progress for {configuration}; wait for it to "
-                f"finish or cancel it before cleaning.",
+                f"{blocker.job_type.value} job already in progress "
+                f"for {configuration}; wait for it to finish or "
+                f"cancel it before cleaning.",
             )
         job = self._create_job(configuration, JobType.CLEAN)
         return await self._enqueue(job)
@@ -1402,7 +1402,7 @@ class FirmwareController:
         for active in self._jobs.values():
             if active.job_type != JobType.RENAME:
                 continue
-            if active.status not in (JobStatus.QUEUED, JobStatus.RUNNING):
+            if active.status not in _ACTIVE_JOB_STATUSES:
                 continue
             # Same-old-config rename retry: let supersede do its thing.
             if job.job_type == JobType.RENAME and job.configuration == active.configuration:
@@ -1426,7 +1426,7 @@ class FirmwareController:
             for j in self._jobs.values()
             if j.job_id != exclude_job_id
             and j.configuration == configuration
-            and j.status in (JobStatus.QUEUED, JobStatus.RUNNING)
+            and j.status in _ACTIVE_JOB_STATUSES
         ]
         for job_id in to_cancel:
             # Status may flip under us if the runner finalises the
@@ -1515,7 +1515,7 @@ class FirmwareController:
             try:
                 job = FirmwareJob.from_dict(job_data)
                 self._jobs[job.job_id] = job
-                if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+                if job.status in _ACTIVE_JOB_STATUSES:
                     if job.status == JobStatus.RUNNING:
                         job.reset()
                     job.status = JobStatus.QUEUED
