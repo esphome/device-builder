@@ -1847,7 +1847,18 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     # form even when optional — users almost always want to see what's
     # wired to what.
     is_structural = entry_type == "pin" or bool(references)
-    advanced = _classify_advanced(key, required=required, is_structural=is_structural)
+    # Schema-author UI hints from upstream esphome
+    # (esphome/esphome#16267): when present, an explicit
+    # ``advanced`` / ``yaml_only`` on the schema entry wins over the
+    # name-based heuristic. The heuristic stays as the fallback for
+    # the long tail of fields the schema doesn't yet annotate; as
+    # more fields opt in upstream, the heuristic rules out of
+    # ``_classify_advanced`` can shrink toward zero.
+    schema_advanced = bool(raw.get("advanced"))
+    yaml_only = bool(raw.get("yaml_only"))
+    advanced = schema_advanced or _classify_advanced(
+        key, required=required, is_structural=is_structural
+    )
 
     default_value, gated_component = _extract_default(raw, key=key)
     entry: dict[str, Any] = {
@@ -1871,7 +1882,11 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
         "pin_features": _resolve_pin_features(raw) if entry_type == "pin" else [],
         "pin_mode": None,
         "advanced": advanced,
-        "hidden": False,
+        # ``yaml_only`` from the schema → ``hidden`` on the catalog
+        # entry. The frontend already knows how to skip ``hidden``
+        # entries; the rename keeps the consumer-facing surface
+        # unchanged.
+        "hidden": yaml_only,
         "help_link": docs.url,
         "translation_key": None,
         "translation_params": None,
