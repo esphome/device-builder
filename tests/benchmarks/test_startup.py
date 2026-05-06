@@ -7,84 +7,114 @@ walks ~500 hand-curated ``manifest.yaml`` files under
 ``ComponentCatalog.load()`` decodes the ~20 MB pre-generated
 ``definitions/components.json`` and instantiates ~900
 ``ComponentCatalogEntry`` objects. Together they account for the
-bulk of the wall-time gap a user feels when comparing the new
-dashboard's startup against the legacy Tornado one — neither does
-network I/O, so the cost is pure CPU and parser overhead.
+bulk of the wall-time gap a user feels comparing the new
+dashboard's startup against the legacy Tornado one — and on
+constrained hardware (HA Green) the absolute number runs into
+tens of seconds.
 
-CodSpeed runs these in CI so a regression in either loader (a
-slower YAML round-trip, an O(n²) walk, an extra dataclass
-allocation per entry) lands on a PR rather than as a perceptible
-"why is the dashboard slower to come up?" report from a user.
+Each benchmark below measures **one unit of work** that the
+production loaders multiply across every entry — one manifest
+parse, one ``_load_component`` dataclass build. That keeps the
+per-iteration cost in the microsecond / sub-millisecond range
+CodSpeed's simulation (callgrind) mode tolerates, while still
+catching the per-unit regressions that compound 500x / 900x in
+production. Benchmarking the full catalog loads end-to-end ran
+into multi-minute callgrind runs that timed out CI.
 
-Both loaders run synchronously from the production
-``DeviceBuilder.start()``, so the benchmarks call them directly
-without an event loop — there's no asyncio overhead to subtract,
-and blockbuster only fires for blocking calls made from inside a
-loop, so the disk reads here don't trip it either.
+The fixture inputs are pre-loaded once at module-collection time
+(real bytes from the bundled ``definitions/`` tree) so disk I/O
+isn't sampled inside the benchmark — same shape as the
+``_LINES_5K`` payload in ``test_yaml_search.py``.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
 from pytest_codspeed import BenchmarkFixture
 
-from esphome_device_builder.controllers.boards import BoardCatalog
-from esphome_device_builder.controllers.components import ComponentCatalog
+from esphome_device_builder.controllers.components import _load_component
+from esphome_device_builder.definitions import (
+    _load_esphome_config,
+    _load_featured_component,
+    _load_hardware,
+    _load_pin,
+    _parse_tags,
+)
+from esphome_device_builder.helpers.json import loads
+
+_DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / "definitions"
+
+# A typical mid-sized real board manifest (~160 lines, ESP32-C3
+# DevKit + featured_components + tags + pins). Exercises every
+# ``_load_*`` helper the per-board path runs in production.
+# Cached as bytes so the benchmark loop measures parse + build,
+# not the cold disk read.
+_BOARD_MANIFEST_BYTES = (
+    _DEFINITIONS / "boards" / "seeed-xiao-esp32c3" / "manifest.yaml"
+).read_bytes()
+
+# A representative component dict from the live catalog. Picked
+# for its non-trivial nesting — ``sensor.dht`` carries a handful
+# of nested ``config_entries`` plus units / options, so the
+# ``_load_config_entry`` recursion fires. Pre-extracting one
+# entry from the full catalog at collection time means the
+# benchmark measures the per-entry dataclass-build cost the
+# production load multiplies ~900x — not the one-shot orjson
+# decode of the 20 MB blob, which doesn't realistically regress
+# on its own and would dominate the callgrind sample.
+_COMPONENTS_JSON_BYTES = (_DEFINITIONS / "components.json").read_bytes()
+_SAMPLE_COMPONENT = next(
+    c for c in loads(_COMPONENTS_JSON_BYTES)["components"] if c.get("id") == "sensor.dht"
+)
 
 
-class _CatalogContainer:
-    """Minimal ``device_builder``-shaped object the catalogs read from.
+def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
+    """Pin the per-board parse cost — the unit ``BoardCatalog.load()`` repeats ~500x.
 
-    ``ComponentCatalog._build_featured_registry`` walks
-    ``self._db.boards.iter_boards()`` to wire featured-component IDs
-    back to their owning board, so the container has to expose a
-    populated ``boards`` attr. Mirrors the session-scoped fixture in
-    the unit-test suite (``tests/conftest.py:_CatalogContainer``);
-    duplicated here rather than imported because the benchmark suite
-    is intentionally decoupled from ``tests/conftest.py`` so a refactor
-    of the unit-test fixtures can't perturb CodSpeed numbers.
+    Production walks ``definitions/boards/*/manifest.yaml`` and
+    runs ``yaml.safe_load`` + the chain of ``_load_*`` helpers on
+    each. That per-file work is the dominant startup cost on
+    constrained hardware (HA Green, see issue #368) where
+    PyYAML's pure-Python parse loop hurts most. A regression here
+    multiplies linearly across the full catalog, so a 10%
+    slowdown on this benchmark is a 10% slowdown on dashboard
+    startup wall-time.
+
+    Run the YAML parse + every ``_load_*`` helper inline rather
+    than calling ``load_board_catalog`` itself — the catalog
+    function is a directory walk + per-file dispatch loop whose
+    per-iteration cost we already cover here, and benchmarking
+    the walk would re-pay disk I/O on every iteration.
     """
+    board_id = "seeed-xiao-esp32c3"
 
-    boards: BoardCatalog | None = None
-    components: ComponentCatalog | None = None
+    @benchmark
+    def run() -> None:
+        data = yaml.safe_load(_BOARD_MANIFEST_BYTES)
+        _load_esphome_config(data["esphome"], board_id)
+        _load_hardware(data.get("hardware"), board_id)
+        _parse_tags(data.get("tags", []), board_id)
+        for pin in data.get("pins", []):
+            _load_pin(pin, board_id)
+        for fc in data.get("featured_components", []):
+            _load_featured_component(fc)
 
 
-def test_load_board_catalog(benchmark: BenchmarkFixture) -> None:
-    """Pin ``BoardCatalog.load()`` — the dominant startup cost.
+def test_load_one_component_entry(benchmark: BenchmarkFixture) -> None:
+    """Pin the per-component dataclass-build cost — repeated ~900x by ``ComponentCatalog.load()``.
 
-    Walks ~500 ``manifest.yaml`` files under
-    ``definitions/boards/`` and parses each via
-    ``yaml.safe_load``. By far the largest single startup wall-
-    time on a fresh process; a regression here is what users feel
-    as "the dashboard is slow to come up". Construct the
-    ``BoardCatalog`` inside the benchmark so each iteration starts
-    from a cold instance — measuring the load, not a no-op repeat
-    on a populated catalog.
+    The 20 MB ``components.json`` decode is a single ``orjson``
+    call that doesn't realistically regress on its own; the
+    per-entry walk that builds a ``ComponentCatalogEntry`` (and
+    recursively builds its ``ConfigEntry`` children) is the work
+    that compounds across the catalog. ``sensor.dht`` is picked
+    as a representative entry — non-trivial nested
+    ``config_entries`` exercise the ``_load_config_entry``
+    recursion that's the bulk of the per-component cost.
     """
 
     @benchmark
     def run() -> None:
-        catalog = BoardCatalog()
-        catalog.load()
-
-
-def test_load_component_catalog(benchmark: BenchmarkFixture) -> None:
-    """Pin ``ComponentCatalog.load()`` — the second-largest startup cost.
-
-    Decodes ~20 MB of pre-generated JSON via ``orjson`` and
-    instantiates ~900 ``ComponentCatalogEntry`` dataclasses, then
-    walks the populated board catalog to build the featured-
-    component registry. The board-catalog load is a prerequisite
-    for the registry walk — but it lives in its own benchmark
-    above, so build it once at module load time and reuse the
-    instance here. The ``ComponentCatalog`` itself is reconstructed
-    per iteration so the benchmark measures a cold load, not the
-    cost of dropping an already-populated entry list on the floor.
-    """
-    container = _CatalogContainer()
-    container.boards = BoardCatalog()
-    container.boards.load()
-
-    @benchmark
-    def run() -> None:
-        catalog = ComponentCatalog(container)
-        catalog.load()
+        _load_component(_SAMPLE_COMPONENT)
