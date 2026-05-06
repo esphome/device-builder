@@ -1821,17 +1821,22 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     is_structural = entry_type == "pin" or bool(references)
     advanced = _classify_advanced(key, required=required, is_structural=is_structural)
 
-    # Default + ``depends_on_component`` first prefer the unconditional
-    # schema value, then fall back to the gated form ``default_with``
-    # produced by ``cv.OnlyWith`` (esphome/esphome#16276). The
+    # Default + ``depends_on_component`` prefer the gated form
+    # ``default_with`` produced by ``cv.OnlyWith``
+    # (esphome/esphome#16276) over the unconditional ``default``
+    # field — those should be mutually exclusive in practice (the
+    # upstream generator picks one or the other), but a stale or
+    # mixed schema bundle picking up both should still surface the
+    # gated semantics, which are the more specific contract. The
     # ``default_with`` entry pairs the default value with the
-    # component(s) that must be loaded for ESPHome to apply it — same
-    # semantics as ``depends_on_component`` here, just sourced from
-    # the validator instead of the curated ``_COMPONENT_GATED_KEYS``
-    # list. ``default_without`` (``cv.OnlyWithout``) has inverse-gate
-    # semantics that ``depends_on_component`` can't represent today;
-    # left for a follow-up.
-    default_value, gated_component = _extract_default(raw)
+    # component(s) that must be loaded for ESPHome to apply it —
+    # same semantics as ``depends_on_component`` here, just sourced
+    # from the validator instead of the curated
+    # ``_COMPONENT_GATED_KEYS`` list. ``default_without``
+    # (``cv.OnlyWithout``) has inverse-gate semantics that
+    # ``depends_on_component`` can't represent today; left for a
+    # follow-up.
+    default_value, gated_component = _extract_default(raw, key=key)
     entry: dict[str, Any] = {
         "key": key,
         "type": entry_type,
@@ -1980,7 +1985,7 @@ def _coerce_default(value: Any) -> Any:
     return value
 
 
-def _extract_default(raw: dict) -> tuple[Any, str | None]:
+def _extract_default(raw: dict, key: str = "") -> tuple[Any, str | None]:
     """
     Resolve the field's default value plus the component (if any) that gates it.
 
@@ -1993,24 +1998,30 @@ def _extract_default(raw: dict) -> tuple[Any, str | None]:
        when ALL listed components are loaded. Returned as
        ``(<value>, components[0])`` — ``depends_on_component`` is a
        single-string field today; multi-component gates land on the
-       first entry with a warning so the field still gets the
-       default. The frontend's ``depends_on_component`` predicate
-       hides the field when the component isn't configured, which
-       matches ESPHome's runtime "no default applies" behaviour.
+       first entry with a logged warning so the field still gets
+       the default. The frontend's ``depends_on_component``
+       predicate hides the field when the component isn't
+       configured, which matches ESPHome's runtime "no default
+       applies" behaviour.
     3. ``default_without: {value, components: [...]}`` —
        ``cv.OnlyWithout``. Default applies when the component is
        NOT loaded. ``depends_on_component`` can't model the
        inverted gate today, so we surface no default for these
        fields (no regression — same as before #16276 when the
        schema dropped them entirely). Tracked as a follow-up.
+
+    *key* is the field name for the warning context; pass it
+    through from the caller (``_convert_field`` has it as ``key``).
     """
     if (gated := raw.get("default_with")) is not None:
         components = gated.get("components") or []
         if len(components) > 1:
-            print(
-                f"WARNING: default_with with multiple components "
-                f"{components}; only the first ({components[0]}) "
-                f"will be used as ``depends_on_component``."
+            _LOGGER.warning(
+                "%s: default_with with multiple components %s; only "
+                "the first (%s) will be used as depends_on_component.",
+                key or "<unknown>",
+                components,
+                components[0],
             )
         return _coerce_default(gated.get("value")), components[0] if components else None
     return _coerce_default(raw.get("default")), None

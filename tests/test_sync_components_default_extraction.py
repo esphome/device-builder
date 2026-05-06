@@ -16,6 +16,7 @@ shape produced their default.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -62,9 +63,9 @@ def test_default_with_single_component_returns_value_and_gate() -> None:
 
 
 def test_default_with_multi_component_picks_first_with_warning(
-    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """``default_with`` with multiple components → first + WARNING.
+    """``default_with`` with multiple components → first + log.warning.
 
     ``cv.OnlyWith`` supports a list of components that ALL must
     be loaded for the default to apply. ``depends_on_component``
@@ -80,13 +81,17 @@ def test_default_with_multi_component_picks_first_with_warning(
             "components": ["zigbee", "nrf52"],
         },
     }
-    value, gate = _extract_default(raw)
+    with caplog.at_level(logging.WARNING, logger="sync_components"):
+        value, gate = _extract_default(raw, key="power_source")
     assert value == "DC_SOURCE"
     assert gate == "zigbee"
-    captured = capsys.readouterr()
-    assert "default_with with multiple components" in captured.out
-    assert "zigbee" in captured.out
-    assert "nrf52" in captured.out
+    # One warning, named field surfaces in the message, both
+    # components mentioned, and the chosen one is called out.
+    assert len(caplog.records) == 1
+    msg = caplog.records[0].getMessage()
+    assert "power_source" in msg
+    assert "zigbee" in msg
+    assert "nrf52" in msg
 
 
 def test_default_with_empty_components_returns_no_gate() -> None:
