@@ -215,6 +215,17 @@ def _apply_featured_presets(
       omission falls back to the preset's ``value`` (when set).
     - Plain default: filled in only when the user didn't supply one.
 
+    The manifest is authoritative for featured components, so optional
+    default-fills the frontend submits along with the form (a light's
+    ``gamma_correct: 2.8``, an output's ``frequency: 1kHz``, and so on)
+    are stripped before the YAML render. The filter is intentionally
+    narrow: only fields that carry a catalog ``default_value`` get
+    dropped — fields without a default (nested sub-entities like a
+    multi-sensor's ``current:`` block, MQTT ``availability:`` /
+    ``state_topic:`` overrides, and anything else the user has to opt
+    into explicitly) ride through as user intent. Schema-required keys
+    and any key the manifest curates are always kept.
+
     Pin-typed fields can arrive in two ESPHome shapes — bare GPIO
     (``pin: 12``) or rich mapping (``pin: {number: 12, mode: ..., inverted: ...}``).
     Equality / membership checks compare on the bare GPIO so a manifest's
@@ -263,7 +274,21 @@ def _apply_featured_presets(
             continue
         if not user_supplied and preset.value is not None:
             merged[key] = preset.value
-    return merged
+    keep_unconditional = set(record.featured.fields)
+    keep_unconditional.update(ce.key for ce in record.underlying.config_entries if ce.required)
+    filtered: dict[str, Any] = {}
+    for key, value in merged.items():
+        if key in keep_unconditional:
+            filtered[key] = value
+            continue
+        entry = entries_by_key.get(key)
+        # Unknown keys (no matching catalog entry) ride through —
+        # ``add_component`` doesn't validate against an exhaustive
+        # schema, and silently dropping a typo would mask the input
+        # rather than failing visibly.
+        if entry is None or entry.default_value is None:
+            filtered[key] = value
+    return filtered
 
 
 def _drop_unconfigured_dependent_fields(
