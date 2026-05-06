@@ -27,22 +27,6 @@ from esphome_device_builder.helpers.config_hash import (
 from tests._storage_fixtures import write_storage_json
 
 
-@pytest.fixture(autouse=True)
-def _core_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point ``CORE.config_path`` at *tmp_path* so the helper resolves into the fixture tree.
-
-    ``read_build_info_hash`` routes the storage lookup through
-    ``ext_storage_path``, which derives ``<data_dir>/storage/...``
-    from ``CORE.data_dir`` (which itself is rooted in
-    ``CORE.config_path``'s parent in default mode). Production
-    sets ``CORE.config_path`` on startup; tests use a sentinel
-    YAML inside ``tmp_path`` so ``data_dir`` resolves to
-    ``<tmp_path>/.esphome``, matching where ``write_storage_json``
-    drops the sidecar.
-    """
-    monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
-
-
 def _write_storage_pointer(yaml_path: Path, build_path: Path | None) -> None:
     """Write the ESPHome ``StorageJSON`` sidecar next to *yaml_path*.
 

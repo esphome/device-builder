@@ -22,7 +22,6 @@ from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from esphome.core import CORE
 
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.controllers.config import set_device_metadata
@@ -33,23 +32,6 @@ from esphome_device_builder.helpers.hostname import normalize_hostname
 from esphome_device_builder.models import AdoptableDevice, DeviceState, EventType
 from tests._recording_scanner import RecordingScanner
 from tests._storage_fixtures import write_storage_json
-
-
-@pytest.fixture(autouse=True)
-def _core_config_path_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point ``CORE.config_path`` at *tmp_path* for every test in this tree.
-
-    The metadata resolver and storage-regen helpers route every
-    storage / build-info lookup through ``ext_storage_path``, which
-    derives ``<data_dir>/storage/...`` off ``CORE.data_dir``. In
-    default mode that is ``CORE.config_path.parent / .esphome``,
-    so anchoring ``config_path`` inside ``tmp_path`` is what makes
-    the fixtures' on-disk shape match what ``ext_storage_path``
-    actually reads. Production sets ``config_path`` once at
-    startup; tests use ``monkeypatch`` so the override unwinds and
-    sibling xdist workers don't see a leaked value.
-    """
-    monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
 
 
 class RecordingStateMonitor:
