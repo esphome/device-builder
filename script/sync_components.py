@@ -1848,17 +1848,28 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     # wired to what.
     is_structural = entry_type == "pin" or bool(references)
     # Schema-author UI hints from upstream esphome
-    # (esphome/esphome#16267): when present, an explicit
-    # ``advanced`` / ``yaml_only`` on the schema entry wins over the
-    # name-based heuristic. The heuristic stays as the fallback for
+    # (esphome/esphome#16267): when the key is *present* on the raw
+    # dict, the schema's value wins over the name-based heuristic —
+    # the field author marked it explicitly, so respect that even if
+    # they marked it ``False`` to override a heuristic that would
+    # otherwise flip it on. The heuristic stays as the fallback for
     # the long tail of fields the schema doesn't yet annotate; as
     # more fields opt in upstream, the heuristic rules out of
     # ``_classify_advanced`` can shrink toward zero.
-    schema_advanced = bool(raw.get("advanced"))
+    #
+    # Today the dumper only emits the keys when ``True`` (a
+    # backwards-compat optimisation — absent keys preserve the old
+    # consumer behaviour). Keying off ``in raw`` instead of
+    # truthiness keeps that contract clean: when the upstream
+    # dumper one day emits ``advanced: false`` to express "schema
+    # author explicitly opted out of the advanced section", the
+    # consumer already does the right thing without a follow-up
+    # change here.
+    if "advanced" in raw:
+        advanced = bool(raw["advanced"])
+    else:
+        advanced = _classify_advanced(key, required=required, is_structural=is_structural)
     yaml_only = bool(raw.get("yaml_only"))
-    advanced = schema_advanced or _classify_advanced(
-        key, required=required, is_structural=is_structural
-    )
 
     default_value, gated_component = _extract_default(raw, key=key)
     entry: dict[str, Any] = {
