@@ -86,20 +86,22 @@ _BASE_HREF_VARY = "X-Ingress-Path, X-Forwarded-Prefix"
 def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
     """Pick the ``<base href>`` for *request*'s deployment.
 
-    Sources, in priority order:
+    Strict precedence — the first source that yields a non-empty
+    value wins, the rest are skipped:
 
     1. ``X-Ingress-Path`` header — set by Home Assistant core's
        ingress proxy to the per-token ingress prefix
        (``/api/hassio_ingress/<token>``, no trailing slash). The
        supervisor's ingress proxy passes it through unchanged, so
        the add-on sees the canonical prefix the browser used.
-       This is the dominant production deployment shape.
+       This is the dominant production deployment shape, so it
+       wins over ``X-Forwarded-Prefix`` in the unlikely case both
+       headers arrive on the same request.
     2. ``X-Forwarded-Prefix`` header — the standardised reverse-
        proxy signal for non-HA setups (nginx subpath, traefik,
-       caddy). Either header alone is enough; the two are
-       checked in addition rather than as a fallback so a
-       deployment that sets only one wins.
-    3. The ``request.path`` minus the matched SPA-fallback tail —
+       caddy). Production deployments only set one of the two
+       headers in practice; this branch is for the non-HA path.
+    3. ``request.path`` minus the matched SPA-fallback tail —
        lets a direct deploy at ``/`` recover the (empty) prefix
        without the operator having to set a header. Caller passes
        the aiohttp ``match_info`` tail in directly so the backend
