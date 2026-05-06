@@ -283,12 +283,56 @@ async def test_register_frontend_multi_segment_deep_link_strips_full_tail(
 async def test_register_frontend_shell_response_carries_vary_header(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """``Vary: X-Forwarded-Prefix`` so caches don't serve cross-prefix shells."""
+    """``Vary: X-Ingress-Path, X-Forwarded-Prefix`` so caches don't serve cross-prefix shells."""
     client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
     for path in ("/", "/device/foo.yaml", "/settings/network"):
         resp = await client.get(path)
         assert resp.status == 200, path
-        assert resp.headers.get("Vary") == "X-Forwarded-Prefix", path
+        assert resp.headers.get("Vary") == "X-Ingress-Path, X-Forwarded-Prefix", path
+
+
+async def test_register_frontend_honours_x_ingress_path(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """HA core's ingress proxy announces the prefix via ``X-Ingress-Path``.
+
+    See ``homeassistant/components/hassio/ingress.py:_init_header`` —
+    HA core sets ``X-Ingress-Path: /api/hassio_ingress/<token>``
+    (no trailing slash) and the supervisor's ingress proxy passes
+    it through unchanged. The add-on never sees
+    ``X-Forwarded-Prefix`` on this path, so the backend must read
+    ``X-Ingress-Path`` independently or every ingress hard-reload
+    of a deep SPA link white-screens (the asset-shaped relative
+    URL resolves against the bare host).
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get(
+        "/device/foo.yaml",
+        headers={"X-Ingress-Path": "/api/hassio_ingress/TOKEN"},
+    )
+    body = await resp.text()
+    assert '<base href="/api/hassio_ingress/TOKEN/" />' in body
+
+
+async def test_register_frontend_x_ingress_path_takes_precedence_over_forwarded(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``X-Ingress-Path`` wins when both headers arrive.
+
+    Production deployments only set one or the other, but if both
+    show up we trust the HA-specific signal — it's the canonical
+    per-token prefix from core's ingress proxy.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get(
+        "/",
+        headers={
+            "X-Ingress-Path": "/api/hassio_ingress/TOKEN",
+            "X-Forwarded-Prefix": "/dashboard",
+        },
+    )
+    body = await resp.text()
+    assert '<base href="/api/hassio_ingress/TOKEN/" />' in body
 
 
 async def test_register_frontend_serves_top_level_license_sidecar(

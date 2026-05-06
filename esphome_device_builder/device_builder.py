@@ -71,12 +71,16 @@ _ASSET_EXTENSIONS = frozenset(
 # diff so a partial replacement is loud, not silent.
 _BASE_HREF_PLACEHOLDER = "__ESPHOME_BASE_HREF__"
 
-# Header the rendered shell varies on. Reverse proxies that strip
-# a path prefix announce it via ``X-Forwarded-Prefix`` and the
-# rendered ``<base href>`` differs accordingly — without ``Vary``,
-# an intermediary cache could serve the wrong-prefix shell to a
+# Headers the rendered shell varies on. Both reverse proxies and
+# the HA add-on ingress layer announce a stripped path prefix —
+# nginx-style proxies via ``X-Forwarded-Prefix`` and HA core's
+# ingress proxy via ``X-Ingress-Path`` (set in
+# ``homeassistant/components/hassio/ingress.py:_init_header``,
+# passed through unchanged by the supervisor proxy). The rendered
+# ``<base href>`` differs per source, so without ``Vary`` an
+# intermediary cache could serve the wrong-prefix shell to a
 # different client.
-_BASE_HREF_VARY = "X-Forwarded-Prefix"
+_BASE_HREF_VARY = "X-Ingress-Path, X-Forwarded-Prefix"
 
 
 def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
@@ -84,12 +88,18 @@ def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
 
     Sources, in priority order:
 
-    1. ``X-Forwarded-Prefix`` header — the explicit signal from a
-       reverse proxy or ingress layer that's stripping a path
-       prefix. Required for any non-root deployment whose URLs
-       the backend can't infer from ``request.path`` alone (HA
-       add-on ingress, nginx subpath, …).
-    2. The ``request.path`` minus the matched SPA-fallback tail —
+    1. ``X-Ingress-Path`` header — set by Home Assistant core's
+       ingress proxy to the per-token ingress prefix
+       (``/api/hassio_ingress/<token>``, no trailing slash). The
+       supervisor's ingress proxy passes it through unchanged, so
+       the add-on sees the canonical prefix the browser used.
+       This is the dominant production deployment shape.
+    2. ``X-Forwarded-Prefix`` header — the standardised reverse-
+       proxy signal for non-HA setups (nginx subpath, traefik,
+       caddy). Either header alone is enough; the two are
+       checked in addition rather than as a fallback so a
+       deployment that sets only one wins.
+    3. The ``request.path`` minus the matched SPA-fallback tail —
        lets a direct deploy at ``/`` recover the (empty) prefix
        without the operator having to set a header. Caller passes
        the aiohttp ``match_info`` tail in directly so the backend
@@ -101,8 +111,11 @@ def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
     protocol-relative base, and ``/dashboard//`` can't produce
     ``//`` runs in resolved asset URLs.
     """
+    ingress = request.headers.get("X-Ingress-Path", "").strip()
     forwarded = request.headers.get("X-Forwarded-Prefix", "").strip()
-    if forwarded:
+    if ingress:
+        base = ingress
+    elif forwarded:
         base = forwarded
     elif tail and request.path.endswith(tail):
         # Slice the matched SPA tail off the request path to get
