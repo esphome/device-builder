@@ -933,3 +933,86 @@ def test_load_device_default_labels_is_empty_list(tmp_path: Path) -> None:
 
     assert device.labels == []
     assert isinstance(device.labels, list)
+
+
+# ---------------------------------------------------------------------------
+# load_device_from_storage — monitor-derived field carry-forward
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_carries_api_encryption_active_from_previous(tmp_path: Path) -> None:
+    """Reload preserves the mDNS-observed ``api_encryption_active``.
+
+    The mDNS browser fires on Added/Updated, populates
+    ``api_encryption_active="Noise_..."`` on the live ``Device``,
+    and then sleeps until the next service-record TTL refresh — a
+    couple of minutes in the typical fleet. Anything that triggers
+    ``scanner.reload`` between announces (a successful flash, an
+    ``--only-generate`` run, an unrelated YAML edit on the sibling
+    device, an atomic-save remove/re-add cycle) used to wipe the
+    field back to ``None`` because the new ``Device`` was built
+    from defaults — the user saw a freshly-flashed encrypted
+    device flip into the "Pending install" warning despite the
+    firmware on the wire still broadcasting encryption.
+
+    Mirrors the existing carry-forward shape for ``state``,
+    ``deployed_config_hash``, and ``ip_addresses``: pass
+    ``previous`` and ``api_encryption_active`` round-trips
+    through.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    previous = load_device_from_storage(yaml_path)
+    previous.api_encryption_active = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+
+    reloaded = load_device_from_storage(yaml_path, previous=previous)
+
+    assert reloaded.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_carries_plaintext_confirmation_from_previous(tmp_path: Path) -> None:
+    """The empty-string ``api_encryption_active`` ("confirmed plaintext") also carries.
+
+    The tri-state shape (``"…"`` / ``""`` / ``None``) means
+    ``""`` is a *positive* observation — mDNS saw the broadcast,
+    the ``api_encryption`` TXT was absent, the device is running
+    plaintext. Wiping that to ``None`` on reload would re-enter
+    the "encryption unknown" UI state and re-trigger the
+    "Pending install" path on devices the dashboard has already
+    confirmed as plaintext. Falsy guards in the carry-forward
+    would silently re-introduce the bug, so the test pins the
+    empty-string case explicitly.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    previous = load_device_from_storage(yaml_path)
+    previous.api_encryption_active = ""
+
+    reloaded = load_device_from_storage(yaml_path, previous=previous)
+
+    assert reloaded.api_encryption_active == ""
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_without_previous_defaults_api_encryption_active_to_none(
+    tmp_path: Path,
+) -> None:
+    """First load (no ``previous``) yields the unknown / not-yet-seen sentinel.
+
+    mDNS hasn't reported and the YAML's ``api_encrypted`` flag
+    can't tell us what's actually on the wire — ``None`` is the
+    correct "trust the YAML until proven otherwise" state.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.api_encryption_active is None
