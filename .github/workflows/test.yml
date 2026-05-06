@@ -236,7 +236,7 @@ jobs:
         # ``instrumentation`` — same callgrind-based runner under
         # the hood, just renamed. The action prints a deprecation
         # warning when you ask for ``instrumentation`` explicitly.
-        uses: CodSpeedHQ/action@c381be0bfd20e844fb45594f6aa182ffcd94545c  # v4.15.0
+        uses: CodSpeedHQ/action@3194d9a39c4d46684cb44bf7207fc56626aad8fd  # v4.15.1
         with:
           mode: simulation
           run: pytest tests/benchmarks --codspeed --no-cov

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from esphome.core import CORE
 
 from esphome_device_builder.helpers.config_hash import (
     compute_yaml_config_hash,
@@ -196,3 +197,56 @@ def test_returns_none_when_build_info_unreadable(
         "Could not read" in rec.message and "build_info.json" in rec.message
         for rec in caplog.records
     ), "expected a WARNING naming the unreadable build_info.json"
+
+
+def test_resolves_storage_through_ext_storage_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Storage lookup honours ``CORE.data_dir`` (HA-addon parity).
+
+    Reproduces the addon-mode bug: the YAML lives under
+    ``/config/esphome/`` while ESPHome's storage + build trees are
+    rooted at ``/data/`` (because ``CORE.data_dir`` short-circuits
+    when ``is_ha_addon()`` is true). A hardcoded
+    ``<yaml_dir>/.esphome/storage/...`` lookup misses the sidecar
+    entirely and returns ``None`` for every device.
+
+    Recreate the split here without touching ``is_ha_addon`` —
+    point ``CORE.config_path`` at one tmp subtree (the "config")
+    and write the storage sidecar into a different subtree (the
+    "data dir") via ``ESPHOME_DATA_DIR``. ``ext_storage_path``
+    lands on the data-dir copy; the helper finds the build_info
+    and returns the hash.
+    """
+    config_subdir = tmp_path / "config"
+    data_subdir = tmp_path / "data"
+    config_subdir.mkdir()
+    data_subdir.mkdir()
+
+    yaml_path = config_subdir / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    # ``ESPHOME_DATA_DIR`` mode (and HA-addon ``/data``) put the
+    # sidecar at ``<data_dir>/storage/...`` directly — no
+    # ``.esphome`` prefix. ``write_storage_json`` adds the prefix,
+    # which is right for default-mode tests but not this layout,
+    # so write_storage_json into a faux parent and let the dir
+    # join end up at the addon-shaped location.
+    fake_default_root = data_subdir.parent  # so .esphome lands beside data_subdir
+    build_path = data_subdir / "build" / "kitchen"
+    sidecar_path = write_storage_json(
+        fake_default_root,
+        yaml_path.name,
+        firmware_bin_path=build_path / ".pioenvs" / "firmware.bin",
+        build_path=build_path,
+    )
+    # Relocate the sidecar to the addon-shaped path.
+    target = data_subdir / "storage" / f"{yaml_path.name}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(sidecar_path.read_bytes())
+    _write_build_info(build_path, config_hash=0xCAFEBABE)
+
+    monkeypatch.setenv("ESPHOME_DATA_DIR", str(data_subdir))
+    monkeypatch.setattr(CORE, "config_path", config_subdir / "___SENTINEL___.yaml")
+
+    assert read_build_info_hash(yaml_path) == "cafebabe"

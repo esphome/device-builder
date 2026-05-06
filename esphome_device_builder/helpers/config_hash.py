@@ -35,7 +35,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from esphome.storage_json import StorageJSON
+from esphome.storage_json import StorageJSON, ext_storage_path
 
 from .json import JSONDecodeError, loads
 
@@ -70,17 +70,21 @@ def read_build_info_hash(yaml_path: Path) -> str | None:
     executor. Returns the same value ``compute_yaml_config_hash``
     awaits to.
 
-    Resolves ``StorageJSON`` from ``<yaml_dir>/.esphome/storage/<name>.json``
-    instead of ``ext_storage_path``. ``ext_storage_path`` is a thin
-    wrapper around ``CORE.data_dir`` that crashes when CORE hasn't
-    been initialised — fine in production (the dashboard sets
-    ``CORE.config_path`` on startup) but a footgun in tests, where
-    leaving the helper coupled to global CORE state would force
-    every test fixture to spin up a CORE just to read a JSON file.
+    Resolves the ``StorageJSON`` sidecar through ``ext_storage_path``
+    so the helper honours ``CORE.data_dir``'s deployment-mode logic:
+    ``/data/storage/...`` on the Home Assistant addon, the
+    ``ESPHOME_DATA_DIR`` env var when set,
+    ``<config_dir>/.esphome/storage/...`` otherwise. The earlier
+    hardcoded ``<yaml_dir>/.esphome/...`` path matched only the
+    default mode and silently returned ``None`` on every addon
+    install, so the drawer's Local hash stayed empty and
+    ``compute_has_pending_changes`` flipped the orange dot on
+    for every device. CORE must be initialised by the time this
+    runs — tests that exercise the helper set ``CORE.config_path``
+    on a tmp_path sentinel so ``data_dir`` resolves into the same
+    fixture tree the storage sidecar was written into.
     """
-    config_dir = yaml_path.parent
-    storage_path = config_dir / ".esphome" / "storage" / f"{yaml_path.name}.json"
-    storage = StorageJSON.load(storage_path)
+    storage = StorageJSON.load(ext_storage_path(yaml_path.name))
     if storage is None or storage.build_path is None:
         return None
     build_info_path = Path(storage.build_path) / _BUILD_INFO_FILENAME

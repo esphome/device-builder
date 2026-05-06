@@ -93,6 +93,33 @@ def blockbuster() -> Iterator[BlockBuster | None]:
 # ---------------------------------------------------------------------------
 # Catalog fixtures
 #
+# ---------------------------------------------------------------------------
+# CORE.config_path autouse — ``ext_storage_path`` prerequisite
+#
+# Every storage / build-info / firmware-bin lookup in production routes
+# through ``ext_storage_path`` (or ``CORE.data_dir`` directly). Both
+# crash with ``AttributeError: 'NoneType' object has no attribute
+# 'is_dir'`` when ``CORE.config_path`` is the package-default ``None``.
+# Production sets it once at startup; tests need an equivalent. Pinning
+# the sentinel onto ``tmp_path`` keeps the resolved
+# ``data_dir = tmp_path / .esphome`` aligned with where
+# ``write_storage_json`` and the other storage helpers drop their files,
+# so a test that just wants the storage layout to "work" gets that for
+# free without per-module wiring. ``monkeypatch`` auto-restores so
+# tests that override ``CORE.config_path`` (e.g. ``make_settings(
+# with_core_path=True)``) still take precedence, and sibling xdist
+# workers don't see leaked process-globals.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _core_config_path_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
+
+
+# ---------------------------------------------------------------------------
+# Component catalog session fixture
+#
 # ``ComponentCatalog.load`` parses ~40 MB of JSON and instantiates ~900 entry
 # objects — about a second wall-time per call, plus blockbuster overhead on
 # Linux CI. Hoisting the load to a session-scoped fixture lets every test

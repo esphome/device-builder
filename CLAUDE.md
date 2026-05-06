@@ -137,6 +137,44 @@ in case anything has resurfaced.
 - **Frontend handoff** for the catalog is documented inline in
   models (`ConfigEntry`, `ComponentCatalogEntry`). New
   `ConfigEntryType` values need a frontend update — coordinate.
+- **Deployment modes change the on-disk paths — never hardcode
+  them.** Three deployment shapes ship today, and `CORE.data_dir`
+  resolves differently in each. Every storage / build-info /
+  firmware-binary read MUST go through `ext_storage_path` (or
+  `CORE.data_dir` directly) rather than reconstructing
+  `<config_dir>/.esphome/...`, or the read silently misses the
+  file in the addon and the user sees the bug as
+  empty-Local-hash + Pending-install on every device:
+
+  | Mode | `CORE.data_dir` | StorageJSON | Build tree |
+  |---|---|---|---|
+  | Default (`pip install esphome-device-builder`, dev checkout) | `<config_dir>/.esphome` | `<config_dir>/.esphome/storage/<file>.json` | `<config_dir>/.esphome/build/<name>/` |
+  | Home Assistant addon (`is_ha_addon()` true) | `/data` | `/data/storage/<file>.json` | `/data/build/<name>/` |
+  | `ESPHOME_DATA_DIR` env override | `$ESPHOME_DATA_DIR` | `$ESPHOME_DATA_DIR/storage/<file>.json` | `$ESPHOME_DATA_DIR/build/<name>/` |
+
+  The HA-addon shape is the dominant one in production —
+  device-builder ships as the opt-in preview toggle in the
+  official ESPHome HA addon, with the YAML configs at
+  `/config/esphome/` (Home Assistant's `/config` mount) and
+  every ESPHome-managed artefact at `/data/` (the addon's
+  per-instance persistent volume). The split exists so the addon
+  can wipe `/data/build/` for upgrades without touching user
+  YAML, and so two addon instances on the same host get
+  independent data dirs while sharing the user-visible config
+  tree. `CORE.config_path` is set to a sentinel YAML inside
+  `config_dir` on dashboard startup
+  (`controllers/config.py:_DASHBOARD_SENTINEL_FILE`); helpers
+  that want the storage layout MUST resolve through that
+  initialised CORE rather than reconstructing paths from a
+  `Path` argument. The "everything goes through
+  `ext_storage_path`" audit covers the in-tree consumers
+  (`controllers/firmware/`, `controllers/devices/`,
+  `helpers/config_hash`, `helpers/build_size`,
+  `helpers/device_yaml`); when adding a new caller, mirror that
+  pattern. Tests need `CORE.config_path` set to a tmp-path
+  sentinel — the autouse fixtures in
+  `tests/controllers/devices/conftest.py` and
+  `tests/test_config_hash.py` show the shape.
 - **`config_hash` source of truth is `build_info.json`.** ESPHome
   writes `<storage.build_path>/build_info.json` after every
   successful compile *and* every `--only-generate` (the relevant
@@ -278,10 +316,20 @@ When changing the sync script or catalog handling, watch for these:
   a thin wrapper around `CORE.data_dir`, which crashes
   (`AttributeError: 'NoneType' object has no attribute 'is_dir'`)
   when CORE hasn't been initialised. Fine in production (the
-  dashboard sets `CORE.config_path` on startup) but a footgun in
-  tests. `read_build_info_hash` derives the storage path locally
-  from `<yaml_dir>/.esphome/storage/<filename>.json` so test
-  fixtures don't have to spin up a CORE just to read a JSON file.
+  dashboard sets `CORE.config_path` on startup); tests get the
+  prerequisite via the autouse `_core_config_path_in_tmp` fixture
+  in `tests/conftest.py`, which pins `CORE.config_path` to a
+  per-test sentinel under `tmp_path`. New helpers that read
+  storage / build_info / firmware-bin paths MUST resolve through
+  `ext_storage_path` (or `CORE.data_dir` directly) — never
+  reconstruct `<yaml_dir>/.esphome/...` from a `Path` argument,
+  even if it works locally. The default-mode shortcut is invisibly
+  wrong on the HA addon (`/data` is the data dir, not
+  `<config_dir>/.esphome`) and silently returns `None` for every
+  device, surfacing as empty-Local-hash + Pending-install on the
+  encryption indicator. See "Deployment modes change the on-disk
+  paths — never hardcode them" in *Architecture conventions* for
+  the full path table.
 - **Atomic-save editors (vscode-on-macOS et al.) can briefly
   remove the YAML mid-save.** The scanner sees the file
   disappear, fires `REMOVED`, then re-`ADDED` on the next sweep
