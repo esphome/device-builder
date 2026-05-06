@@ -150,6 +150,14 @@ class Device(DataClassORJSONMixin):
     # re-walked. See ``helpers/build_size.py`` for the empirical
     # matrix that drove the pair-vs-single-stat decision.
     build_size_bytes: int = 0
+    # User-assigned label IDs (opaque ``uuid.uuid4().hex`` strings
+    # from the global catalog at ``.device-builder.json``'s
+    # ``_labels`` key). Frontend joins against the catalog from
+    # ``labels/list`` to render colored chips. The list itself is
+    # the assignment record; the canonical name and color live on
+    # the catalog entry, so a label rename / recolor needs no
+    # device-level write.
+    labels: list[str] = field(default_factory=list)
 
 
 @dataclass

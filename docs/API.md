@@ -99,6 +99,7 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | `devices/get_states` | — | `dict` | Get device online/offline states |
 | `devices/create` | `{name, board_id, config_type?, ssid?, psk?, file_content?}` | `WizardResponse` | Create device from board definition |
 | `devices/update` | `{name, friendly_name?, comment?, board_id?}` | `UpdateDeviceResponse` | Update device metadata |
+| `devices/set_labels` | `{configuration, label_ids: string[]}` | `Device` | Replace this device's label assignments. Pass `[]` to clear. Unknown ids return `INVALID_ARGS`. Fires `device_updated` after the scanner reload. |
 | `devices/rename` | `{configuration, new_name}` | — | Rename device via ESPHome CLI |
 | `devices/delete` | `{configuration}` | — | Delete device and associated files |
 | `devices/delete_bulk` | `{configurations: string[]}` | `[{configuration, success, error?}]` | Delete multiple devices |
@@ -229,6 +230,23 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 | `config/set_preferences` | `{theme?, dashboard_view?, ...}` | `UserPreferences` | Update preferences (partial) |
 | `config/get_secrets` | — | `[string]` | List secret key names |
 
+### Labels
+
+> Models: [`Label`](../esphome_device_builder/models/labels.py)
+>
+> Controller: [`LabelsController`](../esphome_device_builder/controllers/labels.py)
+
+User-defined chips (name + optional `#rrggbb` color) that can be assigned to devices via `devices/set_labels`. The catalog is global; assignments live on each device's `Device.labels` field as a list of label ids.
+
+| Command | Args | Response | Description |
+|---------|------|----------|-------------|
+| `labels/list` | — | `[Label]` | Return every label in the global catalog |
+| `labels/create` | `{name, color?}` | `Label` | Create a label. `name` 1-50 chars, unique case-insensitive. `color` is `#rrggbb` (lowercased on save) or null. Server generates `id`. Fires `label_created`. |
+| `labels/update` | `{label_id, name?, color?}` | `Label` | Rename and / or recolor. Pass `color: null` to clear; omit `color` to leave it unchanged. Fires `label_updated`. |
+| `labels/delete` | `{label_id}` | `{deleted: true}` | Delete a label and cascade — every device entry with this id has it removed in the same transaction, then each affected device fires `device_updated`; finally `label_deleted` fires. |
+
+Renaming or recoloring a label leaves device assignments untouched — devices reference labels by id, not by name. The frontend is expected to subscribe to `subscribe_events`, fetch the catalog once via `labels/list`, then resolve ids → name + color at render time.
+
 ### Utility
 
 | Command | Args | Response | Description |
@@ -239,6 +257,7 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 **`subscribe_events` events:**
 - `device_added`, `device_removed`, `device_updated`, `device_state_changed`
 - `importable_device_added`, `importable_device_removed`
+- `label_created`, `label_updated`, `label_deleted`
 - `job_queued`, `job_started`, `job_output`, `job_completed`, `job_failed`
 
 ---

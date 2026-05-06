@@ -394,6 +394,7 @@ def load_device_from_storage(
     expected_config_hash: str = "",
     mac_address: str = "",
     build_size_bytes: int = 0,
+    labels: tuple[str, ...] = (),
     *,
     previous: Device | None = None,
 ) -> Device:
@@ -430,6 +431,13 @@ def load_device_from_storage(
     driven by :class:`BuildSizeRefresher` (the single-worker
     refresh queue) gated on the freshness-pair equality check, so
     a steady-state re-scan stays off the heavy I/O path.
+
+    *labels* is the per-device list of label IDs (opaque
+    ``uuid.uuid4().hex`` references into the global ``_labels``
+    catalog at ``.device-builder.json``). The metadata round-trip
+    is the source of truth, so a reload triggered by an unrelated
+    YAML edit picks up label changes the same way it picks up
+    board-id edits.
 
     *previous* is the prior in-memory Device for this path, when one
     exists. Runtime-only fields populated by monitors (``state``,
@@ -611,6 +619,7 @@ def load_device_from_storage(
         ethernet_mac=ethernet_mac,
         bluetooth_mac=bluetooth_mac,
         build_size_bytes=build_size_bytes,
+        labels=list(labels),
     )
 
 

@@ -36,6 +36,10 @@ class DeviceFileMetadata(NamedTuple):
     expected_config_hash: str = ""
     mac_address: str = ""
     build_size_bytes: int = 0
+    # Tuple (immutable) of label IDs assigned to the device. The
+    # global label catalog lives at ``_labels`` in the metadata
+    # sidecar; this carries the per-device assignments.
+    labels: tuple[str, ...] = ()
 
 
 class ScanChange(StrEnum):
@@ -383,6 +387,7 @@ class DeviceScanner:
                     metadata.expected_config_hash,
                     metadata.mac_address,
                     metadata.build_size_bytes,
+                    metadata.labels,
                     previous=self._index.by_path.get(path),
                 )
             except Exception:

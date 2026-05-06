@@ -62,6 +62,7 @@ from .._reachability_tracker import ReachabilityTracker
 from ..config import (
     get_device_metadata,
     remove_device_metadata,
+    set_device_labels,
     set_device_metadata,
 )
 from ..firmware.helpers import _find_esphome_cmd
@@ -248,6 +249,19 @@ class DevicesController:
     def get_devices(self) -> list[Device]:
         """Snapshot of the currently-loaded devices."""
         return self._scanner.devices
+
+    async def reload_configuration(self, filename: str) -> bool:
+        """
+        Force-reload one device's state from disk and the metadata sidecar.
+
+        Use after writing a sidecar field whose value isn't reflected
+        in the YAML's mtime (labels, IP cache after restart-driven
+        re-resolution, etc.) — the scanner's mtime-based cache would
+        otherwise skip the file. Fires ``DEVICE_UPDATED`` via the
+        scanner's existing scan-change pipeline. Returns ``True``
+        when the device exists and was reloaded.
+        """
+        return await self._scanner.reload(filename)
 
     def get_address_cache_args(self, configuration: str) -> list[str]:
         """
@@ -547,6 +561,53 @@ class DevicesController:
             comment=meta.get("comment"),
             board_id=meta.get("board_id"),
         )
+
+    @api_command("devices/set_labels")
+    async def set_labels(
+        self,
+        *,
+        configuration: str,
+        label_ids: list[str],
+        **kwargs: Any,
+    ) -> Device:
+        """
+        Replace this device's label assignments.
+
+        ``label_ids`` is the new full list of assigned label IDs (no
+        diff semantics — ``[]`` clears every assignment). Unknown
+        IDs are rejected with ``INVALID_ARGS``; the catalog check
+        runs inside the same metadata transaction as the write so a
+        concurrent ``labels/delete`` cascade can't leave a dangling
+        reference. After persistence the device is force-reloaded
+        so the live ``Device`` model reflects the new labels — the
+        scanner's mtime cache would otherwise skip the file.
+        """
+        # ``rel_path`` raises ``CommandError(INVALID_ARGS)`` on path
+        # traversal; reuses the existing single chokepoint.
+        self._db.settings.rel_path(configuration)
+        if not isinstance(label_ids, list):
+            raise CommandError(
+                ErrorCode.INVALID_ARGS, "label_ids must be a list of label id strings"
+            )
+
+        config_dir = self._db.settings.config_dir
+
+        def _persist() -> None:
+            try:
+                set_device_labels(config_dir, configuration, label_ids)
+            except ValueError as err:
+                raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
+
+        await asyncio.to_thread(_persist)
+        await self._scanner.reload(configuration)
+
+        device = next(
+            (d for d in self._scanner.devices if d.configuration == configuration),
+            None,
+        )
+        if device is None:
+            raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
+        return device
 
     @api_command("devices/rename")
     async def rename_device(
@@ -1602,12 +1663,23 @@ class DevicesController:
         # the scanner's per-device hot path; a single corrupt
         # entry shouldn't fail the whole scan.
         build_size_bytes = coerce_sidecar_int(md.get("build_size_bytes"))
+        # Defensive filter: a hand-edited sidecar could land non-string
+        # entries in the labels list. The scanner is on the hot path,
+        # so silently drop bad entries rather than failing the whole
+        # device load.
+        raw_labels = md.get("labels")
+        labels: tuple[str, ...]
+        if isinstance(raw_labels, list):
+            labels = tuple(item for item in raw_labels if isinstance(item, str))
+        else:
+            labels = ()
         return DeviceFileMetadata(
             board_id=board_id,
             ip=ip,
             expected_config_hash=expected_config_hash,
             mac_address=mac_address,
             build_size_bytes=build_size_bytes,
+            labels=labels,
         )
 
     def _derive_board_id_from_yaml(self, config_dir: Path, filename: str) -> str:

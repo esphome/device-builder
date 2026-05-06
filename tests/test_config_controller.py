@@ -40,16 +40,21 @@ from esphome_device_builder.controllers.config import (
     ConfigController,
     _load_metadata,
     _save_metadata,
+    delete_label_cascade,
     get_device_ip,
     get_device_metadata,
+    labels_transaction,
+    load_labels,
     load_preferences,
     metadata_transaction,
     remove_device_metadata,
+    save_labels,
     save_preferences,
+    set_device_labels,
     set_device_metadata,
 )
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import ErrorCode
+from esphome_device_builder.models import ErrorCode, Label
 from esphome_device_builder.models.preferences import (
     DashboardView,
     Theme,
@@ -770,3 +775,190 @@ async def test_get_serial_ports_returns_empty_when_no_ports(
     result = await controller.get_serial_ports_cmd()
 
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Labels — global catalog + per-device assignments
+# ---------------------------------------------------------------------------
+
+
+def test_load_labels_returns_empty_when_missing(tmp_path: Path) -> None:
+    """A fresh install has no ``_labels`` key — load returns ``[]``."""
+    assert load_labels(tmp_path) == []
+
+
+def test_load_labels_skips_corrupt_entries(tmp_path: Path) -> None:
+    """Malformed entries don't take the whole catalog down.
+
+    Labels are advisory — a hand-edited sidecar that landed a
+    non-dict entry, or an entry missing required fields, would
+    otherwise raise ``KeyError`` on every catalog read and lock the
+    user out of working with the rest of their labels. The
+    implementation skips bad entries silently.
+    """
+    (tmp_path / ".device-builder.json").write_bytes(
+        json.dumps(
+            {
+                "_labels": [
+                    {"id": "good1", "name": "Kitchen", "color": "#ff0000"},
+                    "garbage-string-not-a-dict",
+                    {"name": "missing-id", "color": None},
+                    {"id": "good2", "name": "Dev", "color": None},
+                ]
+            }
+        ).encode()
+    )
+
+    labels = load_labels(tmp_path)
+
+    assert [lbl.id for lbl in labels] == ["good1", "good2"]
+
+
+def test_save_labels_round_trip(tmp_path: Path) -> None:
+    """``save_labels`` writes a list of dicts the loader reads back identically."""
+    catalog = [
+        Label(id="abc", name="Kitchen", color="#ff0000"),
+        Label(id="xyz", name="Dev", color=None),
+    ]
+
+    save_labels(tmp_path, catalog)
+
+    raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
+    assert raw["_labels"] == [
+        {"id": "abc", "name": "Kitchen", "color": "#ff0000"},
+        {"id": "xyz", "name": "Dev", "color": None},
+    ]
+    assert load_labels(tmp_path) == catalog
+
+
+def test_labels_transaction_yields_mutable_list(tmp_path: Path) -> None:
+    """The RMW context yields a list the caller can mutate in-place.
+
+    Mirrors ``metadata_transaction`` — the caller appends / replaces
+    entries, the helper writes the canonical encoded form back on
+    clean exit. A regression that switched to passing a snapshot
+    (instead of the live list) would silently swallow mutations.
+    """
+    save_labels(tmp_path, [Label(id="a", name="One")])
+
+    with labels_transaction(tmp_path) as catalog:
+        assert [lbl.id for lbl in catalog] == ["a"]
+        catalog.append(Label(id="b", name="Two", color="#00ff00"))
+
+    assert [lbl.id for lbl in load_labels(tmp_path)] == ["a", "b"]
+
+
+def test_labels_transaction_discards_changes_on_exception(tmp_path: Path) -> None:
+    """A raise inside the block keeps the prior catalog intact."""
+    save_labels(tmp_path, [Label(id="a", name="One")])
+
+    with (
+        pytest.raises(RuntimeError, match="boom"),
+        labels_transaction(tmp_path) as catalog,
+    ):
+        catalog.append(Label(id="b", name="Two"))
+        raise RuntimeError("boom")
+
+    assert [lbl.id for lbl in load_labels(tmp_path)] == ["a"]
+
+
+def test_set_device_metadata_labels_param_replaces(tmp_path: Path) -> None:
+    """Pass a populated list → the device entry's ``labels`` is replaced."""
+    set_device_metadata(tmp_path, "kitchen.yaml", labels=["a", "b"])
+
+    raw = _load_metadata(tmp_path)
+    assert raw["kitchen.yaml"]["labels"] == ["a", "b"]
+
+
+def test_set_device_metadata_labels_none_leaves_alone(tmp_path: Path) -> None:
+    """``labels=None`` → existing assignments are preserved.
+
+    Tri-state semantics matching the rest of ``set_device_metadata``:
+    ``None`` = leave alone, ``[]`` = clear, populated = replace.
+    """
+    set_device_metadata(tmp_path, "kitchen.yaml", labels=["a"])
+    set_device_metadata(tmp_path, "kitchen.yaml", board_id="esp32", labels=None)
+
+    raw = _load_metadata(tmp_path)
+    assert raw["kitchen.yaml"]["labels"] == ["a"]
+    assert raw["kitchen.yaml"]["board_id"] == "esp32"
+
+
+def test_set_device_metadata_labels_empty_clears(tmp_path: Path) -> None:
+    """``labels=[]`` removes the key entirely (no empty list left behind)."""
+    set_device_metadata(tmp_path, "kitchen.yaml", labels=["a", "b"])
+    set_device_metadata(tmp_path, "kitchen.yaml", labels=[])
+
+    entry = _load_metadata(tmp_path)["kitchen.yaml"]
+    assert "labels" not in entry
+
+
+def test_set_device_labels_validates_against_catalog(tmp_path: Path) -> None:
+    """An ID not in the catalog raises ``ValueError`` and skips the write."""
+    save_labels(tmp_path, [Label(id="known", name="Known")])
+
+    with pytest.raises(ValueError, match="Unknown label id"):
+        set_device_labels(tmp_path, "kitchen.yaml", ["known", "ghost"])
+
+    # No partial write — the device entry shouldn't carry "known"
+    # alone if the call as a whole was supposed to fail.
+    raw = _load_metadata(tmp_path)
+    assert "kitchen.yaml" not in raw
+
+
+def test_set_device_labels_dedupes_and_preserves_order(tmp_path: Path) -> None:
+    """Duplicate IDs in input are dropped; first-seen order wins."""
+    save_labels(tmp_path, [Label(id="a", name="A"), Label(id="b", name="B")])
+
+    set_device_labels(tmp_path, "kitchen.yaml", ["a", "b", "a", "b", "a"])
+
+    raw = _load_metadata(tmp_path)
+    assert raw["kitchen.yaml"]["labels"] == ["a", "b"]
+
+
+def test_set_device_labels_empty_clears(tmp_path: Path) -> None:
+    """Passing ``[]`` removes all assignments without leaving the empty key."""
+    save_labels(tmp_path, [Label(id="a", name="A")])
+    set_device_labels(tmp_path, "kitchen.yaml", ["a"])
+    set_device_labels(tmp_path, "kitchen.yaml", [])
+
+    entry = _load_metadata(tmp_path)["kitchen.yaml"]
+    assert "labels" not in entry
+
+
+def test_delete_label_cascade_drops_label_and_returns_affected(tmp_path: Path) -> None:
+    """Cascade removes the label from the catalog and every device entry.
+
+    This is the operation the controller wraps; the returned
+    set is the worklist of devices the controller force-reloads
+    so their live ``Device`` model picks up the trimmed list.
+    """
+    save_labels(
+        tmp_path,
+        [Label(id="x", name="X"), Label(id="y", name="Y")],
+    )
+    set_device_labels(tmp_path, "kitchen.yaml", ["x", "y"])
+    set_device_labels(tmp_path, "garage.yaml", ["x"])
+    set_device_labels(tmp_path, "office.yaml", ["y"])
+
+    affected = delete_label_cascade(tmp_path, "x")
+
+    assert affected == {"kitchen.yaml", "garage.yaml"}
+    raw = _load_metadata(tmp_path)
+    # Catalog drops the deleted label.
+    assert [entry["id"] for entry in raw["_labels"]] == ["y"]
+    # Devices that referenced it have it removed; the others are
+    # untouched.
+    assert raw["kitchen.yaml"]["labels"] == ["y"]
+    assert "labels" not in raw["garage.yaml"]
+    assert raw["office.yaml"]["labels"] == ["y"]
+
+
+def test_delete_label_cascade_when_no_devices_assigned(tmp_path: Path) -> None:
+    """A label with no assignments → empty affected set, label still removed."""
+    save_labels(tmp_path, [Label(id="ghost", name="Ghost")])
+
+    affected = delete_label_cascade(tmp_path, "ghost")
+
+    assert affected == set()
+    assert load_labels(tmp_path) == []

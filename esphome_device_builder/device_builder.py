@@ -27,6 +27,7 @@ from .controllers.config import ConfigController, DashboardSettings
 from .controllers.devices import DevicesController
 from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
+from .controllers.labels import LabelsController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
@@ -96,6 +97,7 @@ class DeviceBuilder:
         self.automations: AutomationsController | None = None
         self.firmware: FirmwareController | None = None
         self.editor: EditorController | None = None
+        self.labels: LabelsController | None = None
 
         # Command registry — populated from controllers
         self.command_handlers: dict[str, CommandHandler] = {}
@@ -146,6 +148,7 @@ class DeviceBuilder:
         self.automations = AutomationsController(self)
         self.firmware = FirmwareController(self)
         self.editor = EditorController(self)
+        self.labels = LabelsController(self)
         await self.devices.start()
         await self.firmware.start()
         await self.editor.start()
@@ -160,6 +163,7 @@ class DeviceBuilder:
             self.automations,
             self.firmware,
             self.editor,
+            self.labels,
         ):
             self.command_handlers.update(collect_api_commands(controller))
 

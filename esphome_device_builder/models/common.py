@@ -58,6 +58,13 @@ class EventType(StrEnum):
     IMPORTABLE_DEVICE_ADDED = "importable_device_added"
     IMPORTABLE_DEVICE_REMOVED = "importable_device_removed"
 
+    # Label catalog mutations. Per-device label assignment changes
+    # ride the existing ``DEVICE_UPDATED`` event (fired automatically
+    # by the scanner reload after the sidecar write).
+    LABEL_CREATED = "label_created"
+    LABEL_UPDATED = "label_updated"
+    LABEL_DELETED = "label_deleted"
+
     # Firmware job lifecycle
     JOB_QUEUED = "job_queued"
     JOB_STARTED = "job_started"

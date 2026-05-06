@@ -891,3 +891,45 @@ def test_load_device_handles_storage_without_core_platform_attr(
     device = load_device_from_storage(yaml_path)
 
     assert device.target_platform == "esp32"
+
+
+# ---------------------------------------------------------------------------
+# load_device_from_storage — labels threading
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_threads_labels_into_device(tmp_path: Path) -> None:
+    """The ``labels`` arg lands on ``Device.labels`` as a list.
+
+    The scanner reads the per-device labels list from the metadata
+    sidecar and threads it through here; the loader's job is only
+    to copy it onto the freshly-built ``Device``. A regression
+    that dropped the assignment would empty every device's labels
+    list on every reload, masking a working sidecar write.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    device = load_device_from_storage(yaml_path, labels=("lbl-a", "lbl-b"))
+
+    assert device.labels == ["lbl-a", "lbl-b"]
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_default_labels_is_empty_list(tmp_path: Path) -> None:
+    """Omitting ``labels`` produces an empty list (not ``None`` or a tuple).
+
+    The wire shape is ``list[str]``; mashumaro would happily
+    serialize a tuple but the frontend expects array semantics.
+    Pin: omit the arg → device.labels is exactly ``[]``.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.labels == []
+    assert isinstance(device.labels, list)
