@@ -21,7 +21,11 @@ def _make_frontend(tmp_path: Path) -> Path:
     """
     frontend = tmp_path / "frontend"
     frontend.mkdir()
-    (frontend / "index.html").write_text("<!doctype html><body></body>")
+    (frontend / "index.html").write_text(
+        "<!doctype html><html><head>"
+        '<base href="__ESPHOME_BASE_HREF__" />'
+        "</head><body></body></html>"
+    )
     # Use 16-char hex hashes to match what rspack actually emits (xxhash64)
     # so the cache-header regex (``\.[a-f0-9]{8,}\.``) classifies them
     # as immutable.
@@ -106,6 +110,114 @@ async def test_register_frontend_serves_top_level_bundles(
     vendors_resp = await client.get("/vendors.def4567890abcdef.js")
     assert (await app_resp.text()) == "// bundle"
     assert (await vendors_resp.text()) == "// vendors"
+
+
+async def test_register_frontend_root_request_renders_base_href_root(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``GET /`` substitutes the base placeholder with ``/``."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/")
+    body = await resp.text()
+    assert '<base href="/" />' in body
+    assert "__ESPHOME_BASE_HREF__" not in body
+
+
+async def test_register_frontend_deep_link_renders_base_href_root(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """SPA deep link ``/device/foo.yaml`` strips the route tail back to ``/``.
+
+    Without this, the deferred app script's relative ``src``
+    would resolve to ``/device/app.<hash>.js`` and the page would
+    white-screen on a hard reload — that's the bug
+    ``_BASE_HREF_PLACEHOLDER`` exists to fix.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/device/foo.yaml")
+    body = await resp.text()
+    assert '<base href="/" />' in body
+
+
+async def test_register_frontend_honours_x_forwarded_prefix(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Reverse proxies that strip a path prefix announce it via ``X-Forwarded-Prefix``."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/", headers={"X-Forwarded-Prefix": "/dashboard"})
+    body = await resp.text()
+    assert '<base href="/dashboard/" />' in body
+
+
+async def test_register_frontend_ingress_style_path_strips_route_tail(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """An HA-ingress-style path on a deep link resolves to the ingress base."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get(
+        "/api/hassio_ingress/TOKEN/device/foo.yaml",
+        headers={"X-Forwarded-Prefix": "/api/hassio_ingress/TOKEN"},
+    )
+    body = await resp.text()
+    assert '<base href="/api/hassio_ingress/TOKEN/" />' in body
+
+
+async def test_register_frontend_404s_asset_shaped_paths(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Asset-shaped deep paths get 404, not the SPA shell.
+
+    Without this, a deep ``/device/foo`` hard-reload that misses
+    the base injection would ask for ``/device/app.<hash>.js``,
+    receive ``index.html`` via SPA fallback, and white-screen
+    when the browser parsed HTML as JS.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    for path in (
+        "/device/app.abc123def4567890.js",
+        "/secrets/styles.css",
+        "/some/where/source.map",
+        "/icons/font.woff2",
+    ):
+        resp = await client.get(path)
+        assert resp.status == 404, path
+
+
+async def test_register_frontend_yaml_deep_link_still_falls_back(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``.yaml`` is a real SPA route segment, not an asset — fall through to the shell."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/device/acfloatmonitor32.yaml")
+    assert resp.status == 200
+    assert "<!doctype html>" in (await resp.text())
+
+
+async def test_register_frontend_missing_base_placeholder_raises(
+    tmp_path: Path,
+) -> None:
+    """A wheel whose ``index.html`` lacks the placeholder is a deployment error."""
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<!doctype html><body></body>")
+    (frontend / "assets").mkdir()
+    app = web.Application()
+    with pytest.raises(RuntimeError, match="missing the '__ESPHOME_BASE_HREF__'"):
+        DeviceBuilder._register_frontend(app, frontend)
+
+
+async def test_register_frontend_escapes_base_href(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """A hostile ``X-Forwarded-Prefix`` can't break out of the ``<base href>`` attribute."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/", headers={"X-Forwarded-Prefix": '/"><script>alert(1)</script>'})
+    body = await resp.text()
+    # Quote escapes the closing ``"`` so the attribute terminator
+    # stays inside ``href=...``; the literal ``<script>`` leaks
+    # through but as text, not a tag.
+    assert "&quot;" in body
+    assert '<base href="/&quot;' in body
 
 
 async def test_register_frontend_serves_top_level_license_sidecar(
