@@ -1821,21 +1821,6 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     is_structural = entry_type == "pin" or bool(references)
     advanced = _classify_advanced(key, required=required, is_structural=is_structural)
 
-    # Default + ``depends_on_component`` prefer the gated form
-    # ``default_with`` produced by ``cv.OnlyWith``
-    # (esphome/esphome#16276) over the unconditional ``default``
-    # field — those should be mutually exclusive in practice (the
-    # upstream generator picks one or the other), but a stale or
-    # mixed schema bundle picking up both should still surface the
-    # gated semantics, which are the more specific contract. The
-    # ``default_with`` entry pairs the default value with the
-    # component(s) that must be loaded for ESPHome to apply it —
-    # same semantics as ``depends_on_component`` here, just sourced
-    # from the validator instead of the curated
-    # ``_COMPONENT_GATED_KEYS`` list. ``default_without``
-    # (``cv.OnlyWithout``) has inverse-gate semantics that
-    # ``depends_on_component`` can't represent today; left for a
-    # follow-up.
     default_value, gated_component = _extract_default(raw, key=key)
     entry: dict[str, Any] = {
         "key": key,
@@ -1986,32 +1971,15 @@ def _coerce_default(value: Any) -> Any:
 
 
 def _extract_default(raw: dict, key: str = "") -> tuple[Any, str | None]:
-    """
-    Resolve the field's default value plus the component (if any) that gates it.
+    """Resolve ``(default_value, depends_on_component)`` for a field.
 
-    Three input shapes from the schema bundle:
-
-    1. ``default: "<value>"`` — unconditional default. Returned as
-       ``(<value>, None)``.
-    2. ``default_with: {value, components: [...]}`` —
-       ``cv.OnlyWith`` (esphome/esphome#16276). Default applies only
-       when ALL listed components are loaded. Returned as
-       ``(<value>, components[0])`` — ``depends_on_component`` is a
-       single-string field today; multi-component gates land on the
-       first entry with a logged warning so the field still gets
-       the default. The frontend's ``depends_on_component``
-       predicate hides the field when the component isn't
-       configured, which matches ESPHome's runtime "no default
-       applies" behaviour.
-    3. ``default_without: {value, components: [...]}`` —
-       ``cv.OnlyWithout``. Default applies when the component is
-       NOT loaded. ``depends_on_component`` can't model the
-       inverted gate today, so we surface no default for these
-       fields (no regression — same as before #16276 when the
-       schema dropped them entirely). Tracked as a follow-up.
-
-    *key* is the field name for the warning context; pass it
-    through from the caller (``_convert_field`` has it as ``key``).
+    Reads ``default_with`` (``cv.OnlyWith``, esphome/esphome#16276)
+    in preference to plain ``default``. ``default_without``
+    (``cv.OnlyWithout``) has inverse-gate semantics that
+    ``depends_on_component`` can't model — no default surfaces for
+    those fields. Multi-component ``default_with`` picks the first
+    component and logs a warning (no upstream call site uses a
+    list today). *key* is the field name for the log context.
     """
     if (gated := raw.get("default_with")) is not None:
         components = gated.get("components") or []
