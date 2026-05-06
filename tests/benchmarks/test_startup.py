@@ -46,13 +46,13 @@ from esphome_device_builder.helpers.json import loads
 
 _DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / "definitions"
 
-# A typical mid-sized real board manifest (~160 lines, ESP32-C3
-# DevKit + featured_components + tags + pins). Exercises every
-# ``_load_*`` helper the per-board path runs in production.
-# Cached as bytes so the benchmark loop measures parse + build,
-# not the cold disk read.
+# A real board manifest picked to exercise *every* ``_load_*``
+# helper the per-board path runs in production: hardware,
+# pins, and featured_components are all populated. Cached as
+# bytes so the benchmark loop measures parse + build, not the
+# cold disk read.
 _BOARD_MANIFEST_BYTES = (
-    _DEFINITIONS / "boards" / "seeed-xiao-esp32c3" / "manifest.yaml"
+    _DEFINITIONS / "boards" / "unexpectedmaker_feathers3d" / "manifest.yaml"
 ).read_bytes()
 
 # A representative component dict from the live catalog. Picked
@@ -88,7 +88,19 @@ def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
     per-iteration cost we already cover here, and benchmarking
     the walk would re-pay disk I/O on every iteration.
     """
-    board_id = "seeed-xiao-esp32c3"
+    board_id = "unexpectedmaker_feathers3d"
+
+    # Smoke-validate the per-board pipeline ONCE outside the
+    # benchmark loop so a refactor that turns ``_load_pin`` /
+    # ``_load_featured_component`` into a no-op still fails the
+    # test (instead of CodSpeed reporting a "speedup" against
+    # nothing). Asserting *inside* @benchmark would inflate the
+    # per-iteration cost the benchmark exists to measure. Counts
+    # pinned to the fixture's current shape — update both if the
+    # fixture board grows or shrinks an entry.
+    _smoke = yaml.safe_load(_BOARD_MANIFEST_BYTES)
+    assert len([_load_pin(p, board_id) for p in _smoke.get("pins", [])]) == 4
+    assert len([_load_featured_component(fc) for fc in _smoke.get("featured_components", [])]) == 5
 
     @benchmark
     def run() -> None:
@@ -114,6 +126,14 @@ def test_load_one_component_entry(benchmark: BenchmarkFixture) -> None:
     ``config_entries`` exercise the ``_load_config_entry``
     recursion that's the bulk of the per-component cost.
     """
+    # Validate the build path ONCE outside the loop so a refactor
+    # that stubs ``_load_config_entry`` to ``return None`` fails
+    # the test. Asserting inside @benchmark would be a 30%+
+    # overhead on a 500ns per-iteration cost — the loop body
+    # stays clean.
+    _smoke = _load_component(_SAMPLE_COMPONENT)
+    assert _smoke.id == "sensor.dht"
+    assert len(_smoke.config_entries) == 7
 
     @benchmark
     def run() -> None:
