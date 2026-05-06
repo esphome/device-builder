@@ -317,9 +317,9 @@ def config_has_top_level_block(config: dict | None, key: str) -> bool:
 
 def parse_esphome_meta(  # noqa: PLR0912
     yaml_content: str,
-) -> tuple[str | None, str | None, str | None]:
+) -> tuple[str | None, str | None, str | None, str | None]:
     """
-    Parse the top-level ``esphome:`` block for ``(name, friendly_name, comment)``.
+    Parse the top-level ``esphome:`` block for ``(name, friendly_name, comment, area)``.
 
     Returns ``None`` for any field that isn't present in the YAML so
     callers can distinguish "key absent" (fall through to storage) from
@@ -340,6 +340,7 @@ def parse_esphome_meta(  # noqa: PLR0912
     name: str | None = None
     friendly_name: str | None = None
     comment: str | None = None
+    area: str | None = None
     substitutions: dict[str, str] = {}
     current_block: str | None = None
 
@@ -354,7 +355,7 @@ def parse_esphome_meta(  # noqa: PLR0912
         if stripped.startswith("#") or not stripped:
             continue
         if current_block == "esphome":
-            for field in ("name", "friendly_name", "comment"):
+            for field in ("name", "friendly_name", "comment", "area"):
                 prefix = f"{field}:"
                 if stripped.startswith(prefix):
                     value = _parse_inline_value(stripped[len(prefix) :])
@@ -362,8 +363,10 @@ def parse_esphome_meta(  # noqa: PLR0912
                         name = value
                     elif field == "friendly_name":
                         friendly_name = value
-                    else:
+                    elif field == "comment":
                         comment = value
+                    else:
+                        area = value
                     break
         else:  # current_block == "substitutions"
             sub_key, sep, sub_raw = stripped.partition(":")
@@ -374,8 +377,9 @@ def parse_esphome_meta(  # noqa: PLR0912
         name = _resolve_substitutions(name, substitutions)
         friendly_name = _resolve_substitutions(friendly_name, substitutions)
         comment = _resolve_substitutions(comment, substitutions)
+        area = _resolve_substitutions(area, substitutions)
 
-    return name, friendly_name, comment
+    return name, friendly_name, comment, area
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +443,7 @@ def load_device_from_storage(
         yaml_content = path.read_text(encoding="utf-8")
     except OSError:
         yaml_content = ""
-    yaml_name, yaml_friendly, yaml_comment = parse_esphome_meta(yaml_content)
+    yaml_name, yaml_friendly, yaml_comment, yaml_area = parse_esphome_meta(yaml_content)
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
     # YAML would miss configs that pull the api block in via include
@@ -469,6 +473,10 @@ def load_device_from_storage(
 
     storage_comment = storage.comment if storage else None
     comment = yaml_comment if yaml_comment is not None else storage_comment
+
+    # ``esphome.area`` only lives in the YAML — StorageJSON doesn't carry
+    # it, so there's no fallback. Empty string when absent.
+    area = yaml_area or ""
 
     yaml_mtime = path.stat().st_mtime if path.exists() else None
     bin_mtime: float | None = None
@@ -561,6 +569,7 @@ def load_device_from_storage(
         friendly_name=friendly_name,
         configuration=filename,
         comment=comment,
+        area=area,
         board_id=board_id,
         target_platform=target_platform,
         # StorageJSON only exists after a successful compile, so a

@@ -44,6 +44,11 @@ class Device(DataClassORJSONMixin):
     friendly_name: str
     configuration: str  # filename (e.g. "my_device.yaml")
     comment: str | None = None
+    # Optional ``esphome.area`` from the YAML — a free-form room /
+    # location label (Home Assistant uses the same key as a device-area
+    # hint). Empty string when the YAML doesn't carry an ``area:`` line.
+    # Surfaced in the dashboard's drawer and as an opt-in table column.
+    area: str = ""
     board_id: str = ""
     target_platform: str = ""
     address: str = ""  # mDNS hostname from StorageJSON (e.g. "my_device.local")

@@ -2407,7 +2407,7 @@ class DevicesController:
             except OSError:
                 _LOGGER.debug("Failed to read archived YAML %s", path, exc_info=True)
                 continue
-            name, friendly_name, comment = parse_esphome_meta(content)
+            name, friendly_name, comment, _ = parse_esphome_meta(content)
             if not name or not friendly_name or comment is None:
                 storage = StorageJSON.load(ext_storage_path(path.name))
                 if storage is not None:

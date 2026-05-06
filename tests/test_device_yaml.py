@@ -69,7 +69,12 @@ esphome:
   friendly_name: My Device
   comment: A useful little box
 """
-    assert parse_esphome_meta(yaml_content) == ("my-device", "My Device", "A useful little box")
+    assert parse_esphome_meta(yaml_content) == (
+        "my-device",
+        "My Device",
+        "A useful little box",
+        None,
+    )
 
 
 def test_parse_meta_missing_keys_return_none() -> None:
@@ -78,7 +83,7 @@ def test_parse_meta_missing_keys_return_none() -> None:
 esphome:
   name: my-device
 """
-    assert parse_esphome_meta(yaml_content) == ("my-device", None, None)
+    assert parse_esphome_meta(yaml_content) == ("my-device", None, None, None)
 
 
 def test_parse_meta_resolves_dollar_substitution() -> None:
@@ -90,7 +95,7 @@ esphome:
   name: living-room-lamp
   friendly_name: $friendly_name
 """
-    _, friendly_name, _ = parse_esphome_meta(yaml_content)
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
     assert friendly_name == "Living Room Lamp"
 
 
@@ -103,7 +108,7 @@ esphome:
   name: kitchen
   friendly_name: ${friendly_name}
 """
-    _, friendly_name, _ = parse_esphome_meta(yaml_content)
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
     assert friendly_name == "Kitchen"
 
 
@@ -115,7 +120,7 @@ substitutions:
 esphome:
   friendly_name: "${room} Lamp"
 """
-    _, friendly_name, _ = parse_esphome_meta(yaml_content)
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
     assert friendly_name == "Bedroom Lamp"
 
 
@@ -127,7 +132,7 @@ esphome:
 substitutions:
   friendly_name: "Office"
 """
-    _, friendly_name, _ = parse_esphome_meta(yaml_content)
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
     assert friendly_name == "Office"
 
 
@@ -139,7 +144,7 @@ substitutions:
 esphome:
   friendly_name: $missing
 """
-    _, friendly_name, _ = parse_esphome_meta(yaml_content)
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
     assert friendly_name == "$missing"
 
 
@@ -152,7 +157,7 @@ esphome:
   name: well
   comment: "${area} sensor"
 """
-    _, _, comment = parse_esphome_meta(yaml_content)
+    _, _, comment, _ = parse_esphome_meta(yaml_content)
     assert comment == "Outside sensor"
 
 
@@ -171,7 +176,7 @@ esphome:
   name: well
   comment: ${comment}
 """
-    _, _, comment = parse_esphome_meta(yaml_content)
+    _, _, comment, _ = parse_esphome_meta(yaml_content)
     assert comment == "Outside, Well | Irrigation A"
 
 
@@ -187,7 +192,7 @@ esphome:
 """
     # Should return without hanging; the exact stuck value is irrelevant
     # — what matters is that the resolver terminates safely.
-    _, friendly_name, _ = parse_esphome_meta(yaml_content)
+    _, friendly_name, _, _ = parse_esphome_meta(yaml_content)
     assert friendly_name in {"${a}", "${b}"}
 
 
@@ -360,7 +365,7 @@ esphome:
   name: my-device
   comment: Hand-built controller
 """
-    name, friendly_name, comment = parse_esphome_meta(yaml_content)
+    name, friendly_name, comment, _ = parse_esphome_meta(yaml_content)
     assert name == "my-device"
     assert friendly_name is None
     assert comment == "Hand-built controller"
@@ -380,10 +385,52 @@ esphome:
   # friendly_name: this is just a comment, ignore me
   comment: real comment
 """
-    name, friendly_name, comment = parse_esphome_meta(yaml_content)
+    name, friendly_name, comment, _ = parse_esphome_meta(yaml_content)
     assert name == "my-device"
     assert friendly_name is None  # comment line wasn't picked up
     assert comment == "real comment"
+
+
+# ----------------------------------------------------------------------
+# parse_esphome_meta — area field
+# ----------------------------------------------------------------------
+
+
+def test_parse_meta_area_field() -> None:
+    """``esphome.area`` is captured alongside the other meta fields."""
+    yaml_content = """
+esphome:
+  name: kitchen-lamp
+  friendly_name: Kitchen Lamp
+  area: Kitchen
+"""
+    name, friendly_name, _, area = parse_esphome_meta(yaml_content)
+    assert name == "kitchen-lamp"
+    assert friendly_name == "Kitchen Lamp"
+    assert area == "Kitchen"
+
+
+def test_parse_meta_area_absent_returns_none() -> None:
+    """Without an ``area:`` line, ``area`` is ``None`` (not empty string)."""
+    yaml_content = """
+esphome:
+  name: my-device
+"""
+    *_, area = parse_esphome_meta(yaml_content)
+    assert area is None
+
+
+def test_parse_meta_area_resolves_substitution() -> None:
+    """Substitutions referenced from ``area:`` resolve like the other fields."""
+    yaml_content = """
+substitutions:
+  room: "Living Room"
+esphome:
+  name: lamp
+  area: ${room}
+"""
+    *_, area = parse_esphome_meta(yaml_content)
+    assert area == "Living Room"
 
 
 # ----------------------------------------------------------------------
