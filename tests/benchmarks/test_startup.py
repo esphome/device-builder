@@ -2,9 +2,8 @@
 
 ``DeviceBuilder.start()`` blocks on two synchronous catalog loads
 before the first WS frame can be served: ``BoardCatalog.load()``
-deserializes the pre-generated ``definitions/boards.json`` via
-``orjson`` + mashumaro (~30 ms locally for 492 boards);
-``ComponentCatalog.load()`` decodes the ~20 MB pre-generated
+deserializes ``definitions/boards.json`` via ``orjson`` +
+mashumaro; ``ComponentCatalog.load()`` decodes the ~20 MB
 ``definitions/components.json`` and instantiates ~900
 ``ComponentCatalogEntry`` objects. Together they account for the
 bulk of the wall-time gap a user feels comparing the new
@@ -12,18 +11,10 @@ dashboard's startup against the legacy Tornado one — and on
 constrained hardware (HA Green) the absolute number runs into
 tens of seconds.
 
-Each benchmark below measures **one unit of work** that the
-production loaders multiply across every entry — one
-``ComponentCatalogEntry`` build, one full ``BoardCatalogResponse``
-deserialize (the latter is one orjson decode + one mashumaro
-``from_dict`` walk that recurses into all 492 boards). That keeps
-the per-iteration cost in the microsecond / millisecond range
-CodSpeed's simulation (callgrind) mode tolerates.
-
-The per-board YAML parse benchmark is retained because
-``script/sync_boards.py`` still exercises that path at sync time —
-a regression in the libyaml loader chain or the per-board
-``_load_*`` helpers would land silently otherwise.
+The per-board YAML parse benchmark covers ``script/sync_boards.py``
+rather than the runtime path — a regression in the libyaml loader
+chain or the per-board ``_load_*`` helpers would land silently
+otherwise.
 
 The fixture inputs are pre-loaded once at module-collection time
 (real bytes from the bundled ``definitions/`` tree) so disk I/O
@@ -85,14 +76,9 @@ _SAMPLE_COMPONENT = next(
 def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
     """Pin the per-board parse cost — the unit ``script/sync_boards.py`` repeats ~500x.
 
-    Production no longer walks the YAML manifests at startup
-    (see ``test_load_board_catalog_json`` below for that path),
-    but ``script/sync_boards.py`` still does — this is the unit
-    cost the sync script multiplies across every manifest when
-    regenerating ``boards.json``. The sync runs in CI and on
-    every PR that touches a manifest, so a per-file regression
-    still matters even though it no longer hits dashboard
-    startup directly.
+    The sync runs in CI and on every PR that touches a manifest,
+    so a per-file regression compounds across the catalog and
+    extends the round-trip diff check.
 
     Run the YAML parse + every ``_load_*`` helper inline rather
     than calling ``build_board_catalog_from_manifests`` itself —
@@ -158,22 +144,18 @@ def test_load_one_component_entry(benchmark: BenchmarkFixture) -> None:
 
 
 def test_load_board_catalog_json(benchmark: BenchmarkFixture) -> None:
-    """Pin the production ``BoardCatalog.load()`` cost — one mashumaro deserialize.
+    """Pin ``BoardCatalog.load()`` cost — one mashumaro ``from_dict`` walk.
 
-    After issue #368, the dashboard reads the pre-generated
-    ``definitions/boards.json`` at startup instead of walking
-    ~500 manifest YAMLs. The cost is one ``orjson.loads`` (already
-    paid once at module-collection time, so excluded from the
-    sample) plus one ``BoardCatalogResponse.from_dict`` walk that
-    instantiates 492 ``BoardCatalogEntry`` objects and all their
-    nested dataclasses (pins, hardware, featured components,
-    presets). A per-board regression in mashumaro's union dispatch
-    or any of the model defaults would compound across the catalog
-    just like the YAML loader regressions used to.
+    Measures the ``BoardCatalogResponse.from_dict`` recursion that
+    instantiates every ``BoardCatalogEntry`` and its nested
+    dataclasses (pins, hardware, featured components, presets) —
+    the bulk of dashboard startup catalog work. The ``orjson.loads``
+    decode is paid once at module-collection time and excluded from
+    the sample.
     """
-    # Smoke check: deserialize once outside the loop so a refactor
-    # that broke ``from_dict`` would surface here rather than via a
-    # fast-but-empty catalog reading as a CodSpeed "speedup".
+    # Deserialize once outside the loop so a refactor that broke
+    # ``from_dict`` surfaces here rather than as a fast-but-empty
+    # catalog reading as a CodSpeed "speedup".
     smoke = BoardCatalogResponse.from_dict(_BOARDS_JSON_DICT)
     assert len(smoke.boards) > 100  # actual count is 492; floor lets test survive growth
 

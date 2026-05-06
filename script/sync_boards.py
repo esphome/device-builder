@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 """
-Generate definitions/boards.json from the per-board manifest YAMLs.
+Generate ``definitions/boards.json`` from the per-board manifest YAMLs.
 
-The board catalog ships as a checked-in JSON artefact so the dashboard
-doesn't have to walk and parse ~500 ``manifest.yaml`` files at startup.
-``yaml.safe_load`` is pure-Python and dominates startup on low-powered
-hosts (>60 s on HA Green); ``orjson.loads`` of the same data is roughly
-two orders of magnitude faster.
-
-The YAML manifests under ``definitions/boards/<id>/manifest.yaml``
-remain the human-editable source of truth — this script is the only
-thing that should write ``boards.json``.
+The YAML manifests under ``definitions/boards/<id>/manifest.yaml`` are
+the human-editable source of truth; this script is the only thing
+that writes ``boards.json``.
 
 Usage
 -----
@@ -43,15 +37,13 @@ _OUTPUT_FILE = _REPO_ROOT / "esphome_device_builder" / "definitions" / "boards.j
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-    # ``strict=True`` makes a single bad manifest abort the whole sync.
-    # In production the runtime loader reads the prebuilt JSON which has
-    # already passed CI, so loud failure here is the right trade-off.
+    # Abort the sync on the first bad manifest — partial output here
+    # would silently ship a board-shaped hole to every install.
     catalog = build_board_catalog_from_manifests(strict=True)
 
     payload = catalog.to_dict()
     # ``OPT_SORT_KEYS`` keeps the output deterministic so manifest edits
-    # produce minimal diffs in code review. ``OPT_APPEND_NEWLINE``
-    # mirrors ``script/sync_components.py`` for POSIX-friendly files.
+    # produce minimal diffs in code review.
     _OUTPUT_FILE.write_bytes(
         orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
     )

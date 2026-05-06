@@ -140,11 +140,9 @@ def test_build_from_manifests_skips_broken_by_default(
 ) -> None:
     """A manifest that fails to parse is skipped with a logged exception.
 
-    Pin the outer ``except`` in ``build_board_catalog_from_manifests``
-    when called without ``strict=True``. A single broken manifest must
-    not crash a YAML walk that's serving as the runtime fallback for a
-    source install — the user's other working boards still need to
-    render.
+    Without ``strict=True`` a broken board must not abort the walk —
+    the surviving manifests still need to render in any consumer that
+    invokes the YAML walker directly (tests, ad-hoc scripts).
     """
     fake_boards = _write_fake_boards(tmp_path)
     monkeypatch.setattr(defs, "_BOARDS_DIR", fake_boards)
@@ -171,13 +169,7 @@ def test_build_from_manifests_skips_broken_by_default(
 def test_build_from_manifests_strict_raises_on_broken(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``strict=True`` re-raises the first per-board failure.
-
-    Pins the sync-script behaviour: ``script/sync_boards.py`` runs
-    with ``strict=True`` so a broken manifest aborts the regeneration
-    instead of silently dropping the board from the prebuilt
-    ``boards.json`` and shipping the gap to users.
-    """
+    """``strict=True`` re-raises the first per-board failure."""
     fake_boards = _write_fake_boards(tmp_path)
     monkeypatch.setattr(defs, "_BOARDS_DIR", fake_boards)
     monkeypatch.setattr(defs, "_GENERIC_DIR", fake_boards / "_generic")
@@ -189,13 +181,7 @@ def test_build_from_manifests_strict_raises_on_broken(
 def test_load_board_catalog_warns_when_json_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Missing ``boards.json`` returns an empty catalog and logs a warning.
-
-    Mirrors ``ComponentCatalog.load`` semantics: source installs that
-    haven't run ``script/sync_boards.py`` see a clear log line instead
-    of an opaque empty UI, and production can't crash on a malformed /
-    missing artefact.
-    """
+    """Missing ``boards.json`` returns an empty catalog and logs a warning."""
     monkeypatch.setattr(defs, "_BOARDS_JSON", tmp_path / "missing-boards.json")
 
     with caplog.at_level(logging.WARNING):
@@ -206,14 +192,7 @@ def test_load_board_catalog_warns_when_json_missing(
 
 
 def test_load_board_catalog_reads_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``load_board_catalog`` deserializes the prebuilt JSON via mashumaro.
-
-    Round-trip a tiny fixture through ``BoardCatalogResponse.to_dict``
-    + ``orjson.dumps`` + ``load_board_catalog``. Catches any
-    deserialization regression (enum coercion, nested dataclass
-    handling, missing-field defaults) at test time rather than
-    startup.
-    """
+    """``load_board_catalog`` deserializes the prebuilt JSON via mashumaro."""
     fixture = BoardCatalogResponse(
         boards=[
             BoardCatalogEntry(
@@ -233,3 +212,20 @@ def test_load_board_catalog_reads_json(tmp_path: Path, monkeypatch: pytest.Monke
 
     assert [b.id for b in result.boards] == ["round-trip"]
     assert result.boards[0].esphome.platform is Platform.ESP32
+
+
+def test_load_board_catalog_handles_corrupt_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Malformed ``boards.json`` returns an empty catalog instead of crashing startup."""
+    json_path = tmp_path / "boards.json"
+    json_path.write_bytes(b"{not valid json")
+    monkeypatch.setattr(defs, "_BOARDS_JSON", json_path)
+
+    with caplog.at_level(logging.ERROR):
+        result = load_board_catalog()
+
+    assert result.boards == []
+    assert any(
+        "boards.json" in rec.getMessage() for rec in caplog.records if rec.levelname == "ERROR"
+    )

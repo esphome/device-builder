@@ -69,10 +69,9 @@ jobs:
         run: python script/validate_definitions.py
 
       - name: Regenerate boards.json
-        # ``boards.json`` is the runtime catalog the dashboard reads at
-        # startup. The PR opened below needs to ship it alongside the
-        # imported manifests, otherwise a merge would land new YAMLs
-        # without making the dashboard aware of them.
+        # The opened PR needs to ship the regenerated catalog
+        # alongside the imported manifests — without this, a merge
+        # would land new YAMLs the dashboard never sees.
         run: python script/sync_boards.py
 
       - name: Detect device-catalog changes + summarise diff
