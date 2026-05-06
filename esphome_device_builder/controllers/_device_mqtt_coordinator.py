@@ -17,6 +17,7 @@ from typing import Any
 
 import yaml
 
+from ..helpers.yaml import FastestSafeLoader
 from ..models import Device
 from ._device_mqtt_monitor import (
     DeviceMqttMonitor,
@@ -142,8 +143,15 @@ class _SecretRef:
         self.name = name
 
 
-class _TolerantYamlLoader(yaml.SafeLoader):
-    """SafeLoader that captures ``!secret`` and ignores other custom tags."""
+class _TolerantYamlLoader(FastestSafeLoader):
+    """SafeLoader that captures ``!secret`` and ignores other custom tags.
+
+    Subclasses ``FastestSafeLoader`` (libyaml-backed CSafeLoader
+    when available) so the per-device MQTT-block parse pays the
+    fast path. The custom-constructor mechanism is identical
+    between the C and pure-Python loaders, so the ``!secret`` /
+    unknown-tag handlers wired below work either way.
+    """
 
 
 def _construct_secret(loader: yaml.Loader, node: yaml.ScalarNode) -> _SecretRef:
@@ -203,7 +211,10 @@ def _load_secrets(config_dir: Path) -> dict[str, Any]:
         return {}
     try:
         with secrets_path.open("r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+            # ``FastestSafeLoader`` is libyaml's CSafeLoader — the C
+            # equivalent of SafeLoader. Same noqa rationale as the
+            # ``_TolerantYamlLoader`` call above.
+            data = yaml.load(f, Loader=FastestSafeLoader)  # noqa: S506
     except yaml.YAMLError:
         _LOGGER.warning("Could not parse secrets.yaml — MQTT broker secrets unavailable")
         return {}

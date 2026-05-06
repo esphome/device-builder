@@ -25,6 +25,7 @@ from pathlib import Path
 
 import yaml
 
+from ..helpers.yaml import FastestSafeLoader
 from ..models import (
     BoardCatalogEntry,
     BoardCatalogResponse,
@@ -230,7 +231,18 @@ def load_board_catalog() -> BoardCatalogResponse:
 
     for manifest in sorted(_BOARDS_DIR.glob("*/manifest.yaml")):
         try:
-            data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+            # ``FastestSafeLoader`` is libyaml's CSafeLoader when
+            # PyYAML's C extension is present (~7-8x faster on the
+            # ~500-file catalog walk that dominates startup, see
+            # issue #368). Falls back to the pure-Python SafeLoader
+            # only if the C extension is unavailable. CSafeLoader is
+            # the C equivalent of SafeLoader (no arbitrary-instantiation
+            # surface), so the S506 ban on non-safe_load is a false
+            # positive here.
+            data = yaml.load(
+                manifest.read_text(encoding="utf-8"),
+                Loader=FastestSafeLoader,  # noqa: S506
+            )
             board_dir = manifest.parent
             board_id = board_dir.name
 
