@@ -590,6 +590,19 @@ class DevicesController:
                 ErrorCode.INVALID_ARGS, "label_ids must be a list of label id strings"
             )
 
+        # Verify the device exists *before* writing the sidecar — a
+        # ``configuration`` that passes ``rel_path`` but isn't tracked
+        # by the scanner (typo, deleted YAML) would otherwise leave an
+        # orphaned ``.device-builder.json`` entry pinning labels to a
+        # non-existent device. The scanner's name index is the
+        # authoritative "what's actually on disk" view.
+        device = next(
+            (d for d in self._scanner.devices if d.configuration == configuration),
+            None,
+        )
+        if device is None:
+            raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
+
         config_dir = self._db.settings.config_dir
 
         def _persist() -> None:
@@ -601,13 +614,15 @@ class DevicesController:
         await asyncio.to_thread(_persist)
         await self._scanner.reload(configuration)
 
-        device = next(
+        # Re-fetch from the scanner — ``reload`` replaces the Device
+        # in the index, so the reference held above is stale.
+        refreshed = next(
             (d for d in self._scanner.devices if d.configuration == configuration),
             None,
         )
-        if device is None:
+        if refreshed is None:
             raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
-        return device
+        return refreshed
 
     @api_command("devices/rename")
     async def rename_device(

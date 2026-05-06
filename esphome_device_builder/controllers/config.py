@@ -568,14 +568,20 @@ def set_device_labels(config_dir: Path, configuration: str, label_ids: list[str]
     dangling reference. ``label_ids`` is treated as a set in
     semantics — duplicate IDs in the input are deduplicated while
     preserving first-seen order. Pass ``[]`` to clear all
-    assignments. Raises :class:`ValueError` listing unknown IDs
-    when validation fails (caller translates to
-    ``CommandError(INVALID_ARGS)`` at the API surface).
+    assignments. Raises :class:`ValueError` for non-string entries
+    in *label_ids* and for ids that aren't in the catalog (caller
+    translates to ``CommandError(INVALID_ARGS)`` at the API surface).
     """
     deduped: list[str] = []
     seen: set[str] = set()
     for lid in label_ids:
-        if not isinstance(lid, str) or lid in seen:
+        if not isinstance(lid, str):
+            # Silent skipping would let a payload of all-bad types
+            # become an effective ``[]`` (clear-all) write — surprising
+            # and user-hostile. Surface a clear error instead so the
+            # frontend can fix the payload.
+            raise ValueError(f"label_ids must be strings, got {type(lid).__name__}: {lid!r}")
+        if lid in seen:
             continue
         deduped.append(lid)
         seen.add(lid)
@@ -604,27 +610,40 @@ def set_device_labels(config_dir: Path, configuration: str, label_ids: list[str]
             entry.pop("labels", None)
 
 
-def delete_label_cascade(config_dir: Path, label_id: str) -> set[str]:
+def delete_label_cascade(config_dir: Path, label_id: str) -> tuple[bool, set[str]]:
     """
     Drop *label_id* from the catalog and every device entry.
 
-    Performed inside a single ``metadata_transaction`` so a
-    concurrent ``set_device_metadata`` writer can't reintroduce the
-    deleted ID into a fresh device entry. Returns the set of
-    configuration filenames whose ``labels`` list changed — callers
-    use this to schedule a per-device scanner reload so live
-    ``Device`` objects pick up the cleaned state without having to
-    wait for the next disk-driven scan.
+    Performed inside a single ``metadata_transaction`` so the
+    existence check, catalog removal, and per-device cleanup all
+    share one lock — a concurrent writer can't reintroduce the
+    deleted ID, and the existence check works against the *raw*
+    on-disk dict so a corrupt catalog entry (one that
+    ``Label.from_dict`` would skip) is still removable.
+
+    Returns a tuple ``(found, affected)`` where *found* is ``True``
+    when the catalog actually contained an entry with this id (so
+    the caller can raise ``NOT_FOUND`` otherwise) and *affected* is
+    the set of configuration filenames whose ``labels`` list
+    changed — callers use this to schedule a per-device scanner
+    reload so live ``Device`` objects pick up the cleaned state
+    without having to wait for the next disk-driven scan.
     """
     affected: set[str] = set()
+    found = False
     with metadata_transaction(config_dir) as data:
         existing = data.get(_LABELS_KEY)
         if isinstance(existing, list):
-            data[_LABELS_KEY] = [
-                entry
-                for entry in existing
-                if not (isinstance(entry, dict) and entry.get("id") == label_id)
-            ]
+            new_catalog: list[Any] = []
+            for entry in existing:
+                if isinstance(entry, dict) and entry.get("id") == label_id:
+                    found = True
+                    continue
+                new_catalog.append(entry)
+            if found:
+                data[_LABELS_KEY] = new_catalog
+        if not found:
+            return False, set()
         for filename, entry in data.items():
             if filename.startswith("_") or not isinstance(entry, dict):
                 continue
@@ -637,7 +656,7 @@ def delete_label_cascade(config_dir: Path, label_id: str) -> set[str]:
             else:
                 entry.pop("labels", None)
             affected.add(filename)
-    return affected
+    return True, affected
 
 
 # ---------------------------------------------------------------------------

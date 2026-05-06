@@ -240,6 +240,66 @@ async def test_set_labels_rejects_non_list_label_ids(
 
 
 @pytest.mark.asyncio
+async def test_set_labels_rejects_non_string_label_id(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A non-string item inside ``label_ids`` raises ``INVALID_ARGS``.
+
+    Silent skipping at the persistence layer would let a payload of
+    all-bad types degrade to an effective ``[]`` (clear-all) write.
+    The controller surfaces the validation error from
+    ``set_device_labels`` cleanly.
+    """
+    controller = make_controller(tmp_path)
+    _attach_reloading_scanner(controller, tmp_path, _make_device())
+    await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.set_labels(
+            configuration="kitchen.yaml",
+            label_ids=["lbl-a", 42],  # type: ignore[list-item]
+        )
+
+    assert exc_info.value.code is ErrorCode.INVALID_ARGS
+
+    # No partial / empty write happened.
+    meta = await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml")
+    assert "labels" not in meta
+
+
+@pytest.mark.asyncio
+async def test_set_labels_rejects_unknown_configuration(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A ``configuration`` not in the scanner raises ``NOT_FOUND`` before any write.
+
+    Without this check a typo'd configuration name would still pass
+    ``rel_path`` (no traversal involved) and the persist layer would
+    happily create a new sidecar entry — leaving an orphaned
+    ``.device-builder.json`` row pinning labels to a non-existent
+    device.
+    """
+    controller = make_controller(tmp_path)
+    # Empty scanner devices list — no device matches.
+    scanner = _attach_reloading_scanner(controller, tmp_path, _make_device("kitchen.yaml"))
+    scanner.devices = []  # explicitly empty
+    await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.set_labels(configuration="ghost.yaml", label_ids=["lbl-a"])
+
+    assert exc_info.value.code is ErrorCode.NOT_FOUND
+
+    # No sidecar entry created for the unknown configuration.
+    meta = await asyncio.to_thread(get_device_metadata, tmp_path, "ghost.yaml")
+    assert meta == {}
+    # And no scanner reload was triggered.
+    assert ("reload", "ghost.yaml") not in scanner.calls
+
+
+@pytest.mark.asyncio
 async def test_set_labels_round_trips_through_metadata(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

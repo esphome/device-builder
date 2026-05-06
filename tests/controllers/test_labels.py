@@ -375,6 +375,38 @@ async def test_delete_label_tolerates_devices_controller_absent(tmp_path: Path) 
     assert "labels" not in raw["kitchen.yaml"]
 
 
+@pytest.mark.asyncio
+async def test_delete_label_can_remove_corrupt_catalog_entry(tmp_path: Path) -> None:
+    """A catalog entry that ``Label.from_dict`` would reject is still deletable.
+
+    The existence check runs against the raw on-disk dict inside the
+    cascade transaction, not against decoded ``Label`` instances.
+    Without that, a hand-edited or partially-written entry would be
+    impossible to clean up — ``load_labels`` would skip it (so
+    ``NOT_FOUND``) but it would still occupy a slot in ``_labels``.
+    """
+    (tmp_path / ".device-builder.json").write_bytes(
+        json.dumps(
+            {
+                "_labels": [
+                    {"id": "corrupt"},  # missing ``name`` — Label.from_dict raises
+                    {"id": "good", "name": "Good", "color": None},
+                ]
+            }
+        ).encode()
+    )
+    controller, captured = _make_controller(tmp_path)
+
+    result = await controller.delete_label(label_id="corrupt")
+
+    assert result == {"deleted": True}
+    raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
+    assert [entry["id"] for entry in raw["_labels"]] == ["good"]
+
+    deleted_events = [e for e in captured if e.event_type == EventType.LABEL_DELETED]
+    assert len(deleted_events) == 1
+
+
 # ---------------------------------------------------------------------------
 # Persistence round-trip
 # ---------------------------------------------------------------------------

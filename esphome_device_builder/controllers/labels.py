@@ -191,16 +191,15 @@ class LabelsController:
         affected device after the live ``Device`` reloads from the
         sidecar. Returns ``{"deleted": True}`` on success; raises
         ``NOT_FOUND`` if the id wasn't in the catalog.
+
+        The existence check runs inside ``delete_label_cascade``'s
+        own transaction against the raw on-disk dict, so a corrupt
+        catalog entry (one that wouldn't survive ``Label.from_dict``)
+        is still removable.
         """
         config_dir = self._db.settings.config_dir
 
-        def _verify_and_cascade() -> tuple[bool, set[str]]:
-            existing = load_labels(config_dir)
-            if not any(label.id == label_id for label in existing):
-                return False, set()
-            return True, delete_label_cascade(config_dir, label_id)
-
-        found, affected = await asyncio.to_thread(_verify_and_cascade)
+        found, affected = await asyncio.to_thread(delete_label_cascade, config_dir, label_id)
         if not found:
             raise CommandError(ErrorCode.NOT_FOUND, f"Label {label_id!r} not found")
 

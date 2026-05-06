@@ -941,8 +941,9 @@ def test_delete_label_cascade_drops_label_and_returns_affected(tmp_path: Path) -
     set_device_labels(tmp_path, "garage.yaml", ["x"])
     set_device_labels(tmp_path, "office.yaml", ["y"])
 
-    affected = delete_label_cascade(tmp_path, "x")
+    found, affected = delete_label_cascade(tmp_path, "x")
 
+    assert found is True
     assert affected == {"kitchen.yaml", "garage.yaml"}
     raw = _load_metadata(tmp_path)
     # Catalog drops the deleted label.
@@ -955,10 +956,67 @@ def test_delete_label_cascade_drops_label_and_returns_affected(tmp_path: Path) -
 
 
 def test_delete_label_cascade_when_no_devices_assigned(tmp_path: Path) -> None:
-    """A label with no assignments → empty affected set, label still removed."""
+    """A label with no assignments → ``found=True`` and empty affected set."""
     save_labels(tmp_path, [Label(id="ghost", name="Ghost")])
 
-    affected = delete_label_cascade(tmp_path, "ghost")
+    found, affected = delete_label_cascade(tmp_path, "ghost")
 
+    assert found is True
     assert affected == set()
     assert load_labels(tmp_path) == []
+
+
+def test_delete_label_cascade_unknown_id_reports_not_found(tmp_path: Path) -> None:
+    """Deleting an id that isn't in the catalog returns ``found=False``."""
+    save_labels(tmp_path, [Label(id="known", name="Known")])
+
+    found, affected = delete_label_cascade(tmp_path, "ghost")
+
+    assert found is False
+    assert affected == set()
+    # Existing catalog entry untouched.
+    assert [lbl.id for lbl in load_labels(tmp_path)] == ["known"]
+
+
+def test_delete_label_cascade_removes_corrupt_entry(tmp_path: Path) -> None:
+    """A corrupt catalog entry (missing required fields) is still deletable.
+
+    The existence check works against the raw on-disk dict — not the
+    decoded ``Label`` instances ``load_labels`` returns — so a
+    hand-edited or partially-written entry that ``Label.from_dict``
+    would reject can still be cleaned up via ``delete_label``.
+    """
+    (tmp_path / ".device-builder.json").write_bytes(
+        json.dumps(
+            {
+                "_labels": [
+                    {"id": "corrupt"},  # missing ``name`` — Label.from_dict raises
+                    {"id": "good", "name": "Good", "color": None},
+                ]
+            }
+        ).encode()
+    )
+
+    found, affected = delete_label_cascade(tmp_path, "corrupt")
+
+    assert found is True
+    assert affected == set()
+    # Catalog now carries only the well-formed entry.
+    raw = _load_metadata(tmp_path)
+    assert [entry["id"] for entry in raw["_labels"]] == ["good"]
+
+
+def test_set_device_labels_rejects_non_string_items(tmp_path: Path) -> None:
+    """Non-string items in ``label_ids`` raise ``ValueError``.
+
+    The controller wraps this into ``CommandError(INVALID_ARGS)``.
+    Silent skipping would let a bad payload effectively clear all
+    labels, which is surprising and user-hostile.
+    """
+    save_labels(tmp_path, [Label(id="known", name="Known")])
+
+    with pytest.raises(ValueError, match="label_ids must be strings"):
+        set_device_labels(tmp_path, "kitchen.yaml", ["known", 42])  # type: ignore[list-item]
+
+    # No partial write happened.
+    assert "kitchen.yaml" not in _load_metadata(tmp_path)
