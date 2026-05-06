@@ -30,7 +30,10 @@ if TYPE_CHECKING:
 # would cost us per-error wall-time with no user-visible benefit.
 try:
     FastestSafeLoader: type = yaml.CSafeLoader
-except AttributeError:
+except AttributeError:  # pragma: no cover
+    # PyYAML wheels on every platform we ship to bundle libyaml,
+    # so the fallback is never exercised in CI; ``# pragma: no
+    # cover`` keeps Codecov honest about the patch-coverage number.
     FastestSafeLoader = yaml.SafeLoader
 
 # Platform categories that use the list-under-platform YAML pattern
@@ -90,7 +93,7 @@ _ENTITY_CATEGORIES = {
 # ---------------------------------------------------------------------------
 
 
-def rewrite_esphome_name(yaml: str, old_name: str, new_name: str) -> str:
+def rewrite_esphome_name(yaml_text: str, old_name: str, new_name: str) -> str:
     """
     Replace ``name:`` under the top-level ``esphome:`` block.
 
@@ -99,7 +102,7 @@ def rewrite_esphome_name(yaml: str, old_name: str, new_name: str) -> str:
     and trailing comments are preserved. Returns the original text
     unchanged when nothing matches so callers can detect a no-op.
     """
-    lines = yaml.splitlines(keepends=True)
+    lines = yaml_text.splitlines(keepends=True)
     in_esphome = False
     changed = False
     for i, line in enumerate(lines):
@@ -125,7 +128,7 @@ def rewrite_esphome_name(yaml: str, old_name: str, new_name: str) -> str:
         lines[i] = f"{indent}name: {new_name}{comment or ''}{ending}"
         changed = True
         break
-    return "".join(lines) if changed else yaml
+    return "".join(lines) if changed else yaml_text
 
 
 def merge_component_yaml(

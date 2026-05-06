@@ -179,9 +179,11 @@ def parse_mqtt_block(
     """
     secrets_map = secrets_map or {}
     try:
-        # _TolerantYamlLoader subclasses SafeLoader; the custom !secret
-        # constructor only emits a marker dataclass, never instantiates
-        # arbitrary types.
+        # _TolerantYamlLoader subclasses FastestSafeLoader (libyaml's
+        # CSafeLoader when available, the pure-Python SafeLoader
+        # otherwise — both are safe). The custom !secret constructor
+        # only emits a marker dataclass, never instantiates arbitrary
+        # types.
         data = yaml.load(yaml_content, Loader=_TolerantYamlLoader)  # noqa: S506
     except yaml.YAMLError:
         return None
