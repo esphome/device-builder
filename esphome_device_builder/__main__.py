@@ -5,15 +5,19 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from contextlib import suppress
 from logging.handlers import RotatingFileHandler
 from typing import TYPE_CHECKING
 
+from colorlog import ColoredFormatter
+
 from .constants import DEFAULT_HOST, DEFAULT_INGRESS_PORT, DEFAULT_PORT, __version__
+from .helpers.logging import activate_log_queue_handler
 
 if TYPE_CHECKING:
     from .controllers.config import DashboardSettings
 
-_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s (%(threadName)s) [%(name)s] %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 _MAX_LOG_SIZE = 5_000_000  # 5 MB
 _LOGGER_NAME = "esphome_device_builder"
@@ -25,15 +29,43 @@ _LOG_LEVELS = {
     "error": logging.ERROR,
 }
 
+_LOG_COLORS = {
+    "DEBUG": "cyan",
+    "INFO": "green",
+    "WARNING": "yellow",
+    "ERROR": "red",
+    "CRITICAL": "red",
+}
+
 
 def _setup_logging(log_level: str, log_file: str | None = None) -> None:
-    """Set up logging with console + optional file handler."""
+    """Set up logging with a coloured console handler and an optional rotating file."""
     level = _LOG_LEVELS.get(log_level.lower(), logging.INFO)
 
-    logging.basicConfig(level=level, format=_FORMAT, datefmt=_DATE_FORMAT)
+    logging.basicConfig(level=level)
+
+    # ``basicConfig`` already seeded a ``StreamHandler`` on the root
+    # logger; swap its plain formatter for one that wraps the message
+    # in per-level ANSI escapes.
+    colorfmt = f"%(log_color)s{_FORMAT}%(reset)s"
+    logging.getLogger().handlers[0].setFormatter(
+        ColoredFormatter(
+            colorfmt,
+            datefmt=_DATE_FORMAT,
+            reset=True,
+            log_colors=_LOG_COLORS,
+        )
+    )
+
+    # Route ``warnings.warn`` through the logging system instead of
+    # raw stderr so the queue handler and our formatter apply.
+    logging.captureWarnings(True)
 
     if log_file:
         file_handler = RotatingFileHandler(log_file, maxBytes=_MAX_LOG_SIZE, backupCount=1)
+        # Fresh log file per process start.
+        with suppress(OSError):
+            file_handler.doRollover()
         file_handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATE_FORMAT))
         logging.getLogger().addHandler(file_handler)
 
@@ -43,6 +75,10 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
     logging.getLogger("asyncio").setLevel(logging.WARNING)
     logging.getLogger("aiohttp").setLevel(logging.WARNING)
     logging.getLogger("zeroconf").setLevel(logging.WARNING)
+
+    # Has to be the last step — handlers added after this run inline
+    # on the calling thread instead of being offloaded to the listener.
+    activate_log_queue_handler()
 
 
 def main() -> None:
