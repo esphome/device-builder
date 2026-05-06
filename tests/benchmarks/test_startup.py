@@ -3,7 +3,7 @@
 ``DeviceBuilder.start()`` blocks on two synchronous catalog loads
 before the first WS frame can be served: ``BoardCatalog.load()``
 walks ~500 hand-curated ``manifest.yaml`` files under
-``definitions/boards/`` and parses each via ``yaml.safe_load``;
+``definitions/boards/`` and parses each via ``FastestSafeLoader``;
 ``ComponentCatalog.load()`` decodes the ~20 MB pre-generated
 ``definitions/components.json`` and instantiates ~900
 ``ComponentCatalogEntry`` objects. Together they account for the
@@ -43,6 +43,7 @@ from esphome_device_builder.definitions import (
     _parse_tags,
 )
 from esphome_device_builder.helpers.json import loads
+from esphome_device_builder.helpers.yaml import FastestSafeLoader
 
 _DEFINITIONS = Path(__file__).resolve().parents[2] / "esphome_device_builder" / "definitions"
 
@@ -74,8 +75,9 @@ def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
     """Pin the per-board parse cost — the unit ``BoardCatalog.load()`` repeats ~500x.
 
     Production walks ``definitions/boards/*/manifest.yaml`` and
-    runs ``yaml.safe_load`` + the chain of ``_load_*`` helpers on
-    each. That per-file work is the dominant startup cost on
+    runs the libyaml-backed ``FastestSafeLoader`` + the chain of
+    ``_load_*`` helpers on each. That per-file work is the
+    dominant startup cost on
     constrained hardware (HA Green, see issue #368) where
     PyYAML's pure-Python parse loop hurts most. A regression here
     multiplies linearly across the full catalog, so a 10%
@@ -98,13 +100,17 @@ def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
     # per-iteration cost the benchmark exists to measure. Counts
     # pinned to the fixture's current shape — update both if the
     # fixture board grows or shrinks an entry.
-    _smoke = yaml.safe_load(_BOARD_MANIFEST_BYTES)
+    # ``FastestSafeLoader`` is what production now uses (see
+    # ``definitions.load_board_catalog``); benchmarking
+    # ``yaml.safe_load`` would silently keep measuring the
+    # pure-Python loader and miss the ~7-8x C-loader speedup.
+    _smoke = yaml.load(_BOARD_MANIFEST_BYTES, Loader=FastestSafeLoader)  # noqa: S506
     assert len([_load_pin(p, board_id) for p in _smoke.get("pins", [])]) == 4
     assert len([_load_featured_component(fc) for fc in _smoke.get("featured_components", [])]) == 5
 
     @benchmark
     def run() -> None:
-        data = yaml.safe_load(_BOARD_MANIFEST_BYTES)
+        data = yaml.load(_BOARD_MANIFEST_BYTES, Loader=FastestSafeLoader)  # noqa: S506
         _load_esphome_config(data["esphome"], board_id)
         _load_hardware(data.get("hardware"), board_id)
         _parse_tags(data.get("tags", []), board_id)
