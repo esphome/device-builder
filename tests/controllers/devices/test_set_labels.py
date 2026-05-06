@@ -64,7 +64,11 @@ class _ReloadingScanner(RecordingScanner):
 
     async def reload(self, filename: str) -> bool:
         self.calls.append(("reload", filename))
-        md = get_device_metadata(self._config_dir, filename)
+        # ``get_device_metadata`` reads ``.device-builder.json`` via
+        # ``Path.read_bytes`` — sync I/O. Hop through a thread the
+        # way the production scanner does so blockbuster on Linux CI
+        # doesn't fault on the inner ``os.path.abspath`` resolve.
+        md = await asyncio.to_thread(get_device_metadata, self._config_dir, filename)
         raw_labels = md.get("labels", [])
         new_labels = (
             [item for item in raw_labels if isinstance(item, str)]
@@ -196,18 +200,18 @@ async def test_set_labels_rejects_path_traversal(
     """
     controller = make_controller(tmp_path)
 
-    # The real ``rel_path`` is what raises; ``make_controller``
-    # stubs it as a passthrough lambda, so wire the production
-    # behaviour back in for this test.
-    def _real_rel_path(configuration: str) -> Path:
-        joined = tmp_path / configuration
-        try:
-            joined.resolve().relative_to(tmp_path.resolve())
-        except ValueError as err:
-            raise CommandError(ErrorCode.INVALID_ARGS, "bad path") from err
-        return joined
+    # The production ``rel_path`` calls ``Path.resolve`` (sync
+    # ``os.path.abspath`` under the hood) — fine in production but
+    # blockbuster on Linux CI faults on it from an async test
+    # context. Mimic the rejection on the same surface (a ``..``
+    # segment is what the production guard ultimately catches via
+    # ``relative_to``) without the blocking syscall.
+    def _strict_rel_path(configuration: str) -> Path:
+        if ".." in Path(configuration).parts or Path(configuration).is_absolute():
+            raise CommandError(ErrorCode.INVALID_ARGS, "bad path")
+        return tmp_path / configuration
 
-    controller._db.settings.rel_path = _real_rel_path
+    controller._db.settings.rel_path = _strict_rel_path
 
     with pytest.raises(CommandError) as exc_info:
         await controller.set_labels(configuration="../escape.yaml", label_ids=[])
