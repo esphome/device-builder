@@ -1821,13 +1821,24 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     is_structural = entry_type == "pin" or bool(references)
     advanced = _classify_advanced(key, required=required, is_structural=is_structural)
 
+    # Default + ``depends_on_component`` first prefer the unconditional
+    # schema value, then fall back to the gated form ``default_with``
+    # produced by ``cv.OnlyWith`` (esphome/esphome#16276). The
+    # ``default_with`` entry pairs the default value with the
+    # component(s) that must be loaded for ESPHome to apply it — same
+    # semantics as ``depends_on_component`` here, just sourced from
+    # the validator instead of the curated ``_COMPONENT_GATED_KEYS``
+    # list. ``default_without`` (``cv.OnlyWithout``) has inverse-gate
+    # semantics that ``depends_on_component`` can't represent today;
+    # left for a follow-up.
+    default_value, gated_component = _extract_default(raw)
     entry: dict[str, Any] = {
         "key": key,
         "type": entry_type,
         "label": _key_to_label(key),
         "description": docs.text or None,
         "required": required,
-        "default_value": _coerce_default(raw.get("default")),
+        "default_value": default_value,
         "options": _build_options(raw),
         "allow_custom_value": False,
         "range": list(_DATA_TYPE_RANGE[data_type]) if data_type in _DATA_TYPE_RANGE else None,
@@ -1836,7 +1847,7 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
         "depends_on": None,
         "depends_on_value": None,
         "depends_on_value_not": None,
-        "depends_on_component": None,
+        "depends_on_component": gated_component,
         "references_component": references,
         "pin_features": _resolve_pin_features(raw) if entry_type == "pin" else [],
         "pin_mode": None,
@@ -1967,6 +1978,42 @@ def _coerce_default(value: Any) -> Any:
         if value.lower() == "false":
             return False
     return value
+
+
+def _extract_default(raw: dict) -> tuple[Any, str | None]:
+    """
+    Resolve the field's default value plus the component (if any) that gates it.
+
+    Three input shapes from the schema bundle:
+
+    1. ``default: "<value>"`` — unconditional default. Returned as
+       ``(<value>, None)``.
+    2. ``default_with: {value, components: [...]}`` —
+       ``cv.OnlyWith`` (esphome/esphome#16276). Default applies only
+       when ALL listed components are loaded. Returned as
+       ``(<value>, components[0])`` — ``depends_on_component`` is a
+       single-string field today; multi-component gates land on the
+       first entry with a warning so the field still gets the
+       default. The frontend's ``depends_on_component`` predicate
+       hides the field when the component isn't configured, which
+       matches ESPHome's runtime "no default applies" behaviour.
+    3. ``default_without: {value, components: [...]}`` —
+       ``cv.OnlyWithout``. Default applies when the component is
+       NOT loaded. ``depends_on_component`` can't model the
+       inverted gate today, so we surface no default for these
+       fields (no regression — same as before #16276 when the
+       schema dropped them entirely). Tracked as a follow-up.
+    """
+    if (gated := raw.get("default_with")) is not None:
+        components = gated.get("components") or []
+        if len(components) > 1:
+            print(
+                f"WARNING: default_with with multiple components "
+                f"{components}; only the first ({components[0]}) "
+                f"will be used as ``depends_on_component``."
+            )
+        return _coerce_default(gated.get("value")), components[0] if components else None
+    return _coerce_default(raw.get("default")), None
 
 
 def _resolve_use_id_reference(raw: dict) -> str | None:
