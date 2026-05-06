@@ -58,7 +58,7 @@ def activate_log_queue_handler() -> None:
     if any(isinstance(h, LoggingQueueHandler) for h in logging.root.handlers):
         return
 
-    simple_queue: queue.SimpleQueue[logging.Handler] = queue.SimpleQueue()
+    simple_queue: queue.SimpleQueue[logging.LogRecord] = queue.SimpleQueue()
     queue_handler = LoggingQueueHandler(simple_queue)
     logging.root.addHandler(queue_handler)
 

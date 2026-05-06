@@ -42,13 +42,15 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
     """Set up logging with a coloured console handler and an optional rotating file."""
     level = _LOG_LEVELS.get(log_level.lower(), logging.INFO)
 
-    logging.basicConfig(level=level)
+    logging.getLogger().setLevel(level)
 
-    # ``basicConfig`` already seeded a ``StreamHandler`` on the root
-    # logger; swap its plain formatter for one that wraps the message
-    # in per-level ANSI escapes.
+    # Install our own ``StreamHandler`` rather than going through
+    # ``basicConfig`` — the latter is a no-op when handlers are
+    # already configured (e.g., under some test runners), which would
+    # leave the colour formatter unattached.
     colorfmt = f"%(log_color)s{_FORMAT}%(reset)s"
-    logging.getLogger().handlers[0].setFormatter(
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(
         ColoredFormatter(
             colorfmt,
             datefmt=_DATE_FORMAT,
@@ -56,6 +58,7 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
             log_colors=_LOG_COLORS,
         )
     )
+    logging.getLogger().addHandler(console_handler)
 
     # Route ``warnings.warn`` through the logging system instead of
     # raw stderr so the queue handler and our formatter apply.
