@@ -579,6 +579,15 @@ _DOC_PREFIX_TYPES: dict[str, str] = {
 # ``"5min"``, ``"1h30s"``. This regex matches that shape.
 _TIME_PERIOD_DEFAULT = re.compile(r"^\d+(\.\d+)?\s*(ms|us|ns|s|min|h|d)(\d+\s*\w+)*$")
 
+# On-the-wire spelling of the schema's UI-hint enum (mirrors
+# upstream esphome's ``cv.Visibility`` ``StrEnum`` values from
+# esphome/esphome#16267). The dumper emits these strings; the
+# catalog consumer compares against them. Two-tier strictness:
+# ``YAML_ONLY`` is strictly stronger than ``ADVANCED``, which is
+# strictly stronger than no setting at all.
+_VISIBILITY_ADVANCED = "advanced"
+_VISIBILITY_YAML_ONLY = "yaml_only"
+
 # Base entity / framework fields that always render under "Advanced" by
 # default — valid but rarely tweaked. Same set as the previous sync.
 _ADVANCED_BASE_KEYS: frozenset[str] = frozenset(
@@ -1647,7 +1656,60 @@ def _extract_config_entries(
     schema = config_schema.get("schema") or {}
     if not schema:
         return []
-    return _convert_config_vars(schema, schema_dir, component_id=component_id)
+    entries = _convert_config_vars(schema, schema_dir, component_id=component_id)
+    # Apply the visibility-cascade rule once at the top of the
+    # tree: a stricter parent forces all descendants at-least
+    # as strict. ``YAML_ONLY`` > ``ADVANCED`` > no setting. The
+    # cascade is at-the-top so nested-NESTED structures get the
+    # full chain of ancestors considered without recursive
+    # bookkeeping inside ``_convert_field``.
+    _apply_visibility_cascade(entries, parent_advanced=False, parent_yaml_only=False)
+    return entries
+
+
+def _apply_visibility_cascade(
+    entries: list[dict],
+    *,
+    parent_advanced: bool,
+    parent_yaml_only: bool,
+) -> None:
+    """In-place push parent strictness onto descendants.
+
+    ``YAML_ONLY`` (mapped to ``hidden=True``) is strictly stronger
+    than ``ADVANCED`` (``advanced=True``), which is strictly
+    stronger than the un-marked default. A child can declare its
+    own setting independently — but the child's *effective*
+    setting after this pass is ``max(parent_chain, self)``.
+
+    The rationale is UX: if a parent block is "advanced", every
+    field inside it is at-least advanced (otherwise the disclosure
+    is leaky — you'd hide the parent header but render a child on
+    the main form). Same one level deeper for ``YAML_ONLY`` — a
+    block hidden from the editor must hide every descendant or
+    the user gets a half-rendered control with no way to set the
+    surrounding context.
+    """
+    for entry in entries:
+        own_advanced = entry.get("advanced", False)
+        own_hidden = entry.get("hidden", False)
+        # Strictness ordering: ``YAML_ONLY`` (``hidden=True``) is
+        # strictly stronger than ``ADVANCED`` (``advanced=True``).
+        # Apply that locally first — a self-hidden entry is also
+        # implicitly advanced — then OR with the parent's
+        # strictness so the cascade pushes both flags down.
+        entry["advanced"] = own_advanced or own_hidden or parent_advanced or parent_yaml_only
+        entry["hidden"] = own_hidden or parent_yaml_only
+        # Recurse into NESTED groups, MAP value templates, and any
+        # other shape that carries inner ``config_entries``. The
+        # child's effective state becomes the parent state for the
+        # next level.
+        inner = entry.get("config_entries")
+        if isinstance(inner, list):
+            _apply_visibility_cascade(
+                inner,
+                parent_advanced=entry["advanced"],
+                parent_yaml_only=entry["hidden"],
+            )
 
 
 def _convert_config_vars(
@@ -1847,29 +1909,26 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     # form even when optional — users almost always want to see what's
     # wired to what.
     is_structural = entry_type == "pin" or bool(references)
-    # Schema-author UI hints from upstream esphome
-    # (esphome/esphome#16267): when the key is *present* on the raw
-    # dict, the schema's value wins over the name-based heuristic —
-    # the field author marked it explicitly, so respect that even if
-    # they marked it ``False`` to override a heuristic that would
-    # otherwise flip it on. The heuristic stays as the fallback for
-    # the long tail of fields the schema doesn't yet annotate; as
-    # more fields opt in upstream, the heuristic rules out of
-    # ``_classify_advanced`` can shrink toward zero.
+    # Schema-author UI hint from upstream esphome
+    # (esphome/esphome#16267): the dumper emits ``"visibility":
+    # "advanced" | "yaml_only"`` for fields whose ``cv.Optional`` /
+    # ``cv.Required`` set ``visibility=Visibility.ADVANCED`` or
+    # ``=Visibility.YAML_ONLY``. Absent → fall back to the name-based
+    # heuristic (the long tail of fields the schema doesn't yet
+    # annotate; as upstream adoption grows the heuristic rules out
+    # of ``_classify_advanced`` can shrink toward zero).
     #
-    # Today the dumper only emits the keys when ``True`` (a
-    # backwards-compat optimisation — absent keys preserve the old
-    # consumer behaviour). Keying off ``in raw`` instead of
-    # truthiness keeps that contract clean: when the upstream
-    # dumper one day emits ``advanced: false`` to express "schema
-    # author explicitly opted out of the advanced section", the
-    # consumer already does the right thing without a follow-up
-    # change here.
-    if "advanced" in raw:
-        advanced = bool(raw["advanced"])
-    else:
-        advanced = _classify_advanced(key, required=required, is_structural=is_structural)
-    yaml_only = bool(raw.get("yaml_only"))
+    # The cascade rule (a stricter parent forces its descendants
+    # at-least as strict) is applied after leaf conversion by
+    # :func:`_apply_visibility_cascade`. This function records the
+    # per-field setting as the schema author wrote it; the cascade
+    # pass walks the resulting tree and pushes parent strictness
+    # down where descendants would otherwise be more visible.
+    schema_visibility = raw.get("visibility")
+    advanced = schema_visibility == _VISIBILITY_ADVANCED or _classify_advanced(
+        key, required=required, is_structural=is_structural
+    )
+    yaml_only = schema_visibility == _VISIBILITY_YAML_ONLY
 
     default_value, gated_component = _extract_default(raw, key=key)
     entry: dict[str, Any] = {
