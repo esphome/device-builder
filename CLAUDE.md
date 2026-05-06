@@ -140,7 +140,7 @@ in case anything has resurfaced.
 - **Deployment modes change the on-disk paths — never hardcode
   them.** Three deployment shapes ship today, and `CORE.data_dir`
   resolves differently in each. Every storage / build-info /
-  binary-bin read MUST go through `ext_storage_path` (or
+  firmware-binary read MUST go through `ext_storage_path` (or
   `CORE.data_dir` directly) rather than reconstructing
   `<config_dir>/.esphome/...`, or the read silently misses the
   file in the addon and the user sees the bug as
