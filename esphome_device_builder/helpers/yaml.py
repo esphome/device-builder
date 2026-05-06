@@ -18,6 +18,16 @@ if TYPE_CHECKING:
 # against upstream lands on the same name. PyYAML wheels ship the
 # C extension on every platform we target; the SafeLoader fallback
 # is for the rare source install against a libyaml-less build.
+#
+# We deliberately do NOT replicate the upstream ``parse_yaml``
+# C-then-pure-Python retry-on-YAMLError pattern. ESPHome surfaces
+# the parse error to the user's terminal and uses the pure-Python
+# loader's readable error message; every device-builder load site
+# either swallows ``yaml.YAMLError`` (mqtt block, secrets file)
+# or catches it inside the outer ``except Exception`` of the
+# board-catalog walk where the manifest is our own internal data
+# linted by ``script/validate_definitions.py``. A double parse
+# would cost us per-error wall-time with no user-visible benefit.
 try:
     FastestSafeLoader: type = yaml.CSafeLoader
 except AttributeError:
