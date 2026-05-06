@@ -15,6 +15,14 @@ repos:
         pass_filenames: false
         files: ^esphome_device_builder/definitions/
         types: [yaml]
+      - id: sync-boards
+        name: regenerate boards.json from manifests
+        entry: python script/sync_boards.py
+        language: python
+        additional_dependencies: [pyyaml, orjson, mashumaro]
+        pass_filenames: false
+        files: ^esphome_device_builder/definitions/boards/.*\.yaml$
+        types: [yaml]
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:

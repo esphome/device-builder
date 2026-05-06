@@ -69,6 +69,15 @@ jobs:
       - name: Validate board / component manifests
         run: python script/validate_definitions.py
 
+      - name: Verify boards.json is in sync with manifests
+        # Belt-and-suspenders for the pre-commit-bypass case. The
+        # script regenerates boards.json from the YAML manifests; the
+        # diff check fails the build if the committed JSON doesn't
+        # match.
+        run: |
+          python script/sync_boards.py
+          git diff --exit-code -- esphome_device_builder/definitions/boards.json
+
       - name: Smoke-test component catalog
         run: python script/check_catalog.py
 

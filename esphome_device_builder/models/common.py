@@ -443,8 +443,14 @@ class FieldPreset(DataClassORJSONMixin):
 
     ``locked`` and ``suggestions`` are mutually exclusive. ``value`` can be
     a primitive, list, or dict — the latter for nested config entries.
+
+    Union member order matters: mashumaro dispatches across the union
+    in declaration order and picks the first variant that successfully
+    deserializes the input. ``list[Any]`` would otherwise win for dict
+    inputs (because ``list(some_dict)`` returns the keys), so
+    ``dict[str, Any]`` must come first.
     """
 
-    value: ConfigPrimitive | list[Any] | dict[str, Any] | None = None
+    value: ConfigPrimitive | dict[str, Any] | list[Any] | None = None
     locked: bool = False
     suggestions: list[ConfigPrimitive] | None = None

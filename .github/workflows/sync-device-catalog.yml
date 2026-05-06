@@ -68,6 +68,13 @@ jobs:
         # JSON Schema and the components.json cross-references.
         run: python script/validate_definitions.py
 
+      - name: Regenerate boards.json
+        # ``boards.json`` is the runtime catalog the dashboard reads at
+        # startup. The PR opened below needs to ship it alongside the
+        # imported manifests, otherwise a merge would land new YAMLs
+        # without making the dashboard aware of them.
+        run: python script/sync_boards.py
+
       - name: Detect device-catalog changes + summarise diff
         id: diff
         run: |
@@ -77,7 +84,7 @@ jobs:
           # script writes untracked manifests that diff would silently miss,
           # so we'd never open a PR. ``git status --porcelain`` covers
           # added / modified / deleted in one go.
-          if [ -z "$(git status --porcelain -- esphome_device_builder/definitions/boards/)" ]; then
+          if [ -z "$(git status --porcelain -- esphome_device_builder/definitions/boards/ esphome_device_builder/definitions/boards.json)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

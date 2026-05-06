@@ -65,8 +65,8 @@ zip-safe = false
 [tool.setuptools.package-data]
 esphome_device_builder = [
   "py.typed",
-  "definitions/boards/*/manifest.yaml",
   "definitions/boards/*/images/*",
+  "definitions/boards.json",
   "definitions/components.json",
 ]
 
