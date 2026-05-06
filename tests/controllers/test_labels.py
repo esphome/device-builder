@@ -97,7 +97,7 @@ async def test_create_label_persists_and_emits_event(tmp_path: Path) -> None:
     assert label.color == "#ff0000"
     assert len(label.id) == 32  # uuid4().hex
 
-    persisted = load_labels(tmp_path)
+    persisted = await asyncio.to_thread(load_labels, tmp_path)
     assert persisted == [label]
 
     label_events = [e for e in captured if e.event_type == EventType.LABEL_CREATED]
@@ -176,7 +176,8 @@ async def test_create_label_unique_name_case_insensitive(tmp_path: Path) -> None
 
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
     # The original entry survives the rejected create.
-    assert [lbl.name for lbl in load_labels(tmp_path)] == ["Kitchen"]
+    persisted = await asyncio.to_thread(load_labels, tmp_path)
+    assert [lbl.name for lbl in persisted] == ["Kitchen"]
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +301,7 @@ async def test_delete_label_removes_from_catalog_and_emits_event(tmp_path: Path)
     result = await controller.delete_label(label_id=created.id)
 
     assert result == {"deleted": True}
-    assert load_labels(tmp_path) == []
+    assert await asyncio.to_thread(load_labels, tmp_path) == []
 
     deleted_events = [e for e in captured if e.event_type == EventType.LABEL_DELETED]
     assert len(deleted_events) == 1
