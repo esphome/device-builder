@@ -25,6 +25,7 @@ back into the live ``Device`` model.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -186,7 +187,8 @@ async def test_create_label_unique_name_case_insensitive(tmp_path: Path) -> None
 @pytest.mark.asyncio
 async def test_list_labels_returns_catalog_in_insertion_order(tmp_path: Path) -> None:
     """Catalog read returns labels in the order they were created."""
-    save_labels(
+    await asyncio.to_thread(
+        save_labels,
         tmp_path,
         [
             Label(id="a", name="Alpha"),
@@ -335,9 +337,9 @@ async def test_delete_label_cascades_through_assigned_devices(tmp_path: Path) ->
 
     a = await controller.create_label(name="Kitchen")
     b = await controller.create_label(name="Garage")
-    set_device_labels(tmp_path, "kitchen.yaml", [a.id, b.id])
-    set_device_labels(tmp_path, "garage.yaml", [a.id])
-    set_device_labels(tmp_path, "office.yaml", [b.id])
+    await asyncio.to_thread(set_device_labels, tmp_path, "kitchen.yaml", [a.id, b.id])
+    await asyncio.to_thread(set_device_labels, tmp_path, "garage.yaml", [a.id])
+    await asyncio.to_thread(set_device_labels, tmp_path, "office.yaml", [b.id])
 
     await controller.delete_label(label_id=a.id)
 
@@ -365,7 +367,7 @@ async def test_delete_label_tolerates_devices_controller_absent(tmp_path: Path) 
     controller, _ = _make_controller(tmp_path)  # devices=None
 
     created = await controller.create_label(name="Kitchen")
-    set_device_labels(tmp_path, "kitchen.yaml", [created.id])
+    await asyncio.to_thread(set_device_labels, tmp_path, "kitchen.yaml", [created.id])
 
     await controller.delete_label(label_id=created.id)
 

@@ -112,7 +112,8 @@ async def test_set_labels_persists_and_reloads(
     make_controller: MakeControllerFactory,
 ) -> None:
     """Happy path: labels land on disk, scanner reload fires, response is fresh."""
-    save_labels(
+    await asyncio.to_thread(
+        save_labels,
         tmp_path,
         [Label(id="lbl-a", name="Alpha"), Label(id="lbl-b", name="Bravo")],
     )
@@ -141,7 +142,7 @@ async def test_set_labels_clear_drops_sidecar_key(
     make_controller: MakeControllerFactory,
 ) -> None:
     """Passing ``[]`` removes the labels field entirely (no empty list left over)."""
-    save_labels(tmp_path, [Label(id="lbl-a", name="Alpha")])
+    await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
 
     controller = make_controller(tmp_path)
     _attach_reloading_scanner(controller, tmp_path, _make_device())
@@ -167,7 +168,7 @@ async def test_set_labels_unknown_id_rejected_without_partial_write(
     refactor that ran reload eagerly would sometimes still fire on
     the failure path.
     """
-    save_labels(tmp_path, [Label(id="known", name="Known")])
+    await asyncio.to_thread(save_labels, tmp_path, [Label(id="known", name="Known")])
 
     controller = make_controller(tmp_path)
     scanner = _attach_reloading_scanner(controller, tmp_path, _make_device())
@@ -249,7 +250,7 @@ async def test_set_labels_round_trips_through_metadata(
     the read side could drift on the labels field's encoding —
     e.g. one writing a tuple, the other expecting a list.
     """
-    save_labels(tmp_path, [Label(id="lbl-a", name="Alpha")])
+    await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
 
     controller = make_controller(tmp_path)
     _attach_reloading_scanner(controller, tmp_path, _make_device())
