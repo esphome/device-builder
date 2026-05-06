@@ -300,6 +300,28 @@ async def test_set_labels_rejects_unknown_configuration(
 
 
 @pytest.mark.asyncio
+async def test_reload_configuration_delegates_to_scanner(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """The public ``reload_configuration`` is a thin pass-through to the scanner.
+
+    Pinned because it's the public seam the labels controller calls
+    into during cascade-on-delete. A future refactor that renamed the
+    scanner method or stopped awaiting it would silently break the
+    cascade path; the assertion captures both the call shape and the
+    return value.
+    """
+    controller = make_controller(tmp_path)
+    # ``RecordingScanner.reload`` records every call and returns its
+    # ``_reload_returns`` flag (defaults to ``True``).
+    result = await controller.reload_configuration("kitchen.yaml")
+
+    assert result is True
+    assert ("reload", "kitchen.yaml") in controller._scanner.calls
+
+
+@pytest.mark.asyncio
 async def test_set_labels_round_trips_through_metadata(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -129,6 +130,23 @@ async def test_create_label_default_color_is_none(tmp_path: Path) -> None:
 @pytest.mark.parametrize("name", ["", "   ", "\t\n"])
 async def test_create_label_rejects_empty_name(tmp_path: Path, name: str) -> None:
     """Empty / whitespace-only names raise ``INVALID_ARGS``."""
+    controller, _ = _make_controller(tmp_path)
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.create_label(name=name)
+
+    assert exc_info.value.code is ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", [123, None, ["bad"], {"bad": True}])
+async def test_create_label_rejects_non_string_name(tmp_path: Path, name: Any) -> None:
+    """Non-string ``name`` payloads raise ``INVALID_ARGS``.
+
+    The WS layer doesn't enforce arg types; the validator has to.
+    Without this guard, ``name.strip()`` would crash with
+    ``AttributeError`` and surface as a generic ``INTERNAL_ERROR``.
+    """
     controller, _ = _make_controller(tmp_path)
 
     with pytest.raises(CommandError) as exc_info:
@@ -374,6 +392,45 @@ async def test_delete_label_tolerates_devices_controller_absent(tmp_path: Path) 
 
     raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
     assert "labels" not in raw["kitchen.yaml"]
+
+
+@pytest.mark.asyncio
+async def test_delete_label_swallows_per_device_reload_failures(tmp_path: Path) -> None:
+    """A reload failure on one device doesn't stop the cascade.
+
+    The cascade transaction has already committed by the time we
+    reach the reload loop, so a transient scanner error (e.g.
+    YAML disappeared between cascade write and reload) is logged
+    and skipped — the next disk-driven scan picks up the cleaned
+    state on its own. Pin: cascade keeps going even when reload
+    raises.
+    """
+    bus = EventBus()
+    captured: list[Event] = []
+    for event_type in EventType:
+        bus.add_listener(event_type, captured.append)
+
+    controller = LabelsController.__new__(LabelsController)
+    controller._db = MagicMock()
+    controller._db.settings.config_dir = tmp_path
+    controller._db.bus = bus
+
+    async def _reload_raises(filename: str) -> bool:
+        raise RuntimeError("scanner failed")
+
+    controller._db.devices = MagicMock()
+    controller._db.devices.reload_configuration = _reload_raises
+
+    created = await controller.create_label(name="Kitchen")
+    await asyncio.to_thread(set_device_labels, tmp_path, "kitchen.yaml", [created.id])
+
+    # Cascade reaches the reload loop and swallows the exception;
+    # ``LABEL_DELETED`` still fires.
+    result = await controller.delete_label(label_id=created.id)
+    assert result == {"deleted": True}
+
+    deleted_events = [e for e in captured if e.event_type == EventType.LABEL_DELETED]
+    assert len(deleted_events) == 1
 
 
 @pytest.mark.asyncio
