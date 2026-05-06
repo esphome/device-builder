@@ -73,16 +73,16 @@ def read_build_info_hash(yaml_path: Path) -> str | None:
     Resolves the ``StorageJSON`` sidecar through ``ext_storage_path``
     so the helper honours ``CORE.data_dir``'s deployment-mode logic:
     ``/data/storage/...`` on the Home Assistant addon, the
-    ``ESPHOME_DATA_DIR`` env var when set, ``<config_dir>/.esphome/
-    storage/...`` otherwise. The earlier hardcoded
-    ``<yaml_dir>/.esphome/...`` path matched only the default mode
-    and silently returned ``None`` on every addon install, so the
-    drawer's Local hash stayed empty and ``compute_has_pending_
-    changes`` flipped the orange dot on for every device. CORE
-    must be initialised by the time this runs — tests that exercise
-    the helper set ``CORE.config_path`` on a tmp_path sentinel so
-    ``data_dir`` resolves into the same fixture tree the storage
-    sidecar was written into.
+    ``ESPHOME_DATA_DIR`` env var when set,
+    ``<config_dir>/.esphome/storage/...`` otherwise. The earlier
+    hardcoded ``<yaml_dir>/.esphome/...`` path matched only the
+    default mode and silently returned ``None`` on every addon
+    install, so the drawer's Local hash stayed empty and
+    ``compute_has_pending_changes`` flipped the orange dot on
+    for every device. CORE must be initialised by the time this
+    runs — tests that exercise the helper set ``CORE.config_path``
+    on a tmp_path sentinel so ``data_dir`` resolves into the same
+    fixture tree the storage sidecar was written into.
     """
     storage = StorageJSON.load(ext_storage_path(yaml_path.name))
     if storage is None or storage.build_path is None:
