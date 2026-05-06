@@ -452,6 +452,55 @@ async def test_apply_presets_drops_non_manifest_fields(
     assert out["rgb_order"] == "GRB"
 
 
+async def test_apply_presets_keeps_user_overridden_optional_field(
+    catalog: ComponentCatalog,
+) -> None:
+    """
+    A deliberate override of an optional field survives the filter.
+
+    The frontend echoes the catalog default for fields the user
+    didn't touch — those are stripped. But a value that differs from
+    the default is real user intent and must ride through, even when
+    the manifest doesn't curate the key.
+    """
+    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_strip")
+    assert record is not None
+    out = _apply_featured_presets(
+        record,
+        {
+            # Catalog default for ``gamma_correct`` is ``"2.8"`` —
+            # 1.5 is a deliberate override and must be kept.
+            "gamma_correct": 1.5,
+            # ``is_rgbw`` defaults to False — flipping to True is an
+            # override.
+            "is_rgbw": True,
+            # ``use_psram`` defaults to True — sending True is just an
+            # echo and gets dropped.
+            "use_psram": True,
+        },
+    )
+    assert out["gamma_correct"] == 1.5
+    assert out["is_rgbw"] is True
+    assert "use_psram" not in out
+
+
+async def test_apply_presets_strips_numeric_default_echo_across_types(
+    catalog: ComponentCatalog,
+) -> None:
+    """
+    Catalog stores numeric defaults as strings; a parsed-scalar echo still matches.
+
+    ``gamma_correct`` is stored in ``components.json`` as the string
+    ``"2.8"``. The frontend submits the parsed float ``2.8`` — the
+    stringified compare bridges the two so the unmodified default is
+    still recognised as noise.
+    """
+    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_strip")
+    assert record is not None
+    out = _apply_featured_presets(record, {"gamma_correct": 2.8})
+    assert "gamma_correct" not in out
+
+
 async def test_apply_presets_keeps_required_field_outside_manifest(
     catalog: ComponentCatalog,
 ) -> None:
