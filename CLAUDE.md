@@ -351,6 +351,37 @@ When changing the sync script or catalog handling, watch for these:
   mock has a `side_effect` that flips the device's field. See
   the `_flip_state` / `_flip` helpers in `tests/test_mdns_*.py`
   for the pattern.
+- **In-place file writes need `esphome.helpers.write_file`,
+  not `Path.write_text`.** Both `Path.write_text` and a plain
+  `open(path, "w")` truncate the destination *before* writing
+  the new bytes — a crash or exception between the truncate and
+  the flush leaves the user with an empty or half-written file.
+  For YAML configs that's unrecoverable; the device's config is
+  gone. `esphome.helpers.write_file` is the canonical helper:
+  stages the new bytes in a `NamedTemporaryFile` in the
+  *destination* directory, then `shutil.move`s into place. The
+  resulting move is atomic only when it can resolve to a same-FS
+  `os.rename` / `os.replace`; cross-filesystem it degrades to
+  copy+delete which is *not* atomic. Staging the tempfile in the
+  destination directory keeps it same-FS and the move atomic.
+  `write_file` also handles `fchmod` to 0o644 by default and
+  wraps `OSError` as `EsphomeError`. Use it for any in-place
+  rewrite of user-editable YAML / settings (`edit_friendly_name`
+  is the canonical example). Don't fall back to
+  `tempfile.mkstemp` without the `dir=` argument — it lands on
+  `/tmp`, which is a separate filesystem from `/config` in the
+  HA addon, and the cross-FS `shutil.move` silently loses
+  atomicity. Don't hand-roll a temp+rename dance either; the
+  helper already does it correctly.
+
+  *New* files are a different shape — `clone_device` opens via
+  `open(path, "x")` (exclusive-create), which is already atomic
+  by virtue of failing if the target exists. Only in-place
+  *edits* of an existing file need `write_file`. Build artefacts
+  (StorageJSON sidecars, `.device-builder.json` metadata) where a
+  partial write is recoverable on next compile / scan can stay
+  on direct-write paths — the criterion is "would losing this
+  file lose user-authored content."
 
 ## Useful entry points
 

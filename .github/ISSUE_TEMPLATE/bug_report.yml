@@ -55,7 +55,7 @@ body:
         - Wheel from a GitHub release
         - From source (script/setup)
         - ESPHome container (preview toggle)
-        - Home Assistant add-on (preview toggle)
+        - Home Assistant App (preview toggle)
         - Other / not sure
     validations:
       required: true
@@ -70,7 +70,7 @@ body:
         - Local — macOS
         - Local — Windows
         - Docker container
-        - Home Assistant add-on
+        - Home Assistant App
         - Other
     validations:
       required: true

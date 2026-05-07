@@ -18,6 +18,7 @@ from esphome import yaml_util
 from esphome.const import __version__ as esphome_version
 from esphome.core import CORE
 from esphome.helpers import get_bool_env
+from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON, ext_storage_path
 from esphome.util import get_serial_ports
 
@@ -106,15 +107,21 @@ class DashboardSettings:
         self.config_dir = Path(args.configuration)
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.absolute_config_dir = self.config_dir.resolve()
-        # Ensure secrets.yaml exists (ESPHome fails if !secret references can't find it)
+        # Ensure secrets.yaml exists (ESPHome fails if !secret references
+        # can't find it). Atomic write — a crash mid-write would leave the
+        # user with a half-bootstrap'd secrets file and the next startup
+        # would see ``not exists() == False`` on the partial and skip
+        # this branch, leaving them stuck. ``write_file`` stages in a
+        # sibling tempfile + ``shutil.move`` so the file is either fully
+        # there or not at all.
         secrets_path = self.config_dir / "secrets.yaml"
         if not secrets_path.exists():
-            secrets_path.write_text(
+            atomic_write_file(
+                secrets_path,
                 "# Secrets — referenced from device configs via !secret\n"
                 "# Update these values for your network\n"
                 'wifi_ssid: ""\n'
                 'wifi_password: ""\n',
-                encoding="utf-8",
             )
         self.log_level = getattr(args, "log_level", "info")
         self.port = getattr(args, "port", 6052)

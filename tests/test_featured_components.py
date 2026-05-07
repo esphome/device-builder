@@ -277,6 +277,26 @@ async def test_get_categories_no_featured_without_board(
     assert all(c["id"] != "featured" for c in cats)
 
 
+async def test_get_components_response_categories_filter_featured_by_query(
+    catalog: ComponentCatalog,
+) -> None:
+    """
+    The synthetic ``featured`` sidebar bucket tracks the query.
+
+    Present when at least one featured component matches, absent
+    otherwise.
+    """
+    page = await catalog.get_components(
+        board_id="apollo-esk-1",
+        query="zzz-no-such-featured-component",
+    )
+    assert all(c["id"] != "featured" for c in page.categories)
+
+    page = await catalog.get_components(board_id="apollo-esk-1", query="pir")
+    featured = next(c for c in page.categories if c["id"] == "featured")
+    assert int(featured["count"]) >= 1
+
+
 # ---------------------------------------------------------------------------
 # Add-path preset application
 # ---------------------------------------------------------------------------

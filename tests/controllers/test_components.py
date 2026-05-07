@@ -241,6 +241,101 @@ async def test_get_components_query_matches_name_description_or_id() -> None:
     assert {c.id for c in res.components} == {"dht"}
 
 
+async def test_get_components_response_categories_track_query_filter() -> None:
+    """
+    Response ``categories`` reflect the active ``query``.
+
+    Buckets with no post-filter matches drop out entirely so the
+    frontend can hide empty categories.
+    """
+    cat = ComponentCatalog()
+    cat._components = [
+        _make_entry(entry_id="dht", name="DHT", category=ComponentCategory.SENSOR),
+        _make_entry(entry_id="bme280", name="BME280", category=ComponentCategory.SENSOR),
+        _make_entry(entry_id="debug", name="Debug", category=ComponentCategory.CORE),
+        _make_entry(entry_id="gpio", name="GPIO", category=ComponentCategory.SWITCH),
+    ]
+    cat._by_id = {c.id: c for c in cat._components}
+
+    res = await cat.get_components(query="debug")
+    counts = {c["id"]: c["count"] for c in res.categories}
+    # The non-matching buckets are absent from the response (not zero).
+    assert counts == {ComponentCategory.CORE.value: 1}
+
+
+async def test_get_components_response_categories_ignore_selected_category() -> None:
+    """
+    A selected ``category`` doesn't shrink the sidebar.
+
+    The user needs every category visible to navigate between
+    them; only query / exclude / platform narrow the bucket list.
+    """
+    cat = ComponentCatalog()
+    cat._components = [
+        _make_entry(entry_id="dht", category=ComponentCategory.SENSOR),
+        _make_entry(entry_id="gpio", category=ComponentCategory.SWITCH),
+    ]
+    cat._by_id = {c.id: c for c in cat._components}
+
+    res = await cat.get_components(category=ComponentCategory.SENSOR.value)
+    ids = {c["id"] for c in res.categories}
+    assert ids == {ComponentCategory.SENSOR.value, ComponentCategory.SWITCH.value}
+
+
+async def test_get_components_response_categories_honor_exclude_and_platform() -> None:
+    """``exclude_category`` and ``platform`` filters drop matching buckets too."""
+    cat = ComponentCatalog()
+    cat._components = [
+        _make_entry(entry_id="wifi", category=ComponentCategory.CORE),
+        _make_entry(
+            entry_id="esp32-only",
+            category=ComponentCategory.SENSOR,
+            supported_platforms=["esp32"],
+        ),
+        _make_entry(
+            entry_id="esp8266-only",
+            category=ComponentCategory.SWITCH,
+            supported_platforms=["esp8266"],
+        ),
+    ]
+    cat._by_id = {c.id: c for c in cat._components}
+
+    res = await cat.get_components(exclude_category=ComponentCategory.CORE.value)
+    assert all(c["id"] != ComponentCategory.CORE.value for c in res.categories)
+
+    # ``esp8266-only`` is platform-incompatible and shouldn't contribute.
+    res = await cat.get_components(platform="esp32")
+    counts = {c["id"]: c["count"] for c in res.categories}
+    assert counts == {
+        ComponentCategory.CORE.value: 1,
+        ComponentCategory.SENSOR.value: 1,
+    }
+
+
+async def test_get_categories_endpoint_unaffected_by_query_filter_change() -> None:
+    """
+    The standalone ``get_categories`` endpoint stays unfiltered.
+
+    Only ``get_components`` shares its request filters with the
+    counter; ``get_categories`` always returns the full breakdown.
+    """
+    cat = ComponentCatalog()
+    cat._components = [
+        _make_entry(entry_id="dht", category=ComponentCategory.SENSOR),
+        _make_entry(entry_id="gpio", category=ComponentCategory.SWITCH),
+        _make_entry(entry_id="wifi", category=ComponentCategory.CORE),
+    ]
+    cat._by_id = {c.id: c for c in cat._components}
+
+    cats = await cat.get_categories()
+    counts = {c["id"]: c["count"] for c in cats}
+    assert counts == {
+        ComponentCategory.SENSOR.value: 1,
+        ComponentCategory.SWITCH.value: 1,
+        ComponentCategory.CORE.value: 1,
+    }
+
+
 # ── _build_featured_registry() ──────────────────────────────────────
 
 
