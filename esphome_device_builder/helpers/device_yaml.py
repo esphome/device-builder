@@ -248,9 +248,10 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
        ``ln882x``, the catch-all ESP32 case) → True. These are
        Wi-Fi-first platforms in ESPHome.
 
-    The variant / board sets are pulled from upstream ESPHome at
-    call time so there's only one source of truth — see
-    ``_esp32_no_wifi_variants`` / ``_rp2040_wifi_pio_boards``.
+    The variant / board sets are derived from upstream ESPHome's
+    ``NO_WIFI_VARIANTS`` and ``BOARDS`` at module import time —
+    there's one source of truth, see ``_ESP32_NO_WIFI_VARIANTS``
+    and ``_RP2040_WIFI_PIO_BOARDS`` at the top of this file.
     """
     esphome_cfg = board.esphome
     # ``str(...)`` handles both the production enum (``Platform`` /

@@ -736,7 +736,7 @@ def _make_board(
 
 
 def test_generate_yaml_omits_wifi_for_esp32h2_without_explicit_connectivity() -> None:
-    """ESP32-H2 with no connectivity claim → no ``wifi:`` block (issue #X).
+    """ESP32-H2 with no connectivity claim → no ``wifi:`` block.
 
     The H2's radio supports IEEE 802.15.4 + BLE only — using
     ``wifi:`` requires the ``esp32_hosted`` co-processor, and
@@ -785,6 +785,20 @@ def test_generate_yaml_emits_wifi_for_rp2040_pico_w() -> None:
     instead of ``wifi``, etc.) surfaces here.
     """
     board = _make_board(platform=Platform.RP2040, pio_board="rpipicow")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    assert "wifi:" in yaml
+
+
+def test_generate_yaml_emits_wifi_for_esp8266_without_explicit_connectivity() -> None:
+    """ESP8266 with no connectivity claim → ``wifi:`` block emitted.
+
+    Pins the catch-all "Wi-Fi-first platform" branch of the
+    inference (anything not ESP32 / RP2040 / nrf52). ESP8266
+    always has Wi-Fi natively; same for bk72xx / rtl87xx /
+    ln882x. A regression that flipped the catch-all to "no Wi-Fi"
+    would silently break every ESP8266 board the wizard touches.
+    """
+    board = _make_board(platform=Platform.ESP8266, pio_board="esp01_1m")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     assert "wifi:" in yaml
 
