@@ -27,6 +27,7 @@ from esphome_device_builder.controllers._reachability_tracker import Reachabilit
 from esphome_device_builder.controllers.config import set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
+from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.hostname import normalize_hostname
 from esphome_device_builder.models import AdoptableDevice, DeviceState, EventType
@@ -311,7 +312,7 @@ def seed_device() -> SeedDeviceFactory:
         address: str | None = None,
         write_metadata: bool = True,
     ) -> tuple[Path, Path]:
-        name = configuration.removesuffix(".yaml").removesuffix(".yml")
+        name = configuration_stem(configuration)
         yaml_path = config_dir / configuration
         yaml_text = (
             "esphome:\n"

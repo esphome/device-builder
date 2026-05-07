@@ -83,6 +83,25 @@ def _is_valid_esphome_name(value: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Configuration filename helpers
+# ---------------------------------------------------------------------------
+
+
+def configuration_stem(configuration: str) -> str:
+    """
+    Strip the ``.yaml`` / ``.yml`` extension off a configuration filename.
+
+    The stem is the device's identity for almost every comparison
+    we care about — it drives the mDNS hostname (``<stem>.local``),
+    the StorageJSON key, the build-dir name. Filename-level
+    comparisons (``a.yaml == b.yaml``) miss the case where one side
+    uses ``.yml``; comparing stems treats both extensions as the
+    same device.
+    """
+    return configuration.removesuffix(".yaml").removesuffix(".yml")
+
+
+# ---------------------------------------------------------------------------
 # YAML generation
 # ---------------------------------------------------------------------------
 
@@ -460,7 +479,7 @@ def load_device_from_storage(
     # ``api_encrypted`` falls back to False.
     resolved_config = load_device_yaml(path)
 
-    fallback_name = filename.removesuffix(".yml").removesuffix(".yaml")
+    fallback_name = configuration_stem(filename)
     storage_name = storage.name if storage else None
     # Pick the first valid ESPHome slug from (yaml_name, storage_name).
     # Real ESPHome ``esphome.name`` values are ``[a-z0-9-]+`` — a parsed

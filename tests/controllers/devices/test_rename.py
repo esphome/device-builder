@@ -110,6 +110,29 @@ async def test_rename_same_name_raises(
 
 
 @pytest.mark.asyncio
+async def test_rename_same_name_raises_for_yml_extension(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Stem comparison catches ``kitchen.yml`` → ``new_name=kitchen``.
+
+    The literal filenames differ (``kitchen.yml`` vs the
+    constructed ``kitchen.yaml``) but the device's mDNS hostname
+    comes from the stem and stays the same either way, so the
+    rename would still be a no-op rewrite + redundant flash. A
+    naive ``new_filename == configuration`` check would let this
+    through; comparing on stems catches it.
+    """
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    _wire_fake_path(controller)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename_device(configuration="kitchen.yml", new_name="kitchen")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "must differ" in excinfo.value.message
+
+
+@pytest.mark.asyncio
 async def test_rename_queues_firmware_job(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

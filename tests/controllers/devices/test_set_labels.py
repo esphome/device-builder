@@ -33,6 +33,7 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.models import Device, ErrorCode, Label
 from tests._recording_scanner import RecordingScanner
 
@@ -88,7 +89,7 @@ def _make_device(filename: str = "kitchen.yaml", labels: list[str] | None = None
     just ``configuration`` for the find-by-config lookup post-reload
     and ``labels`` for the assertion. The rest carry safe defaults.
     """
-    name = filename.removesuffix(".yaml").removesuffix(".yml")
+    name = configuration_stem(filename)
     return Device(
         name=name,
         friendly_name=name,

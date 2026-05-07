@@ -28,6 +28,7 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import compute_yaml_config_hash, read_build_info_hash
 from ...helpers.device_yaml import (
+    configuration_stem,
     generate_device_yaml,
     get_api_encryption_key,
     load_device_yaml,
@@ -283,7 +284,7 @@ class DevicesController:
         Empty list when the device is unknown, has no OTA-capable
         integration loaded, or has no cached IP available.
         """
-        target_name = configuration.removesuffix(".yaml").removesuffix(".yml")
+        target_name = configuration_stem(configuration)
         device = next((d for d in self._scanner.devices if d.name == target_name), None)
         if device is None:
             return []
@@ -662,7 +663,7 @@ class DevicesController:
         configuration: str,
         new_name: str,
         **kwargs: Any,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """
         Rename a device configuration.
 
@@ -693,7 +694,13 @@ class DevicesController:
         # level but still queues a real ``esphome rename`` job that
         # re-compiles and OTA-flashes the device. Frontend should
         # call ``firmware/install`` for "flash without renaming".
-        if new_filename == configuration:
+        # Compare on the *stem*, not the filename, so cloning
+        # ``kitchen.yml`` to ``new_name=kitchen`` is rejected even
+        # though the literal filenames differ — the device's mDNS
+        # hostname comes from the stem and stays the same either
+        # way, so the rename would still be a no-op rewrite + flash.
+        source_stem = configuration_stem(configuration)
+        if new_name == source_stem:
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
                 "new_name must differ from the current device name",
@@ -767,7 +774,7 @@ class DevicesController:
         # ``kitchen.yml`` to ``new_name=kitchen`` is rejected even
         # though the filenames differ — both files would still carry
         # the same ``esphome.name`` and collide on mDNS.
-        source_stem = configuration.removesuffix(".yaml").removesuffix(".yml")
+        source_stem = configuration_stem(configuration)
         if new_name == source_stem:
             raise CommandError(
                 ErrorCode.INVALID_ARGS,

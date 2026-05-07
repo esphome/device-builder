@@ -14,6 +14,7 @@ import pytest
 from esphome_device_builder.helpers.device_yaml import (
     _parse_inline_value,
     compute_has_pending_changes,
+    configuration_stem,
     detect_platform_from_yaml,
     generate_device_yaml,
     load_device_from_storage,
@@ -59,6 +60,23 @@ def _make_esp32_board(
             connectivity=[Connectivity.WIFI],
         ),
     )
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [
+        ("kitchen.yaml", "kitchen"),
+        ("kitchen.yml", "kitchen"),
+        ("foo.bar.yaml", "foo.bar"),
+        ("no-extension", "no-extension"),
+        # Stripping is order-tolerant (the helper applies both
+        # ``removesuffix`` calls; only one matches per input).
+        ("device.yaml.yml", "device.yaml"),
+    ],
+)
+def test_configuration_stem(filename: str, expected: str) -> None:
+    """``configuration_stem`` strips ``.yaml`` / ``.yml`` only."""
+    assert configuration_stem(filename) == expected
 
 
 def test_parse_meta_plain_values() -> None:
