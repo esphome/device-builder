@@ -47,6 +47,7 @@ from ..models import (
 )
 
 if TYPE_CHECKING:
+    from ..controllers.firmware import FirmwareController
     from ..device_builder import DeviceBuilder
     from ..helpers.event_bus import EventBus
 
@@ -54,37 +55,45 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class _LegacyWSStreamClient:
-    """``stream_events`` client adapter that writes legacy WS frames.
+def _line_frame(line: str) -> dict[str, object]:
+    """Build a legacy ``{event: "line", data: <chunk>}`` frame."""
+    return {"event": "line", "data": line}
 
-    ``stream_events`` is the project's standard event-bus → WS
-    pipeline, providing a bounded queue, drop-on-full / force-
-    enqueue / terminate semantics, and listener cleanup on cancel.
-    Reusing it here gives the legacy handler the same OOM
-    protection the multiplexed ``/ws`` follower commands get for
-    free.
 
-    The shape mismatch is small: ``stream_events`` calls
-    ``client.send_event(message_id, name, payload)`` for every
-    drained item, but the legacy protocol uses
-    ``{"event": <name>, "data": payload}`` for lines and
-    ``{"event": "exit", "code": payload}`` for the terminal frame.
-    This adapter does that translation. ``message_id`` is unused
-    by the legacy protocol — the per-WS connection IS the
-    addressing — so we ignore it.
+def _exit_frame(exit_code: int | None) -> dict[str, object]:
+    """Build a legacy ``{event: "exit", code: <int>}`` frame.
+
+    ``exit_code`` is ``None`` for cancelled / never-ran jobs;
+    legacy clients want a numeric code so coerce to a generic
+    failure (1) rather than serialising null.
+    """
+    return {"event": "exit", "code": exit_code if exit_code is not None else 1}
+
+
+class _LegacyWSWriter:
+    """``stream_events`` client adapter that writes pre-built frames.
+
+    ``stream_events``'s contract is ``send_event(message_id, name,
+    payload)`` per drained item; the legacy protocol has neither
+    addressing nor routing, so the adapter ignores the first two
+    args and forwards *payload* (a fully-formed legacy frame dict)
+    to ``ws.send_json``. Building the frame at the producer side
+    (in ``handle_event`` / ``send_initial``) keeps the adapter
+    one line and removes the stringly-typed name switch the
+    earlier version had.
     """
 
     def __init__(self, ws: web.WebSocketResponse) -> None:
         self._ws = ws
 
-    async def send_event(self, _message_id: str, name: str, payload: object) -> None:
-        if name == "exit":
-            await self._ws.send_json({"event": "exit", "code": payload}, dumps=dumps_str)
-            return
-        # ``stream_events`` only ever forwards names this adapter
-        # registers via the ``handle_event`` callback below, so any
-        # other name here is a programming error worth surfacing.
-        await self._ws.send_json({"event": name, "data": payload}, dumps=dumps_str)
+    async def send_event(self, _message_id: str, _name: str, payload: object) -> None:
+        await self._ws.send_json(payload, dumps=dumps_str)
+
+
+# Stream-event ``name`` field is unused by the legacy adapter
+# (the wire framing comes from the payload dict). Pass a single
+# constant so the producer side stays free of dummy strings.
+_FRAME = "frame"
 
 
 async def _stream_job_to_legacy_ws(
@@ -104,38 +113,33 @@ async def _stream_job_to_legacy_ws(
 
     Routes through ``helpers.event_bus.stream_events`` for the
     core pipeline (subscribe, bounded drain, listener cleanup on
-    cancel). The execution order matters for race-freeness:
+    cancel). Every wire frame travels the same path —
+    ``handle_event`` and ``send_initial`` build a legacy-frame
+    dict and push it through ``controls``; ``stream_events``
+    drains the queue and ``_LegacyWSWriter`` writes each dict to
+    the WS verbatim. No direct ``ws.send_json`` calls outside the
+    adapter.
 
-    1. ``snapshot = list(job.output)`` — captured *outside*
-       ``stream_events``, in the same sync block that calls it.
-       This is what closes the snapshot/subscribe race; the
-       listener attaches inside ``stream_events`` before any
-       ``await`` yields control, so a line either lands in the
-       snapshot OR is caught by the listener (never both, never
-       neither).
-    2. ``stream_events(...)`` runs:
-       a. ``bus.listening(...)`` — attach listener (sync).
-       b. ``await send_initial(controls)`` — replay the
-          snapshot captured in step 1, and short-circuit the
-          drain via ``controls.end()`` if the job was already
-          in a terminal state at submit time.
-       c. Drain the queue, calling
-          ``_LegacyWSStreamClient.send_event`` for each item.
+    The snapshot/subscribe race is closed at the call site:
 
-    Two callbacks define the per-event behaviour:
+    1. ``snapshot = list(job.output)`` is captured *outside*
+       ``stream_events`` — a fresh list copy so a later
+       ``_trim_job_output`` reassign of ``job.output``
+       (``firmware/helpers.py``) doesn't mutate what we replay.
+    2. ``stream_events`` attaches the listener (sync) before any
+       ``await`` yields control. No event can fire between the
+       snapshot in (1) and the listener attach in (2), so each
+       line lands in exactly one of the two — never both, never
+       neither.
+    3. ``send_initial`` pushes the snapshot frames synchronously
+       (no awaits between pushes) so they can't interleave with
+       live events that the listener queues after subscribe.
 
-    - ``handle_event`` runs synchronously inside ``bus.fire`` and
-      decides what to push: lines go through ``controls.push``
-      (drop-on-full, slow follower stays unblocked), terminal
-      events go through ``controls.push_priority`` + ``end()``
-      (must-land, evicts oldest if needed) so the exit frame
-      always lands.
-    - ``_LegacyWSStreamClient.send_event`` translates each drained
-      ``(name, payload)`` into the legacy WS frame shape.
-
-    The snapshot is a fresh list copy via ``list(...)`` so a
-    subsequent ``_trim_job_output`` reassign of ``job.output``
-    (``firmware/helpers.py``) doesn't mutate what we replay.
+    Capacity: ``stream_events`` defaults to a 4000-slot queue.
+    Lines push with drop-on-full (slow follower → drop, no
+    bus.fire blocking); the terminal frame pushes with
+    ``push_priority`` (force-enqueue, evicts oldest) so the
+    exit frame always lands even if the queue is saturated.
     """
     job_id = job.job_id
     snapshot = list(job.output)
@@ -144,51 +148,36 @@ async def _stream_job_to_legacy_ws(
 
     async def _send_initial(controls: StreamControls) -> None:
         for line in snapshot:
-            await ws.send_json({"event": "line", "data": line}, dumps=dumps_str)
+            controls.push(_FRAME, _line_frame(line))
         # ``compile`` / ``upload`` may resolve a job that's already
         # in a terminal state — most common on a duplicate-submit
         # supersede that lands the previous job in CANCELLED before
-        # the new one is created. Send the exit frame from the
+        # the new one is created. Push the exit frame from the
         # cached status and short-circuit the drain.
         if initial_status in TERMINAL_JOB_STATUSES:
-            code = initial_exit_code if initial_exit_code is not None else 1
-            await ws.send_json({"event": "exit", "code": code}, dumps=dumps_str)
+            controls.push_priority(_FRAME, _exit_frame(initial_exit_code))
             controls.end()
 
     def _handle_event(event: Event, controls: StreamControls) -> None:
         if event.event_type == EventType.JOB_OUTPUT:
             if event.data.get("job_id") == job_id:
-                # Drop-on-full: a slow client shouldn't block the
-                # synchronous ``bus.fire``; losing a line in the
-                # legacy stream is preferable to OOM-ing the
-                # dashboard process.
-                controls.push("line", event.data.get("line", ""))
+                controls.push(_FRAME, _line_frame(event.data.get("line", "")))
             return
-        # ``isinstance`` narrows from the bus's untyped event-data
-        # dict to a real ``FirmwareJob``, which both filters out
-        # any future event payload that lacks the expected ``job``
-        # field and gives the type checker direct attribute
-        # access for ``job_id`` / ``exit_code``. The runner fires
-        # terminal events as ``{"job": job}`` so this matches in
-        # practice; a payload that doesn't satisfy the isinstance
-        # check is silently ignored rather than tearing the WS
-        # down with an ``AttributeError``.
+        # Narrow the untyped ``event.data["job"]`` to a real
+        # ``FirmwareJob`` so the type checker sees direct
+        # attribute access for ``job_id`` / ``exit_code``. The
+        # runner fires terminal events as ``{"job": job}``;
+        # anything that doesn't satisfy the isinstance check is
+        # silently ignored rather than tearing the WS down with
+        # an ``AttributeError``.
         ev_job = event.data.get("job")
         if not isinstance(ev_job, FirmwareJob) or ev_job.job_id != job_id:
             return
-        # ``exit_code`` is None for cancelled / never-ran jobs;
-        # legacy clients want a numeric code so coerce to a
-        # generic failure (1) rather than serialising null.
-        # ``push_priority`` evicts the oldest queued line if the
-        # queue is full so the exit frame always lands —
-        # otherwise a backpressured client could see an open
-        # connection that never receives the terminal frame.
-        code = ev_job.exit_code if ev_job.exit_code is not None else 1
-        controls.push_priority("exit", code)
+        controls.push_priority(_FRAME, _exit_frame(ev_job.exit_code))
         controls.end()
 
     await stream_events(
-        client=_LegacyWSStreamClient(ws),
+        client=_LegacyWSWriter(ws),
         message_id="",
         bus=bus,
         event_types=(EventType.JOB_OUTPUT, *TERMINAL_JOB_EVENTS),
@@ -221,11 +210,9 @@ async def _handle_legacy_ws_command(
     # populates every controller before HTTP requests are served)
     # is pinned by
     # ``tests/test_device_builder_lifecycle.py::test_start_initialises_all_controllers``.
-    # By the time this handler runs, ``db.firmware`` is non-None
-    # (``db.bus`` is set in ``__init__`` so it's non-Optional from
-    # the type system's perspective). The ``assert`` narrows
-    # ``Optional[FirmwareController]`` for the call sites below
-    # without ``# type: ignore`` shims.
+    # By the time this handler runs, ``db.firmware`` is non-None;
+    # the ``assert`` narrows ``Optional[FirmwareController]`` for
+    # the call sites below without ``# type: ignore`` shims.
     db: DeviceBuilder = request.app["device_builder"]
     firmware = db.firmware
     bus = db.bus
@@ -233,7 +220,7 @@ async def _handle_legacy_ws_command(
 
     async for msg in ws:
         if msg.type != aiohttp.WSMsgType.TEXT:
-            break
+            return ws
         try:
             data = loads(msg.data)
         except JSONDecodeError:
@@ -245,39 +232,53 @@ async def _handle_legacy_ws_command(
         if not isinstance(data, dict) or data.get("type") != "spawn":
             continue
 
-        # ``data.get(key, "")`` only uses the default when the
-        # key is *absent*; an explicit ``"configuration": null``
-        # (or a non-string like ``123`` / an object) would land
-        # here as a non-``str`` and crash the firmware
-        # controller's path validation with a ``TypeError`` /
-        # ``AttributeError`` that aiohttp would surface to HA as a
-        # connection drop. Reject anything that isn't a string up
-        # front via the protocol's only signalling channel.
-        configuration = data.get("configuration", "")
-        port = data.get("port", "") if job_type is JobType.UPLOAD else ""
-        if not isinstance(configuration, str) or not isinstance(port, str):
-            await ws.send_json({"event": "exit", "code": 1}, dumps=dumps_str)
-            break
-
-        try:
-            if job_type is JobType.UPLOAD:
-                job = await firmware.upload(configuration=configuration, port=port)
-            else:
-                job = await firmware.compile(configuration=configuration)
-        except CommandError:
-            # Boundary / validation rejection. The legacy spawn
-            # protocol uses ``{event: "exit", code}`` as its only
-            # signalling channel — any non-zero code reads as
-            # "build failed" in HA's UI, matching the prior
-            # subprocess shape that surfaced the same rejection
-            # via ``code: 1``.
-            await ws.send_json({"event": "exit", "code": 1}, dumps=dumps_str)
-            break
-
-        await _stream_job_to_legacy_ws(ws, bus, job)
-        break
+        await _handle_spawn(ws, firmware, bus, job_type, data)
+        return ws
 
     return ws
+
+
+async def _handle_spawn(
+    ws: web.WebSocketResponse,
+    firmware: FirmwareController,
+    bus: EventBus,
+    job_type: JobType,
+    data: dict[str, object],
+) -> None:
+    """Run one spawn message: validate, submit, stream until terminal.
+
+    Three rejection paths all surface to HA via the protocol's
+    only signalling channel — a ``code: 1`` exit frame:
+
+    1. Non-string ``configuration`` / ``port`` (an explicit
+       ``null`` or a JSON number / object would otherwise crash
+       the firmware controller's path validation with a
+       ``TypeError`` / ``AttributeError`` that aiohttp would
+       surface as a connection drop).
+    2. ``CommandError`` from ``_validate_configuration_boundary``
+       (traversal, empty configuration, etc.).
+    3. Implicit on success after the streaming finishes.
+
+    Extracted from the receive loop so the per-message control
+    flow doesn't tangle with the loop's iteration / break
+    semantics.
+    """
+    configuration = data.get("configuration", "")
+    port = data.get("port", "") if job_type is JobType.UPLOAD else ""
+    if not isinstance(configuration, str) or not isinstance(port, str):
+        await ws.send_json(_exit_frame(1), dumps=dumps_str)
+        return
+
+    try:
+        if job_type is JobType.UPLOAD:
+            job = await firmware.upload(configuration=configuration, port=port)
+        else:
+            job = await firmware.compile(configuration=configuration)
+    except CommandError:
+        await ws.send_json(_exit_frame(1), dumps=dumps_str)
+        return
+
+    await _stream_job_to_legacy_ws(ws, bus, job)
 
 
 def create_legacy_routes() -> web.RouteTableDef:
