@@ -9,6 +9,18 @@ esphome:
   board: esp32-h2-devkitm-1
   variant: esp32h2
   framework: esp-idf
+hardware:
+  connectivity:
+  # ESP32-H2 has no native Wi-Fi; the radio supports IEEE 802.15.4
+  # (Thread / Zigbee) and Bluetooth LE only. Listing the actual
+  # capabilities here also keeps ``generate_device_yaml`` from
+  # emitting a ``wifi:`` block — the empty-connectivity default is
+  # "assume wifi", which is correct for the typical S2/S3/C3/C6
+  # board but rejects at compile time on H2 with
+  # ``WiFi requires component esp32_hosted on ESP32H2``.
+  - bluetooth
+  - openthread
+  - zigbee
 tags: []
 docs_url: https://esphome.io/components/esp32.html
 pins:

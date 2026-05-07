@@ -700,6 +700,124 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
 
 
 # ---------------------------------------------------------------------------
+# generate_device_yaml — wifi-block inference for boards without an
+# explicit ``connectivity`` claim. Preempts the silent generation of
+# a ``wifi:`` block on chips that have no native Wi-Fi PHY (the
+# original report: ESP32-H2 picked up ``WiFi requires component
+# esp32_hosted on ESP32H2`` from ESPHome's validator).
+# ---------------------------------------------------------------------------
+
+
+def _make_board(
+    *,
+    platform: Platform,
+    variant: Esp32Variant | None = None,
+    pio_board: str = "",
+    connectivity: list[Connectivity] | None = None,
+) -> BoardCatalogEntry:
+    """Minimal ``BoardCatalogEntry`` for the wifi-inference tests.
+
+    ``connectivity=None`` produces a board with an empty hardware
+    block — the case the inference path covers. Tests that want to
+    pin the explicit-claim short-circuit pass a list directly.
+    """
+    return BoardCatalogEntry(
+        id=f"{platform.value}-test",
+        name=f"{platform.value} Test",
+        description="",
+        manufacturer="Test",
+        esphome=BoardEsphomeConfig(
+            platform=platform,
+            board=pio_board,
+            variant=variant,
+        ),
+        hardware=BoardHardware(connectivity=connectivity or []),
+    )
+
+
+def test_generate_yaml_omits_wifi_for_esp32h2_without_explicit_connectivity() -> None:
+    """ESP32-H2 with no connectivity claim → no ``wifi:`` block (issue #X).
+
+    The H2's radio supports IEEE 802.15.4 + BLE only — using
+    ``wifi:`` requires the ``esp32_hosted`` co-processor, and
+    ESPHome rejects a plain ``wifi:`` block with
+    ``"WiFi requires component esp32_hosted on ESP32H2"``. The
+    inference walks ESPHome's own ``NO_WIFI_VARIANTS`` list so a
+    future no-Wi-Fi variant added upstream is picked up
+    automatically.
+    """
+    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32H2)
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    assert "wifi:" not in yaml
+
+
+def test_generate_yaml_emits_wifi_for_esp32c3_without_explicit_connectivity() -> None:
+    """ESP32-C3 with no connectivity claim → ``wifi:`` block emitted.
+
+    Catches the regression class where the inference is too eager
+    and treats every empty-connectivity board as no-Wi-Fi —
+    contributors adding a new generic ESP32 variant manifest
+    without spelling out the connectivity list still get a
+    compilable basic config.
+    """
+    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3)
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    assert "wifi:" in yaml
+
+
+def test_generate_yaml_omits_wifi_for_plain_rp2040_pico() -> None:
+    """RP2040 ``rpipico`` board → no ``wifi:`` block.
+
+    The plain Pico has no CYW43; only the W variants do. The
+    inference reads ``esphome.components.rp2040.boards.BOARDS`` so
+    we don't carry a hand-maintained list parallel to upstream.
+    """
+    board = _make_board(platform=Platform.RP2040, pio_board="rpipico")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    assert "wifi:" not in yaml
+
+
+def test_generate_yaml_emits_wifi_for_rp2040_pico_w() -> None:
+    """RP2040 ``rpipicow`` board → ``wifi:`` block emitted.
+
+    Pin the positive RP2040 case so a regression in the upstream
+    BOARDS lookup (typo in the key, accidentally querying ``mcu``
+    instead of ``wifi``, etc.) surfaces here.
+    """
+    board = _make_board(platform=Platform.RP2040, pio_board="rpipicow")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    assert "wifi:" in yaml
+
+
+def test_generate_yaml_explicit_connectivity_overrides_inference() -> None:
+    """Manifest-supplied ``connectivity`` always wins over the inference.
+
+    A future H2 product that ships an integrated co-processor and
+    wants the wizard to emit ``wifi:`` can opt in by listing
+    ``wifi`` in its manifest; an ESP32 board that's wired without
+    a Wi-Fi antenna can opt out by listing only ``ethernet``. The
+    inference is the *fallback*, not an override.
+    """
+    # Inference says no wifi (H2 in NO_WIFI_VARIANTS), explicit claim wins.
+    h2_with_wifi = _make_board(
+        platform=Platform.ESP32,
+        variant=Esp32Variant.ESP32H2,
+        connectivity=[Connectivity.WIFI],
+    )
+    yaml = generate_device_yaml("kitchen", "Kitchen", h2_with_wifi, ssid="", psk="")
+    assert "wifi:" in yaml
+
+    # Inference says wifi (plain ESP32), explicit ethernet-only opts out.
+    eth_only = _make_board(
+        platform=Platform.ESP32,
+        variant=Esp32Variant.ESP32,
+        connectivity=[Connectivity.ETHERNET],
+    )
+    yaml = generate_device_yaml("kitchen", "Kitchen", eth_only, ssid="", psk="")
+    assert "wifi:" not in yaml
+
+
+# ---------------------------------------------------------------------------
 # load_device_from_storage — read-error / firmware bin / target_platform paths
 # ---------------------------------------------------------------------------
 

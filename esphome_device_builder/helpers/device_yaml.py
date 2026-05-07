@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from esphome import const, yaml_util
+from esphome.components.rp2040.boards import BOARDS as _ESPHOME_RP2040_BOARDS
+from esphome.components.wifi import NO_WIFI_VARIANTS as _ESPHOME_NO_WIFI_VARIANTS
 from esphome.const import CONF_PACKAGES
 from esphome.storage_json import StorageJSON, ext_storage_path
 
@@ -58,6 +60,30 @@ if TYPE_CHECKING:
     from ..models import BoardCatalogEntry
 
 _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52"})
+
+# ESP32 chip variants ESPHome rejects ``wifi:`` on — pulled from
+# ``esphome.components.wifi.NO_WIFI_VARIANTS`` so there's one source
+# of truth. ESPHome's own validator raises
+# ``"WiFi requires component esp32_hosted on <variant>"`` for every
+# entry in that list; today's set is ESP32-H2 + ESP32-P4 (no native
+# Wi-Fi PHY). Upstream stores the variant tags in canonical uppercase
+# (``"ESP32H2"``); device-builder's ``Esp32Variant`` enum uses
+# lowercase, so normalise here. A future variant added upstream
+# flows through to the wizard automatically.
+_ESP32_NO_WIFI_VARIANTS = frozenset(v.lower() for v in _ESPHOME_NO_WIFI_VARIANTS)
+
+# PlatformIO RP2040 / RP2350 board ids with a native CYW43 (or
+# equivalent) Wi-Fi chip — pulled from
+# ``esphome.components.rp2040.boards.BOARDS`` so there's one source
+# of truth. Entries flagged ``"wifi": True`` ship Wi-Fi (Pico W /
+# Pico 2 W / Pimoroni / SparkFun / Waveshare W variants); the rest
+# (plain Pico / Pico 2 / Seeed XIAO RP2040 / Waveshare RP2040 Zero
+# / etc.) need a Wi-Fi shield to use the ``wifi:`` component. New
+# boards added upstream flow through automatically.
+_RP2040_WIFI_PIO_BOARDS = frozenset(
+    board_id for board_id, info in _ESPHOME_RP2040_BOARDS.items() if info.get("wifi", False)
+)
+
 
 # Mirrors esphome's substitution regex (`config_validation.VARIABLE_PROG`):
 # matches ``$name`` or ``${name}`` where name is alphanumeric + underscore.
@@ -174,9 +200,19 @@ def generate_device_yaml(
     lines.append("  - platform: esphome")
     lines.append("")
 
-    # Wi-Fi (only for boards that support it)
+    # Wi-Fi: prefer the manifest's explicit claim, fall back to a
+    # platform/variant/board-aware inference for boards whose hardware
+    # block omits ``connectivity`` entirely. The prior shape defaulted
+    # empty connectivity to Wi-Fi — correct for the typical S2/S3/C3/C6
+    # / ESP8266 / Pico W board, but it silently generated a ``wifi:``
+    # block ESPHome rejects at compile time for ESP32-H2 / ESP32-P4
+    # (no Wi-Fi PHY) and for the plain RP2040 / RP2350 chips (only the
+    # Pico W / Pico 2 W variants ship a CYW43). The inference asks
+    # ESPHome's own ``NO_WIFI_VARIANTS`` and ``rp2040.boards.BOARDS``
+    # so a future no-Wi-Fi variant or new RP2040 wifi board flows
+    # through without a coordinated edit here.
     connectivity = [c.value for c in board.hardware.connectivity] if board.hardware else []
-    has_wifi = "wifi" in connectivity or not connectivity
+    has_wifi = "wifi" in connectivity if connectivity else _infer_native_wifi(board)
     if has_wifi:
         lines.append("wifi:")
         if ssid:
@@ -188,6 +224,46 @@ def generate_device_yaml(
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
+    """Decide whether *board* has native Wi-Fi when its manifest is silent.
+
+    Used by :func:`generate_device_yaml` only when the manifest's
+    ``hardware.connectivity`` is empty — when the manifest claims a
+    list explicitly we honour it. The inference walks the
+    platform/variant/board chain so future curated manifests that
+    forget the connectivity claim still produce a compilable config:
+
+    1. Platform ``esp32`` + variant in ESPHome's ``NO_WIFI_VARIANTS``
+       (currently ``esp32h2`` / ``esp32p4``) → False.
+    2. Platform ``rp2040`` → True only when the PlatformIO board id
+       is in ESPHome's RP2040 ``BOARDS`` table marked ``"wifi": True``
+       (the Pico W / Pico 2 W / Pimoroni / SparkFun / Waveshare W
+       variants — the plain Pico, plain Pico 2, Seeed XIAO RP2040,
+       Waveshare RP2040 Zero, etc. fall on the False side here).
+    3. Platform ``nrf52`` → False (BLE-only family; no chip in the
+       enum carries a Wi-Fi PHY).
+    4. Anything else (``esp8266``, ``bk72xx``, ``rtl87xx``,
+       ``ln882x``, the catch-all ESP32 case) → True. These are
+       Wi-Fi-first platforms in ESPHome.
+
+    The variant / board sets are pulled from upstream ESPHome at
+    call time so there's only one source of truth — see
+    ``_esp32_no_wifi_variants`` / ``_rp2040_wifi_pio_boards``.
+    """
+    esphome_cfg = board.esphome
+    # ``str(...)`` handles both the production enum (``Platform`` /
+    # ``Esp32Variant`` are ``StrEnum``) and bare-string inputs from
+    # tests that mock the catalog entry without going through the
+    # enum constructors.
+    platform = str(esphome_cfg.platform) if esphome_cfg.platform else ""
+    if platform == "esp32":
+        variant = str(esphome_cfg.variant) if esphome_cfg.variant else ""
+        return variant not in _ESP32_NO_WIFI_VARIANTS
+    if platform == "rp2040":
+        return esphome_cfg.board in _RP2040_WIFI_PIO_BOARDS
+    return platform != "nrf52"
 
 
 def generate_minimal_stub_yaml(name: str, friendly_name: str) -> str:
