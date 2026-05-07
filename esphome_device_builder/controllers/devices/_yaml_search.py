@@ -47,6 +47,22 @@ if TYPE_CHECKING:
 # warm-cache.
 MAX_LINES_PER_FILE = 5000
 
+# Default ``before`` / ``after`` window when the caller doesn't
+# specify one. Two is the same default ``grep -C 2`` / GitHub
+# code search uses — far enough to surface the surrounding key
+# (``device:`` / ``platform:`` / a ``- name:`` list anchor) for
+# a hit deep inside a nested block, narrow enough to keep the
+# wire payload small for chatty needles.
+DEFAULT_CONTEXT_LINES = 2
+
+# Server-side ceiling on the per-side context window. Caps a
+# typo'd or malicious caller (``context_lines=10000``) from
+# blowing the wire payload — at 10 lines per side, even
+# pathological matches at the per-file cap stay under a few KB
+# per device. Clients that want more context for a specific hit
+# can fetch the full file via the editor.
+MAX_CONTEXT_LINES = 10
+
 
 def scan_lines(
     lines: list[str],
@@ -54,6 +70,7 @@ def scan_lines(
     *,
     case_sensitive: bool,
     max_take: int,
+    context_lines: int = DEFAULT_CONTEXT_LINES,
 ) -> list[dict]:
     """Scan a single file's pre-split line list for *needle*.
 
@@ -74,12 +91,38 @@ def scan_lines(
     *needle* must be pre-lowered when ``case_sensitive`` is
     ``False`` — the caller lowers it once outside the per-file
     loop so we don't re-lower the same needle for every device.
+
+    Each match carries ``before`` / ``after`` context windows
+    sliced from *lines* directly (``context_lines`` on each
+    side, clamped at the file edges). The frontend renders the
+    match as a code-snippet block; without context the
+    surrounding ``device:`` / ``platform:`` / list-anchor key
+    that gives the match its meaning is invisible.
+
+    *context_lines* is bounded by ``MAX_CONTEXT_LINES`` at the
+    controller; this function trusts the caller to have already
+    clamped (it's a bare-int slice index, no further validation
+    here). Pass ``0`` for an empty window if a caller ever wants
+    just the matched line — the slice math degenerates cleanly.
     """
     matches: list[dict] = []
+    n = len(lines)
     for i, line in enumerate(lines, start=1):
         haystack = line if case_sensitive else line.lower()
         if needle in haystack:
-            matches.append({"line_number": i, "line_text": line})
+            # ``i`` is 1-indexed (line numbers are user-facing).
+            # ``lines`` is 0-indexed; convert at the slice edges.
+            zero_based = i - 1
+            before_start = max(0, zero_based - context_lines)
+            after_end = min(n, zero_based + 1 + context_lines)
+            matches.append(
+                {
+                    "line_number": i,
+                    "line_text": line,
+                    "before": lines[before_start:zero_based],
+                    "after": lines[zero_based + 1 : after_end],
+                }
+            )
             if len(matches) >= max_take:
                 break
     return matches
@@ -109,6 +152,7 @@ async def search_yaml_devices(
     case_sensitive: bool,
     max_results: int,
     per_file_cap: int,
+    context_lines: int = DEFAULT_CONTEXT_LINES,
 ) -> tuple[list[dict], set[str]]:
     """
     Walk *devices* and return the YAML matches for *needle*.
@@ -137,6 +181,14 @@ async def search_yaml_devices(
       fleet. Walk stops once this is reached.
     - ``per_file_cap`` — per-file cap so a chatty match doesn't
       crowd out hits from other devices.
+    - ``context_lines`` — number of ``before`` / ``after``
+      lines included on each match. Should already be clamped
+      to ``[0, MAX_CONTEXT_LINES]`` by the caller (today that's
+      ``DevicesController.search_yaml`` on the WS path; future
+      callers — tests, scripts, an HTTP-shim — own the clamp
+      themselves). This function doesn't re-validate so a typo'd
+      / hostile request can't blow the payload IF the caller
+      did its job.
 
     ``live_configurations`` is the *full* set of input device
     configurations regardless of where the walk short-circuited
@@ -181,7 +233,13 @@ async def search_yaml_devices(
         # max_results); both collapse cleanly into
         # ``min(per_file_cap, remaining)``.
         max_take = min(per_file_cap, max_results - total_matches)
-        matches = scan_lines(scannable, needle, case_sensitive=case_sensitive, max_take=max_take)
+        matches = scan_lines(
+            scannable,
+            needle,
+            case_sensitive=case_sensitive,
+            max_take=max_take,
+            context_lines=context_lines,
+        )
 
         if matches:
             results.append(

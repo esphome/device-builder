@@ -66,7 +66,11 @@ from ..config import (
     set_device_metadata,
 )
 from ..firmware.helpers import _find_esphome_cmd
-from ._yaml_search import search_yaml_devices
+from ._yaml_search import (
+    DEFAULT_CONTEXT_LINES,
+    MAX_CONTEXT_LINES,
+    search_yaml_devices,
+)
 from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
     _apply_featured_presets,
@@ -317,6 +321,7 @@ class DevicesController:
         query: str,
         max_results: int = 50,
         case_sensitive: bool = False,
+        context_lines: int | None = None,
         **kwargs: Any,
     ) -> list[dict]:
         """
@@ -374,6 +379,22 @@ class DevicesController:
             return []
         needle = needle_raw if case_sensitive else needle_raw.lower()
 
+        # Server-clamp the context window. The frontend can dial
+        # this between ``0`` (no context, just the matched line)
+        # and ``MAX_CONTEXT_LINES`` to render denser or sparser
+        # snippets without a backend redeploy. ``None`` means the
+        # caller didn't ask — use ``DEFAULT_CONTEXT_LINES``.
+        # Out-of-range values clamp to the nearest endpoint
+        # (negative → 0, > MAX → MAX) rather than falling back
+        # to the default: a caller passing ``10_000`` clearly
+        # wants "as much context as possible", and giving them
+        # ``MAX_CONTEXT_LINES`` is closer to that intent than
+        # silently substituting ``DEFAULT_CONTEXT_LINES``.
+        if context_lines is None:
+            effective_context_lines = DEFAULT_CONTEXT_LINES
+        else:
+            effective_context_lines = max(0, min(context_lines, MAX_CONTEXT_LINES))
+
         # Global search lock: serialise the I/O-bound walk so two
         # concurrent searches don't double up on stat / read calls
         # against the same fleet. The frontend's per-keystroke
@@ -389,6 +410,7 @@ class DevicesController:
                 case_sensitive=case_sensitive,
                 max_results=max_results,
                 per_file_cap=_YAML_SEARCH_PER_FILE_MATCH_CAP,
+                context_lines=effective_context_lines,
             )
             self._yaml_search_cache.prune(live_configurations)
             return results
