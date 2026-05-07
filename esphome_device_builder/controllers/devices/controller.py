@@ -477,6 +477,17 @@ class DevicesController:
         filename = f"{name}.yaml"
         config_path = self._db.settings.rel_path(filename)
 
+        # Fast collision check before the (~hundreds of ms) validator
+        # round-trip so a duplicate-name attempt fails on the right
+        # diagnostic instead of surfacing a "config doesn't validate"
+        # for a YAML we weren't about to write anyway. The ``open(...,
+        # "x")`` further down is the actual race-safe write — the
+        # check here is a UX optimisation, not a TOCTOU guard.
+        loop_for_check = asyncio.get_running_loop()
+        if await loop_for_check.run_in_executor(None, config_path.exists):
+            msg = f"Configuration {filename} already exists"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
         # Surface user-correctable failures (unknown board, name
         # collision) as typed ``INVALID_ARGS`` so the wizard can show
         # a specific message instead of the WS layer's generic

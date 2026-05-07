@@ -134,20 +134,27 @@ async def test_create_device_rejects_invalid_file_content(
     boards = StubBoardLookups(ctrl)
     boards.find_by_pio_board_returns(None)
     boards.find_by_platform_variant_returns(None)
+    # File content that mirrors what the user's failing scenario
+    # would actually look like — esphome block with a name but no
+    # platform block at all, which the editor rejects with the
+    # mocked error below.
+    invalid_file_content = (
+        "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
+    )
     ctrl._db.editor.validate_yaml = AsyncMock(
         return_value={
             "yaml_errors": [],
             "validation_errors": [
-                {"message": "[esp32] required key not provided: board"},
+                {"message": "[esphome] required key not provided: a platform"},
             ],
         }
     )
 
     with pytest.raises(CommandError) as excinfo:
-        await ctrl.create_device(name="kitchen", file_content=VALID_FILE_CONTENT)
+        await ctrl.create_device(name="kitchen", file_content=invalid_file_content)
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "required key not provided: board" in excinfo.value.message
+    assert "required key not provided: a platform" in excinfo.value.message
     # File never landed on disk.
     assert not (tmp_path / "kitchen.yaml").exists()
     assert ctrl._scanner.calls == []
