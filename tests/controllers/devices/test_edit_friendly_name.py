@@ -185,6 +185,46 @@ async def test_edit_friendly_name_rejects_missing_source(
     assert "ghost.yaml not found" in excinfo.value.message
 
 
+async def test_edit_friendly_name_handles_race_between_exists_and_read(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """File deleted between exists() and read_text() still surfaces as ``INVALID_ARGS``.
+
+    Earlier draft did ``if not exists(): return None; return
+    read_text(...)`` — a TOCTOU window between the two calls
+    (atomic-save editor mid-save, racing ``devices/delete``, …)
+    would leak ``FileNotFoundError`` past us as an untyped
+    exception. The WS layer would then surface
+    ``INTERNAL_ERROR`` instead of the user-facing
+    ``INVALID_ARGS`` the dialog can render. The fix drops the
+    ``exists()`` precheck and folds ``FileNotFoundError`` into
+    the missing-source branch directly.
+
+    Patches ``Path.read_text`` to raise so the regression
+    isolates the race-fold without depending on FS timing.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    real_read = Path.read_text
+
+    def _vanishing_read(self: Path, *args: object, **kwargs: object) -> str:
+        if self.name == "kitchen.yaml":
+            raise FileNotFoundError(str(self))
+        return real_read(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", _vanishing_read)
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.edit_friendly_name(
+            configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "kitchen.yaml not found" in excinfo.value.message
+
+
 async def test_edit_friendly_name_rejects_source_with_no_inline_leaf(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

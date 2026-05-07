@@ -966,9 +966,17 @@ class DevicesController:
         config_path = self._db.settings.rel_path(configuration)
 
         def _read() -> str | None:
-            if not config_path.exists():
+            # Single ``read_text`` call — no preceding ``exists()``
+            # check, since a file deleted between the two would
+            # leak ``FileNotFoundError`` past us as an unhandled
+            # exception (surfaces as ``INTERNAL_ERROR`` instead of
+            # the typed ``INVALID_ARGS`` we want for "device gone").
+            # Catching here folds the race + the genuinely-missing
+            # case into the same branch.
+            try:
+                return config_path.read_text(encoding="utf-8")
+            except FileNotFoundError:
                 return None
-            return config_path.read_text(encoding="utf-8")
 
         content = await loop.run_in_executor(None, _read)
         if content is None:
