@@ -61,7 +61,7 @@ def _make_app(
 
     ``devices`` is the ``DevicesController`` instance the
     ``/devices`` route reads through. Tests build it via
-    :func:`_make_devices_mock`, which spec's against the real
+    :func:`_make_devices_mock`, which is spec'd against the real
     ``DevicesController`` class so a method rename (or a
     misspelt caller — the failure mode that motivated #376)
     surfaces as the same ``AttributeError`` in CI that production
@@ -95,32 +95,44 @@ def _make_devices_mock(
 ) -> MagicMock:
     """Build a ``DevicesController`` mock spec'd against the real class.
 
-    ``MagicMock(spec=DevicesController)`` enumerates the real
-    class's methods and rejects access to anything that isn't
-    defined there with ``AttributeError``. That's the
-    end-to-end-shape guarantee #376 was missing: the previous
-    hand-rolled stub exposed an ``_request_scan`` method that
-    didn't exist on the real ``DevicesController`` (renamed to
-    ``poll`` in the controller-split refactor), so the legacy
-    route's broken call site passed CI but crashed in
-    production. Speccing forces the test fakes to track the real
-    surface — any future caller method that isn't on
-    ``DevicesController`` raises here exactly the same way it
-    raises in the running app.
+    ``MagicMock(spec=DevicesController)`` makes attribute *access*
+    on the mock honour the spec class — reading a name that
+    isn't on ``DevicesController`` raises ``AttributeError``.
+    That's the end-to-end-shape guarantee #376 was missing: the
+    previous hand-rolled stub exposed an ``_request_scan``
+    method that didn't exist on the real ``DevicesController``
+    (renamed to ``poll`` in the controller-split refactor), so
+    the legacy route's broken call site passed CI but crashed
+    in production. Speccing forces the test fakes to track the
+    real method surface — any future caller invoking a method
+    that isn't on ``DevicesController`` raises here exactly the
+    same way it raises in the running app.
 
-    Async methods on the spec'd class become ``AsyncMock`` /
-    coroutine-returning mocks automatically (Python ≥ 3.8
-    behaviour); we still set ``poll = AsyncMock()`` explicitly
-    so individual tests can ``assert_awaited_once`` against it
-    without depending on the auto-spec implementation detail.
+    Caveat: ``spec=`` constrains read-side access to names on
+    the spec class, but does NOT block setting attributes on
+    the mock — including names that aren't on the class at all
+    (instance-only attributes set in ``__init__``, for example,
+    aren't visible to ``spec`` introspection). That's why the
+    setattrs below for ``import_result`` / ``ignored_devices``
+    succeed: ``spec=`` doesn't enforce instance-attribute
+    correctness, just method-name access. ``spec_set=`` would
+    block setattrs but would also reject these instance attrs
+    because they live on the controller instance, not the
+    class. The valuable guarantee here is the method-name
+    access check; the data attributes are mocked freely.
+
+    ``poll`` is set to an explicit ``AsyncMock()`` so individual
+    tests can ``assert_awaited_once`` against it without
+    depending on whether the spec'd-mock auto-detects async
+    methods on its own.
     """
     devices = MagicMock(spec=DevicesController)
     devices.poll = AsyncMock()
     devices.get_devices = MagicMock(return_value=list(configured or []))
-    # ``import_result`` and ``ignored_devices`` are attributes,
-    # not methods — set them on the mock instance directly. The
-    # ``spec`` enforces only that they exist on the real class
-    # (which they do).
+    # See the docstring caveat above: these setattrs succeed
+    # regardless of the spec because ``spec=`` doesn't enforce
+    # instance-attribute existence. They mirror what the real
+    # controller's ``__init__`` puts on the instance.
     devices.import_result = importable or {}
     devices.ignored_devices = ignored or set()
     return devices
