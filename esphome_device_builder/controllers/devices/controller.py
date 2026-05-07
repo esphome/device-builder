@@ -923,6 +923,18 @@ class DevicesController:
         # indirections stay shared with the source on purpose.
         new_content = rewrite_api_encryption_key(new_content, new_key)
 
+        # Validate the rewritten YAML before the exclusive-create
+        # write so a clone of an invalid source doesn't silently
+        # land a second unflashable YAML on disk. The leaf-line
+        # rewrites we run here (name / friendly_name / api key)
+        # don't reshape the structural parts of the YAML, so a
+        # validation failure on the clone means the source itself
+        # didn't pass schema — the user fixes the source and
+        # retries. Surfaces as ``INVALID_ARGS`` so the dialog can
+        # point them at the source's actual errors instead of
+        # showing a generic "clone failed."
+        await self._validate_rewritten_yaml_or_raise(new_filename, new_content, action="clone")
+
         # Carry forward only the source's ``board_id`` — that's the
         # one piece of dashboard state the scanner can't recover from
         # the YAML (it's a catalog-key indirection the user picked at

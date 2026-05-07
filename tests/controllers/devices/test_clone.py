@@ -244,6 +244,66 @@ async def test_clone_device_rejects_missing_source(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_rejects_when_rewritten_yaml_does_not_validate(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Source YAML failing schema validation refuses the clone.
+
+    The clone path's leaf-line rewrites (name / friendly_name /
+    api key) don't reshape the YAML's structure, so a validation
+    failure on the clone means the *source* itself doesn't pass
+    schema. Refusing the clone here surfaces the editor's actual
+    errors so the user can fix the source and retry, instead of
+    landing two unflashable YAMLs on disk and having every
+    downstream operation refuse them.
+    """
+    from unittest.mock import AsyncMock
+
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [
+                {"message": "[esp32] Unsupported chip variant: esp32h2"},
+            ],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Unsupported chip variant: esp32h2" in excinfo.value.message
+    # Clone never landed — source untouched, target absent.
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == SOURCE_YAML
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_skips_validation_when_editor_unavailable(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Editor not yet started → clone proceeds without validation.
+
+    Mirrors the same boot-window guard the create / edit_friendly_name
+    paths already have. Better to land a clone of a working
+    config than to refuse every clone for the lifetime of the
+    process if the editor subprocess is unavailable.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    ctrl._db.editor = None
+
+    result = await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert result == {"configuration": "bedroom-bulb.yaml"}
+    assert (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_works_when_source_has_no_api_encryption(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
