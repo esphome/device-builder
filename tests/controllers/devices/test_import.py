@@ -14,6 +14,7 @@ Covers two regressions discovered while wiring up the adoption flow:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -40,6 +41,28 @@ def _seed_import_state(controller: DevicesController) -> None:
     but the bypass-init factory leaves it unset.
     """
     controller.import_result = {}
+
+
+def _import_config_stub(
+    captured: dict[str, Any] | None = None,
+) -> Callable[..., None]:
+    """Stub for ``import_config`` that mirrors its on-disk write.
+
+    The real ``import_config`` writes a YAML to ``args[0]``. The
+    ``import_device`` post-write validation step then reads it
+    back, so a stub that only records call args trips the read
+    with ``FileNotFoundError``. This helper writes a minimal
+    valid YAML at the destination path and optionally records
+    the call args into *captured* (for tests that assert on
+    what got forwarded to upstream).
+    """
+
+    def _stub(*args: Any, **_kw: Any) -> None:
+        if captured is not None:
+            captured.setdefault("args", args)
+        args[0].write_text(f"esphome:\n  name: {args[1]}\n", encoding="utf-8")
+
+    return _stub
 
 
 def test_import_config_resolves_at_import_time() -> None:
@@ -115,14 +138,7 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
     ``network`` field to ``import_config``.
     """
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(
-        devices_module,
-        "import_config",
-        lambda *args, **_kw: (
-            captured.setdefault("args", args),
-            args[0].write_text(f"esphome:\n  name: {args[1]}\n", encoding="utf-8"),
-        ),
-    )
+    monkeypatch.setattr(devices_module, "import_config", _import_config_stub(captured))
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -168,14 +184,7 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
     the imported YAML got.
     """
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(
-        devices_module,
-        "import_config",
-        lambda *args, **_kw: (
-            captured.setdefault("args", args),
-            args[0].write_text(f"esphome:\n  name: {args[1]}\n", encoding="utf-8"),
-        ),
-    )
+    monkeypatch.setattr(devices_module, "import_config", _import_config_stub(captured))
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -226,14 +235,7 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
     dashboard wrote.
     """
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(
-        devices_module,
-        "import_config",
-        lambda *args, **_kw: (
-            captured.setdefault("args", args),
-            args[0].write_text(f"esphome:\n  name: {args[1]}\n", encoding="utf-8"),
-        ),
-    )
+    monkeypatch.setattr(devices_module, "import_config", _import_config_stub(captured))
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -308,13 +310,7 @@ async def test_import_device_rejects_when_imported_yaml_does_not_validate(
     project (or pick a different one) and retry without a
     leftover ``FileExistsError`` blocking them.
     """
-    from unittest.mock import AsyncMock
-
-    monkeypatch.setattr(
-        devices_module,
-        "import_config",
-        lambda *a, **_kw: a[0].write_text(f"esphome:\n  name: {a[1]}\n", encoding="utf-8"),
-    )
+    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(
@@ -354,11 +350,7 @@ async def test_import_device_skips_validation_when_editor_unavailable(
     lifetime of the process would be worse than landing the
     YAML and letting the next compile surface any schema issues.
     """
-    monkeypatch.setattr(
-        devices_module,
-        "import_config",
-        lambda *a, **_kw: a[0].write_text(f"esphome:\n  name: {a[1]}\n", encoding="utf-8"),
-    )
+    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor = None
