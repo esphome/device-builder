@@ -432,9 +432,7 @@ async def test_edit_friendly_name_blocks_validation_failure_on_substitution_rewr
     )
 
     with pytest.raises(CommandError) as excinfo:
-        await ctrl.edit_friendly_name(
-            configuration="acmon.yaml", new_friendly_name="Pump Watcher"
-        )
+        await ctrl.edit_friendly_name(configuration="acmon.yaml", new_friendly_name="Pump Watcher")
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "required key not provided: board" in excinfo.value.message
