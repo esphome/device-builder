@@ -2,6 +2,7 @@ id: generic-bk7231n-qfn32-tuya
 name: Generic - BK7231N (Tuya QFN32)
 description: Generic - BK7231N (Tuya QFN32) (BK72XX board).
 manufacturer: ''
+is_generic: true
 esphome:
   platform: bk72xx
   board: generic-bk7231n-qfn32-tuya

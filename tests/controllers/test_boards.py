@@ -406,6 +406,57 @@ def test_find_by_pio_board_returns_first_when_no_generic(
     assert board.id == "seeed-xiao-esp32c3"
 
 
+def test_find_by_pio_board_id_match_tiebreaks_when_no_generic(
+    catalog: BoardCatalog,
+) -> None:
+    """Without a generic match, prefer the entry whose id equals the pio_board.
+
+    Regression for issue #395: a YAML referencing PlatformIO
+    ``d1_mini`` was resolving to ``aquaping`` (a vendor product
+    built on the d1_mini reference design) because both entries
+    matched and the alphabetical-first vendor won the fallback.
+    The catalog also contains the canonical ``d1-mini`` entry,
+    which the tiebreaker now picks even before ``is_generic`` is
+    set on either side.
+
+    Use synthetic boards so the test is robust against the real
+    ``d1-mini`` manifest later being marked ``is_generic`` (which
+    would short-circuit before the tiebreaker fires) — the
+    tiebreaker itself is what we're pinning here.
+    """
+    catalog._boards = [b for b in catalog._boards if not b.is_generic]
+    # Vendor entry sharing the same pio_board, alphabetically
+    # earlier than the canonical entry — the same shape as the
+    # aquaping/d1-mini collision in production.
+    catalog._boards.insert(
+        0,
+        _board(
+            board_id="aaa-vendor-product",
+            platform=Platform.ESP8266,
+            pio_board="d1_mini",
+        ),
+    )
+    # Canonical entry — id matches the pio_board after _ <-> -
+    # normalization. No is_generic flag, so the tiebreaker is the
+    # only thing that picks it.
+    catalog._boards.append(
+        _board(
+            board_id="d1-mini",
+            platform=Platform.ESP8266,
+            pio_board="d1_mini",
+        ),
+    )
+
+    board = catalog.find_by_pio_board("d1_mini")
+
+    assert board is not None
+    assert board.id == "d1-mini"
+    # Confirm the tiebreaker wins without is_generic (i.e. it
+    # didn't accidentally short-circuit on the existing
+    # generic-preference branch).
+    assert board.is_generic is False
+
+
 def test_find_by_pio_board_prefers_matching_variant(catalog: BoardCatalog) -> None:
     """When ``pio_variant`` is provided, prefer entries whose variant matches.
 

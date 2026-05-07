@@ -115,11 +115,26 @@ class BoardCatalog:
 
         When multiple catalog entries share the same PlatformIO board
         id (e.g. several products are physically built on the same
-        ``esp32-c3-devkitm-1`` reference design), prefer the generic
-        fallback (``is_generic=true``) so the dashboard doesn't
-        misidentify a user's plain dev-kit YAML as a specific vendor
-        product like "Athom Smart Plug v3". Mirrors the same
-        generic-preference policy in ``find_by_platform_variant``.
+        ``esp32-c3-devkitm-1`` reference design), the disambiguation
+        ladder is:
+
+        1. ``is_generic=true`` wins outright — the catalog's curated
+           "this is the canonical reference design" marker.
+        2. Otherwise, prefer an entry whose ``id`` matches the
+           PlatformIO board id (after ``_`` ↔ ``-`` normalization).
+           A board with id ``d1-mini`` is the canonical entry for
+           PlatformIO ``d1_mini`` even when nobody remembered to set
+           ``is_generic: true`` — without this tiebreaker, a vendor
+           product alphabetically earlier than the canonical entry
+           wins (the bug behind issue #395 — AquaPing showing up as
+           the board for plain ``d1_mini`` YAMLs).
+        3. Fall back to the first match in iteration order.
+
+        Mirrors the generic-preference policy in
+        ``find_by_platform_variant``. The id-match tiebreaker is
+        specific to ``find_by_pio_board`` because that function's
+        input is itself a board id; the platform-only variant lookup
+        has nothing comparable to match against.
         """
         matches = [b for b in self._boards if b.esphome.board == pio_board]
         if not matches:
@@ -132,6 +147,15 @@ class BoardCatalog:
                 matches = variant_matches
         for b in matches:
             if b.is_generic:
+                return b
+        # Tiebreaker: prefer the entry whose id equals the pio_board
+        # id under ``_`` ↔ ``-`` normalization. Catalog ids tend to
+        # use ``-`` while PlatformIO ids tend to use ``_``, and the
+        # canonical entry for a given pio_board is the one named
+        # after it.
+        normalized_pio = pio_board.replace("_", "-")
+        for b in matches:
+            if b.id.replace("_", "-") == normalized_pio:
                 return b
         return matches[0]
 

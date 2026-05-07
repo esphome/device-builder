@@ -3,6 +3,7 @@ name: Espressif ESP32-C6-DevKitM-1
 description: Compact Espressif ESP32-C6 development board using the ESP32-C6-MINI-1 module. Wi-Fi 6, Bluetooth 5, Thread,
   and Zigbee in a small form factor.
 manufacturer: Espressif
+is_generic: true
 images:
 - https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c6/_images/esp32-c6-devkitm-1-isometric.png
 esphome:

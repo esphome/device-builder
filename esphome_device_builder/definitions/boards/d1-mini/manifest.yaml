@@ -3,6 +3,7 @@ name: Wemos D1 Mini (ESP8266)
 description: Wemos D1 Mini is a compact ESP8266-based Wi-Fi board with 4 MB flash and micro-USB. Widely used in home automation
   with a large ecosystem of stackable shields (relay, OLED, battery, etc.).
 manufacturer: Wemos
+is_generic: true
 esphome:
   platform: esp8266
   board: d1_mini
