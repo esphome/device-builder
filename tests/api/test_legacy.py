@@ -45,6 +45,7 @@ import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
+from esphome_device_builder.api import legacy
 from esphome_device_builder.api.legacy import create_legacy_routes
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
@@ -426,6 +427,19 @@ class _FakeFirmwareController:
 
     Optionally raises ``CommandError`` to simulate the boundary-
     validation rejection path.
+
+    *Not* spec'd against the real ``FirmwareController`` (unlike
+    ``_make_devices_mock`` for the devices controller). The reason
+    is that ``FirmwareController.compile`` / ``.upload`` are
+    decorated with ``@api_command`` and live on a class with a
+    deep import surface (``esphome.components.esp32``,
+    ``esphome.storage_json``, …) that's painful to drag into the
+    legacy unit-test file. The trade-off is that a rename of
+    ``compile`` → ``compile_job`` (etc.) wouldn't surface here —
+    if such a rename ever lands, the integration-style end-to-end
+    test in ``test_spawn_ws_round_trip_through_real_event_bus``
+    catches it the same way #376's regression test catches the
+    devices-controller surface.
     """
 
     def __init__(
@@ -472,11 +486,22 @@ class _FakeFirmwareController:
         production firmware controller's "subscribe before
         snapshot" comment is designed to prevent in
         ``follow_job``.
+
+        Attaches a ``done_callback`` that re-raises any
+        ``_fire_plan`` exception by calling ``task.result()``.
+        Without the callback, an exception inside the deferred
+        task lands in pytest-asyncio's unhandled-task warning
+        channel rather than failing the test loudly — making
+        debugging the next person who breaks this miserable.
         """
         if not self._plan:
             return
         loop = asyncio.get_running_loop()
         self.fire_task = loop.create_task(self._fire_plan())
+        # ``task.result()`` re-raises any exception the task
+        # produced; the bare access surfaces it through the
+        # done-callback path so pytest sees a real failure.
+        self.fire_task.add_done_callback(lambda t: t.result())
 
     async def _fire_plan(self) -> None:
         # One ``sleep(0)`` is enough: ``compile()`` returns
@@ -889,6 +914,96 @@ async def test_spawn_ws_breaks_on_close(tmp_path: Path, aiohttp_client: AiohttpC
     async with client.ws_connect("/compile") as ws:
         await ws.close()
     # Closing without raising is the assertion.
+
+
+async def test_stream_helper_releases_listener_when_send_raises() -> None:
+    """``_stream_job_to_legacy_ws`` removes the listener on a send failure.
+
+    Pins the cleanup contract for the disconnect path. In
+    production, a client that closes mid-stream causes the next
+    ``ws.send_json`` to raise (``ConnectionResetError`` or
+    similar), and ``with bus.listening(...)`` must run the
+    listener-removal callback exactly once on the way out.
+    Without this, a dead listener would stay attached on the
+    bus until the dashboard restarted — fine in the short term,
+    a leak over a long-lived process's lifetime.
+
+    Drives the helper directly with a stub WS rather than going
+    through the aiohttp close handshake (which carries a 10-second
+    server-side timeout that makes the end-to-end version of this
+    test slow). The cleanup path is purely a Python ``with``-exit
+    so the unit-level assertion catches the same regression a
+    full-stack test would.
+    """
+    bus = EventBus()
+    job = _make_job()
+
+    class _BrokenWS:
+        async def send_json(self, *_args: Any, **_kwargs: Any) -> None:
+            raise ConnectionResetError("client gone")
+
+    # Confirm the bus starts with no listeners — a stale fixture
+    # would make the post-call assertion meaningless.
+    assert bus._listeners == {}
+
+    # Pre-stage a JOB_OUTPUT event so the handler wakes from
+    # ``pending.get()`` immediately, attempts the (failing) send,
+    # and exits the ``with`` block.
+    async def _fire_after_subscribe() -> None:
+        await asyncio.sleep(0)
+        bus.fire(EventType.JOB_OUTPUT, {"job_id": job.job_id, "line": "x\n"})
+
+    fire_task = asyncio.create_task(_fire_after_subscribe())
+    try:
+        with pytest.raises(ConnectionResetError):
+            await legacy._stream_job_to_legacy_ws(_BrokenWS(), bus, job)  # type: ignore[arg-type]
+    finally:
+        await fire_task
+
+    # All listener slots must be empty: the helper subscribes to
+    # JOB_OUTPUT plus the three terminal events, and a partial
+    # cleanup (e.g. exit on JOB_OUTPUT before JOB_COMPLETED is
+    # added) would still leave a leaking entry behind.
+    for event_type in (
+        EventType.JOB_OUTPUT,
+        EventType.JOB_COMPLETED,
+        EventType.JOB_FAILED,
+        EventType.JOB_CANCELLED,
+    ):
+        assert bus._listeners.get(event_type, set()) == set()
+
+
+async def test_spawn_ws_rejects_when_firmware_not_initialised(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``firmware=None`` at request time → ``{event: exit, code: 1}`` not crash.
+
+    Production sets ``DeviceBuilder.firmware`` before HTTP is
+    served, but typing it as ``Optional`` means a startup-order
+    regression would leave the legacy handler reading ``None``
+    and ``AttributeError``-ing on the next ``.compile()`` call —
+    surfacing to HA as an opaque connection drop. The defensive
+    early-return turns that into the protocol's only signalling
+    channel: a ``code: 1`` exit frame.
+    """
+    bus = EventBus()
+    # Build the app with firmware=None deliberately. ``_make_app``
+    # only adds attrs whose value is non-None, so we use a custom
+    # builder that wires firmware=None explicitly.
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+    db_attrs = {"settings": settings, "firmware": None, "bus": bus}
+    app = web.Application()
+    app["device_builder"] = type("DB", (), db_attrs)()
+    app.add_routes(create_legacy_routes())
+
+    client = await aiohttp_client(app)
+    async with client.ws_connect("/compile") as ws:
+        await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
+        msg = await ws.receive_json()
+
+    assert msg == {"event": "exit", "code": 1}
 
 
 async def test_spawn_ws_round_trip_through_real_event_bus(

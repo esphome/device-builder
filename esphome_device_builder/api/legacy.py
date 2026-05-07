@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import aiohttp
 from aiohttp import web
@@ -41,7 +41,31 @@ from ..helpers.json import (
 from ..models import EventType, JobStatus, JobType
 
 if TYPE_CHECKING:
+    from ..helpers.event_bus import EventBus
     from ..models import FirmwareJob
+
+
+class _LegacyDB(Protocol):
+    """Narrow protocol for the bits of ``DeviceBuilder`` this module reads.
+
+    Avoids the circular-import / type-erasure pair the previous
+    ``db: object`` + ``# type: ignore[attr-defined]`` shape produced.
+    Both ``firmware`` and ``bus`` are typed as the wrapping
+    ``Optional`` because ``DeviceBuilder`` initialises them after
+    construction (``firmware`` in ``start``, ``bus`` in ``__init__``);
+    the production startup order guarantees they're set by the time
+    HTTP requests are served, but the legacy handler still defends
+    against ``None`` so a future startup-order regression fails
+    closed with a controlled exit frame instead of an
+    ``AttributeError`` that surfaces to HA as a connection drop.
+    """
+
+    bus: EventBus | None
+    # Forward-declare the firmware controller as ``object`` since
+    # importing it here would re-trigger the circular nudge that
+    # motivated the local terminal-event constants below.
+    firmware: object | None
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,7 +83,7 @@ _TERMINAL_STATUSES = frozenset({JobStatus.COMPLETED, JobStatus.FAILED, JobStatus
 
 async def _stream_job_to_legacy_ws(
     ws: web.WebSocketResponse,
-    db: object,
+    bus: EventBus,
     job: FirmwareJob,
 ) -> None:
     """
@@ -75,19 +99,23 @@ async def _stream_job_to_legacy_ws(
     The race-free pattern:
 
     1. Snapshot ``job.output`` (sync) — captures every line fired
-       so far.
+       so far. The snapshot is a fresh list copy via ``list(...)``
+       so a subsequent ``_trim_job_output`` reassign of
+       ``job.output`` (``firmware/helpers.py``) doesn't mutate
+       what we replay.
     2. ``add_listener`` (sync) — attaches before any further
        events fire. Steps 1 and 2 are sync-adjacent so no
        coroutine yield can interleave a fire between them; the
-       runner appends to ``job.output`` and fires ``JOB_OUTPUT``
-       in the same synchronous block, so a line can either be in
-       the snapshot OR caught by the listener, never both and
-       never neither.
+       runner's loop appends to ``job.output``, optionally trims
+       (which reassigns the list — irrelevant to our snapshot
+       copy), and fires ``JOB_OUTPUT`` in the same synchronous
+       block (``firmware/controller.py:899-918``), so a line can
+       either be in the snapshot OR caught by the listener, never
+       both and never neither.
     3. Replay snapshot. Lines that arrive during the replay queue
        up via the listener and are drained afterwards.
     4. Drain the queue until a terminal event arrives.
     """
-    bus = db.bus  # type: ignore[attr-defined]
     job_id = job.job_id
 
     # Pending items are tagged so the drain loop can route line
@@ -156,8 +184,26 @@ async def _handle_legacy_ws_command(
     """
     ws = web.WebSocketResponse()
     await ws.prepare(request)
-    db = request.app["device_builder"]
+    db: _LegacyDB = request.app["device_builder"]
     firmware = db.firmware
+    bus = db.bus
+    # Defend against a startup-order regression: production sets
+    # both before serving HTTP, but a future refactor that flips
+    # that order would otherwise crash with ``AttributeError`` and
+    # surface to HA as a connection drop. Failing closed with a
+    # ``code: 1`` exit frame keeps the rejection on the legacy
+    # protocol's only signalling channel.
+    if firmware is None or bus is None:
+        _LOGGER.warning(
+            "Legacy %s WS rejected: device_builder not fully initialised (firmware=%s, bus=%s)",
+            request.path,
+            "set" if firmware is not None else "None",
+            "set" if bus is not None else "None",
+        )
+        async for _ in ws:
+            await ws.send_json({"event": "exit", "code": 1}, dumps=dumps_str)
+            break
+        return ws
 
     async for msg in ws:
         if msg.type != aiohttp.WSMsgType.TEXT:
@@ -178,9 +224,13 @@ async def _handle_legacy_ws_command(
 
         try:
             if job_type is JobType.UPLOAD:
-                job = await firmware.upload(configuration=configuration, port=port)
+                job = await firmware.upload(  # type: ignore[attr-defined]
+                    configuration=configuration, port=port
+                )
             else:
-                job = await firmware.compile(configuration=configuration)
+                job = await firmware.compile(  # type: ignore[attr-defined]
+                    configuration=configuration
+                )
         except CommandError:
             # Boundary / validation rejection. The legacy spawn
             # protocol uses ``{event: "exit", code}`` as its only
@@ -191,7 +241,7 @@ async def _handle_legacy_ws_command(
             await ws.send_json({"event": "exit", "code": 1}, dumps=dumps_str)
             break
 
-        await _stream_job_to_legacy_ws(ws, db, job)
+        await _stream_job_to_legacy_ws(ws, bus, job)
         break
 
     return ws
