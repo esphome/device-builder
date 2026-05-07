@@ -256,19 +256,22 @@ async def test_edit_friendly_name_inserts_into_existing_esphome_block(
     assert "esphome:\nfriendly_name:" not in new_yaml
 
 
-async def test_edit_friendly_name_prepends_esphome_block_with_synthesised_name(
+async def test_edit_friendly_name_prepends_esphome_block_when_absent(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Package-driven config — prepend a complete ``esphome:`` block.
+    """Package-driven config — prepend an ``esphome:`` block with just ``friendly_name:``.
 
     When ``esphome:`` lives in a ``packages:`` / ``!include``d
-    file, this YAML has no block at all. ESPHome's schema requires
-    ``esphome.name``, so inserting just ``friendly_name:`` would
-    leave the synthesised block invalid (validation fails with
-    "required key not provided"). Slugify the friendly name into a
-    hostname-safe value and seed ``name:`` alongside so the new
-    block compiles as-is.
+    file, the local YAML has no block at all. We prepend one with
+    just ``friendly_name:`` and *deliberately* leave ``name:``
+    alone — a literal-text check can't see ``esphome.name``
+    supplied by a package or substitution, so synthesising a slug
+    here would silently override the package-supplied hostname
+    and break API discovery / OTA / mDNS. ESPHome's package
+    merge gives our local ``friendly_name:`` precedence over the
+    package's, so the user's intended display-label override
+    lands; ``name:`` is left to the package as-is.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml = "packages:\n  base: !include common/base.yaml\nesp32:\n  variant: ESP32\n"
@@ -280,24 +283,29 @@ async def test_edit_friendly_name_prepends_esphome_block_with_synthesised_name(
 
     assert result == {"configuration": "kitchen.yaml", "rewritten": True}
     new_yaml = (tmp_path / "kitchen.yaml").read_text("utf-8")
-    # New ``esphome:`` block at the top with both leaves.
-    assert new_yaml.startswith("esphome:\n  name: reading-lamp\n  friendly_name: Reading Lamp\n")
+    # New ``esphome:`` block at the top with just friendly_name.
+    assert new_yaml.startswith("esphome:\n  friendly_name: Reading Lamp\n")
+    # No synthesised ``name:`` line that would override the package's.
+    assert "  name:" not in new_yaml
     # Pre-existing top-level keys preserved.
     assert "packages:\n  base: !include common/base.yaml\n" in new_yaml
     assert "esp32:\n  variant: ESP32\n" in new_yaml
 
 
-async def test_edit_friendly_name_synthesises_name_into_existing_block(
+async def test_edit_friendly_name_inserts_into_block_without_synthesising_name(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    r"""``esphome:`` exists with no ``name:`` — we add it alongside friendly_name.
+    r"""``esphome:`` exists with no ``name:`` — we add ``friendly_name:`` only.
 
     Edge case where the user has an ``esphome:`` block (e.g. just
-    ``esphome:\n  comment: …``) but no ``name:``. ESPHome's schema
-    still requires the name; we synthesise one from the friendly
-    name so the rename produces a valid config without the user
-    having to know about the schema requirement.
+    ``esphome:\n  comment: …``) but no ``name:``. We don't
+    synthesise ``name:`` for the same reason as the no-block case:
+    a package or substitution may already supply it, and a
+    literal-text check can't tell. If neither does, ESPHome's
+    schema check surfaces "required key not provided" on the
+    next compile — actionable and visible, unlike a silently
+    overridden hostname.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml = "esphome:\n  comment: Adopted device\nesp32:\n  variant: ESP32\n"
@@ -306,38 +314,11 @@ async def test_edit_friendly_name_synthesises_name_into_existing_block(
     await ctrl.edit_friendly_name(configuration="device.yaml", new_friendly_name="Living Room Lamp")
 
     new_yaml = (tmp_path / "device.yaml").read_text("utf-8")
-    # Both leaves present after the edit.
-    assert "  name: living-room-lamp\n" in new_yaml
     assert "  friendly_name: Living Room Lamp\n" in new_yaml
+    # No synthesised ``name:`` line.
+    assert "  name:" not in new_yaml
     # Existing comment preserved.
     assert "  comment: Adopted device\n" in new_yaml
-
-
-async def test_edit_friendly_name_truncates_long_synthesised_name(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A friendly name longer than 31 characters slugifies to a 31-char hostname.
-
-    ESPHome caps ``esphome.name`` at 31 chars
-    (``validate_hostname`` in ``esphome/core/config.py``). The
-    slugifier truncates to that limit and trims any trailing dash
-    so the synthesised value validates.
-    """
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    yaml = "packages:\n  base: !include common/base.yaml\n"
-    (tmp_path / "device.yaml").write_text(yaml, "utf-8")
-
-    long_name = "Living Room Reading Lamp Bedside Right"
-    await ctrl.edit_friendly_name(configuration="device.yaml", new_friendly_name=long_name)
-
-    new_yaml = (tmp_path / "device.yaml").read_text("utf-8")
-    # Extract just the synthesised name from the prepended block.
-    name_line = next(line for line in new_yaml.splitlines() if line.strip().startswith("name:"))
-    name_value = name_line.split(":", 1)[1].strip()
-    assert len(name_value) <= 31
-    # Trailing dashes from truncation get stripped.
-    assert not name_value.endswith("-")
 
 
 async def test_edit_friendly_name_rejects_flow_style_esphome(
@@ -463,32 +444,32 @@ async def test_edit_friendly_name_preserves_unrelated_lines(
             "brandnew",
             "The BRAND NEW",
         ),
-        # No esphome block at all (package-driven). Synthesised name
-        # alongside friendly_name.
+        # No esphome block at all (package-driven). We don't
+        # synthesise ``name:`` here — a slug landing on top of
+        # the package's name would silently change device
+        # identity. Scanner falls back to the filename stem.
         (
             "packages:\n  base: !include common/base.yaml\nesp32:\n  variant: ESP32\n",
-            "the-brand-new",
+            "brandnew",
             "The BRAND NEW",
         ),
-        # esphome block but no name OR friendly_name. Synthesise both.
+        # esphome block but no name OR friendly_name. Same
+        # rationale: don't synthesise; the user can add ``name:``
+        # if their config genuinely needs one.
         (
             "esphome:\n  comment: Something\nesp32:\n  variant: ESP32\n",
-            "the-brand-new",
+            "brandnew",
             "The BRAND NEW",
         ),
         # Regression for a real bug: the wizard's
         # ``generate_device_yaml`` emits ``# Board: …`` /
         # ``# Definition: …`` annotations at column 0 above the
-        # ``esphome:`` block. If the user then ends up in the
-        # "no esphome block" state (manual edit, dashboard_import
-        # template that strips it, etc.) and edits the friendly
-        # name, the upsert must NOT pull those column-0 comments
-        # *into* the synthesised block — landing column-0
-        # comments between an indented ``name:`` and
-        # ``friendly_name:`` produces a YAML where
-        # ``parse_esphome_meta`` reads ``# Board:`` as a fresh
-        # top-level key, drops the ``esphome:`` context, and
-        # silently loses ``friendly_name`` on the next load.
+        # ``esphome:`` block. The upsert must not pull those
+        # column-0 comments *into* the synthesised block —
+        # landing them between two indented children produces a
+        # YAML where ``parse_esphome_meta`` reads ``# Board:`` as
+        # a fresh top-level key, drops the ``esphome:`` context,
+        # and silently loses ``friendly_name`` on the next load.
         # User-visible symptom: dashboard keeps showing the old
         # filename-stem fallback instead of the new label.
         (
@@ -496,7 +477,7 @@ async def test_edit_friendly_name_preserves_unrelated_lines(
             "# Definition: definitions/boards/generic-esp32h2/manifest.yaml\n"
             "\n"
             "esp32:\n  variant: esp32h2\n",
-            "the-brand-new",
+            "brandnew",
             "The BRAND NEW",
         ),
     ],

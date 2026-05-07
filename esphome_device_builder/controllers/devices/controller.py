@@ -33,7 +33,6 @@ from ...helpers.device_yaml import (
     load_device_yaml,
     parse_esphome_meta,
     parse_platform_from_yaml,
-    slugify_hostname,
 )
 from ...helpers.event_bus import Event, StreamControls, stream_events
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
@@ -44,7 +43,6 @@ from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     generate_api_encryption_key,
     merge_component_yaml,
-    read_yaml_scalar,
     rewrite_api_encryption_key,
     rewrite_esphome_name,
     rewrite_name_or_substitution,
@@ -967,6 +965,14 @@ class DevicesController:
           with just ``friendly_name:``. ESPHome's package merge
           gives our local leaf precedence over the package's
           value, so the user's intended override actually lands.
+          ``esphome.name`` is intentionally not synthesised — a
+          literal-text check can't see a name supplied by
+          ``packages:`` / ``!include`` / substitutions, and a
+          synthesised slug here would silently override the
+          package-supplied hostname (breaking API discovery,
+          OTA, and mDNS). Configs that genuinely lack ``name:``
+          from any source are already invalid and ESPHome's
+          schema check will report it on the next compile.
 
         User-correctable failures raise typed
         ``CommandError(INVALID_ARGS, …)``:
@@ -1015,20 +1021,17 @@ class DevicesController:
         # something different" — and ESPHome's package merge gives
         # our local leaf precedence over the included one.
         #
-        # When the source has no ``esphome.name`` either (package-
-        # driven config), inserting just ``friendly_name:`` would
-        # leave the synthesised local block invalid: ``esphome.name``
-        # is required by ESPHome's schema, so the next compile
-        # would fail with ``required key not provided`` until the
-        # user knew to add it. Slugify the friendly name into a
-        # hostname-safe value and seed ``name:`` first so the new
-        # block validates as-is.
+        # We deliberately don't try to synthesise ``esphome.name``
+        # for configs where the literal YAML doesn't have one. A
+        # text-level check can't see ``name:`` supplied by
+        # ``packages:`` / ``!include`` / substitutions, and a
+        # synthesised slug landing here would silently override
+        # the package-supplied hostname — breaking API discovery,
+        # OTA, and mDNS without warning. If a config genuinely
+        # has no ``name:`` from any source, ESPHome's schema will
+        # surface "required key not provided" on the next compile,
+        # which the user can address explicitly.
         try:
-            if read_yaml_scalar(content, ("esphome", "name")) is None:
-                synthesised_name = slugify_hostname(new_friendly_name)
-                content = upsert_yaml_leaf_under_top_block(
-                    content, "esphome", "name", synthesised_name
-                )
             new_content = upsert_yaml_leaf_under_top_block(
                 content, "esphome", "friendly_name", new_friendly_name
             )
