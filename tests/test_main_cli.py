@@ -147,9 +147,12 @@ def _isolated_logging_globals() -> Generator[None]:
     """
     Snapshot the global state ``_setup_logging`` mutates and restore it.
 
-    Without this, the installed excepthooks and queue handler leak
-    across tests and the lambdas hold a reference to whatever root
-    handlers happened to be configured at call time.
+    ``_setup_logging`` reassigns ``sys.excepthook`` /
+    ``threading.excepthook`` and adds handlers (including a
+    ``LoggingQueueHandler`` whose listener thread keeps running) to
+    ``logging.root``. Without restoration these leak into other tests
+    in the suite, and a stuck-running listener thread can hold
+    references to handlers that the next test then mutates.
     """
     saved_sys_hook = sys.excepthook
     saved_thread_hook = threading.excepthook
