@@ -953,8 +953,10 @@ class DevicesController:
         - blank ``new_friendly_name``
         - source not found
         - source has no inline ``esphome.friendly_name`` leaf
-          (package / ``!include``-driven; the user has to edit
-          the package)
+          (either omitted entirely, or supplied via
+          ``packages:`` / ``!include`` — the helper's error
+          message offers both fixes without us having to
+          disambiguate)
         """
         new_friendly_name = new_friendly_name.strip()
         if not new_friendly_name:
