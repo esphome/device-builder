@@ -755,6 +755,58 @@ def test_generate_yaml_omits_wifi_for_esp32h2_without_explicit_connectivity() ->
     assert "wifi:" not in yaml
 
 
+def test_generate_yaml_omits_api_and_ota_for_no_wifi_board() -> None:
+    """No-Wi-Fi board → no top-level ``api:`` and no top-level ``ota:`` block.
+
+    Both components declare ``DEPENDENCIES=["network"]``, and the
+    wizard doesn't emit a ``network``-providing component
+    (``ethernet:`` / ``openthread:`` / ``host:``) for non-Wi-Fi
+    boards. Without this guard the generated YAML fails validation
+    with "Component api requires component network." for every H2 /
+    P4 / plain Pico the user picks. Pin the omission so a
+    regression that re-enabled the unconditional emit shows up
+    here. Match against the line-anchored top-level form rather
+    than a bare substring — the TODO comment mentions ``api:`` /
+    ``ota:`` in backticks so naive ``"api:" not in yaml`` would
+    false-positive on the guidance text.
+    """
+    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32H2)
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    lines = yaml.splitlines()
+    assert "api:" not in lines
+    assert "ota:" not in lines
+
+
+def test_generate_yaml_no_wifi_board_emits_network_todo_comment() -> None:
+    """Wizard leaves a hint pointing the user at network options.
+
+    When ``api:`` / ``ota:`` are skipped the user might not realise
+    why; the comment block names the candidate network components
+    (``openthread:`` / ``ethernet:`` / ``esp32_hosted:``) so they
+    have a starting point. Pin a couple of stable substrings so a
+    rewording that drops the guidance entirely surfaces here.
+    """
+    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32H2)
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    assert "no native Wi-Fi" in yaml
+    assert "network" in yaml
+
+
+def test_generate_yaml_keeps_api_and_ota_for_wifi_board() -> None:
+    """Wi-Fi board → ``api:`` and ``ota:`` blocks both still emitted.
+
+    The no-network guard above must not regress the happy path —
+    every ESP32 / ESP8266 / Pico-W config keeps the api +
+    encryption + ota blocks the wizard always produced.
+    """
+    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3)
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    lines = yaml.splitlines()
+    assert "api:" in lines
+    assert "ota:" in lines
+    assert "  - platform: esphome" in yaml
+
+
 def test_generate_yaml_emits_wifi_for_esp32c3_without_explicit_connectivity() -> None:
     """ESP32-C3 with no connectivity claim → ``wifi:`` block emitted.
 
