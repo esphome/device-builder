@@ -889,9 +889,7 @@ class DevicesController:
         # errors, so the user fixes the source first and retries.
         # Surfacing this here also means we don't burn the rewrite
         # work just to re-discover the source was unflashable.
-        await self._validate_rewritten_yaml_or_raise(
-            configuration, source_content, action="clone"
-        )
+        await self._validate_rewritten_yaml_or_raise(configuration, source_content, action="clone")
 
         # Land the new identity on whichever line the source actually
         # uses to drive the value. Two patterns appear in real configs:
