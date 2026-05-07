@@ -116,7 +116,12 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
     """
     captured: dict[str, Any] = {}
     monkeypatch.setattr(
-        devices_module, "import_config", lambda *args, **_kw: (captured.setdefault('args', args), args[0].write_text(f'esphome:\n  name: {args[1]}\n', encoding='utf-8'))
+        devices_module,
+        "import_config",
+        lambda *args, **_kw: (
+            captured.setdefault("args", args),
+            args[0].write_text(f"esphome:\n  name: {args[1]}\n", encoding="utf-8"),
+        ),
     )
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -164,7 +169,12 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
     """
     captured: dict[str, Any] = {}
     monkeypatch.setattr(
-        devices_module, "import_config", lambda *args, **_kw: (captured.setdefault('args', args), args[0].write_text(f'esphome:\n  name: {args[1]}\n', encoding='utf-8'))
+        devices_module,
+        "import_config",
+        lambda *args, **_kw: (
+            captured.setdefault("args", args),
+            args[0].write_text(f"esphome:\n  name: {args[1]}\n", encoding="utf-8"),
+        ),
     )
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -217,7 +227,12 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
     """
     captured: dict[str, Any] = {}
     monkeypatch.setattr(
-        devices_module, "import_config", lambda *args, **_kw: (captured.setdefault('args', args), args[0].write_text(f'esphome:\n  name: {args[1]}\n', encoding='utf-8'))
+        devices_module,
+        "import_config",
+        lambda *args, **_kw: (
+            captured.setdefault("args", args),
+            args[0].write_text(f"esphome:\n  name: {args[1]}\n", encoding="utf-8"),
+        ),
     )
 
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -298,9 +313,7 @@ async def test_import_device_rejects_when_imported_yaml_does_not_validate(
     monkeypatch.setattr(
         devices_module,
         "import_config",
-        lambda *a, **_kw: a[0].write_text(
-            f"esphome:\n  name: {a[1]}\n", encoding="utf-8"
-        ),
+        lambda *a, **_kw: a[0].write_text(f"esphome:\n  name: {a[1]}\n", encoding="utf-8"),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -344,9 +357,7 @@ async def test_import_device_skips_validation_when_editor_unavailable(
     monkeypatch.setattr(
         devices_module,
         "import_config",
-        lambda *a, **_kw: a[0].write_text(
-            f"esphome:\n  name: {a[1]}\n", encoding="utf-8"
-        ),
+        lambda *a, **_kw: a[0].write_text(f"esphome:\n  name: {a[1]}\n", encoding="utf-8"),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -374,7 +385,11 @@ async def test_import_device_returns_even_when_post_scan_fails(
     nothing being wrong. Best-effort scan; the periodic poll picks up
     whatever this attempt missed.
     """
-    monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: a[0].write_text(f'esphome:\n  name: {a[1]}\n', encoding='utf-8'))
+    monkeypatch.setattr(
+        devices_module,
+        "import_config",
+        lambda *a, **kw: a[0].write_text(f"esphome:\n  name: {a[1]}\n", encoding="utf-8"),
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._scanner.scan = AsyncMock(side_effect=RuntimeError("transient"))
@@ -402,7 +417,11 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
     can't clobber it) and pulls the cached IP out of zeroconf so the
     new card has an address right away.
     """
-    monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: a[0].write_text(f'esphome:\n  name: {a[1]}\n', encoding='utf-8'))
+    monkeypatch.setattr(
+        devices_module,
+        "import_config",
+        lambda *a, **kw: a[0].write_text(f"esphome:\n  name: {a[1]}\n", encoding="utf-8"),
+    )
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl._state_monitor = RecordingStateMonitor(
@@ -431,7 +450,11 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
     make_controller: MakeControllerFactory,
 ) -> None:
     """No cached IP → state still flips ONLINE, just no apply_ip call."""
-    monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: a[0].write_text(f'esphome:\n  name: {a[1]}\n', encoding='utf-8'))
+    monkeypatch.setattr(
+        devices_module,
+        "import_config",
+        lambda *a, **kw: a[0].write_text(f"esphome:\n  name: {a[1]}\n", encoding="utf-8"),
+    )
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl._state_monitor = RecordingStateMonitor()  # no cached addresses
@@ -463,7 +486,11 @@ async def test_import_device_drops_matching_import_result_entry(
     so we drop the right entry even when the user typed a different
     YAML name in the dialog.
     """
-    monkeypatch.setattr(devices_module, "import_config", lambda *a, **kw: a[0].write_text(f'esphome:\n  name: {a[1]}\n', encoding='utf-8'))
+    monkeypatch.setattr(
+        devices_module,
+        "import_config",
+        lambda *a, **kw: a[0].write_text(f"esphome:\n  name: {a[1]}\n", encoding="utf-8"),
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
