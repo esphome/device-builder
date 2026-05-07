@@ -13,7 +13,6 @@ import contextlib
 import logging
 import os
 import shutil
-import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
@@ -22,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome import const
 from esphome.components.dashboard_import import import_config
+from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 
 from ...helpers.api import CommandError, api_command
@@ -988,38 +988,18 @@ class DevicesController:
             # redundant OTA job.
             return {"configuration": configuration, "rewritten": False}
 
-        # Atomic write — ``write_text`` would truncate the existing
-        # file first, so a crash mid-write leaves a partial /
-        # corrupt YAML. Stage the new bytes in a sibling tempfile
-        # and ``os.replace`` to swap atomically (POSIX rename is
-        # atomic on the same filesystem; Windows' ``os.replace``
-        # is also documented atomic). Same-directory tempfile so
-        # the rename is guaranteed cross-FS-free even when the
-        # config dir is on a separate volume from /tmp (HA addon
-        # mounts /config from the host, /tmp from the container —
-        # ``tempfile.mkstemp`` would land on /tmp by default and
-        # the rename would silently degrade to copy+delete which
-        # *isn't* atomic).
-        def _write_atomic() -> None:
-            fd, tmp = tempfile.mkstemp(
-                prefix=f".{config_path.name}.",
-                suffix=".tmp",
-                dir=config_path.parent,
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                os.replace(tmp, config_path)
-            except BaseException:
-                # Best-effort cleanup of the staged tempfile when
-                # the write or the rename fails. ``missing_ok=True``
-                # handles the "rename succeeded but exception
-                # raised between" race that os.replace shouldn't
-                # produce but defends against in any case.
-                Path(tmp).unlink(missing_ok=True)
-                raise
-
-        await loop.run_in_executor(None, _write_atomic)
+        # Atomic write — ``Path.write_text`` truncates the
+        # destination before writing, so a crash mid-write leaves
+        # a partial / corrupt YAML. ``esphome.helpers.write_file``
+        # already implements the canonical
+        # "stage-in-sibling-tempfile + atomic rename" pattern
+        # (NamedTemporaryFile in the destination directory so the
+        # rename stays within one filesystem, then ``shutil.move``
+        # which uses ``os.rename`` for same-FS targets). Lean on
+        # that helper here so this code path matches everywhere
+        # else in the upstream codebase that writes user-editable
+        # YAML.
+        await loop.run_in_executor(None, atomic_write_file, config_path, new_content)
         await self._scanner.scan()
         return {"configuration": configuration, "rewritten": True}
 
