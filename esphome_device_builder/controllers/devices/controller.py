@@ -1831,22 +1831,30 @@ class DevicesController:
         # against the current esphome / zeroconf state — would
         # otherwise leave an unflashable YAML on disk that every
         # downstream operation refuses. Read it back, validate,
-        # and on failure delete the YAML so we never surface a
-        # half-imported device. The window between
+        # and on *any* failure delete the YAML so we never surface
+        # a half-imported device. The window between
         # ``import_config`` and the cleanup is short and the
         # scanner only runs on poll (no inotify watcher), so the
         # rollback is safe before ``self._scanner.scan()`` below.
+        # ``except BaseException`` (re-raising) catches the read's
+        # OSError, the validator subprocess's
+        # TimeoutError/RuntimeError/BrokenPipeError, and the
+        # validation helper's CommandError equally — without it a
+        # transient I/O error during validation would leak the
+        # half-imported YAML and trip ``FileExistsError`` on every
+        # retry.
         def _read() -> str:
             return path.read_text(encoding="utf-8")
 
-        content = await loop.run_in_executor(None, _read)
+        def _cleanup() -> None:
+            path.unlink(missing_ok=True)
+
         try:
-            await self._validate_rewritten_yaml_or_raise(configuration, content, action="import")
-        except CommandError:
-
-            def _cleanup() -> None:
-                path.unlink(missing_ok=True)
-
+            content = await loop.run_in_executor(None, _read)
+            await self._validate_rewritten_yaml_or_raise(
+                configuration, content, action="import"
+            )
+        except BaseException:
             await loop.run_in_executor(None, _cleanup)
             raise
 
