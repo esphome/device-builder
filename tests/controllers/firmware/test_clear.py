@@ -51,7 +51,7 @@ async def test_clear_default_removes_all_terminal_states(
     """``clear()`` with no args removes every terminal job (COMPLETED/FAILED/CANCELLED).
 
     Pin all three terminal states in one test so a regression that
-    forgets to include any one of them in ``_TERMINAL_JOB_STATUSES``
+    forgets to include any one of them in ``TERMINAL_JOB_STATUSES``
     surfaces here regardless of which state was missed.
     """
     controller = firmware_controller_factory(

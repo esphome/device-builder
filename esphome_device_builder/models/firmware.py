@@ -40,23 +40,14 @@ class JobType(StrEnum):
 
 
 # Terminal job states — a job in any of these isn't running and
-# isn't waiting to run. Lives here next to ``JobStatus`` because
-# it's a public set derived directly from the enum's terminal
-# members; ``controllers/firmware/constants.py`` is reserved for
-# constants private to the firmware controller (every name there
-# is ``_``-prefixed), and these need to be reachable from the API
-# layer's WS handlers — which recognise jobs that resolved as
-# already-terminal at submit time — without crossing that
-# private/public boundary. ``firmware/constants.py`` re-exports
-# the same set under its existing internal name so the controller
-# call sites don't churn.
+# isn't waiting to run.
 TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
     {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
 )
 
 # Lifecycle events that match ``TERMINAL_JOB_STATUSES``. The runner
-# fires exactly one of these per job, matching the status set above
-# — they're kept as separate constants because subscriptions key
+# fires exactly one of these per job, matching the status set
+# above — kept as a separate constant because subscriptions key
 # off ``EventType`` while state checks key off ``JobStatus``.
 TERMINAL_JOB_EVENTS: frozenset[EventType] = frozenset(
     {EventType.JOB_COMPLETED, EventType.JOB_FAILED, EventType.JOB_CANCELLED}

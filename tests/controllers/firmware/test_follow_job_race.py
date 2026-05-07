@@ -350,7 +350,7 @@ async def test_cancelled_terminal_event_returns_with_status(
     """``JOB_CANCELLED`` ends the follow with a ``cancelled`` result.
 
     Mirrors the completed/failed paths but exercises the third
-    entry in ``_JOB_TERMINAL_EVENTS``. Without coverage here a
+    entry in ``TERMINAL_JOB_EVENTS``. Without coverage here a
     listener change that drops ``JOB_CANCELLED`` from the
     subscribed set would silently leave followers parked on the
     queue forever — the build's own runner has stopped firing

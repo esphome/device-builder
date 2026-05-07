@@ -13,15 +13,7 @@ from __future__ import annotations
 
 import re
 
-from ...models import (
-    TERMINAL_JOB_EVENTS as _TERMINAL_JOB_EVENTS_PUBLIC,
-)
-from ...models import (
-    TERMINAL_JOB_STATUSES as _TERMINAL_JOB_STATUSES_PUBLIC,
-)
-from ...models import (
-    JobType,
-)
+from ...models import JobType
 
 # Metadata key under which the firmware queue persists itself in
 # ``.device-builder.json``.
@@ -96,15 +88,6 @@ _MAX_AUX_TERMINAL_JOBS = 5
 _PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
 )
-
-# Terminal job states / events — re-exported here under the
-# leading-underscore names every internal call site already imports
-# so the existing references don't churn. The shared definitions
-# live in ``models/firmware.py`` next to ``JobStatus`` so the API
-# layer's WS handlers (``api/legacy.py``, etc.) can reuse the same
-# sets without a circular nudge through this private module.
-_TERMINAL_JOB_STATUSES = _TERMINAL_JOB_STATUSES_PUBLIC
-_JOB_TERMINAL_EVENTS = _TERMINAL_JOB_EVENTS_PUBLIC
 
 # Per-job output cap for retained terminal jobs. Compile output for a
 # successful build runs ~3-10k lines; the head is mostly toolchain

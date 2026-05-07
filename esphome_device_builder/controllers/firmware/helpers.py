@@ -21,13 +21,18 @@ from pathlib import Path
 from ...helpers.api import CommandError
 from ...helpers.process import kill_quietly
 from ...helpers.subprocess import create_subprocess_exec
-from ...models import ErrorCode, FirmwareJob, JobStatus, JobType
+from ...models import (
+    TERMINAL_JOB_STATUSES,
+    ErrorCode,
+    FirmwareJob,
+    JobStatus,
+    JobType,
+)
 from .constants import (
     _MAX_OUTPUT_LINES_RETAINED,
     _NO_ESPHOME_MODULE_MARKER,
     _OUTPUT_TRIM_NOTICE_PREFIX,
     _PROGRESS_PATTERNS,
-    _TERMINAL_JOB_STATUSES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,7 +112,7 @@ def _mark_job_terminal(job: FirmwareJob, status: JobStatus) -> None:
     still-running job — that would mis-order the dashboard's
     relative-time strings and confuse the prune-on-shutdown logic.
     """
-    if status not in _TERMINAL_JOB_STATUSES:
+    if status not in TERMINAL_JOB_STATUSES:
         msg = f"_mark_job_terminal called with non-terminal status {status!r}"
         raise ValueError(msg)
     job.status = status

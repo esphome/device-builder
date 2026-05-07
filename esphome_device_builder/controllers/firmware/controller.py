@@ -34,18 +34,25 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.event_bus import StreamControls, stream_events
 from ...helpers.process import terminate_subtree_with_grace
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
-from ...models import ErrorCode, EventType, FirmwareJob, JobStatus, JobType, StreamEvent
+from ...models import (
+    TERMINAL_JOB_EVENTS,
+    TERMINAL_JOB_STATUSES,
+    ErrorCode,
+    EventType,
+    FirmwareJob,
+    JobStatus,
+    JobType,
+    StreamEvent,
+)
 from ..config import _load_metadata, metadata_transaction
 from .constants import (
     _ERROR_PATTERNS,
     _INFLIGHT_TRIM_KEEP,
-    _JOB_TERMINAL_EVENTS,
     _JOBS_KEY,
     _MAX_AUX_TERMINAL_JOBS,
     _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_PRIMARY_TERMINAL_JOBS,
     _PRIMARY_JOB_TYPES,
-    _TERMINAL_JOB_STATUSES,
 )
 from .helpers import (
     _find_esphome_cmd,
@@ -464,7 +471,7 @@ class FirmwareController:
         # synchronous-adjacent statements (stream_events' setup is
         # sync up to the first ``await`` inside ``send_initial``).
         snapshot = list(job.output)
-        is_terminal = job.status in _TERMINAL_JOB_STATUSES
+        is_terminal = job.status in TERMINAL_JOB_STATUSES
         terminal_status = job.status.value if is_terminal else ""
         terminal_exit_code = job.exit_code
 
@@ -486,7 +493,7 @@ class FirmwareController:
             if event.event_type == EventType.JOB_OUTPUT:
                 if event.data.get("job_id") == job_id:
                     controls.push(StreamEvent.OUTPUT, event.data["line"])
-            elif event.event_type in _JOB_TERMINAL_EVENTS:
+            elif event.event_type in TERMINAL_JOB_EVENTS:
                 ev_job = event.data.get("job")
                 if ev_job and getattr(ev_job, "job_id", None) == job_id:
                     status = getattr(ev_job, "status", "unknown")
@@ -504,7 +511,7 @@ class FirmwareController:
             client=client,
             message_id=message_id,
             bus=self._db.bus,
-            event_types=(EventType.JOB_OUTPUT, *_JOB_TERMINAL_EVENTS),
+            event_types=(EventType.JOB_OUTPUT, *TERMINAL_JOB_EVENTS),
             handle_event=_handle_event,
             send_initial=_send_initial,
         )
@@ -601,7 +608,7 @@ class FirmwareController:
             event_types=(
                 EventType.JOB_QUEUED,
                 EventType.JOB_STARTED,
-                *_JOB_TERMINAL_EVENTS,
+                *TERMINAL_JOB_EVENTS,
                 EventType.JOB_OUTPUT,
                 EventType.JOB_PROGRESS,
             ),
@@ -662,7 +669,7 @@ class FirmwareController:
         If ``status`` is given, only remove jobs with that status.
         Otherwise removes completed, failed, and cancelled jobs.
         """
-        terminal = _TERMINAL_JOB_STATUSES
+        terminal = TERMINAL_JOB_STATUSES
         to_remove = [
             jid
             for jid, job in self._jobs.items()
@@ -1446,7 +1453,7 @@ class FirmwareController:
         kept in a separate pool capped at ``_MAX_AUX_TERMINAL_JOBS``.
         Caller persists the result.
         """
-        terminal_states = _TERMINAL_JOB_STATUSES
+        terminal_states = TERMINAL_JOB_STATUSES
 
         active: list[FirmwareJob] = []
         primary: list[FirmwareJob] = []
