@@ -382,10 +382,14 @@ class DevicesController:
         # Server-clamp the context window. The frontend can dial
         # this between ``0`` (no context, just the matched line)
         # and ``MAX_CONTEXT_LINES`` to render denser or sparser
-        # snippets without a backend redeploy; values outside
-        # that range — typo'd, malicious, or from a future client
-        # we haven't met — collapse to the default. ``None`` means
-        # the caller didn't ask, so use the default too.
+        # snippets without a backend redeploy. ``None`` means the
+        # caller didn't ask — use ``DEFAULT_CONTEXT_LINES``.
+        # Out-of-range values clamp to the nearest endpoint
+        # (negative → 0, > MAX → MAX) rather than falling back
+        # to the default: a caller passing ``10_000`` clearly
+        # wants "as much context as possible", and giving them
+        # ``MAX_CONTEXT_LINES`` is closer to that intent than
+        # silently substituting ``DEFAULT_CONTEXT_LINES``.
         if context_lines is None:
             effective_context_lines = DEFAULT_CONTEXT_LINES
         else:

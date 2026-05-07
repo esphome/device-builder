@@ -183,9 +183,12 @@ async def search_yaml_devices(
       crowd out hits from other devices.
     - ``context_lines`` — number of ``before`` / ``after``
       lines included on each match. Should already be clamped
-      to ``MAX_CONTEXT_LINES`` by the caller; the WS handler
-      does that so a typo'd / hostile request can't blow the
-      payload here.
+      to ``[0, MAX_CONTEXT_LINES]`` by the caller (today that's
+      ``DevicesController.search_yaml`` on the WS path; future
+      callers — tests, scripts, an HTTP-shim — own the clamp
+      themselves). This function doesn't re-validate so a typo'd
+      / hostile request can't blow the payload IF the caller
+      did its job.
 
     ``live_configurations`` is the *full* set of input device
     configurations regardless of where the walk short-circuited
