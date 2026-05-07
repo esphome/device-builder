@@ -401,6 +401,113 @@ async def test_edit_friendly_name_blocks_when_validation_fails(
     assert ctrl._scanner.calls == []
 
 
+async def test_edit_friendly_name_blocks_validation_failure_on_substitution_rewrite(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Validation runs on the substitution-redirect rewrite shape too.
+
+    When the source uses ``friendly_name: ${friendly_name}`` +
+    ``substitutions.friendly_name: …`` the editor rewrites the
+    *substitution definition*, not the leaf. Pin that the
+    pre-write validation runs against this rewritten shape with
+    the same errors-surfaced behaviour, so a regression that
+    skipped validation on this branch (e.g. an early-return that
+    only fired for the literal-leaf path) would fail loudly.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml = (
+        "substitutions:\n"
+        "  friendly_name: AC Float Monitor\n"
+        "esphome:\n"
+        "  name: acmon\n"
+        "  friendly_name: ${friendly_name}\n"
+    )
+    (tmp_path / "acmon.yaml").write_text(yaml, "utf-8")
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [{"message": "[esp32] required key not provided: board"}],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.edit_friendly_name(configuration="acmon.yaml", new_friendly_name="Pump Watcher")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "required key not provided: board" in excinfo.value.message
+    # Source unchanged — the rewrite was computed but the write
+    # never landed because validation refused.
+    assert (tmp_path / "acmon.yaml").read_text("utf-8") == yaml
+    assert ctrl._scanner.calls == []
+
+
+async def test_edit_friendly_name_blocks_validation_failure_on_prepend_path(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Validation runs on the prepend-new-block rewrite shape too.
+
+    When the source has no ``esphome:`` block (package-driven
+    config), the editor prepends a fresh block carrying just
+    ``friendly_name:``. Pin that pre-write validation runs on the
+    prepended YAML — a regression that skipped validation here
+    would let the user land an unflashable YAML even though the
+    other rewrite shapes refuse the same shape.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml = "packages:\n  base: !include common/base.yaml\nesp32:\n  variant: ESP32\n"
+    (tmp_path / "kitchen.yaml").write_text(yaml, "utf-8")
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [{"message": "[esp32] required key not provided: board"}],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.edit_friendly_name(
+            configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "required key not provided: board" in excinfo.value.message
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == yaml
+    assert ctrl._scanner.calls == []
+
+
+async def test_edit_friendly_name_validation_error_action_verb(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Error message uses an action verb that matches the operation.
+
+    The handler is ``edit_friendly_name``, not ``rename`` — a
+    leftover ``action="rename"`` would render "Can't rename —
+    config doesn't validate", confusing for a user who clicked
+    "save friendly name". Pin that the surfaced verb tracks
+    the actual operation.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [{"message": "[esp32] some error"}],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.edit_friendly_name(
+            configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+        )
+
+    # The verb appears in the message; "rename" must not, since
+    # this isn't the rename handler.
+    assert "friendly name" in excinfo.value.message
+    assert "Can't rename" not in excinfo.value.message
+
+
 async def test_edit_friendly_name_caps_validation_error_list_in_message(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

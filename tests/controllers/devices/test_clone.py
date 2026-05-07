@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import re
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -241,6 +241,70 @@ async def test_clone_device_rejects_missing_source(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "ghost.yaml not found" in excinfo.value.message
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_rejects_when_source_does_not_validate(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A broken source YAML refuses the clone before any rewrite work runs.
+
+    The clone path's leaf-line rewrites (name / friendly_name /
+    api key) are structure-preserving, so an invalid source
+    always produces an invalid clone. Validating the source
+    up-front surfaces the editor's actual schema errors and
+    lets the user fix the source first — rather than burning
+    the rewrite work and discovering the same errors after the
+    fact.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    validate = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [
+                {"message": "[esp32] Unsupported chip variant: esp32h2"},
+            ],
+        }
+    )
+    ctrl._db.editor.validate_yaml = validate
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Unsupported chip variant: esp32h2" in excinfo.value.message
+    # Validator was called on the source filename — pinning this
+    # makes a regression that revalidates the rewrite (instead of
+    # the source) fail loudly. The error message would still surface
+    # but the diagnostic would point at the wrong file.
+    assert validate.await_args.kwargs["configuration"] == "kitchen.yaml"
+    # Clone never landed — source untouched, target absent.
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == SOURCE_YAML
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_skips_validation_when_editor_unavailable(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Editor not yet started → clone proceeds without validation.
+
+    Mirrors the same boot-window guard the create / edit_friendly_name
+    paths already have. Better to land a clone of a working
+    config than to refuse every clone for the lifetime of the
+    process if the editor subprocess is unavailable.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    ctrl._db.editor = None
+
+    result = await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert result == {"configuration": "bedroom-bulb.yaml"}
+    assert (tmp_path / "bedroom-bulb.yaml").exists()
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
