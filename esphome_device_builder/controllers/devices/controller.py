@@ -1075,9 +1075,11 @@ class DevicesController:
                 ErrorCode.INTERNAL_ERROR,
                 "Edited YAML doesn't round-trip through the reader — "
                 "the line-based upsert produced a shape the parser "
-                "misinterprets. This is a dashboard bug; please "
-                "report the device's YAML so we can extend the "
-                "rewriter's coverage.",
+                "misinterprets. This is a dashboard bug; please file "
+                "an issue with a redacted snippet of just the "
+                "esphome: / substitutions: blocks (strip Wi-Fi "
+                "credentials, API keys, and static IPs) so we can "
+                "extend the rewriter's coverage.",
             )
         if new_content == content:
             # Idempotent — user submitted the same value (or the
