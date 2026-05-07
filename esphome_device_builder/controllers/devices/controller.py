@@ -443,11 +443,27 @@ class DevicesController:
         """
         Create a new device configuration.
 
-        Three flows, decided by which arguments are provided:
+        Two flows, decided by which arguments are provided:
 
         1. ``file_content`` given → write it as-is (user supplied full YAML).
         2. ``board_id`` given → generate a basic config from the board template.
-        3. Neither → write a minimal stub the user fills in manually.
+
+        Neither argument is rejected up-front: a YAML with just
+        ``esphome.name`` and ``friendly_name`` and no platform block
+        doesn't pass ESPHome's schema, so writing it would land an
+        invalid config on disk that every downstream operation
+        (rename, edit_friendly_name, install) would refuse via its
+        own pre-flight check. The frontend always supplies one of
+        the two — this guard catches direct WS clients that
+        otherwise produce a foot-gun.
+
+        Whichever flow runs, the resulting YAML is validated through
+        ``EditorController``'s schema check before the file lands on
+        disk. Validation failures surface as ``INVALID_ARGS`` (the
+        user's ``file_content`` is unfixable from our side) or
+        ``INTERNAL_ERROR`` (the board template generated something
+        invalid — that's our bug to fix in ``generate_device_yaml``,
+        not the user's problem).
 
         After writing, we always try to derive a board_id by parsing
         the resulting YAML's platform/board/variant fields and matching
@@ -475,12 +491,31 @@ class DevicesController:
                 raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
         friendly = friendly_name_slugify(name)
+        from_template = False
         if file_content:
             yaml_content = file_content
         elif board:
             yaml_content = generate_device_yaml(name, friendly, board, ssid, psk)
+            from_template = True
         else:
-            yaml_content = f"esphome:\n  name: {name}\n  friendly_name: {friendly}\n\n"
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                "Provide either board_id or file_content; a name-only stub "
+                "doesn't satisfy ESPHome's schema (no platform block) and "
+                "would fail every downstream operation.",
+            )
+
+        # Validate before write so an unflashable YAML never lands
+        # on disk. ``INTERNAL_ERROR`` for the template branch — a
+        # generator bug we own — and ``INVALID_ARGS`` for the user-
+        # supplied ``file_content`` branch where the user can fix
+        # their input.
+        await self._validate_rewritten_yaml_or_raise(
+            filename,
+            yaml_content,
+            action="create",
+            on_failure=ErrorCode.INTERNAL_ERROR if from_template else ErrorCode.INVALID_ARGS,
+        )
 
         # Derive board_id from YAML when not explicitly provided.
         # Mirrors the scanner's resolution chain: pio_board match first,
@@ -1102,36 +1137,40 @@ class DevicesController:
         content: str,
         *,
         action: str,
+        on_failure: ErrorCode = ErrorCode.INVALID_ARGS,
     ) -> None:
         """
         Schema-validate *content* via the editor; raise if invalid.
 
-        Used by commands that rewrite a device's YAML and depend on
-        a follow-up install to apply the change (``edit_friendly_name``
-        today, future rename / save / mass-edit handlers). The
-        rewritten YAML only takes effect once an install lands the
-        new firmware, so a YAML that won't validate means the
-        install fails and the running device keeps its old state —
-        the dashboard ends up showing a half-finished change that
-        will never reach the device. Refusing the write here keeps
-        on-disk state and live state in lockstep.
+        Used by commands that produce a YAML and depend on a follow-
+        up install to apply the change (``create_device``,
+        ``edit_friendly_name``, future rename / save handlers). A
+        YAML that won't validate means the install fails and the
+        device-on-network keeps its old state — the dashboard ends
+        up showing a half-finished change that will never reach the
+        device. Refusing the write here keeps on-disk state and
+        live state in lockstep.
 
         Reuses :class:`EditorController`'s warm validator subprocess
         (one per configuration), so the cost is single-digit hundreds
         of ms when the session is warm. ``self._db.editor`` is None
         during dashboard boot before
-        :meth:`EditorController.start` finishes; that window is
-        too narrow for a user to hit in practice, but the guard
-        means the controller still behaves coherently if the
-        editor is unavailable for any reason (e.g. the ``esphome``
-        CLI not on PATH) — better to skip validation than reject
-        every rewrite.
+        :meth:`EditorController.start` finishes; that window is too
+        narrow for a user to hit in practice, but the guard means
+        the controller still behaves coherently if the editor is
+        unavailable (e.g. the ``esphome`` CLI not on PATH) — better
+        to skip validation than reject every write.
 
         *action* is interpolated into the error message ("Can't
-        <action> — config doesn't validate: …"); pass the
-        user-facing verb the dialog will show ("rename",
-        "save"). The error list is capped at three entries so a
-        long error pile collapses to "first three + (+N more)"
+        <action> — config doesn't validate: …"); pass the user-
+        facing verb the dialog will show ("rename", "save",
+        "create"). *on_failure* picks the ``ErrorCode`` raised:
+        default ``INVALID_ARGS`` when the user can fix the input
+        themselves, ``INTERNAL_ERROR`` when the broken YAML came
+        from one of *our* generators (``generate_device_yaml``,
+        clone's leaf rewrite, ...) and the user can't do anything
+        but report it. The error list is capped at three entries so
+        a long error pile collapses to "first three + (+N more)"
         rather than overflowing the toast.
         """
         editor = self._db.editor
@@ -1147,12 +1186,20 @@ class DevicesController:
             return
         shown = errors[:3]
         suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
+        message_tail = (
+            ". Please report this with a redacted snippet of just the "
+            "esphome: / substitutions: blocks (strip Wi-Fi credentials, "
+            "API keys, and static IPs) so the dashboard generator can "
+            "be fixed."
+            if on_failure is ErrorCode.INTERNAL_ERROR
+            else ". Fix the errors in the editor and try again."
+        )
         raise CommandError(
-            ErrorCode.INVALID_ARGS,
+            on_failure,
             f"Can't {action} — config doesn't validate: "
             + "; ".join(shown)
             + suffix
-            + ". Fix the errors in the editor and try again.",
+            + message_tail,
         )
 
     @api_command("devices/delete")
