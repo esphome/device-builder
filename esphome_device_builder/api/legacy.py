@@ -9,20 +9,28 @@ HA uses:
 - GET /json-config?configuration=... (parsed YAML as JSON)
 - /compile (WebSocket, spawn protocol)
 - /upload (WebSocket, spawn protocol)
+
+The ``/compile`` and ``/upload`` WebSocket handlers route through the
+new firmware-job queue rather than spawning subprocesses directly.
+This is what makes HA-triggered builds show up alongside dashboard-
+triggered ones in the "Firmware tasks" panel — see issue #394. The
+legacy WS frame shape (``{event: "line", data}`` / ``{event: "exit",
+code}``) is preserved so unmodified ``esphome-dashboard-api``
+clients keep working.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import sys
-from typing import Any
+from typing import TYPE_CHECKING
 
 import aiohttp
 from aiohttp import web
 from esphome import yaml_util
 
 from ..helpers.api import CommandError
+from ..helpers.event_bus import Event
 from ..helpers.json import (
     JSONDecodeError,
     dumps_str,
@@ -30,69 +38,160 @@ from ..helpers.json import (
     json_response,
     loads,
 )
-from ..helpers.subprocess import create_subprocess_exec
+from ..models import EventType, JobStatus, JobType
+
+if TYPE_CHECKING:
+    from ..models import FirmwareJob
 
 _LOGGER = logging.getLogger(__name__)
 
-_ESPHOME_CMD = [sys.executable, "-m", "esphome"]
+# Mirrors ``firmware/constants.py``; redefined locally to avoid a
+# circular-import nudge between the API layer and the firmware
+# controller's private constants module. The set is small and
+# stable — three lifecycle events, one terminal status set.
+_TERMINAL_EVENT_TYPES = (
+    EventType.JOB_COMPLETED,
+    EventType.JOB_FAILED,
+    EventType.JOB_CANCELLED,
+)
+_TERMINAL_STATUSES = frozenset({JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED})
+
+
+async def _stream_job_to_legacy_ws(
+    ws: web.WebSocketResponse,
+    db: object,
+    job: FirmwareJob,
+) -> None:
+    """
+    Translate a firmware-job's output stream into the legacy WS frame shape.
+
+    The legacy protocol (the only one HA's ``esphome-dashboard-api``
+    speaks) expects ``{event: "line", data: <chunk>}`` per stdout
+    chunk and ``{event: "exit", code: <int>}`` once the build
+    finishes. The new firmware queue exposes those signals via
+    bus events (``JOB_OUTPUT`` / ``JOB_COMPLETED`` / ``JOB_FAILED``
+    / ``JOB_CANCELLED``) and a buffered ``job.output`` list.
+
+    The race-free pattern:
+
+    1. Snapshot ``job.output`` (sync) — captures every line fired
+       so far.
+    2. ``add_listener`` (sync) — attaches before any further
+       events fire. Steps 1 and 2 are sync-adjacent so no
+       coroutine yield can interleave a fire between them; the
+       runner appends to ``job.output`` and fires ``JOB_OUTPUT``
+       in the same synchronous block, so a line can either be in
+       the snapshot OR caught by the listener, never both and
+       never neither.
+    3. Replay snapshot. Lines that arrive during the replay queue
+       up via the listener and are drained afterwards.
+    4. Drain the queue until a terminal event arrives.
+    """
+    bus = db.bus  # type: ignore[attr-defined]
+    job_id = job.job_id
+
+    # Pending items are tagged so the drain loop can route line
+    # frames vs. the terminal sentinel without a second lookup.
+    pending: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
+
+    def _on_event(event: Event) -> None:
+        if event.event_type == EventType.JOB_OUTPUT:
+            if event.data.get("job_id") == job_id:
+                pending.put_nowait(("line", event.data.get("line", "")))
+            return
+        ev_job = event.data.get("job")
+        if ev_job is None or getattr(ev_job, "job_id", None) != job_id:
+            return
+        # ``exit_code`` is None for cancelled / never-ran jobs;
+        # legacy clients want a numeric code so coerce to a
+        # generic failure (1) rather than serialising null.
+        code = getattr(ev_job, "exit_code", None)
+        pending.put_nowait(("exit", code if code is not None else 1))
+
+    snapshot = list(job.output)
+    initial_status = job.status
+    initial_exit_code = job.exit_code
+
+    with bus.listening((EventType.JOB_OUTPUT, *_TERMINAL_EVENT_TYPES), _on_event):
+        for line in snapshot:
+            await ws.send_json({"event": "line", "data": line}, dumps=dumps_str)
+
+        # ``compile`` / ``upload`` may resolve a job that's already
+        # in a terminal state — most common on a duplicate-submit
+        # supersede that lands the previous job in CANCELLED before
+        # the new one is created, but also any case where the job
+        # transitions during the snapshot above. Send the exit
+        # frame and bail.
+        if initial_status in _TERMINAL_STATUSES:
+            code = initial_exit_code if initial_exit_code is not None else 1
+            await ws.send_json({"event": "exit", "code": code}, dumps=dumps_str)
+            return
+
+        while True:
+            kind, payload = await pending.get()
+            if kind == "line":
+                await ws.send_json({"event": "line", "data": payload}, dumps=dumps_str)
+                continue
+            await ws.send_json({"event": "exit", "code": payload}, dumps=dumps_str)
+            return
 
 
 async def _handle_legacy_ws_command(
-    request: web.Request, command: str, extra_args_fn: Any = None
+    request: web.Request,
+    job_type: JobType,
 ) -> web.WebSocketResponse:
-    """Legacy spawn-based WebSocket handler."""
+    """Route a legacy ``/compile`` or ``/upload`` WS into the firmware queue.
+
+    The legacy spawn protocol still drives the wire shape:
+
+    - ``client → server``: ``{"type": "spawn", "configuration": "kitchen.yaml", "port": "..."}``
+    - ``server → client``: ``{"event": "line", "data": "<chunk>"}`` per stdout line
+    - ``server → client``: ``{"event": "exit", "code": <int>}`` on completion
+
+    What changed is *how* the build runs: instead of a per-WS
+    subprocess that bypasses the dashboard's bookkeeping, the
+    request is enqueued through the same ``FirmwareController``
+    the new dashboard uses, so the running build appears in the
+    "Firmware tasks" panel and survives a page refresh. Closes #394.
+    """
     ws = web.WebSocketResponse()
     await ws.prepare(request)
+    db = request.app["device_builder"]
+    firmware = db.firmware
 
     async for msg in ws:
         if msg.type != aiohttp.WSMsgType.TEXT:
             break
-
         try:
             data = loads(msg.data)
         except JSONDecodeError:
-            # Legacy clients shouldn't send non-JSON, but if one does
-            # we'd rather skip the frame than tear down the whole
-            # spawn handler with the next iteration losing its
-            # subprocess output.
+            # Legacy clients shouldn't send non-JSON, but if one
+            # does we'd rather skip the frame than tear down the
+            # whole handler.
             _LOGGER.debug("Ignoring non-JSON frame on %s", request.path)
             continue
         if not isinstance(data, dict) or data.get("type") != "spawn":
             continue
 
         configuration = data.get("configuration", "")
-        settings = request.app["device_builder"].settings
-        loop = asyncio.get_running_loop()
+        port = data.get("port", "") if job_type is JobType.UPLOAD else ""
+
         try:
-            # ``rel_path`` calls ``Path.resolve``, a blocking syscall —
-            # off-loop so blockbuster doesn't fault the request on CI.
-            resolved = await loop.run_in_executor(None, settings.rel_path, configuration)
-            config_path = str(resolved)
+            if job_type is JobType.UPLOAD:
+                job = await firmware.upload(configuration=configuration, port=port)
+            else:
+                job = await firmware.compile(configuration=configuration)
         except CommandError:
-            # Send a controlled exit frame instead of letting the
-            # ``CommandError`` tear the WebSocket down — the legacy
-            # spawn protocol uses ``{event: "exit", code}`` as its
-            # only signalling channel, so this is what HA's
-            # esphome-dashboard-api expects to see on rejection.
+            # Boundary / validation rejection. The legacy spawn
+            # protocol uses ``{event: "exit", code}`` as its only
+            # signalling channel — any non-zero code reads as
+            # "build failed" in HA's UI, matching the prior
+            # subprocess shape that surfaced the same rejection
+            # via ``code: 1``.
             await ws.send_json({"event": "exit", "code": 1}, dumps=dumps_str)
             break
-        cmd = [*_ESPHOME_CMD, command, config_path]
-        if extra_args_fn:
-            cmd.extend(extra_args_fn(data))
 
-        proc = await create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        assert proc.stdout is not None  # type narrowing
-        async for line in proc.stdout:
-            await ws.send_json(
-                {"event": "line", "data": line.decode("utf-8", errors="replace")},
-                dumps=dumps_str,
-            )
-        exit_code = await proc.wait()
-        await ws.send_json({"event": "exit", "code": exit_code}, dumps=dumps_str)
+        await _stream_job_to_legacy_ws(ws, db, job)
         break
 
     return ws
@@ -165,14 +264,10 @@ def create_legacy_routes() -> web.RouteTableDef:
 
     @routes.get("/compile")
     async def legacy_compile(request: web.Request) -> web.WebSocketResponse:
-        return await _handle_legacy_ws_command(request, "compile")
+        return await _handle_legacy_ws_command(request, JobType.COMPILE)
 
     @routes.get("/upload")
     async def legacy_upload(request: web.Request) -> web.WebSocketResponse:
-        def _extra_args(data: dict) -> list[str]:
-            port = data.get("port", "")
-            return ["--device", port] if port else []
-
-        return await _handle_legacy_ws_command(request, "upload", _extra_args)
+        return await _handle_legacy_ws_command(request, JobType.UPLOAD)
 
     return routes

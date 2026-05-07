@@ -37,7 +37,6 @@ exercised — not just the handler bodies.
 from __future__ import annotations
 
 import asyncio
-import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -46,16 +45,26 @@ import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
-from esphome_device_builder.api import legacy
 from esphome_device_builder.api.legacy import create_legacy_routes
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.event_bus import EventBus
+from esphome_device_builder.models import (
+    ErrorCode,
+    EventType,
+    FirmwareJob,
+    JobStatus,
+    JobType,
+)
 
 
 def _make_app(
     tmp_path: Path,
     *,
     devices: object | None = None,
+    firmware: object | None = None,
+    bus: EventBus | None = None,
 ) -> web.Application:
     """Build an aiohttp app wired to just enough DeviceBuilder shape.
 
@@ -67,6 +76,10 @@ def _make_app(
     surfaces as the same ``AttributeError`` in CI that production
     raised. Tests that don't hit ``/devices`` can leave it
     ``None``.
+
+    ``firmware`` + ``bus`` wire up the WS spawn handlers (see
+    :class:`_FakeFirmwareController`). Tests that don't open
+    ``/compile`` or ``/upload`` can leave them ``None``.
     """
     settings = DashboardSettings()
     settings.config_dir = tmp_path
@@ -75,6 +88,10 @@ def _make_app(
     db_attrs: dict[str, Any] = {"settings": settings}
     if devices is not None:
         db_attrs["devices"] = devices
+    if firmware is not None:
+        db_attrs["firmware"] = firmware
+    if bus is not None:
+        db_attrs["bus"] = bus
 
     app = web.Application()
     app["device_builder"] = type("DB", (), db_attrs)()
@@ -383,76 +400,147 @@ async def test_json_config_returns_500_on_missing_file(
 #   server → client: {"event": "line", "data": "<utf-8 chunk>"}  (per stdout chunk)
 #   server → client: {"event": "exit", "code": <int>}  (when subprocess exits)
 #
-# These tests use a fake ``create_subprocess_exec`` so the spawned
-# command is a controlled in-memory generator rather than a real
-# ``esphome`` invocation. That lets us pin the cmd shape, the
-# frame ordering, and the exit code passthrough without depending
-# on a working ESPHome install.
+# Since #394 the handler routes through the ``FirmwareController``
+# job queue (so HA-triggered builds show up in the "Firmware tasks"
+# panel) instead of spawning a subprocess directly. These tests
+# inject a fake firmware controller that records the submitted job
+# and a real ``EventBus`` the test drives by firing
+# ``JOB_OUTPUT`` / ``JOB_*`` lifecycle events. That exercises the
+# legacy handler's translation between the bus event shape and
+# the upstream WS frame shape end-to-end without depending on the
+# ``FirmwareController`` itself running an actual build.
 
 
-class _FakeStdout:
-    """Async-iterable stdout stream that yields preset bytes."""
+class _FakeFirmwareController:
+    """Minimal stand-in for ``FirmwareController.compile`` / ``.upload``.
 
-    def __init__(self, lines: list[bytes]) -> None:
-        self._lines = list(lines)
-        self._iter = iter(self._lines)
+    Records the kwargs each method was called with and returns a
+    ``FirmwareJob`` the test can then drive by configuring
+    *plan*: a list of ``("line", "<text>")`` and one final
+    ``("exit", <code>, <status>)`` tuple that the fake will fire
+    on the bus *after* the legacy handler has subscribed. Firing
+    from inside the post-yield deferral (rather than from the
+    test body) is what avoids the race where the test driver's
+    events arrive before the handler attaches its listener — see
+    ``_schedule_plan`` for the timing detail.
 
-    async def read(self, _n: int = -1) -> bytes:
-        try:
-            return next(self._iter)
-        except StopIteration:
-            return b""
-
-    def __aiter__(self) -> _FakeStdout:
-        return self
-
-    async def __anext__(self) -> bytes:
-        try:
-            return next(self._iter)
-        except StopIteration:
-            raise StopAsyncIteration  # noqa: B904
-
-
-class _FakeProc:
-    """Minimal ``asyncio.subprocess.Process`` stand-in."""
-
-    def __init__(self, lines: list[bytes], exit_code: int) -> None:
-        self.stdout = _FakeStdout(lines)
-        self._exit_code = exit_code
-
-    async def wait(self) -> int:
-        return self._exit_code
-
-
-@pytest.fixture
-def captured_spawn(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Replace ``create_subprocess_exec`` with a recording fake.
-
-    Tests assert on ``captured["cmd"]`` to verify the command
-    shape (this is the upstream-parity check). The default fake
-    yields two output lines and exits 0; a test that needs
-    different behaviour mutates ``captured["lines"]`` /
-    ``captured["exit_code"]`` *before* opening the WS — the
-    fake reads them at spawn time, not at fixture-build time.
+    Optionally raises ``CommandError`` to simulate the boundary-
+    validation rejection path.
     """
-    captured: dict[str, Any] = {
-        "cmd": None,
-        "lines": [b"line one\n", b"line two\n"],
-        "exit_code": 0,
-    }
 
-    async def _fake_create(*args: Any, **_kwargs: Any) -> _FakeProc:
-        captured["cmd"] = list(args)
-        return _FakeProc(captured["lines"], captured["exit_code"])
+    def __init__(
+        self,
+        *,
+        bus: EventBus,
+        job: FirmwareJob,
+        plan: list[tuple] | None = None,
+        raise_on_submit: bool = False,
+    ) -> None:
+        self._bus = bus
+        self._job = job
+        self._plan = plan or []
+        self._raise_on_submit = raise_on_submit
+        self.compile_calls: list[dict[str, Any]] = []
+        self.upload_calls: list[dict[str, Any]] = []
+        self.fire_task: asyncio.Task | None = None
 
-    monkeypatch.setattr("esphome_device_builder.api.legacy.create_subprocess_exec", _fake_create)
-    return captured
+    async def compile(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
+        self.compile_calls.append({"configuration": configuration, **kwargs})
+        if self._raise_on_submit:
+            raise CommandError(ErrorCode.INVALID_ARGS, "rejected")
+        self._schedule_plan()
+        return self._job
+
+    async def upload(self, *, configuration: str, port: str = "", **kwargs: Any) -> FirmwareJob:
+        self.upload_calls.append({"configuration": configuration, "port": port, **kwargs})
+        if self._raise_on_submit:
+            raise CommandError(ErrorCode.INVALID_ARGS, "rejected")
+        self._schedule_plan()
+        return self._job
+
+    def _schedule_plan(self) -> None:
+        """Schedule ``_fire_plan`` to run after the handler subscribes.
+
+        The handler's flow after ``compile()`` returns is sync:
+        attach the bus listener, snapshot ``job.output``, check
+        for an already-terminal status, then ``await
+        pending.get()``. The first ``await`` yields back to the
+        loop, at which point the deferred task scheduled here
+        runs and fires events into the now-attached listener.
+        Without the deferral the events fire before the listener
+        is attached and are dropped — exactly the behaviour the
+        production firmware controller's "subscribe before
+        snapshot" comment is designed to prevent in
+        ``follow_job``.
+        """
+        if not self._plan:
+            return
+        loop = asyncio.get_running_loop()
+        self.fire_task = loop.create_task(self._fire_plan())
+
+    async def _fire_plan(self) -> None:
+        # One ``sleep(0)`` is enough: ``compile()`` returns
+        # synchronously to the handler, the handler does its
+        # sync setup, then awaits ``pending.get()`` — that's the
+        # yield this task is waiting on.
+        await asyncio.sleep(0)
+        for entry in self._plan:
+            kind = entry[0]
+            if kind == "line":
+                self._bus.fire(
+                    EventType.JOB_OUTPUT,
+                    {"job_id": self._job.job_id, "line": entry[1]},
+                )
+                continue
+            # ("exit", code_or_None, status)
+            _, exit_code, status = entry
+            self._job.status = status
+            self._job.exit_code = exit_code
+            event_type = {
+                JobStatus.COMPLETED: EventType.JOB_COMPLETED,
+                JobStatus.FAILED: EventType.JOB_FAILED,
+                JobStatus.CANCELLED: EventType.JOB_CANCELLED,
+            }[status]
+            self._bus.fire(event_type, {"job": self._job})
+
+
+def _make_job(
+    *,
+    job_type: JobType = JobType.COMPILE,
+    output: list[str] | None = None,
+    status: JobStatus = JobStatus.RUNNING,
+    exit_code: int | None = None,
+) -> FirmwareJob:
+    """Build a ``FirmwareJob`` for tests."""
+    return FirmwareJob(
+        job_id="test-job-id",
+        configuration="kitchen.yaml",
+        job_type=job_type,
+        status=status,
+        output=output if output is not None else [],
+        exit_code=exit_code,
+    )
+
+
+def _plan(
+    *,
+    lines: list[str] | None = None,
+    exit_code: int | None = 0,
+    status: JobStatus = JobStatus.COMPLETED,
+) -> list[tuple]:
+    """Build a ``_FakeFirmwareController.plan`` payload.
+
+    Convenience over a verbose tuple list — most tests want
+    "fire these lines, then exit with this code/status".
+    """
+    out: list[tuple] = [("line", line) for line in (lines or [])]
+    out.append(("exit", exit_code, status))
+    return out
 
 
 async def test_compile_ws_streams_lines_and_exit_frames(
     tmp_path: Path,
     aiohttp_client: AiohttpClient,
-    captured_spawn: dict[str, Any],
 ) -> None:
     """``/compile`` emits ``{event: line}`` per output chunk + ``{event: exit, code}``.
 
@@ -460,13 +548,18 @@ async def test_compile_ws_streams_lines_and_exit_frames(
     dashboard sends ``{"event": "line", "data": <utf-8 string>}``
     per stdout chunk and ``{"event": "exit", "code": <int>}``
     on subprocess exit. HA's ``esphome-dashboard-api`` reads
-    those exact keys.
+    those exact keys, regardless of whether the build runs as a
+    direct subprocess (legacy) or as a queued firmware job (#394).
     """
-    (tmp_path / "kitchen.yaml").write_text("")
-    captured_spawn["lines"] = [b"compile output line 1\n", b"compile output line 2\n"]
-    captured_spawn["exit_code"] = 0
+    bus = EventBus()
+    job = _make_job(job_type=JobType.COMPILE)
+    firmware = _FakeFirmwareController(
+        bus=bus,
+        job=job,
+        plan=_plan(lines=["compile output line 1\n", "compile output line 2\n"]),
+    )
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
 
-    client = await aiohttp_client(_make_app(tmp_path))
     async with client.ws_connect("/compile") as ws:
         await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
         first = await ws.receive_json()
@@ -481,19 +574,22 @@ async def test_compile_ws_streams_lines_and_exit_frames(
 async def test_compile_ws_passes_exit_code_through(
     tmp_path: Path,
     aiohttp_client: AiohttpClient,
-    captured_spawn: dict[str, Any],
 ) -> None:
-    """Non-zero subprocess exit → ``{event: exit, code: N}``.
+    """Non-zero firmware exit → ``{event: exit, code: N}``.
 
     HA renders the compile result based on this code (0 = green
     check, anything else = red X). Pin that the code is passed
     through verbatim, not coerced or normalised.
     """
-    (tmp_path / "kitchen.yaml").write_text("")
-    captured_spawn["lines"] = []
-    captured_spawn["exit_code"] = 42
+    bus = EventBus()
+    job = _make_job()
+    firmware = _FakeFirmwareController(
+        bus=bus,
+        job=job,
+        plan=_plan(exit_code=42, status=JobStatus.FAILED),
+    )
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
 
-    client = await aiohttp_client(_make_app(tmp_path))
     async with client.ws_connect("/compile") as ws:
         await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
         msg = await ws.receive_json()
@@ -501,90 +597,178 @@ async def test_compile_ws_passes_exit_code_through(
     assert msg == {"event": "exit", "code": 42}
 
 
-async def test_compile_ws_builds_command_without_device_arg(
+async def test_compile_ws_submits_compile_job_with_configuration(
     tmp_path: Path,
     aiohttp_client: AiohttpClient,
-    captured_spawn: dict[str, Any],
 ) -> None:
-    """``compile`` doesn't pass ``--device`` (it's not flashing anything).
+    """``/compile`` submits a ``compile`` firmware job with the YAML name.
 
-    Upstream ``EsphomeCompileHandler.build_command`` constructs
-    ``[*ESPHOME_COMMAND, "compile", config_file]`` — no
-    ``--device``. Pin the same shape so a refactor that adds a
-    spurious port flag doesn't break ``esphome compile``.
+    Replaces the upstream "command shape" test now that the WS
+    routes through the firmware queue instead of spawning a
+    subprocess. The shape we care about pinning is "the legacy
+    route reaches the same job-submission API the new dashboard
+    uses, with the configuration travelling verbatim and no
+    spurious port" — that's what makes HA-triggered builds appear
+    in the "Firmware tasks" panel (#394).
     """
-    (tmp_path / "kitchen.yaml").write_text("")
-    client = await aiohttp_client(_make_app(tmp_path))
+    bus = EventBus()
+    job = _make_job(job_type=JobType.COMPILE)
+    firmware = _FakeFirmwareController(bus=bus, job=job, plan=_plan())
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
 
     async with client.ws_connect("/compile") as ws:
-        await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
-        await ws.receive_json()  # line
-        await ws.receive_json()  # line
-        await ws.receive_json()  # exit
+        await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml", "port": "ignored"})
+        await ws.receive_json()
 
-    cmd = captured_spawn["cmd"]
-    assert "--device" not in cmd
-    assert "compile" in cmd
-    # Compile target is the resolved YAML path.
-    assert any(arg.endswith("kitchen.yaml") for arg in cmd)
+    assert firmware.compile_calls == [{"configuration": "kitchen.yaml"}]
+    # Compile path doesn't accept a port — the field on the
+    # spawn message is silently dropped (matches the previous
+    # subprocess shape that never appended ``--device`` for
+    # ``compile``).
+    assert firmware.upload_calls == []
 
 
-async def test_upload_ws_includes_device_arg_when_port_set(
+async def test_upload_ws_submits_upload_job_with_port(
     tmp_path: Path,
     aiohttp_client: AiohttpClient,
-    captured_spawn: dict[str, Any],
 ) -> None:
-    """``upload`` with ``port`` → ``--device <port>`` appended.
+    """``/upload`` with ``port`` → upload job carries the port verbatim.
 
-    Matches upstream's ``EsphomePortCommandWebSocket.build_device_command``
-    which always emits ``["--device", port]``. The port travels
-    verbatim — serial path, IP, ``OTA`` literal — esphome's
-    ``--device`` resolver handles dispatch.
+    The port travels through to ``firmware.upload(port=...)``;
+    the new firmware controller forwards it to the esphome CLI
+    via ``--device``. The legacy route's job is to plumb the
+    spawn-message's ``port`` field into the right kwarg —
+    serial path, IP, ``OTA`` literal — esphome's ``--device``
+    resolver handles dispatch.
     """
-    (tmp_path / "kitchen.yaml").write_text("")
-    client = await aiohttp_client(_make_app(tmp_path))
+    bus = EventBus()
+    job = _make_job(job_type=JobType.UPLOAD)
+    firmware = _FakeFirmwareController(bus=bus, job=job, plan=_plan())
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
 
     async with client.ws_connect("/upload") as ws:
         await ws.send_json(
             {"type": "spawn", "configuration": "kitchen.yaml", "port": "/dev/ttyUSB0"}
         )
         await ws.receive_json()
-        await ws.receive_json()
-        await ws.receive_json()
 
-    cmd = captured_spawn["cmd"]
-    assert "upload" in cmd
-    assert "--device" in cmd
-    assert cmd[cmd.index("--device") + 1] == "/dev/ttyUSB0"
+    assert firmware.upload_calls == [{"configuration": "kitchen.yaml", "port": "/dev/ttyUSB0"}]
 
 
-async def test_upload_ws_omits_device_arg_when_port_empty(
+async def test_upload_ws_submits_upload_job_with_empty_port_when_omitted(
     tmp_path: Path,
     aiohttp_client: AiohttpClient,
-    captured_spawn: dict[str, Any],
 ) -> None:
-    """``upload`` with empty / missing ``port`` → no ``--device`` flag.
+    """``/upload`` without ``port`` → upload job submitted with ``port=""``.
 
     Deviation from upstream: their dashboard requires ``port``
-    in the message and unconditionally appends ``--device port``.
-    Our impl skips the flag when port is empty, letting esphome
-    auto-detect. HA's library always sends a port, so the
+    in the message. Our impl plumbs an empty string through; the
+    firmware controller forwards it to esphome which then
+    auto-detects. HA's library always sends a port, so the
     practical contract isn't observable from the integration —
     but pinning our actual shape protects against a refactor
     that flips this branch silently.
     """
-    (tmp_path / "kitchen.yaml").write_text("")
-    client = await aiohttp_client(_make_app(tmp_path))
+    bus = EventBus()
+    job = _make_job(job_type=JobType.UPLOAD)
+    firmware = _FakeFirmwareController(bus=bus, job=job, plan=_plan())
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
 
     async with client.ws_connect("/upload") as ws:
         await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
         await ws.receive_json()
-        await ws.receive_json()
-        await ws.receive_json()
 
-    cmd = captured_spawn["cmd"]
-    assert "upload" in cmd
-    assert "--device" not in cmd
+    assert firmware.upload_calls == [{"configuration": "kitchen.yaml", "port": ""}]
+
+
+async def test_compile_ws_replays_buffered_output_then_streams_live(
+    tmp_path: Path,
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Lines already in ``job.output`` at submit time are replayed first.
+
+    Because the firmware queue is shared, ``compile()`` may
+    return a job that already has buffered output (e.g. a
+    superseded job that landed mid-build). Pin the contract that
+    the legacy WS replays the snapshot before draining live
+    events, so HA's library sees a contiguous output stream
+    rather than a gap before its own subscription window.
+    """
+    bus = EventBus()
+    job = _make_job(output=["pre-existing line 1\n", "pre-existing line 2\n"])
+    firmware = _FakeFirmwareController(bus=bus, job=job, plan=_plan(lines=["live line\n"]))
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
+
+    async with client.ws_connect("/compile") as ws:
+        await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
+        # Two replayed history lines, one live, one exit.
+        first = await ws.receive_json()
+        second = await ws.receive_json()
+        third = await ws.receive_json()
+        fourth = await ws.receive_json()
+
+    assert first == {"event": "line", "data": "pre-existing line 1\n"}
+    assert second == {"event": "line", "data": "pre-existing line 2\n"}
+    assert third == {"event": "line", "data": "live line\n"}
+    assert fourth == {"event": "exit", "code": 0}
+
+
+async def test_compile_ws_emits_exit_immediately_when_job_already_terminal(
+    tmp_path: Path,
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """A job that resolved as terminal before subscribe → snapshot + exit.
+
+    Edge case: ``compile()`` can resolve a job that's already in
+    a terminal state (most commonly when a duplicate-submit
+    supersede lands the previous job in CANCELLED before the
+    new job is created and the queue surfaces the cached
+    terminal). The legacy handler should drain the buffered
+    output and send the exit frame from the job snapshot rather
+    than parking on a queue that will never receive the live
+    terminal event.
+    """
+    bus = EventBus()
+    job = _make_job(output=["final line\n"], status=JobStatus.COMPLETED, exit_code=0)
+    firmware = _FakeFirmwareController(bus=bus, job=job)
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
+
+    async with client.ws_connect("/compile") as ws:
+        await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
+        first = await ws.receive_json()
+        second = await ws.receive_json()
+
+    assert first == {"event": "line", "data": "final line\n"}
+    assert second == {"event": "exit", "code": 0}
+
+
+async def test_compile_ws_coerces_null_exit_code_on_cancellation(
+    tmp_path: Path,
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """A cancelled job (no exit code) emits ``{event: exit, code: 1}``.
+
+    Cancellation is the supersede path's "previous build was
+    abandoned" signal; the underlying subprocess never ran to
+    completion so ``exit_code`` is ``None``. The legacy frame
+    requires an integer code (HA's library decodes it as a
+    number), so coerce the absent code to ``1`` — same shape
+    HA would have seen from the subprocess being killed.
+    """
+    bus = EventBus()
+    job = _make_job()
+    firmware = _FakeFirmwareController(
+        bus=bus,
+        job=job,
+        plan=_plan(exit_code=None, status=JobStatus.CANCELLED),
+    )
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
+
+    async with client.ws_connect("/compile") as ws:
+        await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
+        msg = await ws.receive_json()
+
+    assert msg == {"event": "exit", "code": 1}
 
 
 # ---------------------------------------------------------------------------
@@ -595,16 +779,23 @@ async def test_upload_ws_omits_device_arg_when_port_empty(
 async def test_spawn_ws_emits_exit_frame_on_traversal(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """A traversal-shaped configuration trips the boundary, emits exit:1.
+    """A boundary-rejected submission emits ``{event: exit, code: 1}``.
 
     The legacy spawn protocol's only signalling channel is the
     exit frame, so a controlled rejection masquerades as
     "subprocess exited with code 1". Without this, the
-    ``CommandError`` from ``rel_path`` would bubble through
+    ``CommandError`` from the firmware controller's
+    ``_validate_configuration_boundary`` would bubble through
     aiohttp and tear the WebSocket down — HA's library would
-    surface a connection drop instead of a clean reject.
+    surface a connection drop instead of a clean reject. The
+    fake firmware controller raises ``CommandError(INVALID_ARGS)``
+    from ``compile`` to simulate the real boundary rejection.
     """
-    client = await aiohttp_client(_make_app(tmp_path))
+    bus = EventBus()
+    job = _make_job()
+    firmware = _FakeFirmwareController(bus=bus, job=job, raise_on_submit=True)
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
+
     async with client.ws_connect("/compile") as ws:
         await ws.send_json({"type": "spawn", "configuration": "../etc/passwd"})
         msg = await ws.receive_json()
@@ -615,7 +806,6 @@ async def test_spawn_ws_emits_exit_frame_on_traversal(
 async def test_spawn_ws_skips_non_json_frame(
     tmp_path: Path,
     aiohttp_client: AiohttpClient,
-    captured_spawn: dict[str, Any],
 ) -> None:
     """Non-JSON text frames are ignored; the next valid spawn still works.
 
@@ -625,8 +815,10 @@ async def test_spawn_ws_skips_non_json_frame(
     processed. Pin so a refactor that closes the WS on the
     first decode error breaks loudly here.
     """
-    (tmp_path / "kitchen.yaml").write_text("")
-    client = await aiohttp_client(_make_app(tmp_path))
+    bus = EventBus()
+    job = _make_job()
+    firmware = _FakeFirmwareController(bus=bus, job=job, plan=_plan(lines=["a\n", "b\n"]))
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
 
     async with client.ws_connect("/compile") as ws:
         await ws.send_str("not-json-at-all")
@@ -641,7 +833,6 @@ async def test_spawn_ws_skips_non_json_frame(
 async def test_spawn_ws_skips_non_spawn_message_type(
     tmp_path: Path,
     aiohttp_client: AiohttpClient,
-    captured_spawn: dict[str, Any],
 ) -> None:
     """Messages with ``type != "spawn"`` are skipped, not handled.
 
@@ -652,8 +843,10 @@ async def test_spawn_ws_skips_non_spawn_message_type(
     ``spawn``; pin so a follow-up that adds support doesn't
     accidentally break the silent-skip behaviour.
     """
-    (tmp_path / "kitchen.yaml").write_text("")
-    client = await aiohttp_client(_make_app(tmp_path))
+    bus = EventBus()
+    job = _make_job()
+    firmware = _FakeFirmwareController(bus=bus, job=job, plan=_plan(lines=["a\n", "b\n"]))
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
 
     async with client.ws_connect("/compile") as ws:
         await ws.send_json({"type": "stdin", "data": "ignored"})
@@ -698,58 +891,47 @@ async def test_spawn_ws_breaks_on_close(tmp_path: Path, aiohttp_client: AiohttpC
     # Closing without raising is the assertion.
 
 
-async def test_spawn_ws_real_subprocess_streams_output(
+async def test_spawn_ws_round_trip_through_real_event_bus(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """Real subprocess (no mock) → output streams through, exit code passes.
+    """End-to-end: real ``EventBus`` carries lines + terminal event to the WS.
 
-    True end-to-end: drives the actual ``create_subprocess_exec``
-    code path against a real subprocess. Catches a regression
-    where a refactor of the streaming loop or the helper itself
-    breaks the line iteration. Uses ``sys.executable -c '<one-
-    liner>'`` so the test doesn't depend on having ``esphome``
-    installed and stays portable across platforms (Windows
-    ``cmd`` / POSIX shells differ on quoting; a Python one-liner
-    runs identically everywhere).
-
-    Replaces ``_ESPHOME_CMD`` for the duration of the test so
-    the spawn shape becomes ``[python, -c, "<script>", ...]``
-    instead of ``[python, -m, esphome, ...]``.
+    The targeted unit tests above mock individual pieces; this one
+    drives the same ``EventBus`` the production firmware
+    controller fires events on, asserting that the listener
+    setup, the snapshot replay, and the live drain all integrate
+    correctly. Catches refactor regressions like "subscribe-and-
+    snapshot ordering reversed" that wouldn't necessarily show up
+    in the targeted tests if the fakes happened to match the
+    broken order.
     """
-    (tmp_path / "kitchen.yaml").write_text("")
-    client = await aiohttp_client(_make_app(tmp_path))
+    bus = EventBus()
+    job = _make_job(output=["snapshot line\n"])
+    firmware = _FakeFirmwareController(
+        bus=bus,
+        job=job,
+        plan=_plan(lines=["live line A\n", "live line B\n"]),
+    )
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
 
-    # Replace the esphome command with a Python one-liner that
-    # prints two lines and exits 0. Using ``compile`` as the
-    # command so the existing route mapping doesn't change.
-    original_cmd = legacy._ESPHOME_CMD
-    try:
-        legacy._ESPHOME_CMD = [
-            sys.executable,
-            "-c",
-            "import sys; print('hello'); print('world'); sys.exit(0)",
-        ]
-        async with client.ws_connect("/compile") as ws:
-            # Argument after the python -c is the subcommand name
-            # ('compile') and then the resolved config path —
-            # both ignored by the script.
-            await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
-            received: list[dict[str, Any]] = []
-            try:
-                async with asyncio.timeout(5.0):
-                    while True:
-                        msg = await ws.receive_json()
-                        received.append(msg)
-                        if msg.get("event") == "exit":
-                            break
-            except TimeoutError:  # pragma: no cover — hangs are bugs
-                pytest.fail("never received exit frame")
-    finally:
-        legacy._ESPHOME_CMD = original_cmd
+    async with client.ws_connect("/compile") as ws:
+        await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
+
+        received: list[dict[str, Any]] = []
+        try:
+            async with asyncio.timeout(5.0):
+                while True:
+                    msg = await ws.receive_json()
+                    received.append(msg)
+                    if msg.get("event") == "exit":
+                        break
+        except TimeoutError:  # pragma: no cover — hangs are bugs
+            pytest.fail("never received exit frame")
 
     line_data = "".join(msg["data"] for msg in received if msg.get("event") == "line")
-    assert "hello" in line_data
-    assert "world" in line_data
+    assert "snapshot line" in line_data
+    assert "live line A" in line_data
+    assert "live line B" in line_data
     assert received[-1] == {"event": "exit", "code": 0}
 
 
