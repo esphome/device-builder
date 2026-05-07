@@ -720,9 +720,10 @@ def _make_board(
 ) -> BoardCatalogEntry:
     """Minimal ``BoardCatalogEntry`` for the wifi-inference tests.
 
-    ``connectivity=None`` produces a board with an empty hardware
-    block — the case the inference path covers. Tests that want to
-    pin the explicit-claim short-circuit pass a list directly.
+    ``connectivity=None`` produces a board whose ``hardware``
+    object is present but its ``connectivity`` list is empty —
+    the case the inference path covers. Tests that want to pin
+    the explicit-claim short-circuit pass a list directly.
     """
     return BoardCatalogEntry(
         id=f"{platform.value}-test",
@@ -876,10 +877,23 @@ def test_generate_yaml_explicit_connectivity_overrides_inference() -> None:
         ({"platform": "bk72xx"}, True),
         ({"platform": "rtl87xx"}, True),
         ({"platform": "ln882x"}, True),
+        # ``libretiny`` is the legacy umbrella key for the bk72xx /
+        # rtl87xx / ln882x families and counts as Wi-Fi-first.
+        ({"platform": "libretiny"}, True),
         ({"platform": "nrf52"}, False),
         ({"platform": "host"}, False),
         ({"platform": "not-a-real-platform"}, False),
     ],
+)
+@pytest.mark.skipif(
+    device_yaml._esphome_has_native_wifi is not None,
+    reason=(
+        "Fallback constants only populate when upstream's has_native_wifi is "
+        "missing — running on an esphome that ships the helper, the "
+        "implementation-detail tables aren't imported, so the fallback can't "
+        "be exercised in isolation here. Upstream's own tests pin the "
+        "active path on that branch."
+    ),
 )
 def test_fallback_has_native_wifi(kwargs: dict, expected: bool) -> None:
     """Pin the fallback dispatcher across every platform branch.

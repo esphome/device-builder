@@ -17,23 +17,38 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from esphome import const, yaml_util
-from esphome.components.rp2040.boards import BOARDS as _ESPHOME_RP2040_BOARDS
-from esphome.components.wifi import NO_WIFI_VARIANTS as _ESPHOME_NO_WIFI_VARIANTS
 from esphome.const import CONF_PACKAGES
 from esphome.storage_json import StorageJSON, ext_storage_path
 
 # Prefer the central dispatcher landing in esphome/esphome#16300
 # so we depend on a stable upstream API rather than reaching into
-# ``NO_WIFI_VARIANTS`` / ``BOARDS`` implementation details. The
-# fallback below covers every esphome we currently support; once
-# the floor moves past the release that lands #16300 the
-# try/except can collapse to a plain import. Routing through the
-# upstream dispatcher means new platforms upstream adds flow
-# through to the wizard automatically.
+# ``NO_WIFI_VARIANTS`` / ``BOARDS`` implementation details. When
+# the upstream helper is available the fallback constants below
+# stay unimported — the "new ESPHome" path has zero coupling to
+# upstream internals. The implementation-detail imports + derived
+# frozenset only happen on the ``except ImportError`` branch,
+# which covers every esphome we currently support. Once the
+# floor moves past the release that ships #16300 this whole
+# block collapses to a plain import.
 try:
     from esphome.components.wifi import has_native_wifi as _esphome_has_native_wifi
+
+    _ESPHOME_RP2040_BOARDS: dict[str, dict] | None = None
+    _ESP32_NO_WIFI_VARIANTS: frozenset[str] = frozenset()
 except ImportError:
     _esphome_has_native_wifi = None  # type: ignore[assignment]
+    from esphome.components.rp2040.boards import (
+        BOARDS as _ESPHOME_RP2040_BOARDS,  # type: ignore[assignment]
+    )
+    from esphome.components.wifi import (
+        NO_WIFI_VARIANTS as _ESPHOME_NO_WIFI_VARIANTS,
+    )
+
+    # ESPHome stores the variant tags in canonical uppercase
+    # (``"ESP32H2"``); the wizard compares against the lowercase
+    # ``Esp32Variant`` enum value, so normalise once at module
+    # load.
+    _ESP32_NO_WIFI_VARIANTS = frozenset(v.lower() for v in _ESPHOME_NO_WIFI_VARIANTS)
 
 # Prefer the upstream single-call seam when present (the
 # ``resolve_packages`` proposal landing as esphome/esphome#16235).
@@ -76,16 +91,14 @@ if TYPE_CHECKING:
 
 _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52"})
 
-# ESP32 chip variants ESPHome rejects ``wifi:`` on, derived from
-# ``NO_WIFI_VARIANTS`` (today's set: ESP32-H2 + ESP32-P4). Upstream
-# stores the tags in canonical uppercase ``"ESP32H2"``; the wizard
-# compares against the lowercase ``Esp32Variant`` enum value, so
-# normalise once at module load.
-_ESP32_NO_WIFI_VARIANTS = frozenset(v.lower() for v in _ESPHOME_NO_WIFI_VARIANTS)
-
-
+# Wi-Fi-first families for the fallback dispatcher's allowlist —
+# mirrors upstream's ``_WIFI_FIRST_PLATFORMS`` so the wizard's
+# behaviour stays identical whether the upstream helper is
+# available or not. Includes ``libretiny`` (the legacy umbrella
+# key for the bk72xx / rtl87xx / ln882x families) so old configs
+# that haven't migrated to the per-family keys still resolve.
 _FALLBACK_WIFI_FIRST_PLATFORMS: frozenset[str] = frozenset(
-    {"esp8266", "bk72xx", "rtl87xx", "ln882x"}
+    {"esp8266", "bk72xx", "rtl87xx", "ln882x", "libretiny"}
 )
 
 
@@ -286,11 +299,14 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
        (the Pico W / Pico 2 W / Pimoroni / SparkFun / Waveshare W
        variants — the plain Pico, plain Pico 2, Seeed XIAO RP2040,
        Waveshare RP2040 Zero, etc. fall on the False side here).
-    3. Platform ``nrf52`` → False (BLE-only family; no chip in the
-       enum carries a Wi-Fi PHY).
-    4. Anything else (``esp8266``, ``bk72xx``, ``rtl87xx``,
-       ``ln882x``, the catch-all ESP32 case) → True. These are
-       Wi-Fi-first platforms in ESPHome.
+    3. Wi-Fi-first families (``esp8266`` / ``bk72xx`` / ``rtl87xx``
+       / ``ln882x`` / ``libretiny``) plus the catch-all ESP32
+       case → True. Allowlist-based: ``nrf52`` (BLE-only),
+       ``host`` (host-binary build, no radio), and any platform
+       not on the allowlist → False, so a future ESPHome platform
+       missed here fails closed in the wizard rather than silently
+       emitting a ``wifi:`` block the new platform's component
+       would reject.
 
     The dispatch goes through ``_has_native_wifi`` — a module-level
     alias that prefers the upstream
