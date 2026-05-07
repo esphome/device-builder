@@ -86,9 +86,9 @@ async def test_create_device_rejects_unknown_board_id(
 async def test_create_device_rejects_when_no_board_or_file_content(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Caller must supply ``board_id`` or ``file_content`` — no name-only stub.
+    r"""Caller must supply ``board_id`` or ``file_content`` — no name-only stub.
 
-    The previous "stub" path wrote ``esphome:\\n  name: <x>`` and
+    The previous "stub" path wrote ``esphome:\n  name: <x>`` and
     nothing else; that doesn't satisfy ESPHome's schema (no
     platform block) so every downstream operation (rename,
     edit_friendly_name, install) would refuse it via its own
