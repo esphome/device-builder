@@ -786,7 +786,12 @@ class DevicesController:
         if not new_name:
             raise CommandError(ErrorCode.INVALID_ARGS, "new_name is required")
         new_filename = f"{new_name}.yaml"
-        if new_filename == configuration:
+        # Compare on the *stem*, not the filename, so cloning
+        # ``kitchen.yml`` to ``new_name=kitchen`` is rejected even
+        # though the filenames differ — both files would still carry
+        # the same ``esphome.name`` and collide on mDNS.
+        source_stem = configuration.removesuffix(".yaml").removesuffix(".yml")
+        if new_name == source_stem:
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
                 "new_name must differ from the source device name",

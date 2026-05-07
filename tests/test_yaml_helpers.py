@@ -28,7 +28,9 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.helpers.yaml import (
+    _safe_yaml_scalar,
     _splice_into_domain_block,
+    _strip_yaml_quotes,
     generate_api_encryption_key,
     generate_component_yaml,
     merge_component_yaml,
@@ -36,7 +38,6 @@ from esphome_device_builder.helpers.yaml import (
     read_yaml_scalar,
     rewrite_api_encryption_key,
     rewrite_esphome_name,
-    rewrite_friendly_name,
     rewrite_name_or_substitution,
     rewrite_yaml_scalar,
 )
@@ -350,6 +351,33 @@ def test_read_yaml_scalar_returns_empty_string_for_empty_value() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_rewrite_yaml_scalar_rejects_off_path_nested_match() -> None:
+    """A leaf at the right depth but wrong ancestor chain doesn't match.
+
+    Pin the soundness fix for an earlier bug: tracking only on-path
+    ancestors meant a YAML like ``api: {something: {encryption:
+    {key: ...}}}`` would falsely satisfy the path
+    ``("api", "encryption", "key")`` because ``something`` was
+    invisible to the ancestor check. The walker now pushes every
+    mapping key — on-path or not — so off-path branches show up in
+    the ancestor chain and the comparison fails correctly.
+    """
+    yaml = (
+        "api:\n"
+        "  something:\n"
+        "    encryption:\n"
+        '      key: "off-path-value"\n'
+        "  encryption:\n"
+        '    key: "real-value"\n'
+    )
+    out = rewrite_yaml_scalar(yaml, ("api", "encryption", "key"), lambda _raw: '"new-key"')
+    # Off-path leaf untouched.
+    assert '      key: "off-path-value"' in out
+    # On-path leaf rewritten.
+    assert '    key: "new-key"' in out
+    assert "real-value" not in out
+
+
 def test_rewrite_yaml_scalar_walks_arbitrary_path() -> None:
     """The walker locates a leaf at any nested path the caller supplies.
 
@@ -447,50 +475,77 @@ def test_rewrite_yaml_scalar_passes_raw_value_to_transform() -> None:
 
 
 # ---------------------------------------------------------------------------
-# rewrite_friendly_name
+# _safe_yaml_scalar / _strip_yaml_quotes
 # ---------------------------------------------------------------------------
 
 
-def test_rewrite_friendly_name_swaps_value_under_esphome_block() -> None:
-    """Happy path: ``friendly_name:`` under ``esphome:`` updates."""
-    yaml = "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
-    assert rewrite_friendly_name(yaml, "Living Room") == (
-        "esphome:\n  name: kitchen\n  friendly_name: Living Room\n"
-    )
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # Plain identifiers / slugs round-trip unquoted.
+        ("Kitchen", "Kitchen"),
+        ("my-device", "my-device"),
+        ("acfloatmonitor32", "acfloatmonitor32"),
+        # Embedded sequences that flip a plain scalar into something
+        # else MUST be quoted: ``# comment`` (the value would become
+        # a comment) and ``: `` (would split into a key/value pair).
+        ("Bedroom #2", '"Bedroom #2"'),
+        ("Lamp: Bedroom", '"Lamp: Bedroom"'),
+        # Leading indicator characters force quoting.
+        ("!escaped", '"!escaped"'),
+        ("- danger", '"- danger"'),
+        ("@host", '"@host"'),
+        # Trailing colon would parse as a key with empty value.
+        ("Kitchen:", '"Kitchen:"'),
+        # Reserved bool / null plain scalars must be quoted to stay strings.
+        ("yes", '"yes"'),
+        ("Off", '"Off"'),
+        ("null", '"null"'),
+        ("", '""'),
+        # Embedded quotes / backslashes ARE valid in plain scalars
+        # (YAML parses them as literal characters). We don't quote
+        # for them; only leading indicators / comment markers /
+        # key-value splits force quoting.
+        ('Lamp "Bright"', 'Lamp "Bright"'),
+        ("path\\sub", "path\\sub"),
+        # Newlines / tabs become escape sequences inside quotes.
+        ("line1\nline2", '"line1\\nline2"'),
+    ],
+)
+def test_safe_yaml_scalar(value: str, expected: str) -> None:
+    """Pin the plain-vs-quoted rendering decisions on the user-facing values.
 
-
-def test_rewrite_friendly_name_no_friendly_name_line_returns_input() -> None:
-    """Returns the original text when ``esphome:`` has no friendly_name yet.
-
-    Caller (``clone_device``) decides whether to insert one — the
-    helper signals "nothing matched" via the no-op return so the
-    caller can detect the missing line without re-parsing.
+    ``rewrite_friendly_name`` and ``rewrite_name_or_substitution``
+    accept arbitrary strings — including ones a YAML parser would
+    interpret as comments / structure markers / reserved words.
+    Without this normalisation a friendly name like ``Bedroom #2``
+    would round-trip as ``Bedroom`` (everything after `` #`` becomes
+    a comment) and ``yes`` would parse back as a boolean.
     """
-    yaml = "esphome:\n  name: kitchen\n"
-    assert rewrite_friendly_name(yaml, "Living Room") == yaml
+    assert _safe_yaml_scalar(value) == expected
 
 
-def test_rewrite_friendly_name_ignores_lookalike_in_other_block() -> None:
-    """A stray ``friendly_name:`` outside ``esphome:`` doesn't get touched.
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("kitchen", "kitchen"),
+        ('"kitchen"', "kitchen"),
+        ("'kitchen'", "kitchen"),
+        ("  kitchen  ", "kitchen"),
+        ('  "kitchen"  ', "kitchen"),
+        # Mismatched / single quote is not stripped.
+        ('"kitchen', '"kitchen'),
+        ("'kitchen\"", "'kitchen\""),
+    ],
+)
+def test_strip_yaml_quotes(value: str, expected: str) -> None:
+    """Pin the quote-strip helper's accept / reject contract.
 
-    Substitutions or packages occasionally carry a
-    ``friendly_name:`` field; the rewrite must leave them alone so
-    the swap doesn't corrupt unrelated config.
+    Used by ``parse_substitution_ref`` and the rename gate to
+    compare an inline value against an unquoted target without
+    crashing on unquoted values or eating partial quotes.
     """
-    yaml = (
-        "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
-        "substitutions:\n  friendly_name: Old Sub\n"
-    )
-    out = rewrite_friendly_name(yaml, "Living Room")
-    assert "friendly_name: Living Room" in out
-    assert "friendly_name: Old Sub" in out
-
-
-def test_rewrite_friendly_name_preserves_trailing_comment() -> None:
-    """Trailing ``# comment`` survives the rewrite."""
-    yaml = "esphome:\n  friendly_name: Kitchen  # primary device\n"
-    out = rewrite_friendly_name(yaml, "Living Room")
-    assert out == "esphome:\n  friendly_name: Living Room  # primary device\n"
+    assert _strip_yaml_quotes(value) == expected
 
 
 # ---------------------------------------------------------------------------

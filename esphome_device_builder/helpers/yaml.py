@@ -153,13 +153,16 @@ def rewrite_yaml_scalar(
     if not path:
         return yaml_text
     lines = yaml_text.splitlines(keepends=True)
-    # ``stack`` holds (indent, key) for every ancestor frame whose
-    # body we are currently inside. Mapping keys push their own name;
-    # list items push the sentinel ``_LIST_FRAME`` so a leaf nested
-    # inside a list (``sensor: - name: foo``) can't satisfy a plain
-    # mapping path (``("sensor", "name")``). The leaf is matched when
-    # ``tuple(k for _, k in stack) == path[:-1]`` and the current
-    # line's own key equals ``path[-1]``.
+    # ``stack`` holds (indent, key) for *every* ancestor frame
+    # we're currently inside, on-path or not. Mapping keys push
+    # their own name; list items push the sentinel
+    # ``_LIST_FRAME``. Tracking only on-path ancestors would let
+    # a deeper key satisfy a shorter path — e.g. for path
+    # ``("api", "encryption", "key")``, YAML
+    # ``api: { something: { encryption: { key: ... } } }`` would
+    # falsely match because ``something`` would be invisible to
+    # the ancestor check. We pay one extra ``stack.append`` per
+    # off-path key in exchange for a sound path comparison.
     stack: list[tuple[int, str]] = []
     target_parents = tuple(path[:-1])
     leaf_key = path[-1]
@@ -213,17 +216,13 @@ def rewrite_yaml_scalar(
             ending = "\n" if line.endswith("\n") else ""
             lines[i] = f"{m.group('indent')}{key}: {replacement}{comment}{ending}"
             return "".join(lines)
-        # Push this key onto the ancestor stack only when we're on
-        # the path. Off-path branches don't need their ancestors
-        # tracked for rewrites that touch a different subtree later
-        # (well-formed YAML doesn't reuse keys at the same level
-        # within one mapping).
-        if (
-            len(stack) < len(target_parents)
-            and ancestor_chain == target_parents[: len(ancestor_chain)]
-            and key == target_parents[len(ancestor_chain)]
-        ):
-            stack.append((indent, key))
+        # Push every mapping key — soundness over micro-optimisation.
+        # An off-path key (e.g. ``something:`` between ``api:`` and
+        # ``encryption:`` when the target path is
+        # ``("api", "encryption", "key")``) must show up in the
+        # ancestor chain so the leaf check at the deeper indent
+        # correctly fails to match.
+        stack.append((indent, key))
     return yaml_text
 
 
@@ -249,6 +248,84 @@ def read_yaml_scalar(yaml_text: str, path: Sequence[str]) -> str | None:
     return captured[0] if captured else None
 
 
+# Plain (unquoted) YAML scalars accept most printable characters,
+# but a small set of leading bytes and embedded sequences make the
+# parser interpret the value as something other than a plain
+# string. ``_PLAIN_SCALAR_INDICATOR_LEAD`` covers the YAML
+# indicator characters that, when leading, change scalar shape;
+# ``_PLAIN_SCALAR_FORBIDDEN_SUBSTR`` covers the embedded sequences
+# that flip a plain scalar into a key/value or comment. ``_RESERVED_PLAIN``
+# is the set of plain scalars YAML interprets as bool / null —
+# emitting one of these unquoted would round-trip as a non-string.
+_PLAIN_SCALAR_INDICATOR_LEAD = set("!&*?|>%@`#-,[]{}\"'")
+_PLAIN_SCALAR_FORBIDDEN_SUBSTR = (": ", " #")
+_RESERVED_PLAIN = frozenset(
+    {
+        "true",
+        "false",
+        "null",
+        "yes",
+        "no",
+        "on",
+        "off",
+        "~",
+        "",
+    }
+)
+
+
+def _safe_yaml_scalar(value: str) -> str:
+    r"""
+    Render *value* as a YAML scalar — plain when safe, double-quoted otherwise.
+
+    Used by rewriters that accept arbitrary user-supplied strings
+    (friendly_name, comments, mqtt topics, etc.) where a value
+    like ``"Bedroom #2"`` would otherwise become a comment or
+    ``"Lamp: Bedroom"`` would split into a key/value pair on round
+    trip. Plain identifiers (``"Kitchen"``, ``"my-device"``) round
+    trip without quotes; anything that contains a YAML special
+    sequence, starts with an indicator character, ends in ``:`` /
+    ``-``, or matches a reserved plain scalar gets double-quoted
+    with embedded ``"`` and ``\\`` escaped.
+    """
+    if not value or value.lower() in _RESERVED_PLAIN:
+        return f'"{value}"'
+    if value[0] in _PLAIN_SCALAR_INDICATOR_LEAD:
+        return _quote(value)
+    if value.endswith(":") or value.endswith(" "):
+        return _quote(value)
+    if any(s in value for s in _PLAIN_SCALAR_FORBIDDEN_SUBSTR):
+        return _quote(value)
+    # ``\n``, ``\r``, and ``\t`` would either be silently stripped
+    # (tab) or split into multiple YAML lines. Quote and escape.
+    if any(c in value for c in "\n\r\t"):
+        return _quote(value)
+    return value
+
+
+def _quote(value: str) -> str:
+    """Render *value* as a double-quoted YAML scalar with minimal escapes."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    escaped = escaped.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    return f'"{escaped}"'
+
+
+def _strip_yaml_quotes(value: str) -> str:
+    """
+    Strip a single matched pair of surrounding quotes from *value*.
+
+    YAML scalars accept ``"..."`` and ``'...'`` quoting; both shapes
+    appear in real configs. Helpers that compare against an unquoted
+    target (rename's value gate, the substitution-ref parser) need
+    to peel the wrapper before comparing without crashing on
+    unquoted values.
+    """
+    stripped = value.strip()
+    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ('"', "'"):
+        return stripped[1:-1]
+    return stripped
+
+
 # ESPHome substitutions are referenced as ``$name`` or ``${name}`` —
 # the ``${name}`` form is the canonical one the wizard emits and
 # what users following the upstream docs will write. We only treat
@@ -268,11 +345,7 @@ def parse_substitution_ref(value: str) -> str | None:
     quotes are stripped before the test. ``"my-${suffix}"`` returns
     ``None`` because only part of the value is the substitution.
     """
-    stripped = value.strip()
-    # Strip a single matched pair of quotes if present.
-    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ('"', "'"):
-        stripped = stripped[1:-1]
-    m = _PURE_SUBSTITUTION_REF.match(stripped)
+    m = _PURE_SUBSTITUTION_REF.match(_strip_yaml_quotes(value))
     if not m:
         return None
     return m.group(1) or m.group(2)
@@ -309,6 +382,7 @@ def rewrite_name_or_substitution(
     Returns the original text unchanged when neither the leaf
     nor the substitution leaf exists.
     """
+    rendered = _safe_yaml_scalar(new_value)
     raw = read_yaml_scalar(yaml_text, leaf_path)
     var = parse_substitution_ref(raw) if raw is not None else None
     if var is not None:
@@ -320,8 +394,8 @@ def rewrite_name_or_substitution(
         # leaf lands the literal in our YAML and leaves the
         # remote definition untouched.
         if read_yaml_scalar(yaml_text, sub_path) is not None:
-            return rewrite_yaml_scalar(yaml_text, sub_path, lambda _raw: new_value)
-    return rewrite_yaml_scalar(yaml_text, leaf_path, lambda _raw: new_value)
+            return rewrite_yaml_scalar(yaml_text, sub_path, lambda _raw: rendered)
+    return rewrite_yaml_scalar(yaml_text, leaf_path, lambda _raw: rendered)
 
 
 def rewrite_esphome_name(
@@ -352,28 +426,11 @@ def rewrite_esphome_name(
     """
 
     def _swap(raw: str) -> str | None:
-        if only_if_current is not None and raw.strip().strip('"').strip("'") != only_if_current:
+        if only_if_current is not None and _strip_yaml_quotes(raw) != only_if_current:
             return None
         return new_name
 
     return rewrite_yaml_scalar(yaml_text, ("esphome", "name"), _swap)
-
-
-def rewrite_friendly_name(yaml_text: str, new_friendly_name: str) -> str:
-    """
-    Replace ``friendly_name:`` under the top-level ``esphome:`` block.
-
-    Unlike :func:`rewrite_esphome_name` this doesn't gate on the
-    current value — a clone overrides the friendly name regardless
-    of what the source had. Returns the original text unchanged
-    when no ``friendly_name:`` line exists inside ``esphome:`` so
-    callers can decide whether to insert one.
-    """
-    return rewrite_yaml_scalar(
-        yaml_text,
-        ("esphome", "friendly_name"),
-        lambda _raw: new_friendly_name,
-    )
 
 
 def generate_api_encryption_key() -> str:
@@ -400,11 +457,12 @@ def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
     that happens to start with a YAML special character
     (``!``/``%``/``@``/``-``/``?``/``&``/``*``) parses cleanly.
     """
+    rendered = _quote(new_key)
 
     def _swap(raw: str) -> str | None:
         if raw.startswith("!secret") or raw.startswith("${"):
             return None
-        return f'"{new_key}"'
+        return rendered
 
     return rewrite_yaml_scalar(yaml_text, ("api", "encryption", "key"), _swap)
 

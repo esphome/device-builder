@@ -125,6 +125,56 @@ async def test_clone_device_skips_friendly_rewrite_when_blank(
     assert "friendly_name: Kitchen Lamp\n" in new_yaml
 
 
+async def test_clone_device_rejects_same_stem_across_yaml_yml_extensions(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """``kitchen.yml`` + ``new_name=kitchen`` is rejected even though filenames differ.
+
+    Both files would share the same ``esphome.name`` and collide on
+    mDNS once the clone is flashed. The same-name guard now compares
+    *stems* rather than full filenames so the ``.yaml`` / ``.yml``
+    extension difference can't slip past it.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yml").write_text(SOURCE_YAML, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yml", new_name="kitchen")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "must differ" in excinfo.value.message
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_safely_quotes_friendly_name_with_yaml_specials(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Friendly names with ``#``, ``:`` etc. round-trip through proper quoting.
+
+    A friendly name like ``Bedroom #2`` written as a plain scalar
+    would be silently truncated to ``Bedroom`` (everything after
+    `` #`` becomes a YAML comment). ``Lamp: Kitchen`` would split
+    into a key/value pair on round trip. Pin that the clone path
+    safely double-quotes these values.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    await ctrl.clone_device(
+        configuration="kitchen.yaml",
+        new_name="bedroom-bulb",
+        new_friendly_name="Bedroom #2",
+    )
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    # Quoted form preserves the ``#``; the unquoted form
+    # (``friendly_name: Bedroom #2``) would silently parse back
+    # as ``Bedroom`` with ``#2`` as a YAML comment.
+    assert 'friendly_name: "Bedroom #2"\n' in new_yaml
+
+
 async def test_clone_device_rejects_collision_with_existing_filename(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
