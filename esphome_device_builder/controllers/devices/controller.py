@@ -1851,9 +1851,7 @@ class DevicesController:
 
         try:
             content = await loop.run_in_executor(None, _read)
-            await self._validate_rewritten_yaml_or_raise(
-                configuration, content, action="import"
-            )
+            await self._validate_rewritten_yaml_or_raise(configuration, content, action="import")
         except BaseException:
             await loop.run_in_executor(None, _cleanup)
             raise
