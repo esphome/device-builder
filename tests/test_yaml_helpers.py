@@ -532,6 +532,56 @@ def test_rewrite_yaml_scalar_honours_hash_inside_quoted_value() -> None:
     assert captured == ['"Bedroom #2"']
 
 
+def test_rewrite_yaml_scalar_honours_double_quoted_backslash_escape() -> None:
+    r"""``\"`` inside a double-quoted scalar doesn't end the quote.
+
+    Our own ``_quote`` emits ``\"`` for friendly names that
+    contain a literal ``"`` (``Lamp "Bright"`` → ``"Lamp
+    \"Bright\""``). On a *re*-clone of such a value, the splitter
+    needs to skip the escape body so the inner ``"`` doesn't read
+    as the closer and a later ``\s+#`` doesn't get treated as a
+    trailing comment.
+    """
+    captured: list[str] = []
+
+    def _capture(raw: str) -> str | None:
+        captured.append(raw)
+        return None
+
+    rewrite_yaml_scalar(
+        # The full quoted value includes ``\"`` escapes around
+        # ``Bright`` and an embedded ``#`` after the closing
+        # quote-escape. Without escape handling the splitter would
+        # exit quote mode at the first ``\"``, treat ``Bright`` as
+        # plain text, and split at `` #`` — corrupting the value.
+        'esphome:\n  friendly_name: "Lamp \\"Bright\\" #2"  # tag\n',
+        ("esphome", "friendly_name"),
+        _capture,
+    )
+    assert captured == ['"Lamp \\"Bright\\" #2"']
+
+
+def test_rewrite_yaml_scalar_honours_single_quoted_doubled_quote_escape() -> None:
+    """``''`` inside a single-quoted scalar is a literal quote, not the closer.
+
+    YAML's single-quote escape is ``''`` (doubled). The splitter
+    must recognise the doubled-quote pattern as "stay in the
+    string" rather than treating the first quote as the closer.
+    """
+    captured: list[str] = []
+
+    def _capture(raw: str) -> str | None:
+        captured.append(raw)
+        return None
+
+    rewrite_yaml_scalar(
+        "esphome:\n  friendly_name: 'Bob''s Lamp #1'  # primary\n",
+        ("esphome", "friendly_name"),
+        _capture,
+    )
+    assert captured == ["'Bob''s Lamp #1'"]
+
+
 def test_rewrite_yaml_scalar_preserves_quoted_value_on_rewrite_with_trailing_comment() -> None:
     """Rewriting a quoted-with-hash value preserves the trailing comment.
 
@@ -689,6 +739,31 @@ def test_rewrite_api_encryption_key_skips_secret_indirection() -> None:
 def test_rewrite_api_encryption_key_skips_substitution_indirection() -> None:
     """``key: ${api_key}`` stays untouched, same reasoning as ``!secret``."""
     yaml = "api:\n  encryption:\n    key: ${api_key}\n"
+    assert rewrite_api_encryption_key(yaml, "NEW==") == yaml
+
+
+def test_rewrite_api_encryption_key_skips_quoted_substitution_indirection() -> None:
+    """``key: "${api_key}"`` stays untouched.
+
+    Same intent as the unquoted ``${...}`` case — the value points
+    at a substitution defined elsewhere, so swapping it for a
+    fresh literal would silently desync the rendered config.
+    Earlier versions only matched the ``${`` prefix on the raw
+    quoted value (``"${api_key}"`` doesn't start with ``${``) and
+    would falsely overwrite. Strip quotes before the prefix check.
+    """
+    yaml = 'api:\n  encryption:\n    key: "${api_key}"\n'
+    assert rewrite_api_encryption_key(yaml, "NEW==") == yaml
+
+
+def test_rewrite_api_encryption_key_skips_quoted_secret_indirection() -> None:
+    """``key: "!secret api_key"`` stays untouched.
+
+    Same fix as the substitution case — a quoted ``!secret``
+    indirection is unusual but valid YAML, and rewriting it would
+    desync from the secrets file the source pointed at.
+    """
+    yaml = 'api:\n  encryption:\n    key: "!secret api_key"\n'
     assert rewrite_api_encryption_key(yaml, "NEW==") == yaml
 
 

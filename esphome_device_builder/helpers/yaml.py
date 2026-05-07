@@ -112,30 +112,49 @@ def _split_value_and_comment(rest: str) -> tuple[str, str]:
     A ``#`` only opens a comment when preceded by whitespace
     *and* outside any quoted scalar. Without the quote-state
     check, ``friendly_name: "Bedroom #2"`` would mis-split as
-    ``"Bedroom`` (value) + ``" #2"`` (comment) and every read /
-    rewrite would corrupt the YAML.
+    ``"Bedroom`` (value) + ``" #2"`` (comment).
+
+    Honours both YAML quote-escape conventions so the splitter
+    survives a round-trip through our own ``_quote`` (which emits
+    ``\"`` inside double-quoted output for friendly names that
+    contain ``"``):
+
+    - Double-quoted: ``\"`` escapes a literal quote. Skip the
+      escape sequence body so the quote-flip stays accurate.
+    - Single-quoted: ``''`` is YAML's escape for a literal single
+      quote inside a single-quoted scalar. A doubled closer means
+      "stay in the string"; only an unpaired ``'`` ends the scalar.
 
     *value* keeps the surrounding quotes intact and is stripped
     of trailing whitespace (the comment owns its leading run).
     *comment* includes the leading whitespace + ``#`` so the
     rewriter pastes it back verbatim. Empty *comment* means no
     trailing comment was found.
-
-    Doesn't model double-quoted ``\"`` escapes — ESPHome configs
-    don't use them in practice (single-quoted strings are used
-    for content with ``"``); the simpler quote-flip suffices.
     """
     quote: str | None = None
-    for i, ch in enumerate(rest):
+    i = 0
+    n = len(rest)
+    while i < n:
+        ch = rest[i]
         if quote is not None:
+            if ch == "\\" and quote == '"' and i + 1 < n:
+                # Double-quoted escape — skip the escape body so a
+                # ``\"`` doesn't read as the closing quote.
+                i += 2
+                continue
             if ch == quote:
+                if quote == "'" and i + 1 < n and rest[i + 1] == "'":
+                    # Single-quoted ``''`` is a literal quote, not
+                    # the closer — stay inside the scalar.
+                    i += 2
+                    continue
                 quote = None
-            continue
-        if ch in ('"', "'"):
+        elif ch in ('"', "'"):
             quote = ch
         elif ch == "#" and i > 0 and rest[i - 1] in " \t":
             value = rest[:i].rstrip(" \t")
             return value, rest[len(value) :]
+        i += 1
     return rest, ""
 
 
@@ -491,7 +510,13 @@ def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
     rendered = _quote(new_key)
 
     def _swap(raw: str) -> str | None:
-        if raw.startswith("!secret") or raw.startswith("${"):
+        # Strip quotes before checking for indirection markers — both
+        # ``key: !secret api_key`` and ``key: "${api_key}"`` are
+        # valid YAML, and the second form's quotes would otherwise
+        # mask the ``${`` prefix and cause us to rewrite a value the
+        # user explicitly indirected.
+        unquoted = _strip_yaml_quotes(raw)
+        if unquoted.startswith("!secret") or unquoted.startswith("${"):
             return None
         return rendered
 

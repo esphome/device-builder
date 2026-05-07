@@ -362,6 +362,32 @@ async def test_clone_device_lands_new_name_when_yaml_name_diverges_from_filename
     assert "my-kitchen-bulb" not in new_yaml
 
 
+async def test_clone_device_rejects_source_with_no_inline_esphome_name(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A package-driven config (no inline ``esphome.name``) is rejected.
+
+    When the ``esphome:`` block lives in a ``packages:`` /
+    ``!include``d file, this YAML has no ``name:`` leaf for the
+    rewriter to touch — the rewrite is a silent no-op and the
+    clone would flash under the source's hostname, colliding on
+    mDNS. Surface the precondition as ``INVALID_ARGS`` with
+    actionable guidance instead of producing a duplicate device.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    yaml = "packages:\n  base: !include common/base.yaml\nesp32:\n  variant: ESP32\n"
+    (tmp_path / "kitchen.yaml").write_text(yaml, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "no inline esphome.name" in excinfo.value.message
+    # Clone target should not have been written.
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
 async def test_clone_device_carries_source_board_id_into_metadata(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

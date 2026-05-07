@@ -41,6 +41,7 @@ from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progre
 from ...helpers.yaml import (
     generate_api_encryption_key,
     merge_component_yaml,
+    read_yaml_scalar,
     rewrite_api_encryption_key,
     rewrite_esphome_name,
     rewrite_name_or_substitution,
@@ -854,6 +855,23 @@ class DevicesController:
         # Mixed values (``${prefix}-suffix``) aren't pure references
         # and fall through to the leaf rewrite — we have no way to
         # split the prefix without changing the suffix's meaning.
+        # Precondition: there has to be an ``esphome.name`` leaf in
+        # *this* file for us to rewrite. A package-driven config
+        # (``packages: { base: !include common/base.yaml }`` with the
+        # ``esphome:`` block defined upstream) has no in-file leaf to
+        # touch — the rewrite would silently no-op and the clone
+        # would flash under the source's hostname. Reject up-front
+        # with a typed error so the dialog can show a real message
+        # instead of producing a duplicate device.
+        if read_yaml_scalar(source_content, ("esphome", "name")) is None:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                "Source has no inline esphome.name to rewrite — clone "
+                "needs an explicit name in this file (move the name "
+                "out of the package or add an esphome: name: line "
+                "before cloning).",
+            )
+
         new_content = rewrite_name_or_substitution(source_content, ("esphome", "name"), new_name)
         if new_friendly_name:
             new_content = rewrite_name_or_substitution(
