@@ -39,6 +39,16 @@ from .models import EventType
 
 _LOGGER = logging.getLogger(__name__)
 
+# How often ``_run_background`` re-runs ``DevicesController.poll``
+# while at least one WS client is subscribed. Bounded above by how
+# stale a "user dropped a YAML in via SSH" change is allowed to look
+# in the dashboard's device list; bounded below by the cost of the
+# directory-walk + per-file stat the poll triggers via
+# ``DeviceScanner.scan``. The ICMP ping sweep already runs on a
+# similar cadence — keep the two in the same ballpark so a fleet's
+# steady-state idle CPU doesn't spike on either alone.
+_BACKGROUND_POLL_INTERVAL_SECONDS = 5
+
 # Cache policy for the SPA shell:
 #   - ``index.html`` and any non-hashed top-level file: must always
 #     revalidate so a re-deployed wheel doesn't get masked by a
@@ -315,11 +325,38 @@ class DeviceBuilder:
                 executor.shutdown(wait=False)
 
     async def _run_background(self) -> None:
-        """Background polling loop."""
+        """Background polling loop.
+
+        Drives ``DevicesController.poll`` for filesystem drift the
+        push paths can't see (YAML file dropped in via SSH /
+        Samba, atomic-save mid-edit, sidecar mtime change). Gated
+        on ``SubscriberPresence`` — when no WS client is
+        subscribed, no UI is showing the device list, so paying
+        for a directory enumeration + per-file stat every 5 s is
+        idle CPU we can skip. The 0→1 subscriber transition
+        wakes ``wait_for_subscriber`` immediately, so the first
+        client to connect picks up freshly-dropped YAMLs within
+        one ``_BACKGROUND_POLL_INTERVAL_SECONDS`` instead of
+        having to wait for the next scheduled tick — same shape
+        ``_ping_loop`` uses for the ICMP sweep.
+        """
+        presence = self.subscriber_presence
         while True:
-            await asyncio.sleep(5)
+            await presence.wait_for_subscriber()
             if self.devices:
                 await self.devices.poll()
+            # Interruptible idle wait: bail early if the last
+            # subscriber leaves so the next one to connect doesn't
+            # sit through the rest of a stale interval. The
+            # ``TimeoutError`` branch is the steady-state "still
+            # subscribed, poll again" path; either way we loop
+            # back to ``wait_for_subscriber`` which parks if the
+            # gate has since closed.
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    presence.wait_for_no_subscribers(),
+                    timeout=_BACKGROUND_POLL_INTERVAL_SECONDS,
+                )
 
     @staticmethod
     async def _cmd_ping(**kwargs: Any) -> dict:
