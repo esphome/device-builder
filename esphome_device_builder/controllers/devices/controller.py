@@ -1280,7 +1280,19 @@ class DevicesController:
             )
         finally:
             if not succeeded and on_error_cleanup is not None:
-                await asyncio.get_running_loop().run_in_executor(None, on_error_cleanup)
+                # Swallow + log cleanup failures so a permission /
+                # FS error during rollback doesn't replace the
+                # original validation diagnostic (or the validator
+                # subprocess error) the caller is about to see. The
+                # leftover YAML is the lesser foot-gun here — the
+                # user can ``devices/delete`` it once they understand
+                # what failed.
+                try:
+                    await asyncio.get_running_loop().run_in_executor(
+                        None, on_error_cleanup
+                    )
+                except Exception:
+                    _LOGGER.exception("on_error_cleanup raised; original error preserved")
 
     @api_command("devices/delete")
     async def delete_device(self, *, configuration: str, **kwargs: Any) -> None:
@@ -1866,10 +1878,10 @@ class DevicesController:
 
         try:
             content = await loop.run_in_executor(None, _read)
-        except OSError:
-            # Transient FS error reading back what we just wrote
-            # via ``import_config``. Roll back so a retry doesn't
-            # see a leftover file.
+        except (OSError, UnicodeDecodeError):
+            # Transient FS error or non-UTF-8 bytes in what we
+            # just wrote via ``import_config``. Roll back either
+            # way so a retry doesn't see a leftover file.
             await loop.run_in_executor(None, _cleanup)
             raise
         await self._validate_rewritten_yaml_or_raise(

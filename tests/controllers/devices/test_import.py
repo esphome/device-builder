@@ -52,9 +52,12 @@ def _import_config_stub(
     ``import_device`` post-write validation step then reads it
     back, so a stub that only records call args trips the read
     with ``FileNotFoundError``. This helper writes a minimal
-    valid YAML at the destination path and optionally records
-    the call args into *captured* (for tests that assert on
-    what got forwarded to upstream).
+    syntactically-valid YAML (parseable, but deliberately not
+    ESPHome-schema-valid — there's no platform block, so the
+    fake validator we mock around it is the source of pass/fail
+    truth) at the destination path and optionally records the
+    call args into *captured* (for tests that assert on what got
+    forwarded to upstream).
     """
 
     def _stub(*args: Any, **_kw: Any) -> None:
@@ -328,6 +331,89 @@ async def test_import_device_rejects_when_imported_yaml_does_not_validate(
     assert not (tmp_path / "kitchen.yaml").exists()
     # Scanner must NOT have been notified of the half-imported device.
     assert ctrl._scanner.calls == []
+
+
+async def test_import_device_rolls_back_on_unicode_decode_error_from_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Non-UTF-8 bytes in the freshly-written YAML still trigger rollback.
+
+    ``Path.read_text(encoding='utf-8')`` raises ``UnicodeDecodeError``
+    (which is *not* an ``OSError``) when ``import_config`` somehow
+    landed bytes that aren't valid UTF-8. Without an explicit
+    catch, the rollback would skip and the half-imported file
+    would block every retry with ``FileExistsError``.
+    """
+
+    def write_garbage(*args: Any, **_kw: Any) -> None:
+        # Write a byte that isn't a valid UTF-8 leading byte so
+        # ``read_text(encoding='utf-8')`` chokes on it.
+        args[0].write_bytes(b"\xff garbage")
+
+    monkeypatch.setattr(devices_module, "import_config", write_garbage)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+
+    with pytest.raises(UnicodeDecodeError):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x",
+        )
+
+    assert not (tmp_path / "kitchen.yaml").exists()
+    assert ctrl._scanner.calls == []
+
+
+async def test_import_device_preserves_original_error_when_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A failing rollback doesn't replace the validation diagnostic.
+
+    If the YAML's permissions changed between write and cleanup
+    (``unlink`` raises ``PermissionError``), the user should
+    still see the actual validation rejection — not a confusing
+    "permission denied" trace from the rollback path. The
+    cleanup hook's exception is swallowed and logged; the
+    original ``CommandError`` propagates.
+    """
+    monkeypatch.setattr(devices_module, "import_config", _import_config_stub())
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [{"message": "[esphome] required key not provided: a platform"}],
+        }
+    )
+
+    # Make ``Path.unlink`` raise on the imported YAML so the
+    # cleanup hook's executor call surfaces an exception inside
+    # the helper's ``finally``.
+    real_unlink = Path.unlink
+
+    def boom_unlink(self: Path, *, missing_ok: bool = False) -> None:
+        if self.name == "kitchen.yaml":
+            raise PermissionError("rollback denied")
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", boom_unlink)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x",
+        )
+
+    # Original validation error survives — not a PermissionError
+    # from the rollback path.
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "required key not provided: a platform" in excinfo.value.message
 
 
 async def test_import_device_rolls_back_on_validator_subprocess_error(
