@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import base64
 import re
+import secrets
 from typing import TYPE_CHECKING, Any
 
 import yaml
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
     from ..models import ComponentCatalogEntry
 
 # Prefer the libyaml-backed C loader when PyYAML was built against
@@ -93,42 +97,202 @@ _ENTITY_CATEGORIES = {
 # ---------------------------------------------------------------------------
 
 
+# Mapping-key line: optional leading whitespace, an unquoted scalar
+# key, ``:``, optional whitespace, optional value, optional trailing
+# comment. List items (``- foo: bar``) are excluded — none of the
+# rewrite paths we care about land inside a list, and the key stack
+# below assumes parent → child mapping nesting only.
+_MAPPING_KEY_LINE = re.compile(r"^(?P<indent>\s*)(?P<key>[A-Za-z_][\w-]*):\s*(?P<rest>.*)$")
+# Trailing-comment splitter for the value half. ``#`` only opens a
+# comment when preceded by whitespace; ``key: ab#cd`` is the literal
+# scalar ``ab#cd``. Quoted values aren't stripped (we leave the
+# quotes in *raw_value* so the transform sees them).
+_VALUE_AND_COMMENT = re.compile(r"^(?P<value>.*?)(?P<comment>\s+#.*)?$")
+# Sentinel pushed onto the path stack when we descend into a list
+# item. Picked as a string that can't collide with a real YAML key
+# (the leading ``-`` prevents a match against the mapping-key regex's
+# ``[A-Za-z_]`` anchor).
+_LIST_FRAME = "-list-"
+
+
+def rewrite_yaml_scalar(
+    yaml_text: str,
+    path: Sequence[str],
+    transform: Callable[[str], str | None],
+) -> str:
+    """
+    Rewrite the scalar at the YAML mapping *path* in *yaml_text*.
+
+    *path* is the ancestor → leaf chain of mapping keys
+    (e.g. ``("esphome", "name")``, ``("api", "encryption", "key")``).
+    The walker tracks the open ancestor stack by indent and only
+    rewrites a leaf line whose ancestor chain matches *path[:-1]*
+    and whose own key equals *path[-1]*.
+
+    *transform* receives the leaf's *raw value* — the substring
+    between the colon's trailing whitespace and any trailing
+    ``# comment``, with surrounding whitespace stripped but quotes
+    kept. It returns the rendered replacement (caller decides
+    whether to wrap in quotes, regenerate from scratch, etc.) or
+    ``None`` to leave the line untouched.
+
+    Indentation and trailing comments survive the rewrite. Only the
+    first matching leaf is rewritten; pathological YAMLs with the
+    same path appearing twice get only the first one touched —
+    matches our callers' expectation that a well-formed config
+    declares each path once. Returns the input string unchanged when
+    no leaf is found or when *transform* returns ``None``.
+
+    Walker only handles unquoted plain mapping keys nested via
+    indentation (``foo:`` / ``  bar:`` …) — the shape every path
+    our callers care about uses. List items (``- platform: …``)
+    and quoted keys (``"foo": …``) are skipped; supporting them
+    would change the meaning of "the scalar at *path*" in ways that
+    don't match how ESPHome configs are written by hand.
+    """
+    if not path:
+        return yaml_text
+    lines = yaml_text.splitlines(keepends=True)
+    # ``stack`` holds (indent, key) for every ancestor frame whose
+    # body we are currently inside. Mapping keys push their own name;
+    # list items push the sentinel ``_LIST_FRAME`` so a leaf nested
+    # inside a list (``sensor: - name: foo``) can't satisfy a plain
+    # mapping path (``("sensor", "name")``). The leaf is matched when
+    # ``tuple(k for _, k in stack) == path[:-1]`` and the current
+    # line's own key equals ``path[-1]``.
+    stack: list[tuple[int, str]] = []
+    target_parents = tuple(path[:-1])
+    leaf_key = path[-1]
+    for i, line in enumerate(lines):
+        stripped_no_eol = line.rstrip("\n\r")
+        # Blank / comment-only lines stay inside whatever block they
+        # appear in — popping the stack on whitespace would close
+        # blocks that have a blank between the parent and the first
+        # child key.
+        if not stripped_no_eol.strip() or stripped_no_eol.lstrip().startswith("#"):
+            continue
+        # List items break the mapping path: anything indented inside
+        # a list item is "in a list", not a direct child of the
+        # parent mapping. Push an opaque frame at the dash's column
+        # so deeper keys' ancestor chain can't satisfy the caller's
+        # plain-mapping path.
+        lstripped = stripped_no_eol.lstrip(" ")
+        if lstripped.startswith("- ") or lstripped == "-":
+            indent = len(stripped_no_eol) - len(lstripped)
+            while stack and stack[-1][0] >= indent:
+                stack.pop()
+            stack.append((indent, _LIST_FRAME))
+            continue
+        m = _MAPPING_KEY_LINE.match(stripped_no_eol)
+        if not m:
+            # Non-key line (block scalar continuation, …) — not on
+            # any of our supported paths. Don't touch the stack.
+            continue
+        indent = len(m.group("indent"))
+        key = m.group("key")
+        rest = m.group("rest")
+        # Walking back out: pop every stack entry whose indent is
+        # ≥ this line's. Those blocks are closed by virtue of this
+        # line living at a sibling-or-shallower position.
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        ancestor_chain = tuple(k for _, k in stack)
+        if key == leaf_key and ancestor_chain == target_parents:
+            value_match = _VALUE_AND_COMMENT.match(rest)
+            assert value_match is not None  # _VALUE_AND_COMMENT always matches
+            raw_value = value_match.group("value").strip()
+            comment = value_match.group("comment") or ""
+            replacement = transform(raw_value)
+            if replacement is None:
+                # Transform opted out — keep walking? No: every
+                # caller wants "rewrite the first match"; a deeper
+                # duplicate isn't more correct than the first one.
+                # Returning unchanged matches the original helpers'
+                # behaviour.
+                return yaml_text
+            ending = "\n" if line.endswith("\n") else ""
+            lines[i] = f"{m.group('indent')}{key}: {replacement}{comment}{ending}"
+            return "".join(lines)
+        # Push this key onto the ancestor stack only when we're on
+        # the path. Off-path branches don't need their ancestors
+        # tracked for rewrites that touch a different subtree later
+        # (well-formed YAML doesn't reuse keys at the same level
+        # within one mapping).
+        if (
+            len(stack) < len(target_parents)
+            and ancestor_chain == target_parents[: len(ancestor_chain)]
+            and key == target_parents[len(ancestor_chain)]
+        ):
+            stack.append((indent, key))
+    return yaml_text
+
+
 def rewrite_esphome_name(yaml_text: str, old_name: str, new_name: str) -> str:
     """
     Replace ``name:`` under the top-level ``esphome:`` block.
 
-    Only changes lines inside the ``esphome:`` section whose value
-    equals *old_name* (with optional surrounding quotes). Indentation
-    and trailing comments are preserved. Returns the original text
-    unchanged when nothing matches so callers can detect a no-op.
+    Only changes the line whose value equals *old_name* (with
+    optional surrounding quotes). Indentation and trailing comments
+    are preserved. Returns the original text unchanged when nothing
+    matches so callers can detect a no-op.
     """
-    lines = yaml_text.splitlines(keepends=True)
-    in_esphome = False
-    changed = False
-    for i, line in enumerate(lines):
-        stripped = line.rstrip("\n\r")
-        # Enter `esphome:` block
-        if re.match(r"^esphome:\s*(#.*)?$", stripped):
-            in_esphome = True
-            continue
-        # A new top-level key (col 0, starts with letter) closes the block
-        if stripped and stripped[0].isalpha():
-            in_esphome = False
-            continue
-        if not in_esphome:
-            continue
-        m = re.match(r"^(\s+)name:\s*(.+?)(\s*#.*)?$", stripped)
-        if not m:
-            continue
-        value = m.group(2).strip().strip('"').strip("'")
-        if value != old_name:
-            continue
-        indent, _, comment = m.groups()
-        ending = "\n" if line.endswith("\n") else ""
-        lines[i] = f"{indent}name: {new_name}{comment or ''}{ending}"
-        changed = True
-        break
-    return "".join(lines) if changed else yaml_text
+
+    def _swap(raw: str) -> str | None:
+        if raw.strip().strip('"').strip("'") != old_name:
+            return None
+        return new_name
+
+    return rewrite_yaml_scalar(yaml_text, ("esphome", "name"), _swap)
+
+
+def rewrite_friendly_name(yaml_text: str, new_friendly_name: str) -> str:
+    """
+    Replace ``friendly_name:`` under the top-level ``esphome:`` block.
+
+    Unlike :func:`rewrite_esphome_name` this doesn't gate on the
+    current value — a clone overrides the friendly name regardless
+    of what the source had. Returns the original text unchanged
+    when no ``friendly_name:`` line exists inside ``esphome:`` so
+    callers can decide whether to insert one.
+    """
+    return rewrite_yaml_scalar(
+        yaml_text,
+        ("esphome", "friendly_name"),
+        lambda _raw: new_friendly_name,
+    )
+
+
+def generate_api_encryption_key() -> str:
+    """Return a fresh 32-byte ESPHome API encryption key, base64-encoded."""
+    return base64.b64encode(secrets.token_bytes(32)).decode()
+
+
+def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
+    """
+    Replace the literal ``key:`` value under ``api: -> encryption:``.
+
+    Used by the clone path so two devices forked from the same
+    source don't share API encryption material — compromise of one
+    device must not compromise its siblings. Only rewrites a
+    *literal* key value; lines whose value is an indirection
+    (``!secret …`` / ``${…}``) are left untouched, because the
+    indirection target is shared on disk and stomping on the key
+    here would silently desync the clone from whatever
+    ``secrets.yaml`` / substitutions block actually drives the
+    encryption. Returns the original text unchanged when no
+    in-scope ``key:`` is found or when the value is an indirection.
+
+    The replacement is rendered double-quoted so a base64 value
+    that happens to start with a YAML special character
+    (``!``/``%``/``@``/``-``/``?``/``&``/``*``) parses cleanly.
+    """
+
+    def _swap(raw: str) -> str | None:
+        if raw.startswith("!secret") or raw.startswith("${"):
+            return None
+        return f'"{new_key}"'
+
+    return rewrite_yaml_scalar(yaml_text, ("api", "encryption", "key"), _swap)
 
 
 def merge_component_yaml(
