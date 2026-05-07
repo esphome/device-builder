@@ -867,12 +867,18 @@ def test_generate_yaml_explicit_connectivity_overrides_inference() -> None:
         ({"platform": "rp2040", "board": "not-a-real-board"}, True),
         ({"platform": "rp2040", "board": None}, True),
         # Wi-Fi-first families default to True regardless of board /
-        # variant; nRF52 is BLE-only.
+        # variant; nRF52 is BLE-only; ``host`` compiles ESPHome to a
+        # host binary with no radio at all; unknown platforms fail
+        # closed so a future ESPHome platform missed here doesn't
+        # silently emit a wifi: block the new platform's component
+        # would reject.
         ({"platform": "esp8266"}, True),
         ({"platform": "bk72xx"}, True),
         ({"platform": "rtl87xx"}, True),
         ({"platform": "ln882x"}, True),
         ({"platform": "nrf52"}, False),
+        ({"platform": "host"}, False),
+        ({"platform": "not-a-real-platform"}, False),
     ],
 )
 def test_fallback_has_native_wifi(kwargs: dict, expected: bool) -> None:

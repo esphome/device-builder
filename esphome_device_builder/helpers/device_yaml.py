@@ -84,18 +84,21 @@ _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "
 _ESP32_NO_WIFI_VARIANTS = frozenset(v.lower() for v in _ESPHOME_NO_WIFI_VARIANTS)
 
 
+_FALLBACK_WIFI_FIRST_PLATFORMS: frozenset[str] = frozenset(
+    {"esp8266", "bk72xx", "rtl87xx", "ln882x"}
+)
+
+
 def _fallback_has_native_wifi(
     *, platform: str, board: str | None = None, variant: str | None = None
 ) -> bool:
     """Pure-Python fallback for ``esphome.components.wifi.has_native_wifi``.
 
-    Mirrors the upstream dispatcher's contract so the wizard's
-    ``_infer_native_wifi`` call site doesn't have to special-case
-    "old esphome" vs "new esphome" — the alias below picks
-    upstream when present, this fallback otherwise. Adding a new
-    platform to upstream here is a no-op for the wizard once the
-    dependency floor moves past the release that ships the
-    upstream support.
+    Mirrors the upstream dispatcher's contract — including the
+    allowlist semantics for unknown / Wi-Fi-less platforms
+    (``host``, ``nrf52``, future additions) so the wizard's
+    behaviour stays identical whether the upstream helper is
+    available or not.
     """
     if platform == "esp32":
         return not (variant and variant.lower() in _ESP32_NO_WIFI_VARIANTS)
@@ -104,9 +107,7 @@ def _fallback_has_native_wifi(
             return True
         info = _ESPHOME_RP2040_BOARDS.get(board)
         return True if info is None else info.get("wifi", False)
-    # Wi-Fi-first families (ESP8266 / BK72xx / RTL87xx / LN882x);
-    # nRF52 is BLE-only — no chip in the family ships a Wi-Fi PHY.
-    return platform != "nrf52"
+    return platform in _FALLBACK_WIFI_FIRST_PLATFORMS
 
 
 def _select_wifi_helper(
