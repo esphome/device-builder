@@ -104,10 +104,22 @@ def create_legacy_routes() -> web.RouteTableDef:
 
     @routes.get("/devices")
     async def legacy_devices(request: web.Request) -> web.Response:
-        """Legacy GET /devices — returns configured + importable devices."""
+        """Legacy GET /devices — returns configured + importable devices.
+
+        Calls ``poll`` to refresh the scanner from disk before
+        reading. This is the same shape ``DeviceBuilder._run_background``
+        uses on its periodic tick — HA's sync-after-edit pattern
+        relies on each ``GET /devices`` actually re-walking the
+        config directory rather than returning whatever the last
+        background tick happened to capture. ``poll`` was named
+        ``_request_scan`` before the controller-split refactor;
+        the legacy route's call site was missed in the rename and
+        crashed with ``AttributeError`` until we caught it via
+        issue #376.
+        """
         db = request.app["device_builder"]
         devices_ctrl = db.devices
-        await devices_ctrl._request_scan()
+        await devices_ctrl.poll()
 
         configured = [d.to_dict() for d in devices_ctrl.get_devices()]
 

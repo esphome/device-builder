@@ -40,6 +40,7 @@ import asyncio
 import sys
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiohttp import web
@@ -48,6 +49,7 @@ from pytest_aiohttp.plugin import AiohttpClient
 from esphome_device_builder.api import legacy
 from esphome_device_builder.api.legacy import create_legacy_routes
 from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.controllers.devices import DevicesController
 
 
 def _make_app(
@@ -57,11 +59,13 @@ def _make_app(
 ) -> web.Application:
     """Build an aiohttp app wired to just enough DeviceBuilder shape.
 
-    ``devices`` is the ``DevicesController``-shaped namespace the
-    ``/devices`` route reads through — pass an object exposing
-    ``_request_scan`` (async no-op), ``get_devices`` (returns a
-    list), ``import_result`` (dict), and ``ignored_devices``
-    (set). Tests that don't hit ``/devices`` can leave it
+    ``devices`` is the ``DevicesController`` instance the
+    ``/devices`` route reads through. Tests build it via
+    :func:`_make_devices_mock`, which spec's against the real
+    ``DevicesController`` class so a method rename (or a
+    misspelt caller — the failure mode that motivated #376)
+    surfaces as the same ``AttributeError`` in CI that production
+    raised. Tests that don't hit ``/devices`` can leave it
     ``None``.
     """
     settings = DashboardSettings()
@@ -83,32 +87,43 @@ def _make_app(
 # ---------------------------------------------------------------------------
 
 
-class _StubDevicesController:
-    """Just enough of ``DevicesController`` for the ``/devices`` route.
+def _make_devices_mock(
+    *,
+    configured: list[Any] | None = None,
+    importable: dict[str, Any] | None = None,
+    ignored: set[str] | None = None,
+) -> MagicMock:
+    """Build a ``DevicesController`` mock spec'd against the real class.
 
-    Mirrors the four attributes the route reads:
-    ``_request_scan`` (async), ``get_devices``,
-    ``import_result``, ``ignored_devices``. Bypasses every other
-    side-effect (mDNS, scanner, etc.).
+    ``MagicMock(spec=DevicesController)`` enumerates the real
+    class's methods and rejects access to anything that isn't
+    defined there with ``AttributeError``. That's the
+    end-to-end-shape guarantee #376 was missing: the previous
+    hand-rolled stub exposed an ``_request_scan`` method that
+    didn't exist on the real ``DevicesController`` (renamed to
+    ``poll`` in the controller-split refactor), so the legacy
+    route's broken call site passed CI but crashed in
+    production. Speccing forces the test fakes to track the real
+    surface — any future caller method that isn't on
+    ``DevicesController`` raises here exactly the same way it
+    raises in the running app.
+
+    Async methods on the spec'd class become ``AsyncMock`` /
+    coroutine-returning mocks automatically (Python ≥ 3.8
+    behaviour); we still set ``poll = AsyncMock()`` explicitly
+    so individual tests can ``assert_awaited_once`` against it
+    without depending on the auto-spec implementation detail.
     """
-
-    def __init__(
-        self,
-        *,
-        configured: list[Any] | None = None,
-        importable: dict[str, Any] | None = None,
-        ignored: set[str] | None = None,
-    ) -> None:
-        self._configured = configured or []
-        self.import_result = importable or {}
-        self.ignored_devices = ignored or set()
-        self._scan_calls = 0
-
-    async def _request_scan(self) -> None:
-        self._scan_calls += 1
-
-    def get_devices(self) -> list[Any]:
-        return list(self._configured)
+    devices = MagicMock(spec=DevicesController)
+    devices.poll = AsyncMock()
+    devices.get_devices = MagicMock(return_value=list(configured or []))
+    # ``import_result`` and ``ignored_devices`` are attributes,
+    # not methods — set them on the mock instance directly. The
+    # ``spec`` enforces only that they exist on the real class
+    # (which they do).
+    devices.import_result = importable or {}
+    devices.ignored_devices = ignored or set()
+    return devices
 
 
 class _StubDevice:
@@ -131,7 +146,7 @@ async def test_devices_returns_configured_and_importable_lists(
     the top level. A renaming refactor (e.g. ``configured`` →
     ``devices``) would silently break the integration.
     """
-    devices = _StubDevicesController(
+    devices = _make_devices_mock(
         configured=[_StubDevice({"name": "kitchen", "configuration": "kitchen.yaml"})],
         importable={
             "garage": _StubDevice(
@@ -163,7 +178,7 @@ async def test_devices_filters_ignored_importable_entries(
     ``not in ignored_devices`` check resurfaces the regression
     here.
     """
-    devices = _StubDevicesController(
+    devices = _make_devices_mock(
         importable={
             "kitchen": _StubDevice({"name": "kitchen"}),
             "garage": _StubDevice({"name": "garage"}),
@@ -187,7 +202,7 @@ async def test_devices_returns_empty_lists_on_cold_start(
     rather than 404 or 500. The upstream contract is "always 200
     with the two keys present".
     """
-    devices = _StubDevicesController()
+    devices = _make_devices_mock()
     client = await aiohttp_client(_make_app(tmp_path, devices=devices))
 
     body = await (await client.get("/devices")).json()
@@ -200,18 +215,56 @@ async def test_devices_triggers_scan_on_request(
 ) -> None:
     """Each ``GET /devices`` call awakens a fresh file scan.
 
-    The route's first action is ``await
-    devices_ctrl._request_scan()`` — without this, a freshly-
-    added YAML on disk wouldn't show up until the next
-    background scan tick (up to 60s on the file-poll cadence).
-    HA's sync-after-edit pattern relies on this.
+    The route's first action is ``await devices_ctrl.poll()`` —
+    without this, a freshly-added YAML on disk wouldn't show up
+    until the next background scan tick (up to 5 s on the
+    file-poll cadence). HA's sync-after-edit pattern relies on
+    this.
+
+    Asserts via ``poll.assert_awaited_once`` so a regression that
+    silently swaps the call site to a method that *also* exists
+    on ``DevicesController`` (rather than crashing outright)
+    still fails — the issue isn't just "doesn't crash", it's
+    "actually triggers the scan path".
     """
-    devices = _StubDevicesController()
+    devices = _make_devices_mock()
     client = await aiohttp_client(_make_app(tmp_path, devices=devices))
 
     await client.get("/devices")
 
-    assert devices._scan_calls == 1
+    devices.poll.assert_awaited_once_with()
+
+
+async def test_devices_route_call_chain_matches_real_controller(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """The legacy /devices route only calls methods that exist on ``DevicesController``.
+
+    Regression test for #376: a controller-split refactor renamed
+    ``_request_scan`` to ``poll`` but missed the legacy route's
+    caller, so production crashed with ``AttributeError`` while
+    tests (which used a duck-typed stub matching the broken
+    name) stayed green. ``MagicMock(spec=DevicesController)``
+    enforces the real surface — calling any non-existent method
+    on the mock raises ``AttributeError`` exactly as the running
+    backend does.
+
+    Driven through the real aiohttp app + middleware so the call
+    chain is exercised end-to-end (route → handler → controller
+    method lookup), not just the handler body.
+    """
+    devices = _make_devices_mock(
+        configured=[_StubDevice({"name": "kitchen"})],
+    )
+    client = await aiohttp_client(_make_app(tmp_path, devices=devices))
+
+    resp = await client.get("/devices")
+
+    # Status 200 means no AttributeError surfaced from the
+    # controller method lookup. (A spec'd-mock failure on a
+    # missing method becomes a 500 with the AttributeError in
+    # the response body — both 4xx/5xx would fail this.)
+    assert resp.status == 200
 
 
 # ---------------------------------------------------------------------------
