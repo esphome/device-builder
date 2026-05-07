@@ -471,12 +471,23 @@ class DevicesController:
            the stub tells the user to swap the platform block if
            their hardware differs.
 
-        Whichever flow runs, the resulting YAML is validated through
-        ``EditorController``'s schema check before the file lands on
-        disk. Validation failures surface as ``INVALID_ARGS`` (the
-        user's ``file_content`` is unfixable from our side) or
-        ``INTERNAL_ERROR`` (one of the generators emitted an
-        invalid YAML — that's our bug to fix, not the user's).
+        The two *generated* flows (template, stub) run the result
+        through ``EditorController``'s schema check before the
+        file lands on disk — those are *our* outputs, so an
+        invalid one is our regression to fix and surfaces as
+        ``INTERNAL_ERROR``.
+
+        The user-upload flow deliberately skips validation. The
+        whole point of "upload an existing YAML" is to get a
+        config the user already has into the dashboard so they
+        can edit it; many real-world cases are configs from older
+        ESPHome versions whose components have since changed
+        schema, and refusing to write them would lock the user
+        out of the editor — the only place they can fix the YAML
+        in the first place. The next compile / install will
+        surface the actual schema errors with line numbers, which
+        is what the user wants when they're repairing an old
+        config.
 
         After writing, we always try to derive a board_id by parsing
         the resulting YAML's platform/board/variant fields and matching
@@ -519,18 +530,24 @@ class DevicesController:
             name, friendly, board, file_content, ssid, psk
         )
 
-        # Validate before write so an unflashable YAML never lands
-        # on disk. ``INVALID_ARGS`` for the user-supplied
-        # ``file_content`` branch (the user can fix their input);
-        # ``INTERNAL_ERROR`` for the two generator branches because
-        # an invalid template / stub is our regression and we want
-        # it routed to the issue tracker, not to the user.
-        await self._validate_rewritten_yaml_or_raise(
-            filename,
-            yaml_content,
-            action="create",
-            on_failure=ErrorCode.INVALID_ARGS if source == "user" else ErrorCode.INTERNAL_ERROR,
-        )
+        # Validate generated YAML before write so a regression in
+        # ``generate_device_yaml`` / ``generate_minimal_stub_yaml``
+        # surfaces as ``INTERNAL_ERROR`` (our bug to report) rather
+        # than landing an unflashable YAML on disk. User uploads
+        # are deliberately *not* validated here — the upload flow
+        # exists so users can bring an existing config (often from
+        # an older ESPHome version with since-changed component
+        # schemas) into the builder and repair it in the editor.
+        # Refusing the write would strand them; the next compile
+        # / install surfaces the real schema errors with line
+        # numbers, which is what they need to fix it.
+        if source != "user":
+            await self._validate_rewritten_yaml_or_raise(
+                filename,
+                yaml_content,
+                action="create",
+                on_failure=ErrorCode.INTERNAL_ERROR,
+            )
 
         # Derive board_id from YAML when not explicitly provided.
         # Mirrors the scanner's resolution chain: pio_board match first,

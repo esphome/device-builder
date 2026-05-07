@@ -126,28 +126,31 @@ async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
-async def test_create_device_rejects_invalid_file_content(
+async def test_create_device_accepts_invalid_file_content_for_user_repair(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """User-supplied ``file_content`` that doesn't validate is refused.
+    """User uploads of schema-invalid YAML still land on disk.
 
-    The frontend's "import YAML" flow lets users paste arbitrary
-    text into the wizard. Without this guard a malformed paste
-    would land on disk, every downstream operation would refuse
-    it, and the user would have to delete the device and try
-    again. Surfacing the editor's actual errors gives them
-    something to fix.
+    The "upload YAML" flow exists so a user can bring an existing
+    config into the builder and repair it in the editor. Many
+    real-world cases are configs from older ESPHome versions
+    whose components have since changed schema — refusing the
+    upload would strand the user with no way to get the file in
+    front of the editor where they can fix it. Pin: even when
+    the (mocked) validator returns errors for the uploaded YAML,
+    the file still lands on disk and the scanner fires so the
+    device shows up in the dashboard for the user to edit.
+    Validation runs only on our generators (template / stub
+    branches) where an invalid output is *our* regression.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     boards = StubBoardLookups(ctrl)
     boards.find_by_pio_board_returns(None)
     boards.find_by_platform_variant_returns(None)
-    # File content that mirrors what the user's failing scenario
-    # would actually look like — esphome block with a name but no
-    # platform block at all, which the editor rejects with the
-    # mocked error below.
-    invalid_file_content = "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
-    ctrl._db.editor.validate_yaml = AsyncMock(
+    # Mock the validator to return errors. We assert the
+    # upload succeeds anyway (validate_yaml should never be
+    # called for the user-upload branch).
+    validate = AsyncMock(
         return_value={
             "yaml_errors": [],
             "validation_errors": [
@@ -155,15 +158,72 @@ async def test_create_device_rejects_invalid_file_content(
             ],
         }
     )
+    ctrl._db.editor.validate_yaml = validate
+    invalid_file_content = "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
 
-    with pytest.raises(CommandError) as excinfo:
-        await ctrl.create_device(name="kitchen", file_content=invalid_file_content)
+    result = await ctrl.create_device(name="kitchen", file_content=invalid_file_content)
 
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "required key not provided: a platform" in excinfo.value.message
-    # File never landed on disk.
-    assert not (tmp_path / "kitchen.yaml").exists()
-    assert ctrl._scanner.calls == []
+    assert result.configuration == "kitchen.yaml"
+    # File landed verbatim on disk so the user can open it in
+    # the editor.
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == invalid_file_content
+    # Scanner nudged so the device shows up in ``devices/list``.
+    assert ctrl._scanner.calls == [("scan",)]
+    # Validator must NOT have been called for the upload branch.
+    validate.assert_not_called()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_accepts_old_esphome_version_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A YAML using deprecated upstream syntax still uploads cleanly.
+
+    Concrete regression for the "I upgraded ESPHome and now my
+    config doesn't validate" scenario. The YAML below uses the
+    pre-2024 ``esp32: { board: ..., framework: { type: arduino } }``
+    flat shape and a deprecated ``esphome.platform: ESP32`` key
+    that current ESPHome rejects. Even with a validator that
+    flags multiple deprecation errors, the upload must succeed
+    so the user can open the file in the editor and fix it.
+    Without this acceptance the upload path would be useless for
+    its primary use case (importing legacy configs to repair).
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+    legacy_yaml = (
+        "esphome:\n"
+        "  name: old-device\n"
+        "  platform: ESP32\n"  # deprecated key
+        "  board: nodemcu-32s\n"  # deprecated location
+        "esp32:\n"
+        "  framework:\n"
+        "    type: arduino\n"
+        "    version: 2.0.5\n"
+        "wifi:\n"
+        "  ssid: !secret wifi_ssid\n"
+        "  password: !secret wifi_password\n"
+        "  use_address: 192.168.1.50\n"  # legacy field renamed in newer schema
+    )
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [
+                {"message": "[esphome] 'platform' has been deprecated"},
+                {"message": "[esphome] 'board' has been deprecated"},
+                {"message": "[esp32.framework] 'version' is no longer supported"},
+            ],
+        }
+    )
+
+    result = await ctrl.create_device(name="old-device", file_content=legacy_yaml)
+
+    assert result.configuration == "old-device.yaml"
+    written = (tmp_path / "old-device.yaml").read_text("utf-8")
+    assert written == legacy_yaml
+    assert ctrl._scanner.calls == [("scan",)]
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
