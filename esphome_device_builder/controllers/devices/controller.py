@@ -2534,13 +2534,14 @@ class DevicesController:
         # may have set deliberately.
         new_content = rewrite_esphome_name(content, new_name, only_if_current=old_name)
         # Atomic write of the new file before unlinking the old.
-        # ``new_path.exists()`` was checked above, but a parallel
-        # rename racing into the same target would otherwise
-        # silently overwrite. ``write_file`` uses
-        # ``shutil.move`` after staging, so the failure mode of a
-        # mid-rename crash leaves the SOURCE intact (we haven't
-        # ``unlink``'d yet) and the staged tempfile cleaned up —
-        # rename can be retried.
+        # A mid-write crash leaves the SOURCE intact (we haven't
+        # ``unlink``'d yet) and ``write_file`` cleans up its
+        # staging tempfile — rename can be retried. (Concurrent
+        # rename into the same target is best-effort guarded by
+        # the ``new_path.exists()`` check above; ``write_file``
+        # itself doesn't add race protection — its
+        # ``shutil.move`` will silently overwrite a target that
+        # appeared after our check.)
         atomic_write_file(new_path, new_content)
         old_path.unlink()
 
