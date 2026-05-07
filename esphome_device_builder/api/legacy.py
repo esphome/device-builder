@@ -47,7 +47,6 @@ from ..models import (
 )
 
 if TYPE_CHECKING:
-    from ..controllers.firmware import FirmwareController
     from ..device_builder import DeviceBuilder
     from ..helpers.event_bus import EventBus
 
@@ -206,17 +205,7 @@ async def _handle_legacy_ws_command(
     """
     ws = web.WebSocketResponse()
     await ws.prepare(request)
-    # The startup-order invariant (``DeviceBuilder.start()``
-    # populates every controller before HTTP requests are served)
-    # is pinned by
-    # ``tests/test_device_builder_lifecycle.py::test_start_initialises_all_controllers``.
-    # By the time this handler runs, ``db.firmware`` is non-None;
-    # the ``assert`` narrows ``Optional[FirmwareController]`` for
-    # the call sites below without ``# type: ignore`` shims.
     db: DeviceBuilder = request.app["device_builder"]
-    firmware = db.firmware
-    bus = db.bus
-    assert firmware is not None
 
     async for msg in ws:
         if msg.type != aiohttp.WSMsgType.TEXT:
@@ -232,7 +221,7 @@ async def _handle_legacy_ws_command(
         if not isinstance(data, dict) or data.get("type") != "spawn":
             continue
 
-        await _handle_spawn(ws, firmware, bus, job_type, data)
+        await _handle_spawn(ws, db, job_type, data)
         break
 
     return ws
@@ -240,12 +229,21 @@ async def _handle_legacy_ws_command(
 
 async def _handle_spawn(
     ws: web.WebSocketResponse,
-    firmware: FirmwareController,
-    bus: EventBus,
+    db: DeviceBuilder,
     job_type: JobType,
     data: dict[str, Any],
 ) -> None:
     """Run one spawn message: validate, submit, stream until terminal.
+
+    The startup-order invariant (``DeviceBuilder.start()`` populates
+    every controller before HTTP requests are served) is pinned by
+    ``tests/test_device_builder_lifecycle.py::test_start_initialises_all_controllers``.
+    Reading ``db.firmware`` here (rather than at the top of the
+    receive handler) keeps no-op connections — clients that close
+    immediately or send only binary frames — from touching the
+    controller at all. The ``assert`` narrows
+    ``Optional[FirmwareController]`` for the call sites below
+    without ``# type: ignore`` shims.
 
     Three rejection paths all surface to HA via the protocol's
     only signalling channel — a ``code: 1`` exit frame:
@@ -258,11 +256,11 @@ async def _handle_spawn(
     2. ``CommandError`` from ``_validate_configuration_boundary``
        (traversal, empty configuration, etc.).
     3. Implicit on success after the streaming finishes.
-
-    Extracted from the receive loop so the per-message control
-    flow doesn't tangle with the loop's iteration / break
-    semantics.
     """
+    firmware = db.firmware
+    bus = db.bus
+    assert firmware is not None
+
     configuration = data.get("configuration", "")
     port = data.get("port", "") if job_type is JobType.UPLOAD else ""
     if not isinstance(configuration, str) or not isinstance(port, str):

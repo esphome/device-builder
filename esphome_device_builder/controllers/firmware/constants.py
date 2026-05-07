@@ -2,11 +2,17 @@
 Static configuration for the firmware controller.
 
 Error-pattern regexes used to flag failures even when the
-subprocess exit code is 0, terminal job-state sets shared by the
-runner and the persistence/prune paths, and the queue/cleanup
-tunables. Pure data — no I/O, no controller state. Imported
-unchanged into ``controller.py``; tests reach for individual
-constants from this module directly.
+subprocess exit code is 0, history-retention pool sizes, and the
+queue/cleanup tunables. Pure data — no I/O, no controller state.
+Imported unchanged into ``controller.py``; tests reach for
+individual constants from this module directly.
+
+Terminal job state / event sets — needed by both the firmware
+controller and external callers like ``api/legacy.py`` — live in
+``models/firmware.py`` next to ``JobStatus`` (exported as
+``TERMINAL_JOB_STATUSES`` / ``TERMINAL_JOB_EVENTS``) so consumers
+across both layers can import them through the same public
+interface.
 """
 
 from __future__ import annotations

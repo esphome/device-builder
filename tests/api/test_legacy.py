@@ -508,9 +508,11 @@ class _FakeFirmwareController:
 
     async def _fire_plan(self) -> None:
         # One ``sleep(0)`` is enough: ``compile()`` returns
-        # synchronously to the handler, the handler does its
-        # sync setup, then awaits ``pending.get()`` — that's the
-        # yield this task is waiting on.
+        # synchronously to the handler, which then runs through
+        # ``stream_events``'s sync setup (subscribe + initial-
+        # frame push) before reaching its first ``await`` on
+        # ``queue.get()``. That await is the yield this task is
+        # waiting on.
         await asyncio.sleep(0)
         for entry in self._plan:
             kind = entry[0]
@@ -901,9 +903,11 @@ async def test_spawn_ws_breaks_on_non_text_frame(
     to ``loads(msg.data)`` would surface here as a malformed
     error frame instead of a clean break.
 
-    Wires up firmware + bus so the post-init message loop runs
-    (rather than the firmware-not-initialised early-exit path,
-    which has its own dedicated test).
+    Wires up firmware + bus so ``_handle_spawn`` (which reads
+    them from the ``DeviceBuilder``) has the controllers
+    available — the receive loop's binary-frame branch should
+    bail before hitting ``_handle_spawn`` either way, so the
+    asserts below confirm no submission happened.
     """
     bus = EventBus()
     job = _make_job()
@@ -1048,9 +1052,10 @@ async def test_stream_helper_releases_listener_when_send_raises() -> None:
     # would make the post-call assertion meaningless.
     assert bus._listeners == {}
 
-    # Pre-stage a JOB_OUTPUT event so the handler wakes from
-    # ``pending.get()`` immediately, attempts the (failing) send,
-    # and exits the ``with`` block.
+    # Pre-stage a JOB_OUTPUT event so ``stream_events``'s drain
+    # wakes from ``queue.get()`` immediately, attempts the
+    # (failing) send through the adapter, and exits the
+    # ``bus.listening`` ``with`` block.
     async def _fire_after_subscribe() -> None:
         await asyncio.sleep(0)
         bus.fire(EventType.JOB_OUTPUT, {"job_id": job.job_id, "line": "x\n"})
