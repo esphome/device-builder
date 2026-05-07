@@ -209,13 +209,15 @@ def render_change_line(template: str, change: dict[str, Any]) -> str:
     For backend PRs we emit ``#NNN`` literally — GitHub auto-links to
     the surrounding repo, which is the right destination. For frontend
     bullets we pre-substitute ``#$NUMBER`` with an explicit markdown
-    link to the frontend PR; otherwise the same auto-link logic would
-    silently re-resolve the number against the backend repo and either
-    point at the wrong PR or render as a dead link.
+    link to the frontend PR, prefixed with ``frontend`` so readers can
+    tell at a glance which repo the number belongs to; otherwise the
+    same auto-link logic would silently re-resolve the number against
+    the backend repo and either point at the wrong PR or render as a
+    dead link.
     """
     line = template
     if change.get("is_frontend"):
-        line = line.replace("#$NUMBER", f"[#{change['number']}]({change['url']})")
+        line = line.replace("#$NUMBER", f"[frontend#{change['number']}]({change['url']})")
     line = line.replace("$TITLE", str(change["title"]))
     line = line.replace("$AUTHOR", str(change["author"]))
     line = line.replace("$NUMBER", str(change["number"]))

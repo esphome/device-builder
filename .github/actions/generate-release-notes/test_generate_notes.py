@@ -197,9 +197,10 @@ def test_render_change_line_frontend_emits_explicit_link(gen):
         },
     )
     # Frontend lines must hard-code the URL: the same ``#42`` would
-    # otherwise auto-resolve against the backend repo.
+    # otherwise auto-resolve against the backend repo. The ``frontend``
+    # prefix on the link text disambiguates which repo the PR lives in.
     assert line == (
-        "- [#42](https://github.com/esphome/device-builder-frontend/pull/42) - "
+        "- [frontend#42](https://github.com/esphome/device-builder-frontend/pull/42) - "
         "Fix something (@alice)"
     )
 
@@ -241,7 +242,10 @@ def test_build_release_notes_renders_backend_and_frontend_together(gen):
     assert "_Changes since [0.1.24](https://github.com/owner/backend/releases/tag/0.1.24)_" in notes
     assert "### 🐛 Bug fixes" in notes
     assert "- #1 - Fix backend (@alice)" in notes
-    assert "- [#200](https://github.com/owner/frontend/pull/200) - Fix frontend (@bob)" in notes
+    assert (
+        "- [frontend#200](https://github.com/owner/frontend/pull/200) - Fix frontend (@bob)"
+        in notes
+    )
     # Empty categories are dropped entirely — no Dependencies / CI section here.
     assert "Dependencies" not in notes
 
