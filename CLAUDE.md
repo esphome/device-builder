@@ -292,6 +292,32 @@ in case anything has resurfaced.
   output through `editor.validate_yaml` (or the equivalent
   schema check) so the same shape can't reappear.
 
+  **Important exception — user-supplied content is *not* a
+  generator.** Don't apply this principle to YAMLs the user is
+  bringing into the dashboard via the wizard's "Upload YAML"
+  flow, drag-and-drop, paste-into-editor, or any other
+  user-typed entry point. The whole point of those entry points
+  is to land an existing config in the builder *so the user can
+  repair it in the editor*. The most common real-world case is
+  a YAML from an older ESPHome version whose components have
+  since changed schema (deprecated `esphome.platform` /
+  `esphome.board`, renamed fields like `wifi.use_address`,
+  components whose schema tightened across releases); refusing
+  the write strands the user with no way to get the file into
+  the editor in the first place. Validate *our* outputs
+  (`generate_device_yaml`, `generate_minimal_stub_yaml`,
+  `dashboard_import.import_config`, clone's leaf rewrites) but
+  pass user-supplied content through unchanged. PR #412
+  reverses #405's overzealous validation on `create_device`'s
+  `file_content` branch and pins the legacy-config
+  acceptance contract; if you ever feel the urge to add a
+  `_validate_*_or_raise` to a path whose content originated
+  from outside the dashboard, stop and check this exception
+  first. The next compile / install will surface real schema
+  errors with line numbers — that's what the user wants when
+  they're repairing an old config, not a "config doesn't
+  validate" up-front refusal.
+
 ## Things that have bitten us before
 
 When changing the sync script or catalog handling, watch for these:
