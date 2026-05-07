@@ -30,6 +30,7 @@ from ...helpers.config_hash import compute_yaml_config_hash, read_build_info_has
 from ...helpers.device_yaml import (
     configuration_stem,
     generate_device_yaml,
+    generate_minimal_stub_yaml,
     get_api_encryption_key,
     load_device_yaml,
     parse_esphome_meta,
@@ -443,27 +444,26 @@ class DevicesController:
         """
         Create a new device configuration.
 
-        Two flows, decided by which arguments are provided:
+        Three flows, decided by which arguments are provided:
 
         1. ``file_content`` given → write it as-is (user supplied full YAML).
         2. ``board_id`` given → generate a basic config from the board template.
-
-        Neither argument is rejected up-front: a YAML with just
-        ``esphome.name`` and ``friendly_name`` and no platform block
-        doesn't pass ESPHome's schema, so writing it would land an
-        invalid config on disk that every downstream operation
-        (rename, edit_friendly_name, install) would refuse via its
-        own pre-flight check. The frontend always supplies one of
-        the two — this guard catches direct WS clients that
-        otherwise produce a foot-gun.
+        3. Neither given → emit a minimal valid esp32 stub via
+           :func:`generate_minimal_stub_yaml`. The wizard's
+           "Empty Configuration — for manually writing or pasting"
+           button hits this path; the user wants a starter they
+           can fully rewrite, but the starter must validate so
+           downstream operations don't refuse it. esp32 is the
+           default platform (most common); a leading comment in
+           the stub tells the user to swap the platform block if
+           their hardware differs.
 
         Whichever flow runs, the resulting YAML is validated through
         ``EditorController``'s schema check before the file lands on
         disk. Validation failures surface as ``INVALID_ARGS`` (the
         user's ``file_content`` is unfixable from our side) or
-        ``INTERNAL_ERROR`` (the board template generated something
-        invalid — that's our bug to fix in ``generate_device_yaml``,
-        not the user's problem).
+        ``INTERNAL_ERROR`` (one of the generators emitted an
+        invalid YAML — that's our bug to fix, not the user's).
 
         After writing, we always try to derive a board_id by parsing
         the resulting YAML's platform/board/variant fields and matching
@@ -491,30 +491,26 @@ class DevicesController:
                 raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
         friendly = friendly_name_slugify(name)
-        from_template = False
+        from_user = False
         if file_content:
             yaml_content = file_content
+            from_user = True
         elif board:
             yaml_content = generate_device_yaml(name, friendly, board, ssid, psk)
-            from_template = True
         else:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                "Provide either board_id or file_content; a name-only stub "
-                "doesn't satisfy ESPHome's schema (no platform block) and "
-                "would fail every downstream operation.",
-            )
+            yaml_content = generate_minimal_stub_yaml(name, friendly)
 
         # Validate before write so an unflashable YAML never lands
-        # on disk. ``INTERNAL_ERROR`` for the template branch — a
-        # generator bug we own — and ``INVALID_ARGS`` for the user-
-        # supplied ``file_content`` branch where the user can fix
-        # their input.
+        # on disk. ``INVALID_ARGS`` for the user-supplied
+        # ``file_content`` branch (the user can fix their input);
+        # ``INTERNAL_ERROR`` for the two generator branches because
+        # an invalid template / stub is our regression and we want
+        # it routed to the issue tracker, not to the user.
         await self._validate_rewritten_yaml_or_raise(
             filename,
             yaml_content,
             action="create",
-            on_failure=ErrorCode.INTERNAL_ERROR if from_template else ErrorCode.INVALID_ARGS,
+            on_failure=ErrorCode.INVALID_ARGS if from_user else ErrorCode.INTERNAL_ERROR,
         )
 
         # Derive board_id from YAML when not explicitly provided.

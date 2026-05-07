@@ -190,6 +190,43 @@ def generate_device_yaml(
     return "\n".join(lines)
 
 
+def generate_minimal_stub_yaml(name: str, friendly_name: str) -> str:
+    """
+    Render a minimal ``esphome rename``-compatible stub config.
+
+    Used by the wizard's "Empty Configuration — for manually
+    writing or pasting a configuration" path, where the user
+    wants a starter to fully rewrite. The output validates as-is
+    against ESPHome's schema (so every downstream operation —
+    rename, edit_friendly_name, install — accepts it) but is
+    intentionally minimal so the user can swap the platform
+    block without unwinding wizard-specific defaults like an
+    auto-generated API encryption key.
+
+    The platform defaults to ``esp32`` with ``board: esp32dev``
+    because esp32 is the most common starter target and
+    ``esp32dev`` is upstream-canonical (ships in
+    ``esphome.const.PLATFORMIO_ESP32_LUT`` and validates without
+    the catalog). The leading comment tells the user to replace
+    the platform block if their hardware differs, so the silent-
+    bind concern is at least called out in the file the user is
+    about to edit.
+    """
+    api_key = base64.b64encode(secrets.token_bytes(32)).decode()
+    return (
+        f"esphome:\n  name: {name}\n  friendly_name: {friendly_name}\n\n"
+        "# Replace this with your actual platform if you aren't using ESP32.\n"
+        "esp32:\n  board: esp32dev\n\n"
+        "logger:\n\n"
+        "api:\n  encryption:\n"
+        f'    key: "{api_key}"\n\n'
+        "ota:\n  - platform: esphome\n\n"
+        "wifi:\n"
+        "  ssid: !secret wifi_ssid\n"
+        "  password: !secret wifi_password\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # YAML parsing
 # ---------------------------------------------------------------------------

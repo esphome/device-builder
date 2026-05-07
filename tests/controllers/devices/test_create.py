@@ -83,28 +83,38 @@ async def test_create_device_rejects_unknown_board_id(
     assert ctrl._scanner.calls == []
 
 
-async def test_create_device_rejects_when_no_board_or_file_content(
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    r"""Caller must supply ``board_id`` or ``file_content`` — no name-only stub.
+    """No board / no file_content → minimal valid esp32 stub.
 
-    The previous "stub" path wrote ``esphome:\n  name: <x>`` and
-    nothing else; that doesn't satisfy ESPHome's schema (no
-    platform block) so every downstream operation (rename,
-    edit_friendly_name, install) would refuse it via its own
-    pre-flight check. Reject up-front instead so the dashboard
-    label and the device's actual deployable state stay in
-    lockstep from the moment of creation.
+    The wizard's "Empty Configuration — for manually writing or
+    pasting" button hits this path: the user wants a starter
+    they can fully rewrite. The starter MUST validate so every
+    downstream operation (rename, edit_friendly_name, install)
+    accepts it; the previous "name-only" stub failed schema
+    validation and silently broke those flows. The stub now
+    defaults to esp32 + ``board: esp32dev`` with a leading
+    "Replace this with your platform" comment so the silent-
+    bind concern is at least visible in the file the user is
+    about to edit.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
 
-    with pytest.raises(CommandError) as excinfo:
-        await ctrl.create_device(name="kitchen")
+    result = await ctrl.create_device(name="kitchen")
 
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "board_id or file_content" in excinfo.value.message
-    assert ctrl._scanner.calls == []
-    assert not (tmp_path / "kitchen.yaml").exists()
+    assert result.configuration == "kitchen.yaml"
+    yaml_path = tmp_path / "kitchen.yaml"
+    content = yaml_path.read_text("utf-8")
+    assert "esphome:\n  name: kitchen\n  friendly_name: kitchen\n" in content
+    assert "esp32:\n  board: esp32dev\n" in content
+    assert "Replace this with your actual platform" in content
+    assert "api:\n  encryption:\n    key:" in content
+    assert ctrl._scanner.calls == [("scan",)]
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

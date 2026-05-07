@@ -17,6 +17,7 @@ from esphome_device_builder.helpers.device_yaml import (
     configuration_stem,
     detect_platform_from_yaml,
     generate_device_yaml,
+    generate_minimal_stub_yaml,
     load_device_from_storage,
     parse_esphome_meta,
     parse_platform_from_yaml,
@@ -77,6 +78,41 @@ def _make_esp32_board(
 def test_configuration_stem(filename: str, expected: str) -> None:
     """``configuration_stem`` strips ``.yaml`` / ``.yml`` only."""
     assert configuration_stem(filename) == expected
+
+
+def test_generate_minimal_stub_yaml_has_required_blocks() -> None:
+    """Stub YAML carries every block ESPHome's schema requires.
+
+    The wizard's "Empty Configuration" path lands this stub, so a
+    fresh device must compile without the user editing anything
+    yet. ``esphome.name``, ``esphome.friendly_name``, the
+    platform block (``esp32: board: esp32dev``), and a non-empty
+    api-encryption key are the load-bearing pieces; the
+    "Replace this..." comment carries the silent-bind warning.
+    """
+    out = generate_minimal_stub_yaml("kitchen", "Kitchen Lamp")
+    assert "esphome:\n  name: kitchen\n  friendly_name: Kitchen Lamp\n" in out
+    assert "esp32:\n  board: esp32dev\n" in out
+    assert "Replace this with your actual platform" in out
+    assert 'api:\n  encryption:\n    key: "' in out
+    assert "ota:\n  - platform: esphome\n" in out
+
+
+def test_generate_minimal_stub_yaml_emits_per_device_encryption_key() -> None:
+    """API encryption key is freshly generated each call.
+
+    Two stubs created with *the same* name + friendly_name still
+    differ — the only thing that varies between calls is the
+    32-byte ``secrets.token_bytes`` API key. Comparing the
+    extracted key lines directly proves the per-device-key
+    contract regardless of whether other YAML output ever
+    becomes deterministic.
+    """
+    a = generate_minimal_stub_yaml("kitchen", "Kitchen Lamp")
+    b = generate_minimal_stub_yaml("kitchen", "Kitchen Lamp")
+    a_key = next(line for line in a.splitlines() if line.lstrip().startswith("key:"))
+    b_key = next(line for line in b.splitlines() if line.lstrip().startswith("key:"))
+    assert a_key != b_key
 
 
 def test_parse_meta_plain_values() -> None:
