@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import re
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -258,8 +258,6 @@ async def test_clone_device_rejects_when_rewritten_yaml_does_not_validate(
     landing two unflashable YAMLs on disk and having every
     downstream operation refuse them.
     """
-    from unittest.mock import AsyncMock
-
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
     ctrl._db.editor.validate_yaml = AsyncMock(
