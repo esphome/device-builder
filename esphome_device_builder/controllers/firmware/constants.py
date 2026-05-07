@@ -13,7 +13,15 @@ from __future__ import annotations
 
 import re
 
-from ...models import EventType, JobStatus, JobType
+from ...models import (
+    TERMINAL_JOB_EVENTS as _TERMINAL_JOB_EVENTS_PUBLIC,
+)
+from ...models import (
+    TERMINAL_JOB_STATUSES as _TERMINAL_JOB_STATUSES_PUBLIC,
+)
+from ...models import (
+    JobType,
+)
 
 # Metadata key under which the firmware queue persists itself in
 # ``.device-builder.json``.
@@ -89,24 +97,14 @@ _PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
 )
 
-# Terminal job states — a job in any of these isn't running and
-# isn't waiting to run. Used by ``_mark_job_terminal`` to validate
-# its argument and by the prune / clear / restore paths to identify
-# completed jobs.
-_TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
-    {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
-)
-
-# Lifecycle events that end a follower's tail. Subscribed alongside
-# ``JOB_OUTPUT`` in ``follow_job`` so the follower's queue receives
-# the terminal sentinel for any of the three terminal states. The
-# runner fires exactly one of these per job, matching the
-# ``_TERMINAL_JOB_STATUSES`` set above — keeping them as separate
-# constants because subscriptions key off ``EventType`` while
-# state checks key off ``JobStatus``.
-_JOB_TERMINAL_EVENTS: frozenset[EventType] = frozenset(
-    {EventType.JOB_COMPLETED, EventType.JOB_FAILED, EventType.JOB_CANCELLED}
-)
+# Terminal job states / events — re-exported here under the
+# leading-underscore names every internal call site already imports
+# so the existing references don't churn. The shared definitions
+# live in ``models/firmware.py`` next to ``JobStatus`` so the API
+# layer's WS handlers (``api/legacy.py``, etc.) can reuse the same
+# sets without a circular nudge through this private module.
+_TERMINAL_JOB_STATUSES = _TERMINAL_JOB_STATUSES_PUBLIC
+_JOB_TERMINAL_EVENTS = _TERMINAL_JOB_EVENTS_PUBLIC
 
 # Per-job output cap for retained terminal jobs. Compile output for a
 # successful build runs ~3-10k lines; the head is mostly toolchain

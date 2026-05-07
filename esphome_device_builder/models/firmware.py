@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
+from .common import EventType
+
 
 class JobStatus(StrEnum):
     """Firmware job status."""
@@ -35,6 +37,25 @@ class JobType(StrEnum):
     # in the firmware-tasks list with live output instead of running
     # silently in the background.
     RENAME = "rename"
+
+
+# Terminal job states — a job in any of these isn't running and
+# isn't waiting to run. Lives here (next to ``JobStatus``) rather
+# than inside the firmware controller's private constants module
+# so the API layer's WS handlers — which need to recognise a
+# job that resolved as already-terminal at submit time — can
+# import it without a circular-nudge through the controller.
+TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
+    {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
+)
+
+# Lifecycle events that match ``TERMINAL_JOB_STATUSES``. The runner
+# fires exactly one of these per job, matching the status set above
+# — they're kept as separate constants because subscriptions key
+# off ``EventType`` while state checks key off ``JobStatus``.
+TERMINAL_JOB_EVENTS: frozenset[EventType] = frozenset(
+    {EventType.JOB_COMPLETED, EventType.JOB_FAILED, EventType.JOB_CANCELLED}
+)
 
 
 @dataclass

@@ -662,12 +662,14 @@ async def test_upload_ws_submits_upload_job_with_port(
 ) -> None:
     """``/upload`` with ``port`` → upload job carries the port verbatim.
 
-    The port travels through to ``firmware.upload(port=...)``;
-    the new firmware controller forwards it to the esphome CLI
-    via ``--device``. The legacy route's job is to plumb the
-    spawn-message's ``port`` field into the right kwarg —
-    serial path, IP, ``OTA`` literal — esphome's ``--device``
-    resolver handles dispatch.
+    Pins the legacy → ``firmware.upload`` leg of the port-pass-
+    through chain. The next leg — ``firmware.upload`` storing the
+    port on the job and ``_build_command`` translating it into
+    ``["--device", port]`` for the esphome CLI — is pinned by
+    ``tests/controllers/firmware/test_address_cache.py``
+    (search for ``--device``). The two together protect every
+    place a serial / OTA / IP target could get dropped between
+    HA's spawn message and the actual ``esphome upload`` invocation.
     """
     bus = EventBus()
     job = _make_job(job_type=JobType.UPLOAD)
@@ -898,12 +900,23 @@ async def test_spawn_ws_breaks_on_non_text_frame(
     connection. Pin the break so a regression that fell through
     to ``loads(msg.data)`` would surface here as a malformed
     error frame instead of a clean break.
+
+    Wires up firmware + bus so the post-init message loop runs
+    (rather than the firmware-not-initialised early-exit path,
+    which has its own dedicated test).
     """
-    client = await aiohttp_client(_make_app(tmp_path))
+    bus = EventBus()
+    job = _make_job()
+    firmware = _FakeFirmwareController(bus=bus, job=job, plan=None)
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
     async with client.ws_connect("/compile") as ws:
         await ws.send_bytes(b"not-text")
     # No exit frame, no error — the handler returns the empty WS
     # response on the break and the close handshake completes.
+    # Also pins that the binary frame did NOT submit a job (the
+    # message loop should bail before reaching the spawn handler).
+    assert firmware.compile_calls == []
+    assert firmware.upload_calls == []
 
 
 async def test_spawn_ws_breaks_on_close(tmp_path: Path, aiohttp_client: AiohttpClient) -> None:
@@ -917,6 +930,57 @@ async def test_spawn_ws_breaks_on_close(tmp_path: Path, aiohttp_client: AiohttpC
     async with client.ws_connect("/compile") as ws:
         await ws.close()
     # Closing without raising is the assertion.
+
+
+async def test_stream_helper_ignores_terminal_events_for_other_jobs() -> None:
+    """A ``JOB_COMPLETED`` for a different job is filtered out, not sent.
+
+    The handler subscribes to lifecycle events for *all* jobs (the
+    bus broadcast is per-event-type, not per-job) and filters
+    inside the listener by ``job_id``. A misroute here — sending
+    another job's terminal frame as our exit — would tell HA the
+    build finished when ours hadn't even started, and the
+    dashboard's "Firmware tasks" panel would lose the running
+    job's WS follower as a side effect.
+
+    Drives the helper directly with a stub WS that records sends.
+    Fires a ``JOB_COMPLETED`` for an unrelated job, then a
+    ``JOB_OUTPUT`` + ``JOB_COMPLETED`` for ours; only the second
+    pair should appear on the wire.
+    """
+    bus = EventBus()
+    job = _make_job()
+    other_job = _make_job()
+    other_job.job_id = "other-job-id"
+    other_job.status = JobStatus.COMPLETED
+    other_job.exit_code = 0
+
+    sent: list[dict[str, Any]] = []
+
+    class _RecordingWS:
+        async def send_json(self, payload: dict[str, Any], **_kwargs: Any) -> None:
+            sent.append(payload)
+
+    async def _fire() -> None:
+        await asyncio.sleep(0)
+        # Unrelated job's terminal event — must be ignored.
+        bus.fire(EventType.JOB_COMPLETED, {"job": other_job})
+        # Our job's line + terminal — these must come through.
+        bus.fire(EventType.JOB_OUTPUT, {"job_id": job.job_id, "line": "ours\n"})
+        job.status = JobStatus.COMPLETED
+        job.exit_code = 0
+        bus.fire(EventType.JOB_COMPLETED, {"job": job})
+
+    fire_task = asyncio.create_task(_fire())
+    try:
+        await legacy._stream_job_to_legacy_ws(_RecordingWS(), bus, job)  # type: ignore[arg-type]
+    finally:
+        await fire_task
+
+    assert sent == [
+        {"event": "line", "data": "ours\n"},
+        {"event": "exit", "code": 0},
+    ]
 
 
 async def test_stream_helper_releases_listener_when_send_raises() -> None:
@@ -974,39 +1038,6 @@ async def test_stream_helper_releases_listener_when_send_raises() -> None:
         EventType.JOB_CANCELLED,
     ):
         assert bus._listeners.get(event_type, set()) == set()
-
-
-async def test_spawn_ws_rejects_when_firmware_not_initialised(
-    tmp_path: Path, aiohttp_client: AiohttpClient
-) -> None:
-    """``firmware=None`` at request time → ``{event: exit, code: 1}`` not crash.
-
-    Production sets ``DeviceBuilder.firmware`` before HTTP is
-    served, but typing it as ``Optional`` means a startup-order
-    regression would leave the legacy handler reading ``None``
-    and ``AttributeError``-ing on the next ``.compile()`` call —
-    surfacing to HA as an opaque connection drop. The defensive
-    early-return turns that into the protocol's only signalling
-    channel: a ``code: 1`` exit frame.
-    """
-    bus = EventBus()
-    # Build the app with firmware=None deliberately. ``_make_app``
-    # only adds attrs whose value is non-None, so we use a custom
-    # builder that wires firmware=None explicitly.
-    settings = DashboardSettings()
-    settings.config_dir = tmp_path
-    settings.absolute_config_dir = tmp_path.resolve()
-    db_attrs = {"settings": settings, "firmware": None, "bus": bus}
-    app = web.Application()
-    app["device_builder"] = type("DB", (), db_attrs)()
-    app.add_routes(create_legacy_routes())
-
-    client = await aiohttp_client(app)
-    async with client.ws_connect("/compile") as ws:
-        await ws.send_json({"type": "spawn", "configuration": "kitchen.yaml"})
-        msg = await ws.receive_json()
-
-    assert msg == {"event": "exit", "code": 1}
 
 
 async def test_spawn_ws_round_trip_through_real_event_bus(

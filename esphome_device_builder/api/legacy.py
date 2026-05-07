@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 import aiohttp
 from aiohttp import web
@@ -38,47 +38,20 @@ from ..helpers.json import (
     json_response,
     loads,
 )
-from ..models import EventType, JobStatus, JobType
+from ..models import (
+    TERMINAL_JOB_EVENTS,
+    TERMINAL_JOB_STATUSES,
+    EventType,
+    JobType,
+)
 
 if TYPE_CHECKING:
+    from ..device_builder import DeviceBuilder
     from ..helpers.event_bus import EventBus
     from ..models import FirmwareJob
 
 
-class _LegacyDB(Protocol):
-    """Narrow protocol for the bits of ``DeviceBuilder`` this module reads.
-
-    Avoids the circular-import / type-erasure pair the previous
-    ``db: object`` + ``# type: ignore[attr-defined]`` shape produced.
-    Both ``firmware`` and ``bus`` are typed as the wrapping
-    ``Optional`` because ``DeviceBuilder`` initialises them after
-    construction (``firmware`` in ``start``, ``bus`` in ``__init__``);
-    the production startup order guarantees they're set by the time
-    HTTP requests are served, but the legacy handler still defends
-    against ``None`` so a future startup-order regression fails
-    closed with a controlled exit frame instead of an
-    ``AttributeError`` that surfaces to HA as a connection drop.
-    """
-
-    bus: EventBus | None
-    # Forward-declare the firmware controller as ``object`` since
-    # importing it here would re-trigger the circular nudge that
-    # motivated the local terminal-event constants below.
-    firmware: object | None
-
-
 _LOGGER = logging.getLogger(__name__)
-
-# Mirrors ``firmware/constants.py``; redefined locally to avoid a
-# circular-import nudge between the API layer and the firmware
-# controller's private constants module. The set is small and
-# stable — three lifecycle events, one terminal status set.
-_TERMINAL_EVENT_TYPES = (
-    EventType.JOB_COMPLETED,
-    EventType.JOB_FAILED,
-    EventType.JOB_CANCELLED,
-)
-_TERMINAL_STATUSES = frozenset({JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED})
 
 
 class _LegacyWSStreamClient:
@@ -169,7 +142,7 @@ async def _stream_job_to_legacy_ws(
         # supersede that lands the previous job in CANCELLED before
         # the new one is created. Send the exit frame from the
         # cached status and short-circuit the drain.
-        if initial_status in _TERMINAL_STATUSES:
+        if initial_status in TERMINAL_JOB_STATUSES:
             code = initial_exit_code if initial_exit_code is not None else 1
             await ws.send_json({"event": "exit", "code": code}, dumps=dumps_str)
             controls.end()
@@ -201,7 +174,7 @@ async def _stream_job_to_legacy_ws(
         client=_LegacyWSStreamClient(ws),
         message_id="",
         bus=bus,
-        event_types=(EventType.JOB_OUTPUT, *_TERMINAL_EVENT_TYPES),
+        event_types=(EventType.JOB_OUTPUT, *TERMINAL_JOB_EVENTS),
         handle_event=_handle_event,
         send_initial=_send_initial,
     )
@@ -227,26 +200,19 @@ async def _handle_legacy_ws_command(
     """
     ws = web.WebSocketResponse()
     await ws.prepare(request)
-    db: _LegacyDB = request.app["device_builder"]
+    # The startup-order invariant (``DeviceBuilder.start()``
+    # populates every controller before HTTP requests are served)
+    # is pinned by
+    # ``tests/test_device_builder_lifecycle.py::test_start_initialises_all_controllers``.
+    # By the time this handler runs, ``db.firmware`` is non-None
+    # (``db.bus`` is set in ``__init__`` so it's non-Optional from
+    # the type system's perspective). The ``assert`` narrows
+    # ``Optional[FirmwareController]`` for the call sites below
+    # without ``# type: ignore`` shims.
+    db: DeviceBuilder = request.app["device_builder"]
     firmware = db.firmware
     bus = db.bus
-    # Defend against a startup-order regression: production sets
-    # both before serving HTTP, but a future refactor that flips
-    # that order would otherwise crash with ``AttributeError`` and
-    # surface to HA as a connection drop. Failing closed with a
-    # ``code: 1`` exit frame keeps the rejection on the legacy
-    # protocol's only signalling channel.
-    if firmware is None or bus is None:
-        _LOGGER.warning(
-            "Legacy %s WS rejected: device_builder not fully initialised (firmware=%s, bus=%s)",
-            request.path,
-            "set" if firmware is not None else "None",
-            "set" if bus is not None else "None",
-        )
-        async for _ in ws:
-            await ws.send_json({"event": "exit", "code": 1}, dumps=dumps_str)
-            break
-        return ws
+    assert firmware is not None
 
     async for msg in ws:
         if msg.type != aiohttp.WSMsgType.TEXT:
@@ -267,13 +233,9 @@ async def _handle_legacy_ws_command(
 
         try:
             if job_type is JobType.UPLOAD:
-                job = await firmware.upload(  # type: ignore[attr-defined]
-                    configuration=configuration, port=port
-                )
+                job = await firmware.upload(configuration=configuration, port=port)
             else:
-                job = await firmware.compile(  # type: ignore[attr-defined]
-                    configuration=configuration
-                )
+                job = await firmware.compile(configuration=configuration)
         except CommandError:
             # Boundary / validation rejection. The legacy spawn
             # protocol uses ``{event: "exit", code}`` as its only
