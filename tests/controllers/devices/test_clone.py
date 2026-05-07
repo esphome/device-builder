@@ -188,6 +188,54 @@ async def test_clone_device_rejects_missing_source(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_works_when_source_has_no_api_encryption(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A source without ``api: encryption:`` produces a working plaintext clone.
+
+    The encryption-key rewrite is a no-op when the source doesn't
+    use encryption — we deliberately don't *add* a fresh block.
+    The user's choice to run plaintext (private network, custom
+    auth, no HA) is intentional and forcing encryption onto a
+    clone would silently change the security posture.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    yaml = "esphome:\n  name: kitchen\n  friendly_name: Kitchen\nesp32:\n  variant: ESP32\n"
+    (tmp_path / "kitchen.yaml").write_text(yaml, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    assert "name: bedroom-bulb\n" in new_yaml
+    # No spurious api/encryption block sneaks in.
+    assert "api:" not in new_yaml
+    assert "encryption:" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_works_when_api_is_plaintext(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A source with ``api:`` but no ``encryption:`` block clones plaintext.
+
+    Same reasoning as the no-api-block case — don't upgrade an
+    explicitly-plaintext config to encrypted on clone.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    yaml = "esphome:\n  name: kitchen\n  friendly_name: Kitchen\napi:\n  password: hunter2\n"
+    (tmp_path / "kitchen.yaml").write_text(yaml, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    assert "name: bedroom-bulb\n" in new_yaml
+    assert "api:\n  password: hunter2\n" in new_yaml
+    assert "encryption:" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_preserves_secret_indirection_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
