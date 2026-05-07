@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome import const
 from esphome.components.dashboard_import import import_config
+from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 
 from ...helpers.api import CommandError, api_command
@@ -1099,7 +1100,12 @@ class DevicesController:
         """Write device config YAML."""
         path = self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, path.write_text, content, "utf-8")
+        # Atomic write — the YAML editor's "Save" button lands
+        # here, so a non-atomic write would lose the user's
+        # config on a mid-write crash. See ``CLAUDE.md`` >
+        # "Things that have bitten us before" for the full
+        # ``Path.write_text`` non-atomicity story.
+        await loop.run_in_executor(None, atomic_write_file, path, content)
         await self._scanner.scan()
         # Refresh ``StorageJSON`` so address / loaded_integrations /
         # config_hash etc. reflect the new YAML without waiting for a
@@ -1437,7 +1443,9 @@ class DevicesController:
         # does field-by-field on the input form.
         fields = _drop_unconfigured_dependent_fields(fields, component, existing)
         new_yaml = merge_component_yaml(existing, component, fields)
-        await loop.run_in_executor(None, config_path.write_text, new_yaml, "utf-8")
+        # Atomic write — wizard-driven add-component should not be
+        # able to corrupt the source YAML on a mid-write crash.
+        await loop.run_in_executor(None, atomic_write_file, config_path, new_yaml)
         await self._scanner.scan()
 
         return AddComponentResponse(yaml=new_yaml)
@@ -2527,7 +2535,16 @@ class DevicesController:
         # leave the line alone than silently flip a value the user
         # may have set deliberately.
         new_content = rewrite_esphome_name(content, new_name, only_if_current=old_name)
-        new_path.write_text(new_content, encoding="utf-8")
+        # Atomic write of the new file before unlinking the old.
+        # A mid-write crash leaves the SOURCE intact (we haven't
+        # ``unlink``'d yet) and ``write_file`` cleans up its
+        # staging tempfile — rename can be retried. (Concurrent
+        # rename into the same target is best-effort guarded by
+        # the ``new_path.exists()`` check above; ``write_file``
+        # itself doesn't add race protection — its
+        # ``shutil.move`` will silently overwrite a target that
+        # appeared after our check.)
+        atomic_write_file(new_path, new_content)
         old_path.unlink()
 
         # Move StorageJSON alongside the YAML rename
