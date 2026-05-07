@@ -97,6 +97,7 @@ from .helpers import (
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
+    from ...models import BoardCatalogEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -431,7 +432,7 @@ class DevicesController:
     # ------------------------------------------------------------------
 
     @api_command("devices/create")
-    async def create_device(  # noqa: PLR0912, PLR0915
+    async def create_device(  # noqa: PLR0915
         self,
         *,
         name: str,
@@ -502,14 +503,9 @@ class DevicesController:
                 raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
         friendly = friendly_name_slugify(name)
-        from_user = False
-        if file_content:
-            yaml_content = file_content
-            from_user = True
-        elif board:
-            yaml_content = generate_device_yaml(name, friendly, board, ssid, psk)
-        else:
-            yaml_content = generate_minimal_stub_yaml(name, friendly)
+        yaml_content, from_user = self._yaml_content_for_create(
+            name, friendly, board, file_content, ssid, psk
+        )
 
         # Validate before write so an unflashable YAML never lands
         # on disk. ``INVALID_ARGS`` for the user-supplied
@@ -1137,6 +1133,30 @@ class DevicesController:
         await loop.run_in_executor(None, atomic_write_file, config_path, new_content)
         await self._scanner.scan()
         return {"configuration": configuration, "rewritten": True}
+
+    def _yaml_content_for_create(
+        self,
+        name: str,
+        friendly: str,
+        board: BoardCatalogEntry | None,
+        file_content: str | None,
+        ssid: str,
+        psk: str,
+    ) -> tuple[str, bool]:
+        """
+        Pick the YAML body for ``devices/create`` based on the inputs.
+
+        Returns ``(yaml_content, from_user)``. *from_user* tracks
+        whether the YAML came from caller-supplied ``file_content``
+        — the caller uses it to pick the right ``ErrorCode`` on
+        validation failure (``INVALID_ARGS`` for user-supplied,
+        ``INTERNAL_ERROR`` for the two generator branches we own).
+        """
+        if file_content:
+            return file_content, True
+        if board:
+            return generate_device_yaml(name, friendly, board, ssid, psk), False
+        return generate_minimal_stub_yaml(name, friendly), False
 
     async def _validate_rewritten_yaml_or_raise(
         self,
