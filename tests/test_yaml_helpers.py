@@ -508,6 +508,46 @@ def test_rewrite_yaml_scalar_skips_block_scalar_continuation_lines() -> None:
     assert "    spanning two lines\n" in out
 
 
+def test_rewrite_yaml_scalar_honours_hash_inside_quoted_value() -> None:
+    r"""A ``#`` inside a quoted scalar is part of the value, not a comment.
+
+    Earlier draft used ``re.compile(r"^(.*?)(\s+#.*)?$")`` which
+    splits at the first ``\s+#`` regardless of quote state.
+    Reading ``friendly_name: "Bedroom #2"`` would then yield raw
+    value ``"Bedroom`` (truncated) and any subsequent rewrite
+    would corrupt the line. Pin that the splitter walks through
+    quoted strings without splitting.
+    """
+    captured: list[str] = []
+
+    def _capture(raw: str) -> str | None:
+        captured.append(raw)
+        return None
+
+    rewrite_yaml_scalar(
+        'esphome:\n  friendly_name: "Bedroom #2"  # the bedroom\n',
+        ("esphome", "friendly_name"),
+        _capture,
+    )
+    assert captured == ['"Bedroom #2"']
+
+
+def test_rewrite_yaml_scalar_preserves_quoted_value_on_rewrite_with_trailing_comment() -> None:
+    """Rewriting a quoted-with-hash value preserves the trailing comment.
+
+    Pin the round-trip: the value ``"Bedroom #2"`` reads back as
+    a single quoted scalar, gets rewritten to a new quoted
+    scalar, and the trailing ``# the bedroom`` comment survives.
+    """
+    yaml = 'esphome:\n  friendly_name: "Bedroom #2"  # the bedroom\n'
+    out = rewrite_yaml_scalar(
+        yaml,
+        ("esphome", "friendly_name"),
+        lambda _raw: '"Bedroom #3"',
+    )
+    assert out == 'esphome:\n  friendly_name: "Bedroom #3"  # the bedroom\n'
+
+
 def test_rewrite_yaml_scalar_passes_raw_value_to_transform() -> None:
     """Transform sees the value with quotes intact, comment stripped.
 

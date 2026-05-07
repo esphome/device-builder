@@ -103,11 +103,42 @@ _ENTITY_CATEGORIES = {
 # rewrite paths we care about land inside a list, and the key stack
 # below assumes parent → child mapping nesting only.
 _MAPPING_KEY_LINE = re.compile(r"^(?P<indent>\s*)(?P<key>[A-Za-z_][\w-]*):\s*(?P<rest>.*)$")
-# Trailing-comment splitter for the value half. ``#`` only opens a
-# comment when preceded by whitespace; ``key: ab#cd`` is the literal
-# scalar ``ab#cd``. Quoted values aren't stripped (we leave the
-# quotes in *raw_value* so the transform sees them).
-_VALUE_AND_COMMENT = re.compile(r"^(?P<value>.*?)(?P<comment>\s+#.*)?$")
+
+
+def _split_value_and_comment(rest: str) -> tuple[str, str]:
+    r"""
+    Split *rest* into ``(value, comment)`` at a real ``\s+#`` separator.
+
+    A ``#`` only opens a comment when preceded by whitespace
+    *and* outside any quoted scalar. Without the quote-state
+    check, ``friendly_name: "Bedroom #2"`` would mis-split as
+    ``"Bedroom`` (value) + ``" #2"`` (comment) and every read /
+    rewrite would corrupt the YAML.
+
+    *value* keeps the surrounding quotes intact and is stripped
+    of trailing whitespace (the comment owns its leading run).
+    *comment* includes the leading whitespace + ``#`` so the
+    rewriter pastes it back verbatim. Empty *comment* means no
+    trailing comment was found.
+
+    Doesn't model double-quoted ``\"`` escapes — ESPHome configs
+    don't use them in practice (single-quoted strings are used
+    for content with ``"``); the simpler quote-flip suffices.
+    """
+    quote: str | None = None
+    for i, ch in enumerate(rest):
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+        elif ch == "#" and i > 0 and rest[i - 1] in " \t":
+            value = rest[:i].rstrip(" \t")
+            return value, rest[len(value) :]
+    return rest, ""
+
+
 # Sentinel pushed onto the path stack when we descend into a list
 # item. Picked as a string that can't collide with a real YAML key
 # (the leading ``-`` prevents a match against the mapping-key regex's
@@ -152,76 +183,54 @@ def rewrite_yaml_scalar(
     """
     if not path:
         return yaml_text
-    lines = yaml_text.splitlines(keepends=True)
-    # ``stack`` holds (indent, key) for *every* ancestor frame
-    # we're currently inside, on-path or not. Mapping keys push
-    # their own name; list items push the sentinel
-    # ``_LIST_FRAME``. Tracking only on-path ancestors would let
-    # a deeper key satisfy a shorter path — e.g. for path
-    # ``("api", "encryption", "key")``, YAML
-    # ``api: { something: { encryption: { key: ... } } }`` would
-    # falsely match because ``something`` would be invisible to
-    # the ancestor check. We pay one extra ``stack.append`` per
-    # off-path key in exchange for a sound path comparison.
-    stack: list[tuple[int, str]] = []
     target_parents = tuple(path[:-1])
     leaf_key = path[-1]
+    lines = yaml_text.splitlines(keepends=True)
+    # ``stack`` holds (indent, key) for *every* enclosing frame —
+    # mapping keys (on-path or off) push their name, list items
+    # push the ``_LIST_FRAME`` sentinel. Tracking off-path keys
+    # too keeps the path comparison sound: for path
+    # ``("api", "encryption", "key")``, YAML ``api: { something:
+    # { encryption: { key: ... } } }`` would otherwise falsely
+    # match because ``something`` would be invisible to the
+    # ancestor check.
+    stack: list[tuple[int, str]] = []
     for i, line in enumerate(lines):
-        stripped_no_eol = line.rstrip("\n\r")
-        # Blank / comment-only lines stay inside whatever block they
-        # appear in — popping the stack on whitespace would close
-        # blocks that have a blank between the parent and the first
-        # child key.
-        if not stripped_no_eol.strip() or stripped_no_eol.lstrip().startswith("#"):
+        body = line.rstrip("\n\r")
+        head = body.lstrip(" ")
+        # Blank / comment-only lines stay inside whatever block
+        # they appear in — popping on whitespace would close blocks
+        # that have a blank between the parent and the first child.
+        if not head or head.startswith("#"):
             continue
-        # List items break the mapping path: anything indented inside
-        # a list item is "in a list", not a direct child of the
-        # parent mapping. Push an opaque frame at the dash's column
-        # so deeper keys' ancestor chain can't satisfy the caller's
-        # plain-mapping path.
-        lstripped = stripped_no_eol.lstrip(" ")
-        if lstripped.startswith("- ") or lstripped == "-":
-            indent = len(stripped_no_eol) - len(lstripped)
-            while stack and stack[-1][0] >= indent:
-                stack.pop()
-            stack.append((indent, _LIST_FRAME))
-            continue
-        m = _MAPPING_KEY_LINE.match(stripped_no_eol)
-        if not m:
-            # Non-key line (block scalar continuation, …) — not on
-            # any of our supported paths. Don't touch the stack.
-            continue
-        indent = len(m.group("indent"))
-        key = m.group("key")
-        rest = m.group("rest")
-        # Walking back out: pop every stack entry whose indent is
-        # ≥ this line's. Those blocks are closed by virtue of this
-        # line living at a sibling-or-shallower position.
+        indent = len(body) - len(head)
+        # Pop every frame at this indent or shallower before we
+        # decide what this line is. The new line lives at a
+        # sibling-or-shallower position, so deeper frames are
+        # closed regardless of which branch follows.
         while stack and stack[-1][0] >= indent:
             stack.pop()
-        ancestor_chain = tuple(k for _, k in stack)
-        if key == leaf_key and ancestor_chain == target_parents:
-            value_match = _VALUE_AND_COMMENT.match(rest)
-            assert value_match is not None  # _VALUE_AND_COMMENT always matches
-            raw_value = value_match.group("value").strip()
-            comment = value_match.group("comment") or ""
-            replacement = transform(raw_value)
+        if head.startswith("- ") or head == "-":
+            # List items break the mapping path — anything nested
+            # inside is "in a list", not a direct child of the
+            # parent mapping. Push the opaque frame so deeper keys
+            # can't satisfy a plain-mapping path.
+            stack.append((indent, _LIST_FRAME))
+            continue
+        m = _MAPPING_KEY_LINE.match(body)
+        if not m:
+            # Block-scalar continuation, plain-scalar list element
+            # without a key, … — not on any supported path.
+            continue
+        key = m.group("key")
+        if key == leaf_key and tuple(k for _, k in stack) == target_parents:
+            value_part, comment = _split_value_and_comment(m.group("rest"))
+            replacement = transform(value_part.strip())
             if replacement is None:
-                # Transform opted out — keep walking? No: every
-                # caller wants "rewrite the first match"; a deeper
-                # duplicate isn't more correct than the first one.
-                # Returning unchanged matches the original helpers'
-                # behaviour.
                 return yaml_text
-            ending = "\n" if line.endswith("\n") else ""
+            ending = line[len(body) :]  # preserves "\n" / "\r\n" / ""
             lines[i] = f"{m.group('indent')}{key}: {replacement}{comment}{ending}"
             return "".join(lines)
-        # Push every mapping key — soundness over micro-optimisation.
-        # An off-path key (e.g. ``something:`` between ``api:`` and
-        # ``encryption:`` when the target path is
-        # ``("api", "encryption", "key")``) must show up in the
-        # ancestor chain so the leaf check at the deeper indent
-        # correctly fails to match.
         stack.append((indent, key))
     return yaml_text
 
@@ -283,10 +292,18 @@ def _safe_yaml_scalar(value: str) -> str:
     like ``"Bedroom #2"`` would otherwise become a comment or
     ``"Lamp: Bedroom"`` would split into a key/value pair on round
     trip. Plain identifiers (``"Kitchen"``, ``"my-device"``) round
-    trip without quotes; anything that contains a YAML special
-    sequence, starts with an indicator character, ends in ``:`` /
-    ``-``, or matches a reserved plain scalar gets double-quoted
-    with embedded ``"`` and ``\\`` escaped.
+    trip without quotes; values get double-quoted (with embedded
+    ``"`` and ``\\`` escaped) when any of these holds:
+
+    - empty string or matches a reserved plain scalar
+      (``true`` / ``false`` / ``null`` / ``yes`` / ``no`` /
+      ``on`` / ``off`` / ``~``);
+    - starts with a YAML indicator character (``! & * ? | > %
+      @ ` # - , [ ] { } " '``);
+    - ends in ``:`` (would parse as a key with empty value) or in
+      whitespace (would lose the trailing space on round trip);
+    - contains ``: `` (key/value split) or `` #`` (comment marker);
+    - contains a control character (``\\n`` / ``\\r`` / ``\\t``).
     """
     if not value or value.lower() in _RESERVED_PLAIN:
         return f'"{value}"'
@@ -303,11 +320,25 @@ def _safe_yaml_scalar(value: str) -> str:
     return value
 
 
+# YAML double-quoted scalar escapes for the five characters that
+# would otherwise break round-trip: ``\`` and ``"`` need escaping
+# because the closing quote / escape leader; the three control
+# characters need escaping because plain-text rendering would split
+# the value across lines or eat the tab.
+_QUOTE_ESCAPES = str.maketrans(
+    {
+        "\\": r"\\",
+        '"': r"\"",
+        "\n": r"\n",
+        "\r": r"\r",
+        "\t": r"\t",
+    }
+)
+
+
 def _quote(value: str) -> str:
     """Render *value* as a double-quoted YAML scalar with minimal escapes."""
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    escaped = escaped.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-    return f'"{escaped}"'
+    return f'"{value.translate(_QUOTE_ESCAPES)}"'
 
 
 def _strip_yaml_quotes(value: str) -> str:
