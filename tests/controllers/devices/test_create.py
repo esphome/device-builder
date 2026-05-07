@@ -138,9 +138,7 @@ async def test_create_device_rejects_invalid_file_content(
     # would actually look like — esphome block with a name but no
     # platform block at all, which the editor rejects with the
     # mocked error below.
-    invalid_file_content = (
-        "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
-    )
+    invalid_file_content = "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
     ctrl._db.editor.validate_yaml = AsyncMock(
         return_value={
             "yaml_errors": [],
