@@ -97,6 +97,14 @@ _ENTITY_CATEGORIES = {
 # ---------------------------------------------------------------------------
 
 
+# Canonical ESPHome YAML indent: two spaces per level. Mirrors the
+# frontend's ``ESPHOME_YAML_INDENT`` (``src/util/esphome-yaml-lang.ts``)
+# so any code on either side that synthesises YAML lines uses the
+# same width — keeps round-trips through the editor visually
+# stable, and means the wizard / clone / friendly-name editor
+# emit the same shape the user sees in the editor's auto-indent.
+ESPHOME_YAML_INDENT = "  "
+
 # Mapping-key line: optional leading whitespace, an unquoted scalar
 # key, ``:``, optional whitespace, optional value, optional trailing
 # comment. List items (``- foo: bar``) are excluded — none of the
@@ -496,7 +504,7 @@ def upsert_yaml_leaf_under_top_block(
     # next column-0 non-comment line which closes the block.
     block_start: int | None = None
     block_end = len(lines)
-    indent = "  "
+    indent = ESPHOME_YAML_INDENT
     indent_captured = False
     for i, line in enumerate(lines):
         stripped = line.rstrip("\n\r")
@@ -517,7 +525,7 @@ def upsert_yaml_leaf_under_top_block(
         # Prepend a new block. Add a blank-line separator unless
         # the file already starts with one or is empty.
         sep = "" if not yaml_text or yaml_text.startswith("\n") else "\n"
-        return f"{block_key}:\n  {leaf_key}: {rendered}\n{sep}{yaml_text}"
+        return f"{block_key}:\n{ESPHOME_YAML_INDENT}{leaf_key}: {rendered}\n{sep}{yaml_text}"
 
     # Trim trailing blank lines so the insert lands right after
     # the block's last content line, not after the visual gap
@@ -704,11 +712,11 @@ def generate_component_yaml(
     lines: list[str] = []
     if is_platform:
         lines.append(f"{category}:")
-        lines.append(f"  - platform: {unqualified}")
-        indent = "    "
+        lines.append(f"{ESPHOME_YAML_INDENT}- platform: {unqualified}")
+        indent = ESPHOME_YAML_INDENT * 2
     else:
         lines.append(f"{comp_id}:")
-        indent = "  "
+        indent = ESPHOME_YAML_INDENT
 
     for key, value in fields.items():
         lines.extend(_emit_field(key, value, indent))
@@ -804,14 +812,18 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
     if isinstance(value, dict):
         lines = [f"{indent}{key}:"]
         for sub_key, sub_value in value.items():
-            lines.extend(_emit_field(sub_key, sub_value, indent + "  "))
+            lines.extend(_emit_field(sub_key, sub_value, indent + ESPHOME_YAML_INDENT))
         return lines
     if isinstance(value, list) and value and isinstance(value[0], dict):
         lines = [f"{indent}{key}:"]
         for item in value:
             first = True
             for sub_key, sub_value in item.items():
-                prefix = f"{indent}  - " if first else f"{indent}    "
+                prefix = (
+                    f"{indent}{ESPHOME_YAML_INDENT}- "
+                    if first
+                    else f"{indent}{ESPHOME_YAML_INDENT * 2}"
+                )
                 lines.append(f"{prefix}{sub_key}: {_format_yaml_value(sub_value)}")
                 first = False
         return lines
