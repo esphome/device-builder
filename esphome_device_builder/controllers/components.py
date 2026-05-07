@@ -380,7 +380,19 @@ class ComponentCatalog:
             total=total,
             offset=offset,
             limit=limit,
-            categories=self._categories_for_board(board_id),
+            # Sidebar counts share the request's filters (query, exclusions,
+            # platform) so they reflect what's actually findable in the
+            # current view. The selected ``category`` is intentionally not
+            # applied — the user needs to see the *other* categories to
+            # navigate between them. Categories with zero post-filter
+            # matches are dropped from the response so the frontend can
+            # hide empty buckets without a parallel scan.
+            categories=self._categories_for_board(
+                board_id,
+                query=query,
+                exclude_set=exclude_set,
+                target_platform=target_platform,
+            ),
         )
 
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
@@ -416,13 +428,51 @@ class ComponentCatalog:
             if ids:
                 self._featured_by_board[board.id] = ids
 
-    def _categories_for_board(self, board_id: str | None) -> list[dict[str, str | int]]:
-        """Build the category list, optionally with a per-board ``featured`` count."""
+    def _categories_for_board(
+        self,
+        board_id: str | None,
+        *,
+        query: str | None = None,
+        exclude_set: set[str] | None = None,
+        target_platform: str | None = None,
+    ) -> list[dict[str, str | int]]:
+        """Build the category list, optionally with a per-board ``featured`` count.
+
+        With no kwargs this returns the full unfiltered catalog
+        breakdown — the shape used by the standalone
+        ``components/get_categories`` endpoint. ``get_components`` passes
+        its own ``query`` / ``exclude_category`` / ``platform`` filters
+        through so the sidebar counts in its response stay in lockstep
+        with the components the user actually sees. Categories whose
+        post-filter count drops to zero are omitted entirely (issue #380).
+        """
+        query_lower = query.lower() if query else None
         counts: dict[str, int] = {}
         for comp in self._components:
+            if exclude_set is not None and comp.category in exclude_set:
+                continue
+            if (
+                target_platform
+                and comp.supported_platforms
+                and target_platform not in comp.supported_platforms
+            ):
+                continue
+            if query_lower and not (
+                query_lower in comp.name.lower()
+                or query_lower in comp.description.lower()
+                or query_lower in comp.id.lower()
+            ):
+                continue
             counts[comp.category] = counts.get(comp.category, 0) + 1
         if board_id:
-            featured_count = len(self._featured_by_board.get(board_id, []))
+            # Featured rides on the same query — when the user is searching,
+            # the badge should drop to the matches (or vanish entirely).
+            if query_lower is not None:
+                featured_count = len(
+                    self._featured_components_for_board(board_id, target_platform, query)
+                )
+            else:
+                featured_count = len(self._featured_by_board.get(board_id, []))
             if featured_count:
                 counts[ComponentCategory.FEATURED.value] = featured_count
         return sorted(

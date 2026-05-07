@@ -277,6 +277,28 @@ async def test_get_categories_no_featured_without_board(
     assert all(c["id"] != "featured" for c in cats)
 
 
+async def test_get_components_response_categories_filter_featured_by_query(
+    catalog: ComponentCatalog,
+) -> None:
+    """The featured count in the sidebar tracks the search query (issue #380).
+
+    With a query that matches no featured component on the board,
+    the synthetic ``featured`` bucket should drop out so the
+    frontend can hide it.
+    """
+    page = await catalog.get_components(
+        board_id="apollo-esk-1",
+        query="zzz-no-such-featured-component",
+    )
+    assert all(c["id"] != "featured" for c in page.categories)
+
+    # And when the query *does* hit a featured entry the bucket
+    # appears with a count matching the materialised matches.
+    page = await catalog.get_components(board_id="apollo-esk-1", query="pir")
+    featured = next(c for c in page.categories if c["id"] == "featured")
+    assert int(featured["count"]) >= 1
+
+
 # ---------------------------------------------------------------------------
 # Add-path preset application
 # ---------------------------------------------------------------------------
