@@ -1140,7 +1140,9 @@ class DevicesController:
         # rejected with the editor's actual errors instead of
         # silently landing on disk for an install that will never
         # take effect.
-        await self._validate_rewritten_yaml_or_raise(configuration, new_content, action="rename")
+        await self._validate_rewritten_yaml_or_raise(
+            configuration, new_content, action="update friendly name"
+        )
 
         # Atomic write — ``Path.write_text`` truncates the
         # destination before writing, so a crash mid-write leaves
