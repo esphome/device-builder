@@ -21,7 +21,11 @@ def _make_frontend(tmp_path: Path) -> Path:
     """
     frontend = tmp_path / "frontend"
     frontend.mkdir()
-    (frontend / "index.html").write_text("<!doctype html><body></body>")
+    (frontend / "index.html").write_text(
+        "<!doctype html><html><head>"
+        '<base href="__ESPHOME_BASE_HREF__" />'
+        "</head><body></body></html>"
+    )
     # Use 16-char hex hashes to match what rspack actually emits (xxhash64)
     # so the cache-header regex (``\.[a-f0-9]{8,}\.``) classifies them
     # as immutable.
@@ -106,6 +110,229 @@ async def test_register_frontend_serves_top_level_bundles(
     vendors_resp = await client.get("/vendors.def4567890abcdef.js")
     assert (await app_resp.text()) == "// bundle"
     assert (await vendors_resp.text()) == "// vendors"
+
+
+async def test_register_frontend_root_request_renders_base_href_root(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``GET /`` substitutes the base placeholder with ``/``."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/")
+    body = await resp.text()
+    assert '<base href="/" />' in body
+    assert "__ESPHOME_BASE_HREF__" not in body
+
+
+async def test_register_frontend_deep_link_renders_base_href_root(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """SPA deep link ``/device/foo.yaml`` strips the route tail back to ``/``.
+
+    Without this, the deferred app script's relative ``src``
+    would resolve to ``/device/app.<hash>.js`` and the page would
+    white-screen on a hard reload — that's the bug
+    ``_BASE_HREF_PLACEHOLDER`` exists to fix.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/device/foo.yaml")
+    body = await resp.text()
+    assert '<base href="/" />' in body
+
+
+async def test_register_frontend_honours_x_forwarded_prefix(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Reverse proxies that strip a path prefix announce it via ``X-Forwarded-Prefix``."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/", headers={"X-Forwarded-Prefix": "/dashboard"})
+    body = await resp.text()
+    assert '<base href="/dashboard/" />' in body
+
+
+async def test_register_frontend_ingress_style_path_strips_route_tail(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """An HA-ingress-style path on a deep link resolves to the ingress base."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get(
+        "/api/hassio_ingress/TOKEN/device/foo.yaml",
+        headers={"X-Forwarded-Prefix": "/api/hassio_ingress/TOKEN"},
+    )
+    body = await resp.text()
+    assert '<base href="/api/hassio_ingress/TOKEN/" />' in body
+
+
+async def test_register_frontend_404s_asset_shaped_paths(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Asset-shaped deep paths get 404, not the SPA shell.
+
+    Without this, a deep ``/device/foo`` hard-reload that misses
+    the base injection would ask for ``/device/app.<hash>.js``,
+    receive ``index.html`` via SPA fallback, and white-screen
+    when the browser parsed HTML as JS.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    for path in (
+        "/device/app.abc123def4567890.js",
+        "/secrets/styles.css",
+        "/some/where/source.map",
+        "/icons/font.woff2",
+    ):
+        resp = await client.get(path)
+        assert resp.status == 404, path
+
+
+async def test_register_frontend_yaml_deep_link_still_falls_back(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``.yaml`` is a real SPA route segment, not an asset — fall through to the shell."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/device/acfloatmonitor32.yaml")
+    assert resp.status == 200
+    assert "<!doctype html>" in (await resp.text())
+
+
+async def test_register_frontend_missing_base_placeholder_raises(
+    tmp_path: Path,
+) -> None:
+    """A wheel whose ``index.html`` lacks the placeholder is a deployment error."""
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<!doctype html><body></body>")
+    (frontend / "assets").mkdir()
+    app = web.Application()
+    with pytest.raises(RuntimeError, match="missing the '__ESPHOME_BASE_HREF__'"):
+        DeviceBuilder._register_frontend(app, frontend)
+
+
+async def test_register_frontend_escapes_base_href(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """A hostile ``X-Forwarded-Prefix`` can't break out of the ``<base href>`` attribute.
+
+    ``html.escape(..., quote=True)`` escapes ``"``/``<``/``>``/``&``,
+    so the closing-quote-then-script-tag payload becomes inert text
+    inside the attribute value rather than leaking past the
+    terminator.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/", headers={"X-Forwarded-Prefix": '/"><script>alert(1)</script>'})
+    body = await resp.text()
+    assert "&quot;" in body
+    assert '<base href="/&quot;' in body
+    # ``<script>`` and its closing tag escape to ``&lt;script&gt;``,
+    # so the literal tag never appears in the rendered HTML.
+    assert "<script>" not in body
+    assert "&lt;script&gt;" in body
+    assert "&lt;/script&gt;" in body
+
+
+async def test_register_frontend_collapses_double_leading_slash_in_prefix(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``X-Forwarded-Prefix: //evil.com`` doesn't yield a protocol-relative base.
+
+    A protocol-relative ``<base href="//evil.com/">`` would point
+    relative URLs at an attacker-controlled origin. Collapse runs
+    of leading slashes to one so the value always resolves
+    on-origin.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/", headers={"X-Forwarded-Prefix": "//evil.com"})
+    body = await resp.text()
+    assert '<base href="/evil.com/" />' in body
+    assert '<base href="//evil.com' not in body
+
+
+async def test_register_frontend_collapses_double_trailing_slash_in_prefix(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``X-Forwarded-Prefix: /dashboard//`` doesn't produce ``//`` in the base.
+
+    A trailing-double-slash would yield ``<base href="/dashboard//">``
+    so a relative ``app.HASH.js`` resolves to
+    ``/dashboard//app.HASH.js`` — the ``//`` run can confuse
+    middlewares (some collapse, some don't) and cache keys
+    upstream. Collapse to exactly one trailing slash so the
+    rendered base is canonical.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/", headers={"X-Forwarded-Prefix": "/dashboard//"})
+    body = await resp.text()
+    assert '<base href="/dashboard/" />' in body
+    assert '<base href="/dashboard//' not in body
+
+
+async def test_register_frontend_multi_segment_deep_link_strips_full_tail(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Future SPA routes with multiple path segments get their full tail stripped.
+
+    The backend doesn't track the SPA route table — it slices the
+    aiohttp-matched ``tail`` off ``request.path`` directly. A
+    hypothetical ``/settings/network`` route resolves to base
+    ``/`` regardless of whether the backend's been told about it.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get("/settings/network")
+    body = await resp.text()
+    assert '<base href="/" />' in body
+
+
+async def test_register_frontend_shell_response_carries_vary_header(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``Vary: X-Ingress-Path, X-Forwarded-Prefix`` so caches don't serve cross-prefix shells."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    for path in ("/", "/device/foo.yaml", "/settings/network"):
+        resp = await client.get(path)
+        assert resp.status == 200, path
+        assert resp.headers.get("Vary") == "X-Ingress-Path, X-Forwarded-Prefix", path
+
+
+async def test_register_frontend_honours_x_ingress_path(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """HA core's ingress proxy announces the prefix via ``X-Ingress-Path``.
+
+    See ``homeassistant/components/hassio/ingress.py:_init_header`` —
+    HA core sets ``X-Ingress-Path: /api/hassio_ingress/<token>``
+    (no trailing slash) and the supervisor's ingress proxy passes
+    it through unchanged. The add-on never sees
+    ``X-Forwarded-Prefix`` on this path, so the backend must read
+    ``X-Ingress-Path`` independently or every ingress hard-reload
+    of a deep SPA link white-screens (the asset-shaped relative
+    URL resolves against the bare host).
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get(
+        "/device/foo.yaml",
+        headers={"X-Ingress-Path": "/api/hassio_ingress/TOKEN"},
+    )
+    body = await resp.text()
+    assert '<base href="/api/hassio_ingress/TOKEN/" />' in body
+
+
+async def test_register_frontend_x_ingress_path_takes_precedence_over_forwarded(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``X-Ingress-Path`` wins when both headers arrive.
+
+    Production deployments only set one or the other, but if both
+    show up we trust the HA-specific signal — it's the canonical
+    per-token prefix from core's ingress proxy.
+    """
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    resp = await client.get(
+        "/",
+        headers={
+            "X-Ingress-Path": "/api/hassio_ingress/TOKEN",
+            "X-Forwarded-Prefix": "/dashboard",
+        },
+    )
+    body = await resp.text()
+    assert '<base href="/api/hassio_ingress/TOKEN/" />' in body
 
 
 async def test_register_frontend_serves_top_level_license_sidecar(

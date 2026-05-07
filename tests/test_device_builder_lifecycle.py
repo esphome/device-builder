@@ -223,6 +223,61 @@ async def test_start_spawns_background_polling_task(
         await db.stop()
 
 
+@pytest.mark.asyncio
+async def test_background_poll_skips_when_no_subscribers(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """The background loop parks at ``wait_for_subscriber`` until a client connects.
+
+    Polling for filesystem drift is cheap-but-not-free
+    (``DeviceScanner._build_cache_keys`` walks the config dir and
+    stats every YAML on every tick) and the only consumer of the
+    refreshed state is the dashboard UI. With no WS subscriber
+    attached, no UI is showing the device list, so the work is
+    pure idle CPU. Pin that the gate keeps ``DevicesController.poll``
+    asleep across the steady-state interval so a regression that
+    drops the gate (or wires the wrong presence object) surfaces
+    here instead of in a customer's flame graph.
+    """
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    try:
+        await db.start()
+        # ``DevicesController.poll`` is what the loop calls under the
+        # gate. Wrap it to fire an Event so the test can ``await``
+        # the wakeup deterministically instead of busy-looping over
+        # ``asyncio.sleep(0)`` and hoping enough turns drain.
+        polled = asyncio.Event()
+        poll_calls = 0
+
+        async def _counting_poll() -> None:
+            nonlocal poll_calls
+            poll_calls += 1
+            polled.set()
+
+        db.devices.poll = _counting_poll  # type: ignore[method-assign]
+
+        # No subscribers attached: ``polled`` should NOT fire.
+        # ``wait_for`` with a tiny timeout is the deterministic
+        # negative-case shape — if the gate were broken and the
+        # poll fired, the event would set, ``wait_for`` would
+        # return, and the assertion below would catch it.
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(polled.wait(), timeout=0.05)
+        assert poll_calls == 0, (
+            f"poll fired {poll_calls} times with no subscribers; gate isn't holding"
+        )
+
+        # 0→1 transition wakes the loop. Same ``subscriber()`` ctx
+        # manager the WS handler uses — entering opens the gate and
+        # ``wait_for_subscriber`` returns, letting the loop call
+        # ``poll`` exactly once before parking on the interval wait.
+        with db.subscriber_presence.subscriber():
+            await asyncio.wait_for(polled.wait(), timeout=1.0)
+        assert poll_calls >= 1
+    finally:
+        await db.stop()
+
+
 # ---------------------------------------------------------------------------
 # stop()
 # ---------------------------------------------------------------------------

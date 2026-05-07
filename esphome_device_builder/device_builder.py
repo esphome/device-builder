@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import html
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,16 @@ from .models import EventType
 
 _LOGGER = logging.getLogger(__name__)
 
+# How often ``_run_background`` re-runs ``DevicesController.poll``
+# while at least one WS client is subscribed. Bounded above by how
+# stale a "user dropped a YAML in via SSH" change is allowed to look
+# in the dashboard's device list; bounded below by the cost of the
+# directory-walk + per-file stat the poll triggers via
+# ``DeviceScanner.scan``. The ICMP ping sweep already runs on a
+# similar cadence — keep the two in the same ballpark so a fleet's
+# steady-state idle CPU doesn't spike on either alone.
+_BACKGROUND_POLL_INTERVAL_SECONDS = 5
+
 # Cache policy for the SPA shell:
 #   - ``index.html`` and any non-hashed top-level file: must always
 #     revalidate so a re-deployed wheel doesn't get masked by a
@@ -47,6 +59,93 @@ _LOGGER = logging.getLogger(__name__)
 _NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 _IMMUTABLE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
 _HASHED_FILENAME_RE = re.compile(r"\.[a-f0-9]{8,}\.")
+
+# Path extensions that should NEVER fall back to ``index.html``. The
+# frontend bundle's entry script is emitted with a relative ``src``
+# (rspack ``publicPath: "auto"`` for ingress / reverse-proxy
+# subpath support), so a hard-reload of a deep SPA URL like
+# ``/device/<id>`` resolves the script as ``/device/app.<hash>.js``.
+# Falling back to ``index.html`` for that path would let the
+# browser parse HTML as JavaScript and white-screen on
+# "Unexpected token '<'". Returning 404 instead keeps the failure
+# mode legible — by then the ``<base>`` injection should have
+# steered the script's URL to the deployment root anyway, so
+# this is the belt to that suspenders.
+_ASSET_EXTENSIONS = frozenset(
+    {".js", ".css", ".map", ".woff", ".woff2", ".ttf", ".otf", ".ico", ".png"}
+)
+
+# Placeholder the frontend's ``index.html`` carries verbatim; the
+# backend renders it per-request with the deployment-base prefix.
+# Sentinel chosen to be HTML-attribute-safe and unambiguous in a
+# diff so a partial replacement is loud, not silent.
+_BASE_HREF_PLACEHOLDER = "__ESPHOME_BASE_HREF__"
+
+# Headers the rendered shell varies on. Both reverse proxies and
+# the HA add-on ingress layer announce a stripped path prefix —
+# nginx-style proxies via ``X-Forwarded-Prefix`` and HA core's
+# ingress proxy via ``X-Ingress-Path`` (set in
+# ``homeassistant/components/hassio/ingress.py:_init_header``,
+# passed through unchanged by the supervisor proxy). The rendered
+# ``<base href>`` differs per source, so without ``Vary`` an
+# intermediary cache could serve the wrong-prefix shell to a
+# different client.
+_BASE_HREF_VARY = "X-Ingress-Path, X-Forwarded-Prefix"
+
+
+def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
+    """Pick the ``<base href>`` for *request*'s deployment.
+
+    Strict precedence — the first source that yields a non-empty
+    value wins, the rest are skipped:
+
+    1. ``X-Ingress-Path`` header — set by Home Assistant core's
+       ingress proxy to the per-token ingress prefix
+       (``/api/hassio_ingress/<token>``, no trailing slash). The
+       supervisor's ingress proxy passes it through unchanged, so
+       the add-on sees the canonical prefix the browser used.
+       This is the dominant production deployment shape, so it
+       wins over ``X-Forwarded-Prefix`` in the unlikely case both
+       headers arrive on the same request.
+    2. ``X-Forwarded-Prefix`` header — the standardised reverse-
+       proxy signal for non-HA setups (nginx subpath, traefik,
+       caddy). Production deployments only set one of the two
+       headers in practice; this branch is for the non-HA path.
+    3. ``request.path`` minus the matched SPA-fallback tail —
+       lets a direct deploy at ``/`` recover the (empty) prefix
+       without the operator having to set a header. Caller passes
+       the aiohttp ``match_info`` tail in directly so the backend
+       doesn't track the SPA route table.
+
+    Always returns a path with exactly one leading and one
+    trailing slash. Collapses runs of slashes on either end so
+    ``X-Forwarded-Prefix: //evil.com`` can't yield a
+    protocol-relative base, and ``/dashboard//`` can't produce
+    ``//`` runs in resolved asset URLs.
+    """
+    ingress = request.headers.get("X-Ingress-Path", "").strip()
+    forwarded = request.headers.get("X-Forwarded-Prefix", "").strip()
+    if ingress:
+        base = ingress
+    elif forwarded:
+        base = forwarded
+    elif tail and request.path.endswith(tail):
+        # Slice the matched SPA tail off the request path to get
+        # the mount-point prefix. No SPA-route knowledge needed in
+        # the backend; the aiohttp router already matched the tail
+        # and we trust its match_info.
+        base = request.path[: -len(tail)] or "/"
+    else:
+        base = request.path
+    # Normalise to exactly one leading + trailing slash. ``strip``
+    # collapses both ``//evil.com`` injection attempts (back to a
+    # single on-origin slash) and ``/dashboard//`` runs (so the
+    # rendered ``<base href>`` doesn't produce ``//`` runs in
+    # resolved asset URLs); the leading + trailing slashes are then
+    # re-added.
+    normalized = base.strip("/")
+    return f"/{normalized}/" if normalized else "/"
+
 
 # Worker-thread budget for the default ``ThreadPoolExecutor``. asyncio's
 # default is ``min(32, os.cpu_count() + 4)`` — too tight for the
@@ -226,11 +325,38 @@ class DeviceBuilder:
                 executor.shutdown(wait=False)
 
     async def _run_background(self) -> None:
-        """Background polling loop."""
+        """Background polling loop.
+
+        Drives ``DevicesController.poll`` for filesystem drift the
+        push paths can't see (YAML file dropped in via SSH /
+        Samba, atomic-save mid-edit, sidecar mtime change). Gated
+        on ``SubscriberPresence`` — when no WS client is
+        subscribed, no UI is showing the device list, so paying
+        for a directory enumeration + per-file stat every 5 s is
+        idle CPU we can skip. The 0→1 subscriber transition
+        wakes ``wait_for_subscriber`` immediately, so the first
+        client to connect picks up freshly-dropped YAMLs within
+        one ``_BACKGROUND_POLL_INTERVAL_SECONDS`` instead of
+        having to wait for the next scheduled tick — same shape
+        ``_ping_loop`` uses for the ICMP sweep.
+        """
+        presence = self.subscriber_presence
         while True:
-            await asyncio.sleep(5)
+            await presence.wait_for_subscriber()
             if self.devices:
                 await self.devices.poll()
+            # Interruptible idle wait: bail early if the last
+            # subscriber leaves so the next one to connect doesn't
+            # sit through the rest of a stale interval. The
+            # ``TimeoutError`` branch is the steady-state "still
+            # subscribed, poll again" path; either way we loop
+            # back to ``wait_for_subscriber`` which parks if the
+            # gate has since closed.
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    presence.wait_for_no_subscribers(),
+                    timeout=_BACKGROUND_POLL_INTERVAL_SECONDS,
+                )
 
     @staticmethod
     async def _cmd_ping(**kwargs: Any) -> dict:
@@ -552,9 +678,42 @@ class DeviceBuilder:
 
         frontend_root = frontend_dir.resolve()
         shell_headers = _NO_CACHE_HEADERS if dev_mode else None
+        index_html_text = index_html.read_text(encoding="utf-8")
+        if _BASE_HREF_PLACEHOLDER not in index_html_text:
+            raise RuntimeError(
+                f"Frontend index.html at {index_html} is missing the "
+                f"{_BASE_HREF_PLACEHOLDER!r} placeholder — the wheel is "
+                "out of sync with the backend's expected template."
+            )
 
-        async def handle_index(request: web.Request) -> web.FileResponse:
-            return web.FileResponse(index_html, headers=shell_headers)
+        @lru_cache(maxsize=8)
+        def _shell_html(base_href: str) -> str:
+            """Cache rendered ``index.html`` per deployment base.
+
+            Substituting a single placeholder is cheap, but doing it
+            on every request adds up under load. Cap at 8 entries —
+            most deployments hit one or two distinct prefixes (root
+            + maybe ingress).
+            """
+            return index_html_text.replace(
+                _BASE_HREF_PLACEHOLDER, html.escape(base_href, quote=True)
+            )
+
+        def _render_shell(request: web.Request, *, tail: str = "") -> web.Response:
+            response = web.Response(
+                text=_shell_html(_resolve_base_href(request, tail=tail)),
+                content_type="text/html",
+                headers=shell_headers,
+            )
+            # The rendered shell varies by ``X-Forwarded-Prefix`` —
+            # without ``Vary`` an intermediary cache could serve a
+            # response built for one prefix to a request behind a
+            # different proxy.
+            response.headers["Vary"] = _BASE_HREF_VARY
+            return response
+
+        async def handle_index(request: web.Request) -> web.Response:
+            return _render_shell(request)
 
         def _resolve_static(candidate: Path) -> Path | None:
             """Return the candidate if it's a real file inside ``frontend_root``.
@@ -571,7 +730,7 @@ class DeviceBuilder:
                 return None
             return None
 
-        async def handle_spa(request: web.Request) -> web.FileResponse:
+        async def handle_spa(request: web.Request) -> web.StreamResponse:
             tail = request.match_info["tail"]
             # Only flat names (hashed bundles, license sidecars) get
             # served from disk. Anything with a path separator is an
@@ -584,7 +743,13 @@ class DeviceBuilder:
                         _IMMUTABLE_HEADERS if _HASHED_FILENAME_RE.search(tail) else shell_headers
                     )
                     return web.FileResponse(resolved, headers=headers)
-            return web.FileResponse(index_html, headers=shell_headers)
+            # 404 asset-shaped requests instead of returning the SPA
+            # shell so the browser doesn't try to parse HTML as JS /
+            # CSS / etc. on a hard-reload of a deep URL — see
+            # ``_ASSET_EXTENSIONS`` for the rationale.
+            if tail and Path(tail).suffix.lower() in _ASSET_EXTENSIONS:
+                raise web.HTTPNotFound()
+            return _render_shell(request, tail=tail)
 
         app.router.add_static("/assets", assets_dir)
         app.router.add_get("/", handle_index)
