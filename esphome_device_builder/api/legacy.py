@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from aiohttp import web
@@ -55,12 +55,12 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _line_frame(line: str) -> dict[str, object]:
+def _line_frame(line: str) -> dict[str, Any]:
     """Build a legacy ``{event: "line", data: <chunk>}`` frame."""
     return {"event": "line", "data": line}
 
 
-def _exit_frame(exit_code: int | None) -> dict[str, object]:
+def _exit_frame(exit_code: int | None) -> dict[str, Any]:
     """Build a legacy ``{event: "exit", code: <int>}`` frame.
 
     ``exit_code`` is ``None`` for cancelled / never-ran jobs;
@@ -86,7 +86,7 @@ class _LegacyWSWriter:
     def __init__(self, ws: web.WebSocketResponse) -> None:
         self._ws = ws
 
-    async def send_event(self, _message_id: str, _name: str, payload: object) -> None:
+    async def send_event(self, _message_id: str, _name: str, payload: Any) -> None:
         await self._ws.send_json(payload, dumps=dumps_str)
 
 
@@ -220,7 +220,7 @@ async def _handle_legacy_ws_command(
 
     async for msg in ws:
         if msg.type != aiohttp.WSMsgType.TEXT:
-            return ws
+            break
         try:
             data = loads(msg.data)
         except JSONDecodeError:
@@ -233,7 +233,7 @@ async def _handle_legacy_ws_command(
             continue
 
         await _handle_spawn(ws, firmware, bus, job_type, data)
-        return ws
+        break
 
     return ws
 
@@ -243,7 +243,7 @@ async def _handle_spawn(
     firmware: FirmwareController,
     bus: EventBus,
     job_type: JobType,
-    data: dict[str, object],
+    data: dict[str, Any],
 ) -> None:
     """Run one spawn message: validate, submit, stream until terminal.
 

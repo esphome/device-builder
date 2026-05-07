@@ -983,6 +983,41 @@ async def test_stream_helper_ignores_terminal_events_for_other_jobs() -> None:
     ]
 
 
+async def test_legacy_ws_writer_forwards_frame_dict_verbatim() -> None:
+    """``_LegacyWSWriter`` writes its ``payload`` arg unchanged to the WS.
+
+    Pins the adapter's contract independently of the rest of the
+    streaming pipeline. The integration tests cover this via
+    composition, but a regression that started post-processing
+    the dict (re-keying, dropping fields, encoding the wrong way)
+    would surface in many tests with confusing failures rather
+    than one focused message. Direct unit test: build a writer
+    around a stub WS, feed it a frame dict, assert the dict
+    arrives unchanged.
+
+    Also pins that ``_message_id`` and ``_name`` really are
+    unused — passing arbitrary values for either must not affect
+    the wire output. A future refactor that started reading them
+    would break this test loudly.
+    """
+    sent: list[dict[str, Any]] = []
+
+    class _RecordingWS:
+        async def send_json(self, payload: dict[str, Any], **_kwargs: Any) -> None:
+            sent.append(payload)
+
+    writer = legacy._LegacyWSWriter(_RecordingWS())  # type: ignore[arg-type]
+
+    frame = {"event": "line", "data": "hello\n"}
+    await writer.send_event("ignored-message-id", "ignored-name", frame)
+    await writer.send_event("", "", {"event": "exit", "code": 7})
+
+    assert sent == [
+        {"event": "line", "data": "hello\n"},
+        {"event": "exit", "code": 7},
+    ]
+
+
 async def test_stream_helper_releases_listener_when_send_raises() -> None:
     """``_stream_job_to_legacy_ws`` removes the listener on a send failure.
 
