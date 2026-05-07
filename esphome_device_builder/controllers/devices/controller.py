@@ -44,7 +44,6 @@ from ...helpers.yaml import (
     generate_api_encryption_key,
     merge_component_yaml,
     rewrite_api_encryption_key,
-    rewrite_esphome_name,
     rewrite_name_or_substitution,
     upsert_yaml_leaf_under_top_block,
 )
@@ -667,79 +666,53 @@ class DevicesController:
         """
         Rename a device configuration.
 
-        Validity gates which strategy we use, because the two paths
-        have very different rollback semantics on failure and we MUST
-        keep the user able to reach the device under its old name
-        whenever the rename can't complete:
+        Thin pass-through to ``esphome rename``: the CLI owns the
+        whole atomic flow — YAML edit (substitution-aware), config
+        revalidation, compile + OTA install, and rollback (unlinks
+        the freshly-written YAML on validation or install failure
+        so the device stays reachable under its old hostname).
+        Routed through the firmware queue so the streaming output
+        shows up alongside other firmware tasks instead of running
+        silently in the background.
 
-        - **Config doesn't validate** (typical for a freshly-created
-          empty config that the user hasn't filled in yet). The
-          ``esphome rename`` CLI refuses to touch it. Fall back to a
-          pure file-level rename — there's no firmware on the device
-          yet, so there's nothing to roll back from.
-        - **Config validates**. Run ``esphome --dashboard rename`` and
-          let it own the full atomic rename: write the new YAML,
-          re-validate, ``esphome run`` to compile + install + verify,
-          and then drop the old YAML only on install success. If
-          install fails the CLI unlinks its newly-written YAML and
-          returns non-zero — the old file (and the device's old
-          hostname) stay intact so the user can fix things and try
-          again. We DELIBERATELY do not fall back to a file-level
-          rename here: the legacy dashboard had exactly that bug, and
-          a half-flashed device with the YAML already pointing at the
-          new name leaves nothing to mDNS-resolve when the user goes
-          to retry.
+        We deliberately don't pre-validate or fall back to a
+        file-level rename when the config doesn't validate. The CLI
+        already runs its own ``esphome config`` pass and surfaces
+        the errors verbatim; a file-level fallback would silently
+        rename the YAML on disk while leaving the running firmware
+        broadcasting the old hostname forever (dashboard label and
+        device state diverge with no error to the user). Better to
+        error than to make a potentially broken config worse —
+        matches the legacy dashboard's thin-pass-through behaviour.
 
-        Returns the new filename. Errors propagate verbatim (with the
-        last lines of ``esphome rename``'s output appended) so the
-        frontend can show a meaningful message.
+        Returns the new filename plus the queued firmware job.
         """
-        config_path = str(self._db.settings.rel_path(configuration))
         new_filename = f"{new_name}.yaml"
 
-        # Reject same-name renames up-front. Both downstream branches
-        # (manual rewrite, ``esphome rename``) would treat this as a
-        # no-op rewrite + redundant flash — wasted work the caller
-        # almost certainly didn't intend. Frontend should call
-        # ``firmware/install`` for "flash without renaming".
+        # Reject same-name renames up-front: a no-op at the YAML
+        # level but still queues a real ``esphome rename`` job that
+        # re-compiles and OTA-flashes the device. Frontend should
+        # call ``firmware/install`` for "flash without renaming".
         if new_filename == configuration:
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
                 "new_name must differ from the current device name",
             )
         # Reject up-front if the target filename is already in use.
-        # The manual-rename branch already checks ``new_path.exists()``
-        # itself, but the CLI ``esphome rename`` path does *not* — it
-        # blindly ``write_text``s the new YAML and then OTA-installs
-        # it, so a collision would silently overwrite the unrelated
-        # device's config and flash that firmware to the wrong device.
-        # ``rel_path`` resolves the filename and ``.exists()`` is an
-        # ``os.stat`` — both blocking syscalls. Push the pair to the
-        # executor so the dashboard's request-path stays
-        # event-loop-friendly on slow / network-mounted config dirs.
+        # ``esphome rename`` itself doesn't check collisions — it
+        # blindly ``write_text``s the new YAML and OTA-installs it,
+        # so without this check we'd silently overwrite an unrelated
+        # device's config and flash that firmware to the wrong
+        # device. ``rel_path`` resolves the filename and
+        # ``.exists()`` is an ``os.stat`` — both blocking. Push the
+        # pair to the executor so the dashboard's request-path
+        # stays event-loop-friendly on slow / network-mounted dirs.
         loop = asyncio.get_running_loop()
         new_path = self._db.settings.rel_path(new_filename)
         if await loop.run_in_executor(None, new_path.exists):
             msg = f"A device named {new_filename} already exists"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-        if not await self._yaml_validates(config_path):
-            try:
-                await loop.run_in_executor(None, self._manual_rename, configuration, new_name)
-            except FileExistsError as exc:
-                msg = f"A device named {new_filename} already exists"
-                raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
-            except Exception as exc:
-                _LOGGER.warning("Manual rename failed: %s", exc)
-                msg = f"Rename failed: {exc}"
-                raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from exc
-            await self._scanner.scan()
-            return {"configuration": new_filename, "job": None}
-
-        # Validated configs route through the firmware queue so the
-        # compile + install (which is what ``esphome rename`` does
-        # internally) shows up alongside other firmware tasks with
-        # live output instead of running silently in the background.
         if self._db.firmware is None:
             msg = "Firmware controller is unavailable"
             raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
@@ -1174,37 +1147,6 @@ class DevicesController:
             + suffix
             + ". Fix the errors in the editor and try again.",
         )
-
-    async def _yaml_validates(self, config_path: str) -> bool:
-        """``esphome config`` precheck.
-
-        Decides between the file-level fallback (for empty / broken
-        configs that ``esphome rename`` would refuse) and the full
-        ``esphome rename`` flow (which compiles + installs).
-
-        Treats only a clean non-zero exit as "doesn't validate".
-        Anything that prevents the precheck from running to
-        completion — missing CLI, permission errors, etc. — bubbles
-        up as a ``CommandError(INTERNAL_ERROR)``: silently treating
-        those as "invalid" would route the rename into the file-level
-        fallback even when the YAML *does* validate, recreating the
-        very footgun (rename without a successful flash) we're
-        trying to avoid.
-        """
-        try:
-            proc = await create_subprocess_exec(
-                *self._esphome_cmd,
-                "--dashboard",
-                "config",
-                config_path,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            return await proc.wait() == 0
-        except Exception as exc:
-            _LOGGER.warning("YAML precheck failed to run for %s: %s", config_path, exc)
-            msg = f"Could not validate {config_path}: {exc}"
-            raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from exc
 
     @api_command("devices/delete")
     async def delete_device(self, *, configuration: str, **kwargs: Any) -> None:
@@ -2769,73 +2711,6 @@ class DevicesController:
         storage_path.write_bytes(
             dumps_indent({"ignored_devices": sorted(self.ignored_devices)}),
         )
-
-    def _manual_rename(self, configuration: str, new_name: str) -> None:
-        """File-level rename. Used when the ESPHome CLI refuses (invalid config)."""
-        config_dir = self._db.settings.config_dir
-        old_path = config_dir / configuration
-        new_filename = f"{new_name}.yaml"
-        new_path = config_dir / new_filename
-
-        if not old_path.exists():
-            msg = f"File not found: {configuration}"
-            raise FileNotFoundError(msg)
-        if new_path.exists():
-            raise FileExistsError(new_filename)
-
-        old_name = configuration.removesuffix(".yaml").removesuffix(".yml")
-        content = old_path.read_text(encoding="utf-8")
-        # File-level rename gates the YAML rewrite on the existing
-        # ``esphome.name`` matching the filename — when they've
-        # drifted (hand-edited YAML, substituted name) we'd rather
-        # leave the line alone than silently flip a value the user
-        # may have set deliberately.
-        new_content = rewrite_esphome_name(content, new_name, only_if_current=old_name)
-        # Atomic write of the new file before unlinking the old.
-        # A mid-write crash leaves the SOURCE intact (we haven't
-        # ``unlink``'d yet) and ``write_file`` cleans up its
-        # staging tempfile — rename can be retried. (Concurrent
-        # rename into the same target is best-effort guarded by
-        # the ``new_path.exists()`` check above; ``write_file``
-        # itself doesn't add race protection — its
-        # ``shutil.move`` will silently overwrite a target that
-        # appeared after our check.)
-        atomic_write_file(new_path, new_content)
-        old_path.unlink()
-
-        # Move StorageJSON alongside the YAML rename
-        try:
-            old_storage = ext_storage_path(configuration)
-            new_storage = ext_storage_path(new_filename)
-            if old_storage.exists():
-                storage = StorageJSON.load(old_storage)
-                if storage:
-                    storage.name = new_name
-                    if storage.friendly_name == old_name:
-                        storage.friendly_name = new_name
-                    storage.address = f"{new_name}.local"
-                    new_storage.parent.mkdir(parents=True, exist_ok=True)
-                    storage.save(new_storage)
-                old_storage.unlink(missing_ok=True)
-        except Exception:
-            _LOGGER.warning("Could not update storage for %s", new_filename)
-
-        # Move the sidecar metadata entry to the new filename
-        try:
-            old_meta = get_device_metadata(config_dir, configuration)
-            if old_meta:
-                meta_friendly = old_meta.get("friendly_name")
-                set_device_metadata(
-                    config_dir,
-                    new_filename,
-                    board_id=old_meta.get("board_id"),
-                    friendly_name=(new_name if meta_friendly == old_name else meta_friendly),
-                    comment=old_meta.get("comment"),
-                    ip=old_meta.get("ip"),
-                )
-                remove_device_metadata(config_dir, configuration)
-        except Exception:
-            _LOGGER.warning("Could not move metadata for %s", new_filename)
 
     async def _archive_single(self, configuration: str) -> None:
         """Soft-delete: move the YAML into ``<config_dir>/archive/`` and wipe build artifacts.

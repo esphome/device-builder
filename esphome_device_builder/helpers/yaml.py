@@ -593,41 +593,6 @@ def upsert_yaml_leaf_under_top_block(
     return "".join([*lines[:insert_at], new_line, *lines[insert_at:]])
 
 
-def rewrite_esphome_name(
-    yaml_text: str,
-    new_name: str,
-    *,
-    only_if_current: str | None = None,
-) -> str:
-    """
-    Replace ``name:`` under the top-level ``esphome:`` block.
-
-    By default the rewrite is unconditional — every caller that
-    knows the new name to land on wants the line replaced
-    regardless of what the source had (clone path, future
-    create-then-edit flows). Pass *only_if_current* to gate the
-    rewrite on the existing leaf value matching that string —
-    used by ``_manual_rename``'s file-level fallback as a hedge
-    against renaming a config whose YAML ``name:`` no longer
-    matches its filename. The gate is opt-in because the
-    common case (filename and ``esphome.name`` agree) is the
-    same outcome either way; the gate only matters for
-    drift between the two, where clone wants "force the
-    rename" and rename's fallback wants "leave it alone".
-
-    Indentation and trailing comments are preserved. Returns the
-    original text unchanged when nothing matches the path or the
-    gate.
-    """
-
-    def _swap(raw: str) -> str | None:
-        if only_if_current is not None and _strip_yaml_quotes(raw) != only_if_current:
-            return None
-        return new_name
-
-    return rewrite_yaml_scalar(yaml_text, ("esphome", "name"), _swap)
-
-
 def generate_api_encryption_key() -> str:
     """Return a fresh 32-byte ESPHome API encryption key, base64-encoded."""
     return base64.b64encode(secrets.token_bytes(32)).decode()

@@ -3,16 +3,18 @@
 The helper module is purely string transforms — no file I/O, no
 event-loop concerns — but it's easy to break in subtle ways
 because the YAML it edits is unparsed text. The functions covered
-here are the ones the active codepaths in
-``DevicesController._manual_rename`` and ``add_component`` lean on.
+here back the clone, friendly-name editor, and add-component
+paths.
 
 What we pin:
 
-* ``rewrite_esphome_name`` — the rename CLI's fallback path. Walks
-  YAML line-by-line looking for ``name:`` *only* under the
-  top-level ``esphome:`` block. Indentation and trailing comments
-  must round-trip; lookalikes in other blocks (sensor names,
-  Wi-Fi SSIDs) must not flip.
+* ``rewrite_name_or_substitution`` — clone's hostname rewrite,
+  with substitution-aware redirect when ``name: ${var}`` shows up.
+* ``upsert_yaml_leaf_under_top_block`` — friendly_name editor's
+  rewrite-or-insert path. Three shapes (rewrite existing leaf /
+  insert into existing block / prepend a new block) plus the
+  YAML-directive anchoring for configs starting with ``%YAML`` /
+  ``---``.
 * ``merge_component_yaml`` — adding a second sensor / output /
   switch must splice into the existing platform block instead of
   emitting a duplicate top-level key. A non-platform component
@@ -38,7 +40,6 @@ from esphome_device_builder.helpers.yaml import (
     parse_substitution_ref,
     read_yaml_scalar,
     rewrite_api_encryption_key,
-    rewrite_esphome_name,
     rewrite_name_or_substitution,
     rewrite_yaml_scalar,
     upsert_yaml_leaf_under_top_block,
@@ -68,162 +69,6 @@ def _component(
         description="",
         category=category,
     )
-
-
-# ---------------------------------------------------------------------------
-# rewrite_esphome_name
-# ---------------------------------------------------------------------------
-
-
-def test_rewrite_esphome_name_swaps_value_under_esphome_block() -> None:
-    """The basic happy path: rename inside ``esphome:`` updates the value.
-
-    Indentation must survive; we use two spaces because that's
-    what the wizard emits.
-    """
-    yaml = "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
-    assert rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen") == (
-        "esphome:\n  name: kitchen-2\n  friendly_name: Kitchen\n"
-    )
-
-
-def test_rewrite_esphome_name_returns_original_when_no_match() -> None:
-    """No-op rename: the input string is returned unchanged.
-
-    The function's documented contract: returns the original
-    text when nothing matches. Use equality (not identity) here
-    because the docstring only promises content equivalence —
-    pinning identity would over-constrain the implementation
-    against changes that re-allocate the string. ``_manual_rename``'s
-    handling of the no-op case (whether to skip the write or not)
-    is its own concern; this test stays focused on the helper.
-    """
-    yaml = "esphome:\n  name: kitchen\n"
-    assert rewrite_esphome_name(yaml, "garage-2", only_if_current="garage") == yaml
-
-
-def test_rewrite_esphome_name_ignores_lookalike_in_other_block() -> None:
-    """``name:`` in another block (sensor, Wi-Fi) must not flip.
-
-    Without the in-esphome-only gate, a device named ``kitchen``
-    with a sensor also named ``kitchen`` would have its sensor
-    renamed too, and ESPHome would reject the YAML at compile
-    time with a confusing duplicate-id error.
-    """
-    yaml = (
-        "esphome:\n  name: kitchen\n"
-        "wifi:\n  ssid: kitchen\n"
-        "sensor:\n  - platform: dht\n    name: kitchen\n"
-    )
-    out = rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen")
-    assert "name: kitchen-2" in out
-    assert "ssid: kitchen\n" in out  # untouched
-    assert "    name: kitchen\n" in out  # sensor untouched
-
-
-def test_rewrite_esphome_name_preserves_trailing_comment() -> None:
-    """Trailing ``# comment`` on the name line survives the rewrite.
-
-    Users sometimes annotate the line; eating their comment on
-    every rename would be a noisy regression.
-    """
-    yaml = "esphome:\n  name: kitchen  # primary device\n"
-    out = rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen")
-    assert out == "esphome:\n  name: kitchen-2  # primary device\n"
-
-
-def test_rewrite_esphome_name_no_match_walks_past_sibling_top_level_blocks() -> None:
-    """A no-op rename still walks the whole file without crashing.
-
-    Pin the two post-esphome branches that only fire when the
-    function runs to EOF without finding a match (no early
-    ``break`` after the first rewrite):
-
-    - sibling top-level header (``wifi:``) flips ``in_esphome``
-      back off (the block-exit branch);
-    - the indented child line that follows then short-circuits via
-      the ``not in_esphome`` guard.
-
-    Without these branches the walker would either keep
-    ``in_esphome=True`` after leaving the esphome block (and
-    rewrite a stray ``name:`` under ``wifi:``) or attempt the
-    ``name:`` regex on every line forever.
-    """
-    yaml = "esphome:\n  name: kitchen\nwifi:\n  ssid: home\n"
-    # ``other`` doesn't match ``kitchen`` → no rewrite, walker runs to EOF.
-    assert rewrite_esphome_name(yaml, "renamed", only_if_current="other") == yaml
-
-
-def test_rewrite_esphome_name_walks_past_non_name_lines_and_other_blocks() -> None:
-    """The walker tolerates non-``name:`` esphome lines and exits the block on a sibling.
-
-    Drives the three early-continue branches in one trace:
-
-    - ``friendly_name:`` is inside the esphome block but doesn't match
-      the ``name:`` regex, so the loop falls through to ``continue``.
-    - ``wifi:`` is a sibling top-level key and flips ``in_esphome``
-      back off — without that, a stray ``name:`` under ``wifi:`` would
-      get rewritten too.
-    - ``  ssid:`` lands after the block flipped off and skips the
-      regex check entirely (the ``not in_esphome`` guard).
-
-    Asserts the function still finds and rewrites the real ``name:``
-    further down rather than bailing on the friendly_name detour.
-    """
-    yaml = (
-        "esphome:\n"
-        "  friendly_name: Kitchen\n"
-        "  name: kitchen\n"
-        "wifi:\n"
-        "  ssid: home\n"
-        "  name: kitchen\n"  # would-be lookalike under wifi block
-    )
-    out = rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen")
-    assert "  name: kitchen-2\n" in out
-    # Wi-Fi's ``name:`` lookalike survives — the block-exit branch did its job.
-    assert out.count("name: kitchen\n") == 1
-    assert out.endswith("  name: kitchen\n")
-
-
-def test_rewrite_esphome_name_handles_quoted_value() -> None:
-    """Both ``"..."`` and ``'...'`` quotes count as a match.
-
-    ESPHome accepts unquoted, single-quoted, and double-quoted
-    name values; the rename must recognise all three or the user
-    sees "no match" for a name they can clearly read in the file.
-    """
-    yaml = 'esphome:\n  name: "kitchen"\n'
-    out = rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen")
-    assert "name: kitchen-2" in out
-
-
-def test_rewrite_esphome_name_unconditional_replaces_regardless_of_value() -> None:
-    """Default mode (no ``only_if_current``) replaces whatever's there.
-
-    Pin the clone-path's behaviour: a YAML whose ``esphome.name``
-    has drifted from its filename (hand-edited config, or a
-    ``name: $hostname`` substitution where the literal in the YAML
-    is ``$hostname``) still gets the new name landed on the line.
-    The gated mode used by ``_manual_rename`` is opt-in via the
-    keyword arg.
-    """
-    yaml = "esphome:\n  name: my-kitchen-bulb\n  friendly_name: Kitchen\n"
-    out = rewrite_esphome_name(yaml, "bedroom-bulb")
-    assert "  name: bedroom-bulb\n" in out
-    assert "my-kitchen-bulb" not in out
-
-
-def test_rewrite_esphome_name_unconditional_replaces_substituted_name() -> None:
-    """Unconditional replace works when the source uses ``$var`` substitutions.
-
-    The literal value on the ``name:`` line is ``$hostname``, not
-    the resolved string. A gated rewrite keyed on the filename
-    would no-op; the unconditional path lands the new name and
-    drops the substitution dependency for the cloned device.
-    """
-    yaml = "esphome:\n  name: $hostname\n"
-    out = rewrite_esphome_name(yaml, "bedroom-bulb")
-    assert out == "esphome:\n  name: bedroom-bulb\n"
 
 
 # ---------------------------------------------------------------------------

@@ -19,10 +19,9 @@ Grouped by surface:
   WS clients can land silently.
 - **Storage / file-ops glue** (``_persist_storage_version_async``
   thread bridge, ``_list_archived_sync`` OSError fallback,
-  ``_manual_rename`` collision guard, ``_stream_subprocess``
-  ``line_transform`` hook) — each of these is the code path that
-  keeps a specific feature working when the FS misbehaves; pinning
-  them keeps the feature surface honest.
+  ``_stream_subprocess`` ``line_transform`` hook) — each of these
+  is the code path that keeps a specific feature working when the
+  FS misbehaves; pinning them keeps the feature surface honest.
 """
 
 from __future__ import annotations
@@ -525,48 +524,6 @@ def test_list_archived_skips_unreadable_yaml(
     rows = controller._list_archived_sync()
 
     assert [r["configuration"] for r in rows] == ["good.yaml"]
-
-
-# ---------------------------------------------------------------------------
-# _manual_rename collision guard
-# ---------------------------------------------------------------------------
-
-
-def test_manual_rename_raises_file_exists_error_when_target_taken(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """An existing target file blocks the rename with ``FileExistsError``.
-
-    The public ``rename_device`` already checks this up-front, but
-    a race could let a file appear between that check and the
-    actual rename. Pin the inner guard so a regression that
-    dropped it would silently overwrite an unrelated YAML —
-    losing the user's other config and (after the next compile)
-    flashing this device's firmware to the wrong device.
-    """
-    controller = make_controller(tmp_path)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    (tmp_path / "livingroom.yaml").write_text("esphome:\n  name: livingroom\n", encoding="utf-8")
-
-    with pytest.raises(FileExistsError, match=r"livingroom\.yaml"):
-        controller._manual_rename("kitchen.yaml", "livingroom")
-
-
-def test_manual_rename_raises_file_not_found_when_source_missing(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """A missing source file raises ``FileNotFoundError`` with the configuration name.
-
-    Sibling guard to the collision check — a deleted source
-    YAML would otherwise crash deep inside ``read_text``. The
-    typed exception is what ``rename_device`` translates into
-    a user-facing ``CommandError(NOT_FOUND)``, so callers depend
-    on the precise type.
-    """
-    controller = make_controller(tmp_path)
-
-    with pytest.raises(FileNotFoundError, match=r"ghost\.yaml"):
-        controller._manual_rename("ghost.yaml", "livingroom")
 
 
 # ---------------------------------------------------------------------------
