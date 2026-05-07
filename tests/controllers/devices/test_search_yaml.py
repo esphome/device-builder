@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from esphome_device_builder.controllers.devices._yaml_search import MAX_CONTEXT_LINES
 from esphome_device_builder.models import Device, DeviceState
 
 if TYPE_CHECKING:
@@ -94,9 +95,10 @@ async def test_search_yaml_substring_match_returns_per_device_hits(
     """A simple substring match returns one entry per matching device.
 
     Pin the result shape (configuration / device_name / friendly_name
-    / matches array of {line_number, line_text}) — the frontend's
-    rendering layer reads each field by name. A field rename here
-    silently breaks the dropdown rendering with no test failure.
+    / matches array of {line_number, line_text, before, after}) — the
+    frontend's rendering layer reads each field by name. A field
+    rename here silently breaks the result rendering with no test
+    failure.
     """
     controller = make_controller(tmp_path)
     controller._scanner.devices = [
@@ -121,7 +123,18 @@ async def test_search_yaml_substring_match_returns_per_device_hits(
     assert hit["configuration"] == "kitchen.yaml"
     assert hit["device_name"] == "kitchen"
     assert hit["friendly_name"] == "Kitchen Lamp"
-    assert hit["matches"] == [{"line_number": 3, "line_text": "wifi:"}]
+    # Match carries ±2-line context windows. Line 3's window
+    # extends back to line 1 (clamped at the file start; only
+    # 2 prior lines exist) and there's a single trailing line
+    # to include in ``after``.
+    assert hit["matches"] == [
+        {
+            "line_number": 3,
+            "line_text": "wifi:",
+            "before": ["esphome:", "  name: kitchen"],
+            "after": ["  ssid: home"],
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -333,3 +346,120 @@ async def test_search_yaml_skips_missing_files(
     # didn't blow up the call.
     assert len(results) == 1
     assert results[0]["configuration"] == "kitchen.yaml"
+
+
+# ---------------------------------------------------------------------------
+# context_lines parameter — caller-tunable, server-clamped
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_yaml_default_context_is_two_lines(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Omitting ``context_lines`` uses the ``DEFAULT_CONTEXT_LINES`` (2) window.
+
+    Pin the default so a regression that drops the kwarg
+    forwarding (or flips the default) surfaces as a window
+    shape change instead of silently shipping zero or ten lines.
+    """
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [_device("kitchen")]
+    _seed_yaml(
+        tmp_path,
+        "kitchen",
+        "esphome:\n  name: kitchen\nwifi:\n  ssid: home\n  password: x\n",
+    )
+
+    results = await controller.search_yaml(query="wifi")
+
+    assert results[0]["matches"][0]["before"] == [
+        "esphome:",
+        "  name: kitchen",
+    ]
+    assert results[0]["matches"][0]["after"] == [
+        "  ssid: home",
+        "  password: x",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_search_yaml_context_lines_zero_drops_window(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """``context_lines=0`` returns just the matched line (empty before/after).
+
+    A frontend that wants the legacy "matched line only" shape
+    (e.g. a dense compact view) can opt in by passing 0.
+    The slice math has to degenerate to empty windows without
+    error.
+    """
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [_device("kitchen")]
+    _seed_yaml(
+        tmp_path,
+        "kitchen",
+        "esphome:\n  name: kitchen\nwifi:\n  ssid: home\n",
+    )
+
+    results = await controller.search_yaml(query="wifi", context_lines=0)
+
+    assert results[0]["matches"][0]["before"] == []
+    assert results[0]["matches"][0]["after"] == []
+
+
+@pytest.mark.asyncio
+async def test_search_yaml_context_lines_clamped_to_max(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A caller asking for more than ``MAX_CONTEXT_LINES`` lands on the cap.
+
+    Defends against a typo'd / hostile request blowing the wire
+    payload — at the cap, even pathological matches produce
+    bounded responses (per-side cap times two sides times
+    per-file cap times ``max_results`` devices).
+    """
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [_device("kitchen")]
+    # File with enough surrounding lines that an unclamped
+    # request would expand the window past MAX_CONTEXT_LINES.
+    surrounding = "\n".join(f"# line_{i}" for i in range(MAX_CONTEXT_LINES + 5))
+    _seed_yaml(
+        tmp_path,
+        "kitchen",
+        f"{surrounding}\nwifi:\n{surrounding}\n",
+    )
+
+    results = await controller.search_yaml(query="wifi", context_lines=10_000)
+
+    assert len(results[0]["matches"][0]["before"]) == MAX_CONTEXT_LINES
+    assert len(results[0]["matches"][0]["after"]) == MAX_CONTEXT_LINES
+
+
+@pytest.mark.asyncio
+async def test_search_yaml_negative_context_lines_falls_back_to_zero(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A negative ``context_lines`` floors at 0 — never inverts the slice.
+
+    A negative slice index against ``lines`` would silently
+    select from the END of the file (``lines[-2:0]`` etc.), which
+    is the worst possible behaviour: random unrelated context
+    leaking into the response. Pin that the floor handles it.
+    """
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [_device("kitchen")]
+    _seed_yaml(
+        tmp_path,
+        "kitchen",
+        "esphome:\n  name: kitchen\nwifi:\n  ssid: home\n",
+    )
+
+    results = await controller.search_yaml(query="wifi", context_lines=-5)
+
+    assert results[0]["matches"][0]["before"] == []
+    assert results[0]["matches"][0]["after"] == []

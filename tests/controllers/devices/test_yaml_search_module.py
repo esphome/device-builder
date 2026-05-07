@@ -98,7 +98,16 @@ async def test_returns_results_and_live_configurations(tmp_path: Path) -> None:
     assert hit["configuration"] == "kitchen.yaml"
     assert hit["device_name"] == "kitchen"
     assert hit["friendly_name"] == "Kitchen"
-    assert hit["matches"] == [{"line_number": 1, "line_text": "wifi:"}]
+    # Match carries ±2-line context windows clamped at the file
+    # edges — line 1 has nothing before it and one line after.
+    assert hit["matches"] == [
+        {
+            "line_number": 1,
+            "line_text": "wifi:",
+            "before": [],
+            "after": ["  ssid: home"],
+        }
+    ]
     # Both devices walked → both in live_configurations, not just
     # the one with a match. Cache prune key.
     assert live == {"kitchen.yaml", "bedroom.yaml"}
@@ -221,8 +230,21 @@ async def test_max_lines_per_file_caps_pathological_files(tmp_path: Path) -> Non
         max_results=50,
         per_file_cap=10,
     )
+    # ``after`` is empty here even though ``# tag-past-cap``
+    # exists on the next line — context is sliced from the
+    # ``MAX_LINES_PER_FILE``-bounded view ``scan_lines`` walks,
+    # so anything past the cap is invisible to both the match
+    # check and the context window. Pin that contract so a
+    # future refactor that "helpfully" pulls context from the
+    # full ``lines`` list outside the slice can't leak
+    # past-cap content into the response.
     assert results[0]["matches"] == [
-        {"line_number": MAX_LINES_PER_FILE, "line_text": "# tag-at-cap"}
+        {
+            "line_number": MAX_LINES_PER_FILE,
+            "line_text": "# tag-at-cap",
+            "before": ["# noise", "# noise"],
+            "after": [],
+        }
     ]
 
     # Same file, different needle that only appears past the cap.
@@ -415,3 +437,52 @@ async def test_yields_to_event_loop_between_devices(tmp_path: Path) -> None:
     # the yield, the search would have monopolised the slice
     # and the ticker would only run after the search returned.
     assert ticks >= len(devices)
+
+
+@pytest.mark.asyncio
+async def test_match_includes_full_context_window_when_not_at_edge(
+    tmp_path: Path,
+) -> None:
+    """A match deep inside a file carries the full ±2-line window.
+
+    The two existing context-bearing assertions
+    (``test_returns_results_and_live_configurations`` for top-of-
+    file, ``test_max_lines_per_file_caps_pathological_files``
+    for cap-edge) only exercise the clamp paths. Pin the un-
+    clamped middle case explicitly so the slice math —
+    ``[zero_based - 2 : zero_based]`` for ``before``,
+    ``[zero_based + 1 : zero_based + 3]`` for ``after`` —
+    can't drift unnoticed (off-by-one would surface as 1 or 3
+    lines instead of 2, which the edge tests can't catch).
+    """
+    cache = YamlSearchCache()
+    yaml = (
+        "esphome:\n"
+        "  name: kitchen\n"
+        "binary_sensor:\n"
+        "  - platform: gpio\n"  # the match
+        "    name: door\n"
+        "    pin: GPIO5\n"
+        "wifi:\n"
+        "  ssid: home\n"
+    )
+    devices = [_seed(tmp_path, "kitchen", yaml)]
+
+    results, _ = await search_yaml_devices(
+        devices=devices,
+        cache=cache,
+        rel_path=_rel(tmp_path),
+        needle="platform",
+        case_sensitive=False,
+        max_results=50,
+        per_file_cap=5,
+    )
+
+    assert results[0]["matches"] == [
+        {
+            "line_number": 4,
+            "line_text": "  - platform: gpio",
+            "before": ["  name: kitchen", "binary_sensor:"],
+            "after": ["    name: door", "    pin: GPIO5"],
+        }
+    ]
