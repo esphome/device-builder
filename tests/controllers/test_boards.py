@@ -422,9 +422,16 @@ def test_find_by_pio_board_id_match_tiebreaks_when_no_generic(
     Use synthetic boards so the test is robust against the real
     ``d1-mini`` manifest later being marked ``is_generic`` (which
     would short-circuit before the tiebreaker fires) — the
-    tiebreaker itself is what we're pinning here.
+    tiebreaker itself is what we're pinning here. Strip the
+    fixture's pre-existing ``d1_mini`` matches before inserting
+    the synthetic pair so the assertion can only be satisfied by
+    the synthetic canonical entry — leaving the fixture's own
+    ``d1-mini`` in place would let the assertion pass against
+    that one and the synthetic insert would be redundant.
     """
-    catalog._boards = [b for b in catalog._boards if not b.is_generic]
+    catalog._boards = [
+        b for b in catalog._boards if not b.is_generic and b.esphome.board != "d1_mini"
+    ]
     # Vendor entry sharing the same pio_board, alphabetically
     # earlier than the canonical entry — the same shape as the
     # aquaping/d1-mini collision in production.
