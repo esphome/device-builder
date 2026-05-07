@@ -915,11 +915,17 @@ def test_select_wifi_helpers_falls_back_when_upstream_missing() -> None:
     Simulates the pre-#16300 esphome we ship against today. Both
     args ``None`` is exactly what the module-level ``try/except``
     produces when ``ImportError`` fires.
+
+    Look the fallbacks up through the live module attr rather than
+    the test-time imported binding — ``tests/test_api_key.py``
+    calls ``importlib.reload(device_yaml)``, which orphans any
+    test-module binding captured at import time. The live attr
+    survives the reload.
     """
     selected_variant, selected_board = _select_wifi_helpers(None, None)
 
-    assert selected_variant is _fallback_variant_has_wifi
-    assert selected_board is _fallback_board_id_has_wifi
+    assert selected_variant is device_yaml._fallback_variant_has_wifi
+    assert selected_board is device_yaml._fallback_board_id_has_wifi
 
 
 def test_infer_native_wifi_routes_through_module_aliases(
