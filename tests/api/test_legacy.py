@@ -476,11 +476,14 @@ class _FakeFirmwareController:
         """Schedule ``_fire_plan`` to run after the handler subscribes.
 
         The handler's flow after ``compile()`` returns is sync:
-        attach the bus listener, snapshot ``job.output``, check
-        for an already-terminal status, then ``await
-        pending.get()``. The first ``await`` yields back to the
-        loop, at which point the deferred task scheduled here
-        runs and fires events into the now-attached listener.
+        snapshot ``job.output``, then route through
+        ``stream_events``, which attaches the bus listener and
+        awaits ``send_initial`` (the snapshot replay) before
+        starting the live drain. The first ``await`` inside
+        ``send_initial`` yields back to the loop, at which point
+        the deferred task scheduled here runs and fires events
+        into the now-attached listener.
+
         Without the deferral the events fire before the listener
         is attached and are dropped — exactly the behaviour the
         production firmware controller's "subscribe before

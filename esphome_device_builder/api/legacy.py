@@ -30,7 +30,7 @@ from aiohttp import web
 from esphome import yaml_util
 
 from ..helpers.api import CommandError
-from ..helpers.event_bus import Event
+from ..helpers.event_bus import Event, StreamControls, stream_events
 from ..helpers.json import (
     JSONDecodeError,
     dumps_str,
@@ -81,6 +81,39 @@ _TERMINAL_EVENT_TYPES = (
 _TERMINAL_STATUSES = frozenset({JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED})
 
 
+class _LegacyWSStreamClient:
+    """``stream_events`` client adapter that writes legacy WS frames.
+
+    ``stream_events`` is the project's standard event-bus → WS
+    pipeline, providing a bounded queue, drop-on-full / force-
+    enqueue / terminate semantics, and listener cleanup on cancel.
+    Reusing it here gives the legacy handler the same OOM
+    protection the multiplexed ``/ws`` follower commands get for
+    free.
+
+    The shape mismatch is small: ``stream_events`` calls
+    ``client.send_event(message_id, name, payload)`` for every
+    drained item, but the legacy protocol uses
+    ``{"event": <name>, "data": payload}`` for lines and
+    ``{"event": "exit", "code": payload}`` for the terminal frame.
+    This adapter does that translation. ``message_id`` is unused
+    by the legacy protocol — the per-WS connection IS the
+    addressing — so we ignore it.
+    """
+
+    def __init__(self, ws: web.WebSocketResponse) -> None:
+        self._ws = ws
+
+    async def send_event(self, _message_id: str, name: str, payload: object) -> None:
+        if name == "exit":
+            await self._ws.send_json({"event": "exit", "code": payload}, dumps=dumps_str)
+            return
+        # ``stream_events`` only ever forwards names this adapter
+        # registers via the ``handle_event`` callback below, so any
+        # other name here is a programming error worth surfacing.
+        await self._ws.send_json({"event": name, "data": payload}, dumps=dumps_str)
+
+
 async def _stream_job_to_legacy_ws(
     ws: web.WebSocketResponse,
     bus: EventBus,
@@ -96,36 +129,59 @@ async def _stream_job_to_legacy_ws(
     bus events (``JOB_OUTPUT`` / ``JOB_COMPLETED`` / ``JOB_FAILED``
     / ``JOB_CANCELLED``) and a buffered ``job.output`` list.
 
-    The race-free pattern:
+    Routes through ``helpers.event_bus.stream_events`` for the
+    core pipeline (subscribe, snapshot+replay, bounded drain,
+    listener cleanup on cancel). Three callbacks define the
+    behaviour:
 
-    1. Snapshot ``job.output`` (sync) — captures every line fired
-       so far. The snapshot is a fresh list copy via ``list(...)``
-       so a subsequent ``_trim_job_output`` reassign of
-       ``job.output`` (``firmware/helpers.py``) doesn't mutate
-       what we replay.
-    2. ``add_listener`` (sync) — attaches before any further
-       events fire. Steps 1 and 2 are sync-adjacent so no
-       coroutine yield can interleave a fire between them; the
-       runner's loop appends to ``job.output``, optionally trims
-       (which reassigns the list — irrelevant to our snapshot
-       copy), and fires ``JOB_OUTPUT`` in the same synchronous
-       block (``firmware/controller.py:899-918``), so a line can
-       either be in the snapshot OR caught by the listener, never
-       both and never neither.
-    3. Replay snapshot. Lines that arrive during the replay queue
-       up via the listener and are drained afterwards.
-    4. Drain the queue until a terminal event arrives.
+    - ``send_initial`` is awaited inside the listening block
+      *after* the listener attaches but *before* the live drain.
+      It snapshots ``job.output`` and replays it, then short-
+      circuits the drain via ``controls.end()`` if the job was
+      already in a terminal state at submit time.
+    - ``handle_event`` runs synchronously inside ``bus.fire`` and
+      decides what to push: lines go through ``controls.push``
+      (drop-on-full, slow follower stays unblocked), terminal
+      events go through ``controls.push_priority`` + ``end()``
+      (must-land, evicts oldest if needed) so the exit frame
+      always lands.
+    - ``_LegacyWSStreamClient.send_event`` translates each drained
+      ``(name, payload)`` into the legacy WS frame shape.
+
+    The race-free snapshot+subscribe ordering is provided by
+    ``stream_events``: the listener is attached before
+    ``send_initial`` is awaited (``event_bus.py`` docstring), so
+    every event fired post-subscribe lands in the queue, and the
+    snapshot is a fresh list copy via ``list(...)`` so a
+    subsequent ``_trim_job_output`` reassign of ``job.output``
+    (``firmware/helpers.py``) doesn't mutate what we replay.
     """
     job_id = job.job_id
+    snapshot = list(job.output)
+    initial_status = job.status
+    initial_exit_code = job.exit_code
 
-    # Pending items are tagged so the drain loop can route line
-    # frames vs. the terminal sentinel without a second lookup.
-    pending: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
+    async def _send_initial(controls: StreamControls) -> None:
+        for line in snapshot:
+            await ws.send_json({"event": "line", "data": line}, dumps=dumps_str)
+        # ``compile`` / ``upload`` may resolve a job that's already
+        # in a terminal state — most common on a duplicate-submit
+        # supersede that lands the previous job in CANCELLED before
+        # the new one is created. Send the exit frame from the
+        # cached status and short-circuit the drain.
+        if initial_status in _TERMINAL_STATUSES:
+            code = initial_exit_code if initial_exit_code is not None else 1
+            await ws.send_json({"event": "exit", "code": code}, dumps=dumps_str)
+            controls.end()
 
-    def _on_event(event: Event) -> None:
+    def _handle_event(event: Event, controls: StreamControls) -> None:
         if event.event_type == EventType.JOB_OUTPUT:
             if event.data.get("job_id") == job_id:
-                pending.put_nowait(("line", event.data.get("line", "")))
+                # Drop-on-full: a slow client shouldn't block the
+                # synchronous ``bus.fire``; losing a line in the
+                # legacy stream is preferable to OOM-ing the
+                # dashboard process.
+                controls.push("line", event.data.get("line", ""))
             return
         ev_job = event.data.get("job")
         if ev_job is None or getattr(ev_job, "job_id", None) != job_id:
@@ -133,35 +189,22 @@ async def _stream_job_to_legacy_ws(
         # ``exit_code`` is None for cancelled / never-ran jobs;
         # legacy clients want a numeric code so coerce to a
         # generic failure (1) rather than serialising null.
+        # ``push_priority`` evicts the oldest queued line if the
+        # queue is full so the exit frame always lands —
+        # otherwise a backpressured client could see an open
+        # connection that never receives the terminal frame.
         code = getattr(ev_job, "exit_code", None)
-        pending.put_nowait(("exit", code if code is not None else 1))
+        controls.push_priority("exit", code if code is not None else 1)
+        controls.end()
 
-    snapshot = list(job.output)
-    initial_status = job.status
-    initial_exit_code = job.exit_code
-
-    with bus.listening((EventType.JOB_OUTPUT, *_TERMINAL_EVENT_TYPES), _on_event):
-        for line in snapshot:
-            await ws.send_json({"event": "line", "data": line}, dumps=dumps_str)
-
-        # ``compile`` / ``upload`` may resolve a job that's already
-        # in a terminal state — most common on a duplicate-submit
-        # supersede that lands the previous job in CANCELLED before
-        # the new one is created, but also any case where the job
-        # transitions during the snapshot above. Send the exit
-        # frame and bail.
-        if initial_status in _TERMINAL_STATUSES:
-            code = initial_exit_code if initial_exit_code is not None else 1
-            await ws.send_json({"event": "exit", "code": code}, dumps=dumps_str)
-            return
-
-        while True:
-            kind, payload = await pending.get()
-            if kind == "line":
-                await ws.send_json({"event": "line", "data": payload}, dumps=dumps_str)
-                continue
-            await ws.send_json({"event": "exit", "code": payload}, dumps=dumps_str)
-            return
+    await stream_events(
+        client=_LegacyWSStreamClient(ws),
+        message_id="",
+        bus=bus,
+        event_types=(EventType.JOB_OUTPUT, *_TERMINAL_EVENT_TYPES),
+        handle_event=_handle_event,
+        send_initial=_send_initial,
+    )
 
 
 async def _handle_legacy_ws_command(
