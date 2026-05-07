@@ -431,7 +431,7 @@ class DevicesController:
     # ------------------------------------------------------------------
 
     @api_command("devices/create")
-    async def create_device(  # noqa: PLR0915
+    async def create_device(  # noqa: PLR0912, PLR0915
         self,
         *,
         name: str,
