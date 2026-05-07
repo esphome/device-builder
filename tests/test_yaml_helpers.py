@@ -451,6 +451,63 @@ def test_rewrite_yaml_scalar_skips_list_items() -> None:
     assert out == yaml
 
 
+def test_rewrite_yaml_scalar_pops_deeper_frames_at_next_list_item() -> None:
+    """A list-item line at indent N pops every frame at indent ≥ N.
+
+    Pin the inner-pop branch in the list-item handling: when the
+    walker encounters a second list item at the same indent as the
+    first, the first item's contents (which got pushed onto the
+    stack as ``(indent, key)`` frames) must be popped so the new
+    item starts with a clean ancestor chain. Without this, a leaf
+    inside the second item would inherit the previous item's
+    keys in its ancestor check.
+    """
+    # Two ``sensor:`` list items. After processing item 1's
+    # ``name: first``, the stack has ``[(0,"sensor"), (2,"-list-"),
+    # (4,"name")]``. The next item's ``- platform: bme280`` at
+    # indent 2 must pop both ``name`` and the previous list frame
+    # before pushing a fresh list frame.
+    yaml = "sensor:\n  - platform: dht\n    name: first\n  - platform: bme280\n    name: second\n"
+    captured: list[str] = []
+
+    def _capture(raw: str) -> str | None:
+        captured.append(raw)
+        return None
+
+    # Path that doesn't match anything walks the whole document
+    # without an early return — exercises the full pop-then-push
+    # sequence at every list item without short-circuiting on the
+    # first match.
+    rewrite_yaml_scalar(yaml, ("never", "matches"), _capture)
+    assert captured == []  # no leaf at the off-path target
+
+
+def test_rewrite_yaml_scalar_skips_block_scalar_continuation_lines() -> None:
+    """Lines inside a ``|`` block scalar don't match the mapping-key regex.
+
+    Pin the ``not m: continue`` branch: a block scalar's
+    continuation lines (like ``multi-line content`` here) don't
+    satisfy ``_MAPPING_KEY_LINE``'s anchor and aren't list items
+    either, so the walker just skips them without touching the
+    stack. The leaf at the right path further down should still
+    match correctly.
+    """
+    yaml = (
+        "esphome:\n"
+        "  name: kitchen\n"
+        "  comment: |\n"
+        "    multi-line description\n"
+        "    spanning two lines\n"
+        "wifi:\n"
+        "  ssid: home\n"
+    )
+    out = rewrite_yaml_scalar(yaml, ("wifi", "ssid"), lambda _: "renamed")
+    assert "  ssid: renamed\n" in out
+    # Block scalar contents are pure text — must not be modified.
+    assert "    multi-line description\n" in out
+    assert "    spanning two lines\n" in out
+
+
 def test_rewrite_yaml_scalar_passes_raw_value_to_transform() -> None:
     """Transform sees the value with quotes intact, comment stripped.
 

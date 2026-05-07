@@ -11,11 +11,17 @@ a scan so the new file shows up in the next ``devices/list``.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from esphome_device_builder.controllers.config import (
+    get_device_metadata,
+    set_device_metadata,
+)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -354,6 +360,85 @@ async def test_clone_device_lands_new_name_when_yaml_name_diverges_from_filename
     new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
     assert "  name: bedroom-bulb\n" in new_yaml
     assert "my-kitchen-bulb" not in new_yaml
+
+
+async def test_clone_device_carries_source_board_id_into_metadata(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Source's ``board_id`` survives the clone via the metadata sidecar.
+
+    ``board_id`` is the one piece of dashboard state that can't be
+    recovered from the YAML — it's a catalog-key indirection set by
+    the user at wizard time. The clone path reads the source's
+    metadata in the gather phase and writes it onto the new file's
+    metadata entry in the commit phase, so the cloned device shows
+    up bound to the same catalog board the source picked.
+    """
+    config_dir = tmp_path
+    # Seed the source's metadata sidecar so the clone has something
+    # to carry forward.
+    await asyncio.to_thread(
+        set_device_metadata,
+        config_dir,
+        "kitchen.yaml",
+        board_id="esp32-s3-devkitc-1",
+    )
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ctrl._db.settings.config_dir = config_dir
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    # Verify the metadata sidecar got the carry-forward write.
+    meta = await asyncio.to_thread(get_device_metadata, config_dir, "bedroom-bulb.yaml")
+    assert meta is not None
+    assert meta["board_id"] == "esp32-s3-devkitc-1"
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_handles_filesystem_race_on_target_filename(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A race that creates the target file between gather + commit raises ``INVALID_ARGS``.
+
+    The exclusive-create ``open(..., "x")`` is the actual race
+    defence — even if the gather pass found ``new_path`` missing,
+    a concurrent caller (another ``devices/clone`` request, the
+    user dropping a file via the editor) could create it before our
+    commit. The mode raises ``FileExistsError`` and we translate it
+    into the same ``INVALID_ARGS`` the preflight produces so the
+    frontend renders one consistent message.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    # Patch the executor's ``_commit`` body via the underlying
+    # ``open`` call. The clone command's commit closure does
+    # ``with open(new_path, "x", ...)`` — flipping that to raise
+    # ``FileExistsError`` simulates the race without needing real
+    # cross-process scheduling.
+    real_open = open
+
+    def _raising_open(path, mode="r", *args, **kwargs):  # type: ignore[no-untyped-def]
+        if "x" in mode and str(path).endswith("bedroom-bulb.yaml"):
+            raise FileExistsError(str(path))
+        return real_open(path, mode, *args, **kwargs)
+
+    with (
+        patch(
+            "esphome_device_builder.controllers.devices.controller.open",
+            _raising_open,
+            create=True,
+        ),
+        pytest.raises(CommandError) as excinfo,
+    ):
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "bedroom-bulb.yaml already exists" in excinfo.value.message
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
