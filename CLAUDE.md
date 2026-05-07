@@ -359,17 +359,20 @@ When changing the sync script or catalog handling, watch for these:
   For YAML configs that's unrecoverable; the device's config is
   gone. `esphome.helpers.write_file` is the canonical helper:
   stages the new bytes in a `NamedTemporaryFile` in the
-  *destination* directory, then `shutil.move`s into place — atomic
-  on POSIX (same-FS rename) and Windows (`os.replace` semantics
-  underneath), with `fchmod` to 0o644 by default and
-  `EsphomeError` wrapping. Use it for any in-place rewrite of
-  user-editable YAML / settings (`edit_friendly_name` is the
-  canonical example). Same-directory tempfile matters: the
-  default `tempfile.mkstemp` lands on `/tmp`, which is a separate
-  filesystem from `/config` in the HA addon — `shutil.move`
-  silently degrades to copy+delete across filesystems and you
-  lose atomicity. Don't hand-roll a temp+rename dance for
-  in-place edits; the helper already does it correctly.
+  *destination* directory, then `shutil.move`s into place. The
+  resulting move is atomic only when it can resolve to a same-FS
+  `os.rename` / `os.replace`; cross-filesystem it degrades to
+  copy+delete which is *not* atomic. Staging the tempfile in the
+  destination directory keeps it same-FS and the move atomic.
+  `write_file` also handles `fchmod` to 0o644 by default and
+  wraps `OSError` as `EsphomeError`. Use it for any in-place
+  rewrite of user-editable YAML / settings (`edit_friendly_name`
+  is the canonical example). Don't fall back to
+  `tempfile.mkstemp` without the `dir=` argument — it lands on
+  `/tmp`, which is a separate filesystem from `/config` in the
+  HA addon, and the cross-FS `shutil.move` silently loses
+  atomicity. Don't hand-roll a temp+rename dance either; the
+  helper already does it correctly.
 
   *New* files are a different shape — `clone_device` opens via
   `open(path, "x")` (exclusive-create), which is already atomic
