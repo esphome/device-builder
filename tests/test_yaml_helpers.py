@@ -391,6 +391,22 @@ def test_upsert_yaml_leaf_prepends_new_block_when_missing() -> None:
     assert "esp32:\n  variant: ESP32\n" in out
 
 
+def test_upsert_yaml_leaf_anchors_below_yaml_directives_and_doc_marker() -> None:
+    """``%YAML 1.2`` + ``---`` stay at byte 0; new block lands below."""
+    yaml = "%YAML 1.2\n---\n\npackages:\n  base: !include common/base.yaml\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Reading Lamp")
+    assert out.startswith("%YAML 1.2\n---\n")
+    assert "---\n\nesphome:\n  friendly_name: Reading Lamp\n" in out
+    assert "packages:\n  base: !include common/base.yaml\n" in out
+
+
+def test_upsert_yaml_leaf_anchors_below_doc_marker_only() -> None:
+    """Bare ``---`` at the top stays at byte 0."""
+    yaml = "---\nesp32:\n  variant: ESP32\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Reading Lamp")
+    assert out.startswith("---\nesphome:\n  friendly_name: Reading Lamp\n")
+
+
 def test_upsert_yaml_leaf_safely_quotes_yaml_specials_on_insert() -> None:
     """``Bedroom #2`` round-trips through ``_safe_yaml_scalar`` quoting on insert.
 
