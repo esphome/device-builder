@@ -41,7 +41,6 @@ from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progre
 from ...helpers.yaml import (
     generate_api_encryption_key,
     merge_component_yaml,
-    read_yaml_scalar,
     rewrite_api_encryption_key,
     rewrite_esphome_name,
     rewrite_name_or_substitution,
@@ -86,6 +85,7 @@ from .helpers import (
     _drop_unconfigured_dependent_fields,
     _redact_concealed_secrets,
     _remove_device_sidecars,
+    _rewrite_required_yaml_leaf,
     _validate_archive_configuration,
     _wipe_device_build_dir,
     friendly_name_slugify,
@@ -855,24 +855,17 @@ class DevicesController:
         # Mixed values (``${prefix}-suffix``) aren't pure references
         # and fall through to the leaf rewrite — we have no way to
         # split the prefix without changing the suffix's meaning.
-        # Precondition: there has to be an ``esphome.name`` leaf in
-        # *this* file for us to rewrite. A package-driven config
-        # (``packages: { base: !include common/base.yaml }`` with the
-        # ``esphome:`` block defined upstream) has no in-file leaf to
-        # touch — the rewrite would silently no-op and the clone
-        # would flash under the source's hostname. Reject up-front
-        # with a typed error so the dialog can show a real message
-        # instead of producing a duplicate device.
-        if read_yaml_scalar(source_content, ("esphome", "name")) is None:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                "Source has no inline esphome.name to rewrite — clone "
-                "needs an explicit name in this file (move the name "
-                "out of the package or add an esphome: name: line "
-                "before cloning).",
-            )
-
-        new_content = rewrite_name_or_substitution(source_content, ("esphome", "name"), new_name)
+        # ``_rewrite_required_yaml_leaf`` folds in the "leaf must
+        # exist in this file" precondition + the rewrite — same
+        # check the friendly-name editor uses, so silent no-ops on
+        # package-driven configs surface as a typed error from one
+        # place instead of two.
+        new_content = _rewrite_required_yaml_leaf(source_content, ("esphome", "name"), new_name)
+        # ``friendly_name`` is optional on the clone path — when
+        # the source doesn't have an inline leaf the clone just
+        # ships without one (vs. ``name`` which we hard-require).
+        # Skip the helper here; the underlying ``rewrite_name_or_substitution``
+        # is already a no-op when the leaf is missing.
         if new_friendly_name:
             new_content = rewrite_name_or_substitution(
                 new_content, ("esphome", "friendly_name"), new_friendly_name
@@ -917,6 +910,89 @@ class DevicesController:
         # runs from the scan-change handler — no double-probe here.
         await self._scanner.scan()
         return {"configuration": new_filename}
+
+    @api_command("devices/edit_friendly_name")
+    async def edit_friendly_name(
+        self,
+        *,
+        configuration: str,
+        new_friendly_name: str,
+        **kwargs: Any,
+    ) -> dict[str, str | bool]:
+        """
+        Rewrite ``esphome.friendly_name:`` in the device YAML.
+
+        Targeted at the "I just want to call my bulb something
+        different" workflow — beginners shouldn't have to open the
+        YAML editor and find the right line to change a label.
+
+        The YAML is the source of truth: sidecar-only updates would
+        let the dashboard label drift from what the running firmware
+        broadcasts (every reboot would announce the YAML's value via
+        mDNS, the next compile bakes the YAML in, dashboard and
+        device disagree). Reuses the
+        :func:`rewrite_name_or_substitution` helper from the clone
+        path so the substitution-redirect / safe-quoting / list-
+        item-aware machinery stays in one place.
+
+        Doesn't touch firmware — the frontend already owns the
+        install-flow UX (opens the command-dialog, follows the
+        streaming job, surfaces toasts) so a separate
+        ``firmware/install`` call after this one composes
+        naturally with the existing rename / install paths and
+        keeps this command's responsibility narrow.
+
+        Returns ``{"configuration": …, "rewritten": bool}``.
+        ``rewritten`` is False when the leaf already matched the
+        requested value (no-op rewrite); the caller can use that
+        to skip a redundant follow-up install.
+
+        User-correctable failures raise typed
+        ``CommandError(INVALID_ARGS, …)``:
+        - blank ``new_friendly_name``
+        - source not found
+        - source has no inline ``esphome.friendly_name`` leaf
+          (package / ``!include``-driven; the user has to edit
+          the package)
+        """
+        new_friendly_name = new_friendly_name.strip()
+        if not new_friendly_name:
+            raise CommandError(ErrorCode.INVALID_ARGS, "new_friendly_name is required")
+
+        loop = asyncio.get_running_loop()
+        config_path = self._db.settings.rel_path(configuration)
+
+        def _read() -> str | None:
+            if not config_path.exists():
+                return None
+            return config_path.read_text(encoding="utf-8")
+
+        content = await loop.run_in_executor(None, _read)
+        if content is None:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"Device {configuration} not found",
+            )
+
+        # Precondition + rewrite via the shared helper — same
+        # "leaf must live in this file" check the clone path uses.
+        new_content = _rewrite_required_yaml_leaf(
+            content, ("esphome", "friendly_name"), new_friendly_name
+        )
+        if new_content == content:
+            # Idempotent — user submitted the same value (or the
+            # leaf was already that value). Skip the write and
+            # signal to the caller that no install is needed
+            # either; the dialog can close without queuing a
+            # redundant OTA job.
+            return {"configuration": configuration, "rewritten": False}
+
+        def _write() -> None:
+            config_path.write_text(new_content, encoding="utf-8")
+
+        await loop.run_in_executor(None, _write)
+        await self._scanner.scan()
+        return {"configuration": configuration, "rewritten": True}
 
     async def _yaml_validates(self, config_path: str) -> bool:
         """``esphome config`` precheck.

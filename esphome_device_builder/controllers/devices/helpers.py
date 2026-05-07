@@ -32,11 +32,14 @@ from esphome.storage_json import StorageJSON, ext_storage_path
 
 from ...helpers.api import CommandError
 from ...helpers.hostname import is_local_hostname, normalize_hostname
+from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
 from ..config import clear_volatile_device_metadata, remove_device_metadata
 from .constants import _CONCEALED_SECRET_RE
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ...models import ComponentCatalogEntry, ConfigEntry
     from .._device_state_monitor import DeviceStateMonitor
     from ..components import _FeaturedRecord
@@ -57,12 +60,47 @@ __all__ = [
     "_normalize_pin_value",
     "_redact_concealed_secrets",
     "_remove_device_sidecars",
+    "_rewrite_required_yaml_leaf",
     "_validate_archive_configuration",
     "_wipe_device_build_dir",
     "friendly_name_slugify",
 ]
 
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def _rewrite_required_yaml_leaf(
+    content: str,
+    leaf_path: Sequence[str],
+    new_value: str,
+) -> str:
+    """
+    Rewrite the leaf scalar at *leaf_path* in *content* — raise if missing.
+
+    Thin wrapper around :func:`rewrite_name_or_substitution` that
+    folds in the precondition check both the clone path and the
+    in-place friendly-name editor need: the leaf has to actually
+    exist in *this* file. A package- or ``!include``-driven leaf
+    isn't reachable from here, and silently no-op'ing would let
+    the dashboard / next compile drift from what's actually
+    written (clone produces a duplicate device under the source's
+    hostname; friendly-name edit shows one label but the firmware
+    broadcasts another).
+
+    Raises ``CommandError(INVALID_ARGS, …)`` with a message that
+    names the missing path so the dialog surfaces something
+    concrete instead of "Command failed."
+    """
+    if read_yaml_scalar(content, leaf_path) is None:
+        leaf_dotted = ".".join(leaf_path)
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            f"Source has no inline {leaf_dotted} to rewrite — this "
+            "value is supplied via a package or !include and must "
+            "be edited there.",
+        )
+    return rewrite_name_or_substitution(content, leaf_path, new_value)
 
 
 def _wipe_device_build_dir(configuration: str) -> None:
