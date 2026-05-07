@@ -227,18 +227,132 @@ def rewrite_yaml_scalar(
     return yaml_text
 
 
-def rewrite_esphome_name(yaml_text: str, old_name: str, new_name: str) -> str:
+def read_yaml_scalar(yaml_text: str, path: Sequence[str]) -> str | None:
+    """
+    Return the raw scalar at the YAML mapping *path*, or ``None``.
+
+    Same walker as :func:`rewrite_yaml_scalar` — same path
+    semantics, same list-item / quoted-key skip rules. The
+    returned value is the substring between the colon's trailing
+    whitespace and any trailing ``# comment``, with surrounding
+    whitespace stripped but quotes intact (the same shape the
+    rewrite transform receives). ``None`` distinguishes "key not
+    present" from "key present, value is empty string".
+    """
+    captured: list[str] = []
+
+    def _capture(raw: str) -> str | None:
+        captured.append(raw)
+        return None  # Don't actually rewrite.
+
+    rewrite_yaml_scalar(yaml_text, path, _capture)
+    return captured[0] if captured else None
+
+
+# ESPHome substitutions are referenced as ``$name`` or ``${name}`` —
+# the ``${name}`` form is the canonical one the wizard emits and
+# what users following the upstream docs will write. We only treat
+# a value as a substitution reference when the *entire* value is
+# the reference (``"$devicename"`` / ``"${devicename}"``); a
+# value with extra glue (``"my-${suffix}"``) stays as a literal
+# rewrite target — replacing the substitution there would replace
+# the suffix's expansion across every other consumer.
+_PURE_SUBSTITUTION_REF = re.compile(r"\A(?:\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*))\Z")
+
+
+def parse_substitution_ref(value: str) -> str | None:
+    """
+    Return the substitution name when *value* is a pure ``$var``.
+
+    Also accepts ``${var}``. Surrounding whitespace and matched
+    quotes are stripped before the test. ``"my-${suffix}"`` returns
+    ``None`` because only part of the value is the substitution.
+    """
+    stripped = value.strip()
+    # Strip a single matched pair of quotes if present.
+    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ('"', "'"):
+        stripped = stripped[1:-1]
+    m = _PURE_SUBSTITUTION_REF.match(stripped)
+    if not m:
+        return None
+    return m.group(1) or m.group(2)
+
+
+def rewrite_name_or_substitution(
+    yaml_text: str,
+    leaf_path: Sequence[str],
+    new_value: str,
+) -> str:
+    """
+    Land *new_value* at *leaf_path* or at the substitution it references.
+
+    Two real-world ESPHome patterns drive this:
+
+    1. **Direct literal** — ``esphome.name: kitchen``. The leaf
+       line carries the value directly; rewrite it.
+    2. **Substitution reference** — ``esphome.name: ${devicename}``
+       paired with ``substitutions.devicename: kitchen`` (the
+       standard wizard / ``dashboard_import`` shape). The leaf
+       carries the indirection name; the actual value lives in
+       the substitutions block. Rewriting the leaf with a literal
+       would silently orphan the substitution and break any other
+       consumer (sensor named ``${devicename}_temp``, etc.).
+
+    When the leaf's current value is a *pure* substitution
+    reference (``$var`` / ``${var}`` with no surrounding glue) the
+    helper walks to ``substitutions.<var>`` and rewrites that
+    leaf instead. Mixed values (``${prefix}-suffix``) and any
+    other shape fall through to the leaf rewrite — we have no
+    way to split a partial reference without changing what the
+    other half resolves to elsewhere.
+
+    Returns the original text unchanged when neither the leaf
+    nor the substitution leaf exists.
+    """
+    raw = read_yaml_scalar(yaml_text, leaf_path)
+    var = parse_substitution_ref(raw) if raw is not None else None
+    if var is not None:
+        sub_path: tuple[str, ...] = ("substitutions", var)
+        # Only redirect when the substitution definition is in
+        # *this* file's top-level ``substitutions:`` block. A
+        # ``!include``d substitutions file or a package-supplied
+        # variable wouldn't be visible here; falling through to the
+        # leaf lands the literal in our YAML and leaves the
+        # remote definition untouched.
+        if read_yaml_scalar(yaml_text, sub_path) is not None:
+            return rewrite_yaml_scalar(yaml_text, sub_path, lambda _raw: new_value)
+    return rewrite_yaml_scalar(yaml_text, leaf_path, lambda _raw: new_value)
+
+
+def rewrite_esphome_name(
+    yaml_text: str,
+    new_name: str,
+    *,
+    only_if_current: str | None = None,
+) -> str:
     """
     Replace ``name:`` under the top-level ``esphome:`` block.
 
-    Only changes the line whose value equals *old_name* (with
-    optional surrounding quotes). Indentation and trailing comments
-    are preserved. Returns the original text unchanged when nothing
-    matches so callers can detect a no-op.
+    By default the rewrite is unconditional — every caller that
+    knows the new name to land on wants the line replaced
+    regardless of what the source had (clone path, future
+    create-then-edit flows). Pass *only_if_current* to gate the
+    rewrite on the existing leaf value matching that string —
+    used by ``_manual_rename``'s file-level fallback as a hedge
+    against renaming a config whose YAML ``name:`` no longer
+    matches its filename. The gate is opt-in because the
+    common case (filename and ``esphome.name`` agree) is the
+    same outcome either way; the gate only matters for
+    drift between the two, where clone wants "force the
+    rename" and rename's fallback wants "leave it alone".
+
+    Indentation and trailing comments are preserved. Returns the
+    original text unchanged when nothing matches the path or the
+    gate.
     """
 
     def _swap(raw: str) -> str | None:
-        if raw.strip().strip('"').strip("'") != old_name:
+        if only_if_current is not None and raw.strip().strip('"').strip("'") != only_if_current:
             return None
         return new_name
 

@@ -43,7 +43,7 @@ from ...helpers.yaml import (
     merge_component_yaml,
     rewrite_api_encryption_key,
     rewrite_esphome_name,
-    rewrite_friendly_name,
+    rewrite_name_or_substitution,
 )
 from ...models import (
     AddComponentResponse,
@@ -796,7 +796,6 @@ class DevicesController:
         source_path = self._db.settings.rel_path(configuration)
         new_path = self._db.settings.rel_path(new_filename)
         config_dir = self._db.settings.config_dir
-        old_name = configuration.removesuffix(".yaml").removesuffix(".yml")
         # Default the friendly_name to a slug-derived fallback so
         # the dashboard list doesn't show two entries with the same
         # label after a clone. Explicit blank string opts out.
@@ -831,9 +830,30 @@ class DevicesController:
             msg = f"Source device {configuration} not found"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-        new_content = rewrite_esphome_name(source_content, old_name, new_name)
+        # Land the new identity on whichever line the source actually
+        # uses to drive the value. Two patterns appear in real configs:
+        #
+        # 1. **Direct literal** — ``esphome.name: kitchen``. Rewrite
+        #    the leaf line.
+        # 2. **Substitution reference** — ``esphome.name: ${devicename}``
+        #    with ``substitutions.devicename: kitchen``. This is the
+        #    standard ESPHome wizard / dashboard_import shape. Here
+        #    the *leaf* line carries an indirection name; the actual
+        #    value lives in the substitutions block. Rewriting the
+        #    leaf would land a literal name and silently orphan the
+        #    substitution, breaking any other consumer of the same
+        #    variable (a sensor named ``${devicename}_temp``, etc.).
+        #    Rewrite the substitution definition instead so every
+        #    reference re-targets atomically.
+        #
+        # Mixed values (``${prefix}-suffix``) aren't pure references
+        # and fall through to the leaf rewrite — we have no way to
+        # split the prefix without changing the suffix's meaning.
+        new_content = rewrite_name_or_substitution(source_content, ("esphome", "name"), new_name)
         if new_friendly_name:
-            new_content = rewrite_friendly_name(new_content, new_friendly_name)
+            new_content = rewrite_name_or_substitution(
+                new_content, ("esphome", "friendly_name"), new_friendly_name
+            )
         # ``rewrite_api_encryption_key`` is a no-op when the source
         # uses ``!secret`` / ``${...}`` for the key — those
         # indirections stay shared with the source on purpose.
@@ -2478,7 +2498,12 @@ class DevicesController:
 
         old_name = configuration.removesuffix(".yaml").removesuffix(".yml")
         content = old_path.read_text(encoding="utf-8")
-        new_content = rewrite_esphome_name(content, old_name, new_name)
+        # File-level rename gates the YAML rewrite on the existing
+        # ``esphome.name`` matching the filename — when they've
+        # drifted (hand-edited YAML, substituted name) we'd rather
+        # leave the line alone than silently flip a value the user
+        # may have set deliberately.
+        new_content = rewrite_esphome_name(content, new_name, only_if_current=old_name)
         new_path.write_text(new_content, encoding="utf-8")
         old_path.unlink()
 

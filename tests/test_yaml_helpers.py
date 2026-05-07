@@ -32,9 +32,12 @@ from esphome_device_builder.helpers.yaml import (
     generate_api_encryption_key,
     generate_component_yaml,
     merge_component_yaml,
+    parse_substitution_ref,
+    read_yaml_scalar,
     rewrite_api_encryption_key,
     rewrite_esphome_name,
     rewrite_friendly_name,
+    rewrite_name_or_substitution,
     rewrite_yaml_scalar,
 )
 from esphome_device_builder.models.components import (
@@ -76,7 +79,7 @@ def test_rewrite_esphome_name_swaps_value_under_esphome_block() -> None:
     what the wizard emits.
     """
     yaml = "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
-    assert rewrite_esphome_name(yaml, "kitchen", "kitchen-2") == (
+    assert rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen") == (
         "esphome:\n  name: kitchen-2\n  friendly_name: Kitchen\n"
     )
 
@@ -93,7 +96,7 @@ def test_rewrite_esphome_name_returns_original_when_no_match() -> None:
     is its own concern; this test stays focused on the helper.
     """
     yaml = "esphome:\n  name: kitchen\n"
-    assert rewrite_esphome_name(yaml, "garage", "garage-2") == yaml
+    assert rewrite_esphome_name(yaml, "garage-2", only_if_current="garage") == yaml
 
 
 def test_rewrite_esphome_name_ignores_lookalike_in_other_block() -> None:
@@ -109,7 +112,7 @@ def test_rewrite_esphome_name_ignores_lookalike_in_other_block() -> None:
         "wifi:\n  ssid: kitchen\n"
         "sensor:\n  - platform: dht\n    name: kitchen\n"
     )
-    out = rewrite_esphome_name(yaml, "kitchen", "kitchen-2")
+    out = rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen")
     assert "name: kitchen-2" in out
     assert "ssid: kitchen\n" in out  # untouched
     assert "    name: kitchen\n" in out  # sensor untouched
@@ -122,7 +125,7 @@ def test_rewrite_esphome_name_preserves_trailing_comment() -> None:
     every rename would be a noisy regression.
     """
     yaml = "esphome:\n  name: kitchen  # primary device\n"
-    out = rewrite_esphome_name(yaml, "kitchen", "kitchen-2")
+    out = rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen")
     assert out == "esphome:\n  name: kitchen-2  # primary device\n"
 
 
@@ -145,7 +148,7 @@ def test_rewrite_esphome_name_no_match_walks_past_sibling_top_level_blocks() -> 
     """
     yaml = "esphome:\n  name: kitchen\nwifi:\n  ssid: home\n"
     # ``other`` doesn't match ``kitchen`` → no rewrite, walker runs to EOF.
-    assert rewrite_esphome_name(yaml, "other", "renamed") == yaml
+    assert rewrite_esphome_name(yaml, "renamed", only_if_current="other") == yaml
 
 
 def test_rewrite_esphome_name_walks_past_non_name_lines_and_other_blocks() -> None:
@@ -172,7 +175,7 @@ def test_rewrite_esphome_name_walks_past_non_name_lines_and_other_blocks() -> No
         "  ssid: home\n"
         "  name: kitchen\n"  # would-be lookalike under wifi block
     )
-    out = rewrite_esphome_name(yaml, "kitchen", "kitchen-2")
+    out = rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen")
     assert "  name: kitchen-2\n" in out
     # Wi-Fi's ``name:`` lookalike survives — the block-exit branch did its job.
     assert out.count("name: kitchen\n") == 1
@@ -187,8 +190,159 @@ def test_rewrite_esphome_name_handles_quoted_value() -> None:
     sees "no match" for a name they can clearly read in the file.
     """
     yaml = 'esphome:\n  name: "kitchen"\n'
-    out = rewrite_esphome_name(yaml, "kitchen", "kitchen-2")
+    out = rewrite_esphome_name(yaml, "kitchen-2", only_if_current="kitchen")
     assert "name: kitchen-2" in out
+
+
+def test_rewrite_esphome_name_unconditional_replaces_regardless_of_value() -> None:
+    """Default mode (no ``only_if_current``) replaces whatever's there.
+
+    Pin the clone-path's behaviour: a YAML whose ``esphome.name``
+    has drifted from its filename (hand-edited config, or a
+    ``name: $hostname`` substitution where the literal in the YAML
+    is ``$hostname``) still gets the new name landed on the line.
+    The gated mode used by ``_manual_rename`` is opt-in via the
+    keyword arg.
+    """
+    yaml = "esphome:\n  name: my-kitchen-bulb\n  friendly_name: Kitchen\n"
+    out = rewrite_esphome_name(yaml, "bedroom-bulb")
+    assert "  name: bedroom-bulb\n" in out
+    assert "my-kitchen-bulb" not in out
+
+
+def test_rewrite_esphome_name_unconditional_replaces_substituted_name() -> None:
+    """Unconditional replace works when the source uses ``$var`` substitutions.
+
+    The literal value on the ``name:`` line is ``$hostname``, not
+    the resolved string. A gated rewrite keyed on the filename
+    would no-op; the unconditional path lands the new name and
+    drops the substitution dependency for the cloned device.
+    """
+    yaml = "esphome:\n  name: $hostname\n"
+    out = rewrite_esphome_name(yaml, "bedroom-bulb")
+    assert out == "esphome:\n  name: bedroom-bulb\n"
+
+
+# ---------------------------------------------------------------------------
+# parse_substitution_ref / rewrite_name_or_substitution
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("$devicename", "devicename"),
+        ("${devicename}", "devicename"),
+        ('"$devicename"', "devicename"),
+        ("'${devicename}'", "devicename"),
+        ("  ${devicename}  ", "devicename"),
+        ("kitchen", None),
+        ("$1bad", None),  # name must start with letter / underscore
+        ("my-${suffix}", None),  # mixed value, not a pure ref
+        ("${a}${b}", None),  # multiple refs
+        ("", None),
+    ],
+)
+def test_parse_substitution_ref(value: str, expected: str | None) -> None:
+    """Pin the variable-name parser's accept / reject contract.
+
+    Pure references (``$var`` / ``${var}`` optionally quoted)
+    return the variable name; anything with extra glue or a
+    malformed identifier returns ``None`` so the caller falls
+    back to a literal rewrite rather than wreck a partial match.
+    """
+    assert parse_substitution_ref(value) == expected
+
+
+def test_rewrite_name_or_substitution_redirects_through_substitution() -> None:
+    """The wizard / dashboard_import shape: name lives in substitutions.
+
+    ``esphome.name: ${devicename}`` paired with
+    ``substitutions.devicename: kitchen`` is the canonical pattern
+    ESPHome's wizard emits. Rewriting the leaf with a literal
+    would orphan the substitution and break any other consumer
+    (a sensor named ``${devicename}_temp``, etc.). Pin that the
+    rewrite walks to the substitution definition instead.
+    """
+    yaml = (
+        "substitutions:\n"
+        "  devicename: acfloatmonitor32\n"
+        "  friendly_name: AC Float Monitor 32\n"
+        "esphome:\n"
+        "  name: ${devicename}\n"
+        "  friendly_name: ${friendly_name}\n"
+    )
+    out = rewrite_name_or_substitution(yaml, ("esphome", "name"), "bedroom-bulb")
+    # Substitution definition flipped, leaf still references the var.
+    assert "  devicename: bedroom-bulb\n" in out
+    assert "  name: ${devicename}\n" in out
+    # Other substitutions untouched.
+    assert "  friendly_name: AC Float Monitor 32\n" in out
+
+
+def test_rewrite_name_or_substitution_falls_through_to_literal() -> None:
+    """A literal value gets rewritten on the leaf line directly."""
+    yaml = "esphome:\n  name: kitchen\n"
+    out = rewrite_name_or_substitution(yaml, ("esphome", "name"), "bedroom-bulb")
+    assert out == "esphome:\n  name: bedroom-bulb\n"
+
+
+def test_rewrite_name_or_substitution_handles_dollar_form() -> None:
+    """Both ``$var`` and ``${var}`` reference shapes redirect."""
+    yaml = "substitutions:\n  devicename: kitchen\nesphome:\n  name: $devicename\n"
+    out = rewrite_name_or_substitution(yaml, ("esphome", "name"), "bedroom-bulb")
+    assert "  devicename: bedroom-bulb\n" in out
+    assert "  name: $devicename\n" in out
+
+
+def test_rewrite_name_or_substitution_falls_through_when_substitution_not_local() -> None:
+    """A leaf that references an unresolved variable rewrites the leaf.
+
+    The substitutions block is in a package / ``!include``d file
+    we can't see — better to land the literal on the leaf than
+    silently no-op. The user can then edit the package definition
+    if they want substitution-driven cloning.
+    """
+    yaml = "esphome:\n  name: ${devicename}\n"
+    out = rewrite_name_or_substitution(yaml, ("esphome", "name"), "bedroom-bulb")
+    assert "  name: bedroom-bulb\n" in out
+
+
+def test_rewrite_name_or_substitution_handles_mixed_value_via_leaf() -> None:
+    """Partial reference (``${prefix}-suffix``) rewrites the leaf, not the prefix.
+
+    Splitting ``${prefix}-suffix`` into a substitution rewrite +
+    suffix preservation isn't possible without changing what
+    ``${prefix}`` resolves to elsewhere. Land the new value as a
+    literal on the leaf and let the user clean up.
+    """
+    yaml = "substitutions:\n  prefix: my\nesphome:\n  name: ${prefix}-suffix\n"
+    out = rewrite_name_or_substitution(yaml, ("esphome", "name"), "bedroom-bulb")
+    assert "  prefix: my\n" in out  # untouched
+    assert "  name: bedroom-bulb\n" in out  # leaf flipped to literal
+
+
+# ---------------------------------------------------------------------------
+# read_yaml_scalar
+# ---------------------------------------------------------------------------
+
+
+def test_read_yaml_scalar_returns_raw_value_with_quotes_intact() -> None:
+    """``read_yaml_scalar`` returns what the rewrite transform would see."""
+    yaml = 'esphome:\n  name: "kitchen"  # primary\n'
+    assert read_yaml_scalar(yaml, ("esphome", "name")) == '"kitchen"'
+
+
+def test_read_yaml_scalar_returns_none_when_path_missing() -> None:
+    """Missing path → ``None``."""
+    yaml = "esphome:\n  name: kitchen\n"
+    assert read_yaml_scalar(yaml, ("api", "encryption", "key")) is None
+
+
+def test_read_yaml_scalar_returns_empty_string_for_empty_value() -> None:
+    """Empty scalar → ``""`` (distinguishable from missing path's ``None``)."""
+    yaml = "esphome:\n  name: \n"
+    assert read_yaml_scalar(yaml, ("esphome", "name")) == ""
 
 
 # ---------------------------------------------------------------------------

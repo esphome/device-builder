@@ -236,6 +236,77 @@ async def test_clone_device_works_when_api_is_plaintext(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_redirects_through_substitutions_block(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Wizard / dashboard_import shape: clone updates the substitution.
+
+    When the source uses the standard ESPHome wizard pattern —
+    ``esphome.name: ${devicename}`` paired with
+    ``substitutions.devicename: kitchen`` — the clone must
+    rewrite the substitution rather than the leaf. Rewriting the
+    leaf would orphan the substitution and break any other
+    consumer of ``${devicename}`` in the same file (sensor names,
+    log tags, etc.) by stripping the indirection.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    yaml = (
+        "substitutions:\n"
+        "  devicename: acfloatmonitor32\n"
+        "  friendly_name: AC Float Monitor 32\n"
+        "esphome:\n"
+        "  name: ${devicename}\n"
+        "  friendly_name: ${friendly_name}\n"
+        "esp32:\n  variant: ESP32\n"
+    )
+    (tmp_path / "acfloatmonitor32.yaml").write_text(yaml, "utf-8")
+
+    await ctrl.clone_device(
+        configuration="acfloatmonitor32.yaml",
+        new_name="bedroom-bulb",
+        new_friendly_name="Bedroom Bulb",
+    )
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    # Substitutions flipped, leaves still reference the variables —
+    # any other consumer of ``${devicename}`` now points at the
+    # cloned name automatically.
+    assert "  devicename: bedroom-bulb\n" in new_yaml
+    assert "  friendly_name: Bedroom Bulb\n" in new_yaml
+    assert "  name: ${devicename}\n" in new_yaml
+    assert "  friendly_name: ${friendly_name}\n" in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_lands_new_name_when_yaml_name_diverges_from_filename(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Clone rewrites ``esphome.name`` even when source filename and YAML name disagree.
+
+    Real configs sometimes drift: a file named ``kitchen.yaml`` that
+    carries ``esphome.name: my-kitchen-bulb`` (hand-edited, or
+    legacy from a previous rename), or ``name: $hostname`` with the
+    literal substitution variable in the YAML. Earlier draft
+    derived ``old_name`` from the filename and gated the rewrite on
+    a value-match — that produced clones whose YAML ``name:`` was
+    untouched, leaving the cloned config flashing under the
+    *source's* hostname. Pin the unconditional rewrite so the new
+    name lands regardless of what the source line said.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    yaml = "esphome:\n  name: my-kitchen-bulb\n  friendly_name: Kitchen\nesp32:\n  variant: ESP32\n"
+    (tmp_path / "kitchen.yaml").write_text(yaml, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    assert "  name: bedroom-bulb\n" in new_yaml
+    assert "my-kitchen-bulb" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_preserves_secret_indirection_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
