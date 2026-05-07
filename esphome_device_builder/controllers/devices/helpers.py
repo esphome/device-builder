@@ -81,24 +81,28 @@ def _rewrite_required_yaml_leaf(
     Thin wrapper around :func:`rewrite_name_or_substitution` that
     folds in the precondition check both the clone path and the
     in-place friendly-name editor need: the leaf has to actually
-    exist in *this* file. A package- or ``!include``-driven leaf
-    isn't reachable from here, and silently no-op'ing would let
-    the dashboard / next compile drift from what's actually
-    written (clone produces a duplicate device under the source's
-    hostname; friendly-name edit shows one label but the firmware
-    broadcasts another).
+    exist in *this* file. Silently no-op'ing on a missing leaf
+    would let the dashboard / next compile drift from what's
+    actually written (clone produces a duplicate device under the
+    source's hostname; friendly-name edit shows one label but the
+    firmware broadcasts another).
 
-    Raises ``CommandError(INVALID_ARGS, …)`` with a message that
-    names the missing path so the dialog surfaces something
-    concrete instead of "Command failed."
+    The leaf can be missing for two reasons that look the same to
+    us — either the field is genuinely absent from this YAML
+    (config that simply omits ``esphome.friendly_name`` until the
+    user fills it in) or it lives in a ``packages:`` / ``!include``d
+    file. The error message names the missing path and points at
+    both fixes ("add it here, or edit the included source") so
+    the dialog can surface something concrete the user can act on
+    without us having to disambiguate.
     """
     if read_yaml_scalar(content, leaf_path) is None:
         leaf_dotted = ".".join(leaf_path)
         raise CommandError(
             ErrorCode.INVALID_ARGS,
-            f"Source has no inline {leaf_dotted} to rewrite — this "
-            "value is supplied via a package or !include and must "
-            "be edited there.",
+            f"No {leaf_dotted} line found in this YAML — add one "
+            "directly, or edit the package / !include where it's "
+            "defined.",
         )
     return rewrite_name_or_substitution(content, leaf_path, new_value)
 

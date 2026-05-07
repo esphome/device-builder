@@ -383,7 +383,10 @@ async def test_clone_device_rejects_source_with_no_inline_esphome_name(
         await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "no inline esphome.name" in excinfo.value.message
+    assert "esphome.name" in excinfo.value.message
+    # Error names both fixes (add it directly OR edit the package),
+    # rather than asserting one cause.
+    assert "package" in excinfo.value.message or "include" in excinfo.value.message
     # Clone target should not have been written.
     assert not (tmp_path / "bedroom-bulb.yaml").exists()
 

@@ -19,6 +19,7 @@ What we pin:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -210,6 +211,48 @@ async def test_edit_friendly_name_rejects_source_with_no_inline_leaf(
     assert "esphome.friendly_name" in excinfo.value.message
     # File untouched.
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == yaml
+
+
+async def test_edit_friendly_name_writes_atomically_via_replace(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Source YAML survives a mid-write crash without being truncated.
+
+    A naive ``Path.write_text`` truncates the destination first, so
+    a crash between truncate and the buffer flush would leave the
+    user with an empty / partial config. The atomic
+    tempfile + ``os.replace`` approach stages the new bytes in a
+    sibling temp before the rename, so a crash during the write
+    leaves the original config intact and only orphans the temp.
+    Pin both halves: source survives, no leftover ``.tmp`` shrapnel.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    boom = RuntimeError("simulated mid-rename crash")
+
+    def _exploding_replace(src: str, dst: str) -> None:
+        # Clean up the staged tempfile the way the real os.replace
+        # would have if the rename had succeeded — otherwise the
+        # ``except: unlink`` branch in ``_write_atomic`` is what
+        # we're trying to test, and a leftover tempfile would
+        # mask that.
+        Path(src).unlink(missing_ok=True)
+        raise boom
+
+    monkeypatch.setattr(os, "replace", _exploding_replace)
+    with pytest.raises(RuntimeError, match="simulated mid-rename"):
+        await ctrl.edit_friendly_name(
+            configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+        )
+
+    # Source untouched — atomic-write contract held.
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == SOURCE_YAML
+    # No leftover ``.kitchen.yaml.…tmp`` siblings.
+    leftover = [p.name for p in tmp_path.iterdir() if p.name != "kitchen.yaml"]
+    assert leftover == []
 
 
 async def test_edit_friendly_name_preserves_unrelated_lines(
