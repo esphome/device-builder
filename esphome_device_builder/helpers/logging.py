@@ -13,15 +13,6 @@ class LoggingQueueHandler(logging.handlers.QueueHandler):
 
     listener: logging.handlers.QueueListener | None = None
 
-    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
-        """Prepare a record for queuing."""
-        record = super().prepare(record)
-        # Workaround for CPython issue 46755: a non-None ``stack_info``
-        # survives the ``copy.copy`` inside ``prepare`` and gets
-        # formatted a second time when the listener picks the record up.
-        record.stack_info = None
-        return record
-
     def handle(self, record: logging.LogRecord) -> Any:
         """Filter and emit the record."""
         # ``Handler.handle`` acquires ``self.lock`` before delegating

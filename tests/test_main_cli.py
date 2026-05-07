@@ -19,13 +19,18 @@ template relies on.
 from __future__ import annotations
 
 import builtins
+import logging
+import sys
+import threading
+from collections.abc import Generator
 from importlib.metadata import PackageNotFoundError
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from esphome_device_builder import __main__ as main_module
 from esphome_device_builder import constants
+from esphome_device_builder.helpers.logging import LoggingQueueHandler
 
 # ---------------------------------------------------------------------------
 # constants._resolve_version
@@ -130,3 +135,121 @@ def test_main_version_flag_prints_and_exits(
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
     assert "esphome-device-builder 2026.5.0 (esphome 2026.3.1)" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# __main__._setup_logging — uncaught-exception hooks
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _isolated_logging_globals() -> Generator[None]:
+    """
+    Snapshot the global state ``_setup_logging`` mutates and restore it.
+
+    Without this, the installed excepthooks and queue handler leak
+    across tests and the lambdas hold a reference to whatever root
+    handlers happened to be configured at call time.
+    """
+    saved_sys_hook = sys.excepthook
+    saved_thread_hook = threading.excepthook
+    saved_handlers = logging.root.handlers[:]
+    saved_level = logging.root.level
+    logging.root.handlers = []
+    try:
+        yield
+    finally:
+        for handler in logging.root.handlers[:]:
+            handler.close()
+            logging.root.removeHandler(handler)
+        for handler in saved_handlers:
+            logging.root.addHandler(handler)
+        logging.root.setLevel(saved_level)
+        sys.excepthook = saved_sys_hook
+        threading.excepthook = saved_thread_hook
+
+
+def test_setup_logging_routes_uncaught_main_thread_exception_through_logger(
+    _isolated_logging_globals: None,
+) -> None:
+    """``sys.excepthook`` forwards ``(type, value, tb)`` to ``logger.exception``."""
+    main_module._setup_logging("info")
+
+    # ``_setup_logging`` replaces the default — the new hook must
+    # forward the triple verbatim so ``logging.Formatter`` can render
+    # the traceback.
+    assert sys.excepthook is not sys.__excepthook__
+
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError:
+        exc_info = sys.exc_info()
+
+    with patch("logging.getLogger") as mock_get_logger:
+        sys.excepthook(*exc_info)
+
+    mock_get_logger.assert_called_once_with()
+    mock_get_logger.return_value.exception.assert_called_once_with(
+        "Uncaught exception", exc_info=exc_info
+    )
+
+
+def test_setup_logging_routes_uncaught_thread_exception_through_logger(
+    _isolated_logging_globals: None,
+) -> None:
+    """``threading.excepthook`` unpacks ``ExceptHookArgs`` into ``exc_info``."""
+    main_module._setup_logging("info")
+
+    assert threading.excepthook is not threading.__excepthook__
+
+    args = MagicMock(spec=threading.ExceptHookArgs)
+    args.exc_type = RuntimeError
+    args.exc_value = RuntimeError("boom")
+    args.exc_traceback = None
+    args.thread = None
+
+    with patch("logging.getLogger") as mock_get_logger:
+        threading.excepthook(args)
+
+    mock_get_logger.assert_called_once_with()
+    mock_get_logger.return_value.exception.assert_called_once_with(
+        "Uncaught thread exception",
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+    )
+
+
+def test_setup_logging_excepthooks_log_through_queue_listener(
+    _isolated_logging_globals: None,
+) -> None:
+    """End-to-end: a hook firing reaches a handler behind the queue listener."""
+    captured: list[logging.LogRecord] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured.append(record)
+
+    capture = _Capture()
+    logging.root.addHandler(capture)
+
+    main_module._setup_logging("debug")
+
+    try:
+        raise RuntimeError("boom-from-main-thread")
+    except RuntimeError:
+        sys.excepthook(*sys.exc_info())
+
+    # The queue handler offloads emission to a worker thread; drain by
+    # stopping the listener so the assertion sees the record.
+    queue_handler = next(h for h in logging.root.handlers if isinstance(h, LoggingQueueHandler))
+    listener = queue_handler.listener
+    assert listener is not None
+    listener.stop()
+    queue_handler.listener = None
+
+    # ``QueueHandler.prepare`` bakes the traceback into ``record.msg``
+    # and nulls ``exc_info`` / ``exc_text`` so the record stays
+    # picklable on the way through the queue.
+    messages = [r.getMessage() for r in captured]
+    assert any(
+        "Uncaught exception" in m and "RuntimeError: boom-from-main-thread" in m for m in messages
+    )

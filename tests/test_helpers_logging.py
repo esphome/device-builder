@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
-import queue
 from collections.abc import Generator
 
 import pytest
@@ -123,22 +122,3 @@ def test_records_reach_migrated_handlers(isolated_root_logger: None) -> None:
     queue_handler.listener = None
 
     assert any(r.getMessage() == "hello" for r in capture.records)
-
-
-def test_prepare_clears_stack_info() -> None:
-    """``prepare`` strips ``stack_info`` so the listener can't double-format it."""
-    handler = LoggingQueueHandler(queue.SimpleQueue())
-    record = logging.LogRecord(
-        name="x",
-        level=logging.INFO,
-        pathname=__file__,
-        lineno=1,
-        msg="msg",
-        args=None,
-        exc_info=None,
-    )
-    record.stack_info = "fake stack"
-
-    prepared = handler.prepare(record)
-
-    assert prepared.stack_info is None

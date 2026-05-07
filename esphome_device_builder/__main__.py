@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sys
+import threading
 from contextlib import suppress
 from logging.handlers import RotatingFileHandler
 from typing import TYPE_CHECKING
@@ -78,6 +80,17 @@ def _setup_logging(log_level: str, log_file: str | None = None) -> None:
     logging.getLogger("asyncio").setLevel(logging.WARNING)
     logging.getLogger("aiohttp").setLevel(logging.WARNING)
     logging.getLogger("zeroconf").setLevel(logging.WARNING)
+
+    # Route uncaught main-thread and worker-thread exceptions through
+    # the logging system so they hit the same console + rotating-file
+    # destinations as everything else, instead of going to bare stderr.
+    sys.excepthook = lambda *args: logging.getLogger().exception(
+        "Uncaught exception", exc_info=args
+    )
+    threading.excepthook = lambda args: logging.getLogger().exception(
+        "Uncaught thread exception",
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+    )
 
     # Has to be the last step — handlers added after this run inline
     # on the calling thread instead of being offloaded to the listener.
