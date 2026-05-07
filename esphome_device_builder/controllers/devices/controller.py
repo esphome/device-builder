@@ -1100,9 +1100,11 @@ class DevicesController:
         """Write device config YAML."""
         path = self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
-        # Atomic write — see ``edit_friendly_name`` for the
-        # rationale. The YAML editor's "Save" button lands here, so
-        # a non-atomic write would lose the user's config on a crash.
+        # Atomic write — the YAML editor's "Save" button lands
+        # here, so a non-atomic write would lose the user's
+        # config on a mid-write crash. See ``CLAUDE.md`` >
+        # "Things that have bitten us before" for the full
+        # ``Path.write_text`` non-atomicity story.
         await loop.run_in_executor(None, atomic_write_file, path, content)
         await self._scanner.scan()
         # Refresh ``StorageJSON`` so address / loaded_integrations /
