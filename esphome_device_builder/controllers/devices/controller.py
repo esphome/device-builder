@@ -1040,6 +1040,32 @@ class DevicesController:
             # switch to block style rather than landing a
             # duplicate ``esphome:`` key.
             raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+
+        # Round-trip check: parse the rewritten YAML through the
+        # same reader the scanner uses (``parse_esphome_meta``) and
+        # verify it sees the new ``friendly_name``. Cheap defence
+        # against the line-based upsert producing a YAML shape that
+        # serializes fine but the reader misinterprets — a real bug
+        # we shipped once where wizard-emitted column-0 ``# Board:``
+        # / ``# Definition:`` comments ended up between an inserted
+        # ``name:`` and ``friendly_name:``, the reader hit ``# Board:``
+        # at column 0, treated it as a fresh top-level key, dropped
+        # the ``esphome:`` context, and silently lost
+        # ``friendly_name`` on every subsequent load. The user saw
+        # "renamed but the dashboard still shows the old name." Run
+        # the verification before writing so a future rewriter bug
+        # surfaces as a typed error instead of silently corrupting
+        # the user's config.
+        _, parsed_friendly, _, _ = parse_esphome_meta(new_content)
+        if parsed_friendly != new_friendly_name:
+            raise CommandError(
+                ErrorCode.INTERNAL_ERROR,
+                "Edited YAML doesn't round-trip through the reader — "
+                "the line-based upsert produced a shape the parser "
+                "misinterprets. This is a dashboard bug; please "
+                "report the device's YAML so we can extend the "
+                "rewriter's coverage.",
+            )
         if new_content == content:
             # Idempotent — user submitted the same value (or the
             # leaf was already that value). Skip the write and

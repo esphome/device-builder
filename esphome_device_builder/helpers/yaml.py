@@ -522,16 +522,36 @@ def upsert_yaml_leaf_under_top_block(
     # Single walk: locate the block opener at column 0, capture
     # the first child's indent (so 4-space hand-edited configs
     # don't suddenly sprout 2-space siblings), and stop at the
-    # next column-0 non-comment line which closes the block.
+    # next column-0 line which closes the block.
+    #
+    # Comment handling has different rules outside vs inside the
+    # block. Outside: skip column-0 comments while looking for the
+    # opener (file headers like ``# Board: …`` from the wizard).
+    # Inside: a column-0 comment terminates the block — visually
+    # those belong to the next block, not the previous one. This
+    # bit us when the wizard's column-0 ``# Board:`` /
+    # ``# Definition:`` annotations ended up between an inserted
+    # ``name:`` and a subsequent ``friendly_name:`` insert: the
+    # second insert mistook the comments as block-internal and
+    # landed the leaf below them, yielding a malformed YAML where
+    # column-0 comments sit between two indented children — and
+    # ``parse_esphome_meta`` reads ``# Board:`` as a fresh
+    # top-level key, abandoning the ``esphome:`` context and
+    # losing the friendly_name on read.
     block_start: int | None = None
     block_end = len(lines)
     indent = ESPHOME_YAML_INDENT
     indent_captured = False
     for i, line in enumerate(lines):
         stripped = line.rstrip("\n\r")
-        if not stripped or stripped.lstrip().startswith("#"):
+        if not stripped:
             continue
         if block_start is None:
+            # Outside the block — column-0 comments are file
+            # headers / inter-block separators; skip them while
+            # we look for the opener.
+            if stripped.lstrip().startswith("#"):
+                continue
             m = header_re.match(stripped)
             if m is not None:
                 if m.group("rest").split("#", 1)[0].strip():
@@ -543,9 +563,14 @@ def upsert_yaml_leaf_under_top_block(
                     )
                 block_start = i
             continue
+        # Inside the block. Indented lines (children + indented
+        # comments) stay; column-0 lines — comment or otherwise —
+        # close it.
         if not stripped[0].isspace():
             block_end = i
             break
+        if stripped.lstrip().startswith("#"):
+            continue
         if not indent_captured:
             indent = " " * (len(stripped) - len(stripped.lstrip(" ")))
             indent_captured = True

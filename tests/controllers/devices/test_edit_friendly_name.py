@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.controllers._device_scanner import DeviceFileMetadata, DeviceScanner
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -451,3 +452,106 @@ async def test_edit_friendly_name_preserves_unrelated_lines(
     assert "  friendly_name: Reading Lamp\n" in new_yaml
     assert '    key: "PRESERVE_THIS_KEY=="\n' in new_yaml
     assert "    name: kitchen-temp  # lookalike\n" in new_yaml
+
+
+@pytest.mark.parametrize(
+    ("yaml_before", "expected_name", "expected_friendly"),
+    [
+        # Inline literal — straight rewrite.
+        (
+            "esphome:\n  name: brandnew\n  friendly_name: brandnew\n\nesp32:\n  variant: ESP32\n",
+            "brandnew",
+            "The BRAND NEW",
+        ),
+        # No esphome block at all (package-driven). Synthesised name
+        # alongside friendly_name.
+        (
+            "packages:\n  base: !include common/base.yaml\nesp32:\n  variant: ESP32\n",
+            "the-brand-new",
+            "The BRAND NEW",
+        ),
+        # esphome block but no name OR friendly_name. Synthesise both.
+        (
+            "esphome:\n  comment: Something\nesp32:\n  variant: ESP32\n",
+            "the-brand-new",
+            "The BRAND NEW",
+        ),
+        # Regression for a real bug: the wizard's
+        # ``generate_device_yaml`` emits ``# Board: …`` /
+        # ``# Definition: …`` annotations at column 0 above the
+        # ``esphome:`` block. If the user then ends up in the
+        # "no esphome block" state (manual edit, dashboard_import
+        # template that strips it, etc.) and edits the friendly
+        # name, the upsert must NOT pull those column-0 comments
+        # *into* the synthesised block — landing column-0
+        # comments between an indented ``name:`` and
+        # ``friendly_name:`` produces a YAML where
+        # ``parse_esphome_meta`` reads ``# Board:`` as a fresh
+        # top-level key, drops the ``esphome:`` context, and
+        # silently loses ``friendly_name`` on the next load.
+        # User-visible symptom: dashboard keeps showing the old
+        # filename-stem fallback instead of the new label.
+        (
+            "# Board: Generic ESP32-H2 Board (Generic)\n"
+            "# Definition: definitions/boards/generic-esp32h2/manifest.yaml\n"
+            "\n"
+            "esp32:\n  variant: esp32h2\n",
+            "the-brand-new",
+            "The BRAND NEW",
+        ),
+    ],
+)
+async def test_edit_friendly_name_end_to_end_through_real_scanner(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    yaml_before: str,
+    expected_name: str,
+    expected_friendly: str,
+) -> None:
+    """End-to-end: real DeviceScanner sees the new friendly_name after edit.
+
+    The unit tests in this file mostly assert against the YAML on
+    disk, but the user-facing chain runs YAML write → scanner
+    detects mtime/inode change → ``_load_devices`` rebuilds the
+    Device → ``_on_change(UPDATED)`` fires → frontend's
+    ``_devices`` reflects the new fields. A regression in any of
+    those steps would still pass the disk-content tests but show
+    up as "I renamed it but the dashboard still shows the old
+    name."
+
+    Pin the full pipeline against a real scanner across the three
+    starting-shape variants the controller handles: inline literal
+    (rewrite), no-esphome-block (prepend with synthesised name),
+    esphome-block-without-name (insert with synthesised name).
+    All three should produce a Device with ``friendly_name`` set
+    to the user's new value visible via ``scanner.devices`` —
+    which is exactly what ``devices/list`` and the ``initial_state``
+    snapshot return on a page reload.
+    """
+    cfg = tmp_path / "brandnew.yaml"
+    cfg.write_text(yaml_before, encoding="utf-8")
+
+    metadata = DeviceFileMetadata(board_id="", ip="")
+    real_scanner = DeviceScanner(
+        tmp_path,
+        get_metadata=lambda _cdir, _name: metadata,
+        on_change=lambda _kind, _device: None,
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    ctrl._scanner = real_scanner  # swap the recording fake for a real one
+
+    await real_scanner.scan()
+    [seeded] = real_scanner.devices
+    # Sanity: pre-edit the device's name falls back to the filename
+    # stem when the YAML doesn't carry an esphome.name.
+    assert seeded.configuration == "brandnew.yaml"
+
+    result = await ctrl.edit_friendly_name(
+        configuration="brandnew.yaml", new_friendly_name="The BRAND NEW"
+    )
+
+    assert result == {"configuration": "brandnew.yaml", "rewritten": True}
+    [updated] = real_scanner.devices
+    assert updated.name == expected_name
+    assert updated.friendly_name == expected_friendly
+    assert updated.configuration == "brandnew.yaml"
