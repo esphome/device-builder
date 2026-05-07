@@ -680,6 +680,7 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
         options=entry.options,
         allow_custom_value=entry.allow_custom_value,
         range=entry.range,
+        display_format=entry.display_format,
         unit_options=entry.unit_options,
         multi_value=entry.multi_value,
         templatable=entry.templatable,
@@ -761,6 +762,23 @@ def _load_options(raw: Any) -> list[ConfigValueOption] | None:
     return out or None
 
 
+def _load_display_format(raw: Any) -> str | None:
+    """
+    Normalise the JSON ``display_format`` field.
+
+    Currently only ``"hex"`` is recognised; anything else (an unknown
+    future variant a stale frontend wouldn't understand, garbage in
+    the catalog, the common ``None`` for non-hex fields) folds back
+    to ``None`` so the frontend's renderer falls through to the
+    decimal-number default. Mirrors the ``_safe_enum`` policy used
+    for ``pin_mode`` etc. — the catalog can introduce new variants
+    without breaking dashboards still on an older release.
+    """
+    if raw == "hex":
+        return "hex"
+    return None
+
+
 def _load_config_entry(data: dict) -> ConfigEntry:
     """Load a ConfigEntry from its JSON representation."""
     range_val: tuple[int | float, int | float] | None = None
@@ -786,6 +804,7 @@ def _load_config_entry(data: dict) -> ConfigEntry:
         options=_load_options(data.get("options")),
         allow_custom_value=bool(data.get("allow_custom_value", False)),
         range=range_val,
+        display_format=_load_display_format(data.get("display_format")),
         unit_options=_load_unit_options(data.get("unit_options")),
         multi_value=bool(data.get("multi_value", False)),
         templatable=bool(data.get("templatable", False)),

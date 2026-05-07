@@ -110,3 +110,99 @@ def test_materialise_entry_recurses_into_nested_unit_options() -> None:
     materialised = _materialise_entry(loaded, target_platform=None)
     assert materialised.config_entries is not None
     assert materialised.config_entries[0].unit_options == ["Hz", "kHz"]
+
+
+def test_load_config_entry_propagates_display_format_hex() -> None:
+    """``display_format: "hex"`` survives the JSON → model load (issue #410)."""
+    entry = _load_config_entry(
+        {
+            "key": "address",
+            "type": "integer",
+            "label": "Address",
+            "default_value": "119",
+            "range": [0, 255],
+            "display_format": "hex",
+        }
+    )
+    assert entry.display_format == "hex"
+
+
+def test_load_config_entry_display_format_defaults_to_none() -> None:
+    """Entries without ``display_format`` (the common case) load with ``None``."""
+    entry = _load_config_entry(
+        {"key": "count", "type": "integer", "label": "Count"},
+    )
+    assert entry.display_format is None
+
+
+def test_load_config_entry_drops_unknown_display_format() -> None:
+    """
+    Unknown / future variants fold back to ``None``.
+
+    Mirrors the ``_safe_enum`` pattern used for ``pin_mode`` etc.: a
+    catalog from a newer release that introduces ``display_format:
+    "binary"`` shouldn't reach an older dashboard's renderer as an
+    unrecognised string — the renderer falls through to the
+    decimal-number default instead.
+    """
+    entry = _load_config_entry(
+        {
+            "key": "addr",
+            "type": "integer",
+            "label": "Address",
+            "display_format": "binary",
+        }
+    )
+    assert entry.display_format is None
+
+
+def test_materialise_entry_preserves_display_format() -> None:
+    """The per-request copy carries ``display_format`` through to the API.
+
+    This is the regression Copilot flagged on PR #414: without
+    threading the field through ``_materialise_entry`` the flag
+    emitted by ``script/sync_components.py`` would be silently
+    dropped before reaching the frontend, and the hex hint would
+    never apply in the visual editor.
+    """
+    loaded = _load_config_entry(
+        {
+            "key": "address",
+            "type": "integer",
+            "label": "Address",
+            "default_value": "119",
+            "range": [0, 255],
+            "display_format": "hex",
+        }
+    )
+    materialised = _materialise_entry(loaded, target_platform="esp32")
+    assert materialised.display_format == "hex"
+
+
+def test_materialise_entry_recurses_into_nested_display_format() -> None:
+    """A hex-typed entry nested inside a NESTED parent stays hex on materialise.
+
+    No catalog entry today places a hex field inside a nested group
+    — i2c addresses are flat children of their component — but the
+    materialiser is recursive and the field has to flow through the
+    same branch that handles every other ConfigEntry attribute, so
+    pin the recursion explicitly.
+    """
+    loaded = _load_config_entry(
+        {
+            "key": "device",
+            "type": "nested",
+            "label": "Device",
+            "config_entries": [
+                {
+                    "key": "register",
+                    "type": "integer",
+                    "label": "Register",
+                    "display_format": "hex",
+                }
+            ],
+        }
+    )
+    materialised = _materialise_entry(loaded, target_platform=None)
+    assert materialised.config_entries is not None
+    assert materialised.config_entries[0].display_format == "hex"
