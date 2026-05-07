@@ -261,6 +261,37 @@ in case anything has resurfaced.
   use `all(...)` / `any(...)` over the whole bucket; the
   per-device callbacks fan out the actual mutation.
 
+## Design principles
+
+- **Never generate invalid configs; fix the source, not the
+  consumer.** When a downstream code path encounters an invalid
+  YAML — `esphome config` exits non-zero, schema validation
+  rejects, compile fails — the right response is to fix the
+  *generator* (wizard, `dashboard_import`, `clone`,
+  `create_device`, anything that emits a YAML) so it always
+  produces something the next step can validate cleanly. Don't
+  reach for a fallback in the consumer that "tries to make it
+  work anyway." The rename path tried that — a file-level
+  rewrite when `esphome config` failed — and silently desynced
+  on-disk state from the device's running firmware: the YAML
+  got renamed while the device on the network kept its old
+  hostname forever, with no error to the user. The same shape
+  bit `edit_friendly_name` (PR #390 added pre-write validation
+  there) and the rename fallback was deleted entirely (PR #402,
+  with an upstream companion at esphome/esphome#16296).
+
+  When you're tempted to add a defensive branch for "what if
+  the input is broken?", first audit *what generated this YAML*
+  and whether the generator can be hardened so the broken case
+  doesn't reach you. If the generator legitimately can't
+  guarantee validity (e.g. a user hand-edits between create and
+  rename), surface a typed `CommandError(INVALID_ARGS, …)` with
+  the actual validation errors — refuse the operation cleanly —
+  rather than a silent best-effort fallback. Pair the
+  consumer-side error with a generator-side test that runs the
+  output through `editor.validate_yaml` (or the equivalent
+  schema check) so the same shape can't reappear.
+
 ## Things that have bitten us before
 
 When changing the sync script or catalog handling, watch for these:
