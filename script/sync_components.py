@@ -184,6 +184,9 @@ _DATA_TYPE_PRIMITIVE: dict[str, str] = {
     "uint16_t": "integer",
     "uint32_t": "integer",
     "hex_uint8_t": "integer",
+    "hex_uint16_t": "integer",
+    "hex_uint32_t": "integer",
+    "hex_uint64_t": "integer",
     "positive_float": "float",
     "port": "integer",
 }
@@ -193,9 +196,28 @@ _DATA_TYPE_RANGE: dict[str, tuple[int, int]] = {
     "uint8_t": (0, 255),
     "hex_uint8_t": (0, 255),
     "uint16_t": (0, 65535),
+    "hex_uint16_t": (0, 65535),
     "uint32_t": (0, 4294967295),
+    "hex_uint32_t": (0, 4294967295),
     "port": (0, 65535),
 }
+
+# ``data_type`` strings that signal "this integer should display
+# as hexadecimal". Mirrors ESPHome's ``cv.hex_uint*_t`` family
+# (and by extension ``cv.i2c_address``, which is just the 8-bit
+# variant under a friendlier name). The frontend reads
+# ``display_format == "hex"`` to render values as ``0x76`` and
+# accept both ``0x76`` and ``118`` on entry — the round-trip
+# YAML pretty-prints with hex literals so the file stays
+# readable for the hardware-conventional notation.
+_DATA_TYPE_HEX: frozenset[str] = frozenset(
+    {
+        "hex_uint8_t",
+        "hex_uint16_t",
+        "hex_uint32_t",
+        "hex_uint64_t",
+    }
+)
 
 # ``use_id_type`` is shaped ``"<namespace>::<ClassName>"``. Map the
 # namespace to the catalog's component domain. ``switch_`` has a
@@ -1832,6 +1854,7 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
         "options": _build_options(raw),
         "allow_custom_value": False,
         "range": list(_DATA_TYPE_RANGE[data_type]) if data_type in _DATA_TYPE_RANGE else None,
+        "display_format": "hex" if data_type in _DATA_TYPE_HEX else None,
         "multi_value": bool(raw.get("is_list")),
         "templatable": bool(raw.get("templatable")),
         "depends_on": None,

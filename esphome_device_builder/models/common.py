@@ -312,6 +312,18 @@ class ConfigEntry(DataClassORJSONMixin):
     # Min/max bounds for INTEGER / FLOAT entries. None = unbounded.
     range: tuple[int | float, int | float] | None = None
 
+    # Display-formatting hint for INTEGER entries. Currently only
+    # ``"hex"`` is defined, applied to fields whose upstream
+    # validator is one of the ``cv.hex_uint*_t`` family
+    # (``i2c_address`` is the canonical case — every i2c-platform
+    # component sets ``address`` to ``cv.hex_uint8_t`` because i2c
+    # addresses are conventionally written as ``0x76`` / ``0x77``,
+    # and decimal display is borderline unreadable). Frontend
+    # renders the input as hex (``0x76``) and accepts both
+    # ``0x76`` and ``118`` on entry. None = decimal display
+    # (the default for plain ``cv.int_range`` integers).
+    display_format: str | None = None
+
     # Unit choices for ``FLOAT_WITH_UNIT`` entries. The frontend
     # renders a unit picker populated from this list; each option's
     # string is what the YAML serialization appends after the
