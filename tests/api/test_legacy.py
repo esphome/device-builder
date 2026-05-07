@@ -1040,6 +1040,66 @@ async def test_stream_helper_releases_listener_when_send_raises() -> None:
         assert bus._listeners.get(event_type, set()) == set()
 
 
+@pytest.mark.parametrize(
+    ("payload", "description"),
+    [
+        ({"type": "spawn", "configuration": None}, "configuration: null"),
+        ({"type": "spawn", "configuration": 123}, "configuration: int"),
+        (
+            {"type": "spawn", "configuration": {"nested": "object"}},
+            "configuration: object",
+        ),
+        (
+            {"type": "spawn", "configuration": "kitchen.yaml", "port": None},
+            "port: null (upload route)",
+        ),
+        (
+            {"type": "spawn", "configuration": "kitchen.yaml", "port": 42},
+            "port: int (upload route)",
+        ),
+    ],
+)
+async def test_spawn_ws_emits_exit_frame_on_non_string_fields(
+    tmp_path: Path,
+    aiohttp_client: AiohttpClient,
+    payload: dict[str, Any],
+    description: str,
+) -> None:
+    """Non-string ``configuration`` / ``port`` → ``{event: exit, code: 1}``.
+
+    ``data.get("configuration", "")`` only uses the default when
+    the key is *absent*; an explicit ``"configuration": null`` (or
+    a non-string like ``123`` / an object) lands here as a
+    non-``str``. Forwarding that to the firmware controller's
+    path-validation helpers would crash with ``TypeError`` /
+    ``AttributeError`` and surface to HA as an opaque connection
+    drop. The handler rejects up front via the protocol's only
+    signalling channel — same shape HA already handles for the
+    boundary-rejection case.
+
+    The ``port`` cases use the ``/upload`` route since
+    ``/compile`` ignores the port field entirely (its omission /
+    type doesn't matter on that path).
+    """
+    bus = EventBus()
+    job = _make_job()
+    firmware = _FakeFirmwareController(bus=bus, job=job, plan=None)
+    client = await aiohttp_client(_make_app(tmp_path, firmware=firmware, bus=bus))
+
+    route = "/upload" if "port" in payload else "/compile"
+    async with client.ws_connect(route) as ws:
+        await ws.send_json(payload)
+        msg = await ws.receive_json()
+
+    assert msg == {"event": "exit", "code": 1}, description
+    # The bad input must NOT have submitted a job — the rejection
+    # is supposed to happen before the firmware controller is
+    # called, so a regression that forwarded the non-string to
+    # ``firmware.compile`` / ``.upload`` would surface here.
+    assert firmware.compile_calls == []
+    assert firmware.upload_calls == []
+
+
 async def test_spawn_ws_round_trip_through_real_event_bus(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:

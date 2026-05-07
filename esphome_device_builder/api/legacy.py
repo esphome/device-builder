@@ -42,13 +42,13 @@ from ..models import (
     TERMINAL_JOB_EVENTS,
     TERMINAL_JOB_STATUSES,
     EventType,
+    FirmwareJob,
     JobType,
 )
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
     from ..helpers.event_bus import EventBus
-    from ..models import FirmwareJob
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -103,15 +103,27 @@ async def _stream_job_to_legacy_ws(
     / ``JOB_CANCELLED``) and a buffered ``job.output`` list.
 
     Routes through ``helpers.event_bus.stream_events`` for the
-    core pipeline (subscribe, snapshot+replay, bounded drain,
-    listener cleanup on cancel). Three callbacks define the
-    behaviour:
+    core pipeline (subscribe, bounded drain, listener cleanup on
+    cancel). The execution order matters for race-freeness:
 
-    - ``send_initial`` is awaited inside the listening block
-      *after* the listener attaches but *before* the live drain.
-      It snapshots ``job.output`` and replays it, then short-
-      circuits the drain via ``controls.end()`` if the job was
-      already in a terminal state at submit time.
+    1. ``snapshot = list(job.output)`` — captured *outside*
+       ``stream_events``, in the same sync block that calls it.
+       This is what closes the snapshot/subscribe race; the
+       listener attaches inside ``stream_events`` before any
+       ``await`` yields control, so a line either lands in the
+       snapshot OR is caught by the listener (never both, never
+       neither).
+    2. ``stream_events(...)`` runs:
+       a. ``bus.listening(...)`` — attach listener (sync).
+       b. ``await send_initial(controls)`` — replay the
+          snapshot captured in step 1, and short-circuit the
+          drain via ``controls.end()`` if the job was already
+          in a terminal state at submit time.
+       c. Drain the queue, calling
+          ``_LegacyWSStreamClient.send_event`` for each item.
+
+    Two callbacks define the per-event behaviour:
+
     - ``handle_event`` runs synchronously inside ``bus.fire`` and
       decides what to push: lines go through ``controls.push``
       (drop-on-full, slow follower stays unblocked), terminal
@@ -121,11 +133,7 @@ async def _stream_job_to_legacy_ws(
     - ``_LegacyWSStreamClient.send_event`` translates each drained
       ``(name, payload)`` into the legacy WS frame shape.
 
-    The race-free snapshot+subscribe ordering is provided by
-    ``stream_events``: the listener is attached before
-    ``send_initial`` is awaited (``event_bus.py`` docstring), so
-    every event fired post-subscribe lands in the queue, and the
-    snapshot is a fresh list copy via ``list(...)`` so a
+    The snapshot is a fresh list copy via ``list(...)`` so a
     subsequent ``_trim_job_output`` reassign of ``job.output``
     (``firmware/helpers.py``) doesn't mutate what we replay.
     """
@@ -156,8 +164,17 @@ async def _stream_job_to_legacy_ws(
                 # dashboard process.
                 controls.push("line", event.data.get("line", ""))
             return
+        # ``isinstance`` narrows from the bus's untyped event-data
+        # dict to a real ``FirmwareJob``, which both filters out
+        # any future event payload that lacks the expected ``job``
+        # field and gives the type checker direct attribute
+        # access for ``job_id`` / ``exit_code``. The runner fires
+        # terminal events as ``{"job": job}`` so this matches in
+        # practice; a payload that doesn't satisfy the isinstance
+        # check is silently ignored rather than tearing the WS
+        # down with an ``AttributeError``.
         ev_job = event.data.get("job")
-        if ev_job is None or getattr(ev_job, "job_id", None) != job_id:
+        if not isinstance(ev_job, FirmwareJob) or ev_job.job_id != job_id:
             return
         # ``exit_code`` is None for cancelled / never-ran jobs;
         # legacy clients want a numeric code so coerce to a
@@ -166,8 +183,8 @@ async def _stream_job_to_legacy_ws(
         # queue is full so the exit frame always lands —
         # otherwise a backpressured client could see an open
         # connection that never receives the terminal frame.
-        code = getattr(ev_job, "exit_code", None)
-        controls.push_priority("exit", code if code is not None else 1)
+        code = ev_job.exit_code if ev_job.exit_code is not None else 1
+        controls.push_priority("exit", code)
         controls.end()
 
     await stream_events(
@@ -228,8 +245,19 @@ async def _handle_legacy_ws_command(
         if not isinstance(data, dict) or data.get("type") != "spawn":
             continue
 
+        # ``data.get(key, "")`` only uses the default when the
+        # key is *absent*; an explicit ``"configuration": null``
+        # (or a non-string like ``123`` / an object) would land
+        # here as a non-``str`` and crash the firmware
+        # controller's path validation with a ``TypeError`` /
+        # ``AttributeError`` that aiohttp would surface to HA as a
+        # connection drop. Reject anything that isn't a string up
+        # front via the protocol's only signalling channel.
         configuration = data.get("configuration", "")
         port = data.get("port", "") if job_type is JobType.UPLOAD else ""
+        if not isinstance(configuration, str) or not isinstance(port, str):
+            await ws.send_json({"event": "exit", "code": 1}, dumps=dumps_str)
+            break
 
         try:
             if job_type is JobType.UPLOAD:
