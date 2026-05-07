@@ -11,8 +11,12 @@ from typing import Any, ClassVar
 
 import pytest
 
+from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
+    _fallback_board_id_has_wifi,
+    _fallback_variant_has_wifi,
     _parse_inline_value,
+    _select_wifi_helpers,
     compute_has_pending_changes,
     configuration_stem,
     detect_platform_from_yaml,
@@ -829,6 +833,128 @@ def test_generate_yaml_explicit_connectivity_overrides_inference() -> None:
     )
     yaml = generate_device_yaml("kitchen", "Kitchen", eth_only, ssid="", psk="")
     assert "wifi:" not in yaml
+
+
+# ---------------------------------------------------------------------------
+# Fallback wifi-helpers — exercise the pure-Python implementations the
+# inference falls back on when upstream esphome doesn't ship the new
+# ``wifi.variant_has_wifi`` / ``rp2040.board_id_has_wifi`` helpers
+# (esphome/esphome#16300). Direct calls so the fallback's correctness
+# gets pinned even on a CI run that imported the upstream helpers and
+# is therefore exercising the new path through ``_infer_native_wifi``.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("variant", "expected"),
+    [
+        ("esp32", True),
+        ("esp32s2", True),
+        ("esp32s3", True),
+        ("esp32c3", True),
+        ("esp32c6", True),
+        ("esp32h2", False),
+        ("esp32p4", False),
+        # Upper-case input must round-trip — upstream stores the tags
+        # uppercased ("ESP32H2"), we lowercase the set at module load,
+        # and the fallback lowercases its argument so the two halves
+        # compose regardless of which case the caller hands us.
+        ("ESP32H2", False),
+        ("ESP32C3", True),
+    ],
+)
+def test_fallback_variant_has_wifi(variant: str, expected: bool) -> None:
+    """Pin the fallback's variant table against every known ESP32 variant."""
+    assert _fallback_variant_has_wifi(variant) is expected
+
+
+@pytest.mark.parametrize(
+    ("board_id", "expected"),
+    [
+        # Wi-Fi-capable boards — pinned subset of upstream's
+        # ``BOARDS`` flagged ``"wifi": True``.
+        ("rpipicow", True),
+        ("rpipico2w", True),
+        # No-Wi-Fi boards covered by the H2 user report's neighbours.
+        ("rpipico", False),
+        ("rpipico2", False),
+        ("seeed_xiao_rp2040", False),
+        ("waveshare_rp2040_zero", False),
+        # Unknown ids fail open — the wizard would emit a wifi:
+        # block for a custom RP2040 board, which is the safer
+        # default (the ``rp2040`` validator flags genuinely-broken
+        # configs at compile time).
+        ("not-a-real-board-id", True),
+    ],
+)
+def test_fallback_board_id_has_wifi(board_id: str, expected: bool) -> None:
+    """Pin the fallback's board-id table against representative inputs."""
+    assert _fallback_board_id_has_wifi(board_id) is expected
+
+
+def test_select_wifi_helpers_prefers_upstream_when_available() -> None:
+    """When esphome ships the new helpers, the aliases bind to them.
+
+    Simulates esphome/esphome#16300 having landed by passing
+    upstream callables explicitly. ``_select_wifi_helpers`` must
+    prefer them over the fallback so the wizard reads through the
+    upstream-tested API once available.
+    """
+    upstream_variant = lambda v: True  # noqa: E731
+    upstream_board = lambda b: True  # noqa: E731
+
+    selected_variant, selected_board = _select_wifi_helpers(upstream_variant, upstream_board)
+
+    assert selected_variant is upstream_variant
+    assert selected_board is upstream_board
+
+
+def test_select_wifi_helpers_falls_back_when_upstream_missing() -> None:
+    """When the upstream helpers aren't importable, the aliases bind to the fallbacks.
+
+    Simulates the pre-#16300 esphome we ship against today. Both
+    args ``None`` is exactly what the module-level ``try/except``
+    produces when ``ImportError`` fires.
+    """
+    selected_variant, selected_board = _select_wifi_helpers(None, None)
+
+    assert selected_variant is _fallback_variant_has_wifi
+    assert selected_board is _fallback_board_id_has_wifi
+
+
+def test_infer_native_wifi_routes_through_module_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_infer_native_wifi`` reads through the aliased helpers, not the frozensets.
+
+    Pin the indirection so a regression that re-inlined the lookup
+    against ``_ESP32_NO_WIFI_VARIANTS`` / ``_RP2040_WIFI_PIO_BOARDS``
+    surfaces here — the inline form would silently bypass the
+    upstream helpers once esphome/esphome#16300 ships, defeating
+    the whole point of the alias.
+    """
+    variant_calls: list[str] = []
+    board_calls: list[str] = []
+
+    monkeypatch.setattr(
+        device_yaml,
+        "_variant_has_wifi",
+        lambda v: (variant_calls.append(v), False)[1],
+    )
+    monkeypatch.setattr(
+        device_yaml,
+        "_board_id_has_wifi",
+        lambda b: (board_calls.append(b), True)[1],
+    )
+
+    esp32_board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3)
+    rp2040_board = _make_board(platform=Platform.RP2040, pio_board="rpipicow")
+
+    assert device_yaml._infer_native_wifi(esp32_board) is False
+    assert device_yaml._infer_native_wifi(rp2040_board) is True
+
+    assert variant_calls == ["esp32c3"]
+    assert board_calls == ["rpipicow"]
 
 
 # ---------------------------------------------------------------------------

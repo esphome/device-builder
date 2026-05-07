@@ -22,6 +22,20 @@ from esphome.components.wifi import NO_WIFI_VARIANTS as _ESPHOME_NO_WIFI_VARIANT
 from esphome.const import CONF_PACKAGES
 from esphome.storage_json import StorageJSON, ext_storage_path
 
+# Prefer the explicit-arg helpers landing in esphome/esphome#16300
+# so we depend on a stable upstream API rather than reaching into
+# ``NO_WIFI_VARIANTS`` / ``BOARDS`` implementation details. The
+# fallback functions below cover every esphome we currently support
+# (the constants predate our ``esphome>=2024.1.0`` floor); once the
+# upstream PR ships in a release the dependency floor can move past
+# it and this entire try/except can collapse to the direct imports.
+try:
+    from esphome.components.rp2040 import board_id_has_wifi as _esphome_board_id_has_wifi
+    from esphome.components.wifi import variant_has_wifi as _esphome_variant_has_wifi
+except ImportError:
+    _esphome_variant_has_wifi = None  # type: ignore[assignment]
+    _esphome_board_id_has_wifi = None  # type: ignore[assignment]
+
 # Prefer the upstream single-call seam when present (the
 # ``resolve_packages`` proposal landing as esphome/esphome#16235).
 # Fall back to the two-step ``do_packages_pass`` + ``merge_packages``
@@ -57,31 +71,76 @@ _LOGGER = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ..models import BoardCatalogEntry
 
 _PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52"})
 
-# ESP32 chip variants ESPHome rejects ``wifi:`` on — pulled from
-# ``esphome.components.wifi.NO_WIFI_VARIANTS`` so there's one source
-# of truth. ESPHome's own validator raises
-# ``"WiFi requires component esp32_hosted on <variant>"`` for every
-# entry in that list; today's set is ESP32-H2 + ESP32-P4 (no native
-# Wi-Fi PHY). Upstream stores the variant tags in canonical uppercase
-# (``"ESP32H2"``); device-builder's ``Esp32Variant`` enum uses
-# lowercase, so normalise here. A future variant added upstream
-# flows through to the wizard automatically.
+# ESP32 chip variants ESPHome rejects ``wifi:`` on, derived from
+# ``NO_WIFI_VARIANTS`` (today's set: ESP32-H2 + ESP32-P4). Upstream
+# stores the tags in canonical uppercase ``"ESP32H2"``; the wizard
+# compares against the lowercase ``Esp32Variant`` enum value, so
+# normalise once at module load.
 _ESP32_NO_WIFI_VARIANTS = frozenset(v.lower() for v in _ESPHOME_NO_WIFI_VARIANTS)
 
 # PlatformIO RP2040 / RP2350 board ids with a native CYW43 (or
-# equivalent) Wi-Fi chip — pulled from
-# ``esphome.components.rp2040.boards.BOARDS`` so there's one source
-# of truth. Entries flagged ``"wifi": True`` ship Wi-Fi (Pico W /
-# Pico 2 W / Pimoroni / SparkFun / Waveshare W variants); the rest
-# (plain Pico / Pico 2 / Seeed XIAO RP2040 / Waveshare RP2040 Zero
-# / etc.) need a Wi-Fi shield to use the ``wifi:`` component. New
-# boards added upstream flow through automatically.
+# equivalent) Wi-Fi chip, derived from the generated ``BOARDS``
+# dict (entries flagged ``"wifi": True``).
 _RP2040_WIFI_PIO_BOARDS = frozenset(
     board_id for board_id, info in _ESPHOME_RP2040_BOARDS.items() if info.get("wifi", False)
+)
+
+
+def _fallback_variant_has_wifi(variant: str) -> bool:
+    """Return True when *variant* has a native Wi-Fi PHY.
+
+    Pure-Python implementation used when the upstream
+    ``esphome.components.wifi.variant_has_wifi`` helper is not
+    available (esphome older than the release that lands
+    esphome/esphome#16300). Mirrors the upstream implementation —
+    a variant is no-Wi-Fi iff it appears in ``NO_WIFI_VARIANTS``.
+    """
+    return variant.lower() not in _ESP32_NO_WIFI_VARIANTS
+
+
+def _fallback_board_id_has_wifi(board_id: str) -> bool:
+    """Return True when *board_id* has a CYW43 (or equivalent) Wi-Fi chip.
+
+    Pure-Python implementation used when the upstream
+    ``esphome.components.rp2040.board_id_has_wifi`` helper is not
+    available. Mirrors the upstream implementation — return True
+    for unknown ids so a custom board is not rejected (the
+    compile-time validator catches genuinely-unsupported configs).
+    """
+    info = _ESPHOME_RP2040_BOARDS.get(board_id)
+    if info is None:
+        return True
+    return info.get("wifi", False)
+
+
+def _select_wifi_helpers(
+    upstream_variant: Callable[[str], bool] | None,
+    upstream_board: Callable[[str], bool] | None,
+) -> tuple[Callable[[str], bool], Callable[[str], bool]]:
+    """Pick upstream helpers when available, fallbacks otherwise.
+
+    Factored out so tests can exercise both branches without
+    reloading the module — pass ``None`` to force the fallback
+    path, pass callables to force the upstream path. The
+    module-level invocation below uses whatever the import-time
+    ``try/except`` produced.
+    """
+    return (
+        upstream_variant or _fallback_variant_has_wifi,
+        upstream_board or _fallback_board_id_has_wifi,
+    )
+
+
+# Alias to the upstream helper when present, the fallback otherwise.
+# ``_infer_native_wifi`` calls through these aliases.
+_variant_has_wifi, _board_id_has_wifi = _select_wifi_helpers(
+    _esphome_variant_has_wifi, _esphome_board_id_has_wifi
 )
 
 
@@ -248,10 +307,14 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
        ``ln882x``, the catch-all ESP32 case) → True. These are
        Wi-Fi-first platforms in ESPHome.
 
-    The variant / board sets are derived from upstream ESPHome's
-    ``NO_WIFI_VARIANTS`` and ``BOARDS`` at module import time —
-    there's one source of truth, see ``_ESP32_NO_WIFI_VARIANTS``
-    and ``_RP2040_WIFI_PIO_BOARDS`` at the top of this file.
+    The ESP32 variant and RP2040 board lookups go through
+    ``_variant_has_wifi`` / ``_board_id_has_wifi`` — module-level
+    aliases that prefer the upstream ESPHome helpers
+    (``wifi.variant_has_wifi`` and ``rp2040.board_id_has_wifi``,
+    landing in esphome/esphome#16300) and fall back to pure-Python
+    equivalents derived from ``NO_WIFI_VARIANTS`` / ``BOARDS`` when
+    the upstream helpers aren't available. One source of truth in
+    either case — upstream stays authoritative.
     """
     esphome_cfg = board.esphome
     # ``str(...)`` handles both the production enum (``Platform`` /
@@ -261,9 +324,9 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
     platform = str(esphome_cfg.platform) if esphome_cfg.platform else ""
     if platform == "esp32":
         variant = str(esphome_cfg.variant) if esphome_cfg.variant else ""
-        return variant not in _ESP32_NO_WIFI_VARIANTS
+        return _variant_has_wifi(variant)
     if platform == "rp2040":
-        return esphome_cfg.board in _RP2040_WIFI_PIO_BOARDS
+        return _board_id_has_wifi(esphome_cfg.board)
     return platform != "nrf52"
 
 
