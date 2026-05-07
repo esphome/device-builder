@@ -102,8 +102,11 @@ async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     boards = StubBoardLookups(ctrl)
-    boards.find_by_pio_board_returns(None)
-    boards.find_by_platform_variant_returns(None)
+    # Catalog returns a board for ``esp32dev`` to model the realistic
+    # scenario flagged in review: many curated entries share that
+    # PIO board, so a naive lookup would happily pick one.
+    pio_lookup = boards.find_by_pio_board_returns("generic-esp32-board")
+    variant_lookup = boards.find_by_platform_variant_returns("generic-esp32-board")
 
     result = await ctrl.create_device(name="kitchen")
 
@@ -115,6 +118,11 @@ async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     assert "Replace this with your actual platform" in content
     assert "api:\n  encryption:\n    key:" in content
     assert ctrl._scanner.calls == [("scan",)]
+    # Stub branch deliberately skips the catalog lookup so an
+    # arbitrary entry sharing ``esp32dev`` doesn't get pinned to
+    # this device's metadata before the user picks real hardware.
+    pio_lookup.assert_not_called()
+    variant_lookup.assert_not_called()
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

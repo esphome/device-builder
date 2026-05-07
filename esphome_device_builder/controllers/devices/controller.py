@@ -17,7 +17,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from esphome import const
 from esphome.components.dashboard_import import import_config
@@ -100,6 +100,18 @@ if TYPE_CHECKING:
     from ...models import BoardCatalogEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+# Provenance tag for ``_yaml_content_for_create``'s return tuple.
+# ``"user"`` → caller-supplied ``file_content`` (validation
+# failure surfaces as ``INVALID_ARGS``).
+# ``"template"`` → :func:`generate_device_yaml` against a known
+# catalog entry (validation failure → ``INTERNAL_ERROR``).
+# ``"stub"`` → :func:`generate_minimal_stub_yaml` (no inputs;
+# validation failure → ``INTERNAL_ERROR``; caller skips the YAML-
+# driven board-id derivation since the stub's hard-coded
+# ``board: esp32dev`` would otherwise pin metadata to whatever
+# catalog entry happens to share that PIO board).
+_CreateYamlSource = Literal["user", "template", "stub"]
 
 # How long the persisted "regen failed" stamp is honoured before a
 # restart-time check is allowed to re-spawn ``--only-generate`` for
@@ -503,7 +515,7 @@ class DevicesController:
                 raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
         friendly = friendly_name_slugify(name)
-        yaml_content, from_user = self._yaml_content_for_create(
+        yaml_content, source = self._yaml_content_for_create(
             name, friendly, board, file_content, ssid, psk
         )
 
@@ -517,24 +529,35 @@ class DevicesController:
             filename,
             yaml_content,
             action="create",
-            on_failure=ErrorCode.INVALID_ARGS if from_user else ErrorCode.INTERNAL_ERROR,
+            on_failure=ErrorCode.INVALID_ARGS if source == "user" else ErrorCode.INTERNAL_ERROR,
         )
 
         # Derive board_id from YAML when not explicitly provided.
         # Mirrors the scanner's resolution chain: pio_board match first,
         # then platform+variant fallback for generic ``esp32:``-style
         # configs without a specific PlatformIO board id.
+        #
+        # Skip derivation for the stub branch. ``generate_minimal_stub_yaml``
+        # hard-codes ``esp32: board: esp32dev`` because the user
+        # hasn't picked hardware yet, but many catalog entries share
+        # that PIO board — running the lookup would pin the new
+        # device to whatever catalog entry the index happens to
+        # surface first, and the wrong entry would stay bound even
+        # after the user rewrites the platform block. ``parsed_platform``
+        # is still set so :func:`StorageJSON` gets a sensible
+        # ``target_platform`` for the initial sidecar.
         parsed_platform = ""
         if not board_id and self._db.boards:
             parsed_platform, pio_board, variant = parse_platform_from_yaml(yaml_content)
-            matched = None
-            if pio_board:
-                matched = self._db.boards.find_by_pio_board(pio_board, variant)
-            if matched is None and parsed_platform:
-                matched = self._db.boards.find_by_platform_variant(parsed_platform, variant)
-            if matched:
-                board = matched
-                board_id = matched.id
+            if source != "stub":
+                matched = None
+                if pio_board:
+                    matched = self._db.boards.find_by_pio_board(pio_board, variant)
+                if matched is None and parsed_platform:
+                    matched = self._db.boards.find_by_platform_variant(parsed_platform, variant)
+                if matched:
+                    board = matched
+                    board_id = matched.id
 
         loop = asyncio.get_running_loop()
 
@@ -1142,21 +1165,19 @@ class DevicesController:
         file_content: str | None,
         ssid: str,
         psk: str,
-    ) -> tuple[str, bool]:
+    ) -> tuple[str, _CreateYamlSource]:
         """
         Pick the YAML body for ``devices/create`` based on the inputs.
 
-        Returns ``(yaml_content, from_user)``. *from_user* tracks
-        whether the YAML came from caller-supplied ``file_content``
-        — the caller uses it to pick the right ``ErrorCode`` on
-        validation failure (``INVALID_ARGS`` for user-supplied,
-        ``INTERNAL_ERROR`` for the two generator branches we own).
+        Returns ``(yaml_content, source)``; see :data:`_CreateYamlSource`
+        for the meaning of each tag and which post-processing the
+        caller applies per branch.
         """
         if file_content:
-            return file_content, True
+            return file_content, "user"
         if board:
-            return generate_device_yaml(name, friendly, board, ssid, psk), False
-        return generate_minimal_stub_yaml(name, friendly), False
+            return generate_device_yaml(name, friendly, board, ssid, psk), "template"
+        return generate_minimal_stub_yaml(name, friendly), "stub"
 
     async def _validate_rewritten_yaml_or_raise(
         self,
