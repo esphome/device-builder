@@ -255,18 +255,19 @@ async def test_edit_friendly_name_inserts_into_existing_esphome_block(
     assert "esphome:\nfriendly_name:" not in new_yaml
 
 
-async def test_edit_friendly_name_prepends_esphome_block_when_missing(
+async def test_edit_friendly_name_prepends_esphome_block_with_synthesised_name(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Package-driven config with no inline ``esphome:`` — prepend the whole block.
+    """Package-driven config — prepend a complete ``esphome:`` block.
 
     When ``esphome:`` lives in a ``packages:`` / ``!include``d
-    file, this YAML has no block at all. Inserting our own
-    ``esphome: { friendly_name: ... }`` at the top is what the
-    user wants — ESPHome's package merge gives the local leaf
-    precedence over the included one, so the rename actually
-    lands on the device.
+    file, this YAML has no block at all. ESPHome's schema requires
+    ``esphome.name``, so inserting just ``friendly_name:`` would
+    leave the synthesised block invalid (validation fails with
+    "required key not provided"). Slugify the friendly name into a
+    hostname-safe value and seed ``name:`` alongside so the new
+    block compiles as-is.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml = "packages:\n  base: !include common/base.yaml\nesp32:\n  variant: ESP32\n"
@@ -278,11 +279,90 @@ async def test_edit_friendly_name_prepends_esphome_block_when_missing(
 
     assert result == {"configuration": "kitchen.yaml", "rewritten": True}
     new_yaml = (tmp_path / "kitchen.yaml").read_text("utf-8")
-    # New ``esphome:`` block at the top with the friendly_name child.
-    assert new_yaml.startswith("esphome:\n  friendly_name: Reading Lamp\n")
+    # New ``esphome:`` block at the top with both leaves.
+    assert new_yaml.startswith("esphome:\n  name: reading-lamp\n  friendly_name: Reading Lamp\n")
     # Pre-existing top-level keys preserved.
     assert "packages:\n  base: !include common/base.yaml\n" in new_yaml
     assert "esp32:\n  variant: ESP32\n" in new_yaml
+
+
+async def test_edit_friendly_name_synthesises_name_into_existing_block(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    r"""``esphome:`` exists with no ``name:`` — we add it alongside friendly_name.
+
+    Edge case where the user has an ``esphome:`` block (e.g. just
+    ``esphome:\n  comment: …``) but no ``name:``. ESPHome's schema
+    still requires the name; we synthesise one from the friendly
+    name so the rename produces a valid config without the user
+    having to know about the schema requirement.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml = "esphome:\n  comment: Adopted device\nesp32:\n  variant: ESP32\n"
+    (tmp_path / "device.yaml").write_text(yaml, "utf-8")
+
+    await ctrl.edit_friendly_name(configuration="device.yaml", new_friendly_name="Living Room Lamp")
+
+    new_yaml = (tmp_path / "device.yaml").read_text("utf-8")
+    # Both leaves present after the edit.
+    assert "  name: living-room-lamp\n" in new_yaml
+    assert "  friendly_name: Living Room Lamp\n" in new_yaml
+    # Existing comment preserved.
+    assert "  comment: Adopted device\n" in new_yaml
+
+
+async def test_edit_friendly_name_truncates_long_synthesised_name(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A friendly name longer than 31 characters slugifies to a 31-char hostname.
+
+    ESPHome caps ``esphome.name`` at 31 chars
+    (``validate_hostname`` in ``esphome/core/config.py``). The
+    slugifier truncates to that limit and trims any trailing dash
+    so the synthesised value validates.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml = "packages:\n  base: !include common/base.yaml\n"
+    (tmp_path / "device.yaml").write_text(yaml, "utf-8")
+
+    long_name = "Living Room Reading Lamp Bedside Right"
+    await ctrl.edit_friendly_name(configuration="device.yaml", new_friendly_name=long_name)
+
+    new_yaml = (tmp_path / "device.yaml").read_text("utf-8")
+    # Extract just the synthesised name from the prepended block.
+    name_line = next(line for line in new_yaml.splitlines() if line.strip().startswith("name:"))
+    name_value = name_line.split(":", 1)[1].strip()
+    assert len(name_value) <= 31
+    # Trailing dashes from truncation get stripped.
+    assert not name_value.endswith("-")
+
+
+async def test_edit_friendly_name_rejects_flow_style_esphome(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """``esphome: { … }`` flow-style mapping surfaces as ``INVALID_ARGS``.
+
+    The line-based upsert can't safely insert into a single-line
+    flow scalar without re-parsing the whole mapping. Rather than
+    silently appending a duplicate ``esphome:`` key, raise so the
+    dialog tells the user to convert to block style.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml = 'esphome: { name: kitchen, friendly_name: "Kitchen" }\nesp32:\n  variant: ESP32\n'
+    (tmp_path / "kitchen.yaml").write_text(yaml, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.edit_friendly_name(
+            configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "flow-style" in excinfo.value.message or "block style" in excinfo.value.message
+    # File untouched.
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == yaml
 
 
 async def test_edit_friendly_name_routes_through_atomic_write_helper(

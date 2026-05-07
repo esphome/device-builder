@@ -105,6 +105,20 @@ _ENTITY_CATEGORIES = {
 # emit the same shape the user sees in the editor's auto-indent.
 ESPHOME_YAML_INDENT = "  "
 
+
+class YamlUpsertNotSupportedError(ValueError):
+    """The YAML's existing shape can't be safely upserted line-by-line.
+
+    Raised by :func:`upsert_yaml_leaf_under_top_block` when the
+    block already exists in a shape the line-based walker can't
+    safely modify (flow-style mapping, ``!include`` /
+    ``!secret`` tagged value, anything else with a non-empty value
+    on the block-header line). The caller is expected to surface
+    the message as a typed user-facing error (the WS layer wraps
+    in ``CommandError(INVALID_ARGS)``).
+    """
+
+
 # Mapping-key line: optional leading whitespace, an unquoted scalar
 # key, ``:``, optional whitespace, optional value, optional trailing
 # comment. List items (``- foo: bar``) are excluded — none of the
@@ -496,7 +510,17 @@ def upsert_yaml_leaf_under_top_block(
 
     rendered = _safe_yaml_scalar(new_value)
     lines = yaml_text.splitlines(keepends=True)
+    # Block-style header: ``key:`` with optionally a trailing
+    # comment, nothing else. Flow-style mapping (``key: { … }``)
+    # falls through to the explicit-rejection branch below — the
+    # walker can't safely insert into a single-line flow scalar
+    # without re-parsing the whole mapping, which is a different
+    # mode of YAML editing than the line-based rewriter handles.
     block_header = re.compile(rf"^{re.escape(block_key)}:\s*(?:#.*)?$")
+    # Detection of any ``block_key:`` at column 0 (flow- or
+    # block-style). If we see one, decide between the
+    # block-style insert path and the flow-style reject branch.
+    any_block_key = re.compile(rf"^{re.escape(block_key)}:\s*(.*)$")
 
     # Single walk: locate the block opener at column 0, capture
     # the first child's indent (so 4-space hand-edited configs
@@ -513,6 +537,24 @@ def upsert_yaml_leaf_under_top_block(
         if block_start is None:
             if block_header.match(stripped):
                 block_start = i
+                continue
+            flow = any_block_key.match(stripped)
+            if flow is not None:
+                rest = flow.group(1).split("#", 1)[0].strip()
+                if rest:
+                    # ``esphome: { name: kitchen }`` (flow-style)
+                    # or ``esphome: !include packaged.yaml`` (tag /
+                    # include) — anything that isn't an empty
+                    # block header. Reject loudly so the caller
+                    # can surface a "switch to block style" error
+                    # rather than silently appending a duplicate
+                    # ``esphome:`` key.
+                    raise YamlUpsertNotSupportedError(
+                        f"{block_key}: uses an inline value or flow-style "
+                        "mapping; the line-based upsert can't safely "
+                        "edit it. Convert the block to multi-line "
+                        f"style ({block_key}:\\n  …) and try again."
+                    )
             continue
         if not stripped[0].isspace():
             block_end = i

@@ -33,6 +33,7 @@ from ...helpers.device_yaml import (
     load_device_yaml,
     parse_esphome_meta,
     parse_platform_from_yaml,
+    slugify_hostname,
 )
 from ...helpers.event_bus import Event, StreamControls, stream_events
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
@@ -40,8 +41,10 @@ from ...helpers.mac_addresses import derive_interface_macs
 from ...helpers.process import kill_quietly
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...helpers.yaml import (
+    YamlUpsertNotSupportedError,
     generate_api_encryption_key,
     merge_component_yaml,
+    read_yaml_scalar,
     rewrite_api_encryption_key,
     rewrite_esphome_name,
     rewrite_name_or_substitution,
@@ -858,10 +861,14 @@ class DevicesController:
         # and fall through to the leaf rewrite — we have no way to
         # split the prefix without changing the suffix's meaning.
         # ``_rewrite_required_yaml_leaf`` folds in the "leaf must
-        # exist in this file" precondition + the rewrite — same
-        # check the friendly-name editor uses, so silent no-ops on
-        # package-driven configs surface as a typed error from one
-        # place instead of two.
+        # exist in this file" precondition + the rewrite. Reject
+        # is the right behaviour for clone — a hostname rewrite
+        # that silently no-ops on a package-driven source would
+        # produce a duplicate device under the source's hostname
+        # and collide on mDNS. (The friendly-name editor takes the
+        # opposite call via ``upsert_yaml_leaf_under_top_block``
+        # — for a display label, ESPHome's package merge means
+        # *inserting* a local leaf is what the user wants.)
         new_content = _rewrite_required_yaml_leaf(source_content, ("esphome", "name"), new_name)
         # ``friendly_name`` is optional on the clone path — when
         # the source doesn't have an inline leaf the clone just
@@ -965,6 +972,11 @@ class DevicesController:
         ``CommandError(INVALID_ARGS, …)``:
         - blank ``new_friendly_name``
         - source not found
+        - source's ``esphome:`` is in flow-style
+          (``esphome: { … }``) or a tagged value
+          (``esphome: !include …``); the line-based upsert can't
+          safely edit either shape, so the user has to convert
+          to block style first.
         """
         new_friendly_name = new_friendly_name.strip()
         if not new_friendly_name:
@@ -1002,9 +1014,32 @@ class DevicesController:
         # what the user wants — they're saying "call THIS device
         # something different" — and ESPHome's package merge gives
         # our local leaf precedence over the included one.
-        new_content = upsert_yaml_leaf_under_top_block(
-            content, "esphome", "friendly_name", new_friendly_name
-        )
+        #
+        # When the source has no ``esphome.name`` either (package-
+        # driven config), inserting just ``friendly_name:`` would
+        # leave the synthesised local block invalid: ``esphome.name``
+        # is required by ESPHome's schema, so the next compile
+        # would fail with ``required key not provided`` until the
+        # user knew to add it. Slugify the friendly name into a
+        # hostname-safe value and seed ``name:`` first so the new
+        # block validates as-is.
+        try:
+            if read_yaml_scalar(content, ("esphome", "name")) is None:
+                synthesised_name = slugify_hostname(new_friendly_name)
+                content = upsert_yaml_leaf_under_top_block(
+                    content, "esphome", "name", synthesised_name
+                )
+            new_content = upsert_yaml_leaf_under_top_block(
+                content, "esphome", "friendly_name", new_friendly_name
+            )
+        except YamlUpsertNotSupportedError as exc:
+            # Flow-style ``esphome: { ... }`` or a tagged value
+            # (``esphome: !include …``). The line-based walker
+            # can't safely insert into either shape — surface as
+            # an actionable error so the dialog tells the user to
+            # switch to block style rather than landing a
+            # duplicate ``esphome:`` key.
+            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
         if new_content == content:
             # Idempotent — user submitted the same value (or the
             # leaf was already that value). Skip the write and

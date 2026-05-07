@@ -79,22 +79,29 @@ def _rewrite_required_yaml_leaf(
     Rewrite the leaf scalar at *leaf_path* in *content* — raise if missing.
 
     Thin wrapper around :func:`rewrite_name_or_substitution` that
-    folds in the precondition check both the clone path and the
-    in-place friendly-name editor need: the leaf has to actually
-    exist in *this* file. Silently no-op'ing on a missing leaf
-    would let the dashboard / next compile drift from what's
-    actually written (clone produces a duplicate device under the
-    source's hostname; friendly-name edit shows one label but the
-    firmware broadcasts another).
+    folds in the precondition the clone path needs: the leaf has
+    to actually exist in *this* file. Silently no-op'ing on a
+    missing leaf would let the clone produce a duplicate device
+    under the source's hostname (no in-file ``esphome.name`` to
+    rewrite ⇒ rewrite is a no-op ⇒ clone keeps the source's
+    hostname).
+
+    Friendly-name edit (``devices/edit_friendly_name``) doesn't
+    use this helper — it goes through
+    :func:`upsert_yaml_leaf_under_top_block` instead, which
+    *inserts* a missing leaf rather than rejecting. That's the
+    right choice for a display-label edit (ESPHome's package
+    merge gives the local leaf precedence over the included
+    one); for a hostname rewrite a duplicate would collide on
+    mDNS, so reject is correct there.
 
     The leaf can be missing for two reasons that look the same to
-    us — either the field is genuinely absent from this YAML
-    (config that simply omits ``esphome.friendly_name`` until the
-    user fills it in) or it lives in a ``packages:`` / ``!include``d
-    file. The error message names the missing path and points at
-    both fixes ("add it here, or edit the included source") so
-    the dialog can surface something concrete the user can act on
-    without us having to disambiguate.
+    us — either the field is genuinely absent from this YAML or
+    it lives in a ``packages:`` / ``!include``d file. The error
+    message names the missing path and points at both fixes
+    ("add it here, or edit the included source") so the dialog
+    can surface something concrete the user can act on without
+    us having to disambiguate.
     """
     if read_yaml_scalar(content, leaf_path) is None:
         leaf_dotted = ".".join(leaf_path)

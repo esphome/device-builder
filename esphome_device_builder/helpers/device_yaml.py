@@ -76,10 +76,43 @@ _SUBSTITUTION_MAX_PASSES = 16
 # doesn't end up as the catalog key.
 _VALID_ESPHOME_NAME_RE = re.compile(r"\A[a-z0-9-]+\Z")
 
+# ESPHome's hostname schema (``esphome.core.config.validate_hostname``)
+# caps the YAML ``esphome.name`` at 31 characters. Underscore is
+# accepted but discouraged (DHCP / mDNS friction) — slugifier below
+# emits dashes only.
+ESPHOME_HOSTNAME_MAX_LEN = 31
+_HOSTNAME_INVALID_CHARS_RE = re.compile(r"[^a-z0-9-]+")
+_HOSTNAME_DEDUPE_DASHES_RE = re.compile(r"-{2,}")
+
 
 def _is_valid_esphome_name(value: str) -> bool:
     """Return True when *value* matches ESPHome's ``esphome.name`` shape."""
     return bool(_VALID_ESPHOME_NAME_RE.match(value))
+
+
+def slugify_hostname(value: str, *, fallback: str = "device") -> str:
+    """Convert *value* into a string that satisfies ``esphome.name``.
+
+    Lowercases, replaces invalid characters with ``-``, collapses
+    runs of dashes, strips leading / trailing dashes, and truncates
+    to 31 characters (ESPHome's documented hostname limit). Returns
+    *fallback* when the input slugifies to the empty string —
+    callers always want *something* to insert into the YAML rather
+    than a validation error from the empty case.
+
+    Used when synthesising an ``esphome.name`` line for a YAML
+    that doesn't have one yet (the friendly-name editor's
+    "fresh-block" path), so a user typing "Zombie Test" as the
+    friendly name lands ``name: zombie-test`` alongside it. The
+    resulting hostname round-trips cleanly through
+    :func:`upsert_yaml_leaf_under_top_block`'s rewrite path on the
+    next edit.
+    """
+    lower = value.strip().lower()
+    cleaned = _HOSTNAME_INVALID_CHARS_RE.sub("-", lower)
+    deduped = _HOSTNAME_DEDUPE_DASHES_RE.sub("-", cleaned).strip("-")
+    truncated = deduped[:ESPHOME_HOSTNAME_MAX_LEN].rstrip("-")
+    return truncated or fallback
 
 
 # ---------------------------------------------------------------------------
