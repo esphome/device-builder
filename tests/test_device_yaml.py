@@ -13,10 +13,9 @@ import pytest
 
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
-    _fallback_board_id_has_wifi,
-    _fallback_variant_has_wifi,
+    _fallback_has_native_wifi,
     _parse_inline_value,
-    _select_wifi_helpers,
+    _select_wifi_helper,
     compute_has_pending_changes,
     configuration_stem,
     detect_platform_from_yaml,
@@ -846,121 +845,109 @@ def test_generate_yaml_explicit_connectivity_overrides_inference() -> None:
 
 
 @pytest.mark.parametrize(
-    ("variant", "expected"),
+    ("kwargs", "expected"),
     [
-        ("esp32", True),
-        ("esp32s2", True),
-        ("esp32s3", True),
-        ("esp32c3", True),
-        ("esp32c6", True),
-        ("esp32h2", False),
-        ("esp32p4", False),
-        # Upper-case input must round-trip — upstream stores the tags
-        # uppercased ("ESP32H2"), we lowercase the set at module load,
-        # and the fallback lowercases its argument so the two halves
-        # compose regardless of which case the caller hands us.
-        ("ESP32H2", False),
-        ("ESP32C3", True),
+        # ESP32: variants with native PHY → True; H2 / P4 → False;
+        # upper-case round-trips (upstream stores the tags
+        # uppercased).
+        ({"platform": "esp32", "variant": "esp32"}, True),
+        ({"platform": "esp32", "variant": "esp32s3"}, True),
+        ({"platform": "esp32", "variant": "esp32c3"}, True),
+        ({"platform": "esp32", "variant": "esp32c6"}, True),
+        ({"platform": "esp32", "variant": "esp32h2"}, False),
+        ({"platform": "esp32", "variant": "esp32p4"}, False),
+        ({"platform": "esp32", "variant": "ESP32H2"}, False),
+        ({"platform": "esp32", "variant": None}, True),
+        # RP2040: W variants in upstream's BOARDS table → True;
+        # plain Pico / XIAO / etc. → False; unknown ids fail open.
+        ({"platform": "rp2040", "board": "rpipicow"}, True),
+        ({"platform": "rp2040", "board": "rpipico2w"}, True),
+        ({"platform": "rp2040", "board": "rpipico"}, False),
+        ({"platform": "rp2040", "board": "seeed_xiao_rp2040"}, False),
+        ({"platform": "rp2040", "board": "not-a-real-board"}, True),
+        ({"platform": "rp2040", "board": None}, True),
+        # Wi-Fi-first families default to True regardless of board /
+        # variant; nRF52 is BLE-only.
+        ({"platform": "esp8266"}, True),
+        ({"platform": "bk72xx"}, True),
+        ({"platform": "rtl87xx"}, True),
+        ({"platform": "ln882x"}, True),
+        ({"platform": "nrf52"}, False),
     ],
 )
-def test_fallback_variant_has_wifi(variant: str, expected: bool) -> None:
-    """Pin the fallback's variant table against every known ESP32 variant."""
-    assert _fallback_variant_has_wifi(variant) is expected
+def test_fallback_has_native_wifi(kwargs: dict, expected: bool) -> None:
+    """Pin the fallback dispatcher across every platform branch.
 
-
-@pytest.mark.parametrize(
-    ("board_id", "expected"),
-    [
-        # Wi-Fi-capable boards — pinned subset of upstream's
-        # ``BOARDS`` flagged ``"wifi": True``.
-        ("rpipicow", True),
-        ("rpipico2w", True),
-        # No-Wi-Fi boards covered by the H2 user report's neighbours.
-        ("rpipico", False),
-        ("rpipico2", False),
-        ("seeed_xiao_rp2040", False),
-        ("waveshare_rp2040_zero", False),
-        # Unknown ids fail open — the wizard would emit a wifi:
-        # block for a custom RP2040 board, which is the safer
-        # default (the ``rp2040`` validator flags genuinely-broken
-        # configs at compile time).
-        ("not-a-real-board-id", True),
-    ],
-)
-def test_fallback_board_id_has_wifi(board_id: str, expected: bool) -> None:
-    """Pin the fallback's board-id table against representative inputs."""
-    assert _fallback_board_id_has_wifi(board_id) is expected
-
-
-def test_select_wifi_helpers_prefers_upstream_when_available() -> None:
-    """When esphome ships the new helpers, the aliases bind to them.
-
-    Simulates esphome/esphome#16300 having landed by passing
-    upstream callables explicitly. ``_select_wifi_helpers`` must
-    prefer them over the fallback so the wizard reads through the
-    upstream-tested API once available.
+    The fallback runs whenever the upstream
+    ``esphome.components.wifi.has_native_wifi`` is missing — that's
+    every ESPHome we currently support, and stays the path until
+    esphome/esphome#16300 ships in a release we depend on.
     """
-    upstream_variant = lambda v: True  # noqa: E731
-    upstream_board = lambda b: True  # noqa: E731
-
-    selected_variant, selected_board = _select_wifi_helpers(upstream_variant, upstream_board)
-
-    assert selected_variant is upstream_variant
-    assert selected_board is upstream_board
+    assert _fallback_has_native_wifi(**kwargs) is expected
 
 
-def test_select_wifi_helpers_falls_back_when_upstream_missing() -> None:
-    """When the upstream helpers aren't importable, the aliases bind to the fallbacks.
+def test_select_wifi_helper_prefers_upstream_when_available() -> None:
+    """When esphome ships ``has_native_wifi``, the alias binds to it.
 
-    Simulates the pre-#16300 esphome we ship against today. Both
-    args ``None`` is exactly what the module-level ``try/except``
+    Simulates esphome/esphome#16300 having landed by passing the
+    upstream callable explicitly. ``_select_wifi_helper`` must
+    prefer it over the fallback so the wizard reads through the
+    upstream-tested dispatcher once available.
+    """
+    upstream = lambda **_: True  # noqa: E731
+
+    selected = _select_wifi_helper(upstream)
+
+    assert selected is upstream
+
+
+def test_select_wifi_helper_falls_back_when_upstream_missing() -> None:
+    """When ``has_native_wifi`` isn't importable, the alias binds to the fallback.
+
+    Simulates the pre-#16300 esphome we ship against today.
+    ``None`` is exactly what the module-level ``try/except``
     produces when ``ImportError`` fires.
 
-    Look the fallbacks up through the live module attr rather than
+    Look the fallback up through the live module attr rather than
     the test-time imported binding — ``tests/test_api_key.py``
     calls ``importlib.reload(device_yaml)``, which orphans any
     test-module binding captured at import time. The live attr
     survives the reload.
     """
-    selected_variant, selected_board = _select_wifi_helpers(None, None)
+    selected = _select_wifi_helper(None)
 
-    assert selected_variant is device_yaml._fallback_variant_has_wifi
-    assert selected_board is device_yaml._fallback_board_id_has_wifi
+    assert selected is device_yaml._fallback_has_native_wifi
 
 
-def test_infer_native_wifi_routes_through_module_aliases(
+def test_infer_native_wifi_routes_through_module_alias(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``_infer_native_wifi`` reads through the aliased helpers, not the frozensets.
+    """``_infer_native_wifi`` reads through ``_has_native_wifi``, not the upstream tables.
 
     Pin the indirection so a regression that re-inlined the lookup
-    against ``_ESP32_NO_WIFI_VARIANTS`` / ``_RP2040_WIFI_PIO_BOARDS``
+    against ``_ESP32_NO_WIFI_VARIANTS`` / ``_ESPHOME_RP2040_BOARDS``
     surfaces here — the inline form would silently bypass the
-    upstream helpers once esphome/esphome#16300 ships, defeating
+    upstream dispatcher once esphome/esphome#16300 ships, defeating
     the whole point of the alias.
     """
-    variant_calls: list[str] = []
-    board_calls: list[str] = []
+    calls: list[dict] = []
 
-    monkeypatch.setattr(
-        device_yaml,
-        "_variant_has_wifi",
-        lambda v: (variant_calls.append(v), False)[1],
-    )
-    monkeypatch.setattr(
-        device_yaml,
-        "_board_id_has_wifi",
-        lambda b: (board_calls.append(b), True)[1],
-    )
+    def _stub(**kwargs: object) -> bool:
+        calls.append(kwargs)
+        return False
+
+    monkeypatch.setattr(device_yaml, "_has_native_wifi", _stub)
 
     esp32_board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3)
     rp2040_board = _make_board(platform=Platform.RP2040, pio_board="rpipicow")
 
     assert device_yaml._infer_native_wifi(esp32_board) is False
-    assert device_yaml._infer_native_wifi(rp2040_board) is True
+    assert device_yaml._infer_native_wifi(rp2040_board) is False
 
-    assert variant_calls == ["esp32c3"]
-    assert board_calls == ["rpipicow"]
+    assert calls == [
+        {"platform": "esp32", "board": "", "variant": "esp32c3"},
+        {"platform": "rp2040", "board": "rpipicow", "variant": None},
+    ]
 
 
 # ---------------------------------------------------------------------------
