@@ -407,6 +407,28 @@ def test_upsert_yaml_leaf_anchors_below_doc_marker_only() -> None:
     assert out.startswith("---\nesphome:\n  friendly_name: Reading Lamp\n")
 
 
+def test_upsert_yaml_leaf_anchors_when_file_is_only_marker() -> None:
+    """File containing only ``---`` + blank still anchors past the marker."""
+    out = upsert_yaml_leaf_under_top_block("---\n\n", "esphome", "friendly_name", "X")
+    assert out == "---\n\nesphome:\n  friendly_name: X\n"
+
+
+def test_upsert_yaml_leaf_skips_indented_comments_inside_block() -> None:
+    """Indented ``#`` inside the block doesn't end it or steal its indent."""
+    yaml = "esphome:\n  name: x\n  # mid-block note\n  area: Y\nesp32:\n  variant: ESP32\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Lamp")
+    assert "  # mid-block note\n" in out
+    assert "  friendly_name: Lamp\n" in out
+
+
+def test_upsert_yaml_leaf_inserts_before_trailing_blank_lines() -> None:
+    """Blank lines between block end and next block aren't part of the block."""
+    yaml = "esphome:\n  name: x\n\n\nesp32:\n  variant: ESP32\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Lamp")
+    # New leaf lands right after ``name:``, before the blank gap.
+    assert "  name: x\n  friendly_name: Lamp\n\n\nesp32:" in out
+
+
 def test_upsert_yaml_leaf_safely_quotes_yaml_specials_on_insert() -> None:
     """``Bedroom #2`` round-trips through ``_safe_yaml_scalar`` quoting on insert.
 

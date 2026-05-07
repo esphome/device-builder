@@ -493,6 +493,41 @@ async def test_edit_friendly_name_skips_validation_for_idempotent_rewrite(
     validate.assert_not_called()
 
 
+async def test_edit_friendly_name_raises_internal_error_on_round_trip_mismatch(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reader-disagreement with the rewriter surfaces as INTERNAL_ERROR.
+
+    Defends against the column-0-comment class of bug — the
+    rewriter produces a YAML the parser misinterprets — by
+    parsing the rewritten content back through ``parse_esphome_meta``
+    and refusing to write if it doesn't see the new friendly_name.
+    Simulate a future regression by patching the parser to return
+    None and pin the typed error + redaction-friendly hint.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.parse_esphome_meta",
+        lambda _content: (None, None, None, None),
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.edit_friendly_name(
+            configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+        )
+
+    assert excinfo.value.code == ErrorCode.INTERNAL_ERROR
+    assert "round-trip" in excinfo.value.message
+    # Hints user toward redacted reproduction (not the full file).
+    assert "redacted" in excinfo.value.message
+    # File untouched — refused before write.
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == SOURCE_YAML
+
+
 async def test_edit_friendly_name_routes_through_atomic_write_helper(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
