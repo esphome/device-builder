@@ -101,6 +101,20 @@ _FALLBACK_WIFI_FIRST_PLATFORMS: frozenset[str] = frozenset(
     {"esp8266", "bk72xx", "rtl87xx", "ln882x", "libretiny"}
 )
 
+# TODO comment block emitted by ``generate_device_yaml`` for
+# no-Wi-Fi boards (H2 / P4 / plain Pico / etc.) instead of
+# ``api:`` + ``ota:``. Lifted to module scope so the generator
+# can ``lines.extend`` rather than five inline ``lines.append``
+# calls — keeps the function under PLR0915's statement budget.
+_NO_NETWORK_TODO_LINES: tuple[str, ...] = (
+    "# This board has no native Wi-Fi. ESPHome's ``api:`` and",
+    "# ``ota:`` components both require a ``network``",
+    "# component — configure ``openthread:`` / ``ethernet:`` /",
+    "# ``esp32_hosted:`` to suit your setup, then add ``api:``",
+    "# and ``ota:`` blocks once the network is ready.",
+    "",
+)
+
 
 def _fallback_has_native_wifi(
     *, platform: str, board: str | None = None, variant: str | None = None
@@ -245,32 +259,40 @@ def generate_device_yaml(
     lines.append("logger:")
     lines.append("")
 
-    # Home Assistant API — unique encryption key per device
-    api_key = base64.b64encode(secrets.token_bytes(32)).decode()
-    lines.append("api:")
-    lines.append("  encryption:")
-    lines.append(f'    key: "{api_key}"')
-    lines.append("")
-
-    # OTA
-    lines.append("ota:")
-    lines.append("  - platform: esphome")
-    lines.append("")
-
-    # Wi-Fi: prefer the manifest's explicit claim, fall back to a
-    # platform/variant/board-aware inference for boards whose hardware
-    # block omits ``connectivity`` entirely. The prior shape defaulted
-    # empty connectivity to Wi-Fi — correct for the typical S2/S3/C3/C6
-    # / ESP8266 / Pico W board, but it silently generated a ``wifi:``
-    # block ESPHome rejects at compile time for ESP32-H2 / ESP32-P4
-    # (no Wi-Fi PHY) and for the plain RP2040 / RP2350 chips (only the
-    # Pico W / Pico 2 W variants ship a CYW43). The inference asks
-    # ESPHome's own ``NO_WIFI_VARIANTS`` and ``rp2040.boards.BOARDS``
-    # so a future no-Wi-Fi variant or new RP2040 wifi board flows
-    # through without a coordinated edit here.
+    # Wi-Fi decision — used both for the ``wifi:`` block below and to
+    # gate ``api:`` / ``ota:`` (both DEPENDENCIES=["network"], so
+    # they can't compile on a board without a network component
+    # auto-loaded by ``wifi:`` / ``ethernet:`` / ``openthread:`` /
+    # ``host:``). Prefer the manifest's explicit ``connectivity``
+    # claim, fall back to a platform/variant/board-aware inference
+    # for boards whose hardware block omits ``connectivity``
+    # entirely. The inference asks ESPHome's own ``NO_WIFI_VARIANTS``
+    # / ``rp2040.boards.BOARDS`` so a future no-Wi-Fi variant or new
+    # RP2040 Wi-Fi board flows through without a coordinated edit
+    # here.
     connectivity = [c.value for c in board.hardware.connectivity] if board.hardware else []
     has_wifi = "wifi" in connectivity if connectivity else _infer_native_wifi(board)
+
     if has_wifi:
+        # Home Assistant API — unique encryption key per device.
+        # Skipped on no-Wi-Fi boards because ``api:`` requires a
+        # ``network`` component (DEPENDENCIES=["network"]) and the
+        # wizard doesn't emit ``ethernet:`` / ``openthread:`` /
+        # ``host:`` for non-Wi-Fi boards. Validation would otherwise
+        # reject the generated config with
+        # "Component api requires component network." — see ``ota``
+        # below for the same reasoning.
+        api_key = base64.b64encode(secrets.token_bytes(32)).decode()
+        lines.append("api:")
+        lines.append("  encryption:")
+        lines.append(f'    key: "{api_key}"')
+        lines.append("")
+
+        # OTA — same network dependency as ``api:`` above.
+        lines.append("ota:")
+        lines.append("  - platform: esphome")
+        lines.append("")
+
         lines.append("wifi:")
         if ssid:
             lines.append(f"  ssid: {ssid}")
@@ -279,6 +301,17 @@ def generate_device_yaml(
             lines.append("  ssid: !secret wifi_ssid")
             lines.append("  password: !secret wifi_password")
         lines.append("")
+    else:
+        # No native Wi-Fi → leave a TODO so the user knows what they
+        # need to configure before adding ``api:`` / ``ota:``. Both
+        # require a ``network`` component to compile, and the right
+        # network for these boards depends on the user's setup
+        # (``openthread:`` for H2, ``ethernet:`` for P4 with a
+        # co-processor, ``esp32_hosted:`` for either with a Wi-Fi
+        # daughterboard, etc.). Emitting a placeholder block would
+        # bake an arbitrary choice into the generated YAML; a
+        # commented-out hint lets the user pick.
+        lines.extend(_NO_NETWORK_TODO_LINES)
 
     return "\n".join(lines)
 
