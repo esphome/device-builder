@@ -31,8 +31,15 @@ from esphome.storage_json import StorageJSON, ext_storage_path
 # it and this entire try/except can collapse to the direct imports.
 try:
     from esphome.components.rp2040 import board_id_has_wifi as _esphome_board_id_has_wifi
-    from esphome.components.wifi import variant_has_wifi as _esphome_variant_has_wifi
+    from esphome.components.wifi import (  # pragma: no cover
+        variant_has_wifi as _esphome_variant_has_wifi,
+    )
 except ImportError:
+    # Today's ESPHome ships neither helper, so the first import on
+    # the wifi line above never gets reached — ``# pragma: no cover``
+    # is the honest way to silence Codecov until the floor moves
+    # past the release that lands esphome/esphome#16300. The wiring
+    # is still tested via ``_select_wifi_helpers`` below.
     _esphome_variant_has_wifi = None  # type: ignore[assignment]
     _esphome_board_id_has_wifi = None  # type: ignore[assignment]
 
