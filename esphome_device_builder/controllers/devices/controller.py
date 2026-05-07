@@ -880,6 +880,19 @@ class DevicesController:
             msg = f"Source device {configuration} not found"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
+        # Validate the *source* before doing any rewrite work. The
+        # leaf-line rewrites that follow (name / friendly_name / api
+        # key) are structure-preserving, so a valid source always
+        # produces a valid clone — and an invalid source always
+        # produces an invalid clone. Bail early on a broken source
+        # with a message that points at the source's actual schema
+        # errors, so the user fixes the source first and retries.
+        # Surfacing this here also means we don't burn the rewrite
+        # work just to re-discover the source was unflashable.
+        await self._validate_rewritten_yaml_or_raise(
+            configuration, source_content, action="clone"
+        )
+
         # Land the new identity on whichever line the source actually
         # uses to drive the value. Two patterns appear in real configs:
         #
@@ -922,18 +935,6 @@ class DevicesController:
         # uses ``!secret`` / ``${...}`` for the key — those
         # indirections stay shared with the source on purpose.
         new_content = rewrite_api_encryption_key(new_content, new_key)
-
-        # Validate the rewritten YAML before the exclusive-create
-        # write so a clone of an invalid source doesn't silently
-        # land a second unflashable YAML on disk. The leaf-line
-        # rewrites we run here (name / friendly_name / api key)
-        # don't reshape the structural parts of the YAML, so a
-        # validation failure on the clone means the source itself
-        # didn't pass schema — the user fixes the source and
-        # retries. Surfaces as ``INVALID_ARGS`` so the dialog can
-        # point them at the source's actual errors instead of
-        # showing a generic "clone failed."
-        await self._validate_rewritten_yaml_or_raise(new_filename, new_content, action="clone")
 
         # Carry forward only the source's ``board_id`` — that's the
         # one piece of dashboard state the scanner can't recover from

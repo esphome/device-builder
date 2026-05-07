@@ -244,23 +244,23 @@ async def test_clone_device_rejects_missing_source(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
-async def test_clone_device_rejects_when_rewritten_yaml_does_not_validate(
+async def test_clone_device_rejects_when_source_does_not_validate(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Source YAML failing schema validation refuses the clone.
+    """A broken source YAML refuses the clone before any rewrite work runs.
 
     The clone path's leaf-line rewrites (name / friendly_name /
-    api key) don't reshape the YAML's structure, so a validation
-    failure on the clone means the *source* itself doesn't pass
-    schema. Refusing the clone here surfaces the editor's actual
-    errors so the user can fix the source and retry, instead of
-    landing two unflashable YAMLs on disk and having every
-    downstream operation refuse them.
+    api key) are structure-preserving, so an invalid source
+    always produces an invalid clone. Validating the source
+    up-front surfaces the editor's actual schema errors and
+    lets the user fix the source first — rather than burning
+    the rewrite work and discovering the same errors after the
+    fact.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
-    ctrl._db.editor.validate_yaml = AsyncMock(
+    validate = AsyncMock(
         return_value={
             "yaml_errors": [],
             "validation_errors": [
@@ -268,12 +268,18 @@ async def test_clone_device_rejects_when_rewritten_yaml_does_not_validate(
             ],
         }
     )
+    ctrl._db.editor.validate_yaml = validate
 
     with pytest.raises(CommandError) as excinfo:
         await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "Unsupported chip variant: esp32h2" in excinfo.value.message
+    # Validator was called on the source filename — pinning this
+    # makes a regression that revalidates the rewrite (instead of
+    # the source) fail loudly. The error message would still surface
+    # but the diagnostic would point at the wrong file.
+    assert validate.await_args.kwargs["configuration"] == "kitchen.yaml"
     # Clone never landed — source untouched, target absent.
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == SOURCE_YAML
     assert not (tmp_path / "bedroom-bulb.yaml").exists()
