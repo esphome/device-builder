@@ -380,13 +380,10 @@ class ComponentCatalog:
             total=total,
             offset=offset,
             limit=limit,
-            # Sidebar counts share the request's filters (query, exclusions,
-            # platform) so they reflect what's actually findable in the
-            # current view. The selected ``category`` is intentionally not
-            # applied — the user needs to see the *other* categories to
-            # navigate between them. Categories with zero post-filter
-            # matches are dropped from the response so the frontend can
-            # hide empty buckets without a parallel scan.
+            # Sidebar counts share the request's filters so they reflect
+            # what's actually findable. ``category`` is intentionally
+            # left out — the user needs to see the *other* categories
+            # to navigate between them.
             categories=self._categories_for_board(
                 board_id,
                 query=query,
@@ -436,15 +433,16 @@ class ComponentCatalog:
         exclude_set: set[str] | None = None,
         target_platform: str | None = None,
     ) -> list[dict[str, str | int]]:
-        """Build the category list, optionally with a per-board ``featured`` count.
+        """
+        Return the catalog category list, sorted by count desc then name.
 
-        With no kwargs this returns the full unfiltered catalog
-        breakdown — the shape used by the standalone
-        ``components/get_categories`` endpoint. ``get_components`` passes
-        its own ``query`` / ``exclude_category`` / ``platform`` filters
-        through so the sidebar counts in its response stay in lockstep
-        with the components the user actually sees. Categories whose
-        post-filter count drops to zero are omitted entirely (issue #380).
+        Each entry is a ``{id, name, count}`` dict. With no kwargs
+        the counts cover the full catalog. Pass any of ``query`` /
+        ``exclude_set`` / ``target_platform`` to apply the same
+        filters used by :meth:`get_components`; categories whose
+        post-filter count is zero are omitted. ``board_id`` adds
+        the synthetic ``featured`` entry when the board has
+        matching recommendations.
         """
         query_lower = query.lower() if query else None
         counts: dict[str, int] = {}
@@ -465,8 +463,8 @@ class ComponentCatalog:
                 continue
             counts[comp.category] = counts.get(comp.category, 0) + 1
         if board_id:
-            # Featured rides on the same query — when the user is searching,
-            # the badge should drop to the matches (or vanish entirely).
+            # Featured rides on the same query so the badge drops to
+            # the matches (or vanishes) while the user is searching.
             if query_lower is not None:
                 featured_count = len(
                     self._featured_components_for_board(board_id, target_platform, query)

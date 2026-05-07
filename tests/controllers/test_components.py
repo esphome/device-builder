@@ -242,14 +242,11 @@ async def test_get_components_query_matches_name_description_or_id() -> None:
 
 
 async def test_get_components_response_categories_track_query_filter() -> None:
-    """Sidebar counts in the response narrow with ``query`` (issue #380).
+    """
+    Response ``categories`` reflect the active ``query``.
 
-    Before this fix, ``categories`` always carried the unfiltered
-    catalog totals — so typing ``debug`` left the sidebar showing
-    "Sensor (277)" while the grid only had a handful of matches. The
-    fix shares the same query/exclusion/platform filters with the
-    counter, and zero-count buckets drop out entirely so the
-    frontend can hide them naturally.
+    Buckets with no post-filter matches drop out entirely so the
+    frontend can hide empty categories.
     """
     cat = ComponentCatalog()
     cat._components = [
@@ -262,19 +259,16 @@ async def test_get_components_response_categories_track_query_filter() -> None:
 
     res = await cat.get_components(query="debug")
     counts = {c["id"]: c["count"] for c in res.categories}
-    # Only the matching ``debug`` entry contributes — its bucket is the
-    # one we expect, and the unrelated buckets are absent (not zero).
+    # The non-matching buckets are absent from the response (not zero).
     assert counts == {ComponentCategory.CORE.value: 1}
 
 
 async def test_get_components_response_categories_ignore_selected_category() -> None:
-    """A selected ``category`` doesn't shrink the sidebar — only ``query`` does.
+    """
+    A selected ``category`` doesn't shrink the sidebar.
 
-    The user picks a category to scope the *grid*; the sidebar still
-    needs to show every category as a navigable option, otherwise
-    they couldn't switch back. Excluded / platform / query filters
-    apply (they describe what's findable at all), but ``category``
-    itself doesn't.
+    The user needs every category visible to navigate between
+    them; only query / exclude / platform narrow the bucket list.
     """
     cat = ComponentCatalog()
     cat._components = [
@@ -306,7 +300,6 @@ async def test_get_components_response_categories_honor_exclude_and_platform() -
     ]
     cat._by_id = {c.id: c for c in cat._components}
 
-    # exclude_category drops the bucket entirely.
     res = await cat.get_components(exclude_category=ComponentCategory.CORE.value)
     assert all(c["id"] != ComponentCategory.CORE.value for c in res.categories)
 
@@ -320,11 +313,11 @@ async def test_get_components_response_categories_honor_exclude_and_platform() -
 
 
 async def test_get_categories_endpoint_unaffected_by_query_filter_change() -> None:
-    """The standalone ``get_categories`` endpoint stays unfiltered.
+    """
+    The standalone ``get_categories`` endpoint stays unfiltered.
 
-    Only ``get_components``' embedded sidebar counts share its
-    filters — the standalone endpoint has no request-side filters
-    to honour and continues to return the full catalog breakdown.
+    Only ``get_components`` shares its request filters with the
+    counter; ``get_categories`` always returns the full breakdown.
     """
     cat = ComponentCatalog()
     cat._components = [
