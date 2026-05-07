@@ -40,6 +40,7 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_esphome_name,
     rewrite_name_or_substitution,
     rewrite_yaml_scalar,
+    upsert_yaml_leaf_under_top_block,
 )
 from esphome_device_builder.models.components import (
     ComponentCatalogEntry,
@@ -321,6 +322,97 @@ def test_rewrite_name_or_substitution_handles_mixed_value_via_leaf() -> None:
     out = rewrite_name_or_substitution(yaml, ("esphome", "name"), "bedroom-bulb")
     assert "  prefix: my\n" in out  # untouched
     assert "  name: bedroom-bulb\n" in out  # leaf flipped to literal
+
+
+# ---------------------------------------------------------------------------
+# upsert_yaml_leaf_under_top_block
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_yaml_leaf_rewrites_existing_leaf_via_substitution_helper() -> None:
+    """Existing leaf path → rewrite (substitution-aware).
+
+    Pin that the rewrite path delegates to
+    ``rewrite_name_or_substitution`` so the substitution-redirect
+    behaviour is preserved when the leaf already exists.
+    """
+    yaml = "substitutions:\n  friendly_name: Old\nesphome:\n  friendly_name: ${friendly_name}\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "New")
+    # Substitution definition flipped, leaf still references the var.
+    assert "  friendly_name: New\n" in out
+    assert "  friendly_name: ${friendly_name}\n" in out
+
+
+def test_upsert_yaml_leaf_inserts_into_existing_block() -> None:
+    """``esphome:`` exists, no ``friendly_name:`` — insert into the block.
+
+    The new line lands at the end of the block (after any other
+    children) so the existing layout — comments above, sibling
+    keys in their original order — survives untouched.
+    """
+    yaml = "esphome:\n  name: kitchen\n  area: Kitchen\nesp32:\n  variant: ESP32\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Reading Lamp")
+    assert out == (
+        "esphome:\n"
+        "  name: kitchen\n"
+        "  area: Kitchen\n"
+        "  friendly_name: Reading Lamp\n"
+        "esp32:\n  variant: ESP32\n"
+    )
+
+
+def test_upsert_yaml_leaf_matches_existing_child_indent() -> None:
+    """4-space children get a 4-space-indented insert, not a hardcoded 2.
+
+    Hand-edited configs that use 4-space indent shouldn't suddenly
+    sprout a 2-space-indented sibling. Detect the indent from any
+    existing child and match it.
+    """
+    yaml = "esphome:\n    name: kitchen\nesp32:\n    variant: ESP32\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Reading Lamp")
+    assert "    friendly_name: Reading Lamp\n" in out
+
+
+def test_upsert_yaml_leaf_prepends_new_block_when_missing() -> None:
+    """No ``esphome:`` block at all — prepend a fresh one with the leaf.
+
+    Package-driven config where ``esphome:`` lives in an
+    ``!include``d file. The local override-by-merge means
+    inserting our own ``esphome: { friendly_name: ... }`` here
+    actually wins on the device.
+    """
+    yaml = "packages:\n  base: !include common/base.yaml\nesp32:\n  variant: ESP32\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Reading Lamp")
+    # New block at the top.
+    assert out.startswith("esphome:\n  friendly_name: Reading Lamp\n")
+    # Pre-existing top-level keys preserved verbatim.
+    assert "packages:\n  base: !include common/base.yaml\n" in out
+    assert "esp32:\n  variant: ESP32\n" in out
+
+
+def test_upsert_yaml_leaf_safely_quotes_yaml_specials_on_insert() -> None:
+    """``Bedroom #2`` round-trips through ``_safe_yaml_scalar`` quoting on insert.
+
+    The insert path renders the value through the same safe-quote
+    helper the rewrite path uses, so a value with `` #`` /
+    ``: `` / leading indicator chars / reserved bool/null spelling
+    can't quietly truncate or split into a key/value pair.
+    """
+    yaml = "esphome:\n  name: kitchen\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Bedroom #2")
+    assert '  friendly_name: "Bedroom #2"\n' in out
+
+
+def test_upsert_yaml_leaf_block_with_no_children_uses_default_indent() -> None:
+    r"""Block with no children to copy from defaults to two spaces.
+
+    Edge case: a ``esphome:\n`` line with no body (already
+    declared but empty). Insert with the ESPHome-canonical
+    two-space indent.
+    """
+    yaml = "esphome:\nesp32:\n  variant: ESP32\n"
+    out = upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Reading Lamp")
+    assert out.startswith("esphome:\n  friendly_name: Reading Lamp\n")
 
 
 # ---------------------------------------------------------------------------

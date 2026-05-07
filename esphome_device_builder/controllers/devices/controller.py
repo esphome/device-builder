@@ -45,6 +45,7 @@ from ...helpers.yaml import (
     rewrite_api_encryption_key,
     rewrite_esphome_name,
     rewrite_name_or_substitution,
+    upsert_yaml_leaf_under_top_block,
 )
 from ...models import (
     AddComponentResponse,
@@ -948,15 +949,22 @@ class DevicesController:
         requested value (no-op rewrite); the caller can use that
         to skip a redundant follow-up install.
 
+        Insertion behaviour for absent leaves:
+        - Existing ``esphome.friendly_name`` line → rewritten in
+          place (substitution-aware via
+          :func:`rewrite_name_or_substitution`).
+        - Existing ``esphome:`` block but no ``friendly_name:``
+          child → ``friendly_name:`` is inserted into the block.
+        - No ``esphome:`` block at all (package / ``!include``-
+          driven config) → a new ``esphome:`` block is prepended
+          with just ``friendly_name:``. ESPHome's package merge
+          gives our local leaf precedence over the package's
+          value, so the user's intended override actually lands.
+
         User-correctable failures raise typed
         ``CommandError(INVALID_ARGS, …)``:
         - blank ``new_friendly_name``
         - source not found
-        - source has no inline ``esphome.friendly_name`` leaf
-          (either omitted entirely, or supplied via
-          ``packages:`` / ``!include`` — the helper's error
-          message offers both fixes without us having to
-          disambiguate)
         """
         new_friendly_name = new_friendly_name.strip()
         if not new_friendly_name:
@@ -985,10 +993,17 @@ class DevicesController:
                 f"Device {configuration} not found",
             )
 
-        # Precondition + rewrite via the shared helper — same
-        # "leaf must live in this file" check the clone path uses.
-        new_content = _rewrite_required_yaml_leaf(
-            content, ("esphome", "friendly_name"), new_friendly_name
+        # ``upsert_yaml_leaf_under_top_block`` handles three shapes:
+        # rewrite an existing leaf (substitution-aware), insert
+        # ``friendly_name:`` into an existing ``esphome:`` block,
+        # or prepend a new ``esphome:`` block when the YAML doesn't
+        # have one (package / ``!include``-driven configs). For a
+        # display label the override-from-package case is exactly
+        # what the user wants — they're saying "call THIS device
+        # something different" — and ESPHome's package merge gives
+        # our local leaf precedence over the included one.
+        new_content = upsert_yaml_leaf_under_top_block(
+            content, "esphome", "friendly_name", new_friendly_name
         )
         if new_content == content:
             # Idempotent — user submitted the same value (or the

@@ -448,6 +448,87 @@ def rewrite_name_or_substitution(
     return rewrite_yaml_scalar(yaml_text, leaf_path, lambda _raw: rendered)
 
 
+def upsert_yaml_leaf_under_top_block(
+    yaml_text: str,
+    block_key: str,
+    leaf_key: str,
+    new_value: str,
+) -> str:
+    r"""
+    Set or insert ``block_key.leaf_key`` to *new_value* in *yaml_text*.
+
+    Three behaviours, picked by the YAML's existing shape:
+
+    1. **Leaf exists** at ``(block_key, leaf_key)`` — rewrite via
+       :func:`rewrite_name_or_substitution` so the substitution-
+       redirect / safe-quoting machinery applies.
+    2. **Top-level ``block_key:`` exists but no ``leaf_key:``
+       child** — insert ``  leaf_key: <value>`` at the end of the
+       block body, matching the indent of any existing sibling
+       (defaults to two spaces when the block has no children).
+    3. **No ``block_key:`` block at all** — prepend a new
+       ``block_key:\n  leaf_key: <value>\n`` block at the top
+       of the file. Used for package-driven configs where the
+       ``esphome:`` block lives in an ``!include``d file; ESPHome's
+       package merge gives our local leaf precedence over the
+       package's, so the user's intended override actually lands.
+
+    *new_value* is rendered through :func:`_safe_yaml_scalar` so
+    YAML-special characters (``Bedroom #2`` etc.) round-trip
+    safely. Caller passes the unquoted user input.
+
+    Returns the modified YAML. The original text is unchanged
+    when the rewrite path is reached and either the leaf or its
+    referenced substitution is somehow unrewritable, but for
+    cases 2 and 3 the helper always returns a modified string.
+    """
+    leaf_path = (block_key, leaf_key)
+    if read_yaml_scalar(yaml_text, leaf_path) is not None:
+        return rewrite_name_or_substitution(yaml_text, leaf_path, new_value)
+
+    rendered = _safe_yaml_scalar(new_value)
+    lines = yaml_text.splitlines(keepends=True)
+    block_header = re.compile(rf"^{re.escape(block_key)}:\s*(?:#.*)?$")
+
+    # Single walk: locate the block opener at column 0, capture
+    # the first child's indent (so 4-space hand-edited configs
+    # don't suddenly sprout 2-space siblings), and stop at the
+    # next column-0 non-comment line which closes the block.
+    block_start: int | None = None
+    block_end = len(lines)
+    indent = "  "
+    indent_captured = False
+    for i, line in enumerate(lines):
+        stripped = line.rstrip("\n\r")
+        if not stripped or stripped.lstrip().startswith("#"):
+            continue
+        if block_start is None:
+            if block_header.match(stripped):
+                block_start = i
+            continue
+        if not stripped[0].isspace():
+            block_end = i
+            break
+        if not indent_captured:
+            indent = " " * (len(stripped) - len(stripped.lstrip(" ")))
+            indent_captured = True
+
+    if block_start is None:
+        # Prepend a new block. Add a blank-line separator unless
+        # the file already starts with one or is empty.
+        sep = "" if not yaml_text or yaml_text.startswith("\n") else "\n"
+        return f"{block_key}:\n  {leaf_key}: {rendered}\n{sep}{yaml_text}"
+
+    # Trim trailing blank lines so the insert lands right after
+    # the block's last content line, not after the visual gap
+    # that separates it from whatever follows.
+    insert_at = block_end
+    while insert_at > block_start + 1 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    new_line = f"{indent}{leaf_key}: {rendered}\n"
+    return "".join([*lines[:insert_at], new_line, *lines[insert_at:]])
+
+
 def rewrite_esphome_name(
     yaml_text: str,
     new_name: str,

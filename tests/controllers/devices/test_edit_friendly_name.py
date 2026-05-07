@@ -225,32 +225,64 @@ async def test_edit_friendly_name_handles_race_between_exists_and_read(
     assert "kitchen.yaml not found" in excinfo.value.message
 
 
-async def test_edit_friendly_name_rejects_source_with_no_inline_leaf(
+async def test_edit_friendly_name_inserts_into_existing_esphome_block(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Package-driven friendly_name (no inline leaf) is rejected.
+    """``esphome:`` exists but no ``friendly_name:`` — insert the line into the block.
 
-    When the ``esphome:`` block lives in a ``packages:`` /
-    ``!include``d file, this YAML has no ``friendly_name:`` leaf
-    for the rewriter to touch — silently no-op'ing would leave
-    the dashboard label disagreeing with what compiles. Mirror the
-    same precondition the clone path uses (and the shared
-    ``_rewrite_required_yaml_leaf`` helper raises through).
+    Configs the user hand-edited or imported via dashboard_import
+    sometimes lack ``friendly_name:`` entirely. The editor should
+    add the line into the existing ``esphome:`` block rather than
+    fail the rename. Pin the placement (inside the block, with
+    matching indent) and that other esphome children survive.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml = "esphome:\n  name: kitchen\n  area: Kitchen\nesp32:\n  variant: ESP32\n"
+    (tmp_path / "kitchen.yaml").write_text(yaml, "utf-8")
+
+    result = await ctrl.edit_friendly_name(
+        configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+    )
+
+    assert result == {"configuration": "kitchen.yaml", "rewritten": True}
+    new_yaml = (tmp_path / "kitchen.yaml").read_text("utf-8")
+    assert "  friendly_name: Reading Lamp\n" in new_yaml
+    # Existing children survived.
+    assert "  name: kitchen\n" in new_yaml
+    assert "  area: Kitchen\n" in new_yaml
+    # New leaf landed inside the block, not at column 0.
+    assert "esphome:\nfriendly_name:" not in new_yaml
+
+
+async def test_edit_friendly_name_prepends_esphome_block_when_missing(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Package-driven config with no inline ``esphome:`` — prepend the whole block.
+
+    When ``esphome:`` lives in a ``packages:`` / ``!include``d
+    file, this YAML has no block at all. Inserting our own
+    ``esphome: { friendly_name: ... }`` at the top is what the
+    user wants — ESPHome's package merge gives the local leaf
+    precedence over the included one, so the rename actually
+    lands on the device.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml = "packages:\n  base: !include common/base.yaml\nesp32:\n  variant: ESP32\n"
     (tmp_path / "kitchen.yaml").write_text(yaml, "utf-8")
 
-    with pytest.raises(CommandError) as excinfo:
-        await ctrl.edit_friendly_name(
-            configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
-        )
+    result = await ctrl.edit_friendly_name(
+        configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+    )
 
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "esphome.friendly_name" in excinfo.value.message
-    # File untouched.
-    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == yaml
+    assert result == {"configuration": "kitchen.yaml", "rewritten": True}
+    new_yaml = (tmp_path / "kitchen.yaml").read_text("utf-8")
+    # New ``esphome:`` block at the top with the friendly_name child.
+    assert new_yaml.startswith("esphome:\n  friendly_name: Reading Lamp\n")
+    # Pre-existing top-level keys preserved.
+    assert "packages:\n  base: !include common/base.yaml\n" in new_yaml
+    assert "esp32:\n  variant: ESP32\n" in new_yaml
 
 
 async def test_edit_friendly_name_routes_through_atomic_write_helper(
