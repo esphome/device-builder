@@ -27,7 +27,6 @@ from typing import Any
 
 import pytest
 
-from esphome_device_builder.helpers.device_yaml import slugify_hostname
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
     _safe_yaml_scalar,
@@ -442,54 +441,6 @@ def test_upsert_yaml_leaf_rejects_tagged_value_at_block_header() -> None:
     yaml = "esphome: !include packaged.yaml\nesp32:\n  variant: ESP32\n"
     with pytest.raises(YamlUpsertNotSupportedError):
         upsert_yaml_leaf_under_top_block(yaml, "esphome", "friendly_name", "Lamp")
-
-
-# ---------------------------------------------------------------------------
-# slugify_hostname
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        # Happy path: lowercase + dash for spaces.
-        ("Kitchen Lamp", "kitchen-lamp"),
-        # Mixed case + extra whitespace strips.
-        ("  Living Room  ", "living-room"),
-        # Punctuation collapses to single dashes; leading / trailing
-        # dashes get stripped.
-        ("Bob's Lamp #2", "bob-s-lamp-2"),
-        # Already-slug input passes through.
-        ("kitchen-lamp", "kitchen-lamp"),
-        # Underscores get replaced with dashes (underscore is
-        # discouraged in hostnames per ESPHome's warning).
-        ("my_device", "my-device"),
-        # Truncates to 31 chars.
-        ("Living Room Reading Lamp Bedside Right", "living-room-reading-lamp-bedsid"),
-        # Empty / unprintable input falls back.
-        ("", "device"),
-        ("@@@", "device"),
-        ("   ", "device"),
-        # Collapses runs of dashes.
-        ("a---b", "a-b"),
-        # Trailing dash from truncation gets stripped.
-        ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-b", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-    ],
-)
-def test_slugify_hostname(value: str, expected: str) -> None:
-    """Pin the slugifier's accept / transform / fallback contract.
-
-    Used to synthesise an ``esphome.name`` line when the user
-    sets ``friendly_name`` on a YAML that doesn't have ``name:``
-    yet — has to satisfy ESPHome's hostname schema (lowercase
-    ASCII + digits + ``-``, max 31 chars, non-empty).
-    """
-    assert slugify_hostname(value) == expected
-
-
-def test_slugify_hostname_custom_fallback() -> None:
-    """Empty input picks the caller-supplied fallback."""
-    assert slugify_hostname("", fallback="my-thing") == "my-thing"
 
 
 # ---------------------------------------------------------------------------

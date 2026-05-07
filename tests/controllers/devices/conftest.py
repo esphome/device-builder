@@ -443,6 +443,15 @@ def make_controller() -> MakeControllerFactory:
         controller._db = MagicMock()
         controller._db.settings.config_dir = config_dir
         controller._db.settings.rel_path = lambda configuration: config_dir / configuration
+        # Default the editor's ``validate_yaml`` to a passing result
+        # so any handler that runs YAML through it (currently
+        # ``edit_friendly_name``) doesn't end up awaiting the
+        # MagicMock auto-attr and tripping. Tests that exercise the
+        # validation-failure branch override this directly with an
+        # ``AsyncMock`` that returns the error shape they want to pin.
+        controller._db.editor.validate_yaml = AsyncMock(
+            return_value={"yaml_errors": [], "validation_errors": []}
+        )
         # ``RecordingScanner`` rather than a MagicMock-shaped scanner so a
         # typo or rename of ``scan``/``reload`` surfaces as
         # ``AttributeError`` instead of silently passing the assertion.

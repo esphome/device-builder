@@ -983,6 +983,16 @@ class DevicesController:
           (``esphome: !include …``); the line-based upsert can't
           safely edit either shape, so the user has to convert
           to block style first.
+        - the rewritten YAML doesn't pass ESPHome's config
+          validation. The friendly_name only reaches the device
+          via the next install, so writing a YAML that won't
+          compile would leave the dashboard stuck displaying the
+          old label forever (no fresh mDNS broadcast to update
+          the running firmware's announced name). Refusing the
+          write here is the only way to keep dashboard label and
+          device hostname in sync; the dialog surfaces the
+          validation errors so the user can fix them in the
+          editor and retry.
         """
         new_friendly_name = new_friendly_name.strip()
         if not new_friendly_name:
@@ -1074,8 +1084,20 @@ class DevicesController:
             # leaf was already that value). Skip the write and
             # signal to the caller that no install is needed
             # either; the dialog can close without queuing a
-            # redundant OTA job.
+            # redundant OTA job. Skip the validation pass too —
+            # the file isn't changing, so revalidating just to
+            # mirror its existing state would burn ~hundreds of
+            # ms on the editor subprocess for nothing.
             return {"configuration": configuration, "rewritten": False}
+
+        # Same-shape rewrites that don't actually change anything
+        # in the YAML aren't worth the validator round-trip — see
+        # ``_validate_rewritten_yaml_or_raise``. Run validation
+        # here, before the write, so a YAML that won't compile is
+        # rejected with the editor's actual errors instead of
+        # silently landing on disk for an install that will never
+        # take effect.
+        await self._validate_rewritten_yaml_or_raise(configuration, new_content, action="rename")
 
         # Atomic write — ``Path.write_text`` truncates the
         # destination before writing, so a crash mid-write leaves
@@ -1091,6 +1113,65 @@ class DevicesController:
         await loop.run_in_executor(None, atomic_write_file, config_path, new_content)
         await self._scanner.scan()
         return {"configuration": configuration, "rewritten": True}
+
+    async def _validate_rewritten_yaml_or_raise(
+        self,
+        configuration: str,
+        content: str,
+        *,
+        action: str,
+    ) -> None:
+        """
+        Schema-validate *content* via the editor; raise if invalid.
+
+        Used by commands that rewrite a device's YAML and depend on
+        a follow-up install to apply the change (``edit_friendly_name``
+        today, future rename / save / mass-edit handlers). The
+        rewritten YAML only takes effect once an install lands the
+        new firmware, so a YAML that won't validate means the
+        install fails and the running device keeps its old state —
+        the dashboard ends up showing a half-finished change that
+        will never reach the device. Refusing the write here keeps
+        on-disk state and live state in lockstep.
+
+        Reuses :class:`EditorController`'s warm validator subprocess
+        (one per configuration), so the cost is single-digit hundreds
+        of ms when the session is warm. ``self._db.editor`` is None
+        during dashboard boot before
+        :meth:`EditorController.start` finishes; that window is
+        too narrow for a user to hit in practice, but the guard
+        means the controller still behaves coherently if the
+        editor is unavailable for any reason (e.g. the ``esphome``
+        CLI not on PATH) — better to skip validation than reject
+        every rewrite.
+
+        *action* is interpolated into the error message ("Can't
+        <action> — config doesn't validate: …"); pass the
+        user-facing verb the dialog will show ("rename",
+        "save"). The error list is capped at three entries so a
+        long error pile collapses to "first three + (+N more)"
+        rather than overflowing the toast.
+        """
+        editor = self._db.editor
+        if editor is None:
+            return
+        result = await editor.validate_yaml(configuration=configuration, content=content)
+        errors = [
+            *(err.get("message", "") for err in result.get("yaml_errors", [])),
+            *(err.get("message", "") for err in result.get("validation_errors", [])),
+        ]
+        errors = [msg for msg in errors if msg]
+        if not errors:
+            return
+        shown = errors[:3]
+        suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            f"Can't {action} — config doesn't validate: "
+            + "; ".join(shown)
+            + suffix
+            + ". Fix the errors in the editor and try again.",
+        )
 
     async def _yaml_validates(self, config_path: str) -> bool:
         """``esphome config`` precheck.

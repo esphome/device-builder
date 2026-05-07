@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -345,6 +346,151 @@ async def test_edit_friendly_name_rejects_flow_style_esphome(
     assert "flow-style" in excinfo.value.message or "block style" in excinfo.value.message
     # File untouched.
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == yaml
+
+
+async def test_edit_friendly_name_blocks_when_validation_fails(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Pre-write validation rejects renames whose YAML won't compile.
+
+    The friendly_name only reaches the device through the next
+    install — compile bakes the YAML in, OTA flashes the new
+    binary, and the running firmware then announces the new name
+    via mDNS. If the compile step fails (e.g. unsupported chip
+    variant, schema-invalid component config, missing required
+    field) the install never happens, the running firmware keeps
+    its old name, and the dashboard label stays frozen at the
+    last broadcast.
+
+    User-visible symptom from the bug report: H2 device created
+    via the wizard whose default config didn't pass validation;
+    the rename appeared to succeed in the dialog but the
+    dashboard kept showing the filename-stem fallback because
+    the install never ran. Pre-write validation refuses the
+    rename here so the user sees an actionable "fix the config
+    first" error instead of a silently half-finished rename.
+
+    Pin: when the editor's ``validate_yaml`` returns a
+    non-empty ``validation_errors`` list the controller raises
+    ``INVALID_ARGS`` *and* leaves the YAML on disk untouched.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [
+                {"message": "[esp32] Unsupported chip variant: esp32h2"},
+                {"message": "[wifi] required key not provided: ssid"},
+            ],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.edit_friendly_name(
+            configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Unsupported chip variant: esp32h2" in excinfo.value.message
+    assert "required key not provided: ssid" in excinfo.value.message
+    # File untouched — rename refused before the write.
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == SOURCE_YAML
+    # Scanner not nudged for a refused edit.
+    assert ctrl._scanner.calls == []
+
+
+async def test_edit_friendly_name_caps_validation_error_list_in_message(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A long validation-error list collapses to "first three + (+N more)".
+
+    The CommandError message lands on a toast in the dialog;
+    pasting six full validation errors would overflow it and
+    drown out the actionable bit. Three errors plus a tail
+    counter is enough for the user to see "this isn't a one-line
+    fix" and switch to the editor for the full list.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [{"message": f"err-{i}"} for i in range(6)],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.edit_friendly_name(
+            configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+        )
+
+    msg = excinfo.value.message
+    assert "err-0" in msg
+    assert "err-1" in msg
+    assert "err-2" in msg
+    # Errors past the first three are folded into the counter.
+    assert "err-3" not in msg
+    assert "(+3 more)" in msg
+
+
+async def test_edit_friendly_name_skips_validation_when_editor_unavailable(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Editor not yet started → rename proceeds without validation.
+
+    Edge case for the dashboard-boot window where
+    ``EditorController.start()`` hasn't run yet (the ``esphome``
+    CLI lookup may be in flight, or the binary may not be on
+    PATH at all in stripped-down container builds). The
+    controller treats ``self._db.editor`` being None as "no
+    validator available" and lets the rename through rather
+    than rejecting every rename for the lifetime of the
+    process. The YAML still gets the round-trip parse-meta
+    sanity check; we just skip the deeper schema validation.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    ctrl._db.editor = None
+
+    result = await ctrl.edit_friendly_name(
+        configuration="kitchen.yaml", new_friendly_name="Reading Lamp"
+    )
+
+    assert result == {"configuration": "kitchen.yaml", "rewritten": True}
+    new_yaml = (tmp_path / "kitchen.yaml").read_text("utf-8")
+    assert "  friendly_name: Reading Lamp\n" in new_yaml
+
+
+async def test_edit_friendly_name_skips_validation_for_idempotent_rewrite(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """No-op rename short-circuits before the validator subprocess fires.
+
+    The validator round-trip is the expensive part of this
+    command (~hundreds of ms on the warm path, multiple seconds
+    cold). When the user submits the same friendly_name the
+    leaf already has, we shouldn't burn that cost just to
+    confirm a state we're not about to change. The idempotent
+    branch returns ``rewritten=False`` *before* the validator
+    is reached.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    validate = AsyncMock(return_value={"yaml_errors": [], "validation_errors": []})
+    ctrl._db.editor.validate_yaml = validate
+
+    result = await ctrl.edit_friendly_name(
+        configuration="kitchen.yaml",
+        new_friendly_name="Kitchen Lamp",  # already the value in SOURCE_YAML
+    )
+
+    assert result == {"configuration": "kitchen.yaml", "rewritten": False}
+    validate.assert_not_called()
 
 
 async def test_edit_friendly_name_routes_through_atomic_write_helper(
