@@ -1288,9 +1288,7 @@ class DevicesController:
                 # user can ``devices/delete`` it once they understand
                 # what failed.
                 try:
-                    await asyncio.get_running_loop().run_in_executor(
-                        None, on_error_cleanup
-                    )
+                    await asyncio.get_running_loop().run_in_executor(None, on_error_cleanup)
                 except Exception:
                     _LOGGER.exception("on_error_cleanup raised; original error preserved")
 
