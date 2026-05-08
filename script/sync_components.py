@@ -1903,10 +1903,148 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
         # avoids accidentally exposing deeply technical groups.
         if inner and _all_inner_advanced(inner):
             entry["advanced"] = True
+    elif entry_type == "pin":
+        # Attach the long-form pin schema (mode flags + inverted) so
+        # the editor can render an "Advanced" disclosure under every
+        # pin field. Without this the visual editor only supports
+        # the short ``pin: GPIO5`` form, which blocks configurations
+        # like ``pin: { number: GPIO5, mode: { input: true, pullup:
+        # true } }`` (issue #420).
+        entry["config_entries"] = list(_pin_long_form_extras(schema_dir)) or None
     else:
         entry["config_entries"] = None
 
     return entry
+
+
+@cache
+def _pin_long_form_extras(schema_dir: Path) -> tuple[dict, ...]:
+    """Return nested ConfigEntry dicts for the pin schema's long form.
+
+    ESPHome's pin schema accepts both ``pin: GPIO5`` (the short form
+    our existing pin picker handles) and ``pin: { number: GPIO5,
+    mode: { input: true, pullup: true }, inverted: true }``. Today's
+    catalog flat-maps ``type: pin`` to a leaf entry, so the visual
+    editor can't drive the long form at all.
+
+    Read the long-form fields from ``esp32.json``'s
+    ``pin.schema.config_vars`` — ESP32's schema is the most complete
+    of the bundled platforms and includes every common field. The
+    common subset (``mode`` + ``inverted``) applies to every
+    platform that has a pin schema (esp32, esp8266, rp2040, nrf52,
+    host); platform-specific extras (``drive_strength`` on ESP32
+    only, ``analog`` mode on esp8266/rp2040/nrf52/host) are
+    intentionally excluded for first cut — the catalog entries
+    are component-keyed, not platform-keyed, so a per-platform
+    field on a pin shared across components can't be resolved
+    here.
+
+    Cached so a sync run with hundreds of pin entries pays the
+    bundle read once. ``schema_dir`` is the cache key; a fresh
+    ``ensure_schema`` call returns a different directory and the
+    cache invalidates naturally.
+    """
+    try:
+        esp32_data = json.loads((schema_dir / "esp32.json").read_text())
+    except (FileNotFoundError, ValueError, OSError):
+        # Bundle missing the platform schema — skip the long-form
+        # extras rather than crashing the whole sync. Pin entries
+        # render as the short-form picker, same as today.
+        return ()
+    pin_block = esp32_data.get("esp32", {}).get("pin", {}) or {}
+    pin_cvs = pin_block.get("schema", {}).get("config_vars", {}) or {}
+
+    extras: list[dict] = []
+
+    mode_subs = (pin_cvs.get("mode", {}) or {}).get("schema", {}).get("config_vars", {}) or {}
+    common_modes = ("input", "output", "pullup", "pulldown", "open_drain")
+    mode_children = [
+        _synthesise_long_form_extra(
+            key=flag,
+            type_="boolean",
+            default_value=False,
+            description=f"Set the {_key_to_label(flag).lower()} mode flag.",
+        )
+        for flag in common_modes
+        if flag in mode_subs
+    ]
+    if mode_children:
+        extras.append(
+            _synthesise_long_form_extra(
+                key="mode",
+                type_="nested",
+                default_value=None,
+                description=(
+                    "Pin mode flags (input / output / pullup / pulldown / "
+                    "open_drain). Combine flags as needed — e.g. input + "
+                    "pullup for a button pulled to VCC."
+                ),
+                config_entries=mode_children,
+            )
+        )
+
+    if "inverted" in pin_cvs:
+        extras.append(
+            _synthesise_long_form_extra(
+                key="inverted",
+                type_="boolean",
+                default_value=False,
+                description=(
+                    "Invert the logical level. ``true`` swaps high/low "
+                    "in software so an active-low button reads as "
+                    "active when grounded."
+                ),
+            )
+        )
+
+    return tuple(extras)
+
+
+def _synthesise_long_form_extra(
+    *,
+    key: str,
+    type_: str,
+    default_value: Any,
+    description: str,
+    config_entries: list[dict] | None = None,
+) -> dict:
+    """Build a ConfigEntry-shaped dict for a synthesised long-form pin field.
+
+    Mirrors the shape ``_convert_field`` produces but with the small
+    set of fields the long-form pin extras actually need; the rest
+    default to safe values so the consumer can treat synthesised and
+    schema-derived entries uniformly. Marked ``advanced=True`` —
+    the long-form fields are an opt-in disclosure under the pin
+    picker, never on the main form.
+    """
+    return {
+        "key": key,
+        "type": type_,
+        "label": _key_to_label(key),
+        "description": description,
+        "required": False,
+        "default_value": default_value,
+        "options": None,
+        "allow_custom_value": False,
+        "range": None,
+        "display_format": None,
+        "multi_value": False,
+        "templatable": False,
+        "depends_on": None,
+        "depends_on_value": None,
+        "depends_on_value_not": None,
+        "depends_on_component": None,
+        "references_component": None,
+        "pin_features": [],
+        "pin_mode": None,
+        "advanced": True,
+        "hidden": False,
+        "help_link": None,
+        "translation_key": None,
+        "translation_params": None,
+        "platform_type": None,
+        "config_entries": config_entries,
+    }
 
 
 def _build_map_value_template(
