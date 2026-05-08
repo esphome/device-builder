@@ -12,13 +12,20 @@ objects directly — no real multicast listener.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from zeroconf import ServiceStateChange
 
+from esphome_device_builder.controllers.config import (
+    load_remote_build_settings,
+    remote_build_settings_transaction,
+)
 from esphome_device_builder.controllers.remote_build import (
+    _MAX_TOKENS,
     RemoteBuildController,
     _decode_txt_value,
     _peer_from_manual_host,
@@ -33,7 +40,8 @@ from esphome_device_builder.models import (
     ManualHost,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
-    RemoteBuildSettings,
+    RemoteBuildSettingsView,
+    StoredToken,
 )
 
 # ---------------------------------------------------------------------------
@@ -71,6 +79,26 @@ def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
     return RemoteBuildController(db)
+
+
+async def _seed_metadata(config_dir: Any, remote_build: dict) -> None:
+    """
+    Seed ``<config_dir>/.device-builder.json`` with a ``_remote_build`` blob.
+
+    Single place to write a hand-crafted on-disk state from a
+    test, used by the legacy-compat and corrupt-row tests so the
+    JSON shape lives in one place. Hops to the executor because
+    the file write is sync I/O and blockbuster (Linux CI) flags
+    sync I/O from inside an async test as a real bug.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _write() -> None:
+        (config_dir / ".device-builder.json").write_bytes(
+            json.dumps({"_remote_build": remote_build}).encode()
+        )
+
+    await loop.run_in_executor(None, _write)
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +258,7 @@ async def test_get_settings_defaults_when_unset(tmp_path: Any) -> None:
     """A fresh dashboard with no metadata returns ``enabled=False``."""
     controller = _make_controller(config_dir=tmp_path)
     settings = await controller.get_settings()
-    assert settings == RemoteBuildSettings(enabled=False)
+    assert settings == RemoteBuildSettingsView(enabled=False)
 
 
 @pytest.mark.asyncio
@@ -238,9 +266,9 @@ async def test_set_settings_round_trips(tmp_path: Any) -> None:
     """Setting ``enabled=True`` persists and is read back by ``get_settings``."""
     controller = _make_controller(config_dir=tmp_path)
     written = await controller.set_settings(enabled=True)
-    assert written == RemoteBuildSettings(enabled=True)
+    assert written == RemoteBuildSettingsView(enabled=True)
     read = await controller.get_settings()
-    assert read == RemoteBuildSettings(enabled=True)
+    assert read == RemoteBuildSettingsView(enabled=True)
 
 
 @pytest.mark.asyncio
@@ -664,3 +692,434 @@ async def test_add_manual_host_rejects_blank_hostname(tmp_path: Any) -> None:
     with pytest.raises(CommandError) as exc:
         await controller.add_manual_host(hostname="   ", port=6052)
     assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+# ---------------------------------------------------------------------------
+# Token CRUD (phase 3b1)
+# ---------------------------------------------------------------------------
+
+
+def _split_bearer(bearer: str) -> tuple[str, str]:
+    """Return ``(token_id, secret)`` from a wire bearer."""
+    token_id, secret = bearer.split(".", 1)
+    return token_id, secret
+
+
+@pytest.mark.asyncio
+async def test_add_token_returns_cleartext_bearer_once(tmp_path: Any) -> None:
+    """
+    ``add_token`` flashes the cleartext bearer through exactly once.
+
+    Also pins the wire form (``{token_id}.{secret}``) and that
+    both halves are high-entropy distinct values across calls;
+    a refactor that swapped to a counter or a label-derived id
+    would fail here.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    first = await controller.add_token(label="Green dashboard")
+    second = await controller.add_token(label="Green dashboard")
+
+    assert first.label == "Green dashboard"
+    assert first.created_at > 0
+    # Wire form: ``{token_id}.{secret}`` with both halves substantial.
+    fid, fsecret = _split_bearer(first.bearer)
+    sid, ssecret = _split_bearer(second.bearer)
+    assert fid == first.token_id
+    assert sid == second.token_id
+    # Two calls give distinct high-entropy values everywhere.
+    assert fid != sid
+    assert fsecret != ssecret
+    assert len(fid) >= 8 and len(fsecret) >= 40
+
+
+@pytest.mark.asyncio
+async def test_add_token_persists_only_hashed_secret(tmp_path: Any) -> None:
+    """
+    The on-disk row carries SHA-256 of the secret only; never the cleartext.
+
+    Inspects the on-disk shape via ``load_remote_build_settings``
+    (storage form, ``StoredToken`` rows with ``secret_sha256``)
+    rather than ``get_settings`` (wire form,
+    :class:`RemoteBuildSettingsView` with hashes stripped). The
+    storage form is the place to assert the hash is the only
+    representation that lands on disk.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    result = await controller.add_token(label="Green")
+    _, secret = _split_bearer(result.bearer)
+
+    loop = asyncio.get_running_loop()
+    on_disk = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
+    assert len(on_disk.tokens) == 1
+    stored = on_disk.tokens[0]
+    assert stored.token_id == result.token_id
+    assert stored.secret_sha256 == hashlib.sha256(secret.encode("ascii")).hexdigest()
+    assert secret not in stored.secret_sha256
+    assert stored.bound_dashboard_id is None
+
+
+@pytest.mark.asyncio
+async def test_settings_responses_never_carry_secret_hash(tmp_path: Any) -> None:
+    """
+    Every WS command that returns settings projects tokens to ``TokenSummary``.
+
+    ``RemoteBuildSettings`` is the storage shape; ``RemoteBuildSettingsView``
+    is the wire shape. A regression that returned the storage shape
+    over the WS would leak ``secret_sha256`` to the frontend on
+    every CRUD response (set_settings, add_manual_host,
+    remove_manual_host, remove_token, get_settings). Pin that
+    none of the wire returns expose the field.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    issued = await controller.add_token(label="Green")
+
+    # Every method that returns settings to the wire.
+    responses = [
+        await controller.get_settings(),
+        await controller.set_settings(enabled=True),
+        await controller.add_manual_host(hostname="desktop.local", port=6052),
+        await controller.remove_manual_host(hostname="desktop.local", port=6052),
+        await controller.remove_token(token_id=issued.token_id),
+    ]
+    for response in responses:
+        # ``RemoteBuildSettingsView.tokens`` is ``list[TokenSummary]``;
+        # neither the dataclass nor the dict-form should carry
+        # ``secret_sha256``.
+        for entry in response.tokens:
+            assert not hasattr(entry, "secret_sha256")
+        assert "secret_sha256" not in response.to_dict()["tokens"].__repr__()
+
+
+@pytest.mark.asyncio
+async def test_list_tokens_omits_secret_hash(tmp_path: Any) -> None:
+    """The ``list_tokens`` projection drops ``secret_sha256`` and allows dup labels."""
+    controller = _make_controller(config_dir=tmp_path)
+    first = await controller.add_token(label="phone")
+    second = await controller.add_token(label="phone")
+    assert first.token_id != second.token_id  # token_id is the unique key
+
+    summaries = await controller.list_tokens()
+    assert [s.label for s in summaries] == ["phone", "phone"]
+    for summary in summaries:
+        assert not hasattr(summary, "secret_sha256")
+        assert summary.bound_dashboard_id is None
+
+
+@pytest.mark.parametrize(
+    ("label", "expected_code"),
+    [
+        pytest.param("", ErrorCode.INVALID_ARGS, id="empty"),
+        pytest.param("   ", ErrorCode.INVALID_ARGS, id="whitespace-only"),
+        pytest.param("\t\n", ErrorCode.INVALID_ARGS, id="tabs-newlines"),
+        pytest.param("x" * 200, ErrorCode.INVALID_ARGS, id="overlong"),
+        pytest.param(123, ErrorCode.INVALID_ARGS, id="non-string-int"),
+        pytest.param(None, ErrorCode.INVALID_ARGS, id="non-string-none"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_add_token_rejects_invalid_label(
+    tmp_path: Any, label: object, expected_code: ErrorCode
+) -> None:
+    """Empty / overlong / non-string labels don't slip through."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.add_token(label=label)  # type: ignore[arg-type]
+    assert exc.value.code == expected_code
+
+
+@pytest.mark.asyncio
+async def test_add_token_keeps_other_settings_intact(tmp_path: Any) -> None:
+    """Issuing a token doesn't reset ``enabled`` or ``manual_hosts``."""
+    controller = _make_controller(config_dir=tmp_path)
+    await controller.set_settings(enabled=True)
+    await controller.add_manual_host(hostname="desktop.local", port=6052)
+    await controller.add_token(label="Green")
+
+    settings = await controller.get_settings()
+    assert settings.enabled is True
+    assert settings.manual_hosts == [ManualHost(hostname="desktop.local", port=6052)]
+    assert len(settings.tokens) == 1
+
+
+@pytest.mark.asyncio
+async def test_remove_token_drops_only_target(tmp_path: Any) -> None:
+    """Removing one token leaves the rest of the list intact."""
+    controller = _make_controller(config_dir=tmp_path)
+    keep_a = await controller.add_token(label="Green")
+    target = await controller.add_token(label="Laptop")
+    keep_b = await controller.add_token(label="Phone")
+
+    settings = await controller.remove_token(token_id=target.token_id)
+    assert [t.token_id for t in settings.tokens] == [keep_a.token_id, keep_b.token_id]
+
+
+@pytest.mark.parametrize(
+    ("token_id", "expected_code"),
+    [
+        pytest.param("ghost123", ErrorCode.NOT_FOUND, id="unknown-id"),
+        pytest.param("   ", ErrorCode.INVALID_ARGS, id="blank-id"),
+        pytest.param("", ErrorCode.INVALID_ARGS, id="empty-id"),
+        pytest.param(123, ErrorCode.INVALID_ARGS, id="non-string-int"),
+        pytest.param(None, ErrorCode.INVALID_ARGS, id="non-string-none"),
+        pytest.param("not!base64", ErrorCode.INVALID_ARGS, id="non-base64url-chars"),
+        pytest.param("a" * 65, ErrorCode.INVALID_ARGS, id="overlong"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_remove_token_rejects_invalid(
+    tmp_path: Any, token_id: object, expected_code: ErrorCode
+) -> None:
+    """Unknown / blank / empty / non-string / malformed ``token_id`` is rejected."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.remove_token(token_id=token_id)  # type: ignore[arg-type]
+    assert exc.value.code == expected_code
+
+
+@pytest.mark.asyncio
+async def test_remove_token_rejects_full_bearer_without_echoing_secret(
+    tmp_path: Any,
+) -> None:
+    """
+    Passing the full bearer to ``remove_token`` is rejected before logging.
+
+    The bearer wire form is ``{token_id}.{secret}``. If a frontend
+    bug or operator typo passes the whole bearer instead of the id
+    half, the cleartext secret would land in the error message and
+    propagate over the WS into browser DevTools / frontend
+    telemetry. The validator rejects on ``.`` and the rejection
+    message must NOT echo the secret back.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    issued = await controller.add_token(label="Green")
+    full_bearer = issued.bearer  # ``{token_id}.{secret}``
+    secret = full_bearer.split(".", 1)[1]
+
+    with pytest.raises(CommandError) as exc:
+        await controller.remove_token(token_id=full_bearer)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    # The whole point of the check: the secret half must not appear
+    # anywhere in the error message.
+    assert secret not in str(exc.value)
+    assert full_bearer not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_token_not_found_does_not_echo_id(tmp_path: Any) -> None:
+    """The ``NOT_FOUND`` message doesn't echo the user-supplied ``token_id``."""
+    controller = _make_controller(config_dir=tmp_path)
+    suspicious = "lookslike-id-but-isnt"
+    with pytest.raises(CommandError) as exc:
+        await controller.remove_token(token_id=suspicious)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+    assert suspicious not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_add_token_rejects_when_at_capacity(tmp_path: Any) -> None:
+    """
+    ``add_token`` refuses once the receiver hits the soft cap.
+
+    Defends against a runaway frontend looping ``add_token`` and
+    growing the metadata sidecar unboundedly. Pre-seed the disk
+    state with the cap's worth of tokens so the test doesn't have
+    to actually mint 100 ed25519-strength secrets. Seed via
+    ``run_in_executor`` because the transaction does sync I/O
+    that blockbuster (Linux CI) flags from inside an async test.
+    """
+
+    def _seed_at_capacity() -> None:
+        with remote_build_settings_transaction(tmp_path) as settings:
+            for i in range(_MAX_TOKENS):
+                settings.tokens.append(
+                    StoredToken(
+                        token_id=f"id{i:04d}",
+                        label=f"pre-{i}",
+                        secret_sha256="0" * 64,
+                        created_at=0.0,
+                    )
+                )
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _seed_at_capacity)
+
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.add_token(label="overflow")
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    # Cap message names the limit so the operator can act.
+    assert str(_MAX_TOKENS) in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_load_remote_build_settings_falls_back_on_unrecoverable_blob(
+    tmp_path: Any,
+) -> None:
+    """
+    A blob that fails to deserialise even after token-row cleaning resets to defaults.
+
+    Token-row tolerance handles the common case (one bad token
+    didn't disconnect every peer); but a wholly malformed blob
+    (e.g. ``manual_hosts`` set to a non-list, ``enabled`` set to
+    a list, etc.) still falls back to the empty defaults rather
+    than crashing dashboard startup. Pin the rescue branch.
+    """
+    await _seed_metadata(
+        tmp_path,
+        {
+            # Type errors mashumaro rejects: ``manual_hosts`` must
+            # be a list, ``enabled`` must be a bool. The
+            # token-row pre-clean can't save this.
+            "enabled": "definitely-not-a-bool",
+            "manual_hosts": "definitely-not-a-list",
+        },
+    )
+    controller = _make_controller(config_dir=tmp_path)
+    settings = await controller.get_settings()
+    # All fields back to defaults; the dashboard didn't crash.
+    assert settings.enabled is False
+    assert settings.manual_hosts == []
+    assert settings.tokens == []
+
+
+@pytest.mark.asyncio
+async def test_load_remote_build_settings_drops_malformed_token_rows(
+    tmp_path: Any,
+) -> None:
+    """
+    One corrupt token row doesn't blank the rest of the receiver's view.
+
+    Mirrors the labels-row-by-row contract. Without it, an operator
+    who hand-edited the sidecar (or hit an in-flight schema change)
+    would lose every paired peer until manual repair. The good rows
+    must still load.
+    """
+    await _seed_metadata(
+        tmp_path,
+        {
+            "enabled": True,
+            "tokens": [
+                {
+                    "token_id": "good1",
+                    "label": "Green",
+                    "secret_sha256": "a" * 64,
+                    "created_at": 1.0,
+                    "bound_dashboard_id": None,
+                },
+                # Missing required ``secret_sha256`` field.
+                {"token_id": "bad1", "label": "Broken", "created_at": 2.0},
+                {
+                    "token_id": "good2",
+                    "label": "Laptop",
+                    "secret_sha256": "b" * 64,
+                    "created_at": 3.0,
+                    "bound_dashboard_id": None,
+                },
+            ],
+        },
+    )
+
+    controller = _make_controller(config_dir=tmp_path)
+    settings = await controller.get_settings()
+    assert settings.enabled is True
+    assert [t.token_id for t in settings.tokens] == ["good1", "good2"]
+
+
+@pytest.mark.asyncio
+async def test_decode_tokens_skips_non_dict_entries(tmp_path: Any) -> None:
+    """
+    Non-dict entries in the on-disk ``tokens`` list are skipped silently.
+
+    A hand-edited (or just type-confused) sidecar might land a
+    string or null in the tokens list. The decoder skips those
+    without raising and without invoking ``StoredToken.from_dict``
+    (which would raise on a non-dict). Good rows still load.
+    """
+    await _seed_metadata(
+        tmp_path,
+        {
+            "tokens": [
+                {
+                    "token_id": "good1",
+                    "label": "Green",
+                    "secret_sha256": "a" * 64,
+                    "created_at": 1.0,
+                    "bound_dashboard_id": None,
+                },
+                "not-a-dict-at-all",  # noqa: type-confused row
+                42,
+                None,
+            ],
+        },
+    )
+
+    controller = _make_controller(config_dir=tmp_path)
+    settings = await controller.get_settings()
+    assert [t.token_id for t in settings.tokens] == ["good1"]
+
+
+@pytest.mark.asyncio
+async def test_decode_tokens_redacts_credential_material_from_logs(
+    tmp_path: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    The malformed-row debug log doesn't carry credential-adjacent fields.
+
+    A hand-edited sidecar could land a cleartext secret in the
+    wrong field by mistake; the row-skip log MUST NOT echo the
+    full entry dict back, only the non-sensitive ``token_id``.
+    Captures ``%r``-dump regressions before they ship.
+    """
+    cleartext_marker = "PASTED-CLEARTEXT-SECRET-DO-NOT-LOG"
+    await _seed_metadata(
+        tmp_path,
+        {
+            "tokens": [
+                {
+                    "token_id": "rowid",
+                    "label": "Broken",
+                    # Missing ``secret_sha256`` -> from_dict raises.
+                    # Add a fake field with the canary string so a
+                    # ``%r``-dump of the whole entry would reveal it.
+                    "leaked_field": cleartext_marker,
+                },
+            ],
+        },
+    )
+
+    controller = _make_controller(config_dir=tmp_path)
+    with caplog.at_level("DEBUG", logger="esphome_device_builder.controllers.config"):
+        await controller.get_settings()
+
+    skip_logs = [r for r in caplog.records if "Skipping malformed token entry" in r.getMessage()]
+    assert skip_logs, "expected at least one skip log"
+    for record in skip_logs:
+        assert cleartext_marker not in record.getMessage()
+    # The token_id (public lookup key) is fine to log.
+    assert any("rowid" in r.getMessage() for r in skip_logs)
+
+
+@pytest.mark.asyncio
+async def test_loads_legacy_metadata_without_tokens_key(tmp_path: Any) -> None:
+    """
+    Phase-2/2b on-disk JSON without a ``tokens`` key still loads cleanly.
+
+    Mashumaro + the ``default_factory=list`` on ``RemoteBuildSettings.tokens``
+    is what bridges the version skew. A future refactor that
+    accidentally tightens ``from_dict`` would break this contract
+    silently — every existing install would lose its
+    ``manual_hosts`` and ``enabled`` on first boot. Pin it.
+    """
+    await _seed_metadata(
+        tmp_path,
+        {
+            "enabled": True,
+            "manual_hosts": [{"hostname": "desktop.local", "port": 6052}],
+            # Note: no ``tokens`` key — what phase 2b shipped.
+        },
+    )
+    controller = _make_controller(config_dir=tmp_path)
+    settings = await controller.get_settings()
+    assert settings.enabled is True
+    assert settings.manual_hosts == [ManualHost(hostname="desktop.local", port=6052)]
+    assert settings.tokens == []
