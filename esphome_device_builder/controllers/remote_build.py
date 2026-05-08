@@ -1,12 +1,14 @@
 """
 Remote-build feature — peer dashboard discovery + settings.
 
-Phase 2 of issue #106. Browses ``_esphomebuilder._tcp.local.`` to
-list other dashboards reachable on the LAN, and persists the
-receiver-side ``enabled`` master switch the rest of the feature
-will gate behind in phase 3.
+Phase 2 / 2b of issue #106. Browses ``_esphomebuilder._tcp.local.``
+to list other dashboards reachable on the LAN; persists the
+receiver-side ``enabled`` master switch (phase 2) and the
+user-supplied manual-host list for cross-subnet / non-multicast
+LANs (phase 2b); merges both sources into a single
+``remote_build/list_hosts`` snapshot.
 
-Phase 2 stops at discovery + settings storage:
+Phase 2 / 2b stops at discovery + settings storage:
 
 * No HTTP / WS endpoints under ``/remote-build/v1/*`` yet (phase 3
   lands the auth middleware + cert).
@@ -15,6 +17,9 @@ Phase 2 stops at discovery + settings storage:
   endpoint registration — flipping it currently has no observable
   effect beyond round-tripping in the settings UI. That's
   deliberate scaffolding so phase 3+ have a place to plug in.
+* Manual hosts have no version / fingerprint resolution — they
+  land in ``list_hosts`` with empty ``server_version`` /
+  ``esphome_version`` until phase 4 attempts the connection.
 
 Browser uses the existing ``AsyncEsphomeZeroconf`` instance owned by
 :class:`~esphome_device_builder.controllers._device_state_monitor.DeviceStateMonitor`
@@ -29,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from zeroconf import IPVersion, ServiceStateChange
@@ -36,8 +42,14 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 from ..helpers.api import CommandError, api_command
 from ..helpers.dashboard_advertise import SERVICE_TYPE
-from ..models import ErrorCode, RemoteBuildPeer, RemoteBuildSettings
-from .config import load_remote_build_settings, save_remote_build_settings
+from ..models import (
+    ErrorCode,
+    ManualHost,
+    RemoteBuildPeer,
+    RemoteBuildPeerSource,
+    RemoteBuildSettings,
+)
+from .config import load_remote_build_settings, remote_build_settings_transaction
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -91,10 +103,76 @@ def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPee
         name=instance,
         hostname=server,
         port=info.port or 0,
+        source=RemoteBuildPeerSource.MDNS,
         addresses=info.parsed_scoped_addresses(IPVersion.All) or [],
         server_version=server_version,
         esphome_version=esphome_version,
     )
+
+
+def _peer_from_manual_host(entry: ManualHost) -> RemoteBuildPeer:
+    """
+    Build a :class:`RemoteBuildPeer` from a stored :class:`ManualHost`.
+
+    Manual hosts skip resolution — phase 2b just surfaces the
+    user-entered ``(hostname, port)`` so the frontend can render
+    the row alongside mDNS-discovered ones. Phase 4 attempts the
+    actual connection and fills the version fields.
+
+    ``name`` is the hostname verbatim (rather than the leftmost
+    label) so an IP-only entry still reads sensibly in the UI;
+    the frontend can render a "Manual" badge to distinguish it
+    from an mDNS-discovered row.
+    """
+    return RemoteBuildPeer(
+        name=entry.hostname,
+        hostname=entry.hostname,
+        port=entry.port,
+        source=RemoteBuildPeerSource.MANUAL,
+    )
+
+
+def _validate_hostname(raw: object) -> str:
+    """
+    Normalise a user-entered hostname to its canonical lowercase form.
+
+    Rejects non-string and empty / whitespace-only input with
+    :class:`CommandError(INVALID_ARGS)`. Lowercase normalisation
+    matches the duplicate-check semantics — hostnames are
+    case-insensitive per RFC 1035 §2.3.3, so ``Desktop.local`` and
+    ``desktop.local`` should be the same entry. Phase 4 attempts
+    the actual connection (and discovers DNS / TLS validity); phase
+    2b just stores the string the user entered so phase-4-style
+    feedback isn't blocked behind an "is this resolvable now?"
+    pre-flight that would fail on offline laptops.
+    """
+    if not isinstance(raw, str):
+        msg = "manual host: 'hostname' must be a string"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    trimmed = raw.strip().lower()
+    if not trimmed:
+        msg = "manual host: 'hostname' must not be empty"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return trimmed
+
+
+def _validate_port(raw: object) -> int:
+    """
+    Validate a user-entered port number.
+
+    ``bool`` is rejected even though ``isinstance(True, int)`` is
+    true — accepting ``True`` for a port number is a footgun
+    (silently coerces to 1, which IANA reserves for tcpmux).
+    Range is the IANA-registered ephemeral plus
+    well-known: 1-65535.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        msg = "manual host: 'port' must be an integer"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if not 1 <= raw <= 65535:
+        msg = "manual host: 'port' must be between 1 and 65535"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return raw
 
 
 class RemoteBuildController:
@@ -228,15 +306,31 @@ class RemoteBuildController:
     @api_command("remote_build/list_hosts")
     async def list_hosts(self, **kwargs: Any) -> list[RemoteBuildPeer]:
         """
-        Return every peer dashboard discovered on the LAN.
+        Return every peer dashboard known to this receiver.
 
-        Snapshot of the browser's state — fresh for every call, no
-        caching. Empty when the browser hasn't seen any peers yet
-        (or when zeroconf failed to start). Phase 3+ will add
-        paired-or-not state to each row; phase 2 just returns the
-        raw discovery.
+        Merges two sources into a single snapshot:
+
+        * mDNS-discovered peers from the browser (``source=MDNS``,
+          full version + address info).
+        * Manually-added peers from
+          ``_remote_build.manual_hosts`` (``source=MANUAL``, blank
+          version fields until phase 4 fills them in).
+
+        Manual hosts are placed AFTER mDNS hits so the UI's
+        primary content is the auto-discovered list. A
+        manually-added entry that's also reachable via mDNS shows
+        up twice for now (once per source) — phase 4's pairing
+        flow will introduce the deduplication logic alongside the
+        actual connection attempt.
         """
-        return list(self._peers.values())
+        loop = asyncio.get_running_loop()
+        settings = await loop.run_in_executor(
+            None, load_remote_build_settings, self._db.settings.config_dir
+        )
+        return [
+            *self._peers.values(),
+            *(_peer_from_manual_host(entry) for entry in settings.manual_hosts),
+        ]
 
     @api_command("remote_build/get_settings")
     async def get_settings(self, **kwargs: Any) -> RemoteBuildSettings:
@@ -246,16 +340,43 @@ class RemoteBuildController:
             None, load_remote_build_settings, self._db.settings.config_dir
         )
 
+    async def _modify_settings(
+        self, mutator: Callable[[RemoteBuildSettings], None]
+    ) -> RemoteBuildSettings:
+        """
+        Run ``mutator`` against the current settings and persist the result.
+
+        Wraps :func:`remote_build_settings_transaction` so the
+        whole read-modify-write happens under the metadata lock —
+        two concurrent callers can't both read the same starting
+        value and have the second save wipe the first's change.
+        Runs in the default executor since the transaction does
+        blocking JSON I/O.
+
+        ``mutator`` is invoked with the freshly-loaded settings
+        and is expected to mutate it in place. A
+        :class:`CommandError` raised inside the mutator (e.g.
+        duplicate-detection on add) propagates out and discards
+        the pending write — same exception-on-discard contract as
+        :func:`metadata_transaction`.
+        """
+
+        def _txn() -> RemoteBuildSettings:
+            with remote_build_settings_transaction(self._db.settings.config_dir) as settings:
+                mutator(settings)
+                return settings
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _txn)
+
     @api_command("remote_build/set_settings")
     async def set_settings(self, *, enabled: bool, **kwargs: Any) -> RemoteBuildSettings:
         """
-        Persist the receiver-side remote-build settings.
+        Persist the receiver-side ``enabled`` master switch.
 
-        Currently only ``enabled`` is settable; future phases add
-        knobs from the "Remote builder settings" section of the
-        design (artifact retention TTL, build target preference,
-        major-version-mismatch toggle, ...). Returns the
-        post-write value so the frontend can confirm the round-trip.
+        Read-modify-write so manual hosts and any future phase-3+
+        fields stay intact — a client toggling just ``enabled``
+        doesn't reset every other field to its default.
 
         Validates ``enabled`` is strictly a ``bool`` rather than
         coercing truthiness — a client sending the string ``"false"``
@@ -266,9 +387,72 @@ class RemoteBuildController:
         if not isinstance(enabled, bool):
             msg = "remote_build/set_settings: 'enabled' must be a boolean"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
-        settings = RemoteBuildSettings(enabled=enabled)
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None, save_remote_build_settings, self._db.settings.config_dir, settings
-        )
-        return settings
+
+        def _set(settings: RemoteBuildSettings) -> None:
+            settings.enabled = enabled
+
+        return await self._modify_settings(_set)
+
+    # ------------------------------------------------------------------
+    # Manual hosts (phase 2b)
+    # ------------------------------------------------------------------
+
+    @api_command("remote_build/add_manual_host")
+    async def add_manual_host(
+        self, *, hostname: str, port: int, **kwargs: Any
+    ) -> RemoteBuildSettings:
+        """
+        Add a manually-entered peer for cross-subnet / non-mDNS LANs.
+
+        Validates ``hostname`` (non-empty string, normalised to
+        lowercase per RFC 1035 §2.3.3) and ``port`` (integer,
+        1-65535). Rejects duplicates by ``(hostname, port)`` —
+        adding the same pair twice raises ``INVALID_ARGS`` rather
+        than silently no-op'ing so the user gets feedback that the
+        entry already existed.
+
+        Returns the post-write settings so the caller can re-render
+        the manual-hosts list without a separate ``get_settings``
+        round-trip.
+        """
+        host = _validate_hostname(hostname)
+        port_num = _validate_port(port)
+
+        def _add(settings: RemoteBuildSettings) -> None:
+            for entry in settings.manual_hosts:
+                if entry.hostname == host and entry.port == port_num:
+                    msg = f"manual host {host}:{port_num} is already registered"
+                    raise CommandError(ErrorCode.INVALID_ARGS, msg)
+            settings.manual_hosts.append(ManualHost(hostname=host, port=port_num))
+
+        return await self._modify_settings(_add)
+
+    @api_command("remote_build/remove_manual_host")
+    async def remove_manual_host(
+        self, *, hostname: str, port: int, **kwargs: Any
+    ) -> RemoteBuildSettings:
+        """
+        Remove a previously-added manual peer.
+
+        Hostname normalisation matches :meth:`add_manual_host` so a
+        case-different removal request finds the entry. A
+        non-existent ``(hostname, port)`` pair raises
+        ``NOT_FOUND`` so the caller knows the operation was a no-op
+        rather than silently succeeding (matters for the
+        Settings UI: "Removed Foo" toast vs no feedback).
+        """
+        host = _validate_hostname(hostname)
+        port_num = _validate_port(port)
+
+        def _remove(settings: RemoteBuildSettings) -> None:
+            kept = [
+                entry
+                for entry in settings.manual_hosts
+                if not (entry.hostname == host and entry.port == port_num)
+            ]
+            if len(kept) == len(settings.manual_hosts):
+                msg = f"manual host {host}:{port_num} is not registered"
+                raise CommandError(ErrorCode.NOT_FOUND, msg)
+            settings.manual_hosts = kept
+
+        return await self._modify_settings(_remove)

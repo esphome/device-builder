@@ -530,6 +530,37 @@ def save_remote_build_settings(config_dir: Path, settings: RemoteBuildSettings) 
         data[_REMOTE_BUILD_KEY] = settings.to_dict()
 
 
+@contextmanager
+def remote_build_settings_transaction(
+    config_dir: Path,
+) -> Iterator[RemoteBuildSettings]:
+    """
+    Atomic read-modify-write context for the remote-build settings.
+
+    Yields the current :class:`RemoteBuildSettings` (defaults if
+    missing or corrupt). Mutate it in place; on a clean exit the
+    changes are persisted under the same ``metadata_transaction``
+    lock, so the whole RMW is atomic against concurrent
+    transactions. Exceptions raised inside the block discard the
+    pending mutation.
+
+    Use this whenever an operation "depends on the current state
+    to compute the next state" — add / remove a manual host, flip
+    ``enabled`` while preserving the rest. A bare ``load + save``
+    pair is racy because two concurrent callers can both read the
+    same starting value and the second save wipes the first's
+    change.
+    """
+    with metadata_transaction(config_dir) as data:
+        raw = data.get(_REMOTE_BUILD_KEY, {})
+        try:
+            settings = RemoteBuildSettings.from_dict(raw)
+        except Exception:
+            settings = RemoteBuildSettings()
+        yield settings
+        data[_REMOTE_BUILD_KEY] = settings.to_dict()
+
+
 def _decode_labels(raw: Any) -> list[Label]:
     """Parse the on-disk ``_labels`` list, dropping malformed entries."""
     if not isinstance(raw, list):

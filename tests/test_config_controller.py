@@ -48,6 +48,7 @@ from esphome_device_builder.controllers.config import (
     load_preferences,
     load_remote_build_settings,
     metadata_transaction,
+    remote_build_settings_transaction,
     remove_device_metadata,
     save_labels,
     save_preferences,
@@ -418,6 +419,39 @@ def test_save_remote_build_settings_round_trip(tmp_path: Path) -> None:
     settings = RemoteBuildSettings(enabled=True)
     save_remote_build_settings(tmp_path, settings)
     assert load_remote_build_settings(tmp_path) == settings
+
+
+def test_remote_build_settings_transaction_falls_back_on_bad_data(
+    tmp_path: Path,
+) -> None:
+    """Corrupted blob → the transaction yields defaults, not crashes."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b'{"_remote_build": [1, 2, 3]}')
+
+    with remote_build_settings_transaction(tmp_path) as settings:
+        # Yielded value is the defaults; any mutation persists as
+        # the new canonical state, replacing the corrupt blob.
+        assert settings == RemoteBuildSettings()
+        settings.enabled = True
+
+    assert load_remote_build_settings(tmp_path) == RemoteBuildSettings(enabled=True)
+
+
+def test_remote_build_settings_transaction_discards_on_exception(
+    tmp_path: Path,
+) -> None:
+    """A raise inside the block drops the pending mutation."""
+    save_remote_build_settings(tmp_path, RemoteBuildSettings(enabled=False))
+
+    with (
+        pytest.raises(RuntimeError, match="boom"),
+        remote_build_settings_transaction(tmp_path) as settings,
+    ):
+        settings.enabled = True
+        raise RuntimeError("boom")
+
+    # Original pre-block state survives untouched.
+    assert load_remote_build_settings(tmp_path) == RemoteBuildSettings(enabled=False)
 
 
 def test_save_preferences_round_trip(tmp_path: Path) -> None:
