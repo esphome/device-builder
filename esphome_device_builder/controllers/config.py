@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from esphome import yaml_util
 from esphome.const import __version__ as esphome_version
 from esphome.core import CORE
 from esphome.helpers import get_bool_env
@@ -27,7 +26,11 @@ from ..constants import __version__ as server_version
 from ..helpers.api import CommandError, api_command
 from ..helpers.auth import hash_password
 from ..helpers.json import JSONDecodeError, dumps_indent, loads
-from ..helpers.secrets_state import PLACEHOLDER_WIFI_PASSWORD, PLACEHOLDER_WIFI_SSID
+from ..helpers.secrets_state import (
+    PLACEHOLDER_WIFI_PASSWORD,
+    PLACEHOLDER_WIFI_SSID,
+    read_secrets_yaml,
+)
 from ..models import ErrorCode, Label, RemoteBuildSettings, UserPreferences
 
 if TYPE_CHECKING:
@@ -807,23 +810,9 @@ class ConfigController:
     async def get_secrets(self, **kwargs: Any) -> list[str]:
         """Get secret key names from secrets.yaml."""
         loop = asyncio.get_running_loop()
-
-        def _read_secrets() -> list[str]:
-            secrets_path = self._db.settings.config_dir / "secrets.yaml"
-            if not secrets_path.exists():
-                return []
-            try:
-                # ``yaml_util.load_yaml`` expects a ``Path``, not a
-                # ``str`` — passing a string raises ``AttributeError``
-                # at ``fname.open(...)`` and the bare except below
-                # would silently swallow it, leaving the secrets
-                # dropdown permanently empty.
-                data = yaml_util.load_yaml(secrets_path)
-                return sorted(data.keys()) if isinstance(data, dict) else []
-            except Exception:
-                return []
-
-        return await loop.run_in_executor(None, _read_secrets)
+        config_dir = self._db.settings.config_dir
+        data = await loop.run_in_executor(None, read_secrets_yaml, config_dir)
+        return sorted(data.keys()) if data else []
 
     @api_command("config/get_info")
     async def get_info(self, *, configuration: str, **kwargs: Any) -> dict | None:

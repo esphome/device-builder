@@ -24,11 +24,10 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from esphome import yaml_util
 from esphome.helpers import write_file as atomic_write_file
 
 from ..helpers.api import CommandError, api_command
-from ..helpers.secrets_state import is_wifi_unconfigured
+from ..helpers.secrets_state import is_wifi_unconfigured, read_secrets_yaml
 from ..models import (
     ErrorCode,
     OnboardingState,
@@ -72,7 +71,7 @@ class OnboardingController:
         config_dir = self._db.settings.config_dir
 
         secrets, prefs = await asyncio.gather(
-            loop.run_in_executor(None, _read_secrets, config_dir),
+            loop.run_in_executor(None, read_secrets_yaml, config_dir),
             loop.run_in_executor(None, load_preferences, config_dir),
         )
 
@@ -118,6 +117,18 @@ class OnboardingController:
                 ErrorCode.INVALID_ARGS,
                 f"Password can't be longer than {_MAX_WIFI_PASSWORD_LEN} characters.",
             )
+        # Reject newlines / carriage returns / NUL — the line-based
+        # secrets.yaml rewrite emits the value on a single line, so a
+        # ``\n`` in the SSID would inject extra YAML lines and a
+        # ``\0`` would terminate the file early on read. ESPHome's
+        # own ``cv.string_strict`` would reject these too at compile
+        # time, but blocking them here avoids a save-then-fail loop.
+        for label, value in (("SSID", ssid), ("Password", password)):
+            if any(c in value for c in "\n\r\x00"):
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS,
+                    f"{label} can't contain newlines or null characters.",
+                )
 
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
@@ -138,29 +149,17 @@ class OnboardingController:
         config_dir = self._db.settings.config_dir
 
         current = await loop.run_in_executor(None, load_preferences, config_dir)
-        if current.onboarding_completed_version != ONBOARDING_VERSION:
+        # Monotonic update only — never downgrade a stored higher
+        # version. A user who briefly ran a future build (with
+        # `ONBOARDING_VERSION = 2`) and then rolled back to this
+        # build (`= 1`) shouldn't lose the v2 acknowledgement and
+        # get re-prompted on the next upgrade. ``<`` not ``!=``.
+        if current.onboarding_completed_version < ONBOARDING_VERSION:
             current_dict = current.to_dict()
             current_dict["onboarding_completed_version"] = ONBOARDING_VERSION
             updated = UserPreferences.from_dict(current_dict)
             await loop.run_in_executor(None, save_preferences, config_dir, updated)
         return await self.get_state()
-
-
-def _read_secrets(config_dir: Path) -> dict | None:
-    """Read ``secrets.yaml`` into a plain dict, returning ``None`` on any failure.
-
-    Mirrors the silent-fallback contract of ``ConfigController.get_secrets``
-    so a malformed file (or one we can't open) reads as
-    "unconfigured" instead of raising and breaking onboarding.
-    """
-    secrets_path = config_dir / "secrets.yaml"
-    if not secrets_path.exists():
-        return None
-    try:
-        data = yaml_util.load_yaml(secrets_path)
-    except Exception:
-        return None
-    return data if isinstance(data, dict) else None
 
 
 # ``key: value`` line where ``key`` is the captured group. Permissive

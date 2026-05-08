@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers.config import save_preferences
 from esphome_device_builder.controllers.onboarding import OnboardingController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.secrets_state import (
@@ -25,6 +26,7 @@ from esphome_device_builder.models.onboarding import (
     OnboardingStepId,
     OnboardingStepStatus,
 )
+from esphome_device_builder.models.preferences import UserPreferences
 
 
 def _make_controller(config_dir: Path) -> OnboardingController:
@@ -211,3 +213,83 @@ async def test_mark_acknowledged_is_idempotent(tmp_path: Path) -> None:
     await controller.mark_acknowledged()
     state = await controller.mark_acknowledged()
     assert state.completed_version == ONBOARDING_VERSION
+
+
+@pytest.mark.asyncio
+async def test_mark_acknowledged_does_not_downgrade_a_higher_stored_version(
+    tmp_path: Path,
+) -> None:
+    """Don't lose a future-build acknowledgement on rollback.
+
+    A user who briefly ran a future build with
+    ``ONBOARDING_VERSION = 2`` and then rolled back to this
+    build (``= 1``) keeps the higher stored value — otherwise
+    they'd be re-prompted on the next upgrade for steps they've
+    already done.
+    """
+    future = UserPreferences(onboarding_completed_version=ONBOARDING_VERSION + 5)
+    save_preferences(tmp_path, future)
+    controller = _make_controller(tmp_path)
+    state = await controller.mark_acknowledged()
+    assert state.completed_version == ONBOARDING_VERSION + 5
+
+
+# ---------------------------------------------------------------------------
+# Newline / control-char rejection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ssid",
+    ["My\nNetwork", "My\rNetwork", "My\x00Network"],
+)
+async def test_set_wifi_credentials_rejects_newlines_in_ssid(tmp_path: Path, ssid: str) -> None:
+    r"""Reject newline / NUL injection in the SSID input.
+
+    A ``\n`` in the SSID would inject extra YAML lines via the
+    line-based rewrite; a ``\0`` would terminate the file early
+    on read. Block up-front so the next save can't break
+    ``secrets.yaml``.
+    """
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError, match="newlines or null"):
+        await controller.set_wifi_credentials(ssid=ssid, password="p")
+
+
+@pytest.mark.asyncio
+async def test_set_wifi_credentials_rejects_newlines_in_password(
+    tmp_path: Path,
+) -> None:
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError, match="newlines or null"):
+        await controller.set_wifi_credentials(ssid="MyAP", password="p\nass")
+
+
+# ---------------------------------------------------------------------------
+# get_state — malformed secrets file fallback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_state_pending_for_malformed_secrets_yaml(tmp_path: Path) -> None:
+    """Treat malformed YAML as ``unconfigured`` instead of crashing.
+
+    Falls back so the user can run the wizard to rewrite the file
+    cleanly instead of being stuck with a broken state.
+    """
+    _write_secrets(tmp_path, "wifi_ssid: [unclosed\n")
+    controller = _make_controller(tmp_path)
+    state = await controller.get_state()
+    assert state.steps[0].status == OnboardingStepStatus.PENDING
+
+
+# ---------------------------------------------------------------------------
+# Constructor smoke
+# ---------------------------------------------------------------------------
+
+
+def test_constructor_stores_db_reference() -> None:
+    db = MagicMock()
+    controller = OnboardingController(db)
+    assert controller._db is db
