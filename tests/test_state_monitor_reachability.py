@@ -465,9 +465,11 @@ def test_get_mdns_cache_info_decodes_txt_records() -> None:
     raw RFC-6763 length-prefixed bytes. Pin the round-trip via a
     real ``Zeroconf`` cache: the monitor reads the cached
     ``DNSText`` record, hands its bytes to ``ServiceInfo.text``,
-    and surfaces ``decoded_properties`` filtered to ``str``-valued
-    entries (drop ``None``-valued bare keys so they don't show up
-    as empty rows in the UI).
+    and surfaces ``decoded_properties`` as ``str``-valued entries
+    (collapsing zeroconf's ``None`` — which covers both bare keys
+    and empty values — to ``""`` so the user can still see the
+    key is present, which is the meaningful diagnostic for the
+    ``api_encryption`` tri-state).
     """
     zc = Zeroconf(interfaces=["127.0.0.1"])
     try:
@@ -511,6 +513,64 @@ def test_get_mdns_cache_info_decodes_txt_records() -> None:
             "config_hash": "5a94a12d",
             "mac": "aabbccddeeff",
             "api_encryption": "Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+        }
+    finally:
+        zc.close()
+
+
+def test_get_mdns_cache_info_keeps_empty_value_keys_visible() -> None:
+    """
+    Bare keys and ``key=`` empty-value entries surface as ``""``.
+
+    zeroconf's ``decoded_properties`` collapses both ``foo`` (no
+    ``=``) and ``foo=`` (with ``=`` but empty value) to ``None``
+    — there's no public API to tell them apart. For the drawer's
+    debug view the diagnostic value is the same: the user wants
+    to see that the key IS being broadcast, even if the value is
+    empty. Pin that those entries surface as ``""`` rather than
+    being silently dropped — this is the signal the
+    ``api_encryption`` tri-state already uses for "device
+    confirmed plaintext" (issue #437) and the whole point of the
+    debug collapsible is to make those advertisements visible.
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        # ``api_encryption=`` is the canonical empty-value case
+        # (device confirmed plaintext); ``bare_flag`` covers the
+        # other shape zeroconf collapses to the same ``None``.
+        txt_entries = [
+            b"version=2025.4.0",
+            b"api_encryption=",
+            b"bare_flag",
+        ]
+        txt_payload = b"".join(bytes([len(e)]) + e for e in txt_entries)
+        txt_rec = DNSText(
+            name="kitchen._esphomelib._tcp.local.",
+            type_=_TYPE_TXT,
+            class_=_CLASS_IN,
+            ttl=120,
+            text=txt_payload,
+            created=current_time_millis() - 2_000,
+        )
+        a_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 2_000,
+        )
+        zc.cache.async_add_records([a_rec, txt_rec])
+
+        monitor = _make_monitor([_make_device()], None)
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.get_mdns_cache_info("kitchen")
+        assert info is not None
+        assert info.txt_records == {
+            "version": "2025.4.0",
+            "api_encryption": "",
+            "bare_flag": "",
         }
     finally:
         zc.close()

@@ -602,14 +602,22 @@ class DeviceStateMonitor:
             if isinstance(txt_bytes, (bytes, bytearray)):
                 info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, service_name)
                 info.text = bytes(txt_bytes)
-                # ``decoded_properties`` is ``dict[str, str | None]``
-                # — drop ``None`` values (key without ``=``) so they
-                # don't surface as JSON ``null`` on the wire; the
-                # drawer would render those as empty rows anyway.
+                # ``decoded_properties`` is ``dict[str, str | None]``.
+                # ``None`` covers BOTH "bare key, no ``=``" and
+                # "``key=`` with an empty value" — zeroconf collapses
+                # the two — but the diagnostic value is the same:
+                # the user wants to see that the key IS present,
+                # even if the value is empty. Render those as
+                # ``""`` on the wire so they show up in the drawer
+                # as a key with an empty value rather than vanishing
+                # entirely. The empty-string is exactly the signal
+                # the upstream ``api_encryption`` tri-state already
+                # uses for "device confirmed plaintext" — see issue
+                # #437.
                 txt_records = {
-                    key: value
+                    key: value if isinstance(value, str) else ""
                     for key, value in info.decoded_properties.items()
-                    if isinstance(key, str) and isinstance(value, str)
+                    if isinstance(key, str)
                 }
         return MdnsCacheInfo(
             age_seconds=age_s,
