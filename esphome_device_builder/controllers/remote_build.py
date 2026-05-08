@@ -525,6 +525,36 @@ class RemoteBuildController:
 
         return await self._modify_settings(_add)
 
+    @api_command("remote_build/remove_manual_host")
+    async def remove_manual_host(
+        self, *, hostname: str, port: int, **kwargs: Any
+    ) -> RemoteBuildSettings:
+        """
+        Remove a previously-added manual peer.
+
+        Hostname normalisation matches :meth:`add_manual_host` so a
+        case-different removal request finds the entry. A
+        non-existent ``(hostname, port)`` pair raises
+        ``NOT_FOUND`` so the caller knows the operation was a no-op
+        rather than silently succeeding (matters for the
+        Settings UI: "Removed Foo" toast vs no feedback).
+        """
+        host = _validate_hostname(hostname)
+        port_num = _validate_port(port)
+
+        def _remove(settings: RemoteBuildSettings) -> None:
+            kept = [
+                entry
+                for entry in settings.manual_hosts
+                if not (entry.hostname == host and entry.port == port_num)
+            ]
+            if len(kept) == len(settings.manual_hosts):
+                msg = f"manual host {host}:{port_num} is not registered"
+                raise CommandError(ErrorCode.NOT_FOUND, msg)
+            settings.manual_hosts = kept
+
+        return await self._modify_settings(_remove)
+
     # ------------------------------------------------------------------
     # Token CRUD (phase 3b1)
     # ------------------------------------------------------------------
@@ -605,35 +635,5 @@ class RemoteBuildController:
                 msg = f"token {clean_id} is not registered"
                 raise CommandError(ErrorCode.NOT_FOUND, msg)
             settings.tokens = kept
-
-        return await self._modify_settings(_remove)
-
-    @api_command("remote_build/remove_manual_host")
-    async def remove_manual_host(
-        self, *, hostname: str, port: int, **kwargs: Any
-    ) -> RemoteBuildSettings:
-        """
-        Remove a previously-added manual peer.
-
-        Hostname normalisation matches :meth:`add_manual_host` so a
-        case-different removal request finds the entry. A
-        non-existent ``(hostname, port)`` pair raises
-        ``NOT_FOUND`` so the caller knows the operation was a no-op
-        rather than silently succeeding (matters for the
-        Settings UI: "Removed Foo" toast vs no feedback).
-        """
-        host = _validate_hostname(hostname)
-        port_num = _validate_port(port)
-
-        def _remove(settings: RemoteBuildSettings) -> None:
-            kept = [
-                entry
-                for entry in settings.manual_hosts
-                if not (entry.hostname == host and entry.port == port_num)
-            ]
-            if len(kept) == len(settings.manual_hosts):
-                msg = f"manual host {host}:{port_num} is not registered"
-                raise CommandError(ErrorCode.NOT_FOUND, msg)
-            settings.manual_hosts = kept
 
         return await self._modify_settings(_remove)

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -790,14 +791,46 @@ async def test_remove_token_drops_only_target(tmp_path: Any) -> None:
         pytest.param("ghost123", ErrorCode.NOT_FOUND, id="unknown-id"),
         pytest.param("   ", ErrorCode.INVALID_ARGS, id="blank-id"),
         pytest.param("", ErrorCode.INVALID_ARGS, id="empty-id"),
+        pytest.param(123, ErrorCode.INVALID_ARGS, id="non-string-int"),
+        pytest.param(None, ErrorCode.INVALID_ARGS, id="non-string-none"),
     ],
 )
 @pytest.mark.asyncio
 async def test_remove_token_rejects_invalid(
-    tmp_path: Any, token_id: str, expected_code: ErrorCode
+    tmp_path: Any, token_id: object, expected_code: ErrorCode
 ) -> None:
-    """Unknown / blank / empty ``token_id`` is rejected with the right code."""
+    """Unknown / blank / empty / non-string ``token_id`` is rejected."""
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(CommandError) as exc:
-        await controller.remove_token(token_id=token_id)
+        await controller.remove_token(token_id=token_id)  # type: ignore[arg-type]
     assert exc.value.code == expected_code
+
+
+@pytest.mark.asyncio
+async def test_loads_legacy_metadata_without_tokens_key(tmp_path: Any) -> None:
+    """
+    Phase-2/2b on-disk JSON without a ``tokens`` key still loads cleanly.
+
+    Mashumaro + the ``default_factory=list`` on ``RemoteBuildSettings.tokens``
+    is what bridges the version skew. A future refactor that
+    accidentally tightens ``from_dict`` would break this contract
+    silently — every existing install would lose its
+    ``manual_hosts`` and ``enabled`` on first boot. Pin it.
+    """
+    legacy_path = tmp_path / ".device-builder.json"
+    legacy_path.write_bytes(
+        json.dumps(
+            {
+                "_remote_build": {
+                    "enabled": True,
+                    "manual_hosts": [{"hostname": "desktop.local", "port": 6052}],
+                    # Note: no ``tokens`` key — what phase 2b shipped.
+                },
+            }
+        ).encode()
+    )
+    controller = _make_controller(config_dir=tmp_path)
+    settings = await controller.get_settings()
+    assert settings.enabled is True
+    assert settings.manual_hosts == [ManualHost(hostname="desktop.local", port=6052)]
+    assert settings.tokens == []
