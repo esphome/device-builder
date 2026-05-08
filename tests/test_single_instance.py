@@ -67,6 +67,10 @@ def _hold_lock(
         release.wait(timeout=10.0)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="single-instance lock is a no-op on Windows (no fcntl)",
+)
 def test_first_start_acquires_and_writes_lock_info(tmp_path: Path) -> None:
     """A clean ``config_dir`` acquires the lock and writes diagnostics."""
     with ensure_single_execution(tmp_path) as lock:
@@ -87,6 +91,10 @@ def test_first_start_acquires_and_writes_lock_info(tmp_path: Path) -> None:
         assert isinstance(contents["start_ts"], (int, float))
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="single-instance lock is a no-op on Windows (no fcntl)",
+)
 def test_release_lets_subsequent_start_succeed(tmp_path: Path) -> None:
     """
     Releasing the lock (context exit) lets the next start acquire cleanly.
@@ -104,6 +112,32 @@ def test_release_lets_subsequent_start_succeed(tmp_path: Path) -> None:
 
     with ensure_single_execution(tmp_path) as second:
         assert second.exit_code is None
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="exercises the Windows no-op path",
+)
+def test_windows_no_op_yields_success_without_touching_disk(
+    tmp_path: Path,
+) -> None:
+    """
+    Windows / no-fcntl path: yield ``exit_code=None`` and write nothing.
+
+    The helper degrades to a silent no-op when ``fcntl`` is
+    unavailable (issue #451's "best-effort or skip entirely"
+    Windows allowance). The CI matrix runs on Windows too, so
+    pin that the context manager still produces a usable
+    ``SingleInstanceLock`` (``exit_code=None``, caller proceeds
+    normally) and that no lock file lands on disk — surfacing
+    a stray ``.device-builder.lock`` would mislead operators
+    into thinking the cross-process guarantee is in effect when
+    it isn't.
+    """
+    with ensure_single_execution(tmp_path) as lock:
+        assert isinstance(lock, SingleInstanceLock)
+        assert lock.exit_code is None
+    assert not (tmp_path / ".device-builder.lock").exists()
 
 
 @pytest.mark.skipif(
