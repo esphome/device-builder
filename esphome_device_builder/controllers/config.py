@@ -230,6 +230,12 @@ class DashboardSettings:
 # Several controllers (firmware queue, device CRUD, preferences, IP
 # cache) all RMW this file from the executor pool. Without serialisation
 # two writers landing in the same window lose each other's updates.
+# Plain (non-reentrant) ``Lock`` is intentional: nested
+# ``metadata_transaction`` calls on the same thread are unsafe even
+# under an ``RLock`` because each call does its own load/save, so
+# the inner write is overwritten by the outer write at the outer's
+# exit. The deadlock on attempted re-entry is the loud failure;
+# silently losing updates would be worse. See the docstring below.
 _METADATA_LOCK = threading.Lock()
 
 
@@ -242,6 +248,14 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     exit the changes are persisted atomically. Exceptions raised
     inside the block discard the pending mutation. Concurrent
     transactions are serialised so updates can't clobber each other.
+
+    Do not call from inside another ``metadata_transaction`` on the
+    same thread. The lock is non-reentrant and will deadlock; this
+    is intentional. Each call loads / saves its own snapshot, so
+    nested calls would lose updates even under a reentrant lock
+    (the outer save would overwrite the inner save). Helpers that
+    take the same lock (e.g. ``get_or_create_identity``) must be
+    called outside any open transaction.
     """
     with _METADATA_LOCK:
         data = _load_metadata(config_dir)

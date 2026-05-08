@@ -15,6 +15,7 @@ dependencies = [
   "esphome-device-builder-frontend==0.1.45",
   "aiohttp>=3.9.0",
   "colorlog>=6.8.0",
+  "cryptography>=42.0.2",
   "mashumaro>=3.13",
   "orjson>=3.9.0",
   "pyyaml>=6.0",

@@ -169,6 +169,22 @@ Both gates apply only to requests that carry an `Origin` header. Browsers always
 
 Match is case-insensitive and port-tolerant: `dashboard.example.com` accepts `Dashboard.Example.com:8443`. IPv6 may be entered with or without brackets (`::1` and `[::1]` both work). Use `*` as the only entry to opt out of the Host restriction while still permitting cross-origin handshakes (handy when the Host varies per request).
 
+## Persisted state and security expectations
+
+The dashboard writes a small set of files into `<config_dir>` and treats them as durable per-installation state. A few have non-obvious security expectations.
+
+| File | Sensitivity | Mode |
+|---|---|---|
+| `.device-builder.json` | Identifier-only (`dashboard_id`, `_remote_build` config). Not a secret. | umask default |
+| `.device-builder-cert.pem` | Public TLS cert. Not sensitive. | mkstemp default (0o600) |
+| `.device-builder-key.pem` | **Private TLS key. Sensitive.** A reader of this file can impersonate the dashboard to any paired peer. | 0o600 enforced at write time |
+
+**Backup tools must preserve `0o600` on `.device-builder-key.pem`.** The dashboard writes the file at the right mode via `tempfile.mkstemp` + `os.replace`, but a tar-then-restore-as-different-user round-trip can land it at the umask default. Operators backing up `<config_dir>` should use a tool that captures and restores POSIX modes (e.g. `tar --preserve-permissions`, `rsync -p`, `restic`). The dashboard does *not* re-tighten the mode on every load (the load-time chmod was deliberately removed as untested defensive code) — once relaxed it stays relaxed until the next `rotate_certificate` call.
+
+**The dashboard expects exactly one process per `<config_dir>`.** Identity files, the metadata sidecar, and the build tree are all guarded by per-process `threading.Lock`s; two `device-builder` processes running against the same config directory would race on writes. The HA add-on shape enforces this naturally (one container per data volume); standalone deployments (Desktop, dev) need to ensure operators don't double-launch. If a multi-process model is ever needed, the locks must be promoted to file-locks (`fcntl.flock` on a sentinel file).
+
+**`dashboard_id` is an identifier, not a secret.** It's published in mDNS TXT and shared with paired peers as part of pairing handshakes. A leaked metadata sidecar reveals the ID but doesn't, on its own, grant access. Phase 4's first-use binding pairs each issued token against the requesting offloader's `dashboard_id`, so the ID becomes part of the auth context at that point — leakage of an issued bearer token *together with* the dashboard's ID would defeat the binding check; bearer tokens themselves remain the load-bearing secret.
+
 ## Deployment
 
 ### Beta (HA add-on)
