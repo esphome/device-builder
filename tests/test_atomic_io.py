@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 import sys
 from pathlib import Path
@@ -53,3 +54,43 @@ def test_atomic_write_overwrites_existing(tmp_path: Path) -> None:
     target.write_bytes(b"old")
     atomic_write(target, b"new")
     assert target.read_bytes() == b"new"
+
+
+def test_atomic_write_closes_fd_when_fdopen_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    A failure in ``os.fdopen`` doesn't leak the raw fd from ``mkstemp``.
+
+    ``os.fdopen`` is the bridge between the int fd ``mkstemp`` hands
+    back and the buffered writer the rest of the body uses. If it
+    raises (rare in practice; ENOMEM, invalid fd) before the
+    ``with`` enters, nothing closes the fd unless ``atomic_write``
+    does so explicitly. Pin the explicit close so a future
+    refactor can't silently reintroduce the leak.
+    """
+    target = tmp_path / "demo.bin"
+
+    closed: list[int] = []
+    real_close = os.close
+
+    def _tracking_close(fd: int) -> None:
+        closed.append(fd)
+        real_close(fd)
+
+    def _failing_fdopen(fd: int, *args: object, **kwargs: object) -> object:
+        msg = "no memory"
+        raise OSError(msg)
+
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.os.fdopen", _failing_fdopen)
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.os.close", _tracking_close)
+
+    with pytest.raises(OSError, match="no memory"):
+        atomic_write(target, b"payload")
+
+    # Real fdopen would have consumed and owned the fd, but our
+    # failing stub didn't, so the explicit close path must have
+    # fired exactly once.
+    assert len(closed) == 1, f"expected one explicit os.close, got {closed}"
+    assert not target.exists()
+    assert not list(tmp_path.glob("demo.bin.*.tmp"))

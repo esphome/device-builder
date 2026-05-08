@@ -35,7 +35,16 @@ def atomic_write(path: Path, data: bytes, *, mode: int | None = None) -> None:
     )
     tmp_path = Path(tmp_str)
     try:
-        with os.fdopen(fd, "wb") as fh:
+        # ``os.fdopen`` itself can raise (rare; ENOMEM, bad fd).
+        # If it does, the with-block never enters, so fd would
+        # leak; close explicitly here and re-raise.
+        try:
+            fh = os.fdopen(fd, "wb")
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+            raise
+        with fh:
             if mode is not None:
                 os.chmod(tmp_path, mode)
             fh.write(data)
