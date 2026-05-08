@@ -294,6 +294,26 @@ class ConfigEntry(DataClassORJSONMixin):
     # commonly used there).
     platform_defaults: dict[str, ConfigPrimitive] | None = None
 
+    # Target chips this field is valid on. Derived from upstream's
+    # declarative ``cv.only_on`` / ``cv.only_on_esp32`` / etc.
+    # validators at sync time — see
+    # ``script/sync_components._collect_field_platform_constraints``
+    # for the walker. An empty list means "no constraint" (the
+    # common case); a non-empty list restricts the field to the
+    # listed chips. The frontend's form renderer hides entries
+    # whose value isn't compatible with the target board, so the
+    # user can't fill in a field that will fail validation at
+    # compile time.
+    #
+    # Sibling-but-different from the catalog-entry-level
+    # ``supported_platforms`` on :class:`ComponentCatalogEntry`
+    # (that one gates the *whole component*; this one gates a
+    # single config entry within an otherwise platform-portable
+    # component — e.g. ``sensor.debug.psram`` which is wrapped in
+    # ``cv.only_on_esp32`` upstream while the rest of the debug
+    # sensors are platform-portable).
+    supported_platforms: list[str] = field(default_factory=list)
+
     # === value constraints ===
 
     # Constrains the value to a fixed set of choices. When populated the

@@ -31,7 +31,9 @@ Usage
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
+import inspect
 import json
 import logging
 import re
@@ -39,14 +41,16 @@ import shutil
 import sys
 import urllib.request
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from enum import StrEnum
 from functools import cache
 from io import BytesIO
 from pathlib import Path
 from typing import Any, NamedTuple
 
 import orjson
+import voluptuous as vol
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1596,6 +1600,9 @@ def build_component_entry(
     # importable.
     introspection = introspect_component(stem if domain else top_key)
     _apply_platform_defaults(config_entries, introspection.get("platform_defaults") or {})
+    _apply_field_platform_constraints(
+        config_entries, introspection.get("field_platform_constraints") or {}
+    )
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
     _apply_unit_of_measurement_options(config_entries)
 
@@ -2437,10 +2444,20 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         for path, refined in _collect_refined_types(platform_manifest).items():
             refined_types.setdefault(path, refined)
 
+    field_platform_constraints = _collect_field_platform_constraints(manifest)
+    # Same pattern as ``refined_types``: the platform-domain
+    # manifest (e.g. ``debug.sensor``) carries the per-field gate
+    # for ``sensor.debug.psram`` while the bare ``debug`` manifest
+    # only describes the top-level ``debug:`` block.
+    for platform_manifest in platform_manifests:
+        for path, plats in _collect_field_platform_constraints(platform_manifest).items():
+            field_platform_constraints.setdefault(path, plats)
+
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
         "is_target_platform": bool(getattr(manifest, "is_target_platform", False)),
         "platform_defaults": _collect_platform_defaults(manifest),
+        "field_platform_constraints": field_platform_constraints,
         "refined_types": refined_types,
         "auto_load": auto_load,
     }
@@ -2589,6 +2606,7 @@ _ENTRY_DEFAULTS: dict[str, Any] = {
     "required": False,
     "default_value": None,
     "platform_defaults": None,
+    "supported_platforms": [],
     "options": None,
     "allow_custom_value": False,
     "range": None,
@@ -2646,27 +2664,32 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
-def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str, Any]]:
-    """Walk the live ``CONFIG_SCHEMA`` for ``cv.SplitDefault`` keys.
-
-    Returns ``{key_path: {platform: default_value}}`` keyed by tuple
-    paths so nested fields can be looked up unambiguously. When the
-    component has no schema (rare) or voluptuous isn't importable,
-    returns an empty dict.
+def _walk_schema_keys(
+    schema: Any,
+    visit: Callable[[Any, str, Any, tuple[str, ...]], None],
+) -> None:
     """
-    schema = getattr(manifest, "config_schema", None)
-    if schema is None:
-        return {}
-    try:
-        import voluptuous as vol
-    except Exception:
-        return {}
+    Walk *schema* and call ``visit(key, key_name, val, path)`` per dict entry.
 
-    out: dict[tuple[str, ...], dict[str, Any]] = {}
+    Common kernel for the introspection collectors that need to
+    visit every ``cv.Optional(...)`` / ``cv.Required(...)`` entry
+    in a ``CONFIG_SCHEMA`` (and its nested sub-schemas):
+
+    - peels ``vol.Schema`` / ``vol.All`` / ``vol.Any`` wrappers to
+      find the underlying ``dict``,
+    - dedupes by ``id()`` so cyclic schemas can't loop,
+    - bails at depth 6 so a misbehaving recursive schema can't
+      blow the stack,
+    - swallows exceptions so one bad component manifest can't
+      tank the whole sync.
+
+    Each collector hands in a ``visit`` callback that records its
+    domain-specific signal (per-platform defaults, refined type,
+    platform constraint) on the ``out`` dict it owns.
+    """
     visited: set[int] = set()
 
     def unwrap_to_dict(node: Any) -> dict | None:
-        """Best-effort: peel ``vol.Schema`` / ``vol.All`` until we hit a dict."""
         for _ in range(8):
             if isinstance(node, dict):
                 return node
@@ -2696,32 +2719,50 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
         if id(candidate) in visited:
             return
         visited.add(id(candidate))
-
         for key, val in candidate.items():
             key_name = key.schema if hasattr(key, "schema") else str(key)
             sub_path = (*path, key_name)
-            if isinstance(key, vol.Optional):
-                factories = getattr(key, "_defaults", None)
-                if isinstance(factories, dict):
-                    per_platform: dict[str, Any] = {}
-                    for plat, factory in factories.items():
-                        try:
-                            value = factory() if callable(factory) else factory
-                        except Exception:  # noqa: S112 — best-effort default extraction
-                            continue
-                        if value is vol.UNDEFINED:
-                            continue
-                        if not _is_json_safe(value):
-                            continue
-                        per_platform[str(plat)] = value
-                    if per_platform:
-                        out[sub_path] = per_platform
+            visit(key, key_name, val, sub_path)
             walk(val, sub_path, depth + 1)
 
-    try:
+    # Best-effort: don't tank the whole sync if one component
+    # manifest's schema is misshapen.
+    with contextlib.suppress(Exception):
         walk(schema, (), 0)
-    except Exception:
+
+
+def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str, Any]]:
+    """Walk the live ``CONFIG_SCHEMA`` for ``cv.SplitDefault`` keys.
+
+    Returns ``{key_path: {platform: default_value}}`` keyed by tuple
+    paths so nested fields can be looked up unambiguously. When the
+    component has no schema (rare), returns an empty dict.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
         return {}
+
+    out: dict[tuple[str, ...], dict[str, Any]] = {}
+
+    def visit(key: Any, _key_name: str, _val: Any, path: tuple[str, ...]) -> None:
+        if not isinstance(key, vol.Optional):
+            return
+        factories = getattr(key, "_defaults", None)
+        if not isinstance(factories, dict):
+            return
+        per_platform: dict[str, Any] = {}
+        for plat, factory in factories.items():
+            try:
+                value = factory() if callable(factory) else factory
+            except Exception:  # noqa: S112 — best-effort default extraction
+                continue
+            if value is vol.UNDEFINED or not _is_json_safe(value):
+                continue
+            per_platform[str(plat)] = value
+        if per_platform:
+            out[path] = per_platform
+
+    _walk_schema_keys(schema, visit)
     return out
 
 
@@ -2882,7 +2923,7 @@ def _extract_validator_units(validator: Any) -> list[str] | None:  # noqa: PLR09
     return None
 
 
-def _collect_refined_types(  # noqa: PLR0915
+def _collect_refined_types(
     manifest: Any,
 ) -> dict[tuple[str, ...], RefinedType]:
     """Walk the live ``CONFIG_SCHEMA`` to recover types the schema lost.
@@ -2946,28 +2987,6 @@ def _collect_refined_types(  # noqa: PLR0915
     add("color_temperature", RefinedType("string"), "color_temperature")
 
     out: dict[tuple[str, ...], RefinedType] = {}
-    visited: set[int] = set()
-
-    def unwrap_to_dict(node: Any) -> dict | None:
-        for _ in range(8):
-            if isinstance(node, dict):
-                return node
-            if hasattr(node, "schema"):
-                node = node.schema
-                continue
-            inner = getattr(node, "validators", None)
-            if inner:
-                next_node = None
-                for v in inner:
-                    if isinstance(v, dict) or hasattr(v, "schema"):
-                        next_node = v
-                        break
-                if next_node is None:
-                    return None
-                node = next_node
-                continue
-            return None
-        return None
 
     def classify(validator: Any) -> RefinedType | None:
         if id(validator) in by_identity:
@@ -3001,27 +3020,12 @@ def _collect_refined_types(  # noqa: PLR0915
                 return t
         return None
 
-    def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
-        if depth > 6:
-            return
-        candidate = unwrap_to_dict(node)
-        if candidate is None:
-            return
-        if id(candidate) in visited:
-            return
-        visited.add(id(candidate))
-        for key, val in candidate.items():
-            key_name = key.schema if hasattr(key, "schema") else str(key)
-            sub_path = (*path, key_name)
-            t = classify(val)
-            if t is not None:
-                out[sub_path] = t
-            walk(val, sub_path, depth + 1)
+    def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
+        t = classify(val)
+        if t is not None:
+            out[path] = t
 
-    try:
-        walk(schema, (), 0)
-    except Exception:
-        return {}
+    _walk_schema_keys(schema, visit)
     return out
 
 
@@ -3133,6 +3137,117 @@ def _apply_platform_defaults(
             pd = platform_defaults.get(sub_path)
             if pd:
                 entry["platform_defaults"] = pd
+            inner = entry.get("config_entries")
+            if inner:
+                walk(inner, sub_path)
+
+    walk(entries, ())
+
+
+def _platform_set(node: Any) -> frozenset[str] | None:
+    """
+    Return allowed target platforms for *node*, or ``None`` if unconstrained.
+
+    Walks ``cv.only_on`` / ``cv.only_on_<platform>`` validator
+    closures plus the ``vol.All`` / ``vol.Any`` combinators they
+    appear inside:
+
+    - closure: ``cv.only_on(platforms)`` returns a closure that
+      captures ``platforms`` as a nonlocal. ``inspect.getclosurevars``
+      reads it back by name — no qualname / cell-index coupling, so
+      we keep working if upstream renames the inner function.
+      ``platforms`` is unique to ``only_on`` in
+      ``esphome.config_validation`` (the framework variant uses
+      ``frameworks``), so a name-only check is unambiguous.
+    - ``vol.Any``: union of branch constraints. If any branch is
+      unconstrained the whole Any accepts every platform → ``None``.
+    - ``vol.All``: intersection of branch constraints, ignoring
+      unconstrained children.
+
+    Returns ``None`` (not an empty set) when nothing along the
+    chain constrains platform — empty-set would mean "no platform
+    accepted," a schema bug we don't want to silently mask.
+    """
+    if callable(node) and getattr(node, "__closure__", None):
+        try:
+            nonlocals = inspect.getclosurevars(node).nonlocals
+        except (TypeError, ValueError):
+            nonlocals = {}
+        platforms = nonlocals.get("platforms")
+        if isinstance(platforms, list):
+            # ``Platform`` is a ``StrEnum``; ``str()`` yields the
+            # canonical identifier (``esp32``, ``esp8266``, ...).
+            names = [str(p) for p in platforms if isinstance(p, str | StrEnum)]
+            if names:
+                return frozenset(names)
+
+    if isinstance(node, vol.Any):
+        sets = [_platform_set(child) for child in node.validators]
+        if any(s is None for s in sets):
+            return None
+        union: frozenset[str] = frozenset()
+        for s in sets:
+            assert s is not None
+            union |= s
+        return union or None
+
+    if isinstance(node, vol.All):
+        sets = [_platform_set(child) for child in node.validators]
+        constrained = [s for s in sets if s is not None]
+        if not constrained:
+            return None
+        result = constrained[0]
+        for s in constrained[1:]:
+            result &= s
+        return result or None
+
+    return None
+
+
+def _collect_field_platform_constraints(
+    manifest: Any,
+) -> dict[tuple[str, ...], list[str]]:
+    """
+    Walk the live ``CONFIG_SCHEMA`` for per-field ``cv.only_on`` gates.
+
+    Returns ``{key_path: sorted_platforms}`` keyed by tuple paths
+    so nested fields can be looked up unambiguously. A path that
+    isn't in the returned dict has no platform constraint
+    (the common case — fields like ``free``/``loop_time`` on
+    ``sensor.debug`` are valid on every platform the parent
+    component runs on).
+
+    Empty dict when the component has no schema.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+
+    out: dict[tuple[str, ...], list[str]] = {}
+
+    def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
+        constraint = _platform_set(val)
+        if constraint:
+            out[path] = sorted(constraint)
+
+    _walk_schema_keys(schema, visit)
+    return out
+
+
+def _apply_field_platform_constraints(
+    entries: list[dict],
+    constraints: dict[tuple[str, ...], list[str]],
+) -> None:
+    """Stamp ``supported_platforms`` onto entries whose path is gated."""
+    if not constraints:
+        return
+
+    def walk(items: list[dict], path: tuple[str, ...]) -> None:
+        for entry in items:
+            sub_path = (*path, entry["key"])
+            constraint = constraints.get(sub_path)
+            if constraint:
+                entry["supported_platforms"] = list(constraint)
             inner = entry.get("config_entries")
             if inner:
                 walk(inner, sub_path)
