@@ -3455,47 +3455,35 @@ def _promote_multi_value_keys(entries: list[dict]) -> None:
     """
     Promote ``id`` / ``*_id`` children off Advanced for list rows.
 
-    Acts on ``id`` and ``id``-shaped (``area_id``, ``device_id``,
-    ``mqtt_id``, …) children of ``multi_value=True`` parents:
+    Acts on ``id`` and ``*_id`` children of ``multi_value=True``
+    NESTED parents (``esphome.devices``, ``esphome.areas``, …):
     demotes them off the Advanced toggle, and promotes the
-    parent's own ``id`` to *required*.
+    parent's own ``id`` to *required*. ``_id`` references
+    (``area_id``) stay optional — a device with no area is a
+    valid config; a device with no id is not.
 
-    The upstream schema marks own-id fields advanced (auto-generated
-    is the common case for top-level components like ``sensor.dht``)
-    and leaves cross-references nullable. For repeatable nested
-    mappings (``esphome.devices``, ``esphome.areas``) that's wrong:
-    the id is the cross-reference primary key, the user MUST set it
-    for any other field to point at the row, and ``area_id`` on a
-    device is what links the device to its area. Without this fix
-    the visual editor's nested-list renderer hides those fields
-    behind the Advanced toggle, so a fresh row from the Add button
+    The upstream schema marks own-id fields advanced because
+    ESPHome's id system auto-generates one for top-level
+    components like ``sensor.dht``. For repeatable nested
+    mappings the id IS the cross-reference primary key — without
+    it nothing else can point at the row — so the visual editor
+    needs it on the main form, not behind the Advanced toggle.
+    Without this fix a fresh row from the renderer's Add button
     looks like it accepts only ``name`` (issue #434).
-
-    Acts in-place on entries marked ``multi_value=True`` and
-    recurses into any deeper nested entries so future schema shapes
-    inherit the same treatment without a script change.
     """
 
-    def walk(items: list[dict]) -> None:
-        for entry in items:
-            inner = entry.get("config_entries") or []
-            if entry.get("multi_value") and entry.get("type") == "nested":
-                for child in inner:
-                    is_own_id = child["key"] == "id" and child.get("type") == "id"
-                    is_ref_id = child["key"].endswith("_id") and not is_own_id
-                    if is_own_id or is_ref_id:
-                        child["advanced"] = False
-                    # Own ``id`` is the cross-reference primary key —
-                    # without it nothing else can point at this row,
-                    # so promote to required. ``_id`` references stay
-                    # optional (a device with no area is valid; a
-                    # device with no id is not).
-                    if is_own_id:
-                        child["required"] = True
-            if inner:
-                walk(inner)
+    def visit(entry: dict, _path: tuple[str, ...]) -> None:
+        if not entry.get("multi_value") or entry.get("type") != "nested":
+            return
+        for child in entry.get("config_entries") or []:
+            is_own_id = child["key"] == "id" and child.get("type") == "id"
+            if not (is_own_id or child["key"].endswith("_id")):
+                continue
+            child["advanced"] = False
+            if is_own_id:
+                child["required"] = True
 
-    walk(entries)
+    _walk_catalog_entries(entries, visit)
 
 
 def _load_unit_of_measurement_options() -> list[dict[str, str]]:
