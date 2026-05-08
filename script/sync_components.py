@@ -1603,6 +1603,7 @@ def build_component_entry(
     _apply_field_ranges(config_entries, introspection.get("field_ranges") or {})
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
     _apply_unit_of_measurement_options(config_entries)
+    _promote_multi_value_keys(config_entries)
 
     return {
         "id": component_id,
@@ -3444,6 +3445,53 @@ def _apply_unit_of_measurement_options(entries: list[dict]) -> None:
                 entry["options"] = options
                 entry["allow_custom_value"] = True
             inner = entry.get("config_entries")
+            if inner:
+                walk(inner)
+
+    walk(entries)
+
+
+def _promote_multi_value_keys(entries: list[dict]) -> None:
+    """
+    Promote ``id`` / ``*_id`` children off Advanced for list rows.
+
+    Acts on ``id`` and ``id``-shaped (``area_id``, ``device_id``,
+    ``mqtt_id``, …) children of ``multi_value=True`` parents:
+    demotes them off the Advanced toggle, and promotes the
+    parent's own ``id`` to *required*.
+
+    The upstream schema marks own-id fields advanced (auto-generated
+    is the common case for top-level components like ``sensor.dht``)
+    and leaves cross-references nullable. For repeatable nested
+    mappings (``esphome.devices``, ``esphome.areas``) that's wrong:
+    the id is the cross-reference primary key, the user MUST set it
+    for any other field to point at the row, and ``area_id`` on a
+    device is what links the device to its area. Without this fix
+    the visual editor's nested-list renderer hides those fields
+    behind the Advanced toggle, so a fresh row from the Add button
+    looks like it accepts only ``name`` (issue #434).
+
+    Acts in-place on entries marked ``multi_value=True`` and
+    recurses into any deeper nested entries so future schema shapes
+    inherit the same treatment without a script change.
+    """
+
+    def walk(items: list[dict]) -> None:
+        for entry in items:
+            inner = entry.get("config_entries") or []
+            if entry.get("multi_value") and entry.get("type") == "nested":
+                for child in inner:
+                    is_own_id = child["key"] == "id" and child.get("type") == "id"
+                    is_ref_id = child["key"].endswith("_id") and not is_own_id
+                    if is_own_id or is_ref_id:
+                        child["advanced"] = False
+                    # Own ``id`` is the cross-reference primary key —
+                    # without it nothing else can point at this row,
+                    # so promote to required. ``_id`` references stay
+                    # optional (a device with no area is valid; a
+                    # device with no id is not).
+                    if is_own_id:
+                        child["required"] = True
             if inner:
                 walk(inner)
 
