@@ -952,6 +952,37 @@ async def test_add_token_rejects_when_at_capacity(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
+async def test_load_remote_build_settings_falls_back_on_unrecoverable_blob(
+    tmp_path: Any,
+) -> None:
+    """
+    A blob that fails to deserialise even after token-row cleaning resets to defaults.
+
+    Token-row tolerance handles the common case (one bad token
+    didn't disconnect every peer); but a wholly malformed blob
+    (e.g. ``manual_hosts`` set to a non-list, ``enabled`` set to
+    a list, etc.) still falls back to the empty defaults rather
+    than crashing dashboard startup. Pin the rescue branch.
+    """
+    await _seed_metadata(
+        tmp_path,
+        {
+            # Type errors mashumaro rejects: ``manual_hosts`` must
+            # be a list, ``enabled`` must be a bool. The
+            # token-row pre-clean can't save this.
+            "enabled": "definitely-not-a-bool",
+            "manual_hosts": "definitely-not-a-list",
+        },
+    )
+    controller = _make_controller(config_dir=tmp_path)
+    settings = await controller.get_settings()
+    # All fields back to defaults; the dashboard didn't crash.
+    assert settings.enabled is False
+    assert settings.manual_hosts == []
+    assert settings.tokens == []
+
+
+@pytest.mark.asyncio
 async def test_load_remote_build_settings_drops_malformed_token_rows(
     tmp_path: Any,
 ) -> None:
