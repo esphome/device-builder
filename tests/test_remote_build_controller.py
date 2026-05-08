@@ -1026,6 +1026,39 @@ async def test_load_remote_build_settings_drops_malformed_token_rows(
 
 
 @pytest.mark.asyncio
+async def test_decode_tokens_skips_non_dict_entries(tmp_path: Any) -> None:
+    """
+    Non-dict entries in the on-disk ``tokens`` list are skipped silently.
+
+    A hand-edited (or just type-confused) sidecar might land a
+    string or null in the tokens list. The decoder skips those
+    without raising and without invoking ``StoredToken.from_dict``
+    (which would raise on a non-dict). Good rows still load.
+    """
+    await _seed_metadata(
+        tmp_path,
+        {
+            "tokens": [
+                {
+                    "token_id": "good1",
+                    "label": "Green",
+                    "secret_sha256": "a" * 64,
+                    "created_at": 1.0,
+                    "bound_dashboard_id": None,
+                },
+                "not-a-dict-at-all",  # noqa: type-confused row
+                42,
+                None,
+            ],
+        },
+    )
+
+    controller = _make_controller(config_dir=tmp_path)
+    settings = await controller.get_settings()
+    assert [t.token_id for t in settings.tokens] == ["good1"]
+
+
+@pytest.mark.asyncio
 async def test_decode_tokens_redacts_credential_material_from_logs(
     tmp_path: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
