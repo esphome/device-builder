@@ -1919,6 +1919,63 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
 
 
 @cache
+def _pin_long_form_mode_flags(schema_dir: Path) -> tuple[str, ...]:
+    """Return the mode-flag keys present in the bundle's pin schema.
+
+    Cached read of ``esp32.json``'s ``pin.schema.config_vars.mode.schema``
+    so a sync run with hundreds of pin entries pays the bundle parse
+    once. Returns a tuple (immutable) so cache reuse can't leak
+    mutations the way a shared dict / list could — the actual
+    ``ConfigEntry`` dicts are built fresh on each call to
+    ``_pin_long_form_extras``.
+
+    Returns ``()`` for any unexpected bundle shape (file missing,
+    non-JSON, JSON that parses to non-dict at any level along the
+    ``esp32.pin.schema.config_vars.mode.schema.config_vars`` path).
+    The caller treats an empty return as "skip the long-form
+    extras", so pin entries fall back to the short-form picker
+    rather than crashing the sync.
+    """
+    try:
+        esp32_data = json.loads((schema_dir / "esp32.json").read_text())
+    except (FileNotFoundError, ValueError, OSError):
+        return ()
+    if not isinstance(esp32_data, dict):
+        return ()
+    node: Any = esp32_data
+    for key in ("esp32", "pin", "schema", "config_vars", "mode", "schema", "config_vars"):
+        if not isinstance(node, dict):
+            return ()
+        node = node.get(key)
+    if not isinstance(node, dict):
+        return ()
+    common_modes = ("input", "output", "pullup", "pulldown", "open_drain")
+    return tuple(flag for flag in common_modes if flag in node)
+
+
+@cache
+def _pin_long_form_has_inverted(schema_dir: Path) -> bool:
+    """Whether the bundle's pin schema declares an ``inverted`` field.
+
+    Cached for the same reason as ``_pin_long_form_mode_flags`` —
+    one bundle parse per sync run. Returns ``False`` on any
+    unexpected shape so the caller drops the field rather than
+    emitting one the bundle didn't claim.
+    """
+    try:
+        esp32_data = json.loads((schema_dir / "esp32.json").read_text())
+    except (FileNotFoundError, ValueError, OSError):
+        return False
+    if not isinstance(esp32_data, dict):
+        return False
+    node: Any = esp32_data
+    for key in ("esp32", "pin", "schema", "config_vars"):
+        if not isinstance(node, dict):
+            return False
+        node = node.get(key)
+    return isinstance(node, dict) and "inverted" in node
+
+
 def _pin_long_form_extras(schema_dir: Path) -> tuple[dict, ...]:
     """Return nested ConfigEntry dicts for the pin schema's long form.
 
@@ -1940,36 +1997,27 @@ def _pin_long_form_extras(schema_dir: Path) -> tuple[dict, ...]:
     field on a pin shared across components can't be resolved
     here.
 
-    Cached so a sync run with hundreds of pin entries pays the
-    bundle read once. ``schema_dir`` is the cache key; a fresh
-    ``ensure_schema`` call returns a different directory and the
-    cache invalidates naturally.
+    The bundle parse is cached one level down (in
+    ``_pin_long_form_mode_flags`` / ``_pin_long_form_has_inverted``)
+    so the file read happens once per sync. *This* function builds
+    the ``ConfigEntry`` dicts fresh on every call — downstream
+    sync passes mutate ``config_entries`` in place, so a shared
+    cache would let one component's edit leak into every other
+    pin field. The cost of rebuilding is six dicts per pin entry,
+    which is dwarfed by the rest of the sync work.
     """
-    try:
-        esp32_data = json.loads((schema_dir / "esp32.json").read_text())
-    except (FileNotFoundError, ValueError, OSError):
-        # Bundle missing the platform schema — skip the long-form
-        # extras rather than crashing the whole sync. Pin entries
-        # render as the short-form picker, same as today.
-        return ()
-    pin_block = esp32_data.get("esp32", {}).get("pin", {}) or {}
-    pin_cvs = pin_block.get("schema", {}).get("config_vars", {}) or {}
-
+    flags = _pin_long_form_mode_flags(schema_dir)
     extras: list[dict] = []
-
-    mode_subs = (pin_cvs.get("mode", {}) or {}).get("schema", {}).get("config_vars", {}) or {}
-    common_modes = ("input", "output", "pullup", "pulldown", "open_drain")
-    mode_children = [
-        _synthesise_long_form_extra(
-            key=flag,
-            type_="boolean",
-            default_value=False,
-            description=f"Set the {_key_to_label(flag).lower()} mode flag.",
-        )
-        for flag in common_modes
-        if flag in mode_subs
-    ]
-    if mode_children:
+    if flags:
+        mode_children = [
+            _synthesise_long_form_extra(
+                key=flag,
+                type_="boolean",
+                default_value=False,
+                description=f"Set the {_key_to_label(flag).lower()} mode flag.",
+            )
+            for flag in flags
+        ]
         extras.append(
             _synthesise_long_form_extra(
                 key="mode",
@@ -1983,8 +2031,7 @@ def _pin_long_form_extras(schema_dir: Path) -> tuple[dict, ...]:
                 config_entries=mode_children,
             )
         )
-
-    if "inverted" in pin_cvs:
+    if _pin_long_form_has_inverted(schema_dir):
         extras.append(
             _synthesise_long_form_extra(
                 key="inverted",
@@ -1997,7 +2044,6 @@ def _pin_long_form_extras(schema_dir: Path) -> tuple[dict, ...]:
                 ),
             )
         )
-
     return tuple(extras)
 
 

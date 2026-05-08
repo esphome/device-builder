@@ -28,6 +28,8 @@ import pytest
 from script.sync_components import (  # type: ignore[import-not-found]
     _convert_field,
     _pin_long_form_extras,
+    _pin_long_form_has_inverted,
+    _pin_long_form_mode_flags,
 )
 
 # Minimal esp32.json shape covering the fields ``_pin_long_form_extras``
@@ -94,15 +96,16 @@ _ESP32_PIN_BUNDLE: dict = {
 def schema_dir(tmp_path: Path) -> Path:
     """``schema_dir`` containing a stub ``esp32.json`` with the pin block.
 
-    Cleared cache so each test run sees the test fixture rather than
-    a previous test's bundle. ``_pin_long_form_extras`` is
-    ``@cache``-decorated for production efficiency (the pin block
-    gets read once per sync run, attached to ~hundreds of entries),
-    so tests that vary the bundle content have to invalidate it
-    explicitly.
+    Clears the bundle-parse caches so each test sees this fixture's
+    bundle rather than a previous test's. ``_pin_long_form_mode_flags``
+    / ``_pin_long_form_has_inverted`` are ``@cache``-decorated for
+    production efficiency (the pin block gets parsed once per sync
+    run, even though hundreds of pin entries query it); tests that
+    vary the bundle content have to invalidate them explicitly.
     """
     (tmp_path / "esp32.json").write_text(json.dumps(_ESP32_PIN_BUNDLE))
-    _pin_long_form_extras.cache_clear()
+    _pin_long_form_mode_flags.cache_clear()
+    _pin_long_form_has_inverted.cache_clear()
     return tmp_path
 
 
@@ -166,9 +169,50 @@ def test_pin_long_form_extras_returns_empty_when_bundle_missing(
     entries fall back to the short-form picker (today's
     behaviour); the sync run completes normally.
     """
-    _pin_long_form_extras.cache_clear()
+    _pin_long_form_mode_flags.cache_clear()
+    _pin_long_form_has_inverted.cache_clear()
     extras = _pin_long_form_extras(tmp_path)
     assert extras == ()
+
+
+@pytest.mark.parametrize(
+    "malformed_payload",
+    [
+        # Top-level isn't a dict (a JSON-decodable value but the
+        # wrong shape).
+        "null",
+        "[]",
+        '"not-an-object"',
+        "42",
+        # Top-level dict but ``esp32`` key carries the wrong type.
+        '{"esp32": null}',
+        '{"esp32": []}',
+        # ``esp32.pin`` non-dict.
+        '{"esp32": {"pin": "string-value"}}',
+        # ``esp32.pin.schema.config_vars.mode`` non-dict — the
+        # path-walk should fail closed mid-traversal.
+        '{"esp32": {"pin": {"schema": {"config_vars": {"mode": []}}}}}',
+        # Outright invalid JSON.
+        "{not json",
+    ],
+)
+def test_pin_long_form_extras_returns_empty_for_malformed_bundle(
+    tmp_path: Path,
+    malformed_payload: str,
+) -> None:
+    """Bundle present but malformed → empty tuple, not an AttributeError.
+
+    Defensive against a partial download, a future schema-shape
+    change that breaks our path expectations, or a hand-edited
+    bundle in a developer cache. The sync should keep running and
+    fall back to short-form pin entries; an ``AttributeError`` on
+    a chained ``.get()`` call against a non-dict node would crash
+    the whole catalog regen.
+    """
+    (tmp_path / "esp32.json").write_text(malformed_payload)
+    _pin_long_form_mode_flags.cache_clear()
+    _pin_long_form_has_inverted.cache_clear()
+    assert _pin_long_form_extras(tmp_path) == ()
 
 
 def test_convert_field_attaches_long_form_extras_to_pin_entries(
@@ -205,3 +249,38 @@ def test_convert_field_does_not_attach_pin_extras_to_non_pin_entries(
     assert entry is not None
     assert entry["type"] == "string"
     assert entry["config_entries"] is None
+
+
+def test_pin_long_form_extras_returns_fresh_dicts_per_call(
+    schema_dir: Path,
+) -> None:
+    """Each call rebuilds the dicts so downstream mutation can't cross-leak.
+
+    Sync passes after ``_convert_field`` modify ``config_entries``
+    in place (description rewrites, sub-field defaults, etc.). If
+    ``_pin_long_form_extras`` returned shared dict instances, a
+    mutation on one component's pin entry would silently affect
+    every other pin entry across the whole catalog.
+
+    Mutating the first call's structures must not change the
+    second call's identity / shape.
+    """
+    first = _pin_long_form_extras(schema_dir)
+    second = _pin_long_form_extras(schema_dir)
+
+    # Top-level dicts — fresh objects.
+    assert first[0] is not second[0]
+    assert first[1] is not second[1]
+    # Nested mode-children list — fresh objects too (the leak risk
+    # is highest here; sync passes commonly walk into nested
+    # children).
+    assert first[0]["config_entries"][0] is not second[0]["config_entries"][0]
+
+    # Stress-test: mutate first call's structures, second call
+    # must come back clean.
+    first[0]["config_entries"].append({"injected": True})
+    first[0]["description"] = "MUTATED"
+
+    third = _pin_long_form_extras(schema_dir)
+    assert all("injected" not in c for c in third[0]["config_entries"])
+    assert third[0]["description"] != "MUTATED"
