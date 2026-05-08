@@ -120,6 +120,60 @@ def test_numeric_range_bounds_handles_floats() -> None:
     assert _numeric_range_bounds(vol.Range(min=0.0, max=1.0)) == (0.0, 1.0)
 
 
+def test_numeric_range_bounds_returns_none_for_disjoint_intersection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Disjoint ``vol.Range`` constraints in a ``vol.All`` chain return ``None``.
+
+    ``cv.All(cv.Range(min=10), cv.Range(max=5))`` is an upstream
+    schema bug — the field accepts no value. The wire format
+    ``[min, max]`` can't represent "accepts nothing," so we log a
+    warning (so the upstream bug surfaces) and return ``None``
+    rather than serialise an invalid ``[10, 5]`` that would clamp
+    wrong on the frontend.
+
+    Pin the logged-warning behaviour so a future refactor can't
+    silently drop the diagnostic.
+    """
+    validator = cv.All(vol.Range(min=10), vol.Range(max=5))
+    with caplog.at_level("WARNING"):
+        result = _numeric_range_bounds(validator)
+    assert result is None
+    assert any("collapsed to empty" in rec.message for rec in caplog.records)
+
+
+def test_numeric_range_bounds_does_not_traverse_vol_any() -> None:
+    """``vol.Any`` branches aren't traversed — bounds inside one are dropped.
+
+    A field declared as ``vol.Any(vol.Range(min=1, max=10),
+    vol.Range(min=20, max=30))`` would mean "value is in [1, 10] OR
+    [20, 30]," which the wire format's single ``[min, max]`` pair
+    can't express. Skipping ``vol.Any`` is the conservative choice
+    — the field falls through to its ``data_type`` defaults (or no
+    bounds), and the user still gets a compile-time validation
+    error if they pick a number neither branch accepts.
+
+    Pin the limitation so a future refactor that adds ``vol.Any``
+    traversal has to revisit the wire-format question rather than
+    silently surfacing a bound that doesn't actually constrain
+    what the schema accepts.
+    """
+    validator = vol.Any(vol.Range(min=1, max=10), vol.Range(min=20, max=30))
+    assert _numeric_range_bounds(validator) is None
+
+
+def test_numeric_range_bounds_returns_none_when_only_any_wraps_a_range() -> None:
+    """``cv.All(cv.Any(cv.Range(...)))`` falls through too — the All sees no Range.
+
+    The walker only recurses into ``vol.All``; once it hits a
+    ``vol.Any`` child it stops. A range nested behind an ``Any``
+    might not constrain the field even when its sibling Any
+    branches are non-Range, so reporting it would be misleading.
+    """
+    validator = vol.All(vol.Any(vol.Range(min=1, max=10), cv.string))
+    assert _numeric_range_bounds(validator) is None
+
+
 def test_collect_returns_empty_for_unbounded_schema() -> None:
     """A schema with only string fields produces no ranges."""
     schema = {cv.Optional("ssid"): cv.string, cv.Optional("password"): cv.string}

@@ -3310,10 +3310,30 @@ def _numeric_range_bounds(node: Any) -> tuple[int | float, int | float] | None:
     - ``vol.Range(max=TimePeriod(microseconds=4294967295))`` →
       ``None``, the wire format is numeric only.
 
+    Disjoint chains where the intersection collapses to ``min > max``
+    (e.g. ``cv.All(cv.Range(min=10), cv.Range(max=5))``) are an
+    upstream schema bug — a field that accepts no value. The wire
+    format ``[min, max]`` can't represent "accepts nothing," and a
+    serialised ``[10, 5]`` would clamp wrong on the frontend. Log a
+    warning so the upstream bug surfaces in the next sync run, then
+    return ``None`` so the field stays unbounded — the compile-time
+    validator catches the actual incompatibility.
+
+    ``vol.Any`` branches aren't traversed: a field declared as
+    ``vol.Any(vol.Range(min=1, max=10), vol.Range(min=20, max=30))``
+    would mean "value is in [1, 10] OR [20, 30]," which the wire
+    format's single ``[min, max]`` pair can't express. Skipping
+    ``vol.Any`` entirely is the conservative choice — the field
+    falls through to its ``data_type`` defaults (or no bounds), and
+    the user still gets a compile-time validation error if they
+    pick a number neither branch accepts. None of today's catalog
+    components hit this shape; the limitation is documented for
+    when a future schema introduces it.
+
     The schema bundle's ``data_type`` field surfaces this for fixed-
     width integers (``uint8_t`` → ``[0, 255]``) but not for
     ``positive_int`` chained with a ``cv.Range(...)``, which is the
-    bluetooth_proxy.connection_slots case (issue #422-adjacent — the
+    ``bluetooth_proxy.connection_slots`` case (issue #426 — the
     visual editor accepts any positive integer because the
     ``cv.Range(min=1, max=15)`` is dropped from the bundle).
     """
@@ -3332,11 +3352,25 @@ def _numeric_range_bounds(node: Any) -> tuple[int | float, int | float] | None:
         if isinstance(n, vol.All):
             for child in n.validators:
                 collect(child, depth + 1)
+        # ``vol.Any`` deliberately not traversed — see docstring.
 
     collect(node)
     if not mins or not maxes:
         return None
-    return (max(mins), min(maxes))
+    lo, hi = max(mins), min(maxes)
+    if lo > hi:
+        # Disjoint Range constraints in a vol.All chain — schema bug
+        # upstream, the field accepts no value. Surface so future
+        # syncs catch the upstream bug, then return None so we don't
+        # serialise an invalid ``[lo, hi]`` pair.
+        _LOGGER.warning(
+            "numeric range collapsed to empty (disjoint cv.Range constraints "
+            "in vol.All chain): mins=%r maxes=%r",
+            mins,
+            maxes,
+        )
+        return None
+    return (lo, hi)
 
 
 def _collect_field_ranges(
