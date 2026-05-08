@@ -256,7 +256,7 @@ def _decode_mdns_txt_records(
     if not txt_dns_records:
         return {}
     latest_txt = max(txt_dns_records, key=attrgetter("created"))
-    txt_bytes = getattr(latest_txt, "text", None)
+    txt_bytes = latest_txt.text
     if not isinstance(txt_bytes, (bytes, bytearray)):
         return {}
     info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, service_name)
