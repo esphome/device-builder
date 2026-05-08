@@ -31,7 +31,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from zeroconf import ServiceStateChange
+from zeroconf import IPVersion, ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 from ..helpers.api import CommandError, api_command
@@ -71,6 +71,14 @@ def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPee
 
     Keeps the parsing in one place so ``_apply_service_info`` and
     the cache-hit branch produce identical shapes.
+
+    Uses ``parsed_scoped_addresses(IPVersion.All)`` rather than
+    ``parsed_addresses()`` so IPv6 link-local entries keep their
+    ``%<interface>`` scope suffix. Without the scope, an
+    ``fe80::xxx`` address parses but isn't connectable — the OS
+    needs to know which interface to send the packet out on.
+    Mirrors the choice already made in
+    :class:`DeviceStateMonitor` (line 901).
     """
     properties = info.properties or {}
     server_version = _decode_txt_value(properties.get(b"server_version"))
@@ -83,7 +91,7 @@ def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPee
         name=instance,
         hostname=server,
         port=info.port or 0,
-        addresses=info.parsed_addresses() or [],
+        addresses=info.parsed_scoped_addresses(IPVersion.All) or [],
         server_version=server_version,
         esphome_version=esphome_version,
     )
@@ -131,12 +139,14 @@ class RemoteBuildController:
             _LOGGER.debug("zeroconf unavailable — remote-build discovery disabled")
             return
         # Capture own service-instance name so our own advertise
-        # doesn't show up in ``list_hosts``.
+        # doesn't show up in ``list_hosts``. Reads through the
+        # public ``service_instance_name`` accessor on
+        # ``DashboardAdvertiser`` rather than reaching into
+        # ``_info`` — keeps this controller decoupled from the
+        # advertiser's private layout.
         advertiser = self._db._dashboard_advertiser
-        if advertiser is not None and advertiser.registered:
-            info = advertiser._info
-            if info is not None:
-                self._own_instance_name = info.name
+        if advertiser is not None:
+            self._own_instance_name = advertiser.service_instance_name
         # Wrap browser construction so a zeroconf-side failure (e.g.
         # the underlying socket got torn down between
         # ``DeviceStateMonitor.start`` and now, or the cache is in an

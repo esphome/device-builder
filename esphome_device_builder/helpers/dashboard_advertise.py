@@ -261,6 +261,24 @@ class DashboardAdvertiser:
         """True between a successful :meth:`register` and :meth:`unregister`."""
         return self._info is not None
 
+    @property
+    def service_instance_name(self) -> str | None:
+        """
+        The published mDNS service-instance name, or ``None``.
+
+        Returns the fully-qualified instance name as zeroconf
+        registered it (e.g. ``MacBook-Pro._esphomebuilder._tcp.local.``,
+        or ``MacBook-Pro-2._esphomebuilder._tcp.local.`` after a
+        ``allow_name_change`` collision rename). ``None`` when the
+        advertiser hasn't registered yet — same shape callers
+        already use to gate other operations on ``registered``.
+
+        Public surface so peer-discovery code can filter our own
+        broadcast out of its discovered list without reaching into
+        the private :attr:`_info`.
+        """
+        return self._info.name if self._info is not None else None
+
     def build_service_info(self, addresses: list[str] | None = None) -> ServiceInfo:
         """
         Construct the ``ServiceInfo`` that will be published on register.

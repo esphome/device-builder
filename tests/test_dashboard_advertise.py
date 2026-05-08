@@ -278,6 +278,35 @@ def test_service_type_property_is_canonical() -> None:
     assert advertiser.service_type == SERVICE_TYPE
 
 
+def test_service_instance_name_returns_none_before_register() -> None:
+    """``service_instance_name`` is ``None`` until ``register()`` succeeds."""
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    assert advertiser.service_instance_name is None
+
+
+@pytest.mark.asyncio
+async def test_service_instance_name_returns_published_name_after_register(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Post-``register``, the accessor returns what zeroconf published.
+
+    Public surface so peer-discovery code (the
+    ``RemoteBuildController`` browser) can filter our own
+    broadcast out of its discovered list without reaching into
+    the private ``_info`` attribute.
+    """
+    monkeypatch.setattr(dashboard_advertise, "_local_addresses", lambda: ["192.168.1.10"])
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    try:
+        assert advertiser.service_instance_name == f"green.{SERVICE_TYPE}"
+    finally:
+        await advertiser.unregister()
+    assert advertiser.service_instance_name is None
+
+
 def test_build_service_info_falls_back_when_hostname_is_blank(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

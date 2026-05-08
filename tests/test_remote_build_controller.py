@@ -46,7 +46,7 @@ def _fake_service_info(
     info.name = f"{name}.{SERVICE_TYPE}"
     info.server = server
     info.port = port
-    info.parsed_addresses = MagicMock(return_value=list(addresses or []))
+    info.parsed_scoped_addresses = MagicMock(return_value=list(addresses or []))
     info.properties = {
         b"server_version": server_version.encode("utf-8"),
         b"esphome_version": esphome_version.encode("utf-8"),
@@ -106,6 +106,22 @@ def test_peer_from_service_info_carries_all_addresses() -> None:
     info = _fake_service_info(addresses=["192.168.1.10", "fdc8::1"])
     peer = _peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
     assert peer.addresses == ["192.168.1.10", "fdc8::1"]
+
+
+def test_peer_from_service_info_preserves_ipv6_scope() -> None:
+    """
+    IPv6 link-local addresses keep their ``%<interface>`` scope.
+
+    ``parsed_addresses()`` strips the scope suffix; without it
+    ``fe80::xxx`` parses but isn't connectable — the OS doesn't
+    know which interface to send the packet out on. This test
+    pins the choice of ``parsed_scoped_addresses(IPVersion.All)``
+    so a future refactor can't quietly switch back.
+    """
+    info = _fake_service_info(addresses=["fe80::1%en0", "192.168.1.10"])
+    peer = _peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
+    assert "fe80::1%en0" in peer.addresses
+    assert "192.168.1.10" in peer.addresses
 
 
 def test_peer_from_service_info_handles_missing_txt_keys() -> None:
@@ -278,7 +294,8 @@ async def test_start_captures_own_instance_name(monkeypatch: pytest.MonkeyPatch)
     A registered advertiser's instance name lands in ``_own_instance_name``.
 
     The browser would otherwise pick up our own broadcast and list
-    ourselves as a peer — pin the self-filter wiring.
+    ourselves as a peer — pin the self-filter wiring through the
+    public ``service_instance_name`` accessor.
     """
     fake_browser = MagicMock()
     fake_browser.async_cancel = AsyncMock()
@@ -288,11 +305,8 @@ async def test_start_captures_own_instance_name(monkeypatch: pytest.MonkeyPatch)
     )
     controller = _make_controller()
     controller._db.devices.zeroconf = MagicMock()
-    own_info = MagicMock()
-    own_info.name = f"self.{SERVICE_TYPE}"
     advertiser = MagicMock()
-    advertiser.registered = True
-    advertiser._info = own_info
+    advertiser.service_instance_name = f"self.{SERVICE_TYPE}"
     controller._db._dashboard_advertiser = advertiser
 
     await controller.start()
@@ -315,7 +329,10 @@ async def test_start_skips_self_capture_when_advertiser_unregistered(
     controller = _make_controller()
     controller._db.devices.zeroconf = MagicMock()
     advertiser = MagicMock()
-    advertiser.registered = False
+    # ``service_instance_name`` returns ``None`` when the
+    # advertiser isn't registered (skipped in HA addon mode or
+    # zeroconf failed to bind).
+    advertiser.service_instance_name = None
     controller._db._dashboard_advertiser = advertiser
 
     await controller.start()
