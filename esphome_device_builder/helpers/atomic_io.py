@@ -41,6 +41,9 @@ def atomic_write(path: Path, data: bytes, *, mode: int | None = None) -> None:
             fh.write(data)
         os.replace(tmp_path, path)
     except Exception:
-        with contextlib.suppress(FileNotFoundError):
+        # Suppress all OSError on cleanup so the original write
+        # failure isn't masked by a secondary unlink permission
+        # error.
+        with contextlib.suppress(OSError):
             tmp_path.unlink()
         raise

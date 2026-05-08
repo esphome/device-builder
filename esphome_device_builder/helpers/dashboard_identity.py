@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -47,6 +48,14 @@ _CERT_COMMON_NAME = "ESPHome Device Builder"
 _REMOTE_BUILD_KEY = "_remote_build"
 _DASHBOARD_ID_KEY = "dashboard_id"
 
+# Serialise the load -> generate -> persist path so two callers
+# racing on first-time creation don't waste CPU on parallel
+# keypair generation and don't interleave atomic writes onto the
+# same cert / key files. Production calls this once at startup;
+# the lock handles the test-style 4-thread race and any future
+# caller that picks up the helper.
+_IDENTITY_LOCK = threading.Lock()
+
 
 @dataclass(frozen=True)
 class DashboardIdentity:
@@ -55,9 +64,13 @@ class DashboardIdentity:
     dashboard_id: str
     cert_pem: bytes
     key_pem: bytes
-    # SPKI SHA-256 (RFC 7469 form). Pinning the public key (not the
-    # whole cert) lets cert metadata refresh without invalidating
-    # paired peers as long as the keypair stays the same.
+    # SHA-256 of the cert's SubjectPublicKeyInfo (same input as
+    # RFC 7469 / HPKP, but encoded as lowercase hex rather than
+    # the RFC's base64 because hex matches what TLS / cert UIs
+    # display when users compare fingerprints out-of-band).
+    # Pinning the public key (not the whole cert) lets cert
+    # metadata refresh without invalidating paired peers as long
+    # as the keypair stays the same.
     pin_sha256: str
 
     @property
@@ -79,11 +92,12 @@ def get_or_create_identity(config_dir: Path) -> DashboardIdentity:
     cert_path = config_dir / _CERT_FILENAME
     key_path = config_dir / _KEY_FILENAME
 
-    cert_pem, key_pem = _load_cert_pair(cert_path, key_path)
-    if cert_pem is None or key_pem is None:
-        cert_pem, key_pem = _generate_cert_pair()
-        _persist_cert_pair(cert_path, key_path, cert_pem, key_pem)
-        _LOGGER.info("Generated new dashboard identity at %s", cert_path)
+    with _IDENTITY_LOCK:
+        cert_pem, key_pem = _load_cert_pair(cert_path, key_path)
+        if cert_pem is None or key_pem is None:
+            cert_pem, key_pem = _generate_cert_pair()
+            _persist_cert_pair(cert_path, key_path, cert_pem, key_pem)
+            _LOGGER.info("Generated new dashboard identity at %s", cert_path)
 
     dashboard_id = _get_or_create_dashboard_id(config_dir)
 
@@ -106,9 +120,10 @@ def rotate_certificate(config_dir: Path) -> DashboardIdentity:
     """
     cert_path = config_dir / _CERT_FILENAME
     key_path = config_dir / _KEY_FILENAME
-    cert_pem, key_pem = _generate_cert_pair()
-    _persist_cert_pair(cert_path, key_path, cert_pem, key_pem)
-    _LOGGER.info("Rotated dashboard identity at %s", cert_path)
+    with _IDENTITY_LOCK:
+        cert_pem, key_pem = _generate_cert_pair()
+        _persist_cert_pair(cert_path, key_path, cert_pem, key_pem)
+        _LOGGER.info("Rotated dashboard identity at %s", cert_path)
 
     dashboard_id = _get_or_create_dashboard_id(config_dir)
 

@@ -6,15 +6,19 @@ import json
 import stat
 import sys
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from cryptography import x509
 
 from esphome_device_builder.helpers.dashboard_identity import (
     _CERT_FILENAME,
+    _CERT_NOT_BEFORE_BACKDATE,
     _KEY_FILENAME,
     _KEY_MODE,
     DashboardIdentity,
+    _add_years,
     get_or_create_identity,
     rotate_certificate,
 )
@@ -125,11 +129,6 @@ def test_mismatched_cert_and_key_triggers_regeneration(tmp_path: Path) -> None:
     assert third.cert_pem != other.cert_pem
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="Windows os.replace fails over an in-use file; production calls "
-    "get_or_create_identity once at startup, not concurrently",
-)
 def test_concurrent_dashboard_id_generation_is_serialised(tmp_path: Path) -> None:
     """Two concurrent ``get_or_create_identity`` calls land on the same id."""
     results: list[str] = []
@@ -254,3 +253,27 @@ def test_dashboard_id_is_url_safe(tmp_path: Path) -> None:
     assert set(identity.dashboard_id) <= allowed
     # 24 bytes base64url-encoded = 32 chars (no padding in token_urlsafe).
     assert len(identity.dashboard_id) == 32
+
+
+def test_add_years_regular_date() -> None:
+    """``_add_years`` shifts a non-leap-day date by N years."""
+    d = datetime(2026, 5, 8, 12, 0, 0, tzinfo=UTC)
+    assert _add_years(d, 100) == datetime(2126, 5, 8, 12, 0, 0, tzinfo=UTC)
+
+
+def test_add_years_clamps_feb_29_to_28() -> None:
+    """``_add_years`` clamps Feb 29 -> Feb 28 when the target year isn't a leap year."""
+    leap = datetime(2000, 2, 29, 12, 0, 0, tzinfo=UTC)
+    # 2000 + 100 = 2100, divisible by 100 and not by 400 -> not leap.
+    assert _add_years(leap, 100) == datetime(2100, 2, 28, 12, 0, 0, tzinfo=UTC)
+
+
+def test_cert_not_valid_before_is_backdated(tmp_path: Path) -> None:
+    """The cert's ``not_valid_before`` is ~5 minutes before generation."""
+    before = datetime.now(UTC)
+    identity = get_or_create_identity(tmp_path)
+    cert = x509.load_pem_x509_certificate(identity.cert_pem)
+    nvb = cert.not_valid_before_utc
+    # Cert claims to be valid from before this test started, by at
+    # least the configured backdate.
+    assert nvb <= before - _CERT_NOT_BEFORE_BACKDATE / 2
