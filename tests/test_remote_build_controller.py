@@ -81,19 +81,24 @@ def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
     return RemoteBuildController(db)
 
 
-def _seed_metadata(config_dir: Any, remote_build: dict) -> None:
+async def _seed_metadata(config_dir: Any, remote_build: dict) -> None:
     """
     Seed ``<config_dir>/.device-builder.json`` with a ``_remote_build`` blob.
 
     Single place to write a hand-crafted on-disk state from a
     test, used by the legacy-compat and corrupt-row tests so the
-    JSON shape lives in one place. Runtime tests that go through
-    the real CRUD API use ``remote_build_settings_transaction``
-    directly (also a single helper, owned by ``controllers.config``).
+    JSON shape lives in one place. Hops to the executor because
+    the file write is sync I/O and blockbuster (Linux CI) flags
+    sync I/O from inside an async test as a real bug.
     """
-    (config_dir / ".device-builder.json").write_bytes(
-        json.dumps({"_remote_build": remote_build}).encode()
-    )
+    loop = asyncio.get_running_loop()
+
+    def _write() -> None:
+        (config_dir / ".device-builder.json").write_bytes(
+            json.dumps({"_remote_build": remote_build}).encode()
+        )
+
+    await loop.run_in_executor(None, _write)
 
 
 # ---------------------------------------------------------------------------
@@ -743,7 +748,8 @@ async def test_add_token_persists_only_hashed_secret(tmp_path: Any) -> None:
     result = await controller.add_token(label="Green")
     _, secret = _split_bearer(result.bearer)
 
-    on_disk = load_remote_build_settings(tmp_path)
+    loop = asyncio.get_running_loop()
+    on_disk = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
     assert len(on_disk.tokens) == 1
     stored = on_disk.tokens[0]
     assert stored.token_id == result.token_id
@@ -917,18 +923,25 @@ async def test_add_token_rejects_when_at_capacity(tmp_path: Any) -> None:
     Defends against a runaway frontend looping ``add_token`` and
     growing the metadata sidecar unboundedly. Pre-seed the disk
     state with the cap's worth of tokens so the test doesn't have
-    to actually mint 100 ed25519-strength secrets.
+    to actually mint 100 ed25519-strength secrets. Seed via
+    ``run_in_executor`` because the transaction does sync I/O
+    that blockbuster (Linux CI) flags from inside an async test.
     """
-    with remote_build_settings_transaction(tmp_path) as settings:
-        for i in range(_MAX_TOKENS):
-            settings.tokens.append(
-                StoredToken(
-                    token_id=f"id{i:04d}",
-                    label=f"pre-{i}",
-                    secret_sha256="0" * 64,
-                    created_at=0.0,
+
+    def _seed_at_capacity() -> None:
+        with remote_build_settings_transaction(tmp_path) as settings:
+            for i in range(_MAX_TOKENS):
+                settings.tokens.append(
+                    StoredToken(
+                        token_id=f"id{i:04d}",
+                        label=f"pre-{i}",
+                        secret_sha256="0" * 64,
+                        created_at=0.0,
+                    )
                 )
-            )
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _seed_at_capacity)
 
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(CommandError) as exc:
@@ -950,7 +963,7 @@ async def test_load_remote_build_settings_drops_malformed_token_rows(
     would lose every paired peer until manual repair. The good rows
     must still load.
     """
-    _seed_metadata(
+    await _seed_metadata(
         tmp_path,
         {
             "enabled": True,
@@ -992,7 +1005,7 @@ async def test_loads_legacy_metadata_without_tokens_key(tmp_path: Any) -> None:
     silently — every existing install would lose its
     ``manual_hosts`` and ``enabled`` on first boot. Pin it.
     """
-    _seed_metadata(
+    await _seed_metadata(
         tmp_path,
         {
             "enabled": True,
