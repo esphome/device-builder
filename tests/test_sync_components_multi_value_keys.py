@@ -150,8 +150,54 @@ def test_does_not_touch_non_id_children() -> None:
         ),
     ]
     _promote_multi_value_keys(entries)
-    name_child = entries[0]["config_entries"][0]
+    name_child = next(c for c in entries[0]["config_entries"] if c["key"] == "name")
     assert name_child["advanced"] is True
+
+
+def test_re_sorts_children_so_demoted_id_lands_before_advanced_siblings() -> None:
+    # ``_sort_entries`` puts non-advanced entries first, then sorts
+    # within each group by ``_IMPORTANT_KEY_ORDER``. Demoting ``id``
+    # from advanced leaves it stranded behind a still-advanced
+    # sibling like ``comment`` if we don't re-sort. The frontend
+    # renders ``config_entries`` in list order, so the row would
+    # surface ``Comment (Advanced)`` ahead of ``ID``.
+    entries = [
+        _entry(
+            key="areas",
+            type="nested",
+            multi_value=True,
+            config_entries=[
+                _entry(key="name", type="string", required=True),
+                _entry(key="comment", type="string", advanced=True),
+                _entry(key="id", type="id", required=False, advanced=True),
+            ],
+        ),
+    ]
+    _promote_multi_value_keys(entries)
+    keys = [c["key"] for c in entries[0]["config_entries"]]
+    # ``id`` (now non-advanced) must precede ``comment`` (still advanced).
+    assert keys.index("id") < keys.index("comment")
+
+
+def test_does_not_re_sort_when_no_promotion_happened() -> None:
+    # Walking past a multi_value entry without any promotable
+    # children shouldn't disturb the existing order — that's
+    # owned by ``_sort_entries`` upstream and should stay
+    # idempotent here.
+    original_order = [
+        _entry(key="z_late", type="string"),
+        _entry(key="a_early", type="string"),
+    ]
+    entries = [
+        _entry(
+            key="rows",
+            type="nested",
+            multi_value=True,
+            config_entries=list(original_order),
+        ),
+    ]
+    _promote_multi_value_keys(entries)
+    assert entries[0]["config_entries"] == original_order
 
 
 def test_handles_list_with_no_multi_value_entries() -> None:

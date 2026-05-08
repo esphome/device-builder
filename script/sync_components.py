@@ -3475,13 +3475,23 @@ def _promote_multi_value_keys(entries: list[dict]) -> None:
     def visit(entry: dict, _path: tuple[str, ...]) -> None:
         if not entry.get("multi_value") or entry.get("type") != "nested":
             return
-        for child in entry.get("config_entries") or []:
+        inner = entry.get("config_entries") or []
+        mutated = False
+        for child in inner:
             is_own_id = child["key"] == "id" and child.get("type") == "id"
             if not (is_own_id or child["key"].endswith("_id")):
                 continue
+            mutated = True
             child["advanced"] = False
             if is_own_id:
                 child["required"] = True
+        # Demoting from advanced changes ``_sort_entries``' sort key
+        # (non-advanced first, then by ``_IMPORTANT_KEY_ORDER``), so
+        # an advanced sibling like ``comment`` would otherwise stay
+        # ahead of the now-non-advanced ``id``. Re-sort to keep the
+        # form's ordering invariant.
+        if mutated:
+            entry["config_entries"] = _sort_entries(inner)
 
     _walk_catalog_entries(entries, visit)
 
