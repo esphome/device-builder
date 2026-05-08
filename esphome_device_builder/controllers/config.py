@@ -115,14 +115,25 @@ class DashboardSettings:
         # this branch, leaving them stuck. ``write_file`` stages in a
         # sibling tempfile + ``shutil.move`` so the file is either fully
         # there or not at all.
+        #
+        # Use non-empty placeholder strings rather than ``""``: ESPHome's
+        # ``wifi`` validator rejects an empty SSID with
+        # "SSID can't be empty.", so a fresh-install ``create_device``
+        # whose generated YAML uses ``!secret wifi_ssid`` would
+        # validation-fail before the device is even saved
+        # ("Failed to create device: SSID can't be empty."). The
+        # placeholders validate clean and clearly signal to the user
+        # that the values need to be replaced before flashing — same
+        # UX contract ESPHome's CLI ``wizard`` enforces by prompting.
         secrets_path = self.config_dir / "secrets.yaml"
         if not secrets_path.exists():
             atomic_write_file(
                 secrets_path,
                 "# Secrets — referenced from device configs via !secret\n"
-                "# Update these values for your network\n"
-                'wifi_ssid: ""\n'
-                'wifi_password: ""\n',
+                "# Replace these placeholders with your real Wi-Fi\n"
+                "# credentials before flashing or installing OTA.\n"
+                'wifi_ssid: "REPLACE_WITH_YOUR_WIFI_NETWORK"\n'
+                'wifi_password: "REPLACE_WITH_YOUR_WIFI_PASSWORD"\n',
             )
         self.log_level = getattr(args, "log_level", "info")
         self.port = getattr(args, "port", 6052)
