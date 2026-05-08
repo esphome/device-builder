@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 import secrets
 import time
 from collections.abc import Callable
@@ -185,6 +186,21 @@ _TOKEN_SECRET_BYTES = 32
 # (kitchen)" style labels.
 _TOKEN_LABEL_MAX = 128
 
+# ``secrets.token_urlsafe`` emits the base64url alphabet only;
+# any other character means the caller is sending something that
+# isn't a token_id (most likely the full bearer or a typo). Cap
+# the length at a generous 64 to defend against a runaway
+# request body.
+_TOKEN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+_TOKEN_ID_MAX_CHARS = 64
+
+# Soft cap on the receiver-side token list so a misbehaving
+# frontend looping ``add_token`` can't grow the metadata file
+# unboundedly. 100 is well above any realistic
+# pairings-per-receiver count and gives the UI a clean upper
+# bound to render.
+_MAX_TOKENS = 100
+
 
 def _validate_label(raw: object) -> str:
     """
@@ -213,9 +229,17 @@ def _validate_token_id(raw: object) -> str:
     """
     Validate a user-supplied token_id (e.g. for ``remove_token``).
 
-    Just shape-checks the input; the actual existence check happens
-    in the mutator under the metadata lock so the look-up and the
-    delete are atomic.
+    Shape-checks only; the existence check happens in the mutator
+    under the metadata lock so look-up and delete are atomic.
+
+    Also rejects values containing ``.``: the bearer wire form is
+    ``{token_id}.{secret}``, so a value with a dot is most likely
+    the full bearer mistakenly passed instead of the id half. The
+    error path serialises validation messages back over the WS,
+    and rejecting before the value lands in any error message
+    keeps the cleartext secret out of logs / DevTools / frontend
+    telemetry. The format check (base64url-only, length cap)
+    catches typos too.
     """
     if not isinstance(raw, str):
         msg = "token: 'token_id' must be a string"
@@ -223,6 +247,18 @@ def _validate_token_id(raw: object) -> str:
     trimmed = raw.strip()
     if not trimmed:
         msg = "token: 'token_id' must not be empty"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if "." in trimmed:
+        # Specifically don't echo ``trimmed`` back: it might be a
+        # full bearer, in which case the secret half is in this
+        # variable.
+        msg = "token: 'token_id' must be the id half only, not the full bearer"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if len(trimmed) > _TOKEN_ID_MAX_CHARS:
+        msg = f"token: 'token_id' must be at most {_TOKEN_ID_MAX_CHARS} characters"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if not _TOKEN_ID_PATTERN.fullmatch(trimmed):
+        msg = "token: 'token_id' must contain base64url characters only"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return trimmed
 
@@ -598,6 +634,12 @@ class RemoteBuildController:
         created_at = time.time()
 
         def _add(settings: RemoteBuildSettings) -> None:
+            if len(settings.tokens) >= _MAX_TOKENS:
+                msg = (
+                    f"token list at capacity ({_MAX_TOKENS}); "
+                    "remove an unused token before issuing a new one"
+                )
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
             settings.tokens.append(
                 StoredToken(
                     token_id=token_id,
@@ -632,7 +674,11 @@ class RemoteBuildController:
         def _remove(settings: RemoteBuildSettings) -> None:
             kept = [token for token in settings.tokens if token.token_id != clean_id]
             if len(kept) == len(settings.tokens):
-                msg = f"token {clean_id} is not registered"
+                # Don't echo ``clean_id`` (or any user-supplied
+                # input) here: validation rejects bearers up
+                # front, but the principle is to keep credential-
+                # adjacent input out of error messages by default.
+                msg = "token is not registered"
                 raise CommandError(ErrorCode.NOT_FOUND, msg)
             settings.tokens = kept
 
