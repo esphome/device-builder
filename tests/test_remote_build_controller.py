@@ -1026,6 +1026,47 @@ async def test_load_remote_build_settings_drops_malformed_token_rows(
 
 
 @pytest.mark.asyncio
+async def test_decode_tokens_redacts_credential_material_from_logs(
+    tmp_path: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    The malformed-row debug log doesn't carry credential-adjacent fields.
+
+    A hand-edited sidecar could land a cleartext secret in the
+    wrong field by mistake; the row-skip log MUST NOT echo the
+    full entry dict back, only the non-sensitive ``token_id``.
+    Captures ``%r``-dump regressions before they ship.
+    """
+    cleartext_marker = "PASTED-CLEARTEXT-SECRET-DO-NOT-LOG"
+    await _seed_metadata(
+        tmp_path,
+        {
+            "tokens": [
+                {
+                    "token_id": "rowid",
+                    "label": "Broken",
+                    # Missing ``secret_sha256`` -> from_dict raises.
+                    # Add a fake field with the canary string so a
+                    # ``%r``-dump of the whole entry would reveal it.
+                    "leaked_field": cleartext_marker,
+                },
+            ],
+        },
+    )
+
+    controller = _make_controller(config_dir=tmp_path)
+    with caplog.at_level("DEBUG", logger="esphome_device_builder.controllers.config"):
+        await controller.get_settings()
+
+    skip_logs = [r for r in caplog.records if "Skipping malformed token entry" in r.getMessage()]
+    assert skip_logs, "expected at least one skip log"
+    for record in skip_logs:
+        assert cleartext_marker not in record.getMessage()
+    # The token_id (public lookup key) is fine to log.
+    assert any("rowid" in r.getMessage() for r in skip_logs)
+
+
+@pytest.mark.asyncio
 async def test_loads_legacy_metadata_without_tokens_key(tmp_path: Any) -> None:
     """
     Phase-2/2b on-disk JSON without a ``tokens`` key still loads cleanly.

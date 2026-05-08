@@ -541,6 +541,13 @@ def _decode_tokens(raw: Any) -> list[StoredToken]:
     would lose access to all paired peers until disk repair. Each
     row is validated independently; a row that fails to round-trip
     through :class:`StoredToken` is skipped with a debug log.
+
+    The skip log only carries the non-sensitive ``token_id`` (the
+    public lookup key, never a secret), not the full entry dict.
+    A hand-edited sidecar could carry credential-adjacent fields
+    (e.g. an operator pasted the cleartext secret into the wrong
+    field by mistake), and ``%r``-dumping the whole row would
+    surface that material in logs / log shippers.
     """
     if not isinstance(raw, list):
         return []
@@ -551,7 +558,11 @@ def _decode_tokens(raw: Any) -> list[StoredToken]:
         try:
             out.append(StoredToken.from_dict(entry))
         except Exception as err:
-            _LOGGER.debug("Skipping malformed token entry %r: %s", entry, err)
+            safe_id = entry.get("token_id")
+            safe_id_repr = (
+                safe_id if isinstance(safe_id, str) and len(safe_id) <= 64 else "<unknown>"
+            )
+            _LOGGER.debug("Skipping malformed token entry (token_id=%s): %s", safe_id_repr, err)
     return out
 
 
