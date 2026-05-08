@@ -9,21 +9,25 @@ signal the form happily lets a user fill in a field on a board
 that will fail validation at compile time three minutes later
 (issue #417).
 
-Pin the walker's behaviour against synthetic voluptuous schemas
-that mirror the upstream patterns. Synthetic rather than the live
-``debug`` manifest keeps the tests independent of upstream schema
-changes — a refactor of upstream's gates would surface as a
-catalog diff in the next sync, not a test breakage here.
+Most tests pin the walker's behaviour against synthetic
+voluptuous schemas that mirror the upstream patterns — synthetic
+keeps the suite stable across upstream schema refactors. One
+integration test runs against the live ``debug.sensor`` manifest
+to catch regressions where the algorithm is right against
+synthetic schemas but breaks against real upstream shapes (a new
+combinator class, a custom validator wrapping ``cv.only_on``,
+etc.).
 """
 
 from __future__ import annotations
 
 import esphome.config_validation as cv
+import pytest
 import voluptuous as vol
 
 from script.sync_components import (  # type: ignore[import-not-found]
-    _apply_field_platform_constraints,
-    _collect_field_platform_constraints,
+    _apply_platform_constraints,
+    _collect_platform_constraints,
     _platform_set,
 )
 
@@ -105,7 +109,7 @@ def test_collect_returns_empty_for_unconstrained_schema() -> None:
         cv.Optional("free"): cv.string,
         cv.Optional("loop_time"): cv.string,
     }
-    assert _collect_field_platform_constraints(_FakeManifest(schema)) == {}
+    assert _collect_platform_constraints(_FakeManifest(schema)) == {}
 
 
 def test_collect_top_level_only_on_constraint() -> None:
@@ -114,7 +118,7 @@ def test_collect_top_level_only_on_constraint() -> None:
         cv.Optional("free"): cv.string,
         cv.Optional("psram"): cv.All(cv.only_on_esp32, cv.string),
     }
-    out = _collect_field_platform_constraints(_FakeManifest(schema))
+    out = _collect_platform_constraints(_FakeManifest(schema))
     assert out == {("psram",): ["esp32"]}
 
 
@@ -133,7 +137,7 @@ def test_collect_walks_any_branches_for_union() -> None:
             cv.string,
         ),
     }
-    out = _collect_field_platform_constraints(_FakeManifest(schema))
+    out = _collect_platform_constraints(_FakeManifest(schema))
     assert out == {("fragmentation",): ["esp32", "esp8266"]}
 
 
@@ -152,7 +156,7 @@ def test_collect_walks_explicit_platform_list() -> None:
             cv.string,
         ),
     }
-    out = _collect_field_platform_constraints(_FakeManifest(schema))
+    out = _collect_platform_constraints(_FakeManifest(schema))
     assert out == {("min_free",): ["bk72xx", "esp32", "ln882x", "rtl87xx"]}
 
 
@@ -162,7 +166,7 @@ def test_collect_returns_empty_when_manifest_has_no_schema() -> None:
     class NoSchemaManifest:
         config_schema = None
 
-    assert _collect_field_platform_constraints(NoSchemaManifest()) == {}
+    assert _collect_platform_constraints(NoSchemaManifest()) == {}
 
 
 def test_apply_stamps_supported_platforms() -> None:
@@ -173,7 +177,7 @@ def test_apply_stamps_supported_platforms() -> None:
         {"key": "loop_time", "config_entries": []},
     ]
     constraints = {("psram",): ["esp32"]}
-    _apply_field_platform_constraints(entries, constraints)
+    _apply_platform_constraints(entries, constraints)
     by_key = {e["key"]: e for e in entries}
     assert by_key["psram"]["supported_platforms"] == ["esp32"]
     # Sibling fields without constraints are untouched. The model
@@ -201,7 +205,7 @@ def test_apply_walks_nested_paths() -> None:
         },
     ]
     constraints = {("outer", "inner"): ["rp2040"]}
-    _apply_field_platform_constraints(entries, constraints)
+    _apply_platform_constraints(entries, constraints)
     inner = entries[0]["config_entries"][0]
     sibling = entries[0]["config_entries"][1]
     assert inner["supported_platforms"] == ["rp2040"]
@@ -212,5 +216,47 @@ def test_apply_is_a_no_op_with_empty_constraints() -> None:
     """No constraints → entries are left exactly as they came in."""
     entries = [{"key": "ssid", "config_entries": []}]
     before = [dict(e) for e in entries]
-    _apply_field_platform_constraints(entries, {})
+    _apply_platform_constraints(entries, {})
     assert entries == before
+
+
+def test_collect_against_live_debug_sensor_manifest() -> None:
+    """End-to-end: the walker recovers gates from the real ``debug.sensor`` schema.
+
+    Synthetic tests pin the algorithm; this one pins the integration
+    against upstream. A future upstream refactor that wraps
+    ``cv.only_on`` in a way the walker doesn't recognise (e.g. a new
+    combinator class outside ``vol.All`` / ``vol.Any``, or moving the
+    gate to a custom validator function) would slip past the synthetic
+    suite — this test catches that class of regression.
+
+    Asserts the *structural* property (``psram`` is gated to ESP32,
+    ``fragmentation`` is multi-platform) rather than exact list
+    equality so adding a new supported platform upstream doesn't
+    break us — that's a catalog diff worth reviewing in the next
+    nightly sync, not a CI failure.
+    """
+    pytest.importorskip("esphome.components.debug.sensor")
+    from esphome.components.debug import sensor as debug_sensor  # noqa: PLC0415
+
+    manifest = _FakeManifest(debug_sensor.CONFIG_SCHEMA)
+    out = _collect_platform_constraints(manifest)
+
+    # ``psram`` is wrapped in ``cv.All(cv.only_on_esp32, ...)``.
+    assert ("psram",) in out, (
+        "sensor.debug.psram lost its platform gate — check whether upstream "
+        "moved away from cv.only_on_esp32 (issue #417 will regress)"
+    )
+    assert "esp32" in out[("psram",)]
+
+    # ``fragmentation`` is wrapped in
+    # ``cv.Any(cv.only_on_esp8266, cv.only_on_esp32)``.
+    assert ("fragmentation",) in out
+    assert "esp32" in out[("fragmentation",)]
+    assert "esp8266" in out[("fragmentation",)]
+
+    # Sanity: ``free``/``loop_time`` carry no gate (they work on
+    # every platform the parent component runs on) and so don't
+    # appear in the constraints dict.
+    assert ("free",) not in out
+    assert ("loop_time",) not in out

@@ -31,7 +31,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import contextlib
 import copy
 import inspect
 import json
@@ -1600,9 +1599,7 @@ def build_component_entry(
     # importable.
     introspection = introspect_component(stem if domain else top_key)
     _apply_platform_defaults(config_entries, introspection.get("platform_defaults") or {})
-    _apply_field_platform_constraints(
-        config_entries, introspection.get("field_platform_constraints") or {}
-    )
+    _apply_platform_constraints(config_entries, introspection.get("platform_constraints") or {})
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
     _apply_unit_of_measurement_options(config_entries)
 
@@ -2444,20 +2441,20 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         for path, refined in _collect_refined_types(platform_manifest).items():
             refined_types.setdefault(path, refined)
 
-    field_platform_constraints = _collect_field_platform_constraints(manifest)
+    platform_constraints = _collect_platform_constraints(manifest)
     # Same pattern as ``refined_types``: the platform-domain
     # manifest (e.g. ``debug.sensor``) carries the per-field gate
     # for ``sensor.debug.psram`` while the bare ``debug`` manifest
     # only describes the top-level ``debug:`` block.
     for platform_manifest in platform_manifests:
-        for path, plats in _collect_field_platform_constraints(platform_manifest).items():
-            field_platform_constraints.setdefault(path, plats)
+        for path, plats in _collect_platform_constraints(platform_manifest).items():
+            platform_constraints.setdefault(path, plats)
 
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
         "is_target_platform": bool(getattr(manifest, "is_target_platform", False)),
         "platform_defaults": _collect_platform_defaults(manifest),
-        "field_platform_constraints": field_platform_constraints,
+        "platform_constraints": platform_constraints,
         "refined_types": refined_types,
         "auto_load": auto_load,
     }
@@ -2726,9 +2723,13 @@ def _walk_schema_keys(
             walk(val, sub_path, depth + 1)
 
     # Best-effort: don't tank the whole sync if one component
-    # manifest's schema is misshapen.
-    with contextlib.suppress(Exception):
+    # manifest's schema is misshapen. Log at debug level so we can
+    # tell whether a missing introspection result is "schema didn't
+    # constrain that key" or "walker crashed silently."
+    try:
         walk(schema, (), 0)
+    except Exception:
+        _LOGGER.debug("schema walk aborted on %r", schema, exc_info=True)
 
 
 def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str, Any]]:
@@ -3029,6 +3030,32 @@ def _collect_refined_types(
     return out
 
 
+def _walk_catalog_entries(
+    entries: list[dict],
+    visit: Callable[[dict, tuple[str, ...]], None],
+) -> None:
+    """
+    Walk *entries* recursively, calling ``visit(entry, path)`` for each.
+
+    Common kernel for the appliers that layer signals from
+    introspection onto the in-progress catalog dict — paths are
+    tuples of ``entry["key"]`` values matching the keys returned
+    by the schema-side collectors. Used by
+    ``_apply_platform_defaults``, ``_apply_refined_types``, and
+    ``_apply_platform_constraints``.
+    """
+
+    def walk(items: list[dict], path: tuple[str, ...]) -> None:
+        for entry in items:
+            sub_path = (*path, entry["key"])
+            visit(entry, sub_path)
+            inner = entry.get("config_entries")
+            if inner:
+                walk(inner, sub_path)
+
+    walk(entries, ())
+
+
 def _apply_refined_types(
     entries: list[dict],
     refined: dict[tuple[str, ...], RefinedType],
@@ -3047,23 +3074,19 @@ def _apply_refined_types(
     if not refined:
         return
 
-    def walk(items: list[dict], path: tuple[str, ...]) -> None:
-        for entry in items:
-            sub_path = (*path, entry["key"])
-            new_type = refined.get(sub_path)
-            if new_type is not None:
-                if new_type.type == "float_with_unit":
-                    # Always apply — see docstring. Carries unit_options
-                    # the schema bundle can't represent.
-                    entry["type"] = new_type.type
-                    entry["unit_options"] = list(new_type.unit_options or [])
-                elif entry.get("type") == "string":
-                    entry["type"] = new_type.type
-            inner = entry.get("config_entries")
-            if inner:
-                walk(inner, sub_path)
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        new_type = refined.get(path)
+        if new_type is None:
+            return
+        if new_type.type == "float_with_unit":
+            # Always apply — see docstring. Carries unit_options
+            # the schema bundle can't represent.
+            entry["type"] = new_type.type
+            entry["unit_options"] = list(new_type.unit_options or [])
+        elif entry.get("type") == "string":
+            entry["type"] = new_type.type
 
-    walk(entries, ())
+    _walk_catalog_entries(entries, visit)
 
 
 def _apply_unit_of_measurement_options(entries: list[dict]) -> None:
@@ -3131,17 +3154,12 @@ def _apply_platform_defaults(
     if not platform_defaults:
         return
 
-    def walk(items: list[dict], path: tuple[str, ...]) -> None:
-        for entry in items:
-            sub_path = (*path, entry["key"])
-            pd = platform_defaults.get(sub_path)
-            if pd:
-                entry["platform_defaults"] = pd
-            inner = entry.get("config_entries")
-            if inner:
-                walk(inner, sub_path)
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        pd = platform_defaults.get(path)
+        if pd:
+            entry["platform_defaults"] = pd
 
-    walk(entries, ())
+    _walk_catalog_entries(entries, visit)
 
 
 def _platform_set(node: Any) -> frozenset[str] | None:
@@ -3183,28 +3201,25 @@ def _platform_set(node: Any) -> frozenset[str] | None:
 
     if isinstance(node, vol.Any):
         sets = [_platform_set(child) for child in node.validators]
-        if any(s is None for s in sets):
+        if not sets or any(s is None for s in sets):
+            # Empty Any (no branches) accepts nothing, but that's a
+            # schema bug we don't model here; an unconstrained branch
+            # makes the whole Any unconstrained.
             return None
-        union: frozenset[str] = frozenset()
-        for s in sets:
-            assert s is not None
-            union |= s
-        return union or None
+        return frozenset().union(*sets)
 
     if isinstance(node, vol.All):
-        sets = [_platform_set(child) for child in node.validators]
-        constrained = [s for s in sets if s is not None]
+        constrained = [
+            s for s in (_platform_set(child) for child in node.validators) if s is not None
+        ]
         if not constrained:
             return None
-        result = constrained[0]
-        for s in constrained[1:]:
-            result &= s
-        return result or None
+        return frozenset.intersection(*constrained)
 
     return None
 
 
-def _collect_field_platform_constraints(
+def _collect_platform_constraints(
     manifest: Any,
 ) -> dict[tuple[str, ...], list[str]]:
     """
@@ -3234,7 +3249,7 @@ def _collect_field_platform_constraints(
     return out
 
 
-def _apply_field_platform_constraints(
+def _apply_platform_constraints(
     entries: list[dict],
     constraints: dict[tuple[str, ...], list[str]],
 ) -> None:
@@ -3242,17 +3257,12 @@ def _apply_field_platform_constraints(
     if not constraints:
         return
 
-    def walk(items: list[dict], path: tuple[str, ...]) -> None:
-        for entry in items:
-            sub_path = (*path, entry["key"])
-            constraint = constraints.get(sub_path)
-            if constraint:
-                entry["supported_platforms"] = list(constraint)
-            inner = entry.get("config_entries")
-            if inner:
-                walk(inner, sub_path)
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        constraint = constraints.get(path)
+        if constraint:
+            entry["supported_platforms"] = list(constraint)
 
-    walk(entries, ())
+    _walk_catalog_entries(entries, visit)
 
 
 def _derive_supported_platforms(
