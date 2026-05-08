@@ -325,6 +325,48 @@ class DashboardAdvertiser:
             self._esphome_version,
         )
 
+    async def refresh(self) -> bool:
+        """
+        Re-publish the advertise if the local-address set has changed.
+
+        Re-runs :func:`_local_addresses` (via the executor — see
+        :meth:`register`), compares the result against the address
+        list that's currently on the wire, and calls
+        :meth:`AsyncZeroconf.async_update_service` only when the
+        sorted sets differ. The no-op return path keeps callers
+        free to invoke this on a tick / interface-change event
+        without flooding the network with unchanged updates.
+
+        Returns ``True`` if a re-publish actually fired, ``False``
+        when the cached and freshly-enumerated address sets matched
+        (or when the advertiser isn't currently registered, in
+        which case there's nothing to refresh against).
+        """
+        info = self._info
+        zeroconf = self._zeroconf
+        if info is None or zeroconf is None:
+            return False
+        loop = asyncio.get_running_loop()
+        new_addresses = await loop.run_in_executor(None, _local_addresses)
+        # Compare normalized sets so the order ifaddr returns
+        # interfaces in (which can shift between calls on some
+        # platforms) doesn't trigger a spurious re-publish.
+        if sorted(new_addresses) == sorted(info.parsed_addresses()):
+            return False
+        new_info = self.build_service_info(new_addresses)
+        try:
+            await zeroconf.async_update_service(new_info)
+        except Exception:
+            _LOGGER.debug("Dashboard advertise refresh failed", exc_info=True)
+            return False
+        self._info = new_info
+        _LOGGER.debug(
+            "Refreshed dashboard advertise — addresses changed (%d → %d)",
+            len(info.parsed_addresses()),
+            len(new_addresses),
+        )
+        return True
+
     async def unregister(self) -> None:
         """
         Withdraw the service.

@@ -287,6 +287,7 @@ def _make_zeroconf_mock() -> MagicMock:
     zc = MagicMock()
     zc.async_register_service = AsyncMock()
     zc.async_unregister_service = AsyncMock()
+    zc.async_update_service = AsyncMock()
     return zc
 
 
@@ -379,6 +380,84 @@ async def test_unregister_without_register_is_noop() -> None:
     advertiser = _make_advertiser(name="green", hostname="green.local")
     await advertiser.unregister()
     assert advertiser.registered is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_skips_when_addresses_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Calling ``refresh`` when ``_local_addresses`` hasn't changed is a no-op.
+
+    Avoids spamming the network with an announcement when the
+    interface set is stable. The contract is "only refresh if
+    something actually changed".
+    """
+    monkeypatch.setattr(dashboard_advertise, "_local_addresses", lambda: ["192.168.1.10"])
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    zc.async_update_service.reset_mock()
+
+    changed = await advertiser.refresh()
+
+    assert changed is False
+    zc.async_update_service.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refresh_publishes_via_update_service_when_addresses_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Address-set change → ``async_update_service`` fires with the new info.
+
+    Uses the proper update API (not unregister + re-register) so peers
+    that have the existing record cached see a single record-change
+    rather than a removal followed by a re-add.
+    """
+    addresses = ["192.168.1.10"]
+    monkeypatch.setattr(dashboard_advertise, "_local_addresses", lambda: list(addresses))
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    zc.async_update_service.reset_mock()
+    zc.async_register_service.reset_mock()
+
+    # DHCP renewal flips the address.
+    addresses[:] = ["192.168.1.42", "fdc8::1"]
+    changed = await advertiser.refresh()
+
+    assert changed is True
+    zc.async_update_service.assert_awaited_once()
+    zc.async_register_service.assert_not_awaited()
+    new_info = zc.async_update_service.call_args.args[0]
+    assert sorted(new_info.parsed_addresses()) == sorted(["192.168.1.42", "fdc8::1"])
+
+
+@pytest.mark.asyncio
+async def test_refresh_is_noop_when_not_registered() -> None:
+    """``refresh()`` before ``register()`` is a no-op (no zeroconf to talk to)."""
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    assert await advertiser.refresh() is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_swallows_update_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A zeroconf update-side error doesn't surface to the caller."""
+    addresses = ["192.168.1.10"]
+    monkeypatch.setattr(dashboard_advertise, "_local_addresses", lambda: list(addresses))
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    zc.async_update_service.side_effect = RuntimeError("update failed")
+
+    addresses[:] = ["192.168.1.42"]
+    changed = await advertiser.refresh()
+
+    # Update fired, but the wrapper caught the error and returned False;
+    # the cached info stays at the pre-update value so a future retry
+    # still sees the change.
+    assert changed is False
+    zc.async_update_service.assert_awaited_once()
 
 
 @pytest.mark.asyncio
