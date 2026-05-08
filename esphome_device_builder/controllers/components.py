@@ -698,6 +698,7 @@ def _materialise_entry(entry: ConfigEntry, target_platform: str | None) -> Confi
         translation_params=entry.translation_params,
         config_entries=nested,
         platform_type=entry.platform_type,
+        supported_platforms=list(entry.supported_platforms),
     )
 
 
@@ -822,6 +823,7 @@ def _load_config_entry(data: dict) -> ConfigEntry:
         translation_params=data.get("translation_params"),
         config_entries=nested,
         platform_type=data.get("platform_type") or None,
+        supported_platforms=list(data.get("supported_platforms") or []),
     )
 
 

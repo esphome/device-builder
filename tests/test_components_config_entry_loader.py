@@ -206,3 +206,80 @@ def test_materialise_entry_recurses_into_nested_display_format() -> None:
     materialised = _materialise_entry(loaded, target_platform=None)
     assert materialised.config_entries is not None
     assert materialised.config_entries[0].display_format == "hex"
+
+
+def test_load_config_entry_propagates_supported_platforms() -> None:
+    """``_load_config_entry`` round-trips ``supported_platforms`` from JSON.
+
+    Without this the per-field platform-gating signal that the sync
+    script writes into ``components.json`` would be silently dropped
+    when the catalog is loaded into the runtime model — the frontend
+    would never see a gated field as gated. (Caught by Copilot review
+    on PR #423.)
+    """
+    entry = _load_config_entry(
+        {
+            "key": "psram",
+            "type": "string",
+            "label": "PSRAM",
+            "supported_platforms": ["esp32"],
+        }
+    )
+    assert entry.supported_platforms == ["esp32"]
+
+
+def test_load_config_entry_supported_platforms_defaults_to_empty_list() -> None:
+    """A missing ``supported_platforms`` key parses as the empty-list default.
+
+    Empty list is the wire representation of "no platform restriction"
+    — the frontend's render filter treats empty / missing as a no-op.
+    """
+    entry = _load_config_entry(
+        {
+            "key": "free",
+            "type": "string",
+            "label": "Free",
+        }
+    )
+    assert entry.supported_platforms == []
+
+
+def test_materialise_entry_carries_supported_platforms() -> None:
+    """``_materialise_entry`` forwards ``supported_platforms`` to the output.
+
+    The materialiser strips ``platform_defaults`` (a sync-time
+    implementation detail) but ``supported_platforms`` is the wire
+    contract for the FE form filter — it must round-trip.
+    """
+    loaded = _load_config_entry(
+        {
+            "key": "fragmentation",
+            "type": "string",
+            "label": "Fragmentation",
+            "supported_platforms": ["esp32", "esp8266"],
+        }
+    )
+    materialised = _materialise_entry(loaded, target_platform="esp32")
+    assert materialised.supported_platforms == ["esp32", "esp8266"]
+
+
+def test_materialise_entry_carries_supported_platforms_through_nested() -> None:
+    """Nested entries' ``supported_platforms`` survive the recursion."""
+    loaded = _load_config_entry(
+        {
+            "key": "diagnostics",
+            "type": "nested",
+            "label": "Diagnostics",
+            "config_entries": [
+                {
+                    "key": "psram",
+                    "type": "string",
+                    "label": "PSRAM",
+                    "supported_platforms": ["esp32"],
+                }
+            ],
+        }
+    )
+    materialised = _materialise_entry(loaded, target_platform="esp32")
+    assert materialised.config_entries is not None
+    assert materialised.config_entries[0].supported_platforms == ["esp32"]
