@@ -27,6 +27,7 @@ from ..constants import __version__ as server_version
 from ..helpers.api import CommandError, api_command
 from ..helpers.auth import hash_password
 from ..helpers.json import JSONDecodeError, dumps_indent, loads
+from ..helpers.secrets_state import PLACEHOLDER_WIFI_PASSWORD, PLACEHOLDER_WIFI_SSID
 from ..models import ErrorCode, Label, RemoteBuildSettings, UserPreferences
 
 if TYPE_CHECKING:
@@ -123,8 +124,10 @@ class DashboardSettings:
         # validation-fail before the device is even saved
         # ("Failed to create device: SSID can't be empty."). The
         # placeholders validate clean and clearly signal to the user
-        # that the values need to be replaced before flashing — same
-        # UX contract ESPHome's CLI ``wizard`` enforces by prompting.
+        # that the values need to be replaced before flashing —
+        # ``OnboardingController`` reads the same constants from
+        # ``helpers.secrets_state`` to detect the unconfigured state
+        # and surface the setup wizard.
         secrets_path = self.config_dir / "secrets.yaml"
         if not secrets_path.exists():
             atomic_write_file(
@@ -132,8 +135,8 @@ class DashboardSettings:
                 "# Secrets — referenced from device configs via !secret\n"
                 "# Replace these placeholders with your real Wi-Fi\n"
                 "# credentials before flashing or installing OTA.\n"
-                'wifi_ssid: "REPLACE_WITH_YOUR_WIFI_NETWORK"\n'
-                'wifi_password: "REPLACE_WITH_YOUR_WIFI_PASSWORD"\n',
+                f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n'
+                f'wifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n',
             )
         self.log_level = getattr(args, "log_level", "info")
         self.port = getattr(args, "port", 6052)
