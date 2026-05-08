@@ -452,6 +452,19 @@ class DeviceStateMonitor:
                 _LOGGER.debug("zeroconf close failed", exc_info=True)
             self._zeroconf = None
 
+    @property
+    def zeroconf(self) -> AsyncEsphomeZeroconf | None:
+        """
+        The mDNS responder powering device discovery, or ``None``.
+
+        Exposed so the dashboard's own ``_esphomebuilder._tcp.local.``
+        advertiser can reuse the same instance instead of opening a
+        second responder. Returns ``None`` when zeroconf failed to
+        start (port held by avahi / ``mDNSResponder``); callers are
+        expected to skip their advertise in that case.
+        """
+        return self._zeroconf
+
     def set_reachability(self, tracker: ReachabilityTracker) -> None:
         """Wire (or rewire) the per-signal freshness tracker.
 

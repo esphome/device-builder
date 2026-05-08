@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import web
+from esphome.const import __version__ as esphome_version
 
 from .api.legacy import create_legacy_routes
 from .api.ws import create_ws_routes
+from .constants import __version__ as server_version
 from .controllers.auth import AuthController
 from .controllers.automations import AutomationsController
 from .controllers.boards import BoardCatalog
@@ -32,6 +34,7 @@ from .controllers.firmware import FirmwareController
 from .controllers.labels import LabelsController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
+from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
 from .helpers.subscriber_presence import SubscriberPresence
@@ -198,6 +201,13 @@ class DeviceBuilder:
         self.editor: EditorController | None = None
         self.labels: LabelsController | None = None
 
+        # mDNS advertise — populated in start() once we know zeroconf
+        # is up. Optional: a zeroconf-bind failure leaves this None
+        # and dashboard discovery just doesn't happen for this
+        # process (device discovery, the load-bearing mDNS feature,
+        # has the same fail-soft contract).
+        self._dashboard_advertiser: DashboardAdvertiser | None = None
+
         # Command registry — populated from controllers
         self.command_handlers: dict[str, CommandHandler] = {}
 
@@ -252,6 +262,37 @@ class DeviceBuilder:
         await self.firmware.start()
         await self.editor.start()
 
+        # Advertise this dashboard on mDNS so peer dashboards (and
+        # the future ESPHome Desktop welcome screen) can discover it.
+        # Reuses the state monitor's zeroconf instance so the
+        # responder count stays at one per process.
+        #
+        # Skipped in two cases:
+        #   * Zeroconf failed to bind — device discovery already
+        #     fails soft here, the advertise follows the same rule.
+        #   * HA addon — by default the addon container's port 6052
+        #     is not exposed to the LAN (ingress-only on 8099) AND
+        #     mDNS announcements would carry the container's docker
+        #     IP rather than the host's, so a peer that found the
+        #     listing couldn't connect anyway. A future setting can
+        #     opt back in once we know how to expose the addon's
+        #     host port deliberately.
+        zeroconf = self.devices.zeroconf
+        if zeroconf is None:
+            _LOGGER.debug("Skipping dashboard mDNS advertise: zeroconf is unavailable")
+        elif self.settings.on_ha_addon:
+            _LOGGER.debug(
+                "Skipping dashboard mDNS advertise: running as HA addon "
+                "(ingress-only; port 6052 not LAN-reachable)"
+            )
+        else:
+            self._dashboard_advertiser = DashboardAdvertiser(
+                port=self.settings.port,
+                server_version=server_version,
+                esphome_version=esphome_version,
+            )
+            await self._dashboard_advertiser.register(zeroconf)
+
         # Collect command handlers from all controllers
         for controller in (
             self.auth,
@@ -292,6 +333,11 @@ class DeviceBuilder:
             task.cancel()
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        # Withdraw the mDNS advertise BEFORE devices.stop() closes
+        # the zeroconf socket the responder is using.
+        if self._dashboard_advertiser is not None:
+            await self._dashboard_advertiser.unregister()
+            self._dashboard_advertiser = None
         if self.devices is not None:
             await self.devices.stop()
         if self.editor is not None:

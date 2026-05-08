@@ -21,17 +21,21 @@ import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from blockbuster import blockbuster_ctx
 from esphome.core import CORE
 
+from esphome_device_builder.controllers._device_mqtt_coordinator import (
+    DeviceMqttCoordinator,
+)
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.models import AdoptableDevice, Device, DeviceState, EventType
 
@@ -280,6 +284,64 @@ def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MakeSettin
         return settings
 
     return _make
+
+
+# ---------------------------------------------------------------------------
+# Hermetic ``DeviceBuilder.start()`` — stubs network / subprocess surfaces
+# so any test that wants a fully-wired DeviceBuilder (lifecycle smoke,
+# mDNS-advertise wiring, command-registry walks) doesn't depend on a
+# real esphome install / ICMP / MQTT / multicast bind.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the network / subprocess surfaces so ``DeviceBuilder.start()`` runs hermetically.
+
+    - ``_find_esphome_cmd`` returns a fake invocation so the resolver
+      doesn't depend on a real esphome install.
+    - ``_verify_esphome_importable`` short-circuits to ``(True, "")``
+      so the firmware controller's startup probe doesn't spawn a
+      15-second subprocess.
+    - ``DeviceStateMonitor.start/stop`` are AsyncMocks at the class
+      level so any instance constructed by ``DevicesController``
+      picks them up. ``_zeroconf`` stays at its ``None`` default,
+      which the dashboard-advertise wiring treats as "skip".
+    - ``DeviceMqttCoordinator.reconcile/stop`` are AsyncMocks for the
+      same reason — production opens a paho broker connection.
+    - ``BoardCatalog.load`` / ``ComponentCatalog.load`` are no-oped
+      because they do synchronous ``Path.glob`` walks of the
+      bundled definitions tree — under blockbuster (Linux CI) the
+      ``ScandirIterator`` calls fail event-loop checks. Wiring
+      (``BoardCatalog()`` construction + ``@api_command`` decorator
+      collection) still runs, so the tests still pin the
+      controller-attr and command-handler contract; the catalog's
+      *contents* are exercised in the catalog-specific tests.
+    - ``FirmwareController._load_jobs`` is AsyncMock'd so the
+      controller's startup doesn't try to read jobs from disk.
+    """
+    fake_cmd = ["python", "-m", "esphome"]
+    for module in (
+        "esphome_device_builder.controllers.firmware.controller",
+        "esphome_device_builder.controllers.editor",
+        "esphome_device_builder.controllers.devices.controller",
+    ):
+        monkeypatch.setattr(f"{module}._find_esphome_cmd", lambda: fake_cmd)
+    monkeypatch.setattr(FirmwareController, "_load_jobs", AsyncMock())
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.controller._verify_esphome_importable",
+        AsyncMock(return_value=(True, "")),
+    )
+    monkeypatch.setattr(DeviceStateMonitor, "start", AsyncMock())
+    monkeypatch.setattr(DeviceStateMonitor, "stop", AsyncMock())
+    monkeypatch.setattr(DeviceMqttCoordinator, "reconcile", AsyncMock())
+    monkeypatch.setattr(DeviceMqttCoordinator, "stop", AsyncMock())
+    monkeypatch.setattr(BoardCatalog, "load", lambda self: None)
+    monkeypatch.setattr(ComponentCatalog, "load", lambda self: None)
+    # ``CORE`` is a process-global; without restoration via
+    # monkeypatch a leaked ``config_path`` poisons sibling tests in
+    # the same xdist worker.
+    monkeypatch.setattr(CORE, "config_path", None)
 
 
 # ---------------------------------------------------------------------------

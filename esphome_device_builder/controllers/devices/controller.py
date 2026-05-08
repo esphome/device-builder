@@ -238,6 +238,18 @@ class DevicesController:
             on_ip_change=self._state_monitor.apply_ip,
         )
 
+    @property
+    def zeroconf(self) -> Any:
+        """
+        The mDNS responder owned by the state monitor, or ``None``.
+
+        Surfaced so the dashboard's own ``_esphomebuilder._tcp.local.``
+        advertiser can reuse the existing instance instead of standing
+        up a second responder. ``None`` when zeroconf failed to start —
+        callers skip their advertise.
+        """
+        return self._state_monitor.zeroconf
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
