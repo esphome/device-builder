@@ -31,10 +31,12 @@ doesn't stall on the initial generation.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
 import secrets
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -44,8 +46,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from .json import dumps as json_dumps
-from .json import loads as json_loads
+from ..controllers.config import metadata_transaction
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,7 +61,6 @@ _CERT_KEY_BITS = 2048
 # expired" footgun.
 _CERT_VALIDITY_DAYS = 365 * 100
 _CERT_COMMON_NAME = "ESPHome Device Builder"
-_METADATA_FILE = ".device-builder.json"
 _REMOTE_BUILD_KEY = "_remote_build"
 _DASHBOARD_ID_KEY = "dashboard_id"
 
@@ -114,10 +114,7 @@ def get_or_create_identity(config_dir: Path) -> DashboardIdentity:
         cert_pem, key_pem = _generate_cert_pair()
         _persist_cert_pair(cert_path, key_path, cert_pem, key_pem)
 
-    dashboard_id = _load_dashboard_id(config_dir)
-    if dashboard_id is None:
-        dashboard_id = _generate_dashboard_id()
-        _save_dashboard_id(config_dir, dashboard_id)
+    dashboard_id = _get_or_create_dashboard_id(config_dir)
 
     return DashboardIdentity(
         dashboard_id=dashboard_id,
@@ -143,10 +140,7 @@ def rotate_certificate(config_dir: Path) -> DashboardIdentity:
     cert_pem, key_pem = _generate_cert_pair()
     _persist_cert_pair(cert_path, key_path, cert_pem, key_pem)
 
-    dashboard_id = _load_dashboard_id(config_dir)
-    if dashboard_id is None:
-        dashboard_id = _generate_dashboard_id()
-        _save_dashboard_id(config_dir, dashboard_id)
+    dashboard_id = _get_or_create_dashboard_id(config_dir)
 
     return DashboardIdentity(
         dashboard_id=dashboard_id,
@@ -166,21 +160,37 @@ def _load_cert_pair(cert_path: Path, key_path: Path) -> tuple[bytes | None, byte
     Read the persisted cert + key, returning ``(None, None)`` on any miss.
 
     A partial state (cert without key, key without cert) counts as
-    a miss; both files have to be present and parse cleanly or the
-    caller regenerates. Failures are logged at debug level rather
-    than warning since "first start, files don't exist" is the
-    common path through here.
+    a miss; both files have to be present, parse cleanly, AND match
+    each other (the cert's public key must equal the private key's
+    public key) or the caller regenerates. The cross-check catches
+    a state where someone has manually rotated one half of the pair
+    or where a backup-restore reassembled mismatched files; serving
+    a mismatched pair as the dashboard identity would fail at TLS
+    handshake time with an opaque "key values mismatch" error.
+
+    Also tightens the key file's mode to ``0600`` if a previous
+    write left it looser, defending against the case where an older
+    version of this helper, an external script, or a botched backup
+    restored the file at the umask default.
     """
     if not cert_path.exists() or not key_path.exists():
         return None, None
     try:
         cert_pem = cert_path.read_bytes()
         key_pem = key_path.read_bytes()
-        # Verify both parse so a corrupted file doesn't silently
-        # land in the returned identity. ``load_pem_x509_certificate``
-        # and ``load_pem_private_key`` raise on malformed input.
-        x509.load_pem_x509_certificate(cert_pem)
-        serialization.load_pem_private_key(key_pem, password=None)
+        cert = x509.load_pem_x509_certificate(cert_pem)
+        private_key = serialization.load_pem_private_key(key_pem, password=None)
+        # Cross-check: a parsing pass alone passes a stale key
+        # paired with a fresh cert (or vice versa). Compare via
+        # ``public_numbers()``; the dataclass ``__eq__`` covers
+        # both RSA and EC keys.
+        if cert.public_key().public_numbers() != private_key.public_key().public_numbers():
+            _LOGGER.warning(
+                "Persisted cert at %s does not match private key at %s; regenerating",
+                cert_path,
+                key_path,
+            )
+            return None, None
     except Exception:
         _LOGGER.debug(
             "Persisted cert / key at %s / %s failed to parse; regenerating",
@@ -189,6 +199,11 @@ def _load_cert_pair(cert_path: Path, key_path: Path) -> tuple[bytes | None, byte
             exc_info=True,
         )
         return None, None
+    # ``os.open(..., mode=0o600)`` only applies on creation; an
+    # existing key file with looser perms keeps them unless we
+    # chmod here. Idempotent and cheap.
+    with contextlib.suppress(OSError):
+        os.chmod(key_path, _KEY_MODE)
     return cert_pem, key_pem
 
 
@@ -216,44 +231,74 @@ def _generate_cert_pair() -> tuple[bytes, bytes]:
     return cert_pem, key_pem
 
 
+def atomic_write(path: Path, data: bytes, *, mode: int | None = None) -> None:
+    """
+    Write *data* to *path* atomically with optional creation mode.
+
+    Stages the bytes in a sibling tempfile (``tempfile.mkstemp``
+    creates with mode ``0600`` by default), fsync-flushes to disk,
+    then ``os.replace``s into place. A reader that opens *path*
+    during the write either sees the old bytes or the new bytes,
+    never a partial / truncated PEM. ``mode`` is re-applied to the
+    final path so the destination ends up at the requested mode
+    even if it pre-existed at a looser one. Same atomic-write
+    shape as ``controllers.config._save_metadata``.
+
+    On a crash mid-write the tempfile is left behind; the cleanup
+    branch unlinks it. The ``os.replace`` itself is atomic on the
+    same filesystem (POSIX ``rename`` semantics) so no half-state
+    can land at the destination path.
+    """
+    fd, tmp_str = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    tmp_path = Path(tmp_str)
+    try:
+        if mode is not None:
+            os.chmod(tmp_path, mode)
+        os.write(fd, data)
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        os.replace(tmp_path, path)
+    except Exception:
+        if fd >= 0:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+        with contextlib.suppress(FileNotFoundError):
+            tmp_path.unlink()
+        raise
+    if mode is not None:
+        # Belt-and-braces: ``os.replace`` preserves the source
+        # tempfile's mode, but if the destination existed and the
+        # umask between mkstemp and replace was loosened by another
+        # caller, re-apply now to be sure.
+        with contextlib.suppress(OSError):
+            os.chmod(path, mode)
+
+
 def _persist_cert_pair(cert_path: Path, key_path: Path, cert_pem: bytes, key_pem: bytes) -> None:
     """
-    Write cert + key to disk, with the key at ``0600`` from the start.
+    Write cert + key atomically, with the key at ``0600``.
 
-    The key file is opened with ``O_WRONLY | O_CREAT | O_TRUNC`` plus
-    ``mode=0o600`` so the bytes are never on disk at world-readable
-    permissions. ``Path.write_bytes`` followed by ``Path.chmod`` would
-    leave a window between the write and the chmod where another
-    process on the host could read the key at the default ``umask``
-    permissions; a backup tool snapshotting the config dir during that
-    window would also capture the key at the wrong mode. Cert is
-    public-by-design and stays at the default mode (caller's umask).
+    Both files go through :func:`atomic_write` so a reader (or a
+    crash) mid-write never observes a truncated PEM. The key write
+    runs first; if it succeeds and the cert write fails, the next
+    ``get_or_create_identity`` call sees a key-without-matching-cert
+    state and regenerates the whole pair (the cross-check in
+    :func:`_load_cert_pair` rejects mismatched halves too, so a
+    leftover stale cert can't pair with a fresh key by accident).
 
-    Order matters: key first with the restrictive mode, then the
-    cert. If a crash happens between, the next ``get_or_create_identity``
-    call sees a partial state and regenerates from scratch (which is
-    correct).
+    Cert is public-by-design but ends up at ``0600`` too because
+    ``tempfile.mkstemp`` defaults to that; tightening the cert
+    isn't a problem (only this dashboard's process needs to read
+    it for HTTPS) and skipping the explicit chmod simplifies the
+    code.
     """
-    # umask is process-wide and not directly settable per-file; the
-    # explicit ``os.open`` with ``mode=`` parameter handles it on
-    # POSIX. On Windows the mode argument is largely ignored, but
-    # Windows' default ACL on a user's home dir is already
-    # restrictive, so the practical risk window doesn't exist there.
-    fd = os.open(
-        key_path,
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-        _KEY_MODE,
-    )
-    try:
-        os.write(fd, key_pem)
-    finally:
-        os.close(fd)
-    # Re-apply the mode in case the file already existed: ``os.open``
-    # with ``mode=`` is a *creation* mode, not an ``fchmod``. A
-    # pre-existing key file with looser permissions would otherwise
-    # keep them after the open call. Cheap and idempotent.
-    os.chmod(key_path, _KEY_MODE)
-    cert_path.write_bytes(cert_pem)
+    atomic_write(key_path, key_pem, mode=_KEY_MODE)
+    atomic_write(cert_path, cert_pem)
 
 
 def _cert_fingerprint(cert_pem: bytes) -> str:
@@ -268,59 +313,31 @@ def _generate_dashboard_id() -> str:
     return secrets.token_urlsafe(_DASHBOARD_ID_BYTES)
 
 
-def _load_dashboard_id(config_dir: Path) -> str | None:
+def _get_or_create_dashboard_id(config_dir: Path) -> str:
     """
-    Read ``_remote_build.dashboard_id`` from the metadata sidecar.
+    Return the persistent ``dashboard_id``, generating one if absent.
 
-    Returns ``None`` when the sidecar is missing, malformed, or
-    doesn't carry the key; the caller will then generate and
-    persist a fresh one. Doesn't go through
-    :func:`controllers.config.metadata_transaction` because this
-    runs at dashboard-start time before the controllers are wired,
-    and a non-locking read of a startup-only file is fine.
+    Routes through :func:`controllers.config.metadata_transaction`
+    so the read-modify-write happens under the same lock that
+    serialises every other writer of ``.device-builder.json``.
+    Two concurrent callers (one from dashboard startup, one from
+    ``rotate_certificate`` firing on the user's button click)
+    can't both observe an empty ``dashboard_id`` and have one of
+    them silently overwrite the other; the lock makes the
+    "exists?" check and the "fresh generate + persist" step
+    atomic against any other ``_remote_build`` mutation. The
+    transaction also handles atomic-save on the metadata file
+    via the same ``tempfile + os.replace`` pattern this helper
+    uses for the cert / key files.
     """
-    metadata_path = config_dir / _METADATA_FILE
-    if not metadata_path.exists():
-        return None
-    try:
-        data = json_loads(metadata_path.read_bytes())
-    except Exception:
-        _LOGGER.debug(
-            "Metadata sidecar at %s failed to parse for dashboard_id",
-            metadata_path,
-            exc_info=True,
-        )
-        return None
-    if not isinstance(data, dict):
-        return None
-    rb = data.get(_REMOTE_BUILD_KEY)
-    if not isinstance(rb, dict):
-        return None
-    value = rb.get(_DASHBOARD_ID_KEY)
-    return value if isinstance(value, str) and value else None
-
-
-def _save_dashboard_id(config_dir: Path, dashboard_id: str) -> None:
-    """
-    Persist ``dashboard_id`` into the metadata sidecar.
-
-    Read-modify-write so we don't clobber other ``_remote_build``
-    sub-keys (e.g. ``enabled`` and ``manual_hosts`` from phase 2 /
-    2b). A bare write would replace the whole ``_remote_build``
-    blob and silently reset everything else to defaults.
-    """
-    metadata_path = config_dir / _METADATA_FILE
-    data: dict = {}
-    if metadata_path.exists():
-        try:
-            loaded = json_loads(metadata_path.read_bytes())
-        except Exception:
-            loaded = None
-        if isinstance(loaded, dict):
-            data = loaded
-    rb = data.get(_REMOTE_BUILD_KEY)
-    if not isinstance(rb, dict):
-        rb = {}
-        data[_REMOTE_BUILD_KEY] = rb
-    rb[_DASHBOARD_ID_KEY] = dashboard_id
-    metadata_path.write_bytes(json_dumps(data))
+    with metadata_transaction(config_dir) as data:
+        rb = data.get(_REMOTE_BUILD_KEY)
+        if not isinstance(rb, dict):
+            rb = {}
+            data[_REMOTE_BUILD_KEY] = rb
+        existing = rb.get(_DASHBOARD_ID_KEY)
+        if isinstance(existing, str) and existing:
+            return existing
+        new_id = _generate_dashboard_id()
+        rb[_DASHBOARD_ID_KEY] = new_id
+        return new_id

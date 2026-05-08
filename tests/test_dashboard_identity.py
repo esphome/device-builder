@@ -23,13 +23,18 @@ from __future__ import annotations
 
 import json
 import stat
+import threading
 from pathlib import Path
 
+import pytest
+
+from esphome_device_builder.helpers import dashboard_identity
 from esphome_device_builder.helpers.dashboard_identity import (
     _CERT_FILENAME,
     _KEY_FILENAME,
     _KEY_MODE,
     DashboardIdentity,
+    atomic_write,
     get_or_create_identity,
     rotate_certificate,
 )
@@ -159,6 +164,118 @@ def test_unparsable_key_triggers_regeneration(tmp_path: Path) -> None:
 
     second = get_or_create_identity(tmp_path)
     assert second.cert_pem != first.cert_pem
+
+
+def test_mismatched_cert_and_key_triggers_regeneration(tmp_path: Path) -> None:
+    """
+    Cert + key both parse but don't pair; treated as missing, regenerate.
+
+    Real-world path: a backup-restore reassembles mismatched files,
+    or someone manually rotated one half. Without the cross-check,
+    the helper would happily return the mismatched pair and the
+    failure would only surface deep inside the TLS handshake as
+    "key values mismatch".
+    """
+    first = get_or_create_identity(tmp_path)
+    # Generate a SECOND independent identity in another tmp dir so
+    # we have a valid-but-unrelated key, then drop it next to the
+    # first identity's cert. Both files parse cleanly; only the
+    # cross-check rejects them.
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    other = get_or_create_identity(other_dir)
+    (tmp_path / _KEY_FILENAME).write_bytes(other.key_pem)
+
+    third = get_or_create_identity(tmp_path)
+    # New cert + key generated; both halves now match each other.
+    assert third.cert_pem != first.cert_pem
+    assert third.cert_pem != other.cert_pem
+
+
+def test_atomic_write_cleans_up_tempfile_on_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    A crash mid-write leaves no leftover ``.tmp`` files in the config dir.
+
+    ``atomic_write`` stages bytes in ``mkstemp(prefix=name + ".",
+    suffix=".tmp", dir=parent)`` and ``os.replace``s into place. If
+    ``os.replace`` raises (disk full, permissions, ...) the tempfile
+    must be unlinked rather than accumulating one ``.<name>.<random>.tmp``
+    file per failed write across the dashboard's lifetime.
+    """
+    target = tmp_path / "demo.bin"
+
+    def _fail(*args: object, **kwargs: object) -> None:
+        msg = "disk full"
+        raise OSError(msg)
+
+    monkeypatch.setattr("os.replace", _fail)
+
+    with pytest.raises(OSError, match="disk full"):
+        atomic_write(target, b"payload")
+
+    # Target wasn't created; no tempfiles linger.
+    assert not target.exists()
+    assert not list(tmp_path.glob("demo.bin.*.tmp"))
+
+
+def test_atomic_write_closes_fd_when_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    A failure during ``os.write`` doesn't leak the file descriptor.
+
+    The cleanup branch closes the fd-still-open and unlinks the
+    tempfile so a transient I/O error doesn't leave the dashboard
+    accumulating leaked descriptors per failed write.
+    """
+    target = tmp_path / "demo.bin"
+
+    real_write = dashboard_identity.os.write
+
+    def _failing_write(fd: int, data: bytes) -> int:
+        # Raise on our target write, but pass through any other
+        # ``os.write`` calls happening elsewhere in the process.
+        if data == b"payload":
+            msg = "io error"
+            raise OSError(msg)
+        return real_write(fd, data)
+
+    monkeypatch.setattr(dashboard_identity.os, "write", _failing_write)
+
+    with pytest.raises(OSError, match="io error"):
+        dashboard_identity.atomic_write(target, b"payload")
+
+    assert not target.exists()
+    assert not list(tmp_path.glob("demo.bin.*.tmp"))
+
+
+def test_concurrent_dashboard_id_generation_is_serialised(tmp_path: Path) -> None:
+    """
+    Two concurrent ``get_or_create_identity`` calls land on the same id.
+
+    The ``metadata_transaction`` lock serialises the read-modify-
+    write under one critical section, so even if two callers race
+    in via ``run_in_executor`` thread pool one of them blocks until
+    the other completes; whichever wins persists its id, the other
+    re-reads and returns it. Without the lock both would generate
+    independent ids and one would silently overwrite the other.
+    """
+    results: list[str] = []
+    barrier = threading.Barrier(4)
+
+    def _worker() -> None:
+        barrier.wait()
+        results.append(get_or_create_identity(tmp_path).dashboard_id)
+
+    threads = [threading.Thread(target=_worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(set(results)) == 1, results
 
 
 def test_rotate_certificate_keeps_dashboard_id(tmp_path: Path) -> None:
