@@ -179,6 +179,29 @@ def test_re_sorts_children_so_demoted_id_lands_before_advanced_siblings() -> Non
     assert keys.index("id") < keys.index("comment")
 
 
+def test_does_not_re_sort_when_children_already_correct() -> None:
+    # If a future upstream-schema release ships ``id`` already
+    # non-advanced + required, we shouldn't re-sort — the schema
+    # authors may have picked a different order on purpose.
+    # The walker still visits the entry but bails before flipping
+    # any flag, so ``_sort_entries`` doesn't run.
+    original_order = [
+        _entry(key="comment", type="string", advanced=True),
+        _entry(key="name", type="string", required=True),
+        _entry(key="id", type="id", required=True, advanced=False),
+    ]
+    entries = [
+        _entry(
+            key="areas",
+            type="nested",
+            multi_value=True,
+            config_entries=list(original_order),
+        ),
+    ]
+    _promote_multi_value_keys(entries)
+    assert entries[0]["config_entries"] == original_order
+
+
 def test_does_not_re_sort_when_no_promotion_happened() -> None:
     # Walking past a multi_value entry without any promotable
     # children shouldn't disturb the existing order — that's

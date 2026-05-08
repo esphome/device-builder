@@ -3481,10 +3481,18 @@ def _promote_multi_value_keys(entries: list[dict]) -> None:
             is_own_id = child["key"] == "id" and child.get("type") == "id"
             if not (is_own_id or child["key"].endswith("_id")):
                 continue
-            mutated = True
-            child["advanced"] = False
-            if is_own_id:
+            # Flip the ``mutated`` flag only when a flag actually
+            # changes — if a future upstream-schema release already
+            # marks ``id`` non-advanced + required we'd otherwise
+            # re-sort a list that's already correct, potentially
+            # disturbing an order the schema authors picked
+            # deliberately.
+            if child.get("advanced"):
+                child["advanced"] = False
+                mutated = True
+            if is_own_id and not child.get("required"):
                 child["required"] = True
+                mutated = True
         # Demoting from advanced changes ``_sort_entries``' sort key
         # (non-advanced first, then by ``_IMPORTANT_KEY_ORDER``), so
         # an advanced sibling like ``comment`` would otherwise stay
