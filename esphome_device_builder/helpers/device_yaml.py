@@ -544,6 +544,72 @@ def config_has_top_level_block(config: dict | None, key: str) -> bool:
     return isinstance(config, dict) and key in config
 
 
+def extract_directly_referenced_integrations(
+    config: dict | None,
+) -> list[str]:
+    """
+    Return the sorted list of directly-written integration names.
+
+    Walks a resolved device config and pulls out top-level keys
+    plus platform stems from ``- platform: <name>`` (or single-form
+    ``platform: <name>``) references.
+
+    The complement of this set against ``StorageJSON.loaded_integrations``
+    is the auto-loaded dependency chain (``md5`` pulled in by WPA2
+    password hashing, ``mdns`` by ``api``, ``web_server_base`` by
+    ``web_server``, ``voltage_sampler`` by ADC sensors, …). The
+    frontend's device-drawer uses the split to surface direct
+    integrations as the primary list and tuck auto-loaded ones
+    behind a collapsible — see issue #422.
+
+    Resolved config (``!include`` / packages expanded) is the right
+    source: a package the user imported counts as direct (they
+    chose the package), while integrations the platform infrastructure
+    auto-loads as dependencies of those imports are indirect.
+    Returns ``[]`` for ``None`` (resolved-parse failed) so the
+    frontend falls through to the flat-list rendering.
+
+    Two YAML shapes carry platform refs:
+
+    1. List-of-platforms (the common case)::
+
+        sensor:
+          - platform: bme280_i2c
+          - platform: dht
+
+       → adds ``sensor`` (top-level key) plus ``bme280_i2c`` and
+       ``dht`` (each item's ``platform`` value).
+
+    2. Single-platform dict (``ota`` / ``mqtt`` historically)::
+
+        ota:
+          platform: esphome
+
+       → adds ``ota`` plus ``esphome``.
+
+    Non-string ``platform:`` values (templated lambdas, malformed
+    drafts) are skipped silently rather than emitting garbage names.
+    """
+    if not isinstance(config, dict):
+        return []
+    out: set[str] = set()
+    for key, value in config.items():
+        if not isinstance(key, str):
+            continue
+        out.add(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    platform = item.get("platform")
+                    if isinstance(platform, str) and platform:
+                        out.add(platform)
+        elif isinstance(value, dict):
+            platform = value.get("platform")
+            if isinstance(platform, str) and platform:
+                out.add(platform)
+    return sorted(out)
+
+
 def parse_esphome_meta(  # noqa: PLR0912
     yaml_content: str,
 ) -> tuple[str | None, str | None, str | None, str | None]:
@@ -793,6 +859,18 @@ def load_device_from_storage(
         target_platform = detect_platform_from_yaml(path)
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
+    # Subset of loaded_integrations the user directly wrote — top-
+    # level keys + ``- platform:`` stems. Frontend's device-drawer
+    # splits the loaded list into "direct" (these) and "indirect"
+    # (the rest, all auto-loaded dependencies). Resolved config is
+    # the right source so package contents are direct (the user
+    # imported them); falls back to the empty list when resolved
+    # config is unavailable so the frontend can render the flat
+    # loaded list as a graceful degrade. Issue #422.
+    user_referenced = set(extract_directly_referenced_integrations(resolved_config))
+    directly_referenced_integrations = [
+        name for name in loaded_integrations if name in user_referenced
+    ]
     # ``api_enabled`` / ``api_encrypted`` get the union of every signal
     # we have:
     #   1. Resolved YAML config — catches local ``api:`` blocks pulled
@@ -850,6 +928,7 @@ def load_device_from_storage(
         expected_config_hash=expected_config_hash,
         deployed_config_hash=deployed_config_hash,
         loaded_integrations=loaded_integrations,
+        directly_referenced_integrations=directly_referenced_integrations,
         state=state,
         has_pending_changes=has_pending,
         update_available=update_available,
