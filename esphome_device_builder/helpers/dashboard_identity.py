@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -217,18 +218,41 @@ def _generate_cert_pair() -> tuple[bytes, bytes]:
 
 def _persist_cert_pair(cert_path: Path, key_path: Path, cert_pem: bytes, key_pem: bytes) -> None:
     """
-    Write cert + key to disk, with the key at ``0600``.
+    Write cert + key to disk, with the key at ``0600`` from the start.
 
-    Cert at default mode (``0644``) since it's public-by-design; key
-    explicitly chmod'd so a backup that copies metadata along with
-    bytes doesn't surrender the key to anyone who can read the
-    config dir at large. Order matters: write key first with the
-    restrictive mode, then the cert; if a crash happens between,
-    the next ``get_or_create_identity`` call sees a partial state
-    and regenerates from scratch (which is correct).
+    The key file is opened with ``O_WRONLY | O_CREAT | O_TRUNC`` plus
+    ``mode=0o600`` so the bytes are never on disk at world-readable
+    permissions. ``Path.write_bytes`` followed by ``Path.chmod`` would
+    leave a window between the write and the chmod where another
+    process on the host could read the key at the default ``umask``
+    permissions; a backup tool snapshotting the config dir during that
+    window would also capture the key at the wrong mode. Cert is
+    public-by-design and stays at the default mode (caller's umask).
+
+    Order matters: key first with the restrictive mode, then the
+    cert. If a crash happens between, the next ``get_or_create_identity``
+    call sees a partial state and regenerates from scratch (which is
+    correct).
     """
-    key_path.write_bytes(key_pem)
-    key_path.chmod(_KEY_MODE)
+    # umask is process-wide and not directly settable per-file; the
+    # explicit ``os.open`` with ``mode=`` parameter handles it on
+    # POSIX. On Windows the mode argument is largely ignored, but
+    # Windows' default ACL on a user's home dir is already
+    # restrictive, so the practical risk window doesn't exist there.
+    fd = os.open(
+        key_path,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+        _KEY_MODE,
+    )
+    try:
+        os.write(fd, key_pem)
+    finally:
+        os.close(fd)
+    # Re-apply the mode in case the file already existed: ``os.open``
+    # with ``mode=`` is a *creation* mode, not an ``fchmod``. A
+    # pre-existing key file with looser permissions would otherwise
+    # keep them after the open call. Cheap and idempotent.
+    os.chmod(key_path, _KEY_MODE)
     cert_path.write_bytes(cert_pem)
 
 

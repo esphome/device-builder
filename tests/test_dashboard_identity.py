@@ -63,15 +63,44 @@ def test_second_call_returns_identical_identity(tmp_path: Path) -> None:
 
 def test_key_file_has_restrictive_mode(tmp_path: Path) -> None:
     """
-    The private-key file is chmod'd to ``0600``.
+    The private-key file is created at ``0600``, never wider.
 
-    A backup of the config dir that copies bytes-with-default-
-    permissions would otherwise surrender the key to anyone who
-    can read the directory at large. Cert is intentionally
-    public-by-design and stays at the default mode.
+    A ``Path.write_bytes`` followed by a ``Path.chmod`` would
+    leave a window between the write and the chmod where the
+    bytes sit at the umask default (typically ``0644``); a
+    backup tool snapshotting the config dir during that window
+    would capture the key at the wrong mode. Pin the
+    "key was created at ``0600`` from the start" semantics.
+    Cert is intentionally public-by-design and stays at the
+    default mode.
     """
     get_or_create_identity(tmp_path)
     key_path = tmp_path / _KEY_FILENAME
+    mode = stat.S_IMODE(key_path.stat().st_mode)
+    assert mode == _KEY_MODE
+
+
+def test_key_file_mode_is_corrected_when_pre_existing(tmp_path: Path) -> None:
+    """
+    A pre-existing key file at a looser mode is chmod'd back to ``0600``.
+
+    Real-world path: an older version of the helper, or the user
+    poking at the file, left it at the umask default. The next
+    call to ``get_or_create_identity`` regenerates via
+    ``os.open(..., mode=0o600)`` which is a creation-time mode
+    only; if the file already exists, that argument is ignored.
+    The explicit ``os.chmod`` after the write makes the mode
+    apply unconditionally so a previously-too-loose key gets
+    locked down on the next regen.
+    """
+    key_path = tmp_path / _KEY_FILENAME
+    cert_path = tmp_path / _CERT_FILENAME
+    key_path.write_bytes(b"placeholder")
+    key_path.chmod(0o644)
+    cert_path.write_bytes(b"placeholder")
+
+    get_or_create_identity(tmp_path)
+
     mode = stat.S_IMODE(key_path.stat().st_mode)
     assert mode == _KEY_MODE
 
