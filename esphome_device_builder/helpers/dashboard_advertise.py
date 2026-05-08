@@ -59,6 +59,17 @@ _LOGGER = logging.getLogger(__name__)
 
 SERVICE_TYPE = "_esphomebuilder._tcp.local."
 
+# Cadence at which the advertiser polls ``_local_addresses`` for
+# changes and re-publishes via ``async_update_service`` if the set
+# differs from what's currently on the wire. Five minutes balances
+# "DHCP renewal / WiFi reconnect should be picked up before a peer's
+# pairing breaks for too long" against "don't burn CPU walking
+# adapters every minute". Refresh is a no-op when the address set
+# hasn't changed (see :meth:`DashboardAdvertiser.refresh`), so the
+# steady-state cost is one ``ifaddr.get_adapters`` call per tick
+# with zero wire traffic.
+_REFRESH_INTERVAL_SECONDS = 300
+
 
 def _default_friendly_name() -> str:
     """
@@ -224,6 +235,12 @@ class DashboardAdvertiser:
         self._esphome_version = esphome_version
         self._info: ServiceInfo | None = None
         self._zeroconf: AsyncEsphomeZeroconf | None = None
+        # Background tick that calls :meth:`refresh` on
+        # ``_REFRESH_INTERVAL_SECONDS`` so DHCP renewals / WiFi
+        # reconnects pick up new addresses without a dashboard
+        # restart. Started in :meth:`register`, cancelled in
+        # :meth:`unregister`.
+        self._refresh_task: asyncio.Task[None] | None = None
 
     @property
     def service_type(self) -> str:
@@ -324,6 +341,35 @@ class DashboardAdvertiser:
             self._port,
             self._esphome_version,
         )
+        self._refresh_task = asyncio.create_task(
+            self._refresh_loop(), name="dashboard-advertise-refresh"
+        )
+
+    async def _refresh_loop(self) -> None:
+        """
+        Background task that polls :meth:`refresh` on a fixed cadence.
+
+        Sleeps ``_REFRESH_INTERVAL_SECONDS`` between checks. Exits
+        cleanly on cancellation (the ``CancelledError`` raised by
+        :func:`asyncio.sleep` propagates out of the loop and the
+        task finishes) so :meth:`unregister` can drain it without
+        special handling.
+
+        Refresh exceptions are caught and logged at debug level —
+        a transient zeroconf glitch shouldn't kill the whole
+        refresh loop and leave the advertise stuck on stale
+        addresses until the dashboard restarts. The next tick
+        retries.
+        """
+        while True:
+            await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
+            try:
+                await self.refresh()
+            except Exception:
+                _LOGGER.debug(
+                    "Dashboard advertise refresh tick raised; will retry next interval",
+                    exc_info=True,
+                )
 
     async def refresh(self) -> bool:
         """
@@ -377,8 +423,26 @@ class DashboardAdvertiser:
         """
         info = self._info
         zeroconf = self._zeroconf
+        refresh_task = self._refresh_task
         self._info = None
         self._zeroconf = None
+        self._refresh_task = None
+        # Cancel the periodic refresh first so a tick already in
+        # flight can't race the ``async_unregister_service`` call
+        # below (refresh's ``async_update_service`` after we tore
+        # down would either fail or race with the unregister).
+        # Always drain — even an already-``done`` task may have
+        # ended with an exception we want to surface to the
+        # debug log instead of dropping silently.
+        if refresh_task is not None:
+            if not refresh_task.done():
+                refresh_task.cancel()
+            try:
+                await refresh_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                _LOGGER.debug("Dashboard advertise refresh task drain failed", exc_info=True)
         if info is None or zeroconf is None:
             return
         try:

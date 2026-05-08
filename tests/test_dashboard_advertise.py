@@ -17,6 +17,7 @@ multicast listener; the integration test uses the same
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 from unittest.mock import AsyncMock, MagicMock
 
@@ -363,6 +364,137 @@ async def test_register_failure_clears_state() -> None:
     assert advertiser.registered is False
     await advertiser.unregister()
     zc.async_unregister_service.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_register_starts_refresh_loop_task() -> None:
+    """``register`` spawns a named background task that drives the refresh tick."""
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    task = advertiser._refresh_task
+    try:
+        assert task is not None
+        assert not task.done()
+        assert task.get_name() == "dashboard-advertise-refresh"
+    finally:
+        await advertiser.unregister()
+
+
+@pytest.mark.asyncio
+async def test_refresh_loop_invokes_refresh_on_each_tick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Refresh is invoked once per ``_REFRESH_INTERVAL_SECONDS`` tick.
+
+    The 5-minute sleep is patched to a tiny value so the test can
+    observe two ticks without sitting around for ten minutes.
+    """
+    monkeypatch.setattr(dashboard_advertise, "_REFRESH_INTERVAL_SECONDS", 0.01)
+    refresh_count = 0
+
+    async def _counted_refresh(self: object) -> bool:
+        nonlocal refresh_count
+        refresh_count += 1
+        return False
+
+    monkeypatch.setattr(DashboardAdvertiser, "refresh", _counted_refresh)
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    try:
+        # Two ticks of 0.01s each — yield until refresh has been
+        # called at least twice or 1s elapses (whichever first).
+        for _ in range(100):
+            if refresh_count >= 2:
+                break
+            await asyncio.sleep(0.02)
+        assert refresh_count >= 2
+    finally:
+        await advertiser.unregister()
+
+
+@pytest.mark.asyncio
+async def test_refresh_loop_survives_refresh_exceptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transient refresh failure must not kill the periodic loop."""
+    monkeypatch.setattr(dashboard_advertise, "_REFRESH_INTERVAL_SECONDS", 0.01)
+    calls = 0
+
+    async def _raising_refresh(self: object) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            msg = "transient zeroconf glitch"
+            raise RuntimeError(msg)
+        return False
+
+    monkeypatch.setattr(DashboardAdvertiser, "refresh", _raising_refresh)
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    try:
+        for _ in range(100):
+            if calls >= 2:
+                break
+            await asyncio.sleep(0.02)
+        # First tick raised, second tick still ran — loop is alive.
+        assert calls >= 2
+        assert advertiser._refresh_task is not None
+        assert not advertiser._refresh_task.done()
+    finally:
+        await advertiser.unregister()
+
+
+@pytest.mark.asyncio
+async def test_unregister_cancels_refresh_loop() -> None:
+    """``unregister`` drains the periodic-refresh task before tearing down."""
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    task = advertiser._refresh_task
+    assert task is not None
+    await advertiser.unregister()
+    assert task.done()
+    assert advertiser._refresh_task is None
+
+
+@pytest.mark.asyncio
+async def test_unregister_swallows_refresh_task_exception() -> None:
+    """
+    Drain a refresh task that ended in a non-``CancelledError`` exception.
+
+    A refresh-task that ended with a non-``CancelledError`` exception
+    is drained quietly so dashboard shutdown stays clean.
+
+    The production refresh loop catches its own exceptions, so this
+    branch only fires if something replaces the task with one that
+    doesn't — defense in depth, pinned with an explicit test.
+    """
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+
+    async def _failing() -> None:
+        msg = "task blew up"
+        raise RuntimeError(msg)
+
+    # Replace the running refresh task with one that ends in a
+    # non-CancelledError exception. Cancel the original first so it
+    # doesn't leak.
+    if advertiser._refresh_task is not None:
+        advertiser._refresh_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await advertiser._refresh_task
+    advertiser._refresh_task = asyncio.create_task(_failing())
+    # Give the failing task a tick to actually finish.
+    await asyncio.sleep(0)
+
+    # Must not raise.
+    await advertiser.unregister()
+    assert advertiser._refresh_task is None
 
 
 @pytest.mark.asyncio
