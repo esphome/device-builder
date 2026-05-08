@@ -68,7 +68,12 @@ toggle in the official ESPHome container and Home Assistant add-on.
   the right release-notes section:
   `breaking-change`, `new-feature`, `enhancement`, `bugfix`,
   `refactor`, `docs`, `maintenance`, `ci`, `dependencies`.
-  CI enforces this via `.github/workflows/pr-labels.yaml`.
+  CI enforces this via `.github/workflows/pr-labels.yaml`. The
+  full template is in `.github/PULL_REQUEST_TEMPLATE.md`; the
+  `pr-workflow` skill (under `.claude/skills/pr-workflow/`)
+  walks through filling it in — branch off `origin/main`, tick
+  exactly one Types-of-changes box, pass the body via
+  `--body-file` so the template's backticks aren't shell-escaped.
 - Pre-commit runs ruff (lint + format), codespell, yaml/json/python
   checks. Failures auto-fix where possible, then the commit needs to
   be re-staged.
