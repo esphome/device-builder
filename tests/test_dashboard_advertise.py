@@ -164,14 +164,22 @@ def test_local_addresses_filters_loopback_by_nice_name(monkeypatch: pytest.Monke
     assert _local_addresses() == ["10.0.0.5"]
 
 
-def test_local_addresses_drops_link_local_ipv6(monkeypatch: pytest.MonkeyPatch) -> None:
-    """IPv6 link-local (``fe80::/10``) is dropped — wire can't carry scope_id."""
+def test_local_addresses_drops_link_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Both IPv4 and IPv6 link-local addresses are dropped.
+
+    IPv6 ``fe80::/10`` is unreachable once the scope_id is stripped
+    by the wire format. IPv4 ``169.254.0.0/16`` (APIPA) only shows
+    up when DHCP has failed — advertising it just attracts pairings
+    that immediately break the next time DHCP comes back.
+    """
     adapters = [
         _adapter(
             "en0",
             ips=[
                 "192.168.1.10",
-                ("fe80::1234:5678:abcd:ef00", 0, 4),
+                "169.254.7.7",  # IPv4 APIPA — dropped
+                ("fe80::1234:5678:abcd:ef00", 0, 4),  # IPv6 link-local — dropped
                 ("2001:db8::1", 0, 0),
                 ("fdc8:d776:7cca:46ed::1", 0, 0),  # ULA — kept
             ],
@@ -182,6 +190,7 @@ def test_local_addresses_drops_link_local_ipv6(monkeypatch: pytest.MonkeyPatch) 
     assert "192.168.1.10" in result
     assert "2001:db8::1" in result
     assert "fdc8:d776:7cca:46ed::1" in result
+    assert "169.254.7.7" not in result
     assert all("fe80" not in addr for addr in result)
 
 
@@ -245,6 +254,28 @@ def test_service_type_property_is_canonical() -> None:
     """The ``service_type`` accessor returns the module-level constant."""
     advertiser = _make_advertiser(name="green", hostname="green.local")
     assert advertiser.service_type == SERVICE_TYPE
+
+
+def test_build_service_info_falls_back_when_hostname_is_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Blank hostname → SRV target derived from the friendly name.
+
+    When ``socket.gethostname`` is blank (minimal containers,
+    misconfigured systems), ``_default_hostname`` returns ``""``.
+    Without a fallback, ``build_service_info`` would set
+    ``server="."`` — an invalid SRV target that python-zeroconf
+    rejects at register time. Pin the recovery so the advertise
+    still produces a valid record on degraded hosts.
+    """
+    monkeypatch.setattr(socket, "gethostname", lambda: "")
+    # Both inherit the ``""`` from gethostname; ``_default_friendly_name``
+    # rescues with ``"esphome-dashboard"`` and we want SRV target to
+    # follow.
+    advertiser = DashboardAdvertiser(port=6052, server_version="1.0", esphome_version="2026.5.0")
+    info = advertiser.build_service_info(addresses=[])
+    assert info.server == "esphome-dashboard.local."
 
 
 # ---------------------------------------------------------------------------

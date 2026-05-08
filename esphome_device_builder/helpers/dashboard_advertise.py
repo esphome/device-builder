@@ -53,7 +53,7 @@ import ifaddr
 from zeroconf import ServiceInfo
 
 if TYPE_CHECKING:
-    from zeroconf.asyncio import AsyncZeroconf
+    from esphome.zeroconf import AsyncEsphomeZeroconf
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,10 +65,12 @@ def _default_friendly_name() -> str:
     Best-effort friendly label for the dashboard host.
 
     Uses the leftmost label of ``socket.gethostname()`` so a host
-    that returns ``desktop.local`` advertises as ``desktop`` (the
-    full FQDN goes in the ``hostname`` TXT field separately). Falls
-    back to ``"esphome-dashboard"`` when the system can't report
-    a hostname at all.
+    that returns ``desktop.local`` advertises as ``desktop`` (this
+    label is what becomes the mDNS service-instance name, i.e. the
+    bit before ``._esphomebuilder._tcp.local.``; the FQDN is
+    carried separately as the ``ServiceInfo.server`` SRV target).
+    Falls back to ``"esphome-dashboard"`` when the system can't
+    report a hostname at all.
     """
     raw = socket.gethostname() or ""
     label = raw.split(".", 1)[0].strip()
@@ -109,13 +111,17 @@ def _local_addresses() -> list[str]:
     * **Loopback IPs on non-loopback interfaces.** Defense in depth
       for hosts where the OS aliases ``127.0.0.1`` onto a real
       interface for some reason.
-    * **IPv6 link-local addresses** (``fe80::/10``). Useless once
-      the scope_id is dropped, which the mDNS wire format requires
-      — a peer receiving a bare ``fe80::xxx`` has no way to know
-      which interface to send the packet out on. Hosts with many
-      virtual interfaces (VPN, awdl, utun*) carry a dozen link-
-      local addresses that just inflate the announcement without
-      adding reachability.
+    * **Link-local addresses** — both IPv6 (``fe80::/10``) and
+      IPv4 (``169.254.0.0/16``). IPv6 link-local is useless once
+      the scope_id is dropped (which the mDNS wire format
+      requires) — a peer receiving a bare ``fe80::xxx`` has no way
+      to know which interface to send the packet out on. IPv4
+      link-local (APIPA) only appears when DHCP has failed; a
+      dashboard advertising itself on ``169.254.x.x`` would just
+      attract pairings that immediately break the next time DHCP
+      comes back. Hosts with many virtual interfaces (VPN, awdl,
+      utun*) can carry a dozen link-local addresses that just
+      inflate the announcement without adding reachability.
 
     Setting ``parsed_addresses`` explicitly is what fixes the
     "127.0.0.1 / ::1 / fe80::1 only" advertise we saw on macOS:
@@ -178,7 +184,7 @@ def _default_hostname() -> str:
 
 class DashboardAdvertiser:
     """
-    Publish the dashboard's ``_esphomedashboard._tcp.local.`` service.
+    Publish the dashboard's ``_esphomebuilder._tcp.local.`` service.
 
     Constructed once per :class:`DeviceBuilder` lifetime. The
     :meth:`register` / :meth:`unregister` pair runs from the
@@ -202,8 +208,12 @@ class DashboardAdvertiser:
         ``port`` is the dashboard's HTTP listen port — what a peer
         connects to once it's chosen this advertisement from a
         browse. ``name`` defaults to the system hostname's leftmost
-        label (used as both the friendly TXT field and the mDNS
-        instance name); ``hostname`` defaults to the FQDN.
+        label and is used as the mDNS service-instance name (the
+        bit before ``._esphomebuilder._tcp.local.``). ``hostname``
+        defaults to the system's mDNS hostname and lands in the SRV
+        record's target. Neither is duplicated in TXT — peers read
+        them off ``ServiceInfo.name`` / ``ServiceInfo.server`` for
+        free.
         """
         friendly = (name or "").strip() or _default_friendly_name()
         host = (hostname or "").strip() or _default_hostname()
@@ -213,7 +223,7 @@ class DashboardAdvertiser:
         self._server_version = server_version
         self._esphome_version = esphome_version
         self._info: ServiceInfo | None = None
-        self._zeroconf: AsyncZeroconf | None = None
+        self._zeroconf: AsyncEsphomeZeroconf | None = None
 
     @property
     def service_type(self) -> str:
@@ -255,8 +265,13 @@ class DashboardAdvertiser:
         # ``server`` is the SRV record's target. Zeroconf appends
         # ``.local.`` if missing; pass the FQDN through as-is so a
         # host already advertising e.g. ``desktop.local`` keeps the
-        # same answer it does for every other service.
-        server = self._hostname if self._hostname.endswith(".") else f"{self._hostname}."
+        # same answer it does for every other service. When
+        # ``_default_hostname`` returned ``""`` (rare — minimal
+        # containers / blank ``gethostname``), fall back to the
+        # friendly name + ``.local`` so the SRV target is a valid
+        # name rather than the bare ``.``.
+        host = self._hostname or f"{self._name}.local"
+        server = host if host.endswith(".") else f"{host}."
         # Publishing the host's addresses explicitly avoids relying
         # on the receiver's A/AAAA lookup against ``server``, which
         # on macOS can return loopback while mDNSResponder is in a
@@ -270,7 +285,7 @@ class DashboardAdvertiser:
             parsed_addresses=addresses,
         )
 
-    async def register(self, zeroconf: AsyncZeroconf) -> None:
+    async def register(self, zeroconf: AsyncEsphomeZeroconf) -> None:
         """
         Publish the service via *zeroconf*.
 

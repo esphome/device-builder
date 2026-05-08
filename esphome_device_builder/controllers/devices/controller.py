@@ -23,6 +23,7 @@ from esphome import const
 from esphome.components.dashboard_import import import_config
 from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
+from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_size import coerce_sidecar_int
@@ -239,7 +240,7 @@ class DevicesController:
         )
 
     @property
-    def zeroconf(self) -> Any:
+    def zeroconf(self) -> AsyncEsphomeZeroconf | None:
         """
         The mDNS responder owned by the state monitor, or ``None``.
 
