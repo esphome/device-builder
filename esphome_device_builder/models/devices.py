@@ -81,6 +81,22 @@ class Device(DataClassORJSONMixin):
     # "compile succeeded but device still runs older firmware".
     deployed_config_hash: str = ""
     loaded_integrations: list[str] = field(default_factory=list)  # from StorageJSON after compile
+    # Subset of ``loaded_integrations`` the user directly wrote in
+    # YAML — top-level keys (``api:``, ``wifi:``, ``sensor:``) plus
+    # the platform stems from ``- platform: <name>`` references
+    # (``gpio`` under ``binary_sensor``, ``homeassistant`` /
+    # ``sntp`` under ``time``, ``esphome`` under ``ota``). Anything
+    # in ``loaded_integrations`` but NOT here is auto-loaded as a
+    # dependency (``md5`` from WPA2 password hashing, ``mdns``
+    # from ``api``, ``web_server_base`` from ``web_server``,
+    # ``voltage_sampler`` from ADC sensors, etc.). Computed from
+    # the resolved YAML at storage-load time so packages /
+    # ``!include`` contents count as direct (the user imported
+    # them; auto-loaded dependencies of those imports are still
+    # indirect). Empty list when the YAML couldn't be resolved
+    # (mid-edit drafts) — frontend falls back to rendering the
+    # whole ``loaded_integrations`` list flat.
+    directly_referenced_integrations: list[str] = field(default_factory=list)
     state: DeviceState = DeviceState.UNKNOWN
     has_pending_changes: bool = True  # True until successfully compiled + deployed
     update_available: bool = False  # True if compiled with older ESPHome version
