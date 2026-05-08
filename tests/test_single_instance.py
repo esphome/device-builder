@@ -51,6 +51,16 @@ from esphome_device_builder.helpers.single_instance import (
     ensure_single_execution,
 )
 
+# Skip marker shared by every test that exercises the real ``fcntl``
+# code path (acquire / release / contention / lock-file-content
+# checks). Windows lacks ``fcntl`` so the helper degrades to a no-op
+# there; those tests have nothing to assert. The Windows-only
+# no-op test below uses ``sys.platform != "win32"`` instead.
+_REQUIRES_FCNTL = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="single-instance lock is a no-op on Windows (no fcntl)",
+)
+
 
 def _hold_lock(
     config_dir: str,
@@ -113,10 +123,7 @@ def _lock_held_by_subprocess(
             holder.join(timeout=2.0)
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="single-instance lock is a no-op on Windows (no fcntl)",
-)
+@_REQUIRES_FCNTL
 def test_first_start_acquires_and_writes_lock_info(tmp_path: Path) -> None:
     """A clean ``config_dir`` acquires the lock and writes diagnostics."""
     with ensure_single_execution(tmp_path) as lock:
@@ -140,10 +147,7 @@ def test_first_start_acquires_and_writes_lock_info(tmp_path: Path) -> None:
         assert isinstance(contents["start_ts"], (int, float))
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="single-instance lock is a no-op on Windows (no fcntl)",
-)
+@_REQUIRES_FCNTL
 def test_release_lets_subsequent_start_succeed(tmp_path: Path) -> None:
     """
     Releasing the lock (context exit) lets the next start acquire cleanly.
@@ -189,10 +193,7 @@ def test_windows_no_op_yields_success_without_touching_disk(
     assert not (tmp_path / _LOCK_FILE_NAME).exists()
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="single-instance lock is a no-op on Windows (no fcntl)",
-)
+@_REQUIRES_FCNTL
 def test_contention_with_running_instance_returns_exit_code_1(
     tmp_path: Path, capfd: pytest.CaptureFixture[str]
 ) -> None:
@@ -221,10 +222,7 @@ def test_contention_with_running_instance_returns_exit_code_1(
         assert str(tmp_path) in captured.err
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="single-instance lock is a no-op on Windows (no fcntl)",
-)
+@_REQUIRES_FCNTL
 def test_contention_handles_unreadable_lock_file_gracefully(
     tmp_path: Path, capfd: pytest.CaptureFixture[str]
 ) -> None:
@@ -344,3 +342,113 @@ def test_no_op_yields_success_when_fcntl_unavailable(
         assert isinstance(lock, SingleInstanceLock)
         assert lock.exit_code is None
     assert not (tmp_path / _LOCK_FILE_NAME).exists()
+
+
+# ---------------------------------------------------------------------------
+# Hardening: the lock-file open path uses ``O_NOFOLLOW`` + ``S_ISREG``
+# fstat to refuse anything that isn't a plain file. Both branches close
+# a defense-in-depth gap (an attacker with config-dir write access could
+# otherwise plant a symlink / FIFO at the lock-file path and have
+# ``_write_lock_info`` truncate the link target / block on the FIFO
+# read every dashboard start).
+# ---------------------------------------------------------------------------
+
+
+@_REQUIRES_FCNTL
+def test_symlink_at_lock_file_is_refused(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """
+    A symlink at ``<config_dir>/.device-builder.lock`` aborts startup.
+
+    Without ``O_NOFOLLOW`` the dashboard would happily follow
+    the link and have ``_write_lock_info`` truncate whatever
+    file the link targets — turning the lock mechanism into a
+    write-anywhere primitive for anyone with config-dir access.
+    Pin the contract: a symlink at the path produces
+    ``exit_code=1`` and an actionable log line, and no truncation
+    of the link target.
+    """
+    target = tmp_path / "victim.txt"
+    target.write_text("important contents that must not be truncated")
+    (tmp_path / _LOCK_FILE_NAME).symlink_to(target)
+
+    with (
+        caplog.at_level("ERROR", logger=single_instance.__name__),
+        ensure_single_execution(tmp_path) as lock,
+    ):
+        assert lock.exit_code == 1
+
+    # The dashboard refused to start *and* the link target stayed
+    # intact — the headline guarantee of the hardening.
+    assert target.read_text() == "important contents that must not be truncated"
+    assert any("Could not open lock file" in record.message for record in caplog.records)
+
+
+@_REQUIRES_FCNTL
+def test_non_regular_file_at_lock_path_is_refused(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    A FIFO at the lock-file path aborts startup, not blocks.
+
+    Without the hardening, ``mkfifo`` at ``.device-builder.lock``
+    (no privileges required) would block every dashboard start
+    on ``_write_lock_info``'s text-mode write. The exact branch
+    that catches the FIFO is implementation-defined — Python's
+    ``open("a+")`` already rejects non-seekable streams with an
+    ``OSError`` ("File or stream is not seekable"), so the
+    ``OSError`` arm of the helper handles it before our
+    ``fstat`` + ``S_ISREG`` backstop fires. Either way the
+    user-visible contract is the same: ``exit_code=1`` and an
+    error logged. Pin that contract; don't pin which branch.
+
+    The ``fstat`` check stays as defense-in-depth for shapes
+    that *do* open cleanly under ``a+`` (block devices, some
+    character devices) where only ``S_ISREG`` rejects them.
+    """
+    fifo_path = tmp_path / _LOCK_FILE_NAME
+    try:
+        os.mkfifo(fifo_path)
+    except (OSError, AttributeError):
+        pytest.skip("mkfifo unavailable on this platform / filesystem")
+
+    with (
+        caplog.at_level("ERROR", logger=single_instance.__name__),
+        ensure_single_execution(tmp_path) as lock,
+    ):
+        assert lock.exit_code == 1
+
+    # Some error was logged (either "Could not open" from the
+    # ``OSError`` arm or "is not a regular file" from the
+    # ``fstat`` backstop). The headline guarantee is "dashboard
+    # refused to start"; the message wording is internal.
+    assert caplog.records, "expected an error log line for the refusal"
+
+
+@_REQUIRES_FCNTL
+def test_fstat_rejects_non_regular_file_after_open(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Defense-in-depth: post-open ``fstat`` + ``S_ISREG`` rejects oddballs.
+
+    ``O_NOFOLLOW`` catches symlinks at open time; ``open("a+")``
+    catches non-seekable streams (FIFOs); but block devices and
+    some character devices DO open cleanly under ``a+``. The
+    ``fstat`` + ``S_ISREG`` check is the backstop that refuses
+    those. Driving a real block device into a unit test is
+    impractical, so simulate the shape by patching
+    ``stat.S_ISREG`` in the helper module to return ``False`` —
+    a normal regular-file open then takes the rejection branch
+    as if it had hit a non-regular file.
+    """
+    monkeypatch.setattr(single_instance.stat, "S_ISREG", lambda _mode: False)
+
+    with (
+        caplog.at_level("ERROR", logger=single_instance.__name__),
+        ensure_single_execution(tmp_path) as lock,
+    ):
+        assert lock.exit_code == 1
+
+    assert any("is not a regular file" in record.message for record in caplog.records)

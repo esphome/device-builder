@@ -44,6 +44,7 @@ import dataclasses
 import json
 import logging
 import os
+import stat
 import sys
 import time
 from collections.abc import Generator
@@ -160,6 +161,21 @@ def _report_existing_instance(lock_file_path: Path, config_dir: Path) -> None:
         print(line, file=sys.stderr)  # noqa: T201
 
 
+def _open_lock_file(path: str, flags: int) -> int:
+    """
+    ``open(...)`` opener that adds ``O_NOFOLLOW`` to reject symlinks.
+
+    The ``a+`` mode passes ``O_RDWR | O_APPEND | O_CREAT`` here;
+    we OR in ``O_NOFOLLOW`` so a symlink at the lock-file path
+    raises ``ELOOP`` instead of being silently followed and
+    truncated by the downstream ``_write_lock_info``. Mode 0o644
+    matches the umask-default we'd get from a plain ``open()``
+    so the lock file is operator-readable for ``cat`` / ``ps``
+    cross-referencing.
+    """
+    return os.open(path, flags | os.O_NOFOLLOW, 0o644)
+
+
 @contextmanager
 def ensure_single_execution(config_dir: Path) -> Generator[SingleInstanceLock]:
     """
@@ -197,7 +213,43 @@ def ensure_single_execution(config_dir: Path) -> Generator[SingleInstanceLock]:
     # contention path reads it back to print the running PID.
     # Truncating before the lock is held would drop the very
     # information the operator needs.
-    with open(lock_file_path, "a+", encoding="utf-8") as lock_file:
+    #
+    # Custom ``opener=`` adds ``O_NOFOLLOW`` so a symlink at the
+    # lock-file path is rejected with ``ELOOP`` instead of being
+    # followed and truncated. Without this, an attacker (or a
+    # misconfigured environment) with write access to
+    # ``<config_dir>`` could place a symlink at
+    # ``.device-builder.lock -> /etc/passwd`` (or any other path
+    # the dashboard process can write) and have ``_write_lock_info``
+    # truncate the link target on every start. The ``fstat``
+    # regular-file check downstream catches the more obscure
+    # case where the path is something else exotic — a FIFO,
+    # device node, etc. — that ``O_NOFOLLOW`` doesn't bar but
+    # ``open()`` happily follows.
+    try:
+        lock_file_ctx: TextIOWrapper | None = open(  # noqa: SIM115 — closed in finally
+            lock_file_path, "a+", encoding="utf-8", opener=_open_lock_file
+        )
+    except OSError as exc:
+        _LOGGER.error(
+            "Could not open lock file %s (refusing to start): %s",
+            lock_file_path,
+            exc,
+        )
+        lock.exit_code = 1
+        yield lock
+        return
+    with lock_file_ctx as lock_file:
+        st = os.fstat(lock_file.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            _LOGGER.error(
+                "Lock file %s is not a regular file (mode=%o); refusing to start",
+                lock_file_path,
+                st.st_mode,
+            )
+            lock.exit_code = 1
+            yield lock
+            return
         try:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
