@@ -216,7 +216,10 @@ class DashboardSettings:
 # Several controllers (firmware queue, device CRUD, preferences, IP
 # cache) all RMW this file from the executor pool. Without serialisation
 # two writers landing in the same window lose each other's updates.
-_METADATA_LOCK = threading.Lock()
+# Use ``RLock`` (not ``Lock``) so a caller already inside a
+# transaction can call into helpers that re-enter the same critical
+# section on the same thread without self-deadlocking.
+_METADATA_LOCK = threading.RLock()
 
 
 @contextmanager
