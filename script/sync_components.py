@@ -3214,7 +3214,25 @@ def _platform_set(node: Any) -> frozenset[str] | None:
         ]
         if not constrained:
             return None
-        return frozenset.intersection(*constrained)
+        result = frozenset.intersection(*constrained)
+        if not result:
+            # Disjoint ``cv.only_on`` gates in the same ``vol.All``
+            # chain (e.g. ``All(only_on_esp32, only_on_esp8266)``)
+            # would intersect to the empty set — a field that
+            # accepts no platform. That's an upstream schema bug;
+            # we can't represent "no platforms" in the wire format
+            # (``[]`` already means "no restriction"). Log so the
+            # bug surfaces in the next sync run, then fall through
+            # to ``return result or None`` below so the empty set
+            # doesn't get silently serialised as ``[]`` and the
+            # field stays visible — the compile-time validator will
+            # catch the actual incompatibility.
+            _LOGGER.warning(
+                "platform constraint intersection collapsed to empty "
+                "(disjoint cv.only_on gates in vol.All chain): %r",
+                constrained,
+            )
+        return result or None
 
     return None
 

@@ -103,6 +103,29 @@ def test_platform_set_handles_nested_all_inside_any() -> None:
     assert _platform_set(validator) == frozenset({"esp32", "esp8266"})
 
 
+def test_platform_set_returns_none_for_disjoint_all_intersection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Disjoint ``cv.only_on`` gates in a ``vol.All`` chain return ``None``.
+
+    ``vol.All(cv.only_on_esp32, cv.only_on_esp8266)`` is a schema
+    bug upstream — the field accepts no platform. We can't
+    represent "no platforms" in the wire format (empty list means
+    "no restriction"), so we log a warning so the upstream bug
+    surfaces, then return ``None`` so the field stays visible
+    rather than being silently universal. The compile-time
+    validator catches the actual incompatibility.
+
+    Pin the logged-warning behaviour so a future refactor can't
+    silently drop the diagnostic.
+    """
+    validator = vol.All(cv.only_on_esp32, cv.only_on_esp8266)
+    with caplog.at_level("WARNING"):
+        result = _platform_set(validator)
+    assert result is None
+    assert any("collapsed to empty" in rec.message for rec in caplog.records)
+
+
 def test_collect_returns_empty_for_unconstrained_schema() -> None:
     """A schema with no ``cv.only_on`` returns an empty constraint dict."""
     schema = {
