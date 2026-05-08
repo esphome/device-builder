@@ -34,15 +34,25 @@ from typing import TYPE_CHECKING, Any
 from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
-from ..helpers.api import api_command
+from ..helpers.api import CommandError, api_command
 from ..helpers.dashboard_advertise import SERVICE_TYPE
-from ..models import RemoteBuildPeer, RemoteBuildSettings
+from ..models import ErrorCode, RemoteBuildPeer, RemoteBuildSettings
 from .config import load_remote_build_settings, save_remote_build_settings
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
 
 _LOGGER = logging.getLogger(__name__)
+
+# Timeout for the cache-miss resolve path. Longer than
+# ``DeviceStateMonitor._MDNS_RESOLVE_TIMEOUT_MS`` (2s) because peer
+# dashboards typically run on full hosts (laptop, desktop, addon
+# container) that may be a few hops further away on the LAN than
+# an ESPHome device, and the user-visible cost of a slow first
+# discovery is "the peer doesn't appear in Settings for a few
+# seconds" — not the device-state miss the shorter timeout
+# protects against.
+_RESOLVE_TIMEOUT_MS = 3000
 
 
 def _decode_txt_value(raw: bytes | None) -> str:
@@ -127,11 +137,20 @@ class RemoteBuildController:
             info = advertiser._info
             if info is not None:
                 self._own_instance_name = info.name
-        self._browser = AsyncServiceBrowser(
-            zeroconf.zeroconf,
-            [SERVICE_TYPE],
-            handlers=[self._on_service_state_change],
-        )
+        # Wrap browser construction so a zeroconf-side failure (e.g.
+        # the underlying socket got torn down between
+        # ``DeviceStateMonitor.start`` and now, or the cache is in an
+        # unexpected state) doesn't abort dashboard startup. Peer
+        # discovery is fail-soft — same contract as the advertise.
+        try:
+            self._browser = AsyncServiceBrowser(
+                zeroconf.zeroconf,
+                [SERVICE_TYPE],
+                handlers=[self._on_service_state_change],
+            )
+        except Exception:
+            _LOGGER.exception("Could not start remote-build browser — peer discovery disabled")
+            self._browser = None
 
     async def stop(self) -> None:
         """Cancel the browser and drain in-flight resolve tasks."""
@@ -184,7 +203,7 @@ class RemoteBuildController:
     async def _resolve_and_apply(self, zeroconf: Any, info: AsyncServiceInfo, name: str) -> None:
         """Async resolve path for cache misses."""
         try:
-            resolved = await info.async_request(zeroconf, timeout=3000)
+            resolved = await info.async_request(zeroconf, timeout=_RESOLVE_TIMEOUT_MS)
         except Exception:
             _LOGGER.debug("Resolve failed for %s", name, exc_info=True)
             return
@@ -227,8 +246,17 @@ class RemoteBuildController:
         design (artifact retention TTL, build target preference,
         major-version-mismatch toggle, ...). Returns the
         post-write value so the frontend can confirm the round-trip.
+
+        Validates ``enabled`` is strictly a ``bool`` rather than
+        coercing truthiness — a client sending the string ``"false"``
+        for example would otherwise persist as ``True``, which is
+        the opposite of what the user intended on a security-
+        sensitive toggle.
         """
-        settings = RemoteBuildSettings(enabled=bool(enabled))
+        if not isinstance(enabled, bool):
+            msg = "remote_build/set_settings: 'enabled' must be a boolean"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        settings = RemoteBuildSettings(enabled=enabled)
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None, save_remote_build_settings, self._db.settings.config_dir, settings

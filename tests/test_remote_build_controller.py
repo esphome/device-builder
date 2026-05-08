@@ -23,8 +23,9 @@ from esphome_device_builder.controllers.remote_build import (
     _decode_txt_value,
     _peer_from_service_info,
 )
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
-from esphome_device_builder.models import RemoteBuildPeer, RemoteBuildSettings
+from esphome_device_builder.models import ErrorCode, RemoteBuildPeer, RemoteBuildSettings
 
 # ---------------------------------------------------------------------------
 # Helpers used by the tests
@@ -208,11 +209,22 @@ async def test_set_settings_round_trips(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_settings_coerces_truthy_values(tmp_path: Any) -> None:
-    """Anything truthy is normalised to ``True`` (mirrors ``bool(enabled)``)."""
+async def test_set_settings_rejects_non_bool(tmp_path: Any) -> None:
+    """
+    Non-boolean ``enabled`` raises ``INVALID_ARGS``, doesn't coerce.
+
+    A client sending the string ``"false"`` would coerce to truthy
+    under a permissive ``bool()`` cast and silently flip the
+    security-sensitive toggle on. Strict ``isinstance`` check
+    closes that gap.
+    """
     controller = _make_controller(config_dir=tmp_path)
-    written = await controller.set_settings(enabled=1)  # type: ignore[arg-type]
-    assert written.enabled is True
+    with pytest.raises(CommandError) as exc:
+        await controller.set_settings(enabled="false")  # type: ignore[arg-type]
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    # No write happened — disk still at default.
+    settings = await controller.get_settings()
+    assert settings.enabled is False
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +248,27 @@ async def test_start_skips_when_zeroconf_unavailable() -> None:
     controller = _make_controller()
     controller._db.devices.zeroconf = None
     await controller.start()
+    assert controller._browser is None
+
+
+@pytest.mark.asyncio
+async def test_start_swallows_browser_construction_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Browser construction failure leaves the controller in a no-peer state.
+
+    Peer discovery is fail-soft — same contract as the advertise.
+    A zeroconf-side error during ``AsyncServiceBrowser`` init must
+    not crash dashboard startup.
+    """
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.AsyncServiceBrowser",
+        MagicMock(side_effect=RuntimeError("zeroconf socket gone")),
+    )
+    controller = _make_controller()
+    controller._db.devices.zeroconf = MagicMock()
+    await controller.start()  # must not raise
     assert controller._browser is None
 
 
