@@ -15,14 +15,22 @@ alternative that fits. Parallels the existing ``_esphomelib._tcp.local.``
 device service type so a packet capture shows both ESPHome surfaces
 in the same ``_esphome*`` namespace.
 
-The TXT record carries everything a peer needs to make the
-already-discovered/eventually-paired decision without first opening
-an HTTP connection: the dashboard's own version (``server_version``),
-the ``esphome`` library version it would compile against
-(``esphome_version``), a human label (``name``), and the system's
-mDNS hostname (``hostname``). Listing peers in a UI then takes one
-zeroconf browser; pairing / token exchange / version-mismatch
-warnings come in later phases.
+The TXT record carries the two version fields a peer can't derive
+from the browse response on its own:
+
+* ``server_version`` — this dashboard's own package version, so a
+  peer can flag a release-skew warning before pairing.
+* ``esphome_version`` — the ``esphome`` library version this
+  dashboard would compile against, so the version-mismatch warning
+  in phase 7 can fire on the listing page rather than waiting for
+  an upload to come back with a surprise build.
+
+A friendly label and the host's mDNS name are *not* in TXT — both
+are already on the wire. python-zeroconf exposes the service
+instance name (the leftmost label of the published name, e.g.
+``MacBook-Pro``) and the SRV record's target (the FQDN, e.g.
+``MacBook-Pro.local.``) directly on the resolved ``ServiceInfo``;
+duplicating them in TXT just bloats the packet.
 
 The advertise reuses the existing ``AsyncEsphomeZeroconf`` instance
 owned by :class:`~esphome_device_builder.controllers._device_state_monitor.DeviceStateMonitor`
@@ -140,11 +148,14 @@ class DashboardAdvertiser:
         register/unregister cycle.
         """
         instance = f"{self._name}.{SERVICE_TYPE}"
+        # TXT carries only what isn't already on the wire. The
+        # service-instance label (``self._name``) and the SRV
+        # target (``server`` below) are returned by every browse;
+        # peers read them directly off ``ServiceInfo.name`` /
+        # ``ServiceInfo.server`` rather than parsing TXT.
         properties = {
             "server_version": self._server_version,
             "esphome_version": self._esphome_version,
-            "name": self._name,
-            "hostname": self._hostname,
         }
         # ``server`` is the SRV record's target. Zeroconf appends
         # ``.local.`` if missing; pass the FQDN through as-is so a

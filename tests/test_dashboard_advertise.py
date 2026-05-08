@@ -108,11 +108,13 @@ def test_build_service_info_populates_txt_and_server() -> None:
     assert info.port == 6052
     # ServiceInfo encodes properties as bytes; decode to compare.
     decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    # TXT carries only the version fields that aren't already
+    # implied by the browse response. Friendly name and hostname
+    # come from ``info.name`` and ``info.server`` instead — pinned
+    # below so a future refactor doesn't quietly add them back.
     assert decoded == {
         "server_version": "1.2.3",
         "esphome_version": "2026.5.0",
-        "name": "green",
-        "hostname": "green.local",
     }
     # ``server`` is always trailing-dotted so zeroconf doesn't double-suffix it.
     assert info.server == "green.local."
