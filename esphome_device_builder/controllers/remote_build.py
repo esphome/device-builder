@@ -55,6 +55,7 @@ from ..models import (
     RemoteBuildPeer,
     RemoteBuildPeerSource,
     RemoteBuildSettings,
+    RemoteBuildSettingsView,
     StoredToken,
     TokenCreateResult,
     TokenSummary,
@@ -169,14 +170,18 @@ def _validate_hostname(raw: object) -> str:
 
 
 # Wire format for the bearer token presented by the offloader is
-# ``{token_id}.{secret}``. Splitting on the dot gives the receiver
-# constant-time lookup by ``token_id`` (no scanning the whole list)
-# plus the secret to verify against the stored hash. 8 random
-# bytes for the id keeps it short enough to type if a user ever
-# has to and large enough to make the lookup table effectively
-# unguessable on its own; 32 random bytes for the secret matches
-# the entropy of a typical session token. Both are base64url so
-# the wire form has no shell-quoting hazards.
+# ``{token_id}.{secret}``. Splitting on the dot lets the receiver
+# look up the candidate row by ``token_id`` (a future in-memory
+# index keyed off this field, built once at startup, gives O(1)
+# verification; the on-disk persistence is a list, but the hot
+# path doesn't scan it). The secret half is then compared
+# against ``StoredToken.secret_sha256`` via
+# ``hmac.compare_digest``. 8 random bytes for the id keeps it
+# short enough to type if a user ever has to and large enough
+# that the id alone reveals nothing usable; 32 random bytes for
+# the secret matches the entropy of a typical session token.
+# Both halves are base64url so the wire form has no
+# shell-quoting hazards.
 _TOKEN_ID_BYTES = 8
 _TOKEN_SECRET_BYTES = 32
 
@@ -286,6 +291,22 @@ def _summarise_token(token: StoredToken) -> TokenSummary:
         label=token.label,
         created_at=token.created_at,
         bound_dashboard_id=token.bound_dashboard_id,
+    )
+
+
+def _to_view(settings: RemoteBuildSettings) -> RemoteBuildSettingsView:
+    """
+    Project a :class:`RemoteBuildSettings` to its wire :class:`RemoteBuildSettingsView`.
+
+    Drops ``secret_sha256`` from each token row. Every controller
+    method that returns settings to a client routes through here
+    so the stored hash never leaves the server, even when a CRUD
+    response also touches the tokens list.
+    """
+    return RemoteBuildSettingsView(
+        enabled=settings.enabled,
+        manual_hosts=list(settings.manual_hosts),
+        tokens=[_summarise_token(t) for t in settings.tokens],
     )
 
 
@@ -466,16 +487,17 @@ class RemoteBuildController:
         ]
 
     @api_command("remote_build/get_settings")
-    async def get_settings(self, **kwargs: Any) -> RemoteBuildSettings:
-        """Return the receiver-side remote-build settings."""
+    async def get_settings(self, **kwargs: Any) -> RemoteBuildSettingsView:
+        """Return the receiver-side remote-build settings (wire view)."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
+        settings = await loop.run_in_executor(
             None, load_remote_build_settings, self._db.settings.config_dir
         )
+        return _to_view(settings)
 
     async def _modify_settings(
         self, mutator: Callable[[RemoteBuildSettings], None]
-    ) -> RemoteBuildSettings:
+    ) -> RemoteBuildSettingsView:
         """
         Run ``mutator`` against the current settings and persist the result.
 
@@ -484,7 +506,8 @@ class RemoteBuildController:
         so two concurrent callers can't both read the same starting
         value and have the second save wipe the first's change.
         Runs in the default executor since the transaction does
-        blocking JSON I/O.
+        blocking JSON I/O. Returns the wire view so the response
+        leaving this method can never carry ``secret_sha256``.
 
         ``mutator`` is invoked with the freshly-loaded settings
         and is expected to mutate it in place. A
@@ -500,10 +523,11 @@ class RemoteBuildController:
                 return settings
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _txn)
+        settings = await loop.run_in_executor(None, _txn)
+        return _to_view(settings)
 
     @api_command("remote_build/set_settings")
-    async def set_settings(self, *, enabled: bool, **kwargs: Any) -> RemoteBuildSettings:
+    async def set_settings(self, *, enabled: bool, **kwargs: Any) -> RemoteBuildSettingsView:
         """
         Persist the receiver-side ``enabled`` master switch.
 
@@ -533,7 +557,7 @@ class RemoteBuildController:
     @api_command("remote_build/add_manual_host")
     async def add_manual_host(
         self, *, hostname: str, port: int, **kwargs: Any
-    ) -> RemoteBuildSettings:
+    ) -> RemoteBuildSettingsView:
         """
         Add a manually-entered peer for cross-subnet / non-mDNS LANs.
 
@@ -564,7 +588,7 @@ class RemoteBuildController:
     @api_command("remote_build/remove_manual_host")
     async def remove_manual_host(
         self, *, hostname: str, port: int, **kwargs: Any
-    ) -> RemoteBuildSettings:
+    ) -> RemoteBuildSettingsView:
         """
         Remove a previously-added manual peer.
 
@@ -658,7 +682,7 @@ class RemoteBuildController:
         )
 
     @api_command("remote_build/remove_token")
-    async def remove_token(self, *, token_id: str, **kwargs: Any) -> RemoteBuildSettings:
+    async def remove_token(self, *, token_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
         """
         Revoke a previously-issued token.
 

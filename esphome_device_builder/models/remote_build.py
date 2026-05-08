@@ -105,20 +105,38 @@ class TokenCreateResult(DataClassORJSONMixin):
 @dataclass
 class RemoteBuildSettings(DataClassORJSONMixin):
     """
-    Receiver-side settings for the remote-build feature.
+    Receiver-side settings for the remote-build feature (storage shape).
 
     Stored in ``.device-builder.json`` under the ``_remote_build``
-    top-level key. ``enabled`` is the master switch that phase 3
-    will gate ``/remote-build/v1/*`` route registration on. Phase
-    2 just persists the flag so the Settings UI has somewhere to
-    write. ``manual_hosts`` is the user-supplied peer list (see
-    :class:`ManualHost`). ``tokens`` is the receiver-issued bearer
-    list (see :class:`StoredToken`); only hashes land on disk.
+    top-level key. ``tokens`` carries :class:`StoredToken` rows
+    *with* the ``secret_sha256`` hash; this is the on-disk /
+    in-process shape only and MUST NOT be serialised over the
+    wire. Use :class:`RemoteBuildSettingsView` (or the
+    ``_summarise_token`` projection) for any response that leaves
+    the server.
     """
 
     enabled: bool = False
     manual_hosts: list[ManualHost] = field(default_factory=list)
     tokens: list[StoredToken] = field(default_factory=list)
+
+
+@dataclass
+class RemoteBuildSettingsView(DataClassORJSONMixin):
+    """
+    Wire view of :class:`RemoteBuildSettings`.
+
+    Returned from every WS command that exposes settings to a
+    client. Identical to :class:`RemoteBuildSettings` except
+    ``tokens`` is a list of :class:`TokenSummary` (no
+    ``secret_sha256``), so issuing or removing tokens via the
+    CRUD methods can't accidentally leak the stored hash back to
+    the frontend through the response shape.
+    """
+
+    enabled: bool = False
+    manual_hosts: list[ManualHost] = field(default_factory=list)
+    tokens: list[TokenSummary] = field(default_factory=list)
 
 
 @dataclass

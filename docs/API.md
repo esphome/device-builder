@@ -251,20 +251,20 @@ Renaming or recoloring a label leaves device assignments untouched — devices r
 
 > Controller: [`RemoteBuildController`](../esphome_device_builder/controllers/remote_build.py)
 >
-> Models: [`RemoteBuildSettings`](../esphome_device_builder/models/remote_build.py), [`RemoteBuildPeer`](../esphome_device_builder/models/remote_build.py), [`ManualHost`](../esphome_device_builder/models/remote_build.py), [`StoredToken`](../esphome_device_builder/models/remote_build.py), [`TokenSummary`](../esphome_device_builder/models/remote_build.py), [`TokenCreateResult`](../esphome_device_builder/models/remote_build.py)
+> Models: [`RemoteBuildSettingsView`](../esphome_device_builder/models/remote_build.py), [`RemoteBuildPeer`](../esphome_device_builder/models/remote_build.py), [`ManualHost`](../esphome_device_builder/models/remote_build.py), [`TokenSummary`](../esphome_device_builder/models/remote_build.py), [`TokenCreateResult`](../esphome_device_builder/models/remote_build.py)
 
 Receiver-side surface for the remote-build offload feature (issue #106). Discovers peer dashboards via mDNS (`_esphomebuilder._tcp.local.`), lets the user add manual peers for cross-subnet LANs, and issues bearer tokens that paired offloaders present to the receiver's HTTPS listener (the listener itself lands in phase 3b2). Settings persist in `.device-builder.json` under `_remote_build`.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
 | `remote_build/list_hosts` | — | `[RemoteBuildPeer]` | Discovered (`source=mdns`) and manually-added (`source=manual`) peer dashboards merged into one list. |
-| `remote_build/get_settings` | — | `RemoteBuildSettings` | Read the receiver-side settings (enabled, manual_hosts, tokens). |
-| `remote_build/set_settings` | `{enabled}` | `RemoteBuildSettings` | Persist the master switch. Strict-bool; rejects truthy strings. |
-| `remote_build/add_manual_host` | `{hostname, port}` | `RemoteBuildSettings` | Add a manual peer for cross-subnet / non-mDNS LANs. Hostname normalised to lowercase. Duplicate `(hostname, port)` raises `already_exists`. |
-| `remote_build/remove_manual_host` | `{hostname, port}` | `RemoteBuildSettings` | Remove a manual peer. Unknown pair raises `not_found`. |
+| `remote_build/get_settings` | — | `RemoteBuildSettingsView` | Read the receiver-side settings (enabled, manual_hosts, tokens). |
+| `remote_build/set_settings` | `{enabled}` | `RemoteBuildSettingsView` | Persist the master switch. Strict-bool; rejects truthy strings. |
+| `remote_build/add_manual_host` | `{hostname, port}` | `RemoteBuildSettingsView` | Add a manual peer for cross-subnet / non-mDNS LANs. Hostname normalised to lowercase. Duplicate `(hostname, port)` raises `already_exists`. |
+| `remote_build/remove_manual_host` | `{hostname, port}` | `RemoteBuildSettingsView` | Remove a manual peer. Unknown pair raises `not_found`. |
 | `remote_build/list_tokens` | — | `[TokenSummary]` | Issued bearer tokens, projected to omit the secret hash. |
 | `remote_build/add_token` | `{label}` | `TokenCreateResult` | Issue a fresh bearer. The cleartext `bearer` flashes through the response **once**; only `sha256(secret)` lands on disk. Label 1-128 chars; duplicates allowed (`token_id` is the unique key). |
-| `remote_build/remove_token` | `{token_id}` | `RemoteBuildSettings` | Revoke a token. Unknown / blank `token_id` raises `not_found` / `invalid_args` respectively. |
+| `remote_build/remove_token` | `{token_id}` | `RemoteBuildSettingsView` | Revoke a token. Unknown / blank `token_id` raises `not_found` / `invalid_args` respectively. |
 
 **Bearer wire format**: `{token_id}.{secret}` where `token_id` is the lookup key (8-byte base64url, ~11 chars) and `secret` is the verification value (32-byte base64url, ~43 chars). Phase 3b2's auth middleware will split on `.`, look up by `token_id`, and `hmac.compare_digest` SHA-256(`secret`) against the stored hash.
 

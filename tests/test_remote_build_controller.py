@@ -20,7 +20,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from zeroconf import ServiceStateChange
 
-from esphome_device_builder.controllers.config import remote_build_settings_transaction
+from esphome_device_builder.controllers.config import (
+    load_remote_build_settings,
+    remote_build_settings_transaction,
+)
 from esphome_device_builder.controllers.remote_build import (
     _MAX_TOKENS,
     RemoteBuildController,
@@ -37,7 +40,7 @@ from esphome_device_builder.models import (
     ManualHost,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
-    RemoteBuildSettings,
+    RemoteBuildSettingsView,
     StoredToken,
 )
 
@@ -250,7 +253,7 @@ async def test_get_settings_defaults_when_unset(tmp_path: Any) -> None:
     """A fresh dashboard with no metadata returns ``enabled=False``."""
     controller = _make_controller(config_dir=tmp_path)
     settings = await controller.get_settings()
-    assert settings == RemoteBuildSettings(enabled=False)
+    assert settings == RemoteBuildSettingsView(enabled=False)
 
 
 @pytest.mark.asyncio
@@ -258,9 +261,9 @@ async def test_set_settings_round_trips(tmp_path: Any) -> None:
     """Setting ``enabled=True`` persists and is read back by ``get_settings``."""
     controller = _make_controller(config_dir=tmp_path)
     written = await controller.set_settings(enabled=True)
-    assert written == RemoteBuildSettings(enabled=True)
+    assert written == RemoteBuildSettingsView(enabled=True)
     read = await controller.get_settings()
-    assert read == RemoteBuildSettings(enabled=True)
+    assert read == RemoteBuildSettingsView(enabled=True)
 
 
 @pytest.mark.asyncio
@@ -726,18 +729,59 @@ async def test_add_token_returns_cleartext_bearer_once(tmp_path: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_add_token_persists_only_hashed_secret(tmp_path: Any) -> None:
-    """The on-disk row carries SHA-256 of the secret only; never the cleartext."""
+    """
+    The on-disk row carries SHA-256 of the secret only; never the cleartext.
+
+    Inspects the on-disk shape via ``load_remote_build_settings``
+    (storage form, ``StoredToken`` rows with ``secret_sha256``)
+    rather than ``get_settings`` (wire form,
+    :class:`RemoteBuildSettingsView` with hashes stripped). The
+    storage form is the place to assert the hash is the only
+    representation that lands on disk.
+    """
     controller = _make_controller(config_dir=tmp_path)
     result = await controller.add_token(label="Green")
     _, secret = _split_bearer(result.bearer)
 
-    settings = await controller.get_settings()
-    assert len(settings.tokens) == 1
-    stored = settings.tokens[0]
+    on_disk = load_remote_build_settings(tmp_path)
+    assert len(on_disk.tokens) == 1
+    stored = on_disk.tokens[0]
     assert stored.token_id == result.token_id
     assert stored.secret_sha256 == hashlib.sha256(secret.encode("ascii")).hexdigest()
     assert secret not in stored.secret_sha256
     assert stored.bound_dashboard_id is None
+
+
+@pytest.mark.asyncio
+async def test_settings_responses_never_carry_secret_hash(tmp_path: Any) -> None:
+    """
+    Every WS command that returns settings projects tokens to ``TokenSummary``.
+
+    ``RemoteBuildSettings`` is the storage shape; ``RemoteBuildSettingsView``
+    is the wire shape. A regression that returned the storage shape
+    over the WS would leak ``secret_sha256`` to the frontend on
+    every CRUD response (set_settings, add_manual_host,
+    remove_manual_host, remove_token, get_settings). Pin that
+    none of the wire returns expose the field.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    issued = await controller.add_token(label="Green")
+
+    # Every method that returns settings to the wire.
+    responses = [
+        await controller.get_settings(),
+        await controller.set_settings(enabled=True),
+        await controller.add_manual_host(hostname="desktop.local", port=6052),
+        await controller.remove_manual_host(hostname="desktop.local", port=6052),
+        await controller.remove_token(token_id=issued.token_id),
+    ]
+    for response in responses:
+        # ``RemoteBuildSettingsView.tokens`` is ``list[TokenSummary]``;
+        # neither the dataclass nor the dict-form should carry
+        # ``secret_sha256``.
+        for entry in response.tokens:
+            assert not hasattr(entry, "secret_sha256")
+        assert "secret_sha256" not in response.to_dict()["tokens"].__repr__()
 
 
 @pytest.mark.asyncio
