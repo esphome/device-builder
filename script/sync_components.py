@@ -2263,9 +2263,145 @@ def _detect_platform_type(inner_schema: dict) -> str | None:
     return None
 
 
+# Tokens that should render upper-case in labels rather than the
+# Title-case ``str.title()`` produces. Limit this list to widely-
+# recognised technical acronyms and signal names — anything more
+# component-specific belongs in a per-component override (issue #401).
+_LABEL_ACRONYMS = frozenset(
+    {
+        # Bus / peripheral / pin signals
+        "ADC",
+        "BCLK",
+        "CS",
+        "DAC",
+        "DIO",
+        "DMA",
+        "EN",
+        "GPIO",
+        "HSYNC",
+        "I2C",
+        "INT",
+        "IO",
+        "IRQ",
+        "JTAG",
+        "LNA",
+        "LRCLK",
+        "MCLK",
+        "MISO",
+        "MOSI",
+        "PA",
+        "PCLK",
+        "PCNT",
+        "PWM",
+        "RMT",
+        "RST",
+        "RX",
+        "SCK",
+        "SCL",
+        "SCLK",
+        "SDA",
+        "SDO",
+        "SPI",
+        "TX",
+        "UART",
+        "USB",
+        "VSYNC",
+        # Networking
+        "AP",
+        "API",
+        "BSSID",
+        "DHCP",
+        "DNS",
+        "HTTP",
+        "HTTPS",
+        "IP",
+        "MAC",
+        "MQTT",
+        "NTP",
+        "OTA",
+        "QOS",
+        "SSID",
+        "SSL",
+        "TCP",
+        "TLS",
+        "UDP",
+        "URI",
+        "URL",
+        # Wireless / RF
+        "BLE",
+        "FSK",
+        "MSK",
+        "NFC",
+        "OOK",
+        "RF",
+        "RFID",
+        # Display / colour
+        "BGR",
+        "LCD",
+        "LED",
+        "OLED",
+        "RGB",
+        "RGBW",
+        "TFT",
+        "WRGB",
+        # Identifier / common
+        "CRC",
+        "CPU",
+        "ID",
+        "PID",
+        "PSRAM",
+        "RAM",
+        "UID",
+        "UUID",
+        "VID",
+        # Power / electrical
+        "AC",
+        "DC",
+        "GFCI",
+        "MPPT",
+        "PV",
+        "RMS",
+        # Sensors / air-quality
+        "CO",
+        "CO2",
+        "IR",
+        "NOX",
+        "PM",
+        "TVOC",
+        "UV",
+        "VOC",
+        # OpenTherm domain (used heavily in the climate catalog)
+        "CH",
+        "DHW",
+    }
+)
+
+# Match an alpha prefix followed by a digit cluster (``Dio0``,
+# ``Co2``) so we can upper-case acronym + digit tokens together.
+_TRAILING_DIGITS_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
+
+
 def _key_to_label(key: str) -> str:
-    """Turn a config-var key into a human-friendly label."""
-    return key.replace("_", " ").title()
+    """
+    Turn a config-var key into a human-friendly label for the visual editor.
+
+    Title-cases the key after replacing underscores with spaces, then
+    upper-cases any token (or alpha prefix of an alpha+digit token)
+    that matches a known technical acronym — so ``cs_pin`` renders
+    as ``CS Pin`` and ``dio0_pin`` as ``DIO0 Pin``.
+    """
+    titled = key.replace("_", " ").title()
+    tokens: list[str] = []
+    for tok in titled.split(" "):
+        if tok.upper() in _LABEL_ACRONYMS:
+            tokens.append(tok.upper())
+            continue
+        match = _TRAILING_DIGITS_RE.match(tok)
+        if match and match.group(1).upper() in _LABEL_ACRONYMS:
+            tokens.append(match.group(1).upper() + match.group(2))
+            continue
+        tokens.append(tok)
+    return " ".join(tokens)
 
 
 def _classify_advanced(key: str, *, required: bool, is_structural: bool) -> bool:
