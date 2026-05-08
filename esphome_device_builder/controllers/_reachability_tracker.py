@@ -87,11 +87,31 @@ class MdnsCacheInfo:
     Surfaced wholesale to the drawer so the user can see exactly
     what the device is broadcasting (debugging "why is the
     dashboard reading the wrong version?" / "did my OTA actually
-    refresh the TXT?"). Empty mapping when no TXT is cached or
-    every value failed UTF-8 decode. Keys we couldn't decode are
-    dropped silently — the dashboard already trusts
-    ``decoded_properties`` for the live-apply path, so this
-    matches that contract.
+    refresh the TXT?").
+
+    Bare keys (``foo`` with no ``=``), empty-value entries
+    (``foo=``), and entries whose value failed UTF-8 decode all
+    surface as ``""``-valued keys — zeroconf collapses the three
+    cases to a single ``None`` in ``decoded_properties`` and the
+    diagnostic value is the same regardless ("the key IS being
+    broadcast, even if there's nothing useful on the right-hand
+    side"). The empty string is the same signal the upstream
+    ``api_encryption`` tri-state already uses for "device
+    confirmed plaintext" (issue #437). Keys themselves are
+    dropped only when they fail UTF-8 decode (zeroconf surfaces
+    those as non-string keys in ``decoded_properties``); we
+    mirror the live-apply path's contract there.
+
+    Order is alphabetical by key — the decode pass sorts the
+    output so the wire format is deterministic across consecutive
+    snapshots regardless of zeroconf's bytes-order, which lets
+    downstream consumers compare with plain equality /
+    ``JSON.stringify`` instead of comparing dicts set-wise.
+
+    Empty mapping when no TXT record is cached at all (or the
+    cached record's bytes are missing); the snapshot serialiser
+    upstream maps ``{}`` to ``None`` on the wire so the drawer
+    hides the section entirely.
     """
 
     age_seconds: float
