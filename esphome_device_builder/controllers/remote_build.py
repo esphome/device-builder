@@ -140,11 +140,13 @@ def _validate_hostname(raw: object) -> str:
     :class:`CommandError(INVALID_ARGS)`. Lowercase normalisation
     matches the duplicate-check semantics; hostnames are
     case-insensitive per RFC 1035 §2.3.3, so ``Desktop.local`` and
-    ``desktop.local`` should be the same entry. Phase 4 attempts
-    the actual connection (and discovers DNS / TLS validity); phase
-    2b just stores the string the user entered so phase-4-style
-    feedback isn't blocked behind an "is this resolvable now?"
-    pre-flight that would fail on offline laptops.
+    ``desktop.local`` should be the same entry. The stored form
+    is the trimmed, lowercased string (so two adds with different
+    casing collapse to one entry rather than registering twice).
+    Phase 4 attempts the actual connection (and discovers DNS /
+    TLS validity); phase 2b deliberately doesn't pre-flight an
+    "is this resolvable now?" check, which would fail on offline
+    laptops adding a peer for later.
     """
     if not isinstance(raw, str):
         msg = "manual host: 'hostname' must be a string"
