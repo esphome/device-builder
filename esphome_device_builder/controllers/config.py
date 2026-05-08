@@ -27,7 +27,7 @@ from ..constants import __version__ as server_version
 from ..helpers.api import CommandError, api_command
 from ..helpers.auth import hash_password
 from ..helpers.json import JSONDecodeError, dumps_indent, loads
-from ..models import ErrorCode, Label, UserPreferences
+from ..models import ErrorCode, Label, RemoteBuildSettings, UserPreferences
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -38,6 +38,7 @@ _DASHBOARD_SENTINEL_FILE = "___DASHBOARD_SENTINEL___.yaml"
 _METADATA_FILE = ".device-builder.json"
 _PREFS_KEY = "_preferences"
 _LABELS_KEY = "_labels"
+_REMOTE_BUILD_KEY = "_remote_build"
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +505,29 @@ def save_preferences(config_dir: Path, prefs: UserPreferences) -> None:
     """Save user preferences to disk."""
     with metadata_transaction(config_dir) as data:
         data[_PREFS_KEY] = prefs.to_dict()
+
+
+def load_remote_build_settings(config_dir: Path) -> RemoteBuildSettings:
+    """
+    Load the receiver-side remote-build settings.
+
+    Returns defaults (``enabled=False``) when the metadata file is
+    missing or the ``_remote_build`` key isn't present. A
+    deserialisation failure also falls back to defaults rather than
+    crashing dashboard startup — a corrupted settings blob shouldn't
+    take down the whole receiver.
+    """
+    raw = _load_metadata(config_dir).get(_REMOTE_BUILD_KEY, {})
+    try:
+        return RemoteBuildSettings.from_dict(raw)
+    except Exception:
+        return RemoteBuildSettings()
+
+
+def save_remote_build_settings(config_dir: Path, settings: RemoteBuildSettings) -> None:
+    """Persist the receiver-side remote-build settings."""
+    with metadata_transaction(config_dir) as data:
+        data[_REMOTE_BUILD_KEY] = settings.to_dict()
 
 
 def _decode_labels(raw: Any) -> list[Label]:

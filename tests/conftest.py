@@ -36,6 +36,7 @@ from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.models import AdoptableDevice, Device, DeviceState, EventType
 
@@ -336,6 +337,13 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(DeviceStateMonitor, "stop", AsyncMock())
     monkeypatch.setattr(DeviceMqttCoordinator, "reconcile", AsyncMock())
     monkeypatch.setattr(DeviceMqttCoordinator, "stop", AsyncMock())
+    # Phase 2 of the remote-build feature wires a second mDNS browser
+    # behind ``RemoteBuildController.start``. The lifecycle tests use
+    # the same "stub start/stop on the class" trick to keep the
+    # smoke test hermetic — the per-controller test file
+    # ``test_remote_build_controller.py`` exercises the real browser.
+    monkeypatch.setattr(RemoteBuildController, "start", AsyncMock())
+    monkeypatch.setattr(RemoteBuildController, "stop", AsyncMock())
     monkeypatch.setattr(BoardCatalog, "load", lambda self: None)
     monkeypatch.setattr(ComponentCatalog, "load", lambda self: None)
     # ``CORE`` is a process-global; without restoration via

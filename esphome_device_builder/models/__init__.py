@@ -8,3 +8,4 @@ from .devices import *  # noqa: F403
 from .firmware import *  # noqa: F403
 from .labels import *  # noqa: F403
 from .preferences import *  # noqa: F403
+from .remote_build import *  # noqa: F403

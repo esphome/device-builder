@@ -648,6 +648,7 @@ async def test_device_builder_skips_advertise_when_zeroconf_unavailable(
         def __init__(self, **kwargs: object) -> None:
             constructed.append(kwargs)
             self.register = AsyncMock()
+            self.registered = False
             self.unregister = AsyncMock()
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
@@ -679,6 +680,7 @@ async def test_device_builder_skips_advertise_in_ha_addon_mode(
         def __init__(self, **kwargs: object) -> None:
             constructed.append(kwargs)
             self.register = AsyncMock()
+            self.registered = False
             self.unregister = AsyncMock()
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
@@ -709,6 +711,7 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
         def __init__(self, **kwargs: object) -> None:
             self.kwargs = kwargs
             self.register = AsyncMock()
+            self.registered = False
             self.unregister = AsyncMock()
             instances.append(self)
 

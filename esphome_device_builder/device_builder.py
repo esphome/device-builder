@@ -32,6 +32,7 @@ from .controllers.devices import DevicesController
 from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
 from .controllers.labels import LabelsController
+from .controllers.remote_build import RemoteBuildController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser
@@ -200,6 +201,7 @@ class DeviceBuilder:
         self.firmware: FirmwareController | None = None
         self.editor: EditorController | None = None
         self.labels: LabelsController | None = None
+        self.remote_build: RemoteBuildController | None = None
 
         # mDNS advertise — populated in start() once we know zeroconf
         # is up. Optional: a zeroconf-bind failure leaves this None
@@ -258,6 +260,7 @@ class DeviceBuilder:
         self.firmware = FirmwareController(self)
         self.editor = EditorController(self)
         self.labels = LabelsController(self)
+        self.remote_build = RemoteBuildController(self)
         await self.devices.start()
         await self.firmware.start()
         await self.editor.start()
@@ -293,6 +296,16 @@ class DeviceBuilder:
             )
             await self._dashboard_advertiser.register(zeroconf)
 
+        # Phase 2 of the remote-build feature (issue #106): browse
+        # the same service type to surface peer dashboards.
+        # ``RemoteBuildController.start`` is itself a no-op when
+        # zeroconf is unavailable — same fail-soft contract as the
+        # advertise — so we don't gate it here. Started AFTER the
+        # advertiser so the browser can capture our own
+        # service-instance name and filter our broadcast out of the
+        # discovered list.
+        await self.remote_build.start()
+
         # Collect command handlers from all controllers
         for controller in (
             self.auth,
@@ -304,6 +317,7 @@ class DeviceBuilder:
             self.firmware,
             self.editor,
             self.labels,
+            self.remote_build,
         ):
             self.command_handlers.update(collect_api_commands(controller))
 
@@ -333,6 +347,11 @@ class DeviceBuilder:
             task.cancel()
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        # Cancel the remote-build browser BEFORE devices.stop()
+        # closes the zeroconf socket the browser is using. Same
+        # ordering rule as the dashboard advertise just below.
+        if self.remote_build is not None:
+            await self.remote_build.stop()
         # Withdraw the mDNS advertise BEFORE devices.stop() closes
         # the zeroconf socket the responder is using.
         if self._dashboard_advertiser is not None:
