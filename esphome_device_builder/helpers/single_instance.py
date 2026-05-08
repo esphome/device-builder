@@ -111,6 +111,20 @@ def _report_existing_instance(lock_file_path: Path, config_dir: Path) -> None:
     swallowing the contention silently.
     """
     error_lines: list[str] = ["Error: Another device-builder is already running!"]
+    # The exception list is broad on purpose — this is a
+    # best-effort diagnostic helper, and crashing it (e.g. a
+    # ``UnicodeDecodeError`` from a non-UTF8 lock file, or a
+    # ``TypeError`` from a future schema where ``start_ts`` is
+    # a string instead of a float) would defeat the whole point
+    # of surfacing the contention to the operator. ``OSError``
+    # covers read failures (permissions, ENOENT race);
+    # ``UnicodeDecodeError`` covers a corrupted / non-UTF8 body;
+    # ``json.JSONDecodeError`` covers a partial flush;
+    # ``KeyError`` / ``TypeError`` / ``ValueError`` /
+    # ``OverflowError`` cover schema drift between dashboard
+    # versions (missing or wrong-type fields,
+    # ``datetime.fromtimestamp`` rejecting an out-of-range
+    # value).
     try:
         content = lock_file_path.read_text(encoding="utf-8").strip()
         if content:
@@ -129,7 +143,15 @@ def _report_existing_instance(lock_file_path: Path, config_dir: Path) -> None:
             error_lines.append(f"  Started: {start_time}")
         else:
             error_lines.append("  Unable to read lock file details.")
-    except (json.JSONDecodeError, OSError, KeyError) as exc:
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        OverflowError,
+    ) as exc:
         error_lines.append(f"  Unable to read lock file details: {exc}")
     error_lines.append(f"  Config directory: {config_dir}")
     error_lines.append("")
