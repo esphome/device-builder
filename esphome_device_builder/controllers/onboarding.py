@@ -117,17 +117,21 @@ class OnboardingController:
                 ErrorCode.INVALID_ARGS,
                 f"Password can't be longer than {_MAX_WIFI_PASSWORD_LEN} characters.",
             )
-        # Reject newlines / carriage returns / NUL — the line-based
-        # secrets.yaml rewrite emits the value on a single line, so a
-        # ``\n`` in the SSID would inject extra YAML lines and a
-        # ``\0`` would terminate the file early on read. ESPHome's
-        # own ``cv.string_strict`` would reject these too at compile
-        # time, but blocking them here avoids a save-then-fail loop.
+        # Reject every control character except TAB. The line-based
+        # secrets.yaml rewrite emits the value on a single line, so
+        # ``\n`` / ``\r`` inject extra YAML lines and ``\0`` would
+        # terminate the file early on read; broader C0 / DEL bytes
+        # (BEL, ESC, …) make PyYAML reject the result on the next
+        # ``read_secrets_yaml``, silently flipping onboarding back
+        # to PENDING after a successful "save". Block the whole
+        # control range up-front so that path can't be reached
+        # — TAB stays allowed because it's the one whitespace
+        # ESPHome's own ``cv.string_strict`` accepts.
         for label, value in (("SSID", ssid), ("Password", password)):
-            if any(c in value for c in "\n\r\x00"):
+            if any(c != "\t" and (ord(c) < 0x20 or ord(c) == 0x7F) for c in value):
                 raise CommandError(
                     ErrorCode.INVALID_ARGS,
-                    f"{label} can't contain newlines or null characters.",
+                    f"{label} can't contain control characters.",
                 )
 
         loop = asyncio.get_running_loop()
@@ -193,18 +197,29 @@ def _replace_or_append_secret(content: str, key: str, value: str) -> str:
     """
     Set ``key`` to ``value`` in YAML *content*, in place.
 
-    Replaces the value on the first line whose key matches; if no
-    such line exists, appends ``key: "value"`` at the end (with a
-    trailing newline if needed). Comments and other lines are
-    untouched.
+    Replaces the value on **every** line whose key matches — a
+    duplicated key in ``secrets.yaml`` is malformed (PyYAML keeps
+    only the last on read), but writing only the first match
+    would leave the stale duplicate as the live value and
+    onboarding would stay PENDING after a "successful" save. If
+    no line matches, appends ``key: "value"`` at the end with a
+    trailing newline. Comments on other lines (and any inline
+    ``# …`` trailing the matched ``key:`` line) are dropped from
+    the rewritten line — secrets.yaml is conventionally
+    comment-free on credential lines, but flagged here so a
+    future caller wanting full-fidelity round-trip knows to
+    reach for a structured YAML editor instead.
     """
     encoded = _quote_yaml_string(value)
     lines = content.split("\n")
+    matched = False
     for i, line in enumerate(lines):
         m = _SECRET_LINE_RE.match(line)
         if m and m.group(2) == key:
             lines[i] = f"{m.group(1)}{key}: {encoded}"
-            return "\n".join(lines)
+            matched = True
+    if matched:
+        return "\n".join(lines)
     # Append. Make sure we don't double a trailing newline.
     if not content.endswith("\n"):
         content = content + "\n"

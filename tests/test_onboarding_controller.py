@@ -9,6 +9,7 @@ init chain (mirrors the pattern from ``test_config_controller``).
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -228,7 +229,11 @@ async def test_mark_acknowledged_does_not_downgrade_a_higher_stored_version(
     already done.
     """
     future = UserPreferences(onboarding_completed_version=ONBOARDING_VERSION + 5)
-    save_preferences(tmp_path, future)
+    # ``save_preferences`` does sync filesystem I/O that ``blockbuster``
+    # rejects when called inline from an async test. Hop to an executor
+    # so we behave like the controller does in production.
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, save_preferences, tmp_path, future)
     controller = _make_controller(tmp_path)
     state = await controller.mark_acknowledged()
     assert state.completed_version == ONBOARDING_VERSION + 5
@@ -242,7 +247,14 @@ async def test_mark_acknowledged_does_not_downgrade_a_higher_stored_version(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "ssid",
-    ["My\nNetwork", "My\rNetwork", "My\x00Network"],
+    [
+        "My\nNetwork",
+        "My\rNetwork",
+        "My\x00Network",
+        "My\x07Network",  # BEL — would silently break PyYAML round-trip
+        "My\x1bNetwork",  # ESC
+        "My\x7fNetwork",  # DEL
+    ],
 )
 async def test_set_wifi_credentials_rejects_newlines_in_ssid(tmp_path: Path, ssid: str) -> None:
     r"""Reject newline / NUL injection in the SSID input.
@@ -253,7 +265,7 @@ async def test_set_wifi_credentials_rejects_newlines_in_ssid(tmp_path: Path, ssi
     ``secrets.yaml``.
     """
     controller = _make_controller(tmp_path)
-    with pytest.raises(CommandError, match="newlines or null"):
+    with pytest.raises(CommandError, match="control character"):
         await controller.set_wifi_credentials(ssid=ssid, password="p")
 
 
@@ -262,8 +274,49 @@ async def test_set_wifi_credentials_rejects_newlines_in_password(
     tmp_path: Path,
 ) -> None:
     controller = _make_controller(tmp_path)
-    with pytest.raises(CommandError, match="newlines or null"):
+    with pytest.raises(CommandError, match="control character"):
         await controller.set_wifi_credentials(ssid="MyAP", password="p\nass")
+
+
+@pytest.mark.asyncio
+async def test_set_wifi_credentials_allows_tab_in_value(tmp_path: Path) -> None:
+    """Allow TAB through — don't over-block.
+
+    TAB is the one control character ESPHome's
+    ``cv.string_strict`` accepts.
+    """
+    controller = _make_controller(tmp_path)
+    state = await controller.set_wifi_credentials(ssid="MyAP", password="hunter\t2")
+    assert state.steps[0].status == OnboardingStepStatus.DONE
+
+
+@pytest.mark.asyncio
+async def test_set_wifi_credentials_rewrites_duplicate_keys(
+    tmp_path: Path,
+) -> None:
+    """Malformed `secrets.yaml` with the same key twice ⇒ rewrite both.
+
+    Whether the resulting file then re-parses cleanly depends on
+    the YAML loader's duplicate-key handling (PyYAML's default
+    rejects duplicates outright, ruamel takes the last). What we
+    can guarantee here is that the rewrite touches **every**
+    occurrence of the key — leaving a stale duplicate behind
+    would mean the new value never wins on the readers that *do*
+    accept duplicates.
+    """
+    _write_secrets(
+        tmp_path,
+        'wifi_ssid: "old1"\nwifi_password: "p"\nwifi_ssid: "old2"\n',
+    )
+    controller = _make_controller(tmp_path)
+    await controller.set_wifi_credentials(ssid="MyAP", password="p")
+    content = (tmp_path / "secrets.yaml").read_text()
+    # Both lines were overwritten — no stale ``wifi_ssid: "old…"``
+    # left behind to override the new value on a reader that
+    # silently picks the last occurrence.
+    assert "old1" not in content
+    assert "old2" not in content
+    assert content.count('wifi_ssid: "MyAP"') == 2
 
 
 # ---------------------------------------------------------------------------
