@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,7 @@ def test_atomic_write_cleans_up_tempfile_on_error(
     assert not list(tmp_path.glob("demo.bin.*.tmp"))
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
 def test_atomic_write_applies_mode(tmp_path: Path) -> None:
     """The ``mode`` kwarg lands on the destination file."""
     target = tmp_path / "demo.bin"

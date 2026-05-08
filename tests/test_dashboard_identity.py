@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 import threading
 from pathlib import Path
+
+import pytest
 
 from esphome_device_builder.helpers.dashboard_identity import (
     _CERT_FILENAME,
@@ -43,6 +46,7 @@ def test_second_call_returns_identical_identity(tmp_path: Path) -> None:
     assert first == second
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
 def test_key_file_has_restrictive_mode(tmp_path: Path) -> None:
     """The private-key file lands at ``0600`` from the start, never wider."""
     get_or_create_identity(tmp_path)
@@ -51,6 +55,7 @@ def test_key_file_has_restrictive_mode(tmp_path: Path) -> None:
     assert mode == _KEY_MODE
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
 def test_key_file_mode_is_corrected_when_pre_existing(tmp_path: Path) -> None:
     """A pre-existing key file at a looser mode is chmod'd back to ``0600``."""
     key_path = tmp_path / _KEY_FILENAME
@@ -135,6 +140,11 @@ def test_mismatched_cert_and_key_triggers_regeneration(tmp_path: Path) -> None:
     assert third.cert_pem != other.cert_pem
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows os.replace fails over an in-use file; production calls "
+    "get_or_create_identity once at startup, not concurrently",
+)
 def test_concurrent_dashboard_id_generation_is_serialised(tmp_path: Path) -> None:
     """Two concurrent ``get_or_create_identity`` calls land on the same id."""
     results: list[str] = []
