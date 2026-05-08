@@ -70,12 +70,13 @@ class RemoteBuildPeer(DataClassORJSONMixin):
       ``desktop.local.``); ``addresses`` is the parsed A / AAAA
       list with IPv6 scope preserved; versions come from TXT.
     * ``source=MANUAL`` — user-supplied via
-      ``remote_build/add_manual_host``. ``name`` derived from the
-      hostname (leftmost label so the UI can render it consistently
-      with mDNS rows); ``hostname`` is the user-entered string;
-      ``port`` is the user-entered port; ``addresses`` is empty
-      and version fields are blank until phase 4 attempts the
-      connection.
+      ``remote_build/add_manual_host``. ``name`` is the full
+      hostname verbatim (NOT the leftmost label) so an IP-only
+      entry like ``192.168.1.10`` reads sensibly in the UI rather
+      than truncating to ``"192"``; ``hostname`` is the same
+      user-entered string, ``port`` is the user-entered port;
+      ``addresses`` is empty and version fields are blank until
+      phase 4 attempts the connection.
 
     Phase 2 stops at discovery + manual entry; pairing / connection
     / fingerprint pinning lands in later phases.
