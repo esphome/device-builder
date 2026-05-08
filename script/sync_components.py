@@ -1600,6 +1600,7 @@ def build_component_entry(
     introspection = introspect_component(stem if domain else top_key)
     _apply_platform_defaults(config_entries, introspection.get("platform_defaults") or {})
     _apply_platform_constraints(config_entries, introspection.get("platform_constraints") or {})
+    _apply_field_ranges(config_entries, introspection.get("field_ranges") or {})
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
     _apply_unit_of_measurement_options(config_entries)
 
@@ -2450,11 +2451,17 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         for path, plats in _collect_platform_constraints(platform_manifest).items():
             platform_constraints.setdefault(path, plats)
 
+    field_ranges = _collect_field_ranges(manifest)
+    for platform_manifest in platform_manifests:
+        for path, bounds in _collect_field_ranges(platform_manifest).items():
+            field_ranges.setdefault(path, bounds)
+
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
         "is_target_platform": bool(getattr(manifest, "is_target_platform", False)),
         "platform_defaults": _collect_platform_defaults(manifest),
         "platform_constraints": platform_constraints,
+        "field_ranges": field_ranges,
         "refined_types": refined_types,
         "auto_load": auto_load,
     }
@@ -3279,6 +3286,102 @@ def _apply_platform_constraints(
         constraint = constraints.get(path)
         if constraint:
             entry["supported_platforms"] = list(constraint)
+
+    _walk_catalog_entries(entries, visit)
+
+
+def _numeric_range_bounds(node: Any) -> tuple[int | float, int | float] | None:
+    """
+    Return ``(min, max)`` for a field's value validator, or ``None``.
+
+    Walks ``vol.All`` chains collecting every ``vol.Range`` along the
+    way and intersects them — ``cv.positive_int`` is itself
+    ``cv.All(cv.int_, cv.Range(min=0))``, so a field declared as
+    ``cv.All(cv.positive_int, cv.Range(min=1, max=15))`` must
+    intersect both ranges to recover the tighter bound the user
+    actually sees at compile time.
+
+    Only emits when both bounds resolve to numeric (``int`` /
+    ``float``) values:
+
+    - ``vol.Range(min=1, max=15)`` → ``(1, 15)`` — surfaced.
+    - ``vol.Range(min=0)`` (max unbounded) → ``None``, emit nothing
+      so the data-type's natural bounds (or none) win.
+    - ``vol.Range(max=TimePeriod(microseconds=4294967295))`` →
+      ``None``, the wire format is numeric only.
+
+    The schema bundle's ``data_type`` field surfaces this for fixed-
+    width integers (``uint8_t`` → ``[0, 255]``) but not for
+    ``positive_int`` chained with a ``cv.Range(...)``, which is the
+    bluetooth_proxy.connection_slots case (issue #422-adjacent — the
+    visual editor accepts any positive integer because the
+    ``cv.Range(min=1, max=15)`` is dropped from the bundle).
+    """
+    mins: list[int | float] = []
+    maxes: list[int | float] = []
+
+    def collect(n: Any, depth: int = 0) -> None:
+        if depth > 8:
+            return
+        if isinstance(n, vol.Range):
+            if isinstance(n.min, (int, float)) and not isinstance(n.min, bool):
+                mins.append(n.min)
+            if isinstance(n.max, (int, float)) and not isinstance(n.max, bool):
+                maxes.append(n.max)
+            return
+        if isinstance(n, vol.All):
+            for child in n.validators:
+                collect(child, depth + 1)
+
+    collect(node)
+    if not mins or not maxes:
+        return None
+    return (max(mins), min(maxes))
+
+
+def _collect_field_ranges(
+    manifest: Any,
+) -> dict[tuple[str, ...], tuple[int | float, int | float]]:
+    """
+    Walk the live ``CONFIG_SCHEMA`` for per-field ``vol.Range`` bounds.
+
+    Returns ``{key_path: (min, max)}`` for fields whose validator
+    chain produces a fully-bounded numeric range. Empty dict when
+    the component has no schema.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+
+    out: dict[tuple[str, ...], tuple[int | float, int | float]] = {}
+
+    def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
+        bounds = _numeric_range_bounds(val)
+        if bounds is not None:
+            out[path] = bounds
+
+    _walk_schema_keys(schema, visit)
+    return out
+
+
+def _apply_field_ranges(
+    entries: list[dict],
+    ranges: dict[tuple[str, ...], tuple[int | float, int | float]],
+) -> None:
+    """Overlay schema-derived ``range`` bounds onto matching entries.
+
+    Live-introspected bounds are more specific than the static
+    ``data_type`` defaults (e.g. ``uint8_t``'s ``[0, 255]``), so
+    they override an existing range when present. The frontend's
+    numeric input uses the bound to clamp / validate.
+    """
+    if not ranges:
+        return
+
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        bounds = ranges.get(path)
+        if bounds is not None:
+            entry["range"] = list(bounds)
 
     _walk_catalog_entries(entries, visit)
 
