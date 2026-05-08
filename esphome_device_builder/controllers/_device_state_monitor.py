@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Callable
+from functools import lru_cache
 from operator import attrgetter
 from typing import Any
 
@@ -216,10 +217,51 @@ def _http_url_from_service_info(device_name: str, info: AsyncServiceInfo) -> str
     return f"http://{host}{'' if port == 80 else f':{port}'}"
 
 
-def _decode_mdns_txt_records(
-    txt_dns_records: list[Any],
-    service_name: str,
-) -> dict[str, str]:
+@lru_cache(maxsize=256)
+def _decode_txt_bytes_to_sorted_pairs(txt_bytes: bytes) -> tuple[tuple[str, str], ...]:
+    """
+    Bytes-keyed memoised TXT decode — the reusable hot path.
+
+    The reachability snapshot fires on every observation; for a
+    50-device fleet with the drawer open that's ~50 calls/sec
+    against a ``DNSText`` cache where each device's TXT bytes
+    rarely change between firmware flashes. The decode itself
+    (``ServiceInfo.text`` setter → ``decoded_properties`` →
+    sort + filter) costs about an allocation-heavy 50µs per call;
+    keying on the immutable raw bytes turns 49 of every 50 of
+    those calls into hash-table lookups.
+
+    Returns an immutable ``tuple[tuple[str, str], ...]`` rather
+    than a dict so a downstream caller mutating the result can't
+    poison subsequent cache hits. Callers materialise a fresh
+    dict via ``dict(pairs)``.
+
+    Bytes are content-addressed: two devices broadcasting
+    byte-identical TXT payloads share a cache entry, which is
+    correct (the decoded output is the same).
+
+    ``maxsize=256`` covers fleet sizes well past the typical
+    tens-to-low-hundreds, with headroom for a device that
+    re-broadcasts a slightly different TXT payload (firmware
+    upgrade, ``config_hash`` change) without immediately
+    evicting another device's stable entry. Still bounded so a
+    long-running dashboard with rotating device names can't grow
+    the cache without limit.
+    """
+    # ``service_name`` is required by the ctor but doesn't affect
+    # ``set_text`` parsing — pass a placeholder so the cache key
+    # stays bytes-only.
+    info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"_decode.{_ESPHOME_SERVICE_TYPE}")
+    info.text = txt_bytes
+    decoded = info.decoded_properties
+    return tuple(
+        (key, decoded[key] if isinstance(decoded[key], str) else "")
+        for key in sorted(decoded)
+        if isinstance(key, str)
+    )
+
+
+def _decode_mdns_txt_records(txt_dns_records: list[Any]) -> dict[str, str]:
     """
     Decode the freshest cached ``DNSText`` record into a sorted ``key=value`` dict.
 
@@ -250,6 +292,12 @@ def _decode_mdns_txt_records(
     consumers dedupe with plain equality / ``JSON.stringify``
     instead of comparing dicts set-wise.
 
+    The actual bytes-to-dict decode is delegated to
+    ``_decode_txt_bytes_to_sorted_pairs`` so consecutive calls
+    with the same TXT bytes reuse the cached result — typical
+    for a stable fleet where each device's TXT rarely changes
+    between firmware flashes.
+
     Returns ``{}`` when no TXT records are passed or the freshest
     record's ``text`` attribute is missing / not bytes-like.
     """
@@ -259,14 +307,7 @@ def _decode_mdns_txt_records(
     txt_bytes = latest_txt.text
     if not isinstance(txt_bytes, (bytes, bytearray)):
         return {}
-    info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, service_name)
-    info.text = bytes(txt_bytes)
-    decoded = info.decoded_properties
-    return {
-        key: decoded[key] if isinstance(decoded[key], str) else ""
-        for key in sorted(decoded)
-        if isinstance(key, str)
-    }
+    return dict(_decode_txt_bytes_to_sorted_pairs(bytes(txt_bytes)))
 
 
 def device_name_from_service(service_name: str) -> str:
@@ -639,7 +680,7 @@ class DeviceStateMonitor:
         return MdnsCacheInfo(
             age_seconds=age_s,
             ttl_remaining_seconds=ttl_remaining_s,
-            txt_records=_decode_mdns_txt_records(txt_dns_records, service_name),
+            txt_records=_decode_mdns_txt_records(txt_dns_records),
         )
 
     def _apply_resolved_addresses(

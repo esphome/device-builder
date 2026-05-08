@@ -42,6 +42,7 @@ from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR, _TYPE_TXT
 import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
+    _decode_txt_bytes_to_sorted_pairs,
 )
 from esphome_device_builder.controllers._reachability_tracker import (
     MdnsCacheInfo,
@@ -658,6 +659,55 @@ def test_get_mdns_cache_info_keeps_empty_value_keys_visible() -> None:
         }
     finally:
         zc.close()
+
+
+def test_decode_txt_bytes_to_sorted_pairs_caches_by_bytes() -> None:
+    """
+    Repeat calls with identical bytes hit the LRU cache, not the decoder.
+
+    The reachability snapshot fires on every observation; for a
+    50-device fleet that's potentially ~50 calls/sec into the
+    decoder. Each device's TXT bytes rarely change between
+    firmware flashes, so the bytes are a near-perfect cache key.
+    Pin the contract: a second call with the same ``bytes``
+    object lands in the cache (``hits`` advances, ``misses``
+    doesn't) and returns the same tuple instance — and a caller
+    can't poison the cache by mutating their dict copy of the
+    tuple, because the cached tuple is itself immutable.
+    """
+    txt_payload = b"".join(
+        bytes([len(e)]) + e for e in (b"version=1", b"mac=aa", b"api_encryption=Noise")
+    )
+    # Reset the cache so previous tests' entries don't shift the
+    # hit / miss counts we're asserting on.
+    _decode_txt_bytes_to_sorted_pairs.cache_clear()
+
+    first = _decode_txt_bytes_to_sorted_pairs(txt_payload)
+    second = _decode_txt_bytes_to_sorted_pairs(txt_payload)
+
+    # Same tuple instance — the cache returned the memoised value.
+    assert first is second
+    # Sorted, with empty-value preserved as ``""``.
+    assert first == (
+        ("api_encryption", "Noise"),
+        ("mac", "aa"),
+        ("version", "1"),
+    )
+
+    info = _decode_txt_bytes_to_sorted_pairs.cache_info()
+    assert info.misses == 1
+    assert info.hits == 1
+
+    # A different payload misses cache; identical-content bytes
+    # objects with different identity still hit (cache key is
+    # value-equality on bytes, not identity).
+    other = b"".join(bytes([len(e)]) + e for e in (b"foo=bar",))
+    _decode_txt_bytes_to_sorted_pairs(other)
+    assert _decode_txt_bytes_to_sorted_pairs.cache_info().misses == 2
+
+    same_content_different_object = bytes(txt_payload)  # forces a new bytes object
+    third = _decode_txt_bytes_to_sorted_pairs(same_content_different_object)
+    assert third is first  # value-equal bytes hit the same cache slot
 
 
 def test_get_mdns_cache_info_no_txt_records_returns_empty_mapping() -> None:
