@@ -518,6 +518,90 @@ def test_get_mdns_cache_info_decodes_txt_records() -> None:
         zc.close()
 
 
+def test_get_mdns_cache_info_sorts_txt_records_for_wire_stability() -> None:
+    """
+    Identical TXT content in any input order produces the same dict.
+
+    The reachability subscription pushes one snapshot per
+    observation. If the backend's TXT decode walked the cached
+    bytes in the order zeroconf decoded them — which can shift
+    on a fresh announce, or if zeroconf rebuilds the cached
+    entry — every reorder would surface as a "different"
+    snapshot. Downstream consumers (dedupe layers, the
+    frontend's per-device renderer) would either churn or have
+    to compare dicts set-wise. Sorting at the source keeps the
+    wire deterministic. Pin the contract via two devices whose
+    TXT byte payloads carry the same key/value pairs in
+    different orders and assert ``info.txt_records`` round-trips
+    to the same dict.
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        # Same payload, different bytes order. After decoding
+        # both should land in the same dict shape on the wire.
+        ascending = b"".join(
+            bytes([len(e)]) + e
+            for e in (
+                b"api_encryption=Noise",
+                b"config_hash=abc",
+                b"mac=aa",
+                b"version=1",
+            )
+        )
+        descending = b"".join(
+            bytes([len(e)]) + e
+            for e in (
+                b"version=1",
+                b"mac=aa",
+                b"config_hash=abc",
+                b"api_encryption=Noise",
+            )
+        )
+
+        a_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 2_000,
+        )
+        zc.cache.async_add_records([a_rec])
+        monitor = _make_monitor([_make_device()], None)
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        snapshots: list[dict[str, str]] = []
+        for payload, age_offset in ((ascending, 4_000), (descending, 1_000)):
+            txt_rec = DNSText(
+                name="kitchen._esphomelib._tcp.local.",
+                type_=_TYPE_TXT,
+                class_=_CLASS_IN,
+                ttl=120,
+                text=payload,
+                created=current_time_millis() - age_offset,
+            )
+            zc.cache.async_add_records([txt_rec])
+            info = monitor.get_mdns_cache_info("kitchen")
+            assert info is not None
+            snapshots.append(dict(info.txt_records))
+
+        # Both decoded snapshots are byte-identical when iterated
+        # — same keys, same values, same order. Without the sort
+        # they'd carry the bytes-order from the raw TXT payload
+        # and the second snapshot would differ from the first.
+        assert snapshots[0] == snapshots[1]
+        assert list(snapshots[0].items()) == list(snapshots[1].items())
+        # And they're actually sorted, not just stable.
+        assert list(snapshots[0]) == [
+            "api_encryption",
+            "config_hash",
+            "mac",
+            "version",
+        ]
+    finally:
+        zc.close()
+
+
 def test_get_mdns_cache_info_keeps_empty_value_keys_visible() -> None:
     """
     Bare keys and ``key=`` empty-value entries surface as ``""``.

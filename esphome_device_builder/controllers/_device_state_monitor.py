@@ -614,9 +614,25 @@ class DeviceStateMonitor:
                 # the upstream ``api_encryption`` tri-state already
                 # uses for "device confirmed plaintext" — see issue
                 # #437.
+                #
+                # Build the dict with sorted keys so the wire output
+                # is order-stable across snapshots. zeroconf's
+                # ``decoded_properties`` preserves insertion order
+                # from the raw TXT bytes, which can shift when a
+                # device re-announces (or zeroconf rebuilds the
+                # cached entry) without any of the values actually
+                # changing. A naive insertion-order pass would
+                # surface those reorderings as "different"
+                # snapshots — bloating the per-device subscription
+                # stream and forcing dedupe layers to compare dicts
+                # set-wise instead of structurally. Sorting once
+                # here keeps the wire deterministic and lets
+                # downstream consumers compare with plain
+                # equality / ``JSON.stringify``.
+                decoded = info.decoded_properties
                 txt_records = {
-                    key: value if isinstance(value, str) else ""
-                    for key, value in info.decoded_properties.items()
+                    key: decoded[key] if isinstance(decoded[key], str) else ""
+                    for key in sorted(decoded)
                     if isinstance(key, str)
                 }
         return MdnsCacheInfo(
