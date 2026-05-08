@@ -1,5 +1,5 @@
 """
-Remote-build feature — peer dashboard discovery + settings.
+Remote-build feature; peer dashboard discovery + settings.
 
 Phase 2 / 2b of issue #106. Browses ``_esphomebuilder._tcp.local.``
 to list other dashboards reachable on the LAN; persists the
@@ -14,16 +14,16 @@ Phase 2 / 2b stops at discovery + settings storage:
   lands the auth middleware + cert).
 * No pairing or peer-link WS yet (phase 4 / phase 5).
 * The ``enabled`` setting is persisted but not wired to any
-  endpoint registration — flipping it currently has no observable
+  endpoint registration; flipping it currently has no observable
   effect beyond round-tripping in the settings UI. That's
   deliberate scaffolding so phase 3+ have a place to plug in.
-* Manual hosts have no version / fingerprint resolution — they
+* Manual hosts have no version / fingerprint resolution; they
   land in ``list_hosts`` with empty ``server_version`` /
   ``esphome_version`` until phase 4 attempts the connection.
 
 Browser uses the existing ``AsyncEsphomeZeroconf`` instance owned by
-:class:`~esphome_device_builder.controllers._device_state_monitor.DeviceStateMonitor`
-— the dashboard ships one mDNS responder per process, and this
+:class:`~esphome_device_builder.controllers._device_state_monitor.DeviceStateMonitor`,
+so the dashboard ships one mDNS responder per process and this
 controller adds a second :class:`~zeroconf.asyncio.AsyncServiceBrowser`
 on the same instance for the new service type. The state monitor's
 own browsers (``_esphomelib._tcp.local.`` for devices,
@@ -62,7 +62,7 @@ _LOGGER = logging.getLogger(__name__)
 # container) that may be a few hops further away on the LAN than
 # an ESPHome device, and the user-visible cost of a slow first
 # discovery is "the peer doesn't appear in Settings for a few
-# seconds" — not the device-state miss the shorter timeout
+# seconds"; not the device-state miss the shorter timeout
 # protects against.
 _RESOLVE_TIMEOUT_MS = 3000
 
@@ -87,7 +87,7 @@ def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPee
     Uses ``parsed_scoped_addresses(IPVersion.All)`` rather than
     ``parsed_addresses()`` so IPv6 link-local entries keep their
     ``%<interface>`` scope suffix. Without the scope, an
-    ``fe80::xxx`` address parses but isn't connectable — the OS
+    ``fe80::xxx`` address parses but isn't connectable; the OS
     needs to know which interface to send the packet out on.
     Mirrors the choice already made in
     :class:`DeviceStateMonitor` (line 901).
@@ -114,7 +114,7 @@ def _peer_from_manual_host(entry: ManualHost) -> RemoteBuildPeer:
     """
     Build a :class:`RemoteBuildPeer` from a stored :class:`ManualHost`.
 
-    Manual hosts skip resolution — phase 2b just surfaces the
+    Manual hosts skip resolution; phase 2b just surfaces the
     user-entered ``(hostname, port)`` so the frontend can render
     the row alongside mDNS-discovered ones. Phase 4 attempts the
     actual connection and fills the version fields.
@@ -138,7 +138,7 @@ def _validate_hostname(raw: object) -> str:
 
     Rejects non-string and empty / whitespace-only input with
     :class:`CommandError(INVALID_ARGS)`. Lowercase normalisation
-    matches the duplicate-check semantics — hostnames are
+    matches the duplicate-check semantics; hostnames are
     case-insensitive per RFC 1035 §2.3.3, so ``Desktop.local`` and
     ``desktop.local`` should be the same entry. Phase 4 attempts
     the actual connection (and discovers DNS / TLS validity); phase
@@ -161,7 +161,7 @@ def _validate_port(raw: object) -> int:
     Validate a user-entered port number.
 
     ``bool`` is rejected even though ``isinstance(True, int)`` is
-    true — accepting ``True`` for a port number is a footgun
+    true; accepting ``True`` for a port number is a footgun
     (silently coerces to 1, which IANA reserves for tcpmux).
     Range is the IANA-registered ephemeral plus
     well-known: 1-65535.
@@ -193,17 +193,17 @@ class RemoteBuildController:
         # garbage collector can't reap them mid-await.
         self._tasks: set[asyncio.Task[None]] = set()
         # The mDNS service-instance name our own ``DashboardAdvertiser``
-        # publishes — captured at start so we can filter our own
+        # publishes; captured at start so we can filter our own
         # broadcast out of the discovered list. ``None`` when the
-        # advertiser was skipped (HA addon mode, zeroconf failed) —
-        # in that case there's nothing to filter.
+        # advertiser was skipped (HA addon mode, zeroconf failed),
+        # in which case there's nothing to filter.
         self._own_instance_name: str | None = None
 
     async def start(self) -> None:
         """
         Wire the browser onto the shared zeroconf and capture self-name.
 
-        No-op when zeroconf failed to start — peer discovery is a
+        No-op when zeroconf failed to start; peer discovery is a
         nice-to-have, not load-bearing, and the controller stays in
         a "no peers, never will be" state until the next dashboard
         restart. Same fail-soft contract as
@@ -214,13 +214,13 @@ class RemoteBuildController:
             return
         zeroconf = self._db.devices.zeroconf
         if zeroconf is None:
-            _LOGGER.debug("zeroconf unavailable — remote-build discovery disabled")
+            _LOGGER.debug("zeroconf unavailable; remote-build discovery disabled")
             return
         # Capture own service-instance name so our own advertise
         # doesn't show up in ``list_hosts``. Reads through the
         # public ``service_instance_name`` accessor on
         # ``DashboardAdvertiser`` rather than reaching into
-        # ``_info`` — keeps this controller decoupled from the
+        # ``_info``; keeps this controller decoupled from the
         # advertiser's private layout.
         advertiser = self._db._dashboard_advertiser
         if advertiser is not None:
@@ -229,7 +229,7 @@ class RemoteBuildController:
         # the underlying socket got torn down between
         # ``DeviceStateMonitor.start`` and now, or the cache is in an
         # unexpected state) doesn't abort dashboard startup. Peer
-        # discovery is fail-soft — same contract as the advertise.
+        # discovery is fail-soft; same contract as the advertise.
         try:
             self._browser = AsyncServiceBrowser(
                 zeroconf.zeroconf,
@@ -237,7 +237,7 @@ class RemoteBuildController:
                 handlers=[self._on_service_state_change],
             )
         except Exception:
-            _LOGGER.exception("Could not start remote-build browser — peer discovery disabled")
+            _LOGGER.exception("Could not start remote-build browser; peer discovery disabled")
             self._browser = None
 
     async def stop(self) -> None:
@@ -267,7 +267,7 @@ class RemoteBuildController:
         state_change: ServiceStateChange,
     ) -> None:
         """
-        Browser callback — resolve the service info and update the peer map.
+        Browser callback; resolve the service info and update the peer map.
 
         Filters our own service-instance name so the advertise we
         publish doesn't show up in ``list_hosts``. ``Removed`` events
@@ -319,7 +319,7 @@ class RemoteBuildController:
         Manual hosts are placed AFTER mDNS hits so the UI's
         primary content is the auto-discovered list. A
         manually-added entry that's also reachable via mDNS shows
-        up twice for now (once per source) — phase 4's pairing
+        up twice for now (once per source); phase 4's pairing
         flow will introduce the deduplication logic alongside the
         actual connection attempt.
         """
@@ -347,8 +347,8 @@ class RemoteBuildController:
         Run ``mutator`` against the current settings and persist the result.
 
         Wraps :func:`remote_build_settings_transaction` so the
-        whole read-modify-write happens under the metadata lock —
-        two concurrent callers can't both read the same starting
+        whole read-modify-write happens under the metadata lock,
+        so two concurrent callers can't both read the same starting
         value and have the second save wipe the first's change.
         Runs in the default executor since the transaction does
         blocking JSON I/O.
@@ -357,7 +357,7 @@ class RemoteBuildController:
         and is expected to mutate it in place. A
         :class:`CommandError` raised inside the mutator (e.g.
         duplicate-detection on add) propagates out and discards
-        the pending write — same exception-on-discard contract as
+        the pending write; same exception-on-discard contract as
         :func:`metadata_transaction`.
         """
 
@@ -375,11 +375,11 @@ class RemoteBuildController:
         Persist the receiver-side ``enabled`` master switch.
 
         Read-modify-write so manual hosts and any future phase-3+
-        fields stay intact — a client toggling just ``enabled``
+        fields stay intact; a client toggling just ``enabled``
         doesn't reset every other field to its default.
 
         Validates ``enabled`` is strictly a ``bool`` rather than
-        coercing truthiness — a client sending the string ``"false"``
+        coercing truthiness; a client sending the string ``"false"``
         for example would otherwise persist as ``True``, which is
         the opposite of what the user intended on a security-
         sensitive toggle.
@@ -406,10 +406,11 @@ class RemoteBuildController:
 
         Validates ``hostname`` (non-empty string, normalised to
         lowercase per RFC 1035 §2.3.3) and ``port`` (integer,
-        1-65535). Rejects duplicates by ``(hostname, port)`` —
-        adding the same pair twice raises ``INVALID_ARGS`` rather
-        than silently no-op'ing so the user gets feedback that the
-        entry already existed.
+        1-65535). Rejects duplicates by ``(hostname, port)``:
+        adding the same pair twice raises ``ALREADY_EXISTS`` so
+        the frontend can render a "this dashboard is already in
+        your list" message without string-matching the details
+        field.
 
         Returns the post-write settings so the caller can re-render
         the manual-hosts list without a separate ``get_settings``
@@ -422,7 +423,7 @@ class RemoteBuildController:
             for entry in settings.manual_hosts:
                 if entry.hostname == host and entry.port == port_num:
                     msg = f"manual host {host}:{port_num} is already registered"
-                    raise CommandError(ErrorCode.INVALID_ARGS, msg)
+                    raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
             settings.manual_hosts.append(ManualHost(hostname=host, port=port_num))
 
         return await self._modify_settings(_add)

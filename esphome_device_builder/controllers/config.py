@@ -545,7 +545,7 @@ def remote_build_settings_transaction(
     pending mutation.
 
     Use this whenever an operation "depends on the current state
-    to compute the next state" — add / remove a manual host, flip
+    to compute the next state": add / remove a manual host, flip
     ``enabled`` while preserving the rest. A bare ``load + save``
     pair is racy because two concurrent callers can both read the
     same starting value and the second save wipes the first's

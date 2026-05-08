@@ -464,7 +464,7 @@ async def test_stop_drains_resolve_tasks() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2b — manual hosts
+# Phase 2b: manual hosts
 # ---------------------------------------------------------------------------
 
 
@@ -516,7 +516,7 @@ def test_peer_from_manual_host_uses_manual_source() -> None:
     assert peer.name == "192.168.1.10"
     assert peer.hostname == "192.168.1.10"
     assert peer.port == 6052
-    # Version fields stay blank — phase 4 fills them in via the
+    # Version fields stay blank; phase 4 fills them in via the
     # actual connection attempt.
     assert peer.server_version == ""
     assert peer.esphome_version == ""
@@ -537,16 +537,18 @@ async def test_add_manual_host_persists_and_returns_settings(tmp_path: Any) -> N
 @pytest.mark.asyncio
 async def test_add_manual_host_rejects_duplicate(tmp_path: Any) -> None:
     """
-    A second add of the same ``(hostname, port)`` raises ``INVALID_ARGS``.
+    A second add of the same ``(hostname, port)`` raises ``ALREADY_EXISTS``.
 
-    The user gets feedback that the entry already existed rather
-    than a silent no-op.
+    Distinct from ``INVALID_ARGS`` so the frontend can show a
+    "this dashboard is already in your list" message without
+    string-matching the details field. The user gets feedback
+    that the entry already existed rather than a silent no-op.
     """
     controller = _make_controller(config_dir=tmp_path)
     await controller.add_manual_host(hostname="desktop.local", port=6052)
     with pytest.raises(CommandError) as exc:
         await controller.add_manual_host(hostname="desktop.local", port=6052)
-    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert exc.value.code == ErrorCode.ALREADY_EXISTS
 
 
 @pytest.mark.asyncio
@@ -563,7 +565,7 @@ async def test_add_manual_host_keeps_enabled_intact(tmp_path: Any) -> None:
     """
     Adding a manual host doesn't reset ``enabled``.
 
-    Pin the read-modify-write semantics — without it,
+    Pin the read-modify-write semantics. Without it,
     ``set_settings(enabled=True)`` followed by
     ``add_manual_host(...)`` would silently flip ``enabled`` back
     to ``False``.
