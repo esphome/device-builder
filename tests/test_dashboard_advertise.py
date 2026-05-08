@@ -213,6 +213,27 @@ def test_local_addresses_skips_unparseable_strings(monkeypatch: pytest.MonkeyPat
     assert _local_addresses() == ["192.168.1.10"]
 
 
+def test_local_addresses_deduplicates_repeated_ips(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The same IP appearing on multiple adapters lands in the result once.
+
+    A duplicate would inflate the published A/AAAA list and worse,
+    if the duplicate flickered between two enumerations (one
+    interface up, the other down) the sorted set comparison in
+    ``refresh`` would see "different" and fire a spurious update.
+    Pin the dedup so refresh stays a true no-op when nothing
+    actually changed.
+    """
+    adapters = [
+        _adapter("en0", ips=["192.168.1.10"]),
+        _adapter("en1", ips=["192.168.1.10", "10.0.0.5"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    result = _local_addresses()
+    assert result == ["192.168.1.10", "10.0.0.5"]
+    assert len(result) == len(set(result))
+
+
 def test_local_addresses_returns_empty_when_no_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
     """No adapters at all — return an empty list, not a crash."""
     monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: [])
@@ -698,6 +719,11 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
     settings.on_ha_addon = False
     settings.port = 6052
     db = DeviceBuilder(settings)
+    # Seed ``adv`` to ``None`` so the ``finally`` block can guard
+    # against a failure in ``db.start()`` that would otherwise leave
+    # ``adv`` unbound and mask the real assertion error with an
+    # ``UnboundLocalError`` at teardown.
+    adv: object | None = None
     try:
         await db.start()
         assert len(instances) == 1
@@ -709,4 +735,5 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
         assert "esphome_version" in adv.kwargs  # type: ignore[attr-defined]
     finally:
         await db.stop()
-        adv.unregister.assert_awaited_once()  # type: ignore[attr-defined]
+        if adv is not None:
+            adv.unregister.assert_awaited_once()  # type: ignore[attr-defined]

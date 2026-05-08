@@ -154,6 +154,7 @@ def _local_addresses() -> list[str]:
        method handles that for production use; tests that call this
        function synchronously off the loop don't need to.
     """
+    seen: set[str] = set()
     out: list[str] = []
     for adapter in ifaddr.get_adapters():
         if _is_loopback_adapter(adapter):
@@ -171,13 +172,21 @@ def _local_addresses() -> list[str]:
                 continue
             if parsed.is_loopback or parsed.is_link_local:
                 continue
+            # De-duplicate while preserving discovery order: an IP
+            # bound to multiple adapters (e.g. a primary + an alias
+            # on the same NIC) would otherwise appear twice in the
+            # advertise and trigger spurious ``refresh`` updates if
+            # the duplicate flickers in/out between enumerations.
+            if addr_str in seen:
+                continue
+            seen.add(addr_str)
             out.append(addr_str)
     return out
 
 
 def _default_hostname() -> str:
     """
-    System mDNS hostname for the ``hostname`` TXT field.
+    System mDNS hostname for the ``ServiceInfo.server`` SRV target.
 
     Returns ``socket.gethostname()`` with ``.local`` appended when
     the result has no dot. Doesn't use ``socket.getfqdn()``: on
@@ -378,7 +387,7 @@ class DashboardAdvertiser:
         Re-runs :func:`_local_addresses` (via the executor — see
         :meth:`register`), compares the result against the address
         list that's currently on the wire, and calls
-        :meth:`AsyncZeroconf.async_update_service` only when the
+        :meth:`AsyncEsphomeZeroconf.async_update_service` only when the
         sorted sets differ. The no-op return path keeps callers
         free to invoke this on a tick / interface-change event
         without flooding the network with unchanged updates.
