@@ -216,6 +216,59 @@ def _http_url_from_service_info(device_name: str, info: AsyncServiceInfo) -> str
     return f"http://{host}{'' if port == 80 else f':{port}'}"
 
 
+def _decode_mdns_txt_records(
+    txt_dns_records: list[Any],
+    service_name: str,
+) -> dict[str, str]:
+    """
+    Decode the freshest cached ``DNSText`` record into a sorted ``key=value`` dict.
+
+    Reuses ``ServiceInfo.text`` setter so we get zeroconf's canonical
+    RFC-6763 split (length-prefixed UTF-8 entries → ``key=value``
+    pairs) and ``decoded_properties`` for the UTF-8 decode +
+    bad-bytes-to-``None`` handling. Skips ``load_from_cache`` so
+    tests can stub the cache with a ``MagicMock``: that helper's
+    strict ``DNSCache`` isinstance check would crash the test path,
+    and the only thing we need from the cache here is the
+    already-fetched TXT bytes.
+
+    Empty / bare-key handling: zeroconf collapses both bare keys
+    (``foo`` with no ``=``) and empty-value entries (``foo=`` with
+    ``=`` but no value) to the same ``None`` in
+    ``decoded_properties``. The diagnostic value is the same in
+    both cases — the user wants to see that the key IS present
+    even if the value is empty — so we surface those as ``""``
+    rather than dropping them. The empty string is the signal the
+    upstream ``api_encryption`` tri-state already uses for "device
+    confirmed plaintext" (issue #437) and the whole point of the
+    debug collapsible is to make those advertisements observable.
+
+    Order stability: zeroconf preserves the bytes-order of the
+    raw TXT entries, which can shift on a fresh announce or when
+    the cache rebuilds an entry. We sort by key so the wire
+    output is deterministic across snapshots, letting downstream
+    consumers dedupe with plain equality / ``JSON.stringify``
+    instead of comparing dicts set-wise.
+
+    Returns ``{}`` when no TXT records are passed or the freshest
+    record's ``text`` attribute is missing / not bytes-like.
+    """
+    if not txt_dns_records:
+        return {}
+    latest_txt = max(txt_dns_records, key=attrgetter("created"))
+    txt_bytes = getattr(latest_txt, "text", None)
+    if not isinstance(txt_bytes, (bytes, bytearray)):
+        return {}
+    info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, service_name)
+    info.text = bytes(txt_bytes)
+    decoded = info.decoded_properties
+    return {
+        key: decoded[key] if isinstance(decoded[key], str) else ""
+        for key in sorted(decoded)
+        if isinstance(key, str)
+    }
+
+
 def device_name_from_service(service_name: str) -> str:
     """Extract the device name from an mDNS service-instance name.
 
@@ -583,62 +636,10 @@ class DeviceStateMonitor:
         # — that would turn "108 seconds remaining" into 0.108
         # and render as "TTL: 0s".
         ttl_remaining_s = max(0.0, float(latest.get_remaining_ttl(now_ms)))
-        # Decode the TXT key/value pairs straight off the cached
-        # ``DNSText`` records for the drawer's debug collapsible.
-        # Reuses ``ServiceInfo.text`` setter so we get zeroconf's
-        # canonical RFC-6763 split (length-prefixed UTF-8 entries
-        # → ``key=value`` pairs) and ``decoded_properties`` for the
-        # UTF-8 decode + bad-bytes-to-``None`` handling. We skip
-        # ``load_from_cache`` here because production passes a
-        # real Zeroconf and tests stub the cache with a
-        # ``MagicMock`` — ``load_from_cache``'s strict
-        # ``DNSCache`` isinstance check would crash the test
-        # path, and the only thing we need from the cache is the
-        # already-fetched TXT bytes.
-        txt_records: dict[str, str] = {}
-        if txt_dns_records:
-            latest_txt = max(txt_dns_records, key=attrgetter("created"))
-            txt_bytes = getattr(latest_txt, "text", None)
-            if isinstance(txt_bytes, (bytes, bytearray)):
-                info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, service_name)
-                info.text = bytes(txt_bytes)
-                # ``decoded_properties`` is ``dict[str, str | None]``.
-                # ``None`` covers BOTH "bare key, no ``=``" and
-                # "``key=`` with an empty value" — zeroconf collapses
-                # the two — but the diagnostic value is the same:
-                # the user wants to see that the key IS present,
-                # even if the value is empty. Render those as
-                # ``""`` on the wire so they show up in the drawer
-                # as a key with an empty value rather than vanishing
-                # entirely. The empty-string is exactly the signal
-                # the upstream ``api_encryption`` tri-state already
-                # uses for "device confirmed plaintext" — see issue
-                # #437.
-                #
-                # Build the dict with sorted keys so the wire output
-                # is order-stable across snapshots. zeroconf's
-                # ``decoded_properties`` preserves insertion order
-                # from the raw TXT bytes, which can shift when a
-                # device re-announces (or zeroconf rebuilds the
-                # cached entry) without any of the values actually
-                # changing. A naive insertion-order pass would
-                # surface those reorderings as "different"
-                # snapshots — bloating the per-device subscription
-                # stream and forcing dedupe layers to compare dicts
-                # set-wise instead of structurally. Sorting once
-                # here keeps the wire deterministic and lets
-                # downstream consumers compare with plain
-                # equality / ``JSON.stringify``.
-                decoded = info.decoded_properties
-                txt_records = {
-                    key: decoded[key] if isinstance(decoded[key], str) else ""
-                    for key in sorted(decoded)
-                    if isinstance(key, str)
-                }
         return MdnsCacheInfo(
             age_seconds=age_s,
             ttl_remaining_seconds=ttl_remaining_s,
-            txt_records=txt_records,
+            txt_records=_decode_mdns_txt_records(txt_dns_records, service_name),
         )
 
     def _apply_resolved_addresses(

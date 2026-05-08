@@ -230,11 +230,13 @@ class ReachabilityTracker:
 
         mdns_age: float | None = None
         mdns_ttl_remaining: float | None = None
-        # ``None`` means "no TXT data" so the drawer can hide the
-        # debug section entirely; an empty dict would render the
-        # collapsible header with zero rows, which is just visual
-        # noise. Distinct from ``{}`` which is "TXT was present
-        # but had no decodable keys" (vanishingly rare in practice).
+        # ``None`` means "no TXT data the drawer should render". An
+        # empty dict would let the renderer mount a chevron with
+        # zero rows, which is just visual noise — so we collapse
+        # *both* "no TXT cached" and "TXT cached but every key
+        # decoded to nothing useful" to ``None`` here. The
+        # frontend hides the section entirely with a single
+        # null-check.
         mdns_txt_records: dict[str, str] | None = None
         if self._mdns_cache_reader is not None:
             info = self._mdns_cache_reader(name)
