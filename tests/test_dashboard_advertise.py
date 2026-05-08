@@ -16,6 +16,7 @@ multicast listener; the integration test uses the same
 
 from __future__ import annotations
 
+import asyncio
 import socket
 from unittest.mock import AsyncMock, MagicMock
 
@@ -24,11 +25,13 @@ import pytest
 from esphome_device_builder import device_builder as db_module
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.device_builder import DeviceBuilder
+from esphome_device_builder.helpers import dashboard_advertise
 from esphome_device_builder.helpers.dashboard_advertise import (
     SERVICE_TYPE,
     DashboardAdvertiser,
     _default_friendly_name,
     _default_hostname,
+    _local_addresses,
 )
 
 
@@ -76,6 +79,14 @@ def test_default_hostname_keeps_dotted(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _default_hostname() == "desktop.lan"
 
 
+def test_default_hostname_returns_empty_when_gethostname_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A blank ``gethostname`` (rare but seen on minimal containers) yields ``""``."""
+    monkeypatch.setattr(socket, "gethostname", lambda: "")
+    assert _default_hostname() == ""
+
+
 def test_default_hostname_does_not_use_getfqdn(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     The default-hostname path must NOT route through ``socket.getfqdn``.
@@ -93,6 +104,109 @@ def test_default_hostname_does_not_use_getfqdn(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(socket, "getfqdn", _boom)
     assert _default_hostname() == "host.local"
+
+
+# ---------------------------------------------------------------------------
+# _local_addresses — adapter enumeration / filtering
+# ---------------------------------------------------------------------------
+
+
+def _adapter(name: str, *, nice_name: str | None = None, ips: list[object]) -> object:
+    """Build a stand-in for an ``ifaddr.Adapter`` with the fields we read."""
+    ip_objs = [
+        type(
+            "IP",
+            (),
+            {
+                "ip": raw,
+                "network_prefix": 0,
+                "nice_name": "",
+                "is_IPv4": isinstance(raw, str),
+                "is_IPv6": isinstance(raw, tuple),
+            },
+        )()
+        for raw in ips
+    ]
+    return type(
+        "Adapter",
+        (),
+        {
+            "name": name,
+            "nice_name": nice_name or name,
+            "ips": ip_objs,
+            "index": 0,
+        },
+    )()
+
+
+def test_local_addresses_filters_loopback_interface(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The whole loopback interface is dropped, including its link-locals."""
+    adapters = [
+        _adapter(
+            "lo0",
+            ips=["127.0.0.1", ("::1", 0, 0), ("fe80::1", 0, 1)],
+        ),
+        _adapter("en0", ips=["192.168.1.10"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    assert _local_addresses() == ["192.168.1.10"]
+
+
+def test_local_addresses_filters_loopback_by_nice_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-``lo*`` adapter name still gets dropped if Windows-style 'Loopback'."""
+    adapters = [
+        _adapter(
+            "\\Device\\NPF_Loopback", nice_name="Loopback Pseudo-Interface", ips=["127.0.0.1"]
+        ),
+        _adapter("Ethernet", ips=["10.0.0.5"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    assert _local_addresses() == ["10.0.0.5"]
+
+
+def test_local_addresses_drops_link_local_ipv6(monkeypatch: pytest.MonkeyPatch) -> None:
+    """IPv6 link-local (``fe80::/10``) is dropped — wire can't carry scope_id."""
+    adapters = [
+        _adapter(
+            "en0",
+            ips=[
+                "192.168.1.10",
+                ("fe80::1234:5678:abcd:ef00", 0, 4),
+                ("2001:db8::1", 0, 0),
+                ("fdc8:d776:7cca:46ed::1", 0, 0),  # ULA — kept
+            ],
+        ),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    result = _local_addresses()
+    assert "192.168.1.10" in result
+    assert "2001:db8::1" in result
+    assert "fdc8:d776:7cca:46ed::1" in result
+    assert all("fe80" not in addr for addr in result)
+
+
+def test_local_addresses_drops_loopback_ip_on_real_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Defense in depth: a 127.x address aliased onto a real interface is dropped."""
+    adapters = [
+        _adapter("en0", ips=["192.168.1.10", "127.0.0.1"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    assert _local_addresses() == ["192.168.1.10"]
+
+
+def test_local_addresses_skips_unparseable_strings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Garbage from a flaky adapter doesn't blow up the whole walk."""
+    adapters = [
+        _adapter("en0", ips=["192.168.1.10", "not-an-ip"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    assert _local_addresses() == ["192.168.1.10"]
+
+
+def test_local_addresses_returns_empty_when_no_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No adapters at all — return an empty list, not a crash."""
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: [])
+    assert _local_addresses() == []
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +237,14 @@ def test_build_service_info_populates_txt_and_server() -> None:
 def test_build_service_info_keeps_trailing_dot_on_explicit_fqdn() -> None:
     """An already-trailing-dot hostname round-trips unchanged."""
     advertiser = _make_advertiser(name="green", hostname="green.local.")
-    info = advertiser.build_service_info()
+    info = advertiser.build_service_info(addresses=[])
     assert info.server == "green.local."
+
+
+def test_service_type_property_is_canonical() -> None:
+    """The ``service_type`` accessor returns the module-level constant."""
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    assert advertiser.service_type == SERVICE_TYPE
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +260,8 @@ def _make_zeroconf_mock() -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_register_calls_async_register_service() -> None:
+async def test_register_calls_async_register_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dashboard_advertise, "_local_addresses", lambda: ["192.168.1.10"])
     advertiser = _make_advertiser(name="green", hostname="green.local")
     zc = _make_zeroconf_mock()
     await advertiser.register(zc)
@@ -151,6 +272,38 @@ async def test_register_calls_async_register_service() -> None:
     assert info.type == SERVICE_TYPE
     assert info.port == 6052
     assert kwargs.get("allow_name_change") is True
+    # Pin the executor-fetched addresses landed on the published info.
+    assert info.parsed_addresses() == ["192.168.1.10"]
+
+
+@pytest.mark.asyncio
+async def test_register_runs_address_enumeration_in_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    ``_local_addresses`` must run on a thread, not the event loop.
+
+    ``ifaddr.get_adapters`` does blocking I/O (``/proc/net`` on Linux,
+    Win32 calls on Windows). Calling it directly on the loop would
+    stall every concurrent request and trip blockbuster on Linux CI.
+    Verify by spying on the loop's ``run_in_executor`` to confirm
+    the helper is dispatched there.
+    """
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+
+    loop = asyncio.get_running_loop()
+    real_run_in_executor = loop.run_in_executor
+    captured: list[object] = []
+
+    def _spy(executor: object, func: object, *args: object) -> object:
+        captured.append(func)
+        return real_run_in_executor(executor, func, *args)
+
+    monkeypatch.setattr(loop, "run_in_executor", _spy)
+    await advertiser.register(zc)
+    # ``_local_addresses`` is the function we expect on the executor.
+    assert dashboard_advertise._local_addresses in captured
 
 
 @pytest.mark.asyncio

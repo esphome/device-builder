@@ -43,10 +43,13 @@ mDNS feature; the dashboard advertise is a nice-to-have.
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import logging
 import socket
 from typing import TYPE_CHECKING
 
+import ifaddr
 from zeroconf import ServiceInfo
 
 if TYPE_CHECKING:
@@ -70,6 +73,89 @@ def _default_friendly_name() -> str:
     raw = socket.gethostname() or ""
     label = raw.split(".", 1)[0].strip()
     return label or "esphome-dashboard"
+
+
+def _is_loopback_adapter(adapter: ifaddr.Adapter) -> bool:
+    """
+    Return ``True`` when *adapter* is the host's loopback interface.
+
+    Matches by interface name (``lo`` / ``lo0``) rather than by
+    inspecting individual addresses: macOS configures ``fe80::1``
+    on ``lo0``, which is a real link-local address as far as
+    :mod:`ipaddress` is concerned (``is_loopback`` returns ``False``,
+    ``is_link_local`` returns ``True``) but routes to nothing
+    useful — advertising it would be misleading. Filtering the
+    interface out wholesale catches every loopback IP in one
+    place.
+    """
+    name = (adapter.name or "").lower()
+    nice = (adapter.nice_name or "").lower()
+    return name.startswith("lo") or "loopback" in nice
+
+
+def _local_addresses() -> list[str]:
+    """
+    Return the IPv4 / IPv6 addresses to advertise.
+
+    Enumerates every adapter via :mod:`ifaddr` (already a
+    python-zeroconf dependency) and returns the bare addresses as
+    plain strings suitable for :class:`~zeroconf.ServiceInfo`'s
+    ``parsed_addresses`` keyword. Drops three classes of addresses
+    that would land on the wire but never help a peer:
+
+    * **Loopback interfaces.** Filtering by interface (``lo`` /
+      ``lo0``) catches macOS's ``fe80::1``-on-``lo0`` link-local
+      that wouldn't be caught by an ``ip.is_loopback`` check alone.
+    * **Loopback IPs on non-loopback interfaces.** Defense in depth
+      for hosts where the OS aliases ``127.0.0.1`` onto a real
+      interface for some reason.
+    * **IPv6 link-local addresses** (``fe80::/10``). Useless once
+      the scope_id is dropped, which the mDNS wire format requires
+      — a peer receiving a bare ``fe80::xxx`` has no way to know
+      which interface to send the packet out on. Hosts with many
+      virtual interfaces (VPN, awdl, utun*) carry a dozen link-
+      local addresses that just inflate the announcement without
+      adding reachability.
+
+    Setting ``parsed_addresses`` explicitly is what fixes the
+    "127.0.0.1 / ::1 / fe80::1 only" advertise we saw on macOS:
+    when ``ServiceInfo`` is constructed with no addresses, peers
+    fall back to A/AAAA lookups against the SRV target. On macOS
+    that lookup is answered by ``mDNSResponder``, which can drop
+    to loopback while the system's network state is in flux.
+    Publishing the addresses ourselves takes that path out of the
+    loop.
+
+    .. note::
+
+       :func:`ifaddr.get_adapters` does blocking I/O — reads
+       ``/proc/net`` on Linux, calls ``GetAdaptersAddresses`` on
+       Windows. Async callers must run this via
+       :meth:`asyncio.AbstractEventLoop.run_in_executor` rather
+       than calling it directly on the event loop. The
+       :class:`DashboardAdvertiser`'s :meth:`~DashboardAdvertiser.register`
+       method handles that for production use; tests that call this
+       function synchronously off the loop don't need to.
+    """
+    out: list[str] = []
+    for adapter in ifaddr.get_adapters():
+        if _is_loopback_adapter(adapter):
+            continue
+        for ip in adapter.ips:
+            # ``ifaddr.IP.ip`` is a ``str`` for IPv4 and a 3-tuple
+            # ``(addr, flowinfo, scope_id)`` for IPv6. The ServiceInfo
+            # wire format only carries the bare address — drop the
+            # tuple framing.
+            raw = ip.ip
+            addr_str = raw[0] if isinstance(raw, tuple) else raw
+            try:
+                parsed = ipaddress.ip_address(addr_str)
+            except ValueError:
+                continue
+            if parsed.is_loopback or parsed.is_link_local:
+                continue
+            out.append(addr_str)
+    return out
 
 
 def _default_hostname() -> str:
@@ -139,14 +225,23 @@ class DashboardAdvertiser:
         """True between a successful :meth:`register` and :meth:`unregister`."""
         return self._info is not None
 
-    def build_service_info(self) -> ServiceInfo:
+    def build_service_info(self, addresses: list[str] | None = None) -> ServiceInfo:
         """
         Construct the ``ServiceInfo`` that will be published on register.
+
+        *addresses* is the list of IP strings to publish in the A /
+        AAAA records. ``None`` (the default) calls
+        :func:`_local_addresses` synchronously, which is convenient
+        for tests but does blocking I/O — :meth:`register` resolves
+        the list via :meth:`asyncio.AbstractEventLoop.run_in_executor`
+        and passes it in explicitly, keeping the event loop clean.
 
         Exposed (rather than inlined into :meth:`register`) so tests
         can introspect the payload without driving the full zeroconf
         register/unregister cycle.
         """
+        if addresses is None:
+            addresses = _local_addresses()
         instance = f"{self._name}.{SERVICE_TYPE}"
         # TXT carries only what isn't already on the wire. The
         # service-instance label (``self._name``) and the SRV
@@ -162,12 +257,17 @@ class DashboardAdvertiser:
         # host already advertising e.g. ``desktop.local`` keeps the
         # same answer it does for every other service.
         server = self._hostname if self._hostname.endswith(".") else f"{self._hostname}."
+        # Publishing the host's addresses explicitly avoids relying
+        # on the receiver's A/AAAA lookup against ``server``, which
+        # on macOS can return loopback while mDNSResponder is in a
+        # transient state. See ``_local_addresses``.
         return ServiceInfo(
             SERVICE_TYPE,
             instance,
             port=self._port,
             properties=properties,
             server=server,
+            parsed_addresses=addresses,
         )
 
     async def register(self, zeroconf: AsyncZeroconf) -> None:
@@ -178,11 +278,20 @@ class DashboardAdvertiser:
         two dashboards on the same hostname (rare in practice, but
         the rename-on-conflict cost is one register call so the
         protection is essentially free).
+
+        Address enumeration runs in the default executor:
+        :func:`ifaddr.get_adapters` does blocking syscalls, which
+        would trip blockbuster on Linux and stall the loop in
+        production. The result is passed into
+        :meth:`build_service_info` so the rest of the construction
+        stays sync.
         """
         if self._info is not None:
             _LOGGER.debug("Dashboard advertise already registered; skipping")
             return
-        info = self.build_service_info()
+        loop = asyncio.get_running_loop()
+        addresses = await loop.run_in_executor(None, _local_addresses)
+        info = self.build_service_info(addresses)
         try:
             await zeroconf.async_register_service(info, allow_name_change=True)
         except Exception:
