@@ -46,15 +46,17 @@ from esphome_device_builder.controllers.config import (
     labels_transaction,
     load_labels,
     load_preferences,
+    load_remote_build_settings,
     metadata_transaction,
     remove_device_metadata,
     save_labels,
     save_preferences,
+    save_remote_build_settings,
     set_device_labels,
     set_device_metadata,
 )
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import ErrorCode, Label
+from esphome_device_builder.models import ErrorCode, Label, RemoteBuildSettings
 from esphome_device_builder.models.preferences import (
     DashboardView,
     Theme,
@@ -383,6 +385,39 @@ def test_load_preferences_returns_defaults_on_bad_data(tmp_path: Path) -> None:
     metadata_path.write_bytes(b'{"_preferences": {"unknown_field": 42}}')
 
     assert load_preferences(tmp_path) == UserPreferences()
+
+
+def test_load_remote_build_settings_returns_defaults_on_missing(tmp_path: Path) -> None:
+    """Fresh config dir → ``RemoteBuildSettings()`` with ``enabled=False``."""
+    assert load_remote_build_settings(tmp_path) == RemoteBuildSettings()
+
+
+def test_load_remote_build_settings_returns_defaults_on_bad_data(
+    tmp_path: Path,
+) -> None:
+    """Corrupted ``_remote_build`` blob → default object, not partial recovery.
+
+    Same fallback semantics as ``load_preferences``: an older
+    version's payload that doesn't deserialise under the current
+    mashumaro schema lands on defaults rather than crashing
+    dashboard startup. Pinning ``RemoteBuildSettings()`` keeps
+    the recovery shape stable so a future regression that
+    silently mutates the fallback would surface here.
+    """
+    # Use a payload mashumaro can't coerce — a list where a dict
+    # was expected. (A bare ``"not-a-bool"`` for ``enabled`` would
+    # silently coerce to truthy, masking the fallback path.)
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b'{"_remote_build": [1, 2, 3]}')
+
+    assert load_remote_build_settings(tmp_path) == RemoteBuildSettings()
+
+
+def test_save_remote_build_settings_round_trip(tmp_path: Path) -> None:
+    """A non-default settings blob round-trips through save → load."""
+    settings = RemoteBuildSettings(enabled=True)
+    save_remote_build_settings(tmp_path, settings)
+    assert load_remote_build_settings(tmp_path) == settings
 
 
 def test_save_preferences_round_trip(tmp_path: Path) -> None:
