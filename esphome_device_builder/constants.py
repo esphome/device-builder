@@ -29,3 +29,11 @@ DEFAULT_HOST = "0.0.0.0"
 # on the supervisor's docker bridge network, and bypasses the password
 # gate (the supervisor has already authenticated the request).
 DEFAULT_INGRESS_PORT = 8099
+
+# HTTPS site for the remote-build feature (issue #106). Carries the
+# TLS-pinned ``/remote-build/v1/*`` route group; bearer-token gated.
+# Different port from the dashboard's own HTTP listener so a
+# misconfigured offloader can't accidentally hit the dashboard auth
+# surface, and so paired peers can resolve "the remote-build URL" off
+# the mDNS SRV record without ambiguity.
+DEFAULT_REMOTE_BUILD_PORT = 6055

@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING
 
 from colorlog import ColoredFormatter
 
-from .constants import DEFAULT_HOST, DEFAULT_INGRESS_PORT, DEFAULT_PORT, __version__
+from .constants import (
+    DEFAULT_HOST,
+    DEFAULT_INGRESS_PORT,
+    DEFAULT_PORT,
+    DEFAULT_REMOTE_BUILD_PORT,
+    __version__,
+)
 from .helpers.logging import activate_log_queue_handler
 
 if TYPE_CHECKING:
@@ -139,6 +145,16 @@ def main() -> None:
         help=(
             "Bind address for the HA Ingress site (defaults to all interfaces "
             "inside the addon container)"
+        ),
+    )
+    parser.add_argument(
+        "--remote-build-port",
+        type=int,
+        default=DEFAULT_REMOTE_BUILD_PORT,
+        help=(
+            "HTTPS port for the remote-build receiver site "
+            f"(default {DEFAULT_REMOTE_BUILD_PORT}; only bound when "
+            "remote-build is enabled in Settings)"
         ),
     )
     parser.add_argument(

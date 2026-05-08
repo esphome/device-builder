@@ -352,6 +352,12 @@ class RemoteBuildController:
         # advertiser was skipped (HA addon mode, zeroconf failed),
         # in which case there's nothing to filter.
         self._own_instance_name: str | None = None
+        # In-memory token index keyed off ``token_id``. Built from
+        # disk at start; refreshed after every CRUD mutation so
+        # the auth middleware's lookup is constant-time and
+        # never has to hit the filesystem on the request hot
+        # path. Empty until ``start`` runs.
+        self._tokens_by_id: dict[str, StoredToken] = {}
 
     async def start(self) -> None:
         """
@@ -363,6 +369,18 @@ class RemoteBuildController:
         restart. Same fail-soft contract as
         :class:`DashboardAdvertiser`.
         """
+        # Seed the token index from disk before the zeroconf gate
+        # below: the index is consumed by the HTTPS auth middleware
+        # (phase 3b2), not by the zeroconf browser. Even on a
+        # zeroconf-disabled deployment (HA addon, container with
+        # mDNS broken) the index needs to be live so the listener
+        # can validate bearers.
+        loop = asyncio.get_running_loop()
+        settings = await loop.run_in_executor(
+            None, load_remote_build_settings, self._db.settings.config_dir
+        )
+        self._tokens_by_id = {t.token_id: t for t in settings.tokens}
+
         if self._db.devices is None:
             _LOGGER.debug("RemoteBuildController.start called before devices controller")
             return
@@ -524,7 +542,24 @@ class RemoteBuildController:
 
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(None, _txn)
+        # Keep the auth middleware's lookup index in sync with the
+        # post-write state. Add / remove / first-use-binding all
+        # route through here, so this is the one place that needs
+        # to refresh.
+        self._tokens_by_id = {t.token_id: t for t in settings.tokens}
         return _to_view(settings)
+
+    def lookup_token(self, token_id: str) -> StoredToken | None:
+        """
+        Return the matching :class:`StoredToken` for ``token_id``, or ``None``.
+
+        Public accessor for the phase-3b2 auth middleware. Reads
+        the in-memory index (constant-time dict hit, no I/O on
+        the request hot path). The index is seeded in
+        :meth:`start` and kept in sync via
+        :meth:`_modify_settings`.
+        """
+        return self._tokens_by_id.get(token_id)
 
     @api_command("remote_build/set_settings")
     async def set_settings(self, *, enabled: bool, **kwargs: Any) -> RemoteBuildSettingsView:

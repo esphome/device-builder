@@ -22,7 +22,7 @@ from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON, ext_storage_path
 from esphome.util import get_serial_ports
 
-from ..constants import DEFAULT_INGRESS_PORT
+from ..constants import DEFAULT_INGRESS_PORT, DEFAULT_REMOTE_BUILD_PORT
 from ..constants import __version__ as server_version
 from ..helpers.api import CommandError, api_command
 from ..helpers.auth import hash_password
@@ -61,6 +61,12 @@ class DashboardSettings:
     host: str = "0.0.0.0"
     ingress_port: int = DEFAULT_INGRESS_PORT
     ingress_host: str = ""
+    # HTTPS port for the remote-build receiver site (issue #106).
+    # The site is only bound when ``RemoteBuildSettings.enabled`` is
+    # set; default-off keeps the listener inactive on installs that
+    # haven't opted in. Lives separately from ``port`` because it
+    # serves a TLS-pinned route group with its own auth gate.
+    remote_build_port: int = DEFAULT_REMOTE_BUILD_PORT
     # In dev mode the SPA shell is served with ``Cache-Control: no-cache``
     # so a re-deployed wheel isn't masked by a browser-cached
     # ``index.html`` pointing at a now-deleted hashed bundle. In
@@ -140,6 +146,7 @@ class DashboardSettings:
         self.host = getattr(args, "host", "0.0.0.0")
         self.ingress_port = getattr(args, "ingress_port", DEFAULT_INGRESS_PORT)
         self.ingress_host = getattr(args, "ingress_host", "") or ""
+        self.remote_build_port = getattr(args, "remote_build_port", DEFAULT_REMOTE_BUILD_PORT)
         self.dev_mode = bool(getattr(args, "dev", False))
         # ``--trusted-domains a,b,c`` (or ``$ESPHOME_TRUSTED_DOMAINS``).
         # Comma-separated. Lower-cased for the case-insensitive match

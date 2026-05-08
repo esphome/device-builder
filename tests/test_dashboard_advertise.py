@@ -41,11 +41,13 @@ def _make_advertiser(
     name: str | None = None,
     hostname: str | None = None,
     port: int = 6052,
+    pin_sha256: str | None = None,
 ) -> DashboardAdvertiser:
     return DashboardAdvertiser(
         port=port,
         server_version="1.2.3",
         esphome_version="2026.5.0",
+        pin_sha256=pin_sha256,
         name=name,
         hostname=hostname,
     )
@@ -263,6 +265,32 @@ def test_build_service_info_populates_txt_and_server() -> None:
     }
     # ``server`` is always trailing-dotted so zeroconf doesn't double-suffix it.
     assert info.server == "green.local."
+
+
+def test_build_service_info_carries_pin_sha256_when_set() -> None:
+    """``pin_sha256`` lands in TXT when the advertiser was constructed with it."""
+    pin = "a" * 64
+    advertiser = _make_advertiser(name="green", hostname="green.local", pin_sha256=pin)
+    info = advertiser.build_service_info()
+    decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    assert decoded["pin_sha256"] == pin
+
+
+def test_build_service_info_omits_pin_sha256_when_unset() -> None:
+    """``pin_sha256`` is absent from TXT when the advertiser doesn't have one."""
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    info = advertiser.build_service_info()
+    decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    assert "pin_sha256" not in decoded
+
+
+def test_set_pin_sha256_updates_subsequent_advertise() -> None:
+    """``set_pin_sha256`` makes the next ``build_service_info`` carry the new pin."""
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    advertiser.set_pin_sha256("b" * 64)
+    info = advertiser.build_service_info()
+    decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    assert decoded["pin_sha256"] == "b" * 64
 
 
 def test_build_service_info_keeps_trailing_dot_on_explicit_fqdn() -> None:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -228,7 +229,7 @@ def test_on_service_state_change_uses_cache_when_available(
 
 
 @pytest.mark.asyncio
-async def test_list_hosts_returns_snapshot_of_peers(tmp_path: Any) -> None:
+async def test_list_hosts_returns_snapshot_of_peers(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller._peers[f"desktop.{SERVICE_TYPE}"] = RemoteBuildPeer(
         name="desktop",
@@ -248,13 +249,13 @@ async def test_list_hosts_returns_snapshot_of_peers(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_hosts_empty_when_no_peers(tmp_path: Any) -> None:
+async def test_list_hosts_empty_when_no_peers(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     assert await controller.list_hosts() == []
 
 
 @pytest.mark.asyncio
-async def test_get_settings_defaults_when_unset(tmp_path: Any) -> None:
+async def test_get_settings_defaults_when_unset(tmp_path: Path) -> None:
     """A fresh dashboard with no metadata returns ``enabled=False``."""
     controller = _make_controller(config_dir=tmp_path)
     settings = await controller.get_settings()
@@ -262,7 +263,7 @@ async def test_get_settings_defaults_when_unset(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_settings_round_trips(tmp_path: Any) -> None:
+async def test_set_settings_round_trips(tmp_path: Path) -> None:
     """Setting ``enabled=True`` persists and is read back by ``get_settings``."""
     controller = _make_controller(config_dir=tmp_path)
     written = await controller.set_settings(enabled=True)
@@ -272,7 +273,7 @@ async def test_set_settings_round_trips(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_settings_rejects_non_bool(tmp_path: Any) -> None:
+async def test_set_settings_rejects_non_bool(tmp_path: Path) -> None:
     """
     Non-boolean ``enabled`` raises ``INVALID_ARGS``, doesn't coerce.
 
@@ -296,19 +297,21 @@ async def test_set_settings_rejects_non_bool(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_skips_when_devices_controller_missing() -> None:
+async def test_start_skips_when_devices_controller_missing(tmp_path: Path) -> None:
     """``start`` is a no-op when ``DevicesController`` hasn't been set."""
     db = MagicMock()
     db.devices = None
+    db.settings = MagicMock()
+    db.settings.config_dir = tmp_path
     controller = RemoteBuildController(db)
     await controller.start()
     assert controller._browser is None
 
 
 @pytest.mark.asyncio
-async def test_start_skips_when_zeroconf_unavailable() -> None:
+async def test_start_skips_when_zeroconf_unavailable(tmp_path: Path) -> None:
     """``start`` is a no-op when zeroconf failed to bind."""
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     controller._db.devices.zeroconf = None
     await controller.start()
     assert controller._browser is None
@@ -316,7 +319,7 @@ async def test_start_skips_when_zeroconf_unavailable() -> None:
 
 @pytest.mark.asyncio
 async def test_start_swallows_browser_construction_errors(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """
     Browser construction failure leaves the controller in a no-peer state.
@@ -329,14 +332,16 @@ async def test_start_swallows_browser_construction_errors(
         "esphome_device_builder.controllers.remote_build.AsyncServiceBrowser",
         MagicMock(side_effect=RuntimeError("zeroconf socket gone")),
     )
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     controller._db.devices.zeroconf = MagicMock()
     await controller.start()  # must not raise
     assert controller._browser is None
 
 
 @pytest.mark.asyncio
-async def test_start_captures_own_instance_name(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_start_captures_own_instance_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """
     A registered advertiser's instance name lands in ``_own_instance_name``.
 
@@ -350,7 +355,7 @@ async def test_start_captures_own_instance_name(monkeypatch: pytest.MonkeyPatch)
         "esphome_device_builder.controllers.remote_build.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     controller._db.devices.zeroconf = MagicMock()
     advertiser = MagicMock()
     advertiser.service_instance_name = f"self.{SERVICE_TYPE}"
@@ -364,7 +369,7 @@ async def test_start_captures_own_instance_name(monkeypatch: pytest.MonkeyPatch)
 
 @pytest.mark.asyncio
 async def test_start_skips_self_capture_when_advertiser_unregistered(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """An unregistered advertiser (HA addon mode etc.) leaves the filter empty."""
     fake_browser = MagicMock()
@@ -373,7 +378,7 @@ async def test_start_skips_self_capture_when_advertiser_unregistered(
         "esphome_device_builder.controllers.remote_build.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     controller._db.devices.zeroconf = MagicMock()
     advertiser = MagicMock()
     # ``service_instance_name`` returns ``None`` when the
@@ -389,7 +394,7 @@ async def test_start_skips_self_capture_when_advertiser_unregistered(
 
 @pytest.mark.asyncio
 async def test_start_skips_self_capture_when_no_advertiser(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """An entirely-absent advertiser (zeroconf-down branch) is fine."""
     fake_browser = MagicMock()
@@ -398,7 +403,7 @@ async def test_start_skips_self_capture_when_no_advertiser(
         "esphome_device_builder.controllers.remote_build.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     controller._db.devices.zeroconf = MagicMock()
     controller._db._dashboard_advertiser = None
 
@@ -409,7 +414,7 @@ async def test_start_skips_self_capture_when_no_advertiser(
 
 @pytest.mark.asyncio
 async def test_stop_swallows_browser_cancel_errors(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A teardown-time browser-cancel failure is logged but not raised."""
     fake_browser = MagicMock()
@@ -418,7 +423,7 @@ async def test_stop_swallows_browser_cancel_errors(
         "esphome_device_builder.controllers.remote_build.AsyncServiceBrowser",
         MagicMock(return_value=fake_browser),
     )
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     controller._db.devices.zeroconf = MagicMock()
     await controller.start()
     await controller.stop()  # must not raise
@@ -552,7 +557,7 @@ def test_peer_from_manual_host_uses_manual_source() -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_manual_host_persists_and_returns_settings(tmp_path: Any) -> None:
+async def test_add_manual_host_persists_and_returns_settings(tmp_path: Path) -> None:
     """Happy path: a unique entry is appended and the settings round-trip."""
     controller = _make_controller(config_dir=tmp_path)
     settings = await controller.add_manual_host(hostname="desktop.local", port=6052)
@@ -563,7 +568,7 @@ async def test_add_manual_host_persists_and_returns_settings(tmp_path: Any) -> N
 
 
 @pytest.mark.asyncio
-async def test_add_manual_host_rejects_duplicate(tmp_path: Any) -> None:
+async def test_add_manual_host_rejects_duplicate(tmp_path: Path) -> None:
     """
     A second add of the same ``(hostname, port)`` raises ``ALREADY_EXISTS``.
 
@@ -580,7 +585,7 @@ async def test_add_manual_host_rejects_duplicate(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_manual_host_normalises_case_for_dedup(tmp_path: Any) -> None:
+async def test_add_manual_host_normalises_case_for_dedup(tmp_path: Path) -> None:
     """``Desktop.Local`` and ``desktop.local`` are the same entry."""
     controller = _make_controller(config_dir=tmp_path)
     await controller.add_manual_host(hostname="desktop.local", port=6052)
@@ -589,7 +594,7 @@ async def test_add_manual_host_normalises_case_for_dedup(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_manual_host_keeps_enabled_intact(tmp_path: Any) -> None:
+async def test_add_manual_host_keeps_enabled_intact(tmp_path: Path) -> None:
     """
     Adding a manual host doesn't reset ``enabled``.
 
@@ -605,7 +610,7 @@ async def test_add_manual_host_keeps_enabled_intact(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_remove_manual_host_drops_entry(tmp_path: Any) -> None:
+async def test_remove_manual_host_drops_entry(tmp_path: Path) -> None:
     """Happy path: a registered entry is removed."""
     controller = _make_controller(config_dir=tmp_path)
     await controller.add_manual_host(hostname="desktop.local", port=6052)
@@ -615,7 +620,7 @@ async def test_remove_manual_host_drops_entry(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_remove_manual_host_rejects_unknown(tmp_path: Any) -> None:
+async def test_remove_manual_host_rejects_unknown(tmp_path: Path) -> None:
     """``NOT_FOUND`` for a host that was never registered."""
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(CommandError) as exc:
@@ -624,7 +629,7 @@ async def test_remove_manual_host_rejects_unknown(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_remove_manual_host_normalises_case(tmp_path: Any) -> None:
+async def test_remove_manual_host_normalises_case(tmp_path: Path) -> None:
     """``Desktop.Local`` removes a stored ``desktop.local`` entry."""
     controller = _make_controller(config_dir=tmp_path)
     await controller.add_manual_host(hostname="desktop.local", port=6052)
@@ -633,7 +638,7 @@ async def test_remove_manual_host_normalises_case(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_settings_preserves_manual_hosts(tmp_path: Any) -> None:
+async def test_set_settings_preserves_manual_hosts(tmp_path: Path) -> None:
     """
     ``set_settings(enabled=...)`` doesn't wipe ``manual_hosts``.
 
@@ -651,7 +656,7 @@ async def test_set_settings_preserves_manual_hosts(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_hosts_merges_mdns_and_manual(tmp_path: Any) -> None:
+async def test_list_hosts_merges_mdns_and_manual(tmp_path: Path) -> None:
     """
     ``list_hosts`` returns mDNS-discovered peers followed by manual hosts.
 
@@ -677,7 +682,7 @@ async def test_list_hosts_merges_mdns_and_manual(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_manual_host_rejects_invalid_port(tmp_path: Any) -> None:
+async def test_add_manual_host_rejects_invalid_port(tmp_path: Path) -> None:
     """Out-of-range port doesn't slip through."""
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(CommandError) as exc:
@@ -686,7 +691,7 @@ async def test_add_manual_host_rejects_invalid_port(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_manual_host_rejects_blank_hostname(tmp_path: Any) -> None:
+async def test_add_manual_host_rejects_blank_hostname(tmp_path: Path) -> None:
     """Empty / whitespace hostname doesn't slip through."""
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(CommandError) as exc:
@@ -706,7 +711,7 @@ def _split_bearer(bearer: str) -> tuple[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_add_token_returns_cleartext_bearer_once(tmp_path: Any) -> None:
+async def test_add_token_returns_cleartext_bearer_once(tmp_path: Path) -> None:
     """
     ``add_token`` flashes the cleartext bearer through exactly once.
 
@@ -733,7 +738,7 @@ async def test_add_token_returns_cleartext_bearer_once(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_token_persists_only_hashed_secret(tmp_path: Any) -> None:
+async def test_add_token_persists_only_hashed_secret(tmp_path: Path) -> None:
     """
     The on-disk row carries SHA-256 of the secret only; never the cleartext.
 
@@ -759,7 +764,7 @@ async def test_add_token_persists_only_hashed_secret(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_settings_responses_never_carry_secret_hash(tmp_path: Any) -> None:
+async def test_settings_responses_never_carry_secret_hash(tmp_path: Path) -> None:
     """
     Every WS command that returns settings projects tokens to ``TokenSummary``.
 
@@ -791,7 +796,7 @@ async def test_settings_responses_never_carry_secret_hash(tmp_path: Any) -> None
 
 
 @pytest.mark.asyncio
-async def test_list_tokens_omits_secret_hash(tmp_path: Any) -> None:
+async def test_list_tokens_omits_secret_hash(tmp_path: Path) -> None:
     """The ``list_tokens`` projection drops ``secret_sha256`` and allows dup labels."""
     controller = _make_controller(config_dir=tmp_path)
     first = await controller.add_token(label="phone")
@@ -818,7 +823,7 @@ async def test_list_tokens_omits_secret_hash(tmp_path: Any) -> None:
 )
 @pytest.mark.asyncio
 async def test_add_token_rejects_invalid_label(
-    tmp_path: Any, label: object, expected_code: ErrorCode
+    tmp_path: Path, label: object, expected_code: ErrorCode
 ) -> None:
     """Empty / overlong / non-string labels don't slip through."""
     controller = _make_controller(config_dir=tmp_path)
@@ -828,7 +833,7 @@ async def test_add_token_rejects_invalid_label(
 
 
 @pytest.mark.asyncio
-async def test_add_token_keeps_other_settings_intact(tmp_path: Any) -> None:
+async def test_add_token_keeps_other_settings_intact(tmp_path: Path) -> None:
     """Issuing a token doesn't reset ``enabled`` or ``manual_hosts``."""
     controller = _make_controller(config_dir=tmp_path)
     await controller.set_settings(enabled=True)
@@ -842,7 +847,7 @@ async def test_add_token_keeps_other_settings_intact(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_remove_token_drops_only_target(tmp_path: Any) -> None:
+async def test_remove_token_drops_only_target(tmp_path: Path) -> None:
     """Removing one token leaves the rest of the list intact."""
     controller = _make_controller(config_dir=tmp_path)
     keep_a = await controller.add_token(label="Green")
@@ -867,7 +872,7 @@ async def test_remove_token_drops_only_target(tmp_path: Any) -> None:
 )
 @pytest.mark.asyncio
 async def test_remove_token_rejects_invalid(
-    tmp_path: Any, token_id: object, expected_code: ErrorCode
+    tmp_path: Path, token_id: object, expected_code: ErrorCode
 ) -> None:
     """Unknown / blank / empty / non-string / malformed ``token_id`` is rejected."""
     controller = _make_controller(config_dir=tmp_path)
@@ -878,7 +883,7 @@ async def test_remove_token_rejects_invalid(
 
 @pytest.mark.asyncio
 async def test_remove_token_rejects_full_bearer_without_echoing_secret(
-    tmp_path: Any,
+    tmp_path: Path,
 ) -> None:
     """
     Passing the full bearer to ``remove_token`` is rejected before logging.
@@ -905,7 +910,7 @@ async def test_remove_token_rejects_full_bearer_without_echoing_secret(
 
 
 @pytest.mark.asyncio
-async def test_remove_token_not_found_does_not_echo_id(tmp_path: Any) -> None:
+async def test_remove_token_not_found_does_not_echo_id(tmp_path: Path) -> None:
     """The ``NOT_FOUND`` message doesn't echo the user-supplied ``token_id``."""
     controller = _make_controller(config_dir=tmp_path)
     suspicious = "lookslike-id-but-isnt"
@@ -916,7 +921,7 @@ async def test_remove_token_not_found_does_not_echo_id(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_token_rejects_when_at_capacity(tmp_path: Any) -> None:
+async def test_add_token_rejects_when_at_capacity(tmp_path: Path) -> None:
     """
     ``add_token`` refuses once the receiver hits the soft cap.
 
@@ -953,7 +958,7 @@ async def test_add_token_rejects_when_at_capacity(tmp_path: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_load_remote_build_settings_falls_back_on_unrecoverable_blob(
-    tmp_path: Any,
+    tmp_path: Path,
 ) -> None:
     """
     A blob that fails to deserialise even after token-row cleaning resets to defaults.
@@ -984,7 +989,7 @@ async def test_load_remote_build_settings_falls_back_on_unrecoverable_blob(
 
 @pytest.mark.asyncio
 async def test_load_remote_build_settings_drops_malformed_token_rows(
-    tmp_path: Any,
+    tmp_path: Path,
 ) -> None:
     """
     One corrupt token row doesn't blank the rest of the receiver's view.
@@ -1026,7 +1031,7 @@ async def test_load_remote_build_settings_drops_malformed_token_rows(
 
 
 @pytest.mark.asyncio
-async def test_decode_tokens_skips_non_dict_entries(tmp_path: Any) -> None:
+async def test_decode_tokens_skips_non_dict_entries(tmp_path: Path) -> None:
     """
     Non-dict entries in the on-disk ``tokens`` list are skipped silently.
 
@@ -1046,7 +1051,7 @@ async def test_decode_tokens_skips_non_dict_entries(tmp_path: Any) -> None:
                     "created_at": 1.0,
                     "bound_dashboard_id": None,
                 },
-                "not-a-dict-at-all",  # noqa: type-confused row
+                "not-a-dict-at-all",  # type-confused row
                 42,
                 None,
             ],
@@ -1060,7 +1065,7 @@ async def test_decode_tokens_skips_non_dict_entries(tmp_path: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_decode_tokens_redacts_credential_material_from_logs(
-    tmp_path: Any, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """
     The malformed-row debug log doesn't carry credential-adjacent fields.
@@ -1100,7 +1105,7 @@ async def test_decode_tokens_redacts_credential_material_from_logs(
 
 
 @pytest.mark.asyncio
-async def test_loads_legacy_metadata_without_tokens_key(tmp_path: Any) -> None:
+async def test_loads_legacy_metadata_without_tokens_key(tmp_path: Path) -> None:
     """
     Phase-2/2b on-disk JSON without a ``tokens`` key still loads cleanly.
 

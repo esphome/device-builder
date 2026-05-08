@@ -12,10 +12,15 @@ import contextlib
 import html
 import logging
 import re
+import ssl
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .helpers.dashboard_identity import DashboardIdentity
 
 from aiohttp import web
 from esphome.const import __version__ as esphome_version
@@ -27,7 +32,11 @@ from .controllers.auth import AuthController
 from .controllers.automations import AutomationsController
 from .controllers.boards import BoardCatalog
 from .controllers.components import ComponentCatalog
-from .controllers.config import ConfigController, DashboardSettings
+from .controllers.config import (
+    ConfigController,
+    DashboardSettings,
+    load_remote_build_settings,
+)
 from .controllers.devices import DevicesController
 from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
@@ -36,8 +45,10 @@ from .controllers.remote_build import RemoteBuildController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser
+from .helpers.dashboard_identity import get_or_create_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
+from .helpers.remote_build_auth import make_remote_build_auth_middleware
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
 
@@ -95,6 +106,42 @@ _BASE_HREF_PLACEHOLDER = "__ESPHOME_BASE_HREF__"
 # intermediary cache could serve the wrong-prefix shell to a
 # different client.
 _BASE_HREF_VARY = "X-Ingress-Path, X-Forwarded-Prefix"
+
+
+def _build_remote_build_ssl_context(identity: DashboardIdentity) -> ssl.SSLContext:
+    """
+    Build the ``SSLContext`` used by the remote-build receiver site.
+
+    Python's ``ssl.SSLContext.load_cert_chain`` only accepts
+    filenames, not bytes. Stage the cert + key in tempfiles
+    inside a single ``mkdtemp`` directory so the load is atomic
+    from the API's perspective; the directory is deleted before
+    return so nothing sensitive lingers on disk longer than the
+    handshake setup.
+
+    Sync; called via ``run_in_executor`` from the start hook so
+    the loop doesn't block on the file I/O + crypto setup.
+    """
+    ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    with tempfile.TemporaryDirectory(prefix="esphome-remote-build-tls-") as tmpdir:
+        cert_path = Path(tmpdir) / "cert.pem"
+        key_path = Path(tmpdir) / "key.pem"
+        cert_path.write_bytes(identity.cert_pem)
+        key_path.write_bytes(identity.key_pem)
+        ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    return ctx
+
+
+async def _remote_build_health(_: web.Request) -> web.Response:
+    """
+    Smoke endpoint for ``/remote-build/v1/health``.
+
+    The auth middleware fires before this handler — by the time
+    the handler runs the bearer is already validated. Returns
+    a minimal JSON ack so a paired offloader can prove the
+    receiver is reachable AND that its token is honoured.
+    """
+    return web.json_response({"ok": True})
 
 
 def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
@@ -218,6 +265,10 @@ class DeviceBuilder:
         self._bg_task: asyncio.Task | None = None
 
         self._ingress_runner: web.AppRunner | None = None
+        # HTTPS receiver site for ``/remote-build/v1/*`` (issue #106
+        # phase 3b2). Bound only when ``RemoteBuildSettings.enabled``
+        # is true; ``None`` otherwise.
+        self._remote_build_runner: web.AppRunner | None = None
 
     def _install_default_executor(self) -> None:
         """Register the dashboard's executor as the loop's default.
@@ -306,6 +357,13 @@ class DeviceBuilder:
         # discovered list.
         await self.remote_build.start()
 
+        # Phase 3b2: bind the HTTPS receiver site for
+        # ``/remote-build/v1/*`` if the user has opted in via
+        # ``RemoteBuildSettings.enabled``. Default-off so a
+        # fresh install never opens an inbound port without a
+        # deliberate operator action.
+        await self._maybe_start_remote_build_site()
+
         # Collect command handlers from all controllers
         for controller in (
             self.auth,
@@ -347,6 +405,15 @@ class DeviceBuilder:
             task.cancel()
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        # Tear down the remote-build HTTPS listener (if it was
+        # bound) before the controller it depends on. Order
+        # matters less here than for zeroconf, but doing it
+        # first keeps the listener from servicing a request
+        # that hits a torn-down controller mid-shutdown.
+        if self._remote_build_runner is not None:
+            with contextlib.suppress(Exception):
+                await self._remote_build_runner.cleanup()
+            self._remote_build_runner = None
         # Cancel the remote-build browser BEFORE devices.stop()
         # closes the zeroconf socket the browser is using. Same
         # ordering rule as the dashboard advertise just below.
@@ -632,6 +699,73 @@ class DeviceBuilder:
         if self._ingress_runner is not None:
             await self._ingress_runner.cleanup()
             self._ingress_runner = None
+
+    async def _maybe_start_remote_build_site(self) -> None:
+        """
+        Bind the HTTPS receiver site for ``/remote-build/v1/*`` if enabled.
+
+        Default-off: the listener only binds when
+        ``RemoteBuildSettings.enabled`` is true. Reads the cert + key
+        + identity off disk via :func:`get_or_create_identity` and
+        builds an aiohttp ``SSLContext`` from the on-disk PEM files.
+        Both reads hop through ``run_in_executor`` because the
+        helper is sync-blocking by design.
+
+        On HA addon mode with the listener enabled, logs a warning
+        that the addon's ``ports:`` config must expose the bound
+        port for LAN peers to actually reach it. The bind itself
+        proceeds — "not supported by default today" rather than
+        "hard-refused forever."
+        """
+        if self.remote_build is None or self.loop is None:
+            return
+        loop = self.loop
+        rb_settings = await loop.run_in_executor(
+            None, load_remote_build_settings, self.settings.config_dir
+        )
+        if not rb_settings.enabled:
+            _LOGGER.debug(
+                "Skipping remote-build HTTPS site: not enabled in settings "
+                "(set ``remote_build/set_settings`` enabled=true to bind)"
+            )
+            return
+
+        identity = await loop.run_in_executor(
+            None, get_or_create_identity, self.settings.config_dir
+        )
+        # Tell the controller about the cert pin so the next mDNS
+        # advertise refresh carries it in TXT.
+        if self._dashboard_advertiser is not None:
+            self._dashboard_advertiser.set_pin_sha256(identity.pin_sha256)
+
+        ssl_context = await loop.run_in_executor(None, _build_remote_build_ssl_context, identity)
+        middleware = make_remote_build_auth_middleware(self.remote_build.lookup_token)
+        app = web.Application(middlewares=[middleware])
+        app.router.add_get("/remote-build/v1/health", _remote_build_health)
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        host = self.settings.host
+        port = self.settings.remote_build_port
+        site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
+        await site.start()
+        self._remote_build_runner = runner
+
+        if self.settings.on_ha_addon:
+            _LOGGER.warning(
+                "Remote-build HTTPS site bound on %s:%d while running as HA "
+                "addon. Peers won't reach this port unless the addon's "
+                "``ports:`` config exposes it to the host.",
+                host,
+                port,
+            )
+        else:
+            _LOGGER.info(
+                "Remote-build HTTPS site listening on %s:%d (TLS pin %s)",
+                host,
+                port,
+                identity.pin_sha256_formatted,
+            )
 
     def run(self) -> None:
         """Start the HTTP server (blocking)."""

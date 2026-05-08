@@ -15,8 +15,8 @@ alternative that fits. Parallels the existing ``_esphomelib._tcp.local.``
 device service type so a packet capture shows both ESPHome surfaces
 in the same ``_esphome*`` namespace.
 
-The TXT record carries the two version fields a peer can't derive
-from the browse response on its own:
+The TXT record carries the fields a peer can't derive from the
+browse response on its own:
 
 * ``server_version`` — this dashboard's own package version, so a
   peer can flag a release-skew warning before pairing.
@@ -24,6 +24,11 @@ from the browse response on its own:
   dashboard would compile against, so the version-mismatch warning
   in phase 7 can fire on the listing page rather than waiting for
   an upload to come back with a surprise build.
+* ``pin_sha256`` (optional) — the receiver's SPKI fingerprint
+  (lowercase hex). Peers cross-check the cert they observe on
+  connect against this TXT entry; the fingerprint is also what
+  pairing pins out-of-band. Omitted when the identity helper
+  hasn't run yet.
 
 A friendly label and the host's mDNS name are *not* in TXT — both
 are already on the wire. python-zeroconf exposes the service
@@ -219,6 +224,7 @@ class DashboardAdvertiser:
         port: int,
         server_version: str,
         esphome_version: str,
+        pin_sha256: str | None = None,
         name: str | None = None,
         hostname: str | None = None,
     ) -> None:
@@ -234,6 +240,15 @@ class DashboardAdvertiser:
         record's target. Neither is duplicated in TXT — peers read
         them off ``ServiceInfo.name`` / ``ServiceInfo.server`` for
         free.
+
+        ``pin_sha256`` is the receiver's SPKI fingerprint (lowercase
+        hex, RFC 7469-form input but hex-encoded for parity with TLS
+        UI display). When set, peers who browse the broadcast can
+        sanity-check the cert they observe on connect against this
+        TXT entry — a useful tampering tripwire on top of the
+        out-of-band-confirmed pin from pairing. ``None`` when the
+        identity helper hasn't run yet (pre-3a deployments, or when
+        the dashboard's own remote-build feature is disabled).
         """
         friendly = (name or "").strip() or _default_friendly_name()
         host = (hostname or "").strip() or _default_hostname()
@@ -242,6 +257,7 @@ class DashboardAdvertiser:
         self._hostname = host
         self._server_version = server_version
         self._esphome_version = esphome_version
+        self._pin_sha256 = pin_sha256
         self._info: ServiceInfo | None = None
         self._zeroconf: AsyncEsphomeZeroconf | None = None
         # Background tick that calls :meth:`refresh` on
@@ -260,6 +276,22 @@ class DashboardAdvertiser:
     def registered(self) -> bool:
         """True between a successful :meth:`register` and :meth:`unregister`."""
         return self._info is not None
+
+    def set_pin_sha256(self, pin_sha256: str | None) -> None:
+        """
+        Update the published cert pin and refresh the broadcast.
+
+        Called when the remote-build receiver site comes up and
+        the cert + key have been loaded; lets the advertiser
+        carry ``pin_sha256`` in TXT without having to know the
+        identity helper at construction time. A subsequent
+        :meth:`refresh` (the periodic background tick already
+        does this) re-publishes the ServiceInfo with the new
+        property. Safe to call before / after :meth:`register`;
+        if not yet registered, the value is simply captured for
+        the next ``build_service_info`` call.
+        """
+        self._pin_sha256 = pin_sha256
 
     @property
     def service_instance_name(self) -> str | None:
@@ -302,10 +334,12 @@ class DashboardAdvertiser:
         # target (``server`` below) are returned by every browse;
         # peers read them directly off ``ServiceInfo.name`` /
         # ``ServiceInfo.server`` rather than parsing TXT.
-        properties = {
+        properties: dict[str, str] = {
             "server_version": self._server_version,
             "esphome_version": self._esphome_version,
         }
+        if self._pin_sha256:
+            properties["pin_sha256"] = self._pin_sha256
         # ``server`` is the SRV record's target. Zeroconf appends
         # ``.local.`` if missing; pass the FQDN through as-is so a
         # host already advertising e.g. ``desktop.local`` keeps the
