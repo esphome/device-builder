@@ -40,6 +40,69 @@ class ManualHost(DataClassORJSONMixin):
 
 
 @dataclass
+class StoredToken(DataClassORJSONMixin):
+    """
+    A receiver-side issued bearer token, persisted by hash.
+
+    Cleartext is the wire form ``{token_id}.{secret}``; only
+    ``secret_sha256`` lands on disk. ``token_id`` is the lookup key
+    (constant-time table hit), ``secret_sha256`` is what the
+    middleware compares against the bearer's secret half via
+    ``hmac.compare_digest``.
+
+    ``bound_dashboard_id`` starts ``None`` and is filled in by the
+    phase-3b3 first-use binding the first time an authenticated
+    request arrives carrying a peer's ``X-Dashboard-ID``. After
+    that, requests presenting the same token but a different
+    dashboard_id are rejected as 403.
+    """
+
+    token_id: str
+    label: str
+    secret_sha256: str
+    created_at: float
+    bound_dashboard_id: str | None = None
+
+
+@dataclass
+class TokenSummary(DataClassORJSONMixin):
+    """
+    Public-facing token row for ``remote_build/list_tokens``.
+
+    Mirrors :class:`StoredToken` but drops ``secret_sha256``: the
+    stored hash isn't sensitive in the same way the cleartext is,
+    but exposing it would let a network attacker who's already
+    seen the on-disk metadata match candidate cleartext bearers
+    against the wire shape, so the frontend has no business
+    reading it.
+    """
+
+    token_id: str
+    label: str
+    created_at: float
+    bound_dashboard_id: str | None = None
+
+
+@dataclass
+class TokenCreateResult(DataClassORJSONMixin):
+    """
+    Response from ``remote_build/add_token``.
+
+    The cleartext ``bearer`` flashes through this response exactly
+    once at creation time; subsequent ``list_tokens`` calls return
+    :class:`TokenSummary` rows that never carry the secret. The
+    frontend is expected to show ``bearer`` to the user with a
+    copy-to-clipboard control and stop displaying it once the
+    dialog is dismissed.
+    """
+
+    token_id: str
+    label: str
+    created_at: float
+    bearer: str
+
+
+@dataclass
 class RemoteBuildSettings(DataClassORJSONMixin):
     """
     Receiver-side settings for the remote-build feature.
@@ -49,11 +112,13 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     will gate ``/remote-build/v1/*`` route registration on. Phase
     2 just persists the flag so the Settings UI has somewhere to
     write. ``manual_hosts`` is the user-supplied peer list (see
-    :class:`ManualHost`).
+    :class:`ManualHost`). ``tokens`` is the receiver-issued bearer
+    list (see :class:`StoredToken`); only hashes land on disk.
     """
 
     enabled: bool = False
     manual_hosts: list[ManualHost] = field(default_factory=list)
+    tokens: list[StoredToken] = field(default_factory=list)
 
 
 @dataclass

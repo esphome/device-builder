@@ -12,6 +12,7 @@ objects directly — no real multicast listener.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -664,3 +665,139 @@ async def test_add_manual_host_rejects_blank_hostname(tmp_path: Any) -> None:
     with pytest.raises(CommandError) as exc:
         await controller.add_manual_host(hostname="   ", port=6052)
     assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+# ---------------------------------------------------------------------------
+# Token CRUD (phase 3b1)
+# ---------------------------------------------------------------------------
+
+
+def _split_bearer(bearer: str) -> tuple[str, str]:
+    """Return ``(token_id, secret)`` from a wire bearer."""
+    token_id, secret = bearer.split(".", 1)
+    return token_id, secret
+
+
+@pytest.mark.asyncio
+async def test_add_token_returns_cleartext_bearer_once(tmp_path: Any) -> None:
+    """
+    ``add_token`` flashes the cleartext bearer through exactly once.
+
+    Also pins the wire form (``{token_id}.{secret}``) and that
+    both halves are high-entropy distinct values across calls;
+    a refactor that swapped to a counter or a label-derived id
+    would fail here.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    first = await controller.add_token(label="Green dashboard")
+    second = await controller.add_token(label="Green dashboard")
+
+    assert first.label == "Green dashboard"
+    assert first.created_at > 0
+    # Wire form: ``{token_id}.{secret}`` with both halves substantial.
+    fid, fsecret = _split_bearer(first.bearer)
+    sid, ssecret = _split_bearer(second.bearer)
+    assert fid == first.token_id
+    assert sid == second.token_id
+    # Two calls give distinct high-entropy values everywhere.
+    assert fid != sid
+    assert fsecret != ssecret
+    assert len(fid) >= 8 and len(fsecret) >= 40
+
+
+@pytest.mark.asyncio
+async def test_add_token_persists_only_hashed_secret(tmp_path: Any) -> None:
+    """The on-disk row carries SHA-256 of the secret only; never the cleartext."""
+    controller = _make_controller(config_dir=tmp_path)
+    result = await controller.add_token(label="Green")
+    _, secret = _split_bearer(result.bearer)
+
+    settings = await controller.get_settings()
+    assert len(settings.tokens) == 1
+    stored = settings.tokens[0]
+    assert stored.token_id == result.token_id
+    assert stored.secret_sha256 == hashlib.sha256(secret.encode("ascii")).hexdigest()
+    assert secret not in stored.secret_sha256
+    assert stored.bound_dashboard_id is None
+
+
+@pytest.mark.asyncio
+async def test_list_tokens_omits_secret_hash(tmp_path: Any) -> None:
+    """The ``list_tokens`` projection drops ``secret_sha256`` and allows dup labels."""
+    controller = _make_controller(config_dir=tmp_path)
+    first = await controller.add_token(label="phone")
+    second = await controller.add_token(label="phone")
+    assert first.token_id != second.token_id  # token_id is the unique key
+
+    summaries = await controller.list_tokens()
+    assert [s.label for s in summaries] == ["phone", "phone"]
+    for summary in summaries:
+        assert not hasattr(summary, "secret_sha256")
+        assert summary.bound_dashboard_id is None
+
+
+@pytest.mark.parametrize(
+    ("label", "expected_code"),
+    [
+        pytest.param("", ErrorCode.INVALID_ARGS, id="empty"),
+        pytest.param("   ", ErrorCode.INVALID_ARGS, id="whitespace-only"),
+        pytest.param("\t\n", ErrorCode.INVALID_ARGS, id="tabs-newlines"),
+        pytest.param("x" * 200, ErrorCode.INVALID_ARGS, id="overlong"),
+        pytest.param(123, ErrorCode.INVALID_ARGS, id="non-string-int"),
+        pytest.param(None, ErrorCode.INVALID_ARGS, id="non-string-none"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_add_token_rejects_invalid_label(
+    tmp_path: Any, label: object, expected_code: ErrorCode
+) -> None:
+    """Empty / overlong / non-string labels don't slip through."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.add_token(label=label)  # type: ignore[arg-type]
+    assert exc.value.code == expected_code
+
+
+@pytest.mark.asyncio
+async def test_add_token_keeps_other_settings_intact(tmp_path: Any) -> None:
+    """Issuing a token doesn't reset ``enabled`` or ``manual_hosts``."""
+    controller = _make_controller(config_dir=tmp_path)
+    await controller.set_settings(enabled=True)
+    await controller.add_manual_host(hostname="desktop.local", port=6052)
+    await controller.add_token(label="Green")
+
+    settings = await controller.get_settings()
+    assert settings.enabled is True
+    assert settings.manual_hosts == [ManualHost(hostname="desktop.local", port=6052)]
+    assert len(settings.tokens) == 1
+
+
+@pytest.mark.asyncio
+async def test_remove_token_drops_only_target(tmp_path: Any) -> None:
+    """Removing one token leaves the rest of the list intact."""
+    controller = _make_controller(config_dir=tmp_path)
+    keep_a = await controller.add_token(label="Green")
+    target = await controller.add_token(label="Laptop")
+    keep_b = await controller.add_token(label="Phone")
+
+    settings = await controller.remove_token(token_id=target.token_id)
+    assert [t.token_id for t in settings.tokens] == [keep_a.token_id, keep_b.token_id]
+
+
+@pytest.mark.parametrize(
+    ("token_id", "expected_code"),
+    [
+        pytest.param("ghost123", ErrorCode.NOT_FOUND, id="unknown-id"),
+        pytest.param("   ", ErrorCode.INVALID_ARGS, id="blank-id"),
+        pytest.param("", ErrorCode.INVALID_ARGS, id="empty-id"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_remove_token_rejects_invalid(
+    tmp_path: Any, token_id: str, expected_code: ErrorCode
+) -> None:
+    """Unknown / blank / empty ``token_id`` is rejected with the right code."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.remove_token(token_id=token_id)
+    assert exc.value.code == expected_code

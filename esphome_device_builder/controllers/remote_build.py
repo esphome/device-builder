@@ -1,22 +1,25 @@
 """
-Remote-build feature; peer dashboard discovery + settings.
+Remote-build feature; peer dashboard discovery + settings + tokens.
 
-Phase 2 / 2b of issue #106. Browses ``_esphomebuilder._tcp.local.``
-to list other dashboards reachable on the LAN; persists the
-receiver-side ``enabled`` master switch (phase 2) and the
-user-supplied manual-host list for cross-subnet / non-multicast
-LANs (phase 2b); merges both sources into a single
+Browses ``_esphomebuilder._tcp.local.`` to list other dashboards
+reachable on the LAN; persists the receiver-side ``enabled``
+master switch, the user-supplied manual-host list for
+cross-subnet / non-multicast LANs, and the receiver-issued
+bearer-token list; merges discovery sources into a single
 ``remote_build/list_hosts`` snapshot.
 
-Phase 2 / 2b stops at discovery + settings storage:
+Current scope:
 
-* No HTTP / WS endpoints under ``/remote-build/v1/*`` yet (phase 3
-  lands the auth middleware + cert).
-* No pairing or peer-link WS yet (phase 4 / phase 5).
+* No HTTP / WS endpoints under ``/remote-build/v1/*`` yet (the
+  HTTPS listener + auth middleware land alongside the token
+  store's first consumer).
+* No pairing or peer-link WS yet.
 * The ``enabled`` setting is persisted but not wired to any
   endpoint registration; flipping it currently has no observable
-  effect beyond round-tripping in the settings UI. That's
-  deliberate scaffolding so phase 3+ have a place to plug in.
+  effect beyond round-tripping in the settings UI.
+* Tokens are issuable / revocable but nothing consumes them yet;
+  ``add_token`` returns the cleartext bearer once at creation
+  time, only the SHA-256 of the secret half lands on disk.
 * Manual hosts have no version / fingerprint resolution; they
   land in ``list_hosts`` with empty ``server_version`` /
   ``esphome_version`` until phase 4 attempts the connection.
@@ -33,7 +36,10 @@ own browsers (``_esphomelib._tcp.local.`` for devices,
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import secrets
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -48,6 +54,9 @@ from ..models import (
     RemoteBuildPeer,
     RemoteBuildPeerSource,
     RemoteBuildSettings,
+    StoredToken,
+    TokenCreateResult,
+    TokenSummary,
 )
 from .config import load_remote_build_settings, remote_build_settings_transaction
 
@@ -156,6 +165,92 @@ def _validate_hostname(raw: object) -> str:
         msg = "manual host: 'hostname' must not be empty"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return trimmed
+
+
+# Wire format for the bearer token presented by the offloader is
+# ``{token_id}.{secret}``. Splitting on the dot gives the receiver
+# constant-time lookup by ``token_id`` (no scanning the whole list)
+# plus the secret to verify against the stored hash. 8 random
+# bytes for the id keeps it short enough to type if a user ever
+# has to and large enough to make the lookup table effectively
+# unguessable on its own; 32 random bytes for the secret matches
+# the entropy of a typical session token. Both are base64url so
+# the wire form has no shell-quoting hazards.
+_TOKEN_ID_BYTES = 8
+_TOKEN_SECRET_BYTES = 32
+
+# Cap label length to keep ``list_tokens`` payloads bounded and
+# prevent a misbehaving frontend from accidentally storing a
+# multi-megabyte string. Generous enough for "Green dashboard
+# (kitchen)" style labels.
+_TOKEN_LABEL_MAX = 128
+
+
+def _validate_label(raw: object) -> str:
+    """
+    Normalise a user-entered token label to a stripped, length-bounded form.
+
+    Rejects non-string, empty / whitespace-only, and too-long
+    inputs with :class:`CommandError(INVALID_ARGS)`. Duplicate
+    labels are NOT rejected: ``token_id`` is the unique key, and
+    a user might legitimately want two tokens both labelled
+    "Green" (different machines or different purposes).
+    """
+    if not isinstance(raw, str):
+        msg = "token: 'label' must be a string"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    trimmed = raw.strip()
+    if not trimmed:
+        msg = "token: 'label' must not be empty"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if len(trimmed) > _TOKEN_LABEL_MAX:
+        msg = f"token: 'label' must be at most {_TOKEN_LABEL_MAX} characters"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return trimmed
+
+
+def _validate_token_id(raw: object) -> str:
+    """
+    Validate a user-supplied token_id (e.g. for ``remove_token``).
+
+    Just shape-checks the input; the actual existence check happens
+    in the mutator under the metadata lock so the look-up and the
+    delete are atomic.
+    """
+    if not isinstance(raw, str):
+        msg = "token: 'token_id' must be a string"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    trimmed = raw.strip()
+    if not trimmed:
+        msg = "token: 'token_id' must not be empty"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return trimmed
+
+
+def _generate_token() -> tuple[str, str, str]:
+    """
+    Mint a fresh ``(token_id, secret, secret_sha256)`` triple.
+
+    ``token_id`` and ``secret`` are independent base64url strings
+    drawn from :func:`secrets.token_urlsafe`. The cleartext bearer
+    the caller hands to the offloader is ``{token_id}.{secret}``;
+    only ``secret_sha256`` lands on disk so a snapshot of
+    ``.device-builder.json`` can't be replayed as a valid bearer.
+    """
+    token_id = secrets.token_urlsafe(_TOKEN_ID_BYTES)
+    secret = secrets.token_urlsafe(_TOKEN_SECRET_BYTES)
+    secret_sha256 = hashlib.sha256(secret.encode("ascii")).hexdigest()
+    return token_id, secret, secret_sha256
+
+
+def _summarise_token(token: StoredToken) -> TokenSummary:
+    """Project a :class:`StoredToken` to its public-facing :class:`TokenSummary`."""
+    return TokenSummary(
+        token_id=token.token_id,
+        label=token.label,
+        created_at=token.created_at,
+        bound_dashboard_id=token.bound_dashboard_id,
+    )
 
 
 def _validate_port(raw: object) -> int:
@@ -429,6 +524,89 @@ class RemoteBuildController:
             settings.manual_hosts.append(ManualHost(hostname=host, port=port_num))
 
         return await self._modify_settings(_add)
+
+    # ------------------------------------------------------------------
+    # Token CRUD (phase 3b1)
+    # ------------------------------------------------------------------
+
+    @api_command("remote_build/list_tokens")
+    async def list_tokens(self, **kwargs: Any) -> list[TokenSummary]:
+        """
+        Return every issued bearer token, by ``TokenSummary``.
+
+        ``TokenSummary`` rows never carry the secret hash; the
+        cleartext bearer flashes through ``add_token``'s response
+        once at create time and isn't recoverable from disk after
+        that. The frontend renders the token_id + label + bound
+        dashboard_id (if any) so the operator can audit which
+        peers are paired.
+        """
+        loop = asyncio.get_running_loop()
+        settings = await loop.run_in_executor(
+            None, load_remote_build_settings, self._db.settings.config_dir
+        )
+        return [_summarise_token(token) for token in settings.tokens]
+
+    @api_command("remote_build/add_token")
+    async def add_token(self, *, label: str, **kwargs: Any) -> TokenCreateResult:
+        """
+        Issue a fresh bearer token under the given label.
+
+        Returns :class:`TokenCreateResult` with the cleartext
+        ``bearer`` field; that's the ONE chance the user has to
+        copy the cleartext to the offloader. A subsequent
+        ``list_tokens`` returns ``TokenSummary`` rows that don't
+        carry the secret. If the operator loses the bearer, the
+        only recovery is to remove the token and issue a new one.
+
+        Duplicate labels are allowed (``token_id`` is the unique
+        key); a user may legitimately want two tokens both
+        labelled "Green" or "phone".
+        """
+        clean_label = _validate_label(label)
+        token_id, secret, secret_sha256 = _generate_token()
+        created_at = time.time()
+
+        def _add(settings: RemoteBuildSettings) -> None:
+            settings.tokens.append(
+                StoredToken(
+                    token_id=token_id,
+                    label=clean_label,
+                    secret_sha256=secret_sha256,
+                    created_at=created_at,
+                )
+            )
+
+        await self._modify_settings(_add)
+        return TokenCreateResult(
+            token_id=token_id,
+            label=clean_label,
+            created_at=created_at,
+            bearer=f"{token_id}.{secret}",
+        )
+
+    @api_command("remote_build/remove_token")
+    async def remove_token(self, *, token_id: str, **kwargs: Any) -> RemoteBuildSettings:
+        """
+        Revoke a previously-issued token.
+
+        Removing a bound token immediately disconnects the
+        offloader it's paired to: the next request the offloader
+        sends presents a token_id the receiver no longer
+        recognises and gets a 401. A non-existent ``token_id``
+        raises ``NOT_FOUND`` so the caller knows the call was a
+        no-op.
+        """
+        clean_id = _validate_token_id(token_id)
+
+        def _remove(settings: RemoteBuildSettings) -> None:
+            kept = [token for token in settings.tokens if token.token_id != clean_id]
+            if len(kept) == len(settings.tokens):
+                msg = f"token {clean_id} is not registered"
+                raise CommandError(ErrorCode.NOT_FOUND, msg)
+            settings.tokens = kept
+
+        return await self._modify_settings(_remove)
 
     @api_command("remote_build/remove_manual_host")
     async def remove_manual_host(
