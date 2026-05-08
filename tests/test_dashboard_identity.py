@@ -55,21 +55,6 @@ def test_key_file_has_restrictive_mode(tmp_path: Path) -> None:
     assert mode == _KEY_MODE
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
-def test_key_file_mode_is_corrected_when_pre_existing(tmp_path: Path) -> None:
-    """A pre-existing key file at a looser mode is chmod'd back to ``0600``."""
-    key_path = tmp_path / _KEY_FILENAME
-    cert_path = tmp_path / _CERT_FILENAME
-    key_path.write_bytes(b"placeholder")
-    key_path.chmod(0o644)
-    cert_path.write_bytes(b"placeholder")
-
-    get_or_create_identity(tmp_path)
-
-    mode = stat.S_IMODE(key_path.stat().st_mode)
-    assert mode == _KEY_MODE
-
-
 def test_pin_sha256_is_lowercase_hex_64_chars(tmp_path: Path) -> None:
     """SHA-256 fingerprint is 64 lowercase hex chars."""
     identity = get_or_create_identity(tmp_path)

@@ -20,18 +20,16 @@ and blocking; async callers must hop through ``run_in_executor``.
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import logging
-import os
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from ..controllers.config import metadata_transaction
@@ -43,9 +41,8 @@ _CERT_FILENAME = ".device-builder-cert.pem"
 _KEY_FILENAME = ".device-builder-key.pem"
 _KEY_MODE = 0o600
 _DASHBOARD_ID_BYTES = 24
-_CERT_KEY_BITS = 2048
-# 100 years: rotation is explicit, never driven by expiry.
-_CERT_VALIDITY_DAYS = 365 * 100
+_CERT_VALIDITY_YEARS = 100  # rotation is explicit; never driven by expiry
+_CERT_NOT_BEFORE_BACKDATE = timedelta(minutes=5)  # tolerate small peer-clock skew
 _CERT_COMMON_NAME = "ESPHome Device Builder"
 _REMOTE_BUILD_KEY = "_remote_build"
 _DASHBOARD_ID_KEY = "dashboard_id"
@@ -86,6 +83,7 @@ def get_or_create_identity(config_dir: Path) -> DashboardIdentity:
     if cert_pem is None or key_pem is None:
         cert_pem, key_pem = _generate_cert_pair()
         _persist_cert_pair(cert_path, key_path, cert_pem, key_pem)
+        _LOGGER.info("Generated new dashboard identity at %s", cert_path)
 
     dashboard_id = _get_or_create_dashboard_id(config_dir)
 
@@ -110,6 +108,7 @@ def rotate_certificate(config_dir: Path) -> DashboardIdentity:
     key_path = config_dir / _KEY_FILENAME
     cert_pem, key_pem = _generate_cert_pair()
     _persist_cert_pair(cert_path, key_path, cert_pem, key_pem)
+    _LOGGER.info("Rotated dashboard identity at %s", cert_path)
 
     dashboard_id = _get_or_create_dashboard_id(config_dir)
 
@@ -135,9 +134,6 @@ def _load_cert_pair(cert_path: Path, key_path: Path) -> tuple[bytes | None, byte
     manual rotation of one half, or a backup-restore reassembling
     mismatched files) would otherwise fail at TLS handshake time
     with an opaque "key values mismatch".
-
-    Also re-applies ``0600`` to the key file in case a prior write
-    or external touch left it at a looser mode.
     """
     if not cert_path.exists() or not key_path.exists():
         return None, None
@@ -146,9 +142,14 @@ def _load_cert_pair(cert_path: Path, key_path: Path) -> tuple[bytes | None, byte
         key_pem = key_path.read_bytes()
         cert = x509.load_pem_x509_certificate(cert_pem)
         private_key = serialization.load_pem_private_key(key_pem, password=None)
-        # Compare public_numbers() to reject a stale key paired
-        # with a fresh cert (or vice versa) before TLS handshake.
-        if cert.public_key().public_numbers() != private_key.public_key().public_numbers():
+        # Compare via SPKI bytes (key-type-agnostic; ed25519 has no
+        # public_numbers()) to reject a stale key paired with a
+        # fresh cert before TLS handshake.
+        spki = serialization.PublicFormat.SubjectPublicKeyInfo
+        der = serialization.Encoding.DER
+        if cert.public_key().public_bytes(der, spki) != private_key.public_key().public_bytes(
+            der, spki
+        ):
             _LOGGER.warning(
                 "Persisted cert at %s does not match private key at %s; regenerating",
                 cert_path,
@@ -156,21 +157,19 @@ def _load_cert_pair(cert_path: Path, key_path: Path) -> tuple[bytes | None, byte
             )
             return None, None
     except Exception:
-        _LOGGER.debug(
+        _LOGGER.warning(
             "Persisted cert / key at %s / %s failed to parse; regenerating",
             cert_path,
             key_path,
             exc_info=True,
         )
         return None, None
-    with contextlib.suppress(OSError):
-        os.chmod(key_path, _KEY_MODE)
     return cert_pem, key_pem
 
 
 def _generate_cert_pair() -> tuple[bytes, bytes]:
-    """Generate a fresh RSA-2048 keypair and a self-signed cert."""
-    key = rsa.generate_private_key(public_exponent=65537, key_size=_CERT_KEY_BITS)
+    """Generate a fresh Ed25519 keypair and a self-signed cert."""
+    key = ed25519.Ed25519PrivateKey.generate()
     now = datetime.now(UTC)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, _CERT_COMMON_NAME)])
     cert = (
@@ -179,8 +178,14 @@ def _generate_cert_pair() -> tuple[bytes, bytes]:
         .issuer_name(name)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now)
-        .not_valid_after(now + timedelta(days=_CERT_VALIDITY_DAYS))
+        .not_valid_before(now - _CERT_NOT_BEFORE_BACKDATE)
+        .not_valid_after(_add_years(now, _CERT_VALIDITY_YEARS))
+        # SAN deliberately minimal (localhost only). Paired peers
+        # pin on the SPKI fingerprint and don't run hostname
+        # validation, so non-matching server names (homeassistant.local,
+        # host IPs) handshake fine. A non-pinning client would see a
+        # hostname-mismatch warning, which is the right outcome since
+        # this isn't a publicly-trusted cert.
         .add_extension(
             x509.SubjectAlternativeName([x509.DNSName("localhost")]),
             critical=False,
@@ -189,7 +194,9 @@ def _generate_cert_pair() -> tuple[bytes, bytes]:
             x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
             critical=True,
         )
-        .sign(key, hashes.SHA256())
+        # Ed25519 self-signs without a separate hash algorithm
+        # (signature includes the digest internally).
+        .sign(key, None)
     )
     cert_pem = cert.public_bytes(serialization.Encoding.PEM)
     key_pem = key.private_bytes(
@@ -230,6 +237,14 @@ def _spki_fingerprint(cert_pem: bytes) -> str:
 def _generate_dashboard_id() -> str:
     """Return a random base64url string identifying this dashboard installation."""
     return secrets.token_urlsafe(_DASHBOARD_ID_BYTES)
+
+
+def _add_years(d: datetime, years: int) -> datetime:
+    """Return *d* shifted by *years*; clamps Feb 29 -> Feb 28 in non-leap targets."""
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        return d.replace(year=d.year + years, day=28)
 
 
 def _get_or_create_dashboard_id(config_dir: Path) -> str:
