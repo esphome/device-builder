@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..models import DeviceState
 
@@ -63,7 +63,8 @@ ObservationCallback = Callable[[str], None]
 
 @dataclass(frozen=True, slots=True)
 class MdnsCacheInfo:
-    """Truthful mDNS freshness derived from the zeroconf cache.
+    """
+    Truthful mDNS freshness derived from the zeroconf cache.
 
     ``age_seconds`` is the elapsed time since the device's most
     recent ``_esphomelib._tcp.local.`` SRV record was received,
@@ -78,10 +79,24 @@ class MdnsCacheInfo:
     fresh announce. The drawer surfaces it beside the row so the
     user can see whether the device is "due to re-announce" or
     "missed several windows already."
+
+    ``txt_records`` is the parsed ``key -> value`` pairs from the
+    device's ``TXT`` record at ``<name>._esphomelib._tcp.local.``
+    — the same payload the dashboard already mines for
+    ``version`` / ``config_hash`` / ``mac`` / ``api_encryption``.
+    Surfaced wholesale to the drawer so the user can see exactly
+    what the device is broadcasting (debugging "why is the
+    dashboard reading the wrong version?" / "did my OTA actually
+    refresh the TXT?"). Empty mapping when no TXT is cached or
+    every value failed UTF-8 decode. Keys we couldn't decode are
+    dropped silently — the dashboard already trusts
+    ``decoded_properties`` for the live-apply path, so this
+    matches that contract.
     """
 
     age_seconds: float
     ttl_remaining_seconds: float
+    txt_records: dict[str, str] = field(default_factory=dict)
 
 
 # Reads the mDNS cache for a device name and returns the freshness
@@ -215,11 +230,22 @@ class ReachabilityTracker:
 
         mdns_age: float | None = None
         mdns_ttl_remaining: float | None = None
+        # ``None`` means "no TXT data" so the drawer can hide the
+        # debug section entirely; an empty dict would render the
+        # collapsible header with zero rows, which is just visual
+        # noise. Distinct from ``{}`` which is "TXT was present
+        # but had no decodable keys" (vanishingly rare in practice).
+        mdns_txt_records: dict[str, str] | None = None
         if self._mdns_cache_reader is not None:
             info = self._mdns_cache_reader(name)
             if info is not None:
                 mdns_age = info.age_seconds
                 mdns_ttl_remaining = info.ttl_remaining_seconds
+                # Send a fresh dict on the wire — the cache reader
+                # may hand us a reference into a cached structure;
+                # don't let downstream mutation reach back into
+                # zeroconf's internals.
+                mdns_txt_records = dict(info.txt_records) if info.txt_records else None
 
         return {
             "device": name,
@@ -228,6 +254,7 @@ class ReachabilityTracker:
             "ip": ip,
             "mdns_last_seen_seconds_ago": mdns_age,
             "mdns_ttl_remaining_seconds": mdns_ttl_remaining,
+            "mdns_txt_records": mdns_txt_records,
             "ping_last_seen_seconds_ago": _ago(self._ping_last_seen.get(name)),
             "mqtt_last_seen_seconds_ago": _ago(self._mqtt_last_seen.get(name)),
             "ping_rtt_ms": self._ping_rtt_ms.get(name),

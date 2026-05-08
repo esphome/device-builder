@@ -54,6 +54,7 @@ def test_snapshot_empty_returns_all_nulls() -> None:
         "ip": "",
         "mdns_last_seen_seconds_ago": None,
         "mdns_ttl_remaining_seconds": None,
+        "mdns_txt_records": None,
         "ping_last_seen_seconds_ago": None,
         "mqtt_last_seen_seconds_ago": None,
         "ping_rtt_ms": None,
@@ -85,6 +86,54 @@ def test_snapshot_mdns_null_when_cache_reader_returns_none() -> None:
     snap = _snapshot(tracker)
     assert snap["mdns_last_seen_seconds_ago"] is None
     assert snap["mdns_ttl_remaining_seconds"] is None
+    assert snap["mdns_txt_records"] is None
+
+
+def test_snapshot_includes_txt_records_when_present() -> None:
+    """
+    TXT records on the wire let the drawer show a debug collapsible.
+
+    Pin the wire shape: a non-empty ``txt_records`` mapping on the
+    ``MdnsCacheInfo`` round-trips through the snapshot dict as a
+    fresh ``dict[str, str]``, so a downstream caller mutating the
+    serialised dict can't poke back into the cache.
+    """
+    info = MdnsCacheInfo(
+        age_seconds=1.0,
+        ttl_remaining_seconds=119.0,
+        txt_records={
+            "version": "2025.4.0",
+            "config_hash": "5a94a12d",
+            "mac": "aabbccddeeff",
+        },
+    )
+    tracker = ReachabilityTracker(mdns_cache_reader={"kitchen": info}.get)
+
+    snap = _snapshot(tracker)
+    assert snap["mdns_txt_records"] == {
+        "version": "2025.4.0",
+        "config_hash": "5a94a12d",
+        "mac": "aabbccddeeff",
+    }
+    # Wire-side dict is a copy: mutating it doesn't reach the
+    # cached info object the next snapshot will read.
+    snap["mdns_txt_records"]["version"] = "tampered"  # type: ignore[index]
+    assert info.txt_records["version"] == "2025.4.0"
+
+
+def test_snapshot_drops_empty_txt_records_to_none() -> None:
+    """Empty ``txt_records`` → ``None`` on the wire so the drawer hides the debug section.
+
+    A collapsible header with zero rows is just visual noise; the
+    ``None`` distinction lets the renderer skip rendering the
+    section entirely.
+    """
+    info = MdnsCacheInfo(age_seconds=1.0, ttl_remaining_seconds=119.0, txt_records={})
+    tracker = ReachabilityTracker(mdns_cache_reader={"kitchen": info}.get)
+
+    snap = _snapshot(tracker)
+    assert snap["mdns_last_seen_seconds_ago"] == 1.0
+    assert snap["mdns_txt_records"] is None
 
 
 def test_observe_records_ping_and_mqtt_stamps() -> None:

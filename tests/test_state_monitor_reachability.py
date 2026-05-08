@@ -32,11 +32,12 @@ import pytest
 from zeroconf import (
     DNSAddress,
     DNSPointer,
+    DNSText,
     ServiceStateChange,
     Zeroconf,
     current_time_millis,
 )
-from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR
+from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR, _TYPE_TXT
 
 import esphome_device_builder.controllers._device_state_monitor as state_monitor_module
 from esphome_device_builder.controllers._device_state_monitor import (
@@ -451,6 +452,98 @@ def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
         assert info is not None
         # PTR (5s ago) is fresher than A (110s ago) → PTR wins.
         assert info.age_seconds == pytest.approx(5.0, abs=0.5)
+    finally:
+        zc.close()
+
+
+def test_get_mdns_cache_info_decodes_txt_records() -> None:
+    """
+    Cached ``DNSText`` → parsed ``key=value`` mapping for the drawer.
+
+    The drawer's "show TXT records" debug collapsible needs the
+    decoded key/value pairs the device actually broadcast, not the
+    raw RFC-6763 length-prefixed bytes. Pin the round-trip via a
+    real ``Zeroconf`` cache: the monitor reads the cached
+    ``DNSText`` record, hands its bytes to ``ServiceInfo.text``,
+    and surfaces ``decoded_properties`` filtered to ``str``-valued
+    entries (drop ``None``-valued bare keys so they don't show up
+    as empty rows in the UI).
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        # RFC-6763 length-prefixed TXT entries. ``decoded_properties``
+        # already handles UTF-8 decode + ``None`` for bad bytes; we
+        # just need to make sure the bytes-to-dict path runs.
+        txt_entries = [
+            b"version=2025.4.0",
+            b"config_hash=5a94a12d",
+            b"mac=aabbccddeeff",
+            b"api_encryption=Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+        ]
+        txt_payload = b"".join(bytes([len(e)]) + e for e in txt_entries)
+        txt_rec = DNSText(
+            name="kitchen._esphomelib._tcp.local.",
+            type_=_TYPE_TXT,
+            class_=_CLASS_IN,
+            ttl=120,
+            text=txt_payload,
+            created=current_time_millis() - 2_000,
+        )
+        # An A record so ``records`` is non-empty (otherwise the
+        # method returns ``None`` before the TXT path runs).
+        a_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 2_000,
+        )
+        zc.cache.async_add_records([a_rec, txt_rec])
+
+        monitor = _make_monitor([_make_device()], None)
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.get_mdns_cache_info("kitchen")
+        assert info is not None
+        assert info.txt_records == {
+            "version": "2025.4.0",
+            "config_hash": "5a94a12d",
+            "mac": "aabbccddeeff",
+            "api_encryption": "Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+        }
+    finally:
+        zc.close()
+
+
+def test_get_mdns_cache_info_no_txt_records_returns_empty_mapping() -> None:
+    """
+    Address records present but no TXT → ``txt_records == {}``.
+
+    The drawer's snapshot serialiser maps an empty mapping to
+    ``None`` on the wire (so the debug collapsible stays hidden);
+    this test pins the upstream half — the monitor itself
+    distinguishes "no TXT cached" from "TXT cached but empty"
+    only at this granularity.
+    """
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        a_rec = DNSAddress(
+            name="kitchen.local.",
+            type_=_TYPE_A,
+            class_=_CLASS_IN,
+            ttl=120,
+            address=socket.inet_aton("10.0.0.42"),
+            created=current_time_millis() - 2_000,
+        )
+        zc.cache.async_add_records([a_rec])
+
+        monitor = _make_monitor([_make_device()], None)
+        monitor._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.get_mdns_cache_info("kitchen")
+        assert info is not None
+        assert info.txt_records == {}
     finally:
         zc.close()
 

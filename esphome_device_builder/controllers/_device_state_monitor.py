@@ -546,10 +546,11 @@ class DeviceStateMonitor:
             return None
         cache = self._zeroconf.zeroconf.cache
         service_name = f"{name}.{_ESPHOME_SERVICE_TYPE}"
+        txt_dns_records = list(cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN))
         records: list[Any] = [
             *self._get_address_records(name),
             *cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN),
-            *cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN),
+            *txt_dns_records,
         ]
         # PTR is owned by the type-domain (``_esphomelib._tcp.local.``)
         # and carries the service-instance as its ``alias`` —
@@ -582,7 +583,39 @@ class DeviceStateMonitor:
         # — that would turn "108 seconds remaining" into 0.108
         # and render as "TTL: 0s".
         ttl_remaining_s = max(0.0, float(latest.get_remaining_ttl(now_ms)))
-        return MdnsCacheInfo(age_seconds=age_s, ttl_remaining_seconds=ttl_remaining_s)
+        # Decode the TXT key/value pairs straight off the cached
+        # ``DNSText`` records for the drawer's debug collapsible.
+        # Reuses ``ServiceInfo.text`` setter so we get zeroconf's
+        # canonical RFC-6763 split (length-prefixed UTF-8 entries
+        # → ``key=value`` pairs) and ``decoded_properties`` for the
+        # UTF-8 decode + bad-bytes-to-``None`` handling. We skip
+        # ``load_from_cache`` here because production passes a
+        # real Zeroconf and tests stub the cache with a
+        # ``MagicMock`` — ``load_from_cache``'s strict
+        # ``DNSCache`` isinstance check would crash the test
+        # path, and the only thing we need from the cache is the
+        # already-fetched TXT bytes.
+        txt_records: dict[str, str] = {}
+        if txt_dns_records:
+            latest_txt = max(txt_dns_records, key=attrgetter("created"))
+            txt_bytes = getattr(latest_txt, "text", None)
+            if isinstance(txt_bytes, (bytes, bytearray)):
+                info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, service_name)
+                info.text = bytes(txt_bytes)
+                # ``decoded_properties`` is ``dict[str, str | None]``
+                # — drop ``None`` values (key without ``=``) so they
+                # don't surface as JSON ``null`` on the wire; the
+                # drawer would render those as empty rows anyway.
+                txt_records = {
+                    key: value
+                    for key, value in info.decoded_properties.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+        return MdnsCacheInfo(
+            age_seconds=age_s,
+            ttl_remaining_seconds=ttl_remaining_s,
+            txt_records=txt_records,
+        )
 
     def _apply_resolved_addresses(
         self, name: str, addresses: list[str] | BaseException | None
