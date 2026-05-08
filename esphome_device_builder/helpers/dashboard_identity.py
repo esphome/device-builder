@@ -14,8 +14,9 @@ Generates and persists, on first call to
 Subsequent calls reload the same bytes. Cert validity is 100
 years; rotation is explicit via :func:`rotate_certificate`.
 
-Generation does ~2k of RSA + disk I/O on the first call. Sync
-and blocking; async callers must hop through ``run_in_executor``.
+Generation is an Ed25519 keypair plus a few file writes on the
+first call. Sync and blocking; async callers must hop through
+``run_in_executor``.
 """
 
 from __future__ import annotations
