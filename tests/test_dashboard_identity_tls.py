@@ -13,6 +13,7 @@ tries to connect.
 
 from __future__ import annotations
 
+import asyncio
 import ssl
 from pathlib import Path
 
@@ -25,6 +26,16 @@ from esphome_device_builder.helpers.dashboard_identity import (
     _KEY_FILENAME,
     get_or_create_identity,
 )
+
+
+def _build_server_ssl_context(cert_path: Path, key_path: Path) -> ssl.SSLContext:
+    ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    return ctx
+
+
+def _build_client_ssl_context(cert_path: Path) -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=str(cert_path))
 
 
 def test_cert_and_key_load_into_python_ssl(tmp_path: Path) -> None:
@@ -49,12 +60,15 @@ async def test_aiohttp_https_handshake_passes_strict_x509(tmp_path: Path) -> Non
     SAN extension, or the validity window) before the request
     even left the client.
     """
-    get_or_create_identity(tmp_path)
+    # The identity helper does sync file I/O (existence check, PEM reads,
+    # ed25519 generate, atomic_write); call it through the executor so
+    # blockbuster doesn't flag it as a blocking call from the loop.
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, get_or_create_identity, tmp_path)
     cert_path = tmp_path / _CERT_FILENAME
     key_path = tmp_path / _KEY_FILENAME
 
-    server_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    server_ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    server_ctx = await loop.run_in_executor(None, _build_server_ssl_context, cert_path, key_path)
 
     async def handler(_request: web.Request) -> web.Response:
         return web.Response(text="hello")
@@ -68,7 +82,7 @@ async def test_aiohttp_https_handshake_passes_strict_x509(tmp_path: Path) -> Non
     port = site._server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
 
     try:
-        client_ctx = ssl.create_default_context(cafile=str(cert_path))
+        client_ctx = await loop.run_in_executor(None, _build_client_ssl_context, cert_path)
         # Defaults: check_hostname=True, verify_mode=CERT_REQUIRED.
         connector = aiohttp.TCPConnector(ssl=client_ctx)
         async with (
