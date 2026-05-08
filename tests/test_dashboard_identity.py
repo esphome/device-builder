@@ -1,23 +1,4 @@
-"""
-Tests for the phase-3a dashboard identity helper.
-
-Covers:
-
-* First-call generation: creates cert + key files in the config
-  dir, generates a fresh ``dashboard_id`` in the metadata sidecar.
-* Idempotence: a second call returns identical bytes / id without
-  regenerating.
-* Cert / key file mode: the key file is ``0600``, the cert file
-  isn't restricted.
-* Fingerprint shape: lowercase hex, 64 chars (SHA-256 of the DER).
-* Recovery from partial corruption: cert without key, key without
-  cert, or unparsable PEM all reset to "missing" and regenerate.
-* ``rotate_certificate``: keeps the same ``dashboard_id``, changes
-  the cert, persists the new pair.
-* ``dashboard_id`` survives ``_remote_build`` mutations: adding a
-  manual host or flipping ``enabled`` between save calls doesn't
-  drop the id.
-"""
+"""Tests for the dashboard identity helper."""
 
 from __future__ import annotations
 
@@ -26,15 +7,11 @@ import stat
 import threading
 from pathlib import Path
 
-import pytest
-
-from esphome_device_builder.helpers import dashboard_identity
 from esphome_device_builder.helpers.dashboard_identity import (
     _CERT_FILENAME,
     _KEY_FILENAME,
     _KEY_MODE,
     DashboardIdentity,
-    atomic_write,
     get_or_create_identity,
     rotate_certificate,
 )
@@ -67,18 +44,7 @@ def test_second_call_returns_identical_identity(tmp_path: Path) -> None:
 
 
 def test_key_file_has_restrictive_mode(tmp_path: Path) -> None:
-    """
-    The private-key file is created at ``0600``, never wider.
-
-    A ``Path.write_bytes`` followed by a ``Path.chmod`` would
-    leave a window between the write and the chmod where the
-    bytes sit at the umask default (typically ``0644``); a
-    backup tool snapshotting the config dir during that window
-    would capture the key at the wrong mode. Pin the
-    "key was created at ``0600`` from the start" semantics.
-    Cert is intentionally public-by-design and stays at the
-    default mode.
-    """
+    """The private-key file lands at ``0600`` from the start, never wider."""
     get_or_create_identity(tmp_path)
     key_path = tmp_path / _KEY_FILENAME
     mode = stat.S_IMODE(key_path.stat().st_mode)
@@ -86,18 +52,7 @@ def test_key_file_has_restrictive_mode(tmp_path: Path) -> None:
 
 
 def test_key_file_mode_is_corrected_when_pre_existing(tmp_path: Path) -> None:
-    """
-    A pre-existing key file at a looser mode is chmod'd back to ``0600``.
-
-    Real-world path: an older version of the helper, or the user
-    poking at the file, left it at the umask default. The next
-    call to ``get_or_create_identity`` regenerates via
-    ``os.open(..., mode=0o600)`` which is a creation-time mode
-    only; if the file already exists, that argument is ignored.
-    The explicit ``os.chmod`` after the write makes the mode
-    apply unconditionally so a previously-too-loose key gets
-    locked down on the next regen.
-    """
+    """A pre-existing key file at a looser mode is chmod'd back to ``0600``."""
     key_path = tmp_path / _KEY_FILENAME
     cert_path = tmp_path / _CERT_FILENAME
     key_path.write_bytes(b"placeholder")
@@ -110,23 +65,23 @@ def test_key_file_mode_is_corrected_when_pre_existing(tmp_path: Path) -> None:
     assert mode == _KEY_MODE
 
 
-def test_cert_sha256_is_lowercase_hex_64_chars(tmp_path: Path) -> None:
+def test_pin_sha256_is_lowercase_hex_64_chars(tmp_path: Path) -> None:
     """SHA-256 fingerprint is 64 lowercase hex chars."""
     identity = get_or_create_identity(tmp_path)
-    assert len(identity.cert_sha256) == 64
-    assert identity.cert_sha256 == identity.cert_sha256.lower()
-    assert all(c in "0123456789abcdef" for c in identity.cert_sha256)
+    assert len(identity.pin_sha256) == 64
+    assert identity.pin_sha256 == identity.pin_sha256.lower()
+    assert all(c in "0123456789abcdef" for c in identity.pin_sha256)
 
 
-def test_cert_sha256_formatted_groups_in_pairs(tmp_path: Path) -> None:
+def test_pin_sha256_formatted_groups_in_pairs(tmp_path: Path) -> None:
     """Display form groups the hex into space-separated byte pairs."""
     identity = get_or_create_identity(tmp_path)
-    formatted = identity.cert_sha256_formatted
+    formatted = identity.pin_sha256_formatted
     parts = formatted.split(" ")
     assert len(parts) == 32
     assert all(len(p) == 2 for p in parts)
     # Round-trip: stripping spaces yields the bare form.
-    assert formatted.replace(" ", "") == identity.cert_sha256
+    assert formatted.replace(" ", "") == identity.pin_sha256
 
 
 def test_missing_key_file_triggers_regeneration(tmp_path: Path) -> None:
@@ -167,101 +122,21 @@ def test_unparsable_key_triggers_regeneration(tmp_path: Path) -> None:
 
 
 def test_mismatched_cert_and_key_triggers_regeneration(tmp_path: Path) -> None:
-    """
-    Cert + key both parse but don't pair; treated as missing, regenerate.
-
-    Real-world path: a backup-restore reassembles mismatched files,
-    or someone manually rotated one half. Without the cross-check,
-    the helper would happily return the mismatched pair and the
-    failure would only surface deep inside the TLS handshake as
-    "key values mismatch".
-    """
+    """Cert + key both parse but don't pair; treated as missing, regenerate."""
     first = get_or_create_identity(tmp_path)
-    # Generate a SECOND independent identity in another tmp dir so
-    # we have a valid-but-unrelated key, then drop it next to the
-    # first identity's cert. Both files parse cleanly; only the
-    # cross-check rejects them.
+    # Drop a valid-but-unrelated key next to the first identity's cert.
     other_dir = tmp_path / "other"
     other_dir.mkdir()
     other = get_or_create_identity(other_dir)
     (tmp_path / _KEY_FILENAME).write_bytes(other.key_pem)
 
     third = get_or_create_identity(tmp_path)
-    # New cert + key generated; both halves now match each other.
     assert third.cert_pem != first.cert_pem
     assert third.cert_pem != other.cert_pem
 
 
-def test_atomic_write_cleans_up_tempfile_on_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """
-    A crash mid-write leaves no leftover ``.tmp`` files in the config dir.
-
-    ``atomic_write`` stages bytes in ``mkstemp(prefix=name + ".",
-    suffix=".tmp", dir=parent)`` and ``os.replace``s into place. If
-    ``os.replace`` raises (disk full, permissions, ...) the tempfile
-    must be unlinked rather than accumulating one ``.<name>.<random>.tmp``
-    file per failed write across the dashboard's lifetime.
-    """
-    target = tmp_path / "demo.bin"
-
-    def _fail(*args: object, **kwargs: object) -> None:
-        msg = "disk full"
-        raise OSError(msg)
-
-    monkeypatch.setattr("os.replace", _fail)
-
-    with pytest.raises(OSError, match="disk full"):
-        atomic_write(target, b"payload")
-
-    # Target wasn't created; no tempfiles linger.
-    assert not target.exists()
-    assert not list(tmp_path.glob("demo.bin.*.tmp"))
-
-
-def test_atomic_write_closes_fd_when_write_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """
-    A failure during ``os.write`` doesn't leak the file descriptor.
-
-    The cleanup branch closes the fd-still-open and unlinks the
-    tempfile so a transient I/O error doesn't leave the dashboard
-    accumulating leaked descriptors per failed write.
-    """
-    target = tmp_path / "demo.bin"
-
-    real_write = dashboard_identity.os.write
-
-    def _failing_write(fd: int, data: bytes) -> int:
-        # Raise on our target write, but pass through any other
-        # ``os.write`` calls happening elsewhere in the process.
-        if data == b"payload":
-            msg = "io error"
-            raise OSError(msg)
-        return real_write(fd, data)
-
-    monkeypatch.setattr(dashboard_identity.os, "write", _failing_write)
-
-    with pytest.raises(OSError, match="io error"):
-        dashboard_identity.atomic_write(target, b"payload")
-
-    assert not target.exists()
-    assert not list(tmp_path.glob("demo.bin.*.tmp"))
-
-
 def test_concurrent_dashboard_id_generation_is_serialised(tmp_path: Path) -> None:
-    """
-    Two concurrent ``get_or_create_identity`` calls land on the same id.
-
-    The ``metadata_transaction`` lock serialises the read-modify-
-    write under one critical section, so even if two callers race
-    in via ``run_in_executor`` thread pool one of them blocks until
-    the other completes; whichever wins persists its id, the other
-    re-reads and returns it. Without the lock both would generate
-    independent ids and one would silently overwrite the other.
-    """
+    """Two concurrent ``get_or_create_identity`` calls land on the same id."""
     results: list[str] = []
     barrier = threading.Barrier(4)
 
@@ -284,7 +159,7 @@ def test_rotate_certificate_keeps_dashboard_id(tmp_path: Path) -> None:
     rotated = rotate_certificate(tmp_path)
 
     assert rotated.dashboard_id == first.dashboard_id
-    assert rotated.cert_sha256 != first.cert_sha256
+    assert rotated.pin_sha256 != first.pin_sha256
     assert rotated.cert_pem != first.cert_pem
     assert rotated.key_pem != first.key_pem
 

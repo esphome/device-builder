@@ -1,0 +1,46 @@
+"""
+Atomic filesystem writes for dashboard-internal artefacts.
+
+For cert / key / token / metadata-sidecar files. User-editable
+YAML still goes through :func:`esphome.helpers.write_file`.
+
+Why not the upstream helper here: ``write_file``'s ``private``
+flag is binary (0o644 vs 0o600), and we need arbitrary modes for
+caller-controlled-mode shapes (cert / key + future token stores).
+
+Blocking I/O — call from ``run_in_executor``, not the loop.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import os
+import tempfile
+from pathlib import Path
+
+
+def atomic_write(path: Path, data: bytes, *, mode: int | None = None) -> None:
+    """
+    Write *data* to *path* atomically.
+
+    Stages bytes in a sibling tempfile, then ``os.replace``s into
+    place. Readers see either the old or new bytes, never a
+    truncated file. ``mode`` is applied to the staging file before
+    the rename; ``os.replace`` carries that mode to the destination.
+    """
+    fd, tmp_str = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    tmp_path = Path(tmp_str)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            if mode is not None:
+                os.chmod(tmp_path, mode)
+            fh.write(data)
+        os.replace(tmp_path, path)
+    except Exception:
+        with contextlib.suppress(FileNotFoundError):
+            tmp_path.unlink()
+        raise
