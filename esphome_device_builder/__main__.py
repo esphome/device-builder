@@ -9,7 +9,7 @@ import sys
 import threading
 from contextlib import suppress
 from logging.handlers import RotatingFileHandler
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from colorlog import ColoredFormatter
 
@@ -261,7 +261,10 @@ def _esphome_version() -> str | None:
         from esphome.const import __version__ as version  # noqa: PLC0415
     except ImportError:
         return None
-    return version
+    # ``esphome`` ships no type stubs, so ``__version__`` arrives as
+    # ``Any`` and the raw return trips ``no-any-return``. Cast at the
+    # boundary — runtime contract is the documented version string.
+    return cast("str | None", version)
 
 
 def _format_version() -> str:

@@ -57,6 +57,7 @@ through it. The held-ref pattern is verified by the unit tests.
 from __future__ import annotations
 
 import hashlib
+from typing import cast
 
 from noise.connection import Keypair, NoiseConnection
 
@@ -182,7 +183,11 @@ class PeerLinkNoiseSession:
     @property
     def handshake_finished(self) -> bool:
         """``True`` once the 3rd handshake message has been processed."""
-        return self._nc.handshake_finished
+        # ``noiseprotocol`` ships no type stubs, so
+        # ``NoiseConnection.handshake_finished`` arrives as ``Any`` and
+        # the raw return trips ``no-any-return``. The runtime contract
+        # is documented as ``bool``; cast to pin the signature.
+        return cast(bool, self._nc.handshake_finished)
 
     @property
     def remote_static_pub(self) -> bytes:

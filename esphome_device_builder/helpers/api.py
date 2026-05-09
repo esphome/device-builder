@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Any, TypeVar
 
 from ..models import ErrorCode
 
-# Type alias for command handler functions
+# Type alias for command handler functions. ``CommandHandler`` is the
+# erased shape used by the registry side (``collect_api_commands``);
+# the decorator preserves the actual handler's signature via the
+# ``_F`` TypeVar so call-sites keep their precise return types
+# instead of widening to ``Any``.
 CommandHandler = Callable[..., Coroutine[Any, Any, Any]]
+_F = TypeVar("_F", bound=CommandHandler)
 
 
 class CommandError(Exception):
@@ -27,7 +32,7 @@ class CommandError(Exception):
         self.message = message
 
 
-def api_command(command: str) -> Callable[[CommandHandler], CommandHandler]:
+def api_command(command: str) -> Callable[[_F], _F]:
     """Decorate a controller method to register it as a WebSocket API command.
 
     Usage:
@@ -37,9 +42,18 @@ def api_command(command: str) -> Callable[[CommandHandler], CommandHandler]:
 
     The decorated method is discoverable via `_api_command` attribute.
     DeviceBuilder scans controllers for these and builds its command registry.
+
+    Returns the function unchanged at runtime — only the
+    ``_api_command`` attribute is set. The ``_F`` ``TypeVar``
+    bound to ``CommandHandler`` carries the precise function
+    signature through the decorator so call-sites keep their
+    actual return type (e.g. ``OnboardingState``,
+    ``PagedBoardsResponse``) instead of widening to
+    ``Coroutine[Any, Any, Any]`` like a plain
+    ``Callable[[CommandHandler], CommandHandler]`` shape would.
     """
 
-    def decorator(func: CommandHandler) -> CommandHandler:
+    def decorator(func: _F) -> _F:
         func._api_command = command  # type: ignore[attr-defined]
         return func
 

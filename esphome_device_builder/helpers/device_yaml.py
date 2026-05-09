@@ -14,7 +14,7 @@ import logging
 import re
 import secrets
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from esphome import const, yaml_util
 from esphome.const import CONF_PACKAGES
@@ -475,7 +475,12 @@ def detect_platform_from_yaml(path: Path) -> str:
     config = load_device_yaml(path)
     if isinstance(config, dict):
         for key in config:
-            if key in _PLATFORM_KEYS:
+            # ``key`` is ``Any`` (dict came from ``yaml_util.load_yaml``
+            # which is untyped); the runtime contract is "platform keys
+            # are always strings", so narrow with ``isinstance`` before
+            # returning rather than blind-returning ``Any`` and tripping
+            # ``no-any-return``.
+            if isinstance(key, str) and key in _PLATFORM_KEYS:
                 return key
     return ""
 
@@ -1115,7 +1120,13 @@ def load_device_yaml(path: Path) -> dict | None:
                 path,
                 exc_info=True,
             )
-    return config
+    # ``config`` came from ``yaml_util.load_yaml`` (esphome,
+    # untyped) and was further passed through the package-merge
+    # helpers (also untyped), so it stays ``Any`` despite the
+    # ``isinstance(config, dict)`` narrowing earlier. Cast at the
+    # return so the public ``dict | None`` signature is honest
+    # without forcing every caller to re-narrow on receive.
+    return cast("dict[Any, Any] | None", config)
 
 
 def get_api_encryption_block(config: dict | None) -> dict | None:
