@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -188,6 +190,39 @@ async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_path: Path) -> None:
+    """
+    pair_request with no dashboard_id is REJECTED before any controller mutation.
+
+    The dispatcher refuses identity-bearing intents whose
+    ``dashboard_id`` is missing or empty, so an offloader that
+    sends an empty / non-string field can't create a nonsense
+    StoredPeer row keyed on ``""``.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await controller.set_pairing_window(open=True, client="receiver-tab")
+    controller._db.bus.fire.reset_mock()
+
+    response = await _dispatch_intent(
+        controller=controller,
+        intent=PeerLinkIntent.PAIR_REQUEST,
+        dashboard_id="",  # empty — should fail the gate
+        label="alpha",
+        pin_sha256="pin",
+        static_x25519_pub=b"\x00" * 32,
+        peer_ip="192.168.1.10",
+    )
+
+    assert response is IntentResponse.REJECTED
+    controller._db.bus.fire.assert_not_called()
+    loop = asyncio.get_running_loop()
+    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
+    assert settings.peers == []
+    await controller.stop()
+
+
+@pytest.mark.asyncio
 async def test_dispatch_pair_status_pending_returns_pending(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
@@ -224,7 +259,9 @@ async def test_dispatch_pair_status_pending_returns_pending(tmp_path: Path) -> N
 
 
 @pytest.fixture
-async def peer_link_app(tmp_path: Path) -> tuple[TestClient, RemoteBuildController, bytes]:
+async def peer_link_app(
+    tmp_path: Path,
+) -> AsyncGenerator[tuple[TestClient, RemoteBuildController, bytes], None]:
     """
     Spin up a minimal aiohttp app with the peer-link route bound.
 
@@ -243,7 +280,8 @@ async def peer_link_app(tmp_path: Path) -> tuple[TestClient, RemoteBuildControll
     identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, tmp_path)
 
     app = web.Application()
-    app.router.add_get(PEER_LINK_PATH, make_peer_link_handler(controller))
+    handler = await make_peer_link_handler(controller)
+    app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     client = TestClient(server)
     await client.start_server()
@@ -254,18 +292,35 @@ async def peer_link_app(tmp_path: Path) -> tuple[TestClient, RemoteBuildControll
         await controller.stop()
 
 
+@dataclass(frozen=True)
+class _InitiatorRoundTrip:
+    """
+    Test-only return type for :func:`_drive_initiator_handshake`.
+
+    Bundles the three values a caller asserts on after a Noise XX
+    round-trip from the initiator side: the live session (for
+    ``decrypt`` access and the captured ``remote_static_pub``),
+    the still-encrypted post-handshake intent_response frame, and
+    the initiator's 32-byte X25519 static pubkey so tests can pin
+    the round-trip ("what the offloader presented is what the
+    receiver stored").
+    """
+
+    session: PeerLinkNoiseSession
+    intent_response_ciphertext: bytes
+    initiator_static_pub: bytes
+
+
 async def _drive_initiator_handshake(
     client: TestClient,
     msg1_payload: dict[str, Any],
     msg3_payload: dict[str, Any],
-) -> tuple[PeerLinkNoiseSession, bytes]:
-    """
-    Drive the 3 XX messages from the initiator side; return session + ciphertext.
-
-    The returned ``intent_response_bytes`` is the still-encrypted
-    post-handshake frame; caller decrypts via ``session.decrypt``.
-    """
+) -> _InitiatorRoundTrip:
+    """Drive the 3 XX messages from the initiator side."""
     initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
     session = PeerLinkNoiseSession.initiator(initiator_priv)
     ws = await client.ws_connect(PEER_LINK_PATH)
     try:
@@ -282,7 +337,11 @@ async def _drive_initiator_handshake(
         encrypted_response = await ws.receive_bytes()
     finally:
         await ws.close()
-    return session, encrypted_response
+    return _InitiatorRoundTrip(
+        session=session,
+        intent_response_ciphertext=encrypted_response,
+        initiator_static_pub=initiator_pub,
+    )
 
 
 def _decode_intent_response(session: PeerLinkNoiseSession, encrypted: bytes) -> str:
@@ -296,16 +355,19 @@ async def test_e2e_preview_round_trip(
     """``intent="preview"`` returns OK and the initiator can read the receiver's static pubkey."""
     client, _, receiver_static_pub = peer_link_app
 
-    session, encrypted = await _drive_initiator_handshake(
+    round_trip = await _drive_initiator_handshake(
         client,
         msg1_payload={"intent": "preview"},
         msg3_payload={},
     )
 
-    assert _decode_intent_response(session, encrypted) == IntentResponse.OK
+    assert (
+        _decode_intent_response(round_trip.session, round_trip.intent_response_ciphertext)
+        == IntentResponse.OK
+    )
     # The receiver's static pubkey is what the offloader's preview
     # flow extracts to surface for OOB pin verification.
-    assert session.remote_static_pub == receiver_static_pub
+    assert round_trip.session.remote_static_pub == receiver_static_pub
 
 
 @pytest.mark.asyncio
@@ -317,25 +379,16 @@ async def test_e2e_pair_request_open_window_creates_row(
     await controller.set_pairing_window(open=True, client="receiver-tab")
     controller._db.bus.fire.reset_mock()
 
-    session, encrypted = await _drive_initiator_handshake(
+    round_trip = await _drive_initiator_handshake(
         client,
         msg1_payload={"intent": "pair_request"},
         msg3_payload={"dashboard_id": "alpha", "label": "alpha"},
     )
 
-    assert _decode_intent_response(session, encrypted) == IntentResponse.PENDING
-
-    # The controller's pubkey-hash comes from the actual handshake
-    # transcript on the responder side; verify by computing the
-    # initiator's pin off the session and checking it landed on
-    # the row.
-    expected_pin = pin_sha256_for_pubkey(session.handshake_hash[:0])  # type: ignore[arg-type]
-    # The pin is derived from the initiator's static pubkey, not
-    # the handshake hash; pull it off the session's stored value
-    # by re-deriving from the priv we wrote into the initiator.
-    # (We don't have the priv here; assert the row exists with
-    # the right dashboard_id + label instead.)
-    del expected_pin
+    assert (
+        _decode_intent_response(round_trip.session, round_trip.intent_response_ciphertext)
+        == IntentResponse.PENDING
+    )
 
     loop = asyncio.get_running_loop()
     settings = await loop.run_in_executor(
@@ -345,6 +398,12 @@ async def test_e2e_pair_request_open_window_creates_row(
     assert peer.dashboard_id == "alpha"
     assert peer.label == "alpha"
     assert peer.status == PeerStatus.PENDING
+    # The receiver's controller derived the pin from the
+    # handshake transcript's authenticated initiator static
+    # pubkey, not from anything in msg3. Pin the round-trip:
+    # what we presented is what landed on disk.
+    assert peer.static_x25519_pub == round_trip.initiator_static_pub
+    assert peer.pin_sha256 == pin_sha256_for_pubkey(round_trip.initiator_static_pub)
 
 
 @pytest.mark.asyncio
@@ -354,13 +413,16 @@ async def test_e2e_pair_request_closed_window_returns_no_pairing_window(
     """Closed window: pair_request returns NO_PAIRING_WINDOW and no row is created."""
     client, controller, _ = peer_link_app
 
-    session, encrypted = await _drive_initiator_handshake(
+    round_trip = await _drive_initiator_handshake(
         client,
         msg1_payload={"intent": "pair_request"},
         msg3_payload={"dashboard_id": "alpha", "label": "alpha"},
     )
 
-    assert _decode_intent_response(session, encrypted) == IntentResponse.NO_PAIRING_WINDOW
+    assert (
+        _decode_intent_response(round_trip.session, round_trip.intent_response_ciphertext)
+        == IntentResponse.NO_PAIRING_WINDOW
+    )
 
     loop = asyncio.get_running_loop()
     settings = await loop.run_in_executor(
@@ -420,13 +482,16 @@ async def test_e2e_unknown_intent_completes_handshake_then_rejects(
     """Unknown intent completes the handshake before sending REJECTED in an authenticated frame."""
     client, _, _ = peer_link_app
 
-    session, encrypted = await _drive_initiator_handshake(
+    round_trip = await _drive_initiator_handshake(
         client,
         msg1_payload={"intent": "evil_intent"},
         msg3_payload={"dashboard_id": "alpha"},
     )
 
-    assert _decode_intent_response(session, encrypted) == IntentResponse.REJECTED
+    assert (
+        _decode_intent_response(round_trip.session, round_trip.intent_response_ciphertext)
+        == IntentResponse.REJECTED
+    )
 
 
 @pytest.mark.asyncio

@@ -54,6 +54,7 @@ import logging
 import re
 import time
 from collections.abc import Callable, Hashable
+from dataclasses import dataclass as _dataclass
 from typing import TYPE_CHECKING, Any
 
 from esphome.const import __version__ as esphome_version
@@ -116,6 +117,24 @@ _RESOLVE_TIMEOUT_MS = 3000
 # pin without rushing" against "short enough that an idle tab
 # isn't an attack surface". See issue #106 design choice (c).
 _PAIRING_WINDOW_DURATION_SECONDS = 300.0
+
+
+@_dataclass
+class _PairRequestOutcome:
+    """
+    Out-param for ``record_pair_request``'s settings mutator.
+
+    The mutator runs inside a sync transaction (``_modify_settings``
+    drives it on the disk-write hop) and needs to communicate back
+    to the async caller whether the row was created / refreshed /
+    already-APPROVED / pin-mismatched. A dataclass beats a
+    ``nonlocal`` because the data flow is explicit at the call
+    site — a reader can grep for ``_PairRequestOutcome`` and find
+    the contract — and future fields (an event payload, metrics)
+    can be added without nonlocal-ing each new variable.
+    """
+
+    response: IntentResponse | None = None
 
 
 def _decode_txt_value(raw: bytes | None) -> str:
@@ -1210,16 +1229,23 @@ class RemoteBuildController:
           :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED` so
           the receiver UI surfaces the request in the inbox.
         * :attr:`IntentResponse.APPROVED` — a row already exists
-          for this ``dashboard_id`` with status APPROVED. Returns
+          for this ``dashboard_id`` with status APPROVED **and**
+          its stored pin matches the handshake's. Returns
           ``APPROVED`` without changing the row or firing the
           event; demoting an already-trusted peer back to PENDING
           on every stray pair_request would force the receiving
           dashboard's user to re-approve on every offloader
-          hiccup, which is hostile UX. The offloader treats
-          ``APPROVED`` as "you're already paired; switch to
-          intent=peer_link" and updates its local state.
+          hiccup, which is hostile UX.
+        * :attr:`IntentResponse.REJECTED` — a row exists for this
+          ``dashboard_id`` with status APPROVED but the
+          handshake's pin doesn't match the stored pin. Either
+          the offloader rotated their identity under us, or
+          someone is presenting a fresh keypair and claiming
+          Alice's ``dashboard_id``. Refuse the operation; the
+          receiver-side user has to remove the peer and re-pair
+          if the rotation is legitimate.
         """
-        already_approved: list[bool] = []  # mutable shim for the inner closure
+        outcome = _PairRequestOutcome()
 
         def _record(settings: RemoteBuildSettings) -> None:
             now = time.time()
@@ -1227,7 +1253,14 @@ class RemoteBuildController:
                 if peer.dashboard_id != dashboard_id:
                     continue
                 if peer.status == PeerStatus.APPROVED:
-                    already_approved.append(True)
+                    if peer.pin_sha256 != pin_sha256:
+                        # Pin mismatch on an APPROVED row is a
+                        # rotation-or-impersonation signal; refuse
+                        # rather than silently re-approve under the
+                        # new identity.
+                        outcome.response = IntentResponse.REJECTED
+                        return
+                    outcome.response = IntentResponse.APPROVED
                     return
                 # PENDING: refresh in place. The pin / pubkey may
                 # have changed (offloader rotated), the label may
@@ -1240,6 +1273,7 @@ class RemoteBuildController:
                     label=label,
                     paired_at=now,
                 )
+                outcome.response = IntentResponse.PENDING
                 return
             settings.peers.append(
                 StoredPeer(
@@ -1251,10 +1285,16 @@ class RemoteBuildController:
                     status=PeerStatus.PENDING,
                 )
             )
+            outcome.response = IntentResponse.PENDING
 
         await self._modify_settings(_record)
-        if already_approved:
-            return IntentResponse.APPROVED
+        # Every branch of ``_record`` sets ``outcome.response``;
+        # the type narrowing is for mypy / pyright only, gated
+        # behind ``TYPE_CHECKING`` so it costs nothing at runtime.
+        if TYPE_CHECKING:
+            assert outcome.response is not None
+        if outcome.response is not IntentResponse.PENDING:
+            return outcome.response
 
         payload: RemoteBuildPairRequestReceivedData = {
             "dashboard_id": dashboard_id,
@@ -1263,7 +1303,7 @@ class RemoteBuildController:
             "peer_ip": peer_ip,
         }
         self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
-        return IntentResponse.PENDING
+        return outcome.response
 
     async def lookup_peer_for_session(
         self,
@@ -1290,23 +1330,11 @@ class RemoteBuildController:
           ``dashboard_id`` with their own keys. The offloader
           treats this as "send a fresh pair_request".
         """
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
+        return await self._lookup_peer_response(
+            dashboard_id=dashboard_id,
+            pin_sha256=pin_sha256,
+            approved_response=IntentResponse.OK,
         )
-        for peer in settings.peers:
-            if peer.dashboard_id != dashboard_id:
-                continue
-            if peer.pin_sha256 != pin_sha256:
-                # Pin mismatch is its own user-visible event in
-                # later phases (4b-3 surfaces a re-verify wizard);
-                # the wire response stays REJECTED so the
-                # offloader doesn't proceed with a stale session.
-                return IntentResponse.REJECTED
-            if peer.status == PeerStatus.APPROVED:
-                return IntentResponse.OK
-            return IntentResponse.PENDING
-        return IntentResponse.REJECTED
 
     async def lookup_peer_for_status(
         self,
@@ -1331,6 +1359,31 @@ class RemoteBuildController:
         pair_status is informational while peer_link is
         connection-establishing.
         """
+        return await self._lookup_peer_response(
+            dashboard_id=dashboard_id,
+            pin_sha256=pin_sha256,
+            approved_response=IntentResponse.APPROVED,
+        )
+
+    async def _lookup_peer_response(
+        self,
+        *,
+        dashboard_id: str,
+        pin_sha256: str,
+        approved_response: IntentResponse,
+    ) -> IntentResponse:
+        """
+        Shared lookup core for the peer_link / pair_status WS dispatch paths.
+
+        Both wire intents do the same lookup ("find this
+        ``dashboard_id`` and verify its stored pin matches the
+        handshake's") and differ only in what they return for an
+        APPROVED match. Pulling that one variation out as
+        ``approved_response`` keeps the logic in one place; a
+        future change (e.g. constant-time pin compare, log
+        mismatches, fire a pin-mismatch event) lands on one
+        method, not two.
+        """
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
             None, load_remote_build_settings, self._db.settings.config_dir
@@ -1341,7 +1394,7 @@ class RemoteBuildController:
             if peer.pin_sha256 != pin_sha256:
                 return IntentResponse.REJECTED
             if peer.status == PeerStatus.APPROVED:
-                return IntentResponse.APPROVED
+                return approved_response
             return IntentResponse.PENDING
         return IntentResponse.REJECTED
 

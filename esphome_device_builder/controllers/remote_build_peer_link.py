@@ -91,24 +91,32 @@ PEER_LINK_PATH = "/remote-build/peer-link"
 _HANDSHAKE_READ_TIMEOUT_SECONDS = 10.0
 
 
-def make_peer_link_handler(
+async def make_peer_link_handler(
     controller: RemoteBuildController,
 ) -> Callable[[web.Request], Awaitable[web.WebSocketResponse]]:
     """
     Build the aiohttp handler for ``/remote-build/peer-link``.
 
-    Closure captures the controller so the handler can call into
-    ``record_pair_request`` / ``lookup_peer_for_*`` without each
-    invocation re-resolving the singleton through the request's
-    app instance.
+    Loads the X25519 peer-link identity once at handler-factory
+    time and captures it in the closure so each incoming WS
+    connection constructs its ``PeerLinkNoiseSession`` from
+    already-loaded bytes instead of hitting disk + an executor
+    hop on every handshake. Identity is stable for the process
+    lifetime; rotation tears down + rebuilds the runner, which
+    re-enters this factory.
     """
+    loop = asyncio.get_running_loop()
+    identity = await loop.run_in_executor(
+        None, get_or_create_peer_link_identity, controller._db.settings.config_dir
+    )
+    identity_priv = identity.private_bytes
 
     async def handler(request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         peer_ip = request.remote or ""
         try:
-            await _drive_peer_link_session(controller, ws, peer_ip)
+            await _drive_peer_link_session(controller, ws, peer_ip, identity_priv)
         except Exception:
             _LOGGER.exception("peer-link session error from %s", peer_ip)
         finally:
@@ -123,6 +131,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     controller: RemoteBuildController,
     ws: web.WebSocketResponse,
     peer_ip: str,
+    identity_priv: bytes,
 ) -> None:
     """
     Drive one peer-link Noise session from handshake to response.
@@ -131,11 +140,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     against a fake ``WebSocketResponse`` without standing up an
     aiohttp server.
     """
-    loop = asyncio.get_running_loop()
-    identity = await loop.run_in_executor(
-        None, get_or_create_peer_link_identity, controller._db.settings.config_dir
-    )
-    session = PeerLinkNoiseSession.responder(identity.private_bytes)
+    session = PeerLinkNoiseSession.responder(identity_priv)
 
     # --- handshake msg1 (offloader → receiver, plaintext payload) ---
     msg1_payload = await _read_handshake_message(session, ws, _HandshakeStep.MSG1)
@@ -211,8 +216,16 @@ async def _dispatch_intent(
     """
     if intent is PeerLinkIntent.PREVIEW:
         # Preview captures the responder's static pubkey via the
-        # handshake transcript; nothing else to do server-side.
+        # handshake transcript; nothing else to do server-side
+        # and the offloader doesn't need a dashboard_id yet.
         return IntentResponse.OK
+
+    # Every other intent identifies the offloader by dashboard_id;
+    # an empty / missing value would create or look up nonsense
+    # rows, so reject before any controller call.
+    if not dashboard_id:
+        return IntentResponse.REJECTED
+
     if intent is PeerLinkIntent.PAIR_REQUEST:
         if not controller.is_pairing_window_open():
             return IntentResponse.NO_PAIRING_WINDOW

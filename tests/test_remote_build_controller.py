@@ -2121,21 +2121,27 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_record_pair_request_already_approved_returns_approved(tmp_path: Path) -> None:
+async def test_record_pair_request_already_approved_same_pin_returns_approved(
+    tmp_path: Path,
+) -> None:
     """
-    Pair-request for an already-APPROVED peer returns "approved" without changing the row.
+    Pair-request from a still-trusted peer (same pin) returns "approved", no row change.
 
     Demoting an already-trusted peer back to PENDING on every
     stray pair_request would force the receiver-side user to
     re-approve on every offloader hiccup; pin the
-    no-demotion contract.
+    no-demotion contract for the legitimate case (same dashboard
+    id + same pin = same peer, just resending pair_request by
+    mistake).
     """
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
+    pubkey = b"\x22" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
     approved = _stored_peer(
         dashboard_id="alpha",
-        pin_sha256="originalpin",
-        static_x25519_pub=b"\x22" * 32,
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
         label="alpha",
         paired_at=1.0,
         status=PeerStatus.APPROVED,
@@ -2144,9 +2150,9 @@ async def test_record_pair_request_already_approved_returns_approved(tmp_path: P
 
     response = await controller.record_pair_request(
         dashboard_id="alpha",
-        pin_sha256="newpin",
-        static_x25519_pub=b"\x33" * 32,
-        label="renamed",
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        label="renamed-but-ignored",
         peer_ip="10.0.0.1",
     )
 
@@ -2155,8 +2161,59 @@ async def test_record_pair_request_already_approved_returns_approved(tmp_path: P
     settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
     [peer] = settings.peers
     assert peer.status == PeerStatus.APPROVED
-    assert peer.pin_sha256 == "originalpin"
-    assert peer.static_x25519_pub == b"\x22" * 32
+    assert peer.pin_sha256 == pin
+    assert peer.label == "alpha"
+    assert peer.paired_at == 1.0
+    controller._db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_record_pair_request_already_approved_different_pin_returns_rejected(
+    tmp_path: Path,
+) -> None:
+    """
+    Pair-request from a different pin claiming an APPROVED peer's id returns rejected.
+
+    Either the offloader rotated their X25519 identity (legitimate
+    re-pair scenario, but we don't know that and can't safely
+    auto-trust) or someone else is presenting a fresh keypair and
+    claiming Alice's ``dashboard_id`` (impersonation). Either way:
+    refuse, leave the original APPROVED row untouched, don't fire
+    an event. The receiver-side user has to click Remove on the
+    inbox and re-pair if the rotation is legitimate.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    original_pubkey = b"\x22" * 32
+    original_pin = hashlib.sha256(original_pubkey).hexdigest()
+    approved = _stored_peer(
+        dashboard_id="alpha",
+        pin_sha256=original_pin,
+        static_x25519_pub=original_pubkey,
+        label="alpha",
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+    )
+    await _seed_peer(tmp_path, approved)
+
+    new_pubkey = b"\x33" * 32
+    new_pin = hashlib.sha256(new_pubkey).hexdigest()
+    response = await controller.record_pair_request(
+        dashboard_id="alpha",
+        pin_sha256=new_pin,
+        static_x25519_pub=new_pubkey,
+        label="renamed",
+        peer_ip="10.0.0.1",
+    )
+
+    assert response == "rejected"
+    loop = asyncio.get_running_loop()
+    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
+    [peer] = settings.peers
+    # Original row untouched.
+    assert peer.status == PeerStatus.APPROVED
+    assert peer.pin_sha256 == original_pin
+    assert peer.static_x25519_pub == original_pubkey
     assert peer.label == "alpha"
     assert peer.paired_at == 1.0
     controller._db.bus.fire.assert_not_called()

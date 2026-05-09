@@ -266,6 +266,7 @@ async def test_maybe_start_remote_build_site_skips_when_disabled(tmp_path: Path)
     db = DeviceBuilder(settings)
     db.loop = asyncio.get_running_loop()
     db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
 
     await db._maybe_start_remote_build_site()
     assert db._remote_build_runner is None
@@ -297,6 +298,7 @@ async def test_maybe_start_remote_build_site_binds_when_enabled(tmp_path: Path) 
     db = DeviceBuilder(settings)
     db.loop = loop
     db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
     db.remote_build.lookup_token = MagicMock(return_value=None)
 
     try:
@@ -345,6 +347,7 @@ async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
     db = DeviceBuilder(settings)
     db.loop = loop
     db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
     db.remote_build.lookup_token = MagicMock(return_value=None)
 
     # Must not raise — the dashboard keeps running on bind failure.
@@ -443,6 +446,7 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
     db = DeviceBuilder(settings)
     db.loop = loop
     db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
     db.remote_build.lookup_token = MagicMock(return_value=None)
 
     fake_advertiser = MagicMock()
@@ -493,6 +497,7 @@ async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemera
     db = DeviceBuilder(settings)
     db.loop = loop
     db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
     db.remote_build.lookup_token = MagicMock(return_value=None)
 
     fake_advertiser = MagicMock()
@@ -535,6 +540,7 @@ async def test_maybe_start_remote_build_site_warns_on_ha_addon(
     db = DeviceBuilder(settings)
     db.loop = loop
     db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
     db.remote_build.lookup_token = MagicMock(return_value=None)
 
     with caplog.at_level("WARNING", logger="esphome_device_builder.device_builder"):
@@ -607,6 +613,7 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
     db = DeviceBuilder(settings)
     db.loop = loop
     db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
     db.remote_build.lookup_token = MagicMock(return_value=None)
 
     try:
@@ -662,6 +669,7 @@ async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails
     db = DeviceBuilder(settings)
     db.loop = loop
     db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
     db.remote_build.lookup_token = MagicMock(return_value=None)
 
     advertiser = MagicMock()
