@@ -207,21 +207,33 @@ def _peer_from_manual_host(entry: ManualHost) -> RemoteBuildPeer:
     )
 
 
+_HOSTNAME_MAX_CHARS = 255  # RFC 1035 §2.3.4 caps a FQDN at 253; round up to 255.
+
+
 def _validate_hostname(raw: object) -> str:
     """
     Normalise a user-entered hostname to its canonical lowercase form.
 
     Rejects non-string and empty / whitespace-only input with
-    :class:`CommandError(INVALID_ARGS)`. Lowercase normalisation
-    matches the duplicate-check semantics; hostnames are
-    case-insensitive per RFC 1035 §2.3.3, so ``Desktop.local`` and
-    ``desktop.local`` should be the same entry. The stored form
-    is the trimmed, lowercased string (so two adds with different
-    casing collapse to one entry rather than registering twice).
-    Phase 4 attempts the actual connection (and discovers DNS /
-    TLS validity); phase 2b deliberately doesn't pre-flight an
-    "is this resolvable now?" check, which would fail on offline
-    laptops adding a peer for later.
+    :class:`CommandError(INVALID_ARGS)`. Caps length at
+    :data:`_HOSTNAME_MAX_CHARS` (RFC 1035 §2.3.4 caps a fully-
+    qualified domain name at 253 characters; we accept up to 255
+    to leave room for trailing-dot variations). The cap stops a
+    misbehaving frontend from bloating the on-disk sidecar (and,
+    for the offloader-side pairing pool, the wire payload of
+    ``list_pool``) with a megabyte-string masquerading as a
+    hostname.
+
+    Lowercase normalisation matches the duplicate-check
+    semantics; hostnames are case-insensitive per RFC 1035 §2.3.3,
+    so ``Desktop.local`` and ``desktop.local`` should be the same
+    entry. The stored form is the trimmed, lowercased string (so
+    two adds with different casing collapse to one entry rather
+    than registering twice). Phase 4 attempts the actual
+    connection (and discovers DNS / TLS validity); phase 2b
+    deliberately doesn't pre-flight an "is this resolvable now?"
+    check, which would fail on offline laptops adding a peer
+    for later.
     """
     if not isinstance(raw, str):
         msg = "manual host: 'hostname' must be a string"
@@ -229,6 +241,9 @@ def _validate_hostname(raw: object) -> str:
     trimmed = raw.strip().lower()
     if not trimmed:
         msg = "manual host: 'hostname' must not be empty"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if len(trimmed) > _HOSTNAME_MAX_CHARS:
+        msg = f"manual host: 'hostname' must be at most {_HOSTNAME_MAX_CHARS} characters"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return trimmed
 
