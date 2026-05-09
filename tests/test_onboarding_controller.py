@@ -16,7 +16,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.config import save_preferences
-from esphome_device_builder.controllers.onboarding import OnboardingController
+from esphome_device_builder.controllers.onboarding import (
+    OnboardingController,
+    _replace_or_append_secret,
+)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.secrets_state import (
     PLACEHOLDER_WIFI_PASSWORD,
@@ -363,6 +366,111 @@ async def test_get_state_pending_for_malformed_secrets_yaml(tmp_path: Path) -> N
     controller = _make_controller(tmp_path)
     state = await controller.get_state()
     assert state.steps[0].status == OnboardingStepStatus.PENDING
+
+
+# ---------------------------------------------------------------------------
+# _replace_or_append_secret — direct unit tests
+# ---------------------------------------------------------------------------
+#
+# The helper is exercised end-to-end through ``set_wifi_credentials``
+# above, but the regex it leans on is fiddly enough that isolated
+# coverage is warranted. Anyone refactoring ``_SECRET_LINE_RE`` should
+# see these break first.
+
+
+def test_replace_or_append_secret_appends_when_key_absent_in_existing_file() -> None:
+    """File exists with other keys — new key gets appended, not inlined."""
+    result = _replace_or_append_secret("api_key: ABC\n", "wifi_ssid", "MyAP")
+    assert result == 'api_key: ABC\nwifi_ssid: "MyAP"\n'
+
+
+def test_replace_or_append_secret_appends_to_file_without_trailing_newline() -> None:
+    """No trailing newline on input — helper adds one before appending."""
+    result = _replace_or_append_secret("api_key: ABC", "wifi_ssid", "MyAP")
+    assert result == 'api_key: ABC\nwifi_ssid: "MyAP"\n'
+
+
+def test_replace_or_append_secret_appends_to_empty_content() -> None:
+    """Empty input behaves like the missing-file path."""
+    assert _replace_or_append_secret("", "wifi_ssid", "MyAP") == 'wifi_ssid: "MyAP"\n'
+
+
+def test_replace_or_append_secret_preserves_indent() -> None:
+    """Indented secret lines keep their indent on rewrite.
+
+    ``secrets.yaml`` is conventionally flat, but a user that nested
+    keys under a YAML anchor or parent shouldn't have the indent
+    stripped — it would silently change the parsed structure.
+    """
+    result = _replace_or_append_secret('  wifi_ssid: "old"\n', "wifi_ssid", "new")
+    assert result == '  wifi_ssid: "new"\n'
+
+
+def test_replace_or_append_secret_quotes_special_characters() -> None:
+    """Backslash and double-quote in the value get escaped, others pass through."""
+    result = _replace_or_append_secret('wifi_password: "old"\n', "wifi_password", 'p\\a"s s')
+    assert result == 'wifi_password: "p\\\\a\\"s s"\n'
+
+
+def test_replace_or_append_secret_only_matches_full_key_name() -> None:
+    r"""``wifi_ssid_backup`` is not the same key as ``wifi_ssid``.
+
+    Without anchored matching, a substring match would clobber an
+    unrelated key. The regex ``\w+`` greedily eats the whole
+    identifier, but a future refactor that switches to ``startswith``
+    or ``in`` would silently break this — pin it down.
+    """
+    result = _replace_or_append_secret('wifi_ssid_backup: "keep"\n', "wifi_ssid", "MyAP")
+    # ``wifi_ssid_backup`` line untouched, new key appended.
+    assert 'wifi_ssid_backup: "keep"' in result
+    assert 'wifi_ssid: "MyAP"' in result
+
+
+def test_replace_or_append_secret_ignores_pure_comment_lines() -> None:
+    """A standalone ``# wifi_ssid: foo`` comment is not a key.
+
+    Edge case: a user may have a commented-out example. The regex
+    starts with ``[a-zA-Z_]`` so ``#`` lines never match — the new
+    key is appended below.
+    """
+    result = _replace_or_append_secret(
+        '# wifi_ssid: "example"\napi_key: ABC\n', "wifi_ssid", "MyAP"
+    )
+    assert '# wifi_ssid: "example"' in result
+    assert 'wifi_ssid: "MyAP"' in result
+
+
+def test_replace_or_append_secret_preserves_inline_comment_with_special_chars() -> None:
+    """Trailing ``# comment with : colons`` round-trips intact."""
+    result = _replace_or_append_secret(
+        'wifi_ssid: "old"  # see ticket: ABC-123\n', "wifi_ssid", "MyAP"
+    )
+    assert result == 'wifi_ssid: "MyAP"  # see ticket: ABC-123\n'
+
+
+def test_replace_or_append_secret_handles_bare_key() -> None:
+    """``wifi_ssid:`` with no value still matches and gets the new value."""
+    result = _replace_or_append_secret("wifi_ssid:\n", "wifi_ssid", "MyAP")
+    assert result == 'wifi_ssid: "MyAP"\n'
+
+
+def test_replace_or_append_secret_value_with_hash_in_quotes_is_misparsed() -> None:
+    """Known limitation: ``# `` inside a quoted value confuses the regex.
+
+    The line regex treats `` # `` (space-then-hash) anywhere on the
+    line as a trailing comment, so a previous value containing
+    ``"foo # bar"`` gets split — the new value lands but a bogus
+    `` # bar"`` is appended as a "comment". The result is still
+    valid YAML (the `` #`` truly becomes a comment on the rewrite),
+    but the original spurious tail is preserved verbatim.
+
+    This test pins the behaviour so a future regex tightening that
+    *does* fix this case has a green-then-red breadcrumb. Realistic
+    impact: low — a power user with ``#`` in their SSID who edits
+    the file by hand and then runs the wizard.
+    """
+    result = _replace_or_append_secret('wifi_ssid: "foo # bar"\n', "wifi_ssid", "MyAP")
+    assert result == 'wifi_ssid: "MyAP" # bar"\n'
 
 
 # ---------------------------------------------------------------------------

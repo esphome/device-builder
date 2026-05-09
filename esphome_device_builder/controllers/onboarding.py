@@ -68,11 +68,8 @@ class OnboardingController:
         wizard (any pending step OR new version available).
         """
         loop = asyncio.get_running_loop()
-        config_dir = self._db.settings.config_dir
-
-        secrets, prefs = await asyncio.gather(
-            loop.run_in_executor(None, read_secrets_yaml, config_dir),
-            loop.run_in_executor(None, load_preferences, config_dir),
+        secrets, prefs = await loop.run_in_executor(
+            None, _read_secrets_and_prefs, self._db.settings.config_dir
         )
 
         return OnboardingState(
@@ -180,6 +177,17 @@ class OnboardingController:
 _SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
 
 
+def _read_secrets_and_prefs(config_dir: Path) -> tuple[dict | None, UserPreferences]:
+    """
+    Read both ``secrets.yaml`` and user preferences in one executor hop.
+
+    Both are quick disk reads from the same config dir, so a single
+    executor job is cheaper than two. ``get_state`` runs on every
+    page load + after every secrets save, so the saved hop matters.
+    """
+    return read_secrets_yaml(config_dir), load_preferences(config_dir)
+
+
 def _write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     """
     Update ``wifi_ssid`` and ``wifi_password`` in ``secrets.yaml`` in place.
@@ -226,7 +234,11 @@ def _replace_or_append_secret(content: str, key: str, value: str) -> str:
             matched = True
     if matched:
         return "\n".join(lines)
-    # Append. Make sure we don't double a trailing newline.
+    # Append. Empty input gets the line on its own (no leading
+    # blank); any other input gets a single ``\n`` separator if it
+    # doesn't already end with one.
+    if not content:
+        return f"{key}: {encoded}\n"
     if not content.endswith("\n"):
         content = content + "\n"
     return f"{content}{key}: {encoded}\n"
