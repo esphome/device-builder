@@ -37,12 +37,15 @@ try:
     _ESP32_NO_WIFI_VARIANTS: frozenset[str] = frozenset()
 except ImportError:
     _esphome_has_native_wifi = None  # type: ignore[assignment]
-    from esphome.components.rp2040.boards import (
-        BOARDS as _ESPHOME_RP2040_BOARDS,  # type: ignore[assignment]
+    # ``no-redef`` covers the rebind of the names declared in the
+    # ``try`` branch above; ``assignment`` covers the type mismatch
+    # between the upstream ``BOARDS`` dict and our ``... | None``
+    # annotation. Both diagnostics are intentional — the fallback
+    # constants are only consumed when the upstream helper is absent.
+    from esphome.components.rp2040.boards import (  # type: ignore[no-redef,assignment]
+        BOARDS as _ESPHOME_RP2040_BOARDS,
     )
-    from esphome.components.wifi import (
-        NO_WIFI_VARIANTS as _ESPHOME_NO_WIFI_VARIANTS,
-    )
+    from esphome.components.wifi import NO_WIFI_VARIANTS as _ESPHOME_NO_WIFI_VARIANTS
 
     # ESPHome stores the variant tags in canonical uppercase
     # (``"ESP32H2"``); the wizard compares against the lowercase
