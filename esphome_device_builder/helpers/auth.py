@@ -10,9 +10,9 @@ import os
 import secrets
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
 
 from aiohttp import web
 
@@ -315,7 +315,10 @@ _PUBLIC_PREFIXES = ("/assets/", "/boards/images/")
 
 
 @web.middleware
-async def auth_middleware(request: web.Request, handler: Any) -> web.StreamResponse:  # noqa: PLR0911
+async def auth_middleware(  # noqa: PLR0911
+    request: web.Request,
+    handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
+) -> web.StreamResponse:
     """
     Gate REST endpoints by ``Authorization`` header.
 
