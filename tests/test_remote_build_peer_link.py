@@ -38,11 +38,13 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build_peer_link import (
+    _PEER_LABEL_MAX_CHARS,
     PEER_LINK_PATH,
     _dispatch_intent,
     _DispatchInput,
     _drive_peer_link_session,
     _HandshakeStep,
+    _normalize_label,
     _parse_intent,
     _parse_json,
     _read_handshake_message,
@@ -386,13 +388,13 @@ async def test_read_handshake_message_noise_error_returns_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_bytes_safely_connection_reset_reraises() -> None:
-    """``ConnectionResetError`` propagates so the outer handler can drop to debug-level logging."""
+async def test_send_bytes_safely_connection_reset_returns_false() -> None:
+    """``ConnectionResetError`` (peer hung up) returns False without escalating the log."""
     ws = _make_ws_stub()
     ws.send_bytes.side_effect = ConnectionResetError("peer hung up")
 
-    with pytest.raises(ConnectionResetError):
-        await _send_bytes_safely(ws, b"payload", log_label="msg1")
+    result = await _send_bytes_safely(ws, b"payload", log_label="msg1")
+    assert result is False
 
 
 @pytest.mark.asyncio
@@ -486,43 +488,6 @@ async def test_handler_logs_unexpected_exception(
     ws_response.close.assert_awaited()
 
 
-@pytest.mark.asyncio
-async def test_handler_handles_connection_reset_quietly(
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``ConnectionResetError`` from the driver hits the debug branch, not ``exception``."""
-    controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
-
-    async def _reset(*args: Any, **kwargs: Any) -> None:
-        raise ConnectionResetError("peer hung up")
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link._drive_peer_link_session",
-        _reset,
-    )
-
-    handler = await make_peer_link_handler(controller, tmp_path)
-    request = MagicMock()
-    request.remote = "10.0.0.5"
-    ws_response = AsyncMock(spec=web.WebSocketResponse)
-    ws_response.closed = False
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link.web.WebSocketResponse",
-        lambda: ws_response,
-    )
-
-    with caplog.at_level(
-        "DEBUG", logger="esphome_device_builder.controllers.remote_build_peer_link"
-    ):
-        await handler(request)
-    # No ERROR-level record: the reset is normal-operation noise.
-    assert not any(record.levelname == "ERROR" for record in caplog.records)
-    ws_response.close.assert_awaited()
-
-
 def test_parse_intent_missing_key_returns_none() -> None:
     """``intent`` field missing from the dict → unknown intent."""
     assert _parse_intent(_json.dumps({"label": "alpha"})) is None
@@ -551,6 +516,21 @@ def test_parse_json_decode_error_returns_none() -> None:
 def test_parse_json_empty_returns_none() -> None:
     """Empty payload short-circuits to ``None`` without invoking the decoder."""
     assert _parse_json(b"") is None
+
+
+def test_normalize_label_strips_and_passes_through() -> None:
+    assert _normalize_label("  Kitchen  ") == "Kitchen"
+
+
+def test_normalize_label_truncates_oversized_input() -> None:
+    """A peer-supplied multi-kilobyte label is silently truncated, not rejected."""
+    huge = "a" * (_PEER_LABEL_MAX_CHARS * 50)
+    assert len(_normalize_label(huge)) == _PEER_LABEL_MAX_CHARS
+
+
+def test_normalize_label_non_string_returns_empty() -> None:
+    assert _normalize_label(42) == ""
+    assert _normalize_label(None) == ""
 
 
 @pytest.mark.asyncio

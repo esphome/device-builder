@@ -137,6 +137,15 @@ PEER_LINK_PATH = "/remote-build/peer-link"
 # isn't a real offloader.
 _HANDSHAKE_READ_TIMEOUT_SECONDS = 10.0
 
+# Cap msg3's offloader-supplied ``label`` before it lands in
+# settings + the event payload. Peer-supplied input over the wire
+# could be arbitrarily large within the WS frame limit; truncation
+# (rather than rejection) matches the "two-side flow, usually one
+# user" framing — a too-long label is cosmetic noise, not a reason
+# to fail pairing. 128 chars matches the cap the legacy token-label
+# path uses (``_TOKEN_LABEL_MAX`` in :mod:`controllers.remote_build`).
+_PEER_LABEL_MAX_CHARS = 128
+
 
 async def make_peer_link_handler(
     controller: RemoteBuildController,
@@ -170,13 +179,6 @@ async def make_peer_link_handler(
         peer_ip = request.remote or ""
         try:
             await _drive_peer_link_session(controller, ws, peer_ip, identity_priv)
-        except ConnectionResetError:
-            # Expected in normal operation — peer hung up mid-handshake
-            # or mid-response. ``_send_bytes_safely`` re-raises so this
-            # handler can run the ``finally`` close path; logging at
-            # ``exception`` level here would generate noisy tracebacks
-            # for every flaky LAN client. Drop to ``debug`` instead.
-            _LOGGER.debug("peer-link session reset by %s", peer_ip)
         except Exception:
             _LOGGER.exception("peer-link session error from %s", peer_ip)
         finally:
@@ -239,7 +241,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
         return
     pin = pin_sha256_for_pubkey(remote_static_pub)
     dashboard_id = _str_or_empty(msg3.get("dashboard_id"))
-    label = _str_or_empty(msg3.get("label"))
+    label = _normalize_label(msg3.get("label"))
 
     response = await _dispatch_intent(
         controller,
@@ -349,17 +351,17 @@ async def _send_bytes_safely(
     """
     Write *encoded* to *ws* and return True on success.
 
-    Re-raises ``ConnectionResetError`` so the outer handler's
-    ``except Exception:`` (in :func:`make_peer_link_handler`'s
-    closure) can log the disconnect with traceback and let the
-    finally-block close the WS. Other exceptions are debug-logged
-    and the function returns False so the caller can short-circuit
-    the rest of the handshake / response sequence.
+    Any send-side failure — peer hung up
+    (``ConnectionResetError``), aiohttp/WS-state error, OS-level
+    socket error — is debug-logged and surfaces as a False
+    return so the caller can short-circuit the rest of the
+    handshake / response sequence. Disconnects are normal-
+    operation events on flaky LANs; ``api/ws.py`` similarly
+    treats ``ConnectionResetError`` on send as not worth a
+    traceback.
     """
     try:
         await ws.send_bytes(encoded)
-    except ConnectionResetError:
-        raise
     except Exception:
         _LOGGER.debug("peer-link send %s failed", log_label, exc_info=True)
         return False
@@ -432,3 +434,19 @@ def _parse_json(payload: bytes) -> Any | None:
 def _str_or_empty(value: object) -> str:
     """Return the string value or empty when not a string."""
     return value if isinstance(value, str) else ""
+
+
+def _normalize_label(value: object) -> str:
+    """
+    Normalise an msg3-supplied ``label`` to a stripped, length-bounded form.
+
+    Peer-supplied input lands on disk + on the event bus; an
+    unbounded label would let a misbehaving offloader push
+    multi-megabyte strings into ``.device-builder.json`` and
+    every receiver-UI subscriber. Strip whitespace and truncate
+    at :data:`_PEER_LABEL_MAX_CHARS`; non-string / missing
+    values fall through to ``""`` so the receiver UI just shows
+    no label rather than failing the pairing.
+    """
+    raw = _str_or_empty(value).strip()
+    return raw[:_PEER_LABEL_MAX_CHARS]
