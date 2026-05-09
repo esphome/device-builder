@@ -815,22 +815,27 @@ class DeviceBuilder:
         self,
         *,
         pin_sha256: str | None,
-        remote_build_port: int | None = None,
+        remote_build_port: int | None,
     ) -> None:
         """
         Push pin / port updates to the mDNS advertise, fail-soft on refresh.
 
         Centralises the setter-then-refresh dance shared by
-        ``_maybe_start_remote_build_site`` (which has both pin
-        AND port to push after a successful bind) and
-        ``reload_remote_build_identity`` (which only changes the
-        pin — the port is preserved across rotations). The
-        explicit ``refresh`` call republishes the ServiceInfo if
-        the TXT properties changed; without it the setter-driven
-        update would only land on the wire on the next periodic
-        refresh tick (5 min). A flaky zeroconf refresh is
-        swallowed so caller paths (bind, rotate) don't fail just
-        because the responder is wedged.
+        ``_maybe_start_remote_build_site`` (post-bind: real pin +
+        port) and ``reload_remote_build_identity`` (post-teardown:
+        ``None`` + ``None`` to clear both fields out of TXT until
+        the rebuild succeeds). Both fields are always updated;
+        the contract is "``pin_sha256`` and ``remote_build_port``
+        appear in TXT iff the listener is currently bound", so
+        peers re-browsing while the listener is down see neither
+        field and don't try to connect to a port that's no
+        longer serving traffic. The explicit ``refresh`` call
+        republishes the ServiceInfo if any TXT property changed;
+        without it the setter-driven update would only land on
+        the wire on the next periodic refresh tick (5 min). A
+        flaky zeroconf refresh is swallowed so caller paths
+        (bind, rotate) don't fail just because the responder is
+        wedged.
 
         No-op when no advertiser is attached.
         """
@@ -838,8 +843,7 @@ class DeviceBuilder:
         if advertiser is None:
             return
         advertiser.set_pin_sha256(pin_sha256)
-        if remote_build_port is not None:
-            advertiser.set_remote_build_port(remote_build_port)
+        advertiser.set_remote_build_port(remote_build_port)
         with contextlib.suppress(Exception):
             await advertiser.refresh()
 
@@ -850,48 +854,60 @@ class DeviceBuilder:
 
     async def reload_remote_build_identity(self, *, pin_sha256: str) -> bool:
         """
-        Apply a freshly-rotated identity: rebuild the listener + push the new pin.
+        Apply a freshly-rotated identity: rebuild the listener if bound.
 
         Called by ``RemoteBuildController.rotate_identity`` (phase
         3c1) right after :func:`rotate_certificate` writes the new
         cert + key to disk. The cert + key on disk are the source
         of truth post-rotate — this method takes only ``pin_sha256``
-        because that's all the caller actually communicates;
-        the listener rebuild reads the (now-rotated) cert from
-        disk via ``_maybe_start_remote_build_site``'s normal load
-        path. Three side effects, in order:
+        because that's all the caller actually communicates,
+        though it's currently unused on the dashboard side
+        (the rebuild reads the cert from disk via
+        ``_maybe_start_remote_build_site``'s normal load path);
+        kept on the signature so future hooks (e.g. peer-link
+        push of ``terminate {reason: server_upgraded}`` in phase
+        4+) have access without another helper.
 
-        * mDNS pin update — even if the listener isn't currently
-          bound, paired peers re-browsing should see the new pin
-          so they know a rotation happened. Fires before the
-          listener teardown so the wire shape catches up early
-          and remains correct even when the rebuild fail-softs
-          inside ``_maybe_start_remote_build_site``.
+        When the listener is bound, three side effects in order:
+
         * Listener teardown — the bound runner is still serving
           the OLD cert from its cached SSL context. Without a
           rebuild, an offloader connecting between rotation and
           the next dashboard restart would still TLS-pin against
           the old cert.
+        * mDNS clear — both ``pin_sha256`` and ``remote_build_port``
+          drop out of TXT immediately. The TXT contract is
+          "these fields appear iff the listener is currently
+          bound", so peers re-browsing during the rebuild window
+          (or after a rebuild failure) don't try to connect to
+          a port that's no longer serving traffic. Sequencing
+          matters: clear comes BEFORE rebuild so that on rebuild
+          failure the cleared state is the steady state.
         * Listener rebuild — re-runs the same path
           ``_maybe_start_remote_build_site`` does at startup, which
-          loads the (now-rotated) identity from disk and stages
-          it through a fresh SSL context. Fail-soft: a rebuild
+          loads the (now-rotated) identity from disk, stages it
+          through a fresh SSL context, and (on success) re-pushes
+          the new pin + port to mDNS. Fail-soft: a rebuild
           failure leaves the dashboard running without a receiver
           listener (same contract as the initial bind), and the
           return value reflects that so the rotater can surface
           the failure to the operator.
 
+        When the listener is NOT bound, this method is a no-op:
+        no mDNS push (there's no listener for peers to connect
+        to anyway, and pushing a pin without a port would
+        contradict the TXT contract). The cert + key on disk are
+        already updated by the time this method runs; the next
+        bind picks them up.
+
         Returns whether the receiver listener is currently bound
         after this call. ``True`` means rotation landed on disk
         AND the listener picked it up; ``False`` means rotation
         landed on disk but no listener is serving the new cert
-        (either the rebuild fail-softed, or the listener wasn't
-        bound to begin with — the operator can't tell those apart
-        from this single bool, but combined with the prior
-        ``listener_bound`` from a recent ``get_identity`` they
-        can).
+        (rebuild fail-softed, or listener wasn't bound to begin
+        with).
         """
-        await self._publish_remote_build_advertise(pin_sha256=pin_sha256)
+        del pin_sha256  # currently unused on this side; see docstring
         if self._remote_build_runner is None:
             return False
 
@@ -899,6 +915,15 @@ class DeviceBuilder:
         self._remote_build_runner = None
         with contextlib.suppress(Exception):
             await old_runner.cleanup()
+        # Clear the advertiser so peers re-browsing during the
+        # rebuild window — or after a rebuild failure — don't
+        # see stale pin + port pointing at a listener that
+        # isn't there. ``_maybe_start_remote_build_site``
+        # re-pushes both on a successful rebuild.
+        await self._publish_remote_build_advertise(
+            pin_sha256=None,
+            remote_build_port=None,
+        )
         await self._maybe_start_remote_build_site()
         return self._remote_build_runner is not None
 
