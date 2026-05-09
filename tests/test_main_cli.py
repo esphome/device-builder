@@ -23,7 +23,9 @@ import logging
 import sys
 import threading
 from collections.abc import Generator
+from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,6 +33,7 @@ import pytest
 from esphome_device_builder import __main__ as main_module
 from esphome_device_builder import constants
 from esphome_device_builder.helpers.logging import LoggingQueueHandler
+from esphome_device_builder.helpers.single_instance import SingleInstanceLock
 
 # ---------------------------------------------------------------------------
 # constants._resolve_version
@@ -256,3 +259,113 @@ def test_setup_logging_excepthooks_log_through_queue_listener(
     assert any(
         "Uncaught exception" in m and "RuntimeError: boom-from-main-thread" in m for m in messages
     )
+
+
+# ---------------------------------------------------------------------------
+# main() <> single-instance lock integration
+#
+# The ``with ensure_single_execution(...)`` block in ``main()`` has two
+# user-visible outcomes: success (proceed to build the dashboard) and
+# contention (exit non-zero before constructing ``DeviceBuilder``). Both
+# tests patch the helper to yield a synthesised lock so we don't need to
+# spin up a real subprocess holder, and patch ``DeviceBuilder`` so the
+# success path doesn't actually start the dashboard's network sockets /
+# mDNS browsers.
+#
+# Both tests use ``_isolated_logging_globals`` because ``main()`` calls
+# ``_setup_logging`` which mutates ``sys.excepthook`` /
+# ``threading.excepthook`` and adds a ``LoggingQueueHandler`` to
+# ``logging.root`` whose listener thread can leak across tests
+# otherwise.
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _fake_lock_yielding(
+    exit_code: int | None,
+) -> Generator[Generator[SingleInstanceLock]]:
+    """
+    Build a stand-in for ``ensure_single_execution`` that yields a fixed lock.
+
+    Returned as a context-manager factory: callers ``patch(...)``
+    it onto ``ensure_single_execution`` and the dashboard's
+    ``main()`` then receives a ``SingleInstanceLock`` with the
+    requested ``exit_code`` instead of touching the real
+    filesystem / flock.
+    """
+
+    @contextmanager
+    def _inner(_config_dir: Path) -> Generator[SingleInstanceLock]:
+        yield SingleInstanceLock(exit_code=exit_code)
+
+    yield _inner
+
+
+def test_main_exits_when_lock_contention_blocks_startup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _isolated_logging_globals: None,
+) -> None:
+    """
+    A failed lock acquisition aborts ``main()`` before ``DeviceBuilder``.
+
+    Drives the contention shape: ``ensure_single_execution``
+    yields ``exit_code=1`` and ``main()`` is expected to
+    ``sys.exit(1)`` without ever constructing the
+    ``DeviceBuilder`` (which would otherwise start real
+    sockets / mDNS browsers).
+    """
+    monkeypatch.setattr("sys.argv", ["esphome-device-builder", str(tmp_path)])
+    device_builder_ctor = MagicMock()
+    with (
+        _fake_lock_yielding(exit_code=1) as fake_lock,
+        patch(
+            "esphome_device_builder.helpers.single_instance.ensure_single_execution",
+            fake_lock,
+        ),
+        patch(
+            "esphome_device_builder.device_builder.DeviceBuilder",
+            device_builder_ctor,
+        ),
+        pytest.raises(SystemExit) as excinfo,
+    ):
+        main_module.main()
+
+    assert excinfo.value.code == 1
+    # The contention path must not reach the constructor — that's
+    # the whole point of refusing to start.
+    device_builder_ctor.assert_not_called()
+
+
+def test_main_runs_device_builder_when_lock_acquired(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _isolated_logging_globals: None,
+) -> None:
+    """
+    Lock acquired → ``DeviceBuilder.run()`` runs.
+
+    Mirrors the contention test but with the success outcome
+    (``exit_code=None``) so the ``with`` body's "construct +
+    run" path gets coverage too. ``DeviceBuilder.run`` is
+    patched to a ``MagicMock`` so the unit test doesn't actually
+    start the dashboard.
+    """
+    monkeypatch.setattr("sys.argv", ["esphome-device-builder", str(tmp_path)])
+    instance = MagicMock()
+    device_builder_ctor = MagicMock(return_value=instance)
+    with (
+        _fake_lock_yielding(exit_code=None) as fake_lock,
+        patch(
+            "esphome_device_builder.helpers.single_instance.ensure_single_execution",
+            fake_lock,
+        ),
+        patch(
+            "esphome_device_builder.device_builder.DeviceBuilder",
+            device_builder_ctor,
+        ),
+    ):
+        main_module.main()
+
+    device_builder_ctor.assert_called_once()
+    instance.run.assert_called_once()

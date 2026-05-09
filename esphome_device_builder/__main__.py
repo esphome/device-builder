@@ -193,14 +193,25 @@ def main() -> None:
     # transitively import ``esphome`` at module load time.
     from .controllers.config import DashboardSettings  # noqa: PLC0415
     from .device_builder import DeviceBuilder  # noqa: PLC0415
+    from .helpers.single_instance import ensure_single_execution  # noqa: PLC0415
 
     settings = DashboardSettings()
     settings.parse_args(args)
 
     _warn_if_unprotected(settings)
 
-    device_builder = DeviceBuilder(settings)
-    device_builder.run()
+    # Refuse to start a second dashboard against the same config
+    # dir — the metadata sidecar / identity / build-tree /
+    # firmware-queue locks are all per-process ``threading.Lock``s
+    # that don't extend across processes (issue #451). The OS
+    # holds the flock for the dashboard's lifetime and releases
+    # it on exit (clean or crash); a stale lock file with no
+    # holder is harmless and re-acquired on the next start.
+    with ensure_single_execution(settings.config_dir) as lock:
+        if lock.exit_code is not None:
+            sys.exit(lock.exit_code)
+        device_builder = DeviceBuilder(settings)
+        device_builder.run()
 
 
 def _log_uncaught_exception(
