@@ -115,16 +115,17 @@ def _build_ws_url(hostname: str, port: int) -> URL:
     * Pathological characters in the hostname (slash, query
       terminators, fragment markers, embedded ``:port``) raise
       ``ValueError`` loudly instead of getting silently
-      percent-encoded into a non-resolvable form. yarl is the
-      *primary* defense for these characters today —
-      ``_validate_hostname`` checks length and strips
-      whitespace but doesn't reject URL-special characters yet.
-      A follow-up tightens the WS-command validator to fail
-      INVALID_ARGS up front; until then,
-      :func:`drive_initiator_round_trip` catches the
-      ``ValueError`` here and maps it to
+      percent-encoded into a non-resolvable form. The
+      WS-command boundary's ``_validate_hostname`` already
+      defers to :class:`yarl.URL.build` for the URL-correctness
+      check and rejects these shapes as ``INVALID_ARGS``, so
+      the validator and ``_build_ws_url`` share a single source
+      of truth on what a host is. A future caller that bypasses
+      ``_validate_hostname`` would still get the ``ValueError``
+      here; :func:`drive_initiator_round_trip` keeps a
+      defense-in-depth catch that maps it to
       :class:`PeerLinkClientError` (→ UNAVAILABLE) so the
-      surface contract holds.
+      surface contract holds even on the bypass path.
     * Path is given to yarl as a constant; encoding stays
       intact across versions.
 
@@ -183,19 +184,21 @@ async def drive_initiator_round_trip(
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     label = f"peer-link {intent.value} to {hostname}:{port}"
 
-    # ``_build_ws_url`` is inside the try block (rather than a
-    # bare call before it) because :meth:`yarl.URL.build` raises
-    # ``ValueError`` for path-injection-shaped hosts (slash, ``?``,
-    # ``#``, embedded ``:port``). ``_validate_hostname`` doesn't
-    # reject those today — the WS-command boundary's input check
-    # is too permissive — so a frontend that forwards
-    # ``host:8080`` to ``hostname`` would otherwise see the
+    # ``_build_ws_url`` is inside the try block as defense-in-depth.
+    # The WS-command boundary's ``_validate_hostname`` defers to
+    # :class:`yarl.URL.build` and already rejects
+    # path-injection-shaped hosts (slash, ``?``, ``#``, ``@``,
+    # embedded ``:port``) as ``INVALID_ARGS``, so on the
+    # validator-gated path :meth:`URL.build` here will never
+    # raise. But a future caller that calls this driver
+    # directly without going through the validator (e.g. a
+    # 4a-o part 3/4 helper that takes a stored ``hostname``
+    # off disk and assumes it's clean) would otherwise see the
     # ``ValueError`` escape this function and surface as
-    # ``INTERNAL_ERROR`` instead of the documented ``UNAVAILABLE``
-    # mapping. Wrap as a transport-style failure so the contract
-    # holds regardless of whether the upstream validator
-    # tightens. Tightening ``_validate_hostname`` to reject these
-    # characters is queued as a follow-up.
+    # ``INTERNAL_ERROR`` instead of the documented
+    # ``UNAVAILABLE`` mapping. Wrapping the build inside the
+    # try keeps the contract holding regardless of which entry
+    # point the caller used.
     try:
         url = _build_ws_url(hostname, port)
         async with (
