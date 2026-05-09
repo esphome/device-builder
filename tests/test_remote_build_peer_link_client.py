@@ -1327,6 +1327,41 @@ async def test_request_pair_repair_then_unpair_clean_state(
         _fake_request_pair,
     )
 
+    # The spawned ``_await_pair_status_flip`` listener would
+    # otherwise call the real ``peer_link_await_pair_status`` +
+    # ``_load_offloader_identities`` — hitting real DNS for
+    # ``rcv.local``. Park each listener on an ``asyncio.Event``
+    # via the fake instead, and signal back when each listener
+    # has actually reached the parked state — the test below
+    # uses that signal to force the precise race that previously
+    # orphaned ``listener_v2``.
+    park = asyncio.Event()
+    parked_signals: list[asyncio.Event] = [asyncio.Event(), asyncio.Event()]
+    park_call_index = 0
+
+    async def _fake_await_pair_status(
+        **_: object,
+    ) -> remote_build_peer_link_client.PairStatusResult:
+        nonlocal park_call_index
+        if park_call_index < len(parked_signals):
+            parked_signals[park_call_index].set()
+        park_call_index += 1
+        await park.wait()
+        raise AssertionError("park event should never be set in this test")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.peer_link_await_pair_status",
+        _fake_await_pair_status,
+    )
+    fake_identity = MagicMock()
+    fake_identity.private_bytes = b"\x00" * 32
+    fake_dashboard = MagicMock()
+    fake_dashboard.dashboard_id = "dashboard-stub"
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build._load_offloader_identities",
+        lambda _config_dir: (fake_identity, fake_dashboard),
+    )
+
     # First pair lands PENDING with pin1.
     await offloader.request_pair(
         hostname="rcv.local",
@@ -1336,6 +1371,20 @@ async def test_request_pair_repair_then_unpair_clean_state(
         offloader_label="off",
     )
     listener_v1 = offloader._pair_status_listeners[("rcv.local", 6055)]
+
+    # Wait until ``listener_v1`` has actually reached its
+    # ``await peer_link_await_pair_status`` parked state.
+    # Without this barrier the second ``request_pair`` below
+    # often cancels ``listener_v1`` while it's still at its
+    # initial ``run_in_executor`` await — so the cancel raises
+    # before the body's ``try`` block, ``listener_v1``'s
+    # ``finally`` never runs, and the orphan-listener bug
+    # (``listener_v1``'s ``finally`` evicting ``listener_v2``
+    # from ``_pair_status_listeners``) is masked. This was the
+    # exact CI/local divergence behind the original flake — the
+    # bug only fires when ``listener_v1`` advances past the
+    # critical section before being cancelled.
+    await parked_signals[0].wait()
 
     # Re-pair with pin2 — listener_v1 must be cancelled, listener_v2 spawned.
     await offloader.request_pair(
