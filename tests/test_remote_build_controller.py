@@ -1650,7 +1650,10 @@ async def test_approve_peer_promotes_pending_to_approved(tmp_path: Path) -> None
     view = await controller.approve_peer(dashboard_id="alpha")
 
     assert view.peers[0].status == PeerStatus.APPROVED
-    settings = load_remote_build_settings(tmp_path)
+    # Hop the sync I/O off the loop so blockbuster doesn't flag it
+    # (the production path always goes through run_in_executor too).
+    loop = asyncio.get_running_loop()
+    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
     assert settings.peers[0].status == PeerStatus.APPROVED
 
 
@@ -1933,17 +1936,51 @@ async def test_pairing_window_auto_closes_when_clients_age_out(
 
 
 @pytest.mark.asyncio
-async def test_stop_cancels_pairing_window_task(tmp_path: Path) -> None:
-    """``controller.stop()`` cleans up the auto-close task without leaking."""
+async def test_stop_cancels_pairing_window_handle(tmp_path: Path) -> None:
+    """``controller.stop()`` cleans up the auto-close TimerHandle."""
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
     await controller.set_pairing_window(open=True, client="tab-1")
-    task = controller._pairing_window_task
-    assert task is not None
-    assert task.done() is False
+    assert controller._pairing_window_handle is not None
 
     await controller.stop()
 
-    assert controller._pairing_window_task is None
-    assert task.done() is True
+    assert controller._pairing_window_handle is None
     assert controller.is_pairing_window_open() is False
+
+
+@pytest.mark.asyncio
+async def test_explicit_close_cancels_handle_no_duplicate_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    Explicit ``open=false`` cancels the auto-close handle.
+
+    Regression for a class of bug Copilot flagged on PR #476: an
+    explicit close left the deadline-fire handle running, which
+    would fire a SECOND ``REMOTE_BUILD_PAIRING_WINDOW_CHANGED``
+    close event when the original deadline lapsed (after a real
+    close had already fired one). The TimerHandle redesign makes
+    every set_pairing_window call cancel-and-reschedule, so the
+    explicit-close path leaves no stale handle behind.
+    """
+    monkeypatch.setattr(rb, "_PAIRING_WINDOW_DURATION_SECONDS", 0.1)
+
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    await controller.set_pairing_window(open=True, client="tab-1")
+    await controller.set_pairing_window(open=False, client="tab-1")
+    # Two events: open + close. After this point, the handle should
+    # be None (explicit close cancelled it; no replacement scheduled
+    # because the client map is empty).
+    assert controller._pairing_window_handle is None
+    initial_fire_count = controller._db.bus.fire.call_count
+    assert initial_fire_count == 2  # open + explicit close
+
+    # Wait past the original (now-cancelled) deadline. If the handle
+    # was leaked, it would fire a second close event here.
+    await asyncio.sleep(0.3)
+
+    assert controller._db.bus.fire.call_count == initial_fire_count
+    assert controller._pairing_window_handle is None

@@ -500,10 +500,13 @@ class RemoteBuildController:
         # dashboard restart (which is fine; admins re-open the
         # screen and the window opens fresh).
         self._pairing_window_clients: dict[Any, float] = {}
-        # Background task that wakes at the next deadline and either
-        # re-sleeps (someone extended) or closes the window + fires
-        # the event (everyone aged out / closed).
-        self._pairing_window_task: asyncio.Task[None] | None = None
+        # TimerHandle scheduled for the latest-extend deadline. Cancelled
+        # and rescheduled on every set_pairing_window call so it always
+        # tracks the "next time we need to auto-close". When the handle
+        # fires, every client has aged out (any later extend would have
+        # cancelled it), so the callback just clears the dict and fires
+        # the close event. ``None`` when the window is closed.
+        self._pairing_window_handle: asyncio.TimerHandle | None = None
 
     async def start(self) -> None:
         """
@@ -571,10 +574,9 @@ class RemoteBuildController:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
             self._tasks.clear()
-        if self._pairing_window_task is not None:
-            self._pairing_window_task.cancel()
-            await asyncio.gather(self._pairing_window_task, return_exceptions=True)
-            self._pairing_window_task = None
+        if self._pairing_window_handle is not None:
+            self._pairing_window_handle.cancel()
+            self._pairing_window_handle = None
         self._pairing_window_clients.clear()
         self._peers.clear()
 
@@ -1219,12 +1221,15 @@ class RemoteBuildController:
         was_open = self.is_pairing_window_open()
         if open:
             self._pairing_window_clients[client] = time.monotonic()
-            if self._pairing_window_task is None or self._pairing_window_task.done():
-                self._pairing_window_task = asyncio.create_task(self._run_pairing_window_task())
         else:
             self._pairing_window_clients.pop(client, None)
-        self._prune_stale_pairing_window_clients()
-        is_open = self.is_pairing_window_open()
+        # Cancel the existing handle and schedule a new one against
+        # the current latest-extend deadline. When the dict is empty
+        # (last client closed), no new handle is scheduled; this is
+        # what prevents a duplicate close event from a stale handle
+        # on the explicit-close path.
+        self._reschedule_pairing_window_close()
+        is_open = bool(self._pairing_window_clients)
 
         # Fire on state transitions, AND on every successful extend
         # (open=True with the window already open) so the frontend's
@@ -1276,36 +1281,46 @@ class RemoteBuildController:
             if extended_at >= cutoff
         }
 
-    async def _run_pairing_window_task(self) -> None:
+    def _reschedule_pairing_window_close(self) -> None:
         """
-        Sleep until the latest client's deadline; on wake, close or re-sleep.
+        Cancel any pending close handle and schedule a fresh one.
 
-        Tolerates extension: when any client extends while we're
-        sleeping, the new latest-extend timestamp pushes the deadline
-        out, our sleep wakes at the *old* deadline, sees the new
-        deadline still in the future, and re-sleeps. One task handles
-        arbitrary numbers of extensions across all clients; the cost
-        is one wasted wake per extension, negligible at the 30s
-        debounced extend cadence.
+        Called after every :meth:`set_pairing_window` mutation. The
+        handle always reflects the current latest-extend deadline,
+        so on every extend we cancel and reschedule rather than
+        letting an old handle wake up and re-check; this avoids the
+        duplicate-close-event class of bug where an old handle
+        would fire after an explicit close.
 
-        Closes the window (and fires the event) when the prune sweep
-        on wake finds no clients left.
+        When the client map is empty (the explicit-close case where
+        the last client just dropped out), no new handle is
+        scheduled and ``_pairing_window_handle`` stays ``None``.
         """
-        while True:
-            self._prune_stale_pairing_window_clients()
-            if not self._pairing_window_clients:
-                # Auto-closed: every client aged out. Fire the close
-                # event so the frontend can render "window expired".
-                self._fire_pairing_window_changed()
-                return
-            latest_extend = max(self._pairing_window_clients.values())
-            deadline = latest_extend + _PAIRING_WINDOW_DURATION_SECONDS
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                # Fell through pruning's epsilon window; loop back to
-                # re-sweep and close on the next iteration.
-                continue
-            await asyncio.sleep(remaining)
+        if self._pairing_window_handle is not None:
+            self._pairing_window_handle.cancel()
+            self._pairing_window_handle = None
+        self._prune_stale_pairing_window_clients()
+        if not self._pairing_window_clients:
+            return
+        latest_extend = max(self._pairing_window_clients.values())
+        remaining = max(0.0, latest_extend + _PAIRING_WINDOW_DURATION_SECONDS - time.monotonic())
+        loop = asyncio.get_running_loop()
+        self._pairing_window_handle = loop.call_later(remaining, self._on_pairing_window_deadline)
+
+    def _on_pairing_window_deadline(self) -> None:
+        """
+        Sync callback fired by the TimerHandle when the deadline lapses.
+
+        The handle was scheduled to the latest-extend deadline; if
+        any later extend had bumped the deadline, the handle would
+        have been cancelled and rescheduled, so by the time we run
+        every client has aged out. Clear the dict, fire the close
+        event, done. No re-check loop needed (which is the whole
+        point of TimerHandle vs an asyncio.sleep coroutine).
+        """
+        self._pairing_window_handle = None
+        self._pairing_window_clients.clear()
+        self._fire_pairing_window_changed()
 
 
 def _identity_view(identity: DashboardIdentity, *, listener_bound: bool) -> IdentityView:

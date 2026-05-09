@@ -230,11 +230,13 @@ class PairingWindowState(DataClassORJSONMixin):
 
     Wire shape for the ``set_pairing_window`` response and the
     ``remote_build_pairing_window_changed`` event payload. Not
-    persisted; the deadline lives in
-    :attr:`RemoteBuildController._pairing_window_open_until`
-    only and resets on every dashboard restart (which is fine —
-    the receiver-side admin re-opens the screen after restart
-    and the window opens fresh).
+    persisted; the per-client extend timestamps live in
+    :attr:`RemoteBuildController._pairing_window_clients` and the
+    auto-close timer in
+    :attr:`RemoteBuildController._pairing_window_handle`. State
+    resets on every dashboard restart (which is fine; the
+    receiving dashboard's user re-opens the Pairing requests
+    screen after restart and the window opens fresh).
     """
 
     open: bool
