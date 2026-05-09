@@ -71,6 +71,52 @@ esphome_device_builder/
 | RemoteBuild | mDNS browse + manual host entry + token store + first-use binding for the remote-build offload feature (issue #106) |
 | Built-in | ping, subscribe_events |
 
+## Event bus
+
+In-process pub/sub, owned by `DeviceBuilder.bus` (an `EventBus` from `helpers/event_bus`). Controllers fire events on state transitions; WS commands subscribe via `subscribe_events` and stream them to connected clients. Event types are declared in `models/common.py` as `EventType(StrEnum)` members; the bus accepts `(event_type, data: dict[str, Any])`.
+
+### Typing event payloads
+
+Mirrors Home Assistant core's `EventStateChangedData` / `EventStateReportedData` pattern: the wire shape stays a `dict[str, Any]` (so `EventBus.fire`'s signature stays generic, JSON serialisation is direct, and the bus doesn't need to know about every event's fields), but each event-specific dict shape is declared as a `TypedDict` next to the controller that fires it.
+
+Concretely, in `models/remote_build.py`:
+
+```python
+class RemoteBuildPairRequestReceivedData(TypedDict):
+    dashboard_id: str
+    pin_sha256: str
+    label: str
+    peer_ip: str
+```
+
+And the call site builds the typed dict before firing:
+
+```python
+payload: RemoteBuildPairRequestReceivedData = {
+    "dashboard_id": dashboard_id,
+    "pin_sha256": pin_sha256,
+    "label": label,
+    "peer_ip": peer_ip,
+}
+self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
+```
+
+Type checkers see the dict's keys + value types; subscribers that want the same view annotate the receive side:
+
+```python
+def _on_pair_request(event: Event) -> None:
+    data: RemoteBuildPairRequestReceivedData = event.data
+    ...
+```
+
+`TypedDict` rather than `@dataclass` because:
+
+- The wire shape is a `dict`, not a class instance. `TypedDict` matches the runtime shape; `@dataclass` would need an `asdict()` step on every fire.
+- Subscribers that ride the existing `subscribe_events` WS plumbing serialise the payload through `helpers.json.dumps` (orjson), which handles `dict` natively.
+- It mirrors HA's convention so contributors moving between this codebase and HA find the same pattern.
+
+Older event payloads (e.g. `REMOTE_BUILD_BINDING_MISMATCH`'s, fired with `asdict(BindingMismatch)`) predate this convention and get the typed treatment as they're touched. New events should ship with a TypedDict from day one.
+
 ## Firmware Job Queue
 
 Jobs are persistent, event-driven, and decoupled from WebSocket connections:
