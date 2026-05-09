@@ -53,7 +53,7 @@ import asyncio
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 from typing import TYPE_CHECKING, Any
 
 from esphome.const import __version__ as esphome_version
@@ -509,7 +509,7 @@ class RemoteBuildController:
         # open forever. State lives in-memory only and resets on
         # dashboard restart (which is fine; admins re-open the
         # screen and the window opens fresh).
-        self._pairing_window_clients: dict[Any, float] = {}
+        self._pairing_window_clients: dict[Hashable, float] = {}
         # TimerHandle scheduled for the latest-extend deadline. Cancelled
         # and rescheduled on every set_pairing_window call so it always
         # tracks the "next time we need to auto-close". When the handle
@@ -1187,7 +1187,7 @@ class RemoteBuildController:
         self,
         *,
         open: bool,  # noqa: A002 — wire format names this field "open"
-        client: Any,
+        client: Hashable,
         **kwargs: Any,
     ) -> PairingWindowState:
         """
