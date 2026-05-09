@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
@@ -252,3 +253,26 @@ class UpdateDeviceResponse(DataClassORJSONMixin):
     friendly_name: str
     comment: str | None
     board_id: str | None
+
+
+# ---------------------------------------------------------------------------
+# Event payload shapes (TypedDict so the bus.fire data dict is
+# type-checked at the call site without changing the wire shape).
+# See ``mypy_plan.md`` for the migration scope.
+# ---------------------------------------------------------------------------
+
+
+class DeviceEventData(TypedDict):
+    """
+    Payload for ``EventType.DEVICE_ADDED`` / ``DEVICE_REMOVED`` / ``DEVICE_UPDATED``.
+
+    The three CRUD events share a single shape — the disk
+    scanner forwards ``ScanChange`` events through this payload
+    and subscribers differentiate by the ``EventType`` carried
+    alongside, not by inspecting the payload. The full
+    ``Device`` rides through so the frontend's device-table
+    renderer has every field it needs without an additional
+    fetch.
+    """
+
+    device: Device

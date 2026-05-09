@@ -55,6 +55,7 @@ from ...models import (
     AddComponentResponse,
     AdoptableDevice,
     Device,
+    DeviceEventData,
     DevicesResponse,
     DeviceState,
     ErrorCode,
@@ -2437,7 +2438,7 @@ class DevicesController:
             ScanChange.UPDATED: EventType.DEVICE_UPDATED,
             ScanChange.REMOVED: EventType.DEVICE_REMOVED,
         }[kind]
-        self._db.bus.fire(event, {"device": device})
+        self._db.bus.fire(event, DeviceEventData(device=device))
         # Eagerly probe mDNS for newly-added devices. Catches the
         # YAML-dropped-on-disk case the API entrypoints
         # (``devices/import``, ``devices/create``) can't see — e.g.
@@ -2622,7 +2623,7 @@ class DevicesController:
                 self._db.create_background_task(
                     self._persist_device_ip_async(device.configuration, ip)
                 )
-            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
 
     async def _persist_device_ip_async(self, configuration: str, ip: str) -> None:
         """Save *ip* to the device-builder metadata sidecar."""
@@ -2676,7 +2677,7 @@ class DevicesController:
                 old_version or "?",
                 version,
             )
-            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
 
     def _on_mac_address_change(self, name: str, mac: str) -> None:
         """
@@ -2711,7 +2712,7 @@ class DevicesController:
             self._db.create_background_task(
                 self._persist_device_metadata_async(device.configuration, mac_address=mac)
             )
-            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
 
     def _on_api_encryption_change(self, name: str, encryption: str) -> None:
         r"""
@@ -2747,7 +2748,7 @@ class DevicesController:
             device.api_encryption_active = encryption
             if wire_promotes_encrypted:
                 device.api_encrypted = True
-            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
 
     def _on_config_hash_change(self, name: str, config_hash: str) -> None:
         """
@@ -2778,7 +2779,7 @@ class DevicesController:
                 old_hash or "?",
                 config_hash,
             )
-            self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
+            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
 
     def _on_importable_added(self, device: AdoptableDevice) -> None:
         """Stash a newly-discovered importable device and notify subscribers."""
