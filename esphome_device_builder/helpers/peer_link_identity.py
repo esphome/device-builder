@@ -9,7 +9,7 @@ Generates and persists, on first call to
 
 Subsequent calls reload the same bytes. The matching public key
 is derived from the private key via :mod:`cryptography`'s
-``X25519PrivateKey.public_key().public_bytes_raw()`` — the public
+``X25519PrivateKey.public_key().public_bytes_raw()``. The public
 half is recomputed each load rather than persisted, so a corrupted
 public-key file can't desync from the private half.
 
@@ -61,9 +61,9 @@ class PeerLinkIdentity:
     :class:`~helpers.peer_link_noise.PeerLinkNoiseSession` (passed
     to :meth:`noise.connection.NoiseConnection.set_keypair_from_private_bytes`).
     ``public_bytes`` is the matching 32-byte X25519 pubkey.
-    ``pin_sha256`` is the lowercase-hex SHA-256 of ``public_bytes``
-    — the wire-friendly form UIs render for OOB fingerprint
-    comparison and the value mDNS TXT advertises so offloaders
+    ``pin_sha256`` is the lowercase-hex SHA-256 of ``public_bytes``;
+    the wire-friendly form UIs render for OOB fingerprint
+    comparison, and the value mDNS TXT advertises so offloaders
     can pin against it before a Noise handshake.
     """
 
@@ -146,7 +146,7 @@ def _load_key(key_path: Path) -> bytes | None:
     Read the persisted X25519 private key, returning ``None`` on any miss.
 
     Treats wrong-length or unparsable input as "missing" so the
-    caller regenerates rather than failing — a half-written or
+    caller regenerates rather than failing. A half-written or
     truncated key file means the on-disk state is wrong, and the
     user-visible cost of regenerating is "every peer has to re-pair
     once" (same outcome as a deliberate rotation).
@@ -168,11 +168,11 @@ def _load_key(key_path: Path) -> bytes | None:
         return None
     # Validate by attempting to construct the X25519 key. If this
     # raises, the bytes parse as the right size but aren't a valid
-    # private key under the curve's clamping rules — treat as
+    # private key under the curve's clamping rules; treat as
     # missing.
     try:
         X25519PrivateKey.from_private_bytes(data)
-    except (ValueError, Exception) as exc:
+    except Exception as exc:
         _LOGGER.warning(
             "Peer-link key at %s does not parse as X25519 (%s); regenerating",
             key_path,
