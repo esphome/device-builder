@@ -149,6 +149,24 @@ class IntentResponse(StrEnum):
 # ---------------------------------------------------------------------------
 
 
+class RemoteBuildIdentityRotatedData(TypedDict):
+    """
+    Payload for ``EventType.REMOTE_BUILD_IDENTITY_ROTATED``.
+
+    Fired after ``rotate_certificate`` succeeds and the new
+    ``pin_sha256`` is reloaded into the listener. Subscribers
+    (the offloader-side peer-link in phase 4+, the receiver
+    Settings UI in 3c2) refresh their cached pin without polling
+    ``get_identity``. The event reflects only that the cert + key
+    on disk changed; the listener rebuild may still fail-soft, in
+    which case the rotater's ``IdentityView`` response carries
+    ``listener_bound=False``.
+    """
+
+    dashboard_id: str
+    pin_sha256: str
+
+
 class RemoteBuildPairRequestReceivedData(TypedDict):
     """
     Payload for ``EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED``.

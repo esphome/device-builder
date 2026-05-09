@@ -92,6 +92,7 @@ from ..models import (
     PairingWindowState,
     PeerStatus,
     PeerSummary,
+    RemoteBuildIdentityRotatedData,
     RemoteBuildPairingWindowChangedData,
     RemoteBuildPairRequestReceivedData,
     RemoteBuildPairStatusChangedData,
@@ -1275,10 +1276,10 @@ class RemoteBuildController:
             )
             self._db.bus.fire(
                 EventType.REMOTE_BUILD_IDENTITY_ROTATED,
-                {
-                    "dashboard_id": identity.dashboard_id,
-                    "pin_sha256": identity.pin_sha256,
-                },
+                RemoteBuildIdentityRotatedData(
+                    dashboard_id=identity.dashboard_id,
+                    pin_sha256=identity.pin_sha256,
+                ),
             )
             return _identity_view(identity, listener_bound=listener_bound)
         finally:
