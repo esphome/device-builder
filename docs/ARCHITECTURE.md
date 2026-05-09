@@ -67,6 +67,8 @@ esphome_device_builder/
 | Components | Component catalog with search, config entries |
 | Automations | Context-aware triggers + actions |
 | Config | Version, serial ports, preferences, secrets |
+| Onboarding | First-run setup state (welcome flow, default secrets, sample device) |
+| RemoteBuild | mDNS browse + manual host entry + token store + first-use binding for the remote-build offload feature (issue #106) |
 | Built-in | ping, subscribe_events |
 
 ## Firmware Job Queue
@@ -169,13 +171,39 @@ Both gates apply only to requests that carry an `Origin` header. Browsers always
 
 Match is case-insensitive and port-tolerant: `dashboard.example.com` accepts `Dashboard.Example.com:8443`. IPv6 may be entered with or without brackets (`::1` and `[::1]` both work). Use `*` as the only entry to opt out of the Host restriction while still permitting cross-origin handshakes (handy when the Host varies per request).
 
+## Discovery (mDNS)
+
+Two mDNS surfaces ride the same `AsyncEsphomeZeroconf` instance the device state monitor already owns. Sharing one Zeroconf singleton matters: opening a second responder fights for the same multicast socket and silently drops half the packets.
+
+**Devices** (`_esphomelib._tcp.local.`) — passive browse. ESPHome devices broadcast on this service type; `DeviceStateMonitor`'s browser callback turns `Added` / `Updated` / `Removed` events into ONLINE / OFFLINE state transitions and TXT-driven config-hash / version / api-encryption updates. See "Two mDNS paths with different OFFLINE semantics" in [CLAUDE.md](../CLAUDE.md) for the asymmetric trust rules between the browser callback and the one-off active-resolve path.
+
+**Dashboards** (`_esphomebuilder._tcp.local.`) — bidirectional. The dashboard advertises its own service instance on startup (skipped in HA-addon mode by default; the addon container's docker IP isn't LAN-routable). TXT carries `server_version` + `esphome_version` always; `pin_sha256` + `remote_build_port` are added when the remote-build receiver site is bound. Browse runs in `RemoteBuildController`, populates `remote_build/list_hosts`, and merges with manually-added `(hostname, port)` rows from `_remote_build.manual_hosts`.
+
+The 15-character RFC 6335 §5.1 cap on service-type labels is why the new type is `_esphomebuilder` (14 chars) rather than `_esphomedashboard` (16, would be truncated). Keeps the `_esphome*` prefix consistent with the existing device service type.
+
+## Remote build
+
+Receiver-side surface for the remote-build offload feature (issue #106). The dashboard can play *receiver* (lend its CPU to other dashboards) and *offloader* (delegate compiles to a paired receiver) — phases 3a–3c land the receiver half; offloader-side pairing + peer-link work is phase 4+ and not yet shipped.
+
+**Second TCP listener.** When `_remote_build.enabled` is `true`, `DeviceBuilder` binds a third aiohttp `TCPSite` on `--remote-build-port` (default 6055) over TLS, served with the cert from `helpers/dashboard_identity`. Disabled by default; the listener doesn't bind at all when the toggle is off (a sidecar `enabled=false` skip beats default-deny 404s — nothing to probe). This sits alongside the public + ingress sites from the Authentication section: HA-addon mode with remote-build enabled binds three listeners on three different ports, each with its own middleware stack.
+
+**Middleware stack** (`/remote-build/v1/*` only, outer → inner):
+- `_strip_server_header_middleware` — overrides aiohttp's `Server: Python/x.y aiohttp/z.w` banner to empty string. (Setting to empty wins; `del response.headers["Server"]` doesn't catch the connection-level injection.)
+- `make_remote_build_auth_middleware` — bearer parse (RFC-7235 case-insensitive scheme + RFC-7230 BWS tolerant), `hmac.compare_digest` against the stored hash, per-IP `RateLimiter` (10 fails / 60s window / 5min lockout, 429 with `Retry-After`), `X-Dashboard-ID` first-use binding (400 missing / 403 mismatch / event-fire on the 403 path).
+
+**Identity** (`helpers/dashboard_identity`). On first dashboard start, generates an Ed25519 self-signed cert (100-year validity, SAN=localhost, EKU=SERVER_AUTH critical), persists `(.device-builder-cert.pem, .device-builder-key.pem)` next to the metadata sidecar, and a stable random `dashboard_id` under `_remote_build.dashboard_id`. The cert/key files are sync I/O via `helpers/atomic_io.atomic_write`; module-level `_IDENTITY_LOCK` serialises first-time creation. Trust model is **SPKI-pinning, not cert-pinning** — the pin field is `pin_sha256`, the SHA-256 over the SubjectPublicKeyInfo (lowercase hex). Rotation is explicit: `rotate_certificate(config_dir)` mints a fresh cert from the same key (same SPKI → same `pin_sha256`, no re-pair needed) or rotates both (new SPKI → every paired offloader has to re-verify).
+
+**Token store.** Receiver-side bearers persist as `StoredToken` rows under `_remote_build.tokens[]` carrying `{token_id, label, secret_sha256, created_at, bound_dashboard_id}`. Wire shape is `TokenSummary` (drops `secret_sha256`). The cleartext bearer is generated **client-side** in the frontend (`crypto.getRandomValues` only — a fallback to `Math.random` would be a security regression because the backend can verify only the hash's shape, not its entropy): `token_id` is the textual form of 8 random bytes after base64url encoding (exactly 11 chars; backend pins the length so the 64-bit collision math at the 100-token cap stays load-bearing) and `secret` is 32 random bytes after base64url encoding (43 chars). The frontend computes `SHA-256(secret)` locally and POSTs only `{label, token_id, secret_sha256}`; the cleartext stays on the user's screen long enough to copy into the offloader and is then discarded. This closes the leak that a server-side `create_token` would have on plain-HTTP standalone deployments where the main port carries the WS API in cleartext.
+
+**First-use binding.** Every authenticated `/remote-build/v1/*` request must carry an `X-Dashboard-ID` header (base64url, ≤ 64 chars). On the first authenticated request for a token whose `bound_dashboard_id` is `null`, the middleware persists the value via `RemoteBuildController.bind_token_first_use(token_id, dashboard_id)` under the metadata-transaction lock. Subsequent mismatches return **403** (NOT 401: the token IS valid, the peer is wrong) and fire a typed `remote_build_binding_mismatch` event carrying `BindingMismatch(token_id, presented_dashboard_id, bound_dashboard_id, peer_ip, race_loss)`. `race_loss=true` flags concurrent first-use bind races (operator paste-into-two-offloaders, soften UI wording); `race_loss=false` is the loud already-bound mismatch (stolen bearer or paste-into-wrong-machine). The 403 path is intentionally NOT rate-limited — that's the alert channel; rate-limiting it would mask the alert under the same threshold as routine bad bearers. The 400-on-malformed-header path IS rate-limited (a 400 confirms the bearer was valid; without rate-limiting, a peer with a stolen bearer could probe the binding shape unlimited times).
+
 ## Persisted state and security expectations
 
 The dashboard writes a small set of files into `<config_dir>` and treats them as durable per-installation state. A few have non-obvious security expectations.
 
 | File | Sensitivity | Mode |
 |---|---|---|
-| `.device-builder.json` | Identifier-only (`dashboard_id`, `_remote_build` config). Not a secret. | umask default |
+| `.device-builder.json` | Mostly identifier-only (`dashboard_id`, `_remote_build.enabled`, `manual_hosts`). The `_remote_build.tokens[]` rows carry `secret_sha256` for issued bearers — hashes, not cleartext. A leaked snapshot doesn't surrender working bearers (256-bit secret + SHA-256 makes offline brute-force infeasible) but does reveal which `dashboard_id`s have paired. | umask default |
 | `.device-builder-cert.pem` | Public TLS cert. Not sensitive. | mkstemp default (0o600) |
 | `.device-builder-key.pem` | **Private TLS key. Sensitive.** A reader of this file can impersonate the dashboard to any paired peer. | 0o600 enforced at write time |
 
@@ -183,7 +211,7 @@ The dashboard writes a small set of files into `<config_dir>` and treats them as
 
 **The dashboard expects — and enforces — exactly one process per `<config_dir>`.** Identity files, the metadata sidecar, and the build tree are all guarded by per-process `threading.Lock`s; two `device-builder` processes running against the same config directory would race on writes. Startup takes an exclusive `fcntl.flock` on `<config_dir>/.device-builder.lock` (see `helpers/single_instance.ensure_single_execution`); a second start refuses with the running PID + start time on stderr. The OS releases the lock on process exit, so a stale lock file with no holder is harmless and re-acquired cleanly. Windows lacks `fcntl` and the check is a silent no-op there; the HA-addon shape (the dominant production target) is POSIX-only, and dev / Desktop on Windows accept the residual race risk in exchange for not needing `msvcrt.locking` plumbing. If a multi-process model is ever needed, the per-process `threading.Lock`s would also need to become cross-process file-locks.
 
-**`dashboard_id` is an identifier, not a secret.** It's published in mDNS TXT and shared with paired peers as part of pairing handshakes. A leaked metadata sidecar reveals the ID but doesn't, on its own, grant access. Phase 4's first-use binding pairs each issued token against the requesting offloader's `dashboard_id`, so the ID becomes part of the auth context at that point — leakage of an issued bearer token *together with* the dashboard's ID would defeat the binding check; bearer tokens themselves remain the load-bearing secret.
+**`dashboard_id` is an identifier, not a secret.** It's shared with paired peers as part of pairing handshakes (sent in the `X-Dashboard-ID` request header on every authenticated `/remote-build/v1/*` request). A leaked metadata sidecar reveals the ID but doesn't, on its own, grant access. Phase 3b3's first-use binding pairs each issued bearer against the offloader's `dashboard_id` on first use, so the ID becomes part of the auth context at that point — leakage of an issued bearer *together with* the dashboard's ID would defeat the binding check; bearer secrets themselves remain the load-bearing secret. The `dashboard_id` is **not** published in mDNS TXT — only `pin_sha256` + `remote_build_port` are advertised; the peer learns each other's IDs as part of pairing.
 
 ## Deployment
 
