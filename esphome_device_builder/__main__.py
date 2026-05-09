@@ -9,6 +9,7 @@ import sys
 import threading
 from contextlib import suppress
 from logging.handlers import RotatingFileHandler
+from types import TracebackType
 from typing import TYPE_CHECKING, cast
 
 from colorlog import ColoredFormatter
@@ -239,18 +240,12 @@ def main() -> None:
 def _log_uncaught_exception(
     exc_type: type[BaseException],
     exc_value: BaseException,
-    exc_traceback: object,
+    exc_traceback: TracebackType | None,
 ) -> None:
     """Forward an uncaught main-thread exception into ``logger.exception``."""
-    # typeshed types ``logger.exception(exc_info=...)`` more strictly
-    # than the runtime ABI: the triple form requires exc_traceback to
-    # be ``TracebackType | None``, not ``object``. Our caller is
-    # ``sys.excepthook`` which the runtime documents as passing
-    # exactly that triple shape. ``# type: ignore[arg-type]`` is the
-    # standard lever for this stdlib annotation gap.
     logging.getLogger().exception(
         "Uncaught exception",
-        exc_info=(exc_type, exc_value, exc_traceback),  # type: ignore[arg-type]
+        exc_info=(exc_type, exc_value, exc_traceback),
     )
 
 

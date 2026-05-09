@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from .helpers.dashboard_identity import DashboardIdentity
@@ -1032,7 +1032,7 @@ class DeviceBuilder:
             # access boundary; the alternative (``getattr`` + None
             # checks) would obscure what's actually a stable
             # documented attribute.
-            sockets = site._server.sockets  # type: ignore[attr-defined]
+            sockets = cast("asyncio.base_events.Server", site._server).sockets
             if sockets:
                 port = sockets[0].getsockname()[1]
         return runner, identity, port
