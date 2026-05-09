@@ -15,7 +15,6 @@ import asyncio
 import hashlib
 import json
 import secrets as _secrets
-import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -90,7 +89,7 @@ def _fake_service_info(
     return info
 
 
-def _make_controller(*, config_dir: Any = None, real_bus: bool = False) -> RemoteBuildController:
+def _make_controller(*, config_dir: Path, real_bus: bool = False) -> RemoteBuildController:
     db = MagicMock()
     db.devices = MagicMock()
     db.devices.zeroconf = None
@@ -98,16 +97,12 @@ def _make_controller(*, config_dir: Any = None, real_bus: bool = False) -> Remot
     db.settings = MagicMock()
     # The controller's ``__init__`` constructs a per-file
     # ``Store`` keyed off ``config_dir / ".offloader_pairings.json"``,
-    # so a real ``Path`` is required even when the test doesn't
-    # exercise pairings flows (mDNS-only tests, validator tests).
-    # Fall back to a per-process tempdir for those — no test under
-    # this default ever writes to the store, so the dir stays
-    # empty.
-    db.settings.config_dir = (
-        config_dir
-        if config_dir is not None
-        else Path(tempfile.mkdtemp(prefix="rb_controller_test_"))
-    )
+    # so callers must thread a real ``Path`` through (typically
+    # pytest's ``tmp_path``). Mocking it would land the store at
+    # ``MagicMock() / "..."`` and trip ``__truediv__`` somewhere
+    # downstream; an explicit signature beats the silent failure
+    # mode.
+    db.settings.config_dir = config_dir
     if real_bus:
         # Long-poll tests for ``lookup_peer_for_status`` exercise the
         # bus.listening machinery for real (a MagicMock bus would
@@ -212,9 +207,9 @@ def test_peer_from_service_info_handles_missing_txt_keys() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_on_service_state_change_filters_own_advertise() -> None:
+def test_on_service_state_change_filters_own_advertise(tmp_path: Path) -> None:
     """Our own service-instance name never lands in ``_peers``."""
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     controller._own_instance_name = f"self.{SERVICE_TYPE}"
     zeroconf = MagicMock()
     controller._on_service_state_change(
@@ -223,9 +218,11 @@ def test_on_service_state_change_filters_own_advertise() -> None:
     assert controller._peers == {}
 
 
-def test_on_service_state_change_removed_drops_peer(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_on_service_state_change_removed_drops_peer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A ``Removed`` event clears the peer entry immediately."""
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     controller._peers[f"desktop.{SERVICE_TYPE}"] = RemoteBuildPeer(
         name="desktop",
         hostname="desktop.local.",
@@ -239,10 +236,11 @@ def test_on_service_state_change_removed_drops_peer(monkeypatch: pytest.MonkeyPa
 
 
 def test_on_service_state_change_uses_cache_when_available(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A cache-hit resolves the peer synchronously without spawning a task."""
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     fake_info = _fake_service_info(name="desktop")
     fake_info.load_from_cache = MagicMock(return_value=True)
     monkeypatch.setattr(
@@ -468,10 +466,11 @@ async def test_stop_swallows_browser_cancel_errors(
 
 @pytest.mark.asyncio
 async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A cache-miss queues the async resolve task and tracks it in ``_tasks``."""
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     fake_info = _fake_service_info(name="desktop")
     fake_info.load_from_cache = MagicMock(return_value=False)
     fake_info.async_request = AsyncMock(return_value=True)
@@ -492,9 +491,9 @@ async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
 
 
 @pytest.mark.asyncio
-async def test_resolve_and_apply_swallows_errors() -> None:
+async def test_resolve_and_apply_swallows_errors(tmp_path: Path) -> None:
     """A resolve-side exception leaves the peer map untouched."""
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     fake_info = _fake_service_info(name="desktop")
     fake_info.async_request = AsyncMock(side_effect=RuntimeError("network down"))
     await controller._resolve_and_apply(MagicMock(), fake_info, f"desktop.{SERVICE_TYPE}")
@@ -502,9 +501,9 @@ async def test_resolve_and_apply_swallows_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_and_apply_skips_when_resolution_returns_false() -> None:
+async def test_resolve_and_apply_skips_when_resolution_returns_false(tmp_path: Path) -> None:
     """An ``async_request`` that returns ``False`` (timeout) doesn't add a peer."""
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     fake_info = _fake_service_info(name="desktop")
     fake_info.async_request = AsyncMock(return_value=False)
     await controller._resolve_and_apply(MagicMock(), fake_info, f"desktop.{SERVICE_TYPE}")
@@ -512,9 +511,9 @@ async def test_resolve_and_apply_skips_when_resolution_returns_false() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stop_drains_resolve_tasks() -> None:
+async def test_stop_drains_resolve_tasks(tmp_path: Path) -> None:
     """In-flight resolve tasks are cancelled and the set is cleared."""
-    controller = _make_controller()
+    controller = _make_controller(config_dir=tmp_path)
     started = asyncio.Event()
 
     async def _slow() -> None:

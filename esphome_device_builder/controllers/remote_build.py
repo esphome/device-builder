@@ -312,10 +312,11 @@ def _validate_hostname(
     :data:`_HOSTNAME_MAX_CHARS` (RFC 1035 §2.3.4 caps a fully-
     qualified domain name at 253 characters; we accept up to 255
     to leave room for trailing-dot variations). The cap stops a
-    misbehaving frontend from bloating the on-disk sidecar (and,
-    for the offloader-side pairing pool, the wire payload of
-    ``list_pairings``) with a megabyte-string masquerading as a
-    hostname.
+    misbehaving frontend from bloating the on-disk pairings file
+    (and, for the offloader-side pairing pool, the
+    ``initial_state`` snapshot served on every
+    ``subscribe_events`` subscription) with a megabyte-string
+    masquerading as a hostname.
 
     Defers the URL-validity check to :class:`yarl.URL.build` so
     the WS-command validator and the offloader's

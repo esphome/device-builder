@@ -225,8 +225,8 @@ class OffloaderPairStatusChangedData(TypedDict):
       existed; pin rotated).
     * ``RemoteBuildController.unpair`` when the user removes a
       row, so other clients on the global ``subscribe_events``
-      stream see the removal without polling
-      :meth:`list_pairings`.
+      stream see the removal without re-fetching the pairings
+      snapshot.
 
     Delivered to clients via the existing global
     ``subscribe_events`` stream — no separate subscription
@@ -440,9 +440,13 @@ class StoredPairing(DataClassORJSONMixin):
     """
     Offloader-side record of a paired (or pending) receiver.
 
-    Persisted under ``_offloader_remote_build.pairings``. Created
-    by the ``request_pair`` flow over the peer-link WS: the
-    offloader runs a Noise XX handshake with
+    Persisted in the per-file
+    :class:`~helpers.storage.Store` at
+    ``<config_dir>/.offloader_pairings.json`` (RAM-first model:
+    the controller's ``_pairings`` dict is the runtime source of
+    truth, and the ``Store`` debounce-saves APPROVED rows to
+    disk). Created by the ``request_pair`` flow over the
+    peer-link WS: the offloader runs a Noise XX handshake with
     ``intent="pair_request"``, captures the receiver's static
     X25519 pubkey from the handshake transcript, and stores it
     here together with the receiver's ``(hostname, port)``
@@ -584,12 +588,16 @@ class OffloaderRemoteBuildSettings(DataClassORJSONMixin):
     """
     Offloader-side settings for the remote-build feature (storage shape).
 
-    Stored in ``.device-builder.json`` under the
-    ``_offloader_remote_build`` top-level key — distinct from
-    the receiver's ``_remote_build`` key so a dashboard playing
-    both roles persists each side's state independently and a
-    future "split offloader / receiver into separate processes"
-    refactor only has to peel one key out.
+    Stored in its own per-file :class:`~helpers.storage.Store`
+    instance at ``<config_dir>/.offloader_pairings.json`` —
+    sibling of the metadata sidecar rather than a sub-key of it,
+    so atomic writes are per-domain (corrupting the offloader
+    pairings file can't take out the receiver-side
+    ``.device-builder.json``) and there's no lock contention
+    against unrelated metadata writers. A dashboard playing both
+    roles persists each side's state independently; a future
+    "split offloader / receiver into separate processes" refactor
+    only has to move one file.
 
     ``pairings`` carries phase-4a-o :class:`StoredPairing`
     rows: the offloader's pinned receivers. There's no

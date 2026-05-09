@@ -25,10 +25,9 @@ class ErrorCode(StrEnum):
     # typo). The frontend renders this as a "couldn't reach the
     # receiver / try again" toast rather than a stack-trace
     # diagnostic. Used by the offloader-side peer-link commands
-    # (``preview_pair`` / ``request_pair`` / ``list_pairings``) when
-    # the remote dashboard isn't reachable, the Noise handshake
-    # fails to authenticate, or the post-handshake frame
-    # doesn't decrypt.
+    # (``preview_pair`` / ``request_pair``) when the remote
+    # dashboard isn't reachable, the Noise handshake fails to
+    # authenticate, or the post-handshake frame doesn't decrypt.
     UNAVAILABLE = "unavailable"
     # State precondition not met — the operation is well-formed
     # and the remote is reachable, but the current state of one
