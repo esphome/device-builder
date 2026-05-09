@@ -156,12 +156,17 @@ jobs:
         # The ``benchmarks/`` subtree is excluded — it's CodSpeed-driven,
         # runs in a separate job, and its assertions only check chunk
         # counts (not behaviour).
-        # ``timeout-minutes: 5`` caps the suite — healthy runs land at
-        # ~1-2 minutes, so anything past 5 is a hang (a bad fixture, a
-        # deadlocked async wait, an upstream regression). Without the
-        # cap a single hung test burns the runner's full 6h budget.
+        # Two-layer hang protection:
+        # * ``--timeout=120`` (pytest-timeout plugin) faults any
+        #   individual test that wedges for more than 2 minutes,
+        #   surfacing the offending test name + traceback in the log.
+        # * ``timeout-minutes: 5`` is the outer hard cap — if the
+        #   plugin can't recover (deadlocked event loop, stuck
+        #   subprocess), the runner kills the step. Healthy runs land
+        #   at ~1-2 minutes; without the cap a single hung worker
+        #   burns the runner's full 6h budget.
         timeout-minutes: 5
-        run: pytest -q -n auto --maxfail=5 --durations=10 --ignore=tests/benchmarks --cov=esphome_device_builder --cov-report=xml --cov-report=term
+        run: pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --cov=esphome_device_builder --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6.0.0
@@ -239,11 +244,12 @@ jobs:
         # the OS-axis matrix gets. No ``--cov`` here — the merged
         # coverage report comes from the OS-axis ``test`` job; this
         # run is purely a "does the suite still pass against
-        # upstream X" probe. ``timeout-minutes: 5`` matches the
-        # OS-axis cap — hangs against upstream beta/dev are exactly
-        # the case this protects against.
+        # upstream X" probe. ``--timeout=120`` (per-test) +
+        # ``timeout-minutes: 5`` (outer hard cap) match the OS-axis
+        # job — hangs against upstream beta/dev are exactly the case
+        # this protects against.
         timeout-minutes: 5
-        run: pytest -q -n auto --maxfail=5 --durations=10 --ignore=tests/benchmarks
+        run: pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks
 
   benchmarks:
     name: Run benchmarks (CodSpeed)
