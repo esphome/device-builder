@@ -81,11 +81,14 @@ def get_or_create_peer_link_identity(config_dir: Path) -> PeerLinkIdentity:
     """
     Load the persistent peer-link identity, generating it on first call.
 
-    Idempotent. A corrupted / wrong-length / unparsable key file is
-    treated as "missing" and regenerated; the previous identity's
-    paired peers then see ``pin_mismatch`` events on their next
-    handshake and have to re-pair, which is the right user-visible
-    outcome when on-disk identity has gone wrong.
+    Idempotent. An unreadable or wrong-length key file is treated
+    as "missing" and regenerated; the previous identity's paired
+    peers then see ``pin_mismatch`` events on their next handshake
+    and have to re-pair, which is the right user-visible outcome
+    when on-disk identity has gone wrong. Length-correct bytes are
+    always usable: any 32-byte string is a valid X25519 private
+    key after the curve's clamping, so no parse-validation step
+    is needed.
     """
     key_path = config_dir / _KEY_FILENAME
 
