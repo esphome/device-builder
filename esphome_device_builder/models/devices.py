@@ -101,22 +101,44 @@ class Device(DataClassORJSONMixin):
     has_pending_changes: bool = True  # True until successfully compiled + deployed
     update_available: bool = False  # True if compiled with older ESPHome version
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
-    # Native API surface flags — drive the lock-icon indicator in the
-    # device list. ``api_enabled`` is True when the resolved YAML
-    # carries a top-level ``api:`` block; ``api_encrypted`` adds the
-    # inner ``encryption:`` check.
+    # Native API surface flags — drive the lock-icon indicator in
+    # the device list. Both fields are computed in
+    # ``helpers.device_yaml.load_device_from_storage`` as the
+    # union of multiple signals; ``True`` if any of them fires.
+    # The union shape is what makes the indicator stable across
+    # mid-edit drafts, packages-only ``api:`` blocks, and
+    # configurations whose YAML resolution diverges from the
+    # actual compiled firmware.
     #
-    # Both come from the resolved YAML config so ``!include`` /
-    # packages are followed. ``api_encrypted`` ALSO folds in the
-    # live mDNS broadcast (``api_encryption_active`` truthy) so a
-    # configuration whose YAML resolves through ESPHome's Jinja
-    # preprocessor (``api: |\n  # set ... ${ns.cfg}``) — which the
-    # dashboard's ``yaml_util.load_yaml`` doesn't run — still
-    # surfaces as encrypted once the firmware announces (issue
-    # #437). The truthful "encryption is on right now" signal is
-    # the wire; the YAML pass is a useful first approximation that
-    # fails open for any preprocessor feature the dashboard
-    # doesn't reproduce.
+    # ``api_enabled`` — the device exposes a Native API at all:
+    #   1. Resolved YAML has a top-level ``api:`` block (handles
+    #      local ``!include`` / package contents).
+    #   2. Raw-text scan has an ``^api:`` line (keeps the flag
+    #      stable mid-edit when ``yaml_util.load_yaml`` fails on
+    #      an invalid draft).
+    #   3. ``StorageJSON.loaded_integrations`` from the last
+    #      successful compile lists ``api`` (catches remote
+    #      ``dashboard_import`` packages whose YAML resolution
+    #      requires a ``git clone`` the dashboard doesn't run).
+    #
+    # ``api_encrypted`` — the device's Native API runs Noise
+    # encryption:
+    #   1. Resolved YAML has an ``api: encryption:`` block.
+    #   2. Raw-text scan matches the same shape (the ``api:`` /
+    #      ``encryption:`` indented pair).
+    #   3. Live mDNS broadcast is a truthy cipher string
+    #      (``api_encryption_active``). Authoritative when the
+    #      YAML pass diverges from the compiled firmware — e.g.
+    #      ESPHome's Jinja-templated packages
+    #      (``api: |\n  # set ... ${ns.cfg}``), which the
+    #      dashboard's ``yaml_util.load_yaml`` doesn't run but
+    #      ESPHome's compile pipeline does (issue #437).
+    #
+    # Symmetric "wire confirms plaintext" (empty-string mDNS
+    # broadcast) deliberately doesn't *clear* ``api_encrypted`` —
+    # the four-state lock indicator already encodes
+    # YAML-yes / wire-no as ``"mismatch"`` / ``"pending"``, not
+    # as a flatten-to-False signal.
     #
     # The actual key is fetched on demand via
     # ``devices/get_api_key``.
