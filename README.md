@@ -14,10 +14,36 @@ managing automations, and pushing firmware updates.
 
 ## Try it
 
-The dashboard isn't yet wired into the ESPHome container or the Home Assistant
-add-on as an opt-in preview — that's coming soon. In the meantime:
+The dashboard ships as an **opt-in preview** in the official Home Assistant
+add-on and in [ESPHome Desktop](https://github.com/esphome/esphome-desktop).
+Pick the path that matches how you run ESPHome today:
 
-**Install from [PyPI](https://pypi.org/project/esphome-device-builder/):**
+### Home Assistant add-on
+
+Open the ESPHome add-on configuration (Stable, Beta, or Dev — all three
+carry the toggle), flip **Use new Device Builder Preview** on, and restart
+the add-on. The container's init step pip-installs the latest prerelease
+of `esphome-device-builder` and the supervisor service launches it instead
+of the classic dashboard. The toggle is reversible — turn it off + restart
+to fall back to the classic dashboard.
+
+The add-on's data layout stays the same (`/config/esphome/` for YAMLs,
+`/data/` for build artefacts) so flipping the toggle doesn't move or
+duplicate any state.
+
+### ESPHome Desktop (macOS / Windows / Linux)
+
+Install [ESPHome Desktop](https://github.com/esphome/esphome-desktop)
+v0.7.0 or later, then click the system-tray icon and pick **Backend →
+ESPHome Builder (stable)** or **ESPHome Builder (beta)**. The daemon
+restarts under the chosen backend and the tray badge updates to reflect
+which one is running. Switch back to **Classic ESPHome Dashboard** the
+same way.
+
+### Standalone (PyPI)
+
+For developers, headless servers, or anyone running outside the
+add-on / Desktop shapes:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -26,10 +52,10 @@ pip install esphome-device-builder
 esphome-device-builder ~/esphome-configs
 ```
 
-To try a pre-release (beta), pass `--pre` to `pip install`.
+Pass `--pre` to `pip install` to track the beta channel.
 
-The server starts on `http://localhost:6052`. Run with `--help` for the
-full flag set.
+The server starts on `http://localhost:6052`. Run with `--help` for
+the full flag set.
 
 <details>
 <summary>Install from a GitHub release</summary>
@@ -50,7 +76,10 @@ esphome-device-builder ~/esphome-configs
 
 </details>
 
-**From source** (requires [uv](https://docs.astral.sh/uv/)):
+<details>
+<summary>From source (contributors)</summary>
+
+Requires [uv](https://docs.astral.sh/uv/):
 
 ```bash
 git clone https://github.com/esphome/device-builder
@@ -67,6 +96,8 @@ themselves stay `immutable` regardless. Skip `--dev` in production —
 the browser's default heuristic is fine when you're not rebuilding
 every few minutes.
 
+</details>
+
 ## Roadmap
 
 - ✅ Standalone backend with WS-first API, persistent compile queue, mDNS device discovery
@@ -75,7 +106,14 @@ every few minutes.
   (one intentional decline: the HA Supervisor `/auth` POST flow —
   the new backend's HA add-on path is ingress-only by design, see
   [issue #85](https://github.com/esphome/device-builder/issues/85))
-- 🚧 Beta toggle in the official ESPHome container and Home Assistant add-on
+- ✅ Opt-in preview toggle in the Home Assistant add-on
+  (`use_new_device_builder` config option, available on the Stable, Beta,
+  and Dev channels)
+- ✅ Backend selector in [ESPHome Desktop](https://github.com/esphome/esphome-desktop)
+  ≥ v0.7.0 (system tray → Backend)
+- 🚧 Same toggle in the standalone ESPHome Docker image
+  (`ghcr.io/esphome/esphome`) — currently only the HA-addon image carries
+  it
 - 🗺️ See the
   [project backlog](https://github.com/orgs/esphome/projects/7/views/1?filterQuery=project%3A%22device-builder-dashboard%22)
   for in-progress work and what's planned next
