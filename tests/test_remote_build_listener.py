@@ -557,6 +557,22 @@ async def test_apply_remote_build_enabled_tears_down_when_disk_says_false(
 
 
 @pytest.mark.asyncio
+async def test_apply_remote_build_enabled_no_op_before_loop_set(tmp_path: Path) -> None:
+    """No-op when the dashboard hasn't finished startup yet (``loop is None``)."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+    # ``DeviceBuilder.__init__`` doesn't set ``loop``; it's wired
+    # by ``start()`` after the event loop is running. A WS command
+    # can't legitimately reach this method that early, but the
+    # guard keeps a future caller (e.g. a unit test driving the
+    # method out of band) from hitting ``run_in_executor`` on
+    # ``None``.
+    assert db.loop is None
+    bound = await db.apply_remote_build_enabled()
+    assert bound is False
+
+
+@pytest.mark.asyncio
 async def test_apply_remote_build_enabled_idempotent_when_already_off(tmp_path: Path) -> None:
     """Disk ``enabled=False`` + listener absent → no-op (no advertiser touch)."""
     settings = DashboardSettings(config_dir=tmp_path)
