@@ -32,6 +32,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import esphome_device_builder.controllers.devices.controller as ctrl_mod
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices.controller import StorageJSON
 from esphome_device_builder.helpers.event_bus import Event
@@ -288,6 +289,207 @@ async def test_get_api_key_returns_empty_when_no_encryption(
     result = await controller.get_api_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
+
+
+@pytest.mark.asyncio
+async def test_get_api_key_falls_back_to_esphome_config_subprocess(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    r"""When the in-process loader misses, ``esphome config`` subprocess wins.
+
+    Issue #437: a config that wires encryption via ESPHome's
+    Jinja-templated packages (``api: |\n  # set ns = ... ${ns.cfg}``)
+    leaves the in-process YAML loader with ``api_encrypted=False``
+    because ``yaml_util.load_yaml`` doesn't render Jinja. The
+    subprocess fallback runs the full ESPHome pipeline (Jinja
+    preprocessor + YAML parse + package merge) and emits a
+    fully-resolved YAML on stdout that DOES carry the
+    ``api.encryption.key`` value.
+
+    Stub the subprocess to return that resolved-YAML shape; the
+    controller parses it and returns the key. The fast path
+    (in-process loader) gets ``""`` because the YAML on disk is
+    a plaintext stub without an ``encryption:`` block — exactly
+    the shape the bug surfaces.
+    """
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    # On-disk YAML has no ``encryption:`` — fast path returns "".
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n",
+        encoding="utf-8",
+    )
+
+    # Fake subprocess returning the resolved YAML the way ESPHome's
+    # ``config --show-secrets`` would emit it.
+    resolved_yaml = (
+        b"esphome:\n  name: kitchen\n"
+        b"api:\n  encryption:\n    key: ZGFzaGJvYXJkLWtleS1mcm9tLWVzcGhvbWUtY29uZmln\n"
+    )
+    fake_proc = MagicMock()
+    fake_proc.communicate = AsyncMock(return_value=(resolved_yaml, b""))
+    fake_proc.returncode = 0
+
+    async def _fake_create_subprocess(*_args: Any, **_kwargs: Any) -> Any:
+        return fake_proc
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ctrl_mod, "create_subprocess_exec", _fake_create_subprocess)
+        result = await controller.get_api_key(configuration="kitchen.yaml")
+
+    assert result == {"key": "ZGFzaGJvYXJkLWtleS1mcm9tLWVzcGhvbWUtY29uZmln"}
+
+
+@pytest.mark.asyncio
+async def test_get_api_key_subprocess_returns_empty_on_nonzero_exit(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A subprocess that exits non-zero still returns ``{"key": ""}``.
+
+    ``esphome config`` exits non-zero when validation fails (bad
+    YAML, missing ``!secret``, etc.). The fallback must surface
+    the same "open the editor and check" empty-key sentinel
+    rather than crashing the WS handler — frontend's modal
+    handles the empty key gracefully (suggests opening the
+    editor); a thrown exception would leak a stack trace into
+    the WS error event.
+    """
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n",
+        encoding="utf-8",
+    )
+
+    fake_proc = MagicMock()
+    fake_proc.communicate = AsyncMock(return_value=(b"INVALID CONFIG\n", b""))
+    fake_proc.returncode = 1
+
+    async def _fake_create_subprocess(*_args: Any, **_kwargs: Any) -> Any:
+        return fake_proc
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ctrl_mod, "create_subprocess_exec", _fake_create_subprocess)
+        result = await controller.get_api_key(configuration="kitchen.yaml")
+
+    assert result == {"key": ""}
+
+
+@pytest.mark.asyncio
+async def test_get_api_key_subprocess_returns_empty_on_unparsable_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Subprocess output that doesn't parse as YAML degrades to ``""``.
+
+    ESPHome's ``config`` always emits YAML on stdout when the
+    config validates, but a future ESPHome version that adds
+    progress text or formatting wrappers could break the parse.
+    Pin the graceful-degrade so a subprocess success + unparsable
+    output doesn't leak a YAMLError into the WS handler.
+    """
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n",
+        encoding="utf-8",
+    )
+
+    fake_proc = MagicMock()
+    fake_proc.communicate = AsyncMock(return_value=(b"\x00\x01not yaml: [unterminated", b""))
+    fake_proc.returncode = 0
+
+    async def _fake_create_subprocess(*_args: Any, **_kwargs: Any) -> Any:
+        return fake_proc
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ctrl_mod, "create_subprocess_exec", _fake_create_subprocess)
+        result = await controller.get_api_key(configuration="kitchen.yaml")
+
+    assert result == {"key": ""}
+
+
+@pytest.mark.asyncio
+async def test_get_api_key_subprocess_returns_empty_on_oserror(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A subprocess startup failure (``OSError``) still returns ``""``.
+
+    ``create_subprocess_exec`` raises ``OSError`` when the
+    binary isn't on PATH or the system is out of file
+    descriptors. Either way the fallback should produce the
+    documented empty-key sentinel rather than propagating the
+    OS-level error to the WS layer.
+    """
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n",
+        encoding="utf-8",
+    )
+
+    async def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise OSError("simulated subprocess startup failure")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ctrl_mod, "create_subprocess_exec", _boom)
+        result = await controller.get_api_key(configuration="kitchen.yaml")
+
+    assert result == {"key": ""}
+
+
+@pytest.mark.asyncio
+async def test_get_api_key_skips_subprocess_when_fast_path_finds_key(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The fast path's hit short-circuits — no subprocess overhead.
+
+    The vast majority of configs (key directly in YAML or behind
+    a ``!secret`` reference) hit the in-process loader cleanly.
+    Spawning the subprocess on every click would burn ~1s for no
+    reason; pin that the fast path's success skips the spawn.
+    """
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n  encryption:\n    key: a/c+inline-key==\n",
+        encoding="utf-8",
+    )
+
+    spawn_spy = AsyncMock()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ctrl_mod, "create_subprocess_exec", spawn_spy)
+        result = await controller.get_api_key(configuration="kitchen.yaml")
+
+    assert result == {"key": "a/c+inline-key=="}
+    spawn_spy.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The subprocess fallback is a no-op without ``_esphome_cmd``.
+
+    Pre-``start()`` controllers (and the bypass-init test factory
+    that doesn't pass ``esphome_cmd=``) don't have the binary
+    resolved. Production hits this only during the brief startup
+    window before ``_find_esphome_cmd`` runs, but the same guard
+    keeps the test factory's default path working without
+    requiring every test to set ``esphome_cmd=`` defensively.
+    Empty list is the documented "no esphome found" sentinel from
+    ``_find_esphome_cmd``.
+    """
+    # Note: ``esphome_cmd`` deliberately NOT set on the factory.
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n",
+        encoding="utf-8",
+    )
+
+    spawn_spy = AsyncMock()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(ctrl_mod, "create_subprocess_exec", spawn_spy)
+        result = await controller.get_api_key(configuration="kitchen.yaml")
+
+    assert result == {"key": ""}
+    spawn_spy.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

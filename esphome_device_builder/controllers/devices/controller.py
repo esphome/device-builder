@@ -19,6 +19,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import yaml
 from esphome import const
 from esphome.components.dashboard_import import import_config
 from esphome.helpers import write_file as atomic_write_file
@@ -1729,24 +1730,106 @@ class DevicesController:
 
     @api_command("devices/get_api_key")
     async def get_api_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:
-        """
+        r"""
         Return the resolved Native API encryption key for *configuration*.
 
-        Uses ESPHome's own YAML loader so ``!secret`` references and
-        substitutions resolve the same way they would at compile time —
-        the regex-on-raw-YAML approach a frontend has access to gives up
-        whenever the user pulls the key from ``secrets.yaml`` or hides
-        it behind a ``${api_key}`` substitution.
+        Two-stage resolution:
+
+        1. Fast path — ``yaml_util.load_yaml`` + package merge in-process.
+           Resolves ``!secret`` / ``!include`` / packages the same way
+           the rest of the dashboard does. Covers the common case
+           (key directly in YAML or behind a ``!secret`` reference)
+           with no subprocess overhead.
+
+        2. Slow path — ``esphome --dashboard config <file> --show-secrets``
+           subprocess. Falls back here when the fast path returns ``""``,
+           which happens for configs whose key is constructed by an
+           ESPHome preprocessor feature the dashboard's loader doesn't
+           reproduce. The canonical example is Jinja-templated
+           packages (``api: |\\n  # set ns = ... ${ns.cfg}``) — issue
+           #437. ESPHome's full pipeline runs the Jinja step before
+           YAML parsing, so its ``config`` subcommand emits a
+           fully-resolved YAML on stdout that we parse to pull the
+           key out. Slow (~1s subprocess) but only on click, not per
+           scan, and only when the fast path fails.
 
         ``{"key": "<base64 32-byte>"}`` on success; ``{"key": ""}`` when
-        the device has no ``api:`` block, no ``encryption`` key, or YAML
-        loading fails. Callers treat the empty value as the "open the
-        editor and check" signal.
+        both paths fail (no ``api:`` block, no ``encryption`` key, YAML
+        loading fails, or the subprocess errors out). Callers treat
+        the empty value as the "open the editor and check" signal.
         """
         path = self._db.settings.rel_path(configuration)
         loop = asyncio.get_running_loop()
         config = await loop.run_in_executor(None, load_device_yaml, path)
-        return {"key": get_api_encryption_key(config)}
+        key = get_api_encryption_key(config)
+        if key:
+            return {"key": key}
+        # Fast path missed — subprocess to ESPHome's full
+        # ``config`` pipeline (which runs the Jinja preprocessor
+        # over packages) and parse its resolved-YAML output.
+        key = await self._resolve_api_key_via_esphome_config(configuration)
+        return {"key": key}
+
+    async def _resolve_api_key_via_esphome_config(self, configuration: str) -> str:
+        r"""
+        Subprocess fallback for ``get_api_key``.
+
+        Runs ``esphome --dashboard config <path> --show-secrets``,
+        captures stdout, parses it as YAML, and returns
+        ``api.encryption.key`` if present. ``--show-secrets`` is
+        required: without it, ``esphome config`` wraps each
+        ``key`` value in the ANSI conceal SGR (``\\x1b[8m...\\x1b[28m``)
+        and ``yaml.safe_load`` would treat the wrapped string as the
+        key value. The wire form ESPHome emits when secrets are
+        shown is the literal base64 we want.
+
+        Returns ``""`` on any failure path: subprocess startup
+        failure (``self._esphome_cmd`` empty / unreachable),
+        non-zero exit (config didn't validate), stdout that doesn't
+        parse as YAML, missing api / encryption block. The caller
+        rolls all of these into the documented "open the editor and
+        check" signal — there's no actionable distinction between
+        "config invalid" and "no encryption" at the API surface.
+        """
+        # Defensive ``getattr``: bypass-init controllers used by
+        # tests that don't go through ``start()`` (the
+        # ``make_controller`` factory in
+        # ``tests/controllers/devices/conftest.py``) don't set
+        # ``_esphome_cmd`` unless explicitly told to. Production
+        # always sets it in ``start()`` so the attribute is
+        # guaranteed there.
+        esphome_cmd: list[str] | None = getattr(self, "_esphome_cmd", None)
+        if not esphome_cmd:
+            return ""
+        config_path = str(self._db.settings.rel_path(configuration))
+        cmd = [*esphome_cmd, "--dashboard", "config", config_path, "--show-secrets"]
+        try:
+            proc = await create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout_bytes, _ = await proc.communicate()
+        except OSError as exc:
+            _LOGGER.debug("esphome config subprocess failed for %s: %s", configuration, exc)
+            return ""
+        if proc.returncode != 0:
+            _LOGGER.debug(
+                "esphome config returned %s for %s; key extraction skipped",
+                proc.returncode,
+                configuration,
+            )
+            return ""
+        try:
+            resolved = yaml.safe_load(stdout_bytes.decode("utf-8", errors="replace"))
+        except yaml.YAMLError as exc:
+            _LOGGER.debug(
+                "esphome config output for %s did not parse as YAML: %s",
+                configuration,
+                exc,
+            )
+            return ""
+        return get_api_encryption_key(resolved)
 
     @api_command("devices/add_component")
     async def add_component(
