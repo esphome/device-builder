@@ -73,13 +73,29 @@ esphome_device_builder/
 
 ## Event bus
 
-In-process pub/sub, owned by `DeviceBuilder.bus` (an `EventBus` from `helpers/event_bus`). Controllers fire events on state transitions; WS commands subscribe via `subscribe_events` and stream them to connected clients. Event types are declared in `models/common.py` as `EventType(StrEnum)` members; the bus signature is `fire(event_type, data: Mapping[str, Any] | None)`.
+In-process pub/sub, owned by `DeviceBuilder.bus` (an `EventBus` from `helpers/event_bus`). Controllers fire events on state transitions; WS commands subscribe via `subscribe_events` and stream them to connected clients. Event types are declared in `models/common.py` as `EventType(StrEnum)` members.
 
 ### Typing event payloads
 
-Mirrors Home Assistant core's `EventStateChangedData` / `EventStateReportedData` pattern: the wire shape stays a `dict`, but each event-specific shape is declared as a `TypedDict` next to the controller that fires it so type checkers validate the keys at the construction site.
+`Event` and `EventBus.fire` are generic on the data shape so each event flows through with its TypedDict intact:
 
-Concretely, in `models/remote_build.py`:
+```python
+@dataclass
+class Event[DataT]:
+    event_type: EventType
+    data: DataT
+
+
+class EventBus:
+    def fire[DataT](self, event_type: EventType, data: DataT) -> None: ...
+    def add_listener(
+        self,
+        event_type: EventType,
+        listener: Callable[[Event[Any]], None],
+    ) -> Callable[[], None]: ...
+```
+
+Each event-specific shape is declared as a `TypedDict` next to the controller that fires it. In `models/remote_build.py`:
 
 ```python
 class RemoteBuildPairRequestReceivedData(TypedDict):
@@ -89,19 +105,32 @@ class RemoteBuildPairRequestReceivedData(TypedDict):
     peer_ip: str
 ```
 
-The call site builds the typed dict before firing:
+The fire site uses the TypedDict-call syntax so mypy validates the construction:
 
 ```python
-payload: RemoteBuildPairRequestReceivedData = {
-    "dashboard_id": dashboard_id,
-    "pin_sha256": pin_sha256,
-    "label": label,
-    "peer_ip": peer_ip,
-}
-self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
+self._db.bus.fire(
+    EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED,
+    RemoteBuildPairRequestReceivedData(
+        dashboard_id=dashboard_id,
+        pin_sha256=pin_sha256,
+        label=label,
+        peer_ip=peer_ip,
+    ),
+)
 ```
 
-`EventBus.fire` (and `Event.data`) takes `Mapping[str, Any]` rather than `dict[str, Any]` so a `TypedDict` flows through without a `cast()` — `TypedDict` is structurally compatible with a read-only `Mapping`, and every consumer in the codebase reads via `event.data.get(...)` / `event.data["k"]` rather than mutating. Home Assistant goes one step further with a fully generic `Event[_DataT]` / `EventType[_DataT]` so subscribers also get a typed `event.data`; we don't need that depth, since no subscriber annotates `event.data` as a `TypedDict` today — they all just `.get()` the key they care about.
+The subscriber narrows by typing its callback's `event` parameter:
+
+```python
+def _on_pair_status(event: Event[RemoteBuildPairStatusChangedData]) -> None:
+    status = event.data["status"]  # mypy: Literal['approved'] | Literal['removed']
+
+bus.add_listener(EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED, _on_pair_status)
+```
+
+`add_listener` is *not* generic on `_DataT` — listeners share a bucket type-erased as `Callable[[Event[Any]], None]` and `Any`'s bidirectional compatibility lets a `Callable[[Event[XData]], None]` register cleanly. The alternative — per-event-type overloads keyed on `Literal[EventType.X]` — was rejected: at end-state it would mean ~42 overloads (21 events × `fire`+`add_listener`), past mypy's practical resolution-perf limits. The trade: the type system enforces the *correct* pairing (subscriber typed for the matching event) but doesn't reject the *wrong* pairing (subscriber typed for a different event). Mismatches live in code review.
+
+Mirrors HA core's `Event[_DataT]` / `EventType[_DataT]` pattern. Deliberate divergence: HA bounds `_DataT` to `Mapping[str, Any]` with that as the default so untyped events fall through; we drop the bound entirely. Untyped fire sites pass plain `dict[str, Any]` and mypy infers `DataT` from the call.
 
 `TypedDict` rather than `@dataclass` because:
 
@@ -109,7 +138,9 @@ self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
 - Subscribers that ride the existing `subscribe_events` WS plumbing serialise the payload through `helpers.json.dumps` (orjson), which handles `dict` natively.
 - It mirrors HA's convention so contributors moving between this codebase and HA find the same pattern.
 
-Older event payloads fired with raw dicts predate this convention and get the typed treatment as they're touched. New events should ship with a TypedDict from day one.
+`tests/test_event_payload_contracts.py` pins each TypedDict against its emitter at runtime — for every payload class, a factory invokes the production code path (TypedDict-call constructor or a helper that returns the dict literal as a TypedDict alias) and asserts the resulting dict's keys equal the TypedDict's `__annotations__`. A second test walks `models.*` and asserts every `*Data(TypedDict)` discoverable in the namespace is listed in the factory table — so a future PR adding a TypedDict can't silently skip the contract check.
+
+New events should ship with a TypedDict from day one.
 
 ## Firmware Job Queue
 

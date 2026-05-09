@@ -258,7 +258,8 @@ class UpdateDeviceResponse(DataClassORJSONMixin):
 # ---------------------------------------------------------------------------
 # Event payload shapes (TypedDict so the bus.fire data dict is
 # type-checked at the call site without changing the wire shape).
-# See ``mypy_plan.md`` for the migration scope.
+# See ``docs/ARCHITECTURE.md`` "Event bus → Typing event payloads"
+# for the subscriber-side narrowing pattern.
 # ---------------------------------------------------------------------------
 
 

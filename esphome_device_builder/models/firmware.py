@@ -134,8 +134,8 @@ _RECOVERY_NOTICE = (
 # Event payload shapes (TypedDict so the bus.fire data dict is
 # type-checked at the call site without changing the wire shape;
 # mirrors HA's ``EventStateChangedData`` / ``EventStateReportedData``
-# pattern). See ``mypy_plan.md`` for the migration scope and
-# ``Event[DataT]`` for the subscriber-side narrowing pattern.
+# pattern). See ``docs/ARCHITECTURE.md`` "Event bus → Typing event
+# payloads" for the subscriber-side narrowing pattern.
 # ---------------------------------------------------------------------------
 
 

@@ -123,23 +123,49 @@ in case anything has resurfaced.
   `subscribe_events` once and get pushes. REST is only kept for HA
   backward compat in `api/legacy.py`.
 - **Event payloads use TypedDict, not dataclass.** Mirrors
-  Home Assistant core's `EventStateChangedData` /
-  `EventStateReportedData` pattern. Each event-specific shape
-  gets a `TypedDict` declaration next to the controller that
-  fires it (e.g. `RemoteBuildPairRequestReceivedData` in
-  `models/remote_build.py`). Call sites build
-  `payload: SomeEventData = {...}` then
-  `bus.fire(EventType.X, payload)` — type checkers validate the
-  keys at construction. `EventBus.fire` and `Event.data` use
-  `Mapping[str, Any]` (not `dict[str, Any]`) so TypedDicts pass
-  through without `cast()`; subscribers consume via
-  `event.data.get(...)` since none of them needs the full
-  TypedDict view today. See `docs/ARCHITECTURE.md` "Event bus →
-  Typing event payloads" for the full rationale (why TypedDict
-  vs dataclass; why we use `Mapping` rather than HA's fully
-  generic `Event[_DataT]`). Older payloads fired with raw dicts
-  predate this convention; new events should ship with a
-  TypedDict from day one.
+  Home Assistant core's `Event[_DataT]` /
+  `EventStateChangedData` / `EventStateReportedData` pattern.
+  Each event-specific shape gets a `TypedDict` declaration next
+  to the controller that fires it (e.g.
+  `RemoteBuildPairRequestReceivedData` in `models/remote_build.py`,
+  `JobLifecycleData` / `JobOutputData` / `JobProgressData` in
+  `models/firmware.py`, `DeviceEventData` /
+  `DeviceStateChangedData` / `DeviceReachabilityData` in
+  `models/devices.py`). Fire sites use the TypedDict-call syntax
+  so mypy validates the construction:
+
+  ```python
+  bus.fire(EventType.X, SomeEventData(field=value))
+  ```
+
+  `Event` and `EventBus.fire` are generic on `DataT` so a typed
+  payload flows through without a `cast()` and without a
+  `Mapping[str, Any]` widening. Subscribers narrow at the
+  callback signature:
+
+  ```python
+  def _on_x(event: Event[SomeEventData]) -> None:
+      value = event.data["field"]  # typed
+  bus.add_listener(EventType.X, _on_x)
+  ```
+
+  `add_listener` is intentionally non-generic — listeners share
+  a type-erased `Callable[[Event[Any]], None]` bucket and
+  ``Any`` bridges the variance gap. The trade vs ~42
+  `Literal[EventType.X]`-keyed overloads at end-state: the type
+  system enforces the *correct* pairing (subscriber typed for
+  the matching event) but doesn't reject the *wrong* pairing
+  (subscriber typed for a different event). Mismatches live in
+  code review.
+
+  `tests/test_event_payload_contracts.py` pins each TypedDict
+  against its emitter at runtime + walks `models.*` to assert
+  every `*Data(TypedDict)` is covered, so a new TypedDict can't
+  silently skip the wire-shape contract check.
+
+  See `docs/ARCHITECTURE.md` "Event bus → Typing event payloads"
+  for the full rationale. New events ship with a TypedDict from
+  day one and a row in `_PAYLOAD_FACTORIES`.
 - **Persistent firmware queue.** One job runs at a time; queue +
   output buffers survive restarts. See `controllers/firmware.py`.
 - **Component catalog is generated**, not hand-edited. Source is
