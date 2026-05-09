@@ -2233,9 +2233,9 @@ class DevicesController:
                 await client.send_event(message_id, "reachability_state", snapshot)
             await client.send_result(message_id, {"subscribed": True})
 
-        def _handle_event(event: Event, controls: StreamControls) -> None:
+        def _handle_event(event: Event[DeviceReachabilityData], controls: StreamControls) -> None:
             data = event.data
-            if data.get("device") != device_name:
+            if data["device"] != device_name:
                 # The bus event is broadcast (one listener for every
                 # subscriber); filter inside the closure so each
                 # subscriber only forwards the events for its device.
