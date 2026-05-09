@@ -327,6 +327,10 @@ Same-subnet peers read `remote_build_port` from TXT so a `--remote-build-port` o
 | `ping` | — | `{pong: true}` | Health check |
 | `subscribe_events` | — | Streaming | Subscribe to real-time events |
 
+**`subscribe_events` initial state:**
+
+Right after a client subscribes (and before any live events arrive), the server pushes one `initial_state` event carrying a snapshot of state that's accumulated server-side via background activity (mDNS browser, completed pair flows, etc.) so the frontend can paint the first frame without follow-up reads. Shape: `{devices?: [...], importable?: [...], pairings?: [PairingSummary]}`. Each field is present only when the corresponding controller is up; `pairings` carries both PENDING and APPROVED rows from the offloader-side `_pairings` dict (sync read, no executor hop). Live updates that arrive after the initial state mutate against this seed via the events below.
+
 **`subscribe_events` events:**
 - `device_added`, `device_removed`, `device_updated`, `device_state_changed`
 - `importable_device_added`, `importable_device_removed`
