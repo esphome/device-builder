@@ -37,6 +37,7 @@ from esphome_device_builder.controllers.remote_build_peer_link import (
 )
 from esphome_device_builder.controllers.remote_build_peer_link_client import (
     PeerLinkClientError,
+    RequestPairResult,
     _build_ws_url,
     drive_initiator_round_trip,
     preview_pair,
@@ -334,6 +335,47 @@ async def test_request_pair_closed_window_returns_no_pairing_window(
     assert result.status is IntentResponse.NO_PAIRING_WINDOW
 
 
+@pytest.mark.asyncio
+async def test_request_pair_unknown_intent_response_raises_client_error() -> None:
+    """A wire ``intent_response`` outside the known enum surfaces as PeerLinkClientError.
+
+    Defends against a future receiver protocol bump that adds a
+    new response code the offloader's enum doesn't know about.
+    Custom WS handler completes the Noise XX handshake then
+    sends ``{"intent_response": "weather"}`` — parses as JSON,
+    isn't a valid :class:`IntentResponse` member.
+    """
+    receiver_priv = secrets.token_bytes(32)
+
+    async def _handler(request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        sess = PeerLinkNoiseSession.responder(receiver_priv)
+        sess.read_handshake_message(await ws.receive_bytes())
+        await ws.send_bytes(sess.write_handshake_message(b""))
+        sess.read_handshake_message(await ws.receive_bytes())
+        await ws.send_bytes(sess.encrypt(b'{"intent_response": "weather"}'))
+        await ws.close()
+        return ws
+
+    app = web.Application()
+    app.router.add_get(PEER_LINK_PATH, _handler)
+    server = TestServer(app)
+    await server.start_server()
+    initiator_priv = secrets.token_bytes(32)
+    try:
+        with pytest.raises(PeerLinkClientError, match="unknown intent_response"):
+            await request_pair(
+                hostname="127.0.0.1",
+                port=server.port,
+                identity_priv=initiator_priv,
+                label="green",
+                dashboard_id="abcdef0123456789",
+            )
+    finally:
+        await server.close()
+
+
 # ---------------------------------------------------------------------------
 # RemoteBuildController.request_pair — end-to-end through the WS-command shell
 # ---------------------------------------------------------------------------
@@ -464,3 +506,47 @@ async def test_controller_request_pair_unavailable_on_unreachable_receiver(
             label="my-receiver",
         )
     assert exc.value.code == ErrorCode.UNAVAILABLE
+
+
+@pytest.mark.asyncio
+async def test_controller_request_pair_unexpected_status_raises_internal_error(
+    offloader_controller_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Helper returns a known IntentResponse the controller doesn't expect → INTERNAL_ERROR.
+
+    ``IntentResponse.OK`` is valid wire but only used by
+    ``intent="preview"``; if a future receiver bug routed it
+    back as a pair_request response it would slip past
+    ``_intent_response_to_command_error`` (which only handles
+    ``REJECTED`` / ``NO_PAIRING_WINDOW``) and hit the
+    catch-all branch. Pin that branch with a mock so the
+    contract holds: unexpected-but-valid wire values map to
+    ``INTERNAL_ERROR``, not silently land as a corrupt local
+    StoredPairing row.
+    """
+    fake_pin = "a" * 64
+
+    async def _fake_request_pair(**_: object) -> RequestPairResult:
+        return RequestPairResult(
+            status=IntentResponse.OK,  # not in PENDING/APPROVED accept-set
+            pin_sha256=fake_pin,
+            remote_static_pub=b"\x00" * 32,
+        )
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.peer_link_request_pair",
+        _fake_request_pair,
+    )
+
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await offloader.request_pair(
+            hostname="127.0.0.1",
+            port=6055,
+            pin_sha256=fake_pin,
+            label="my-receiver",
+        )
+    assert exc.value.code == ErrorCode.INTERNAL_ERROR
