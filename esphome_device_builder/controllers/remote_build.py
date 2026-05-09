@@ -78,6 +78,9 @@ from ..models import (
     PairingWindowState,
     PeerStatus,
     PeerSummary,
+    RemoteBuildPairingWindowChangedData,
+    RemoteBuildPairRequestReceivedData,
+    RemoteBuildPairStatusChangedData,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
     RemoteBuildSettings,
@@ -1229,12 +1232,14 @@ class RemoteBuildController:
                 # PENDING: refresh in place. The pin / pubkey may
                 # have changed (offloader rotated), the label may
                 # have changed (user renamed the dashboard before
-                # admin clicked Accept). Keep the row's status =
+                # they clicked Accept). Keep the row's status =
                 # PENDING; the user re-Accepts when ready.
-                peer.pin_sha256 = pin_sha256
-                peer.static_x25519_pub = static_x25519_pub
-                peer.label = label
-                peer.paired_at = now
+                peer.refresh_from_pair_request(
+                    pin_sha256=pin_sha256,
+                    static_x25519_pub=static_x25519_pub,
+                    label=label,
+                    paired_at=now,
+                )
                 return
             settings.peers.append(
                 StoredPeer(
@@ -1251,15 +1256,13 @@ class RemoteBuildController:
         if already_approved:
             return IntentResponse.APPROVED
 
-        self._db.bus.fire(
-            EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED,
-            {
-                "dashboard_id": dashboard_id,
-                "pin_sha256": pin_sha256,
-                "label": label,
-                "peer_ip": peer_ip,
-            },
-        )
+        payload: RemoteBuildPairRequestReceivedData = {
+            "dashboard_id": dashboard_id,
+            "pin_sha256": pin_sha256,
+            "label": label,
+            "peer_ip": peer_ip,
+        }
+        self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
         return IntentResponse.PENDING
 
     async def lookup_peer_for_session(
@@ -1467,18 +1470,20 @@ class RemoteBuildController:
         for shape; both methods are the named-intent boundary
         between controller logic and the bus payload format.
         """
-        self._db.bus.fire(
-            EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED,
-            {"dashboard_id": dashboard_id, "status": status},
-        )
+        payload: RemoteBuildPairStatusChangedData = {
+            "dashboard_id": dashboard_id,
+            "status": status,
+        }
+        self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED, payload)
 
     def _fire_pairing_window_changed(self) -> None:
         """Fire ``REMOTE_BUILD_PAIRING_WINDOW_CHANGED`` with the current state."""
         state = self._pairing_window_state()
-        self._db.bus.fire(
-            EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED,
-            {"open": state.open, "expires_in_seconds": state.expires_in_seconds},
-        )
+        payload: RemoteBuildPairingWindowChangedData = {
+            "open": state.open,
+            "expires_in_seconds": state.expires_in_seconds,
+        }
+        self._db.bus.fire(EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED, payload)
 
     def _prune_stale_pairing_window_clients(self) -> None:
         """Drop client entries whose last-extend timestamp aged out."""

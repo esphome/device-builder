@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
@@ -110,6 +111,36 @@ class PeerStatus(StrEnum):
     APPROVED = "approved"
 
 
+class PeerLinkIntent(StrEnum):
+    """
+    Wire ``intent`` discriminator on the peer-link Noise WS msg1 payload.
+
+    Sent in cleartext on msg1 (Noise XX hasn't established a key
+    yet for that frame's payload) so the receiver can route the
+    session before the handshake completes. The sensitive
+    metadata (``dashboard_id``, ``label``) waits until msg3,
+    which is encrypted under the now-finalized cipher.
+
+    * ``PREVIEW`` — capture the receiver's static pubkey for
+      OOB pin verification. Doesn't change any receiver state.
+    * ``PAIR_REQUEST`` — gated by the pairing window from #106
+      design choice (c). Creates / refreshes a PENDING
+      ``StoredPeer`` row and fires
+      ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED``.
+    * ``PEER_LINK`` — establishes a peer-link session for an
+      already-APPROVED peer. Phase 5+ keeps the WS open for
+      application messages (bundle upload, build, firmware
+      download); part 4 just answers the handshake.
+    * ``PAIR_STATUS`` — informational poll for a previously-
+      submitted pair_request's current state.
+    """
+
+    PREVIEW = "preview"
+    PAIR_REQUEST = "pair_request"
+    PEER_LINK = "peer_link"
+    PAIR_STATUS = "pair_status"
+
+
 class IntentResponse(StrEnum):
     """
     Wire ``intent_response`` value the receiver returns over the peer-link.
@@ -152,6 +183,61 @@ class IntentResponse(StrEnum):
     NO_PAIRING_WINDOW = "no_pairing_window"
 
 
+# ---------------------------------------------------------------------------
+# Event payload shapes (TypedDict so the bus.fire data dict is type-checked at
+# the call site without changing the wire shape; mirrors HA's
+# ``EventStateChangedData`` / ``EventStateReportedData`` pattern).
+# ---------------------------------------------------------------------------
+
+
+class RemoteBuildPairRequestReceivedData(TypedDict):
+    """
+    Payload for ``EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED``.
+
+    Fired by the peer-link Noise WS handler when a fresh
+    ``intent="pair_request"`` arrives during an open pairing
+    window. The receiver Settings UI surfaces the row in the
+    Pairing requests inbox; ``peer_ip`` lets the operator
+    sanity-check the source against expectations before
+    OOB-confirming the pin.
+    """
+
+    dashboard_id: str
+    pin_sha256: str
+    label: str
+    peer_ip: str
+
+
+class RemoteBuildPairStatusChangedData(TypedDict):
+    """
+    Payload for ``EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED``.
+
+    Fired by ``approve_peer`` (``status="approved"``) and by
+    ``remove_peer`` for previously-APPROVED rows
+    (``status="removed"``). Removing a still-PENDING row is
+    rejection-as-cleanup and intentionally does not fire — see
+    ``remove_peer`` docstring.
+    """
+
+    dashboard_id: str
+    status: str  # "approved" | "removed"
+
+
+class RemoteBuildPairingWindowChangedData(TypedDict):
+    """
+    Payload for ``EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED``.
+
+    Fires whenever the in-process pairing window opens, extends,
+    or closes. ``expires_in_seconds`` is ``None`` when ``open`` is
+    ``False``; otherwise it's the remaining lifetime against the
+    latest extend, which the receiver-side frontend renders as a
+    live countdown.
+    """
+
+    open: bool
+    expires_in_seconds: float | None
+
+
 @dataclass
 class StoredPeer(DataClassORJSONMixin):
     """
@@ -187,6 +273,39 @@ class StoredPeer(DataClassORJSONMixin):
     label: str
     paired_at: float
     status: PeerStatus = PeerStatus.PENDING
+
+    def refresh_from_pair_request(
+        self,
+        *,
+        pin_sha256: str,
+        static_x25519_pub: bytes,
+        label: str,
+        paired_at: float,
+    ) -> None:
+        """
+        Update the fields a fresh ``intent="pair_request"`` supplies.
+
+        Owns the contract for "what changes on re-pair": the X25519
+        pubkey + its hash (offloader rotated their identity), the
+        label (renamed dashboard), and the ``paired_at`` timestamp
+        (so the receiver-side inbox sorts the most-recent attempt
+        first). ``dashboard_id`` is the row's primary key and is
+        intentionally left out of the refresh set; ``status`` is
+        also left out because pair_request never changes status by
+        itself (the receiver-side user's Accept / Reject does, via
+        ``approve_peer`` / ``remove_peer``).
+
+        Caller is responsible for the no-demote-when-APPROVED
+        check before invoking this; calling
+        ``refresh_from_pair_request`` on an APPROVED row would
+        silently overwrite the originally-pinned pubkey, which is
+        the wrong outcome (see ``record_pair_request`` for the
+        gating logic).
+        """
+        self.pin_sha256 = pin_sha256
+        self.static_x25519_pub = static_x25519_pub
+        self.label = label
+        self.paired_at = paired_at
 
 
 @dataclass

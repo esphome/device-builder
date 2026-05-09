@@ -47,7 +47,12 @@ from esphome_device_builder.helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from esphome_device_builder.models import IntentResponse, PeerStatus, StoredPeer
+from esphome_device_builder.models import (
+    IntentResponse,
+    PeerLinkIntent,
+    PeerStatus,
+    StoredPeer,
+)
 
 
 def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
@@ -83,7 +88,7 @@ async def test_dispatch_preview_returns_ok(tmp_path: Path) -> None:
 
     response = await _dispatch_intent(
         controller=controller,
-        intent="preview",
+        intent=PeerLinkIntent.PREVIEW,
         dashboard_id="alpha",
         label="alpha",
         pin_sha256="pin",
@@ -107,7 +112,7 @@ async def test_dispatch_pair_request_open_window_creates_pending(tmp_path: Path)
     pin = hashlib.sha256(pubkey).hexdigest()
     response = await _dispatch_intent(
         controller=controller,
-        intent="pair_request",
+        intent=PeerLinkIntent.PAIR_REQUEST,
         dashboard_id="alpha",
         label="alpha",
         pin_sha256=pin,
@@ -134,7 +139,7 @@ async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
 
     response = await _dispatch_intent(
         controller=controller,
-        intent="pair_request",
+        intent=PeerLinkIntent.PAIR_REQUEST,
         dashboard_id="alpha",
         label="alpha",
         pin_sha256="pin",
@@ -171,7 +176,7 @@ async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
 
     response = await _dispatch_intent(
         controller=controller,
-        intent="peer_link",
+        intent=PeerLinkIntent.PEER_LINK,
         dashboard_id="alpha",
         label="",
         pin_sha256=pin,
@@ -202,7 +207,7 @@ async def test_dispatch_pair_status_pending_returns_pending(tmp_path: Path) -> N
 
     response = await _dispatch_intent(
         controller=controller,
-        intent="pair_status",
+        intent=PeerLinkIntent.PAIR_STATUS,
         dashboard_id="alpha",
         label="",
         pin_sha256=pin,
@@ -213,22 +218,12 @@ async def test_dispatch_pair_status_pending_returns_pending(tmp_path: Path) -> N
     assert response is IntentResponse.PENDING
 
 
-@pytest.mark.asyncio
-async def test_dispatch_unknown_intent_returns_rejected(tmp_path: Path) -> None:
-    controller = _make_controller(config_dir=tmp_path)
-    controller._db.bus = MagicMock()
-
-    response = await _dispatch_intent(
-        controller=controller,
-        intent="evil_intent",
-        dashboard_id="alpha",
-        label="",
-        pin_sha256="pin",
-        static_x25519_pub=b"\x00" * 32,
-        peer_ip="192.168.1.10",
-    )
-
-    assert response is IntentResponse.REJECTED
+# NOTE: a "test_dispatch_unknown_intent_returns_rejected" used to live here.
+# After the ``intent: PeerLinkIntent`` typing, an unknown wire value can't reach
+# ``_dispatch_intent`` — it's filtered out by ``_parse_intent`` returning None,
+# and the unknown-intent wire behaviour is verified end-to-end by
+# ``test_e2e_unknown_intent_completes_handshake_then_rejects`` +
+# ``test_e2e_garbage_msg1_payload_handled_gracefully`` below.
 
 
 # ---------------------------------------------------------------------------
