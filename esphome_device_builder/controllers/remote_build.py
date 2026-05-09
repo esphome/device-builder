@@ -65,6 +65,7 @@ from dataclasses import dataclass as _dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from esphome.const import __version__ as esphome_version
+from yarl import URL
 from zeroconf import IPVersion, ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
@@ -231,6 +232,22 @@ def _validate_hostname(raw: object) -> str:
     ``list_pool``) with a megabyte-string masquerading as a
     hostname.
 
+    Defers the URL-validity check to :class:`yarl.URL.build` so
+    the WS-command validator and the offloader's
+    ``_build_ws_url`` (in
+    :mod:`controllers.remote_build_peer_link_client`) share a
+    single source of truth on what constitutes a host. yarl
+    rejects ``/``, ``?``, ``#``, ``@``, embedded ``:port``, and
+    other URL-injection shapes that would otherwise let a
+    pathological hostname smuggle path / query / fragment /
+    userinfo into the rendered URL. Without this layered check
+    the offloader's ``preview_pair`` would have to catch the
+    ``ValueError`` from ``URL.build`` at request time and map
+    it to ``UNAVAILABLE``; surfacing the same shape as
+    ``INVALID_ARGS`` here means the frontend gets a "fix your
+    input" diagnostic rather than a "transient remote
+    failure" toast.
+
     Lowercase normalisation matches the duplicate-check
     semantics; hostnames are case-insensitive per RFC 1035 §2.3.3,
     so ``Desktop.local`` and ``desktop.local`` should be the same
@@ -252,6 +269,16 @@ def _validate_hostname(raw: object) -> str:
     if len(trimmed) > _HOSTNAME_MAX_CHARS:
         msg = f"manual host: 'hostname' must be at most {_HOSTNAME_MAX_CHARS} characters"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    # The ``port=80, path="/"`` are sentinels for the build call
+    # — only the host arg is being validated. yarl's host parser
+    # is the same one ``_build_ws_url`` will use later, so any
+    # input that passes here is guaranteed to round-trip
+    # through the URL builder without raising.
+    try:
+        URL.build(scheme="ws", host=trimmed, port=80, path="/")
+    except ValueError as exc:
+        msg = f"manual host: 'hostname' is not a valid host: {exc}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
     return trimmed
 
 

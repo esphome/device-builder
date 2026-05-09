@@ -240,13 +240,38 @@ def test_build_ws_url_brackets_ipv6_literal() -> None:
 
 
 def test_build_ws_url_rejects_pathological_host() -> None:
-    """Yarl raises on path-injection attempts in the host position.
+    """Yarl raises ``ValueError`` on path-injection attempts in the host position.
 
-    ``_validate_hostname`` is the primary gate at the WS-command
-    boundary; yarl gives us a second line of defense at no extra
-    cost — a slash in the host raises ``ValueError`` rather than
-    silently producing a URL whose path no longer points at
-    ``/remote-build/peer-link``.
+    The error message text is yarl's own and not part of our
+    contract (could change between yarl versions); just assert
+    the type. ``drive_initiator_round_trip`` catches this
+    ``ValueError`` and maps it to ``PeerLinkClientError`` →
+    ``UNAVAILABLE`` so a frontend that forwarded an unvalidated
+    host gets a "couldn't reach receiver" toast rather than an
+    internal-error stack trace; that path is covered by
+    ``test_drive_initiator_round_trip_maps_pathological_host_to_client_error``.
     """
-    with pytest.raises(ValueError, match="cannot contain"):
+    with pytest.raises(ValueError):
         _build_ws_url("evil/path", 6055)
+
+
+@pytest.mark.asyncio
+async def test_drive_initiator_round_trip_maps_pathological_host_to_client_error() -> None:
+    """A pathological host typed in the hostname field maps to PeerLinkClientError.
+
+    yarl raises ``ValueError`` from ``_build_ws_url`` before
+    any TCP connect; the driver catches it alongside the
+    transport-failure tuple so the WS-command layer maps to
+    ``UNAVAILABLE`` (transient, retry) instead of letting the
+    raw ``ValueError`` escape as ``INTERNAL_ERROR``. Pin the
+    contract: a frontend bug that forwards ``host:8080`` to
+    ``hostname`` shouldn't crash the server.
+    """
+    initiator_priv = secrets.token_bytes(32)
+    with pytest.raises(PeerLinkClientError, match="failed"):
+        await drive_initiator_round_trip(
+            hostname="host:8080",  # embedded port — yarl rejects
+            port=6055,
+            identity_priv=initiator_priv,
+            intent=PeerLinkIntent.PREVIEW,
+        )

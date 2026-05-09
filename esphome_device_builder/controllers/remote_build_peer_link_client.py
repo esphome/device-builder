@@ -113,11 +113,18 @@ def _build_ws_url(hostname: str, port: int) -> URL:
       ``ws://[::1]:6055/...``); the f-string version would have
       produced an unparsable URL.
     * Pathological characters in the hostname (slash, query
-      terminators, fragment markers) raise ``ValueError`` loudly
-      instead of getting silently percent-encoded into a
-      non-resolvable form. ``_validate_hostname`` already
-      catches these at the WS-command boundary, but yarl
-      gives us a second line of defense at no extra code.
+      terminators, fragment markers, embedded ``:port``) raise
+      ``ValueError`` loudly instead of getting silently
+      percent-encoded into a non-resolvable form. yarl is the
+      *primary* defense for these characters today —
+      ``_validate_hostname`` checks length and strips
+      whitespace but doesn't reject URL-special characters yet.
+      A follow-up tightens the WS-command validator to fail
+      INVALID_ARGS up front; until then,
+      :func:`drive_initiator_round_trip` catches the
+      ``ValueError`` here and maps it to
+      :class:`PeerLinkClientError` (→ UNAVAILABLE) so the
+      surface contract holds.
     * Path is given to yarl as a constant; encoding stays
       intact across versions.
 
@@ -173,11 +180,24 @@ async def drive_initiator_round_trip(
     its own accept-set).
     """
     sess = PeerLinkNoiseSession.initiator(identity_priv)
-    url = _build_ws_url(hostname, port)
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     label = f"peer-link {intent.value} to {hostname}:{port}"
 
+    # ``_build_ws_url`` is inside the try block (rather than a
+    # bare call before it) because :meth:`yarl.URL.build` raises
+    # ``ValueError`` for path-injection-shaped hosts (slash, ``?``,
+    # ``#``, embedded ``:port``). ``_validate_hostname`` doesn't
+    # reject those today — the WS-command boundary's input check
+    # is too permissive — so a frontend that forwards
+    # ``host:8080`` to ``hostname`` would otherwise see the
+    # ``ValueError`` escape this function and surface as
+    # ``INTERNAL_ERROR`` instead of the documented ``UNAVAILABLE``
+    # mapping. Wrap as a transport-style failure so the contract
+    # holds regardless of whether the upstream validator
+    # tightens. Tightening ``_validate_hostname`` to reject these
+    # characters is queued as a follow-up.
     try:
+        url = _build_ws_url(hostname, port)
         async with (
             aiohttp.ClientSession(timeout=timeout) as http,
             http.ws_connect(url) as ws,
@@ -187,7 +207,7 @@ async def drive_initiator_round_trip(
             sess.read_handshake_message(await ws.receive_bytes())
             await ws.send_bytes(sess.write_handshake_message(msg3_payload))
             response_ct = await ws.receive_bytes()
-    except (TimeoutError, aiohttp.ClientError, OSError) as exc:
+    except (TimeoutError, aiohttp.ClientError, OSError, ValueError) as exc:
         msg = f"{label} failed: {exc}"
         _LOGGER.debug(msg, exc_info=True)
         raise PeerLinkClientError(msg) from exc

@@ -535,6 +535,48 @@ def test_validate_hostname_rejects_oversize() -> None:
     assert "255 characters" in str(exc.value)
 
 
+@pytest.mark.parametrize(
+    "bad_host",
+    [
+        "evil/path",  # path injection
+        "host?q=1",  # query injection
+        "host#frag",  # fragment injection
+        "user@host",  # userinfo injection
+        "host:8080",  # embedded port (frontend mistake — port goes in its own field)
+    ],
+)
+def test_validate_hostname_rejects_url_injection_shapes(bad_host: str) -> None:
+    """Pathological characters can't smuggle path / query / userinfo into the URL.
+
+    Defers to ``yarl.URL.build`` for the URL-correctness check
+    so the validator and the offloader's ``_build_ws_url``
+    share one source of truth on what a host is. Without this
+    gate, a frontend that forwarded ``host:8080`` to the
+    hostname field would have surfaced as ``UNAVAILABLE`` from
+    ``preview_pair`` (or worse, ``INTERNAL_ERROR`` if the
+    ``ValueError`` escaped error mapping); now it surfaces as
+    ``INVALID_ARGS`` at write time so the user gets a "fix
+    your input" diagnostic.
+    """
+    with pytest.raises(CommandError) as exc:
+        _validate_hostname(bad_host)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_validate_hostname_accepts_ipv6_literal() -> None:
+    """Bare IPv6 literals (no brackets) round-trip through the validator.
+
+    yarl accepts ``::1`` / ``fe80::1`` as host values and
+    auto-brackets them at render time, so the validator doesn't
+    need to reject the colon-laden form even though a hostname
+    with a stray colon (``host:8080``) is rejected: yarl knows
+    the difference because ``::1`` parses as a valid IPv6 and
+    ``host:8080`` doesn't.
+    """
+    assert _validate_hostname("::1") == "::1"
+    assert _validate_hostname("fe80::1") == "fe80::1"
+
+
 def test_validate_port_accepts_typical() -> None:
     assert _validate_port(6052) == 6052
 
