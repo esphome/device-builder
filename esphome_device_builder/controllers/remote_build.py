@@ -80,7 +80,7 @@ from ..helpers.dashboard_identity import (
     get_or_create_identity,
     rotate_certificate,
 )
-from ..helpers.event_bus import Event, StreamControls, stream_events
+from ..helpers.event_bus import Event
 from ..helpers.peer_link_identity import get_or_create_peer_link_identity
 from ..models import (
     ErrorCode,
@@ -752,11 +752,12 @@ class RemoteBuildController:
         #
         # No cold-start spawn: PENDING is in-memory only, so a
         # controller restart starts with an empty dict and there's
-        # nothing to rebuild from disk. ``subscribe_pairings`` is a
-        # thin :func:`stream_events` drain that picks up the bus
-        # event a still-running listener fires on flip; bus
-        # events fire regardless of whether anyone is currently
-        # subscribed.
+        # nothing to rebuild from disk. The bus event the
+        # listener fires on flip
+        # (:attr:`EventType.OFFLOADER_PAIR_STATUS_CHANGED`) is
+        # picked up by any client subscribed to the global
+        # ``subscribe_events`` stream — no separate
+        # ``subscribe_pairings`` channel needed.
         #
         # Keyed on ``(receiver_hostname, receiver_port)`` to match
         # :func:`_remove_pairing_by_address` and the
@@ -1354,7 +1355,7 @@ class RemoteBuildController:
         Idempotent: returns ``{"removed": False}`` when no row matches
         rather than raising — the frontend's "Unpair" button should
         always succeed visually even when the row was already gone
-        (race with a concurrent ``subscribe_pairings`` flip-to-removed).
+        (race with a concurrent listener-driven flip-to-removed).
 
         Receiver-side state is *not* notified. The receiver's
         :class:`StoredPeer` row stays until the receiver's admin
@@ -1385,6 +1386,11 @@ class RemoteBuildController:
         # happens on the next loop iteration as the cancelled
         # task unwinds. Idempotent on absent keys (the typical
         # APPROVED-only case where no listener was ever spawned).
+        # If the listener is already past the cancel-checkpoint
+        # and inside ``_apply_pair_status_result`` for an APPROVED
+        # response, its ``self._pending_pairings.pop(key, None)``
+        # below returns None (we just popped) and the listener
+        # exits terminal without persisting — no row resurrection.
         self._cancel_pair_status_listener(clean_host, clean_port)
 
         # APPROVED entry (persisted): drop from disk if present.
@@ -1395,7 +1401,15 @@ class RemoteBuildController:
                 return _remove_pairing_by_address(settings, hostname=clean_host, port=clean_port)
 
         persisted_dropped = await loop.run_in_executor(None, _persist)
-        return {"removed": pending_dropped or persisted_dropped}
+        removed = pending_dropped or persisted_dropped
+        if removed:
+            # Fire the local bus event so other clients on the
+            # global ``subscribe_events`` stream see the removal
+            # without polling :meth:`list_pairings`. Mirrors the
+            # receiver-side ``remove_peer`` firing the same shape
+            # on its bus.
+            self._fire_offloader_pair_status_changed(clean_host, clean_port, "removed")
+        return {"removed": removed}
 
     @api_command("remote_build/list_pairings")
     async def list_pairings(self, **kwargs: Any) -> list[PairingSummary]:
@@ -1404,9 +1418,10 @@ class RemoteBuildController:
         Pure read, no wire calls to receivers. Merges in-memory
         PENDING entries with persisted APPROVED rows from the
         offloader settings file. Frontend uses this for the
-        initial render of the Send-builds peer list, then
-        subscribes to ``OFFLOADER_PAIR_STATUS_CHANGED`` events
-        via :meth:`subscribe_pairings` for live updates.
+        initial render of the Send-builds peer list; live updates
+        flow through the existing global ``subscribe_events``
+        stream as ``OFFLOADER_PAIR_STATUS_CHANGED`` events fired
+        by the per-row pair-status listener task.
         """
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
@@ -1417,44 +1432,6 @@ class RemoteBuildController:
         return [
             _pairing_summary(p, status=PeerStatus.PENDING) for p in self._pending_pairings.values()
         ] + [_pairing_summary(p, status=PeerStatus.APPROVED) for p in settings.pairings]
-
-    @api_command("remote_build/subscribe_pairings")
-    async def subscribe_pairings(
-        self, *, client: Any = None, message_id: str = "", **kwargs: Any
-    ) -> None:
-        """Subscribe to live ``OFFLOADER_PAIR_STATUS_CHANGED`` events.
-
-        Thin :func:`stream_events` drain — parks until the WS
-        closes, then unsubscribes. The pair-status listener tasks
-        that fire the event are spawned at row creation in
-        :meth:`request_pair` and cancelled in :meth:`unpair`;
-        they fire on the bus whether or not anyone is currently
-        subscribed, so this command stays a pure consumer.
-
-        Frontend pattern: call :meth:`list_pairings` for the initial
-        paint, then ``subscribe_pairings`` for live updates.
-        """
-        if client is None:
-            return
-
-        async def _send_initial(_controls: StreamControls) -> None:
-            # Confirm subscription so the frontend can mark the WS
-            # as live before the first event arrives. No initial
-            # pool snapshot here — list_pairings is the dedicated
-            # snapshot read and double-shipping would just race.
-            await client.send_result(message_id, {"subscribed": True})
-
-        def _handle_event(event: Event[Any], controls: StreamControls) -> None:
-            controls.push_or_terminate(event.event_type.value, dict(event.data))
-
-        await stream_events(
-            client=client,
-            message_id=message_id,
-            bus=self._db.bus,
-            event_types=[EventType.OFFLOADER_PAIR_STATUS_CHANGED],
-            handle_event=_handle_event,
-            send_initial=_send_initial,
-        )
 
     # ------------------------------------------------------------------
     # Pair-status listeners (phase 4a-o part 4) — one task per PENDING
@@ -1589,10 +1566,21 @@ class RemoteBuildController:
                 self._pending_pairings.pop(key, None)
                 self._fire_offloader_pair_status_changed(host, port, "removed")
                 return True
-            # Promote pending → persistent. Pop the in-memory entry
-            # first so the listener's ``finally`` cleanup doesn't
-            # race with the transaction's append.
-            promoted = self._pending_pairings.pop(key, pairing)
+            # Promote pending → persistent. Pop the in-memory
+            # entry first so the listener's ``finally`` cleanup
+            # doesn't race with the transaction's append. If the
+            # pop returns ``None`` the user just ran ``unpair``
+            # between our ``await await_pair_status(...)`` and
+            # this branch; in that case do NOT persist — the user
+            # explicitly removed the row, and writing it back to
+            # disk would resurrect state the user just deleted.
+            # ``unpair`` itself fires ``OFFLOADER_PAIR_STATUS_CHANGED``
+            # so any other subscribed client (other tabs) sees
+            # the removal; we exit terminal silently here, no
+            # second event needed.
+            promoted = self._pending_pairings.pop(key, None)
+            if promoted is None:
+                return True
             await loop.run_in_executor(None, self._persist_approved_pairing, promoted)
             self._fire_offloader_pair_status_changed(host, port, "approved")
             return True

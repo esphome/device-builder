@@ -130,14 +130,14 @@ class EventType(StrEnum):
     # per-row pair-status listener task
     # (``RemoteBuildController._fire_offloader_pair_status_changed``,
     # called from ``_apply_pair_status_result`` once an
-    # ``intent="pair_status"`` round-trip resolves). The
-    # ``subscribe_pairings`` WS command is a pure consumer of
-    # this event — it streams whatever the listener fires to the
-    # connected client, never produces the event itself.
-    # Receiver-side keys aren't carried because the offloader's
-    # :class:`StoredPairing` never stores the receiver's
-    # ``dashboard_id`` — the receiver coordinates the offloader
-    # knows are the ``(hostname, port)`` it dialled.
+    # ``intent="pair_status"`` round-trip resolves), and also by
+    # ``RemoteBuildController.unpair`` when the user removes a
+    # row. Delivered to clients via the existing global
+    # ``subscribe_events`` stream — no separate subscription
+    # channel. Receiver-side keys aren't carried because the
+    # offloader's :class:`StoredPairing` never stores the
+    # receiver's ``dashboard_id`` — the receiver coordinates the
+    # offloader knows are the ``(hostname, port)`` it dialled.
     OFFLOADER_PAIR_STATUS_CHANGED = "offloader_pair_status_changed"
 
     # Pairing window opened, extended, or closed. Payload:
