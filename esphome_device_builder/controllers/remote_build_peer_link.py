@@ -283,9 +283,9 @@ async def _dispatch_intent(
     # an empty / missing / malformed value would create or look up
     # nonsense rows, so reject before any controller call. The
     # alphabet + length contract is the same one
-    # ``helpers.remote_build_auth._validate_dashboard_id`` uses for
-    # the WS-command path; both consumers import the constants
-    # from ``helpers.dashboard_identity`` so they can't drift.
+    # ``RemoteBuildController._validate_dashboard_id`` uses for the
+    # WS-command path; both consumers import the constants from
+    # ``helpers.dashboard_identity`` so they can't drift.
     if (
         not inp.dashboard_id
         or len(inp.dashboard_id) > DASHBOARD_ID_MAX_CHARS

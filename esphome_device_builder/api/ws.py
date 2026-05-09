@@ -259,8 +259,16 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         # Non-browser clients (HA integration, CLI tools) can authenticate
         # via Authorization header instead of the in-band protocol.
         bearer = extract_bearer_token(request.headers.get("Authorization", ""))
-        if bearer:
-            session = await device_builder.auth.session_store.validate(bearer)
+        # ``device_builder.auth`` is typed ``AuthController | None``
+        # for the pre-``start()`` window where the controller hasn't
+        # been wired yet. By the time the WS handler runs ``start()``
+        # has populated it, but ``assert`` is stripped under
+        # ``python -O`` (see ``DeviceBuilder._install_default_executor``
+        # for the rationale we follow elsewhere) — guard explicitly
+        # and bind a local for narrowing instead.
+        auth = device_builder.auth
+        if bearer and auth is not None:
+            session = await auth.session_store.validate(bearer)
             if session is not None:
                 pre_authenticated = True
                 token = session.token

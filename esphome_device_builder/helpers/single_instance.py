@@ -227,7 +227,7 @@ def ensure_single_execution(config_dir: Path) -> Generator[SingleInstanceLock]:
     # device node, etc. — that ``O_NOFOLLOW`` doesn't bar but
     # ``open()`` happily follows.
     try:
-        lock_file_ctx: TextIOWrapper | None = open(  # noqa: SIM115 — closed in finally
+        lock_file_ctx = open(  # noqa: SIM115 — closed in finally
             lock_file_path, "a+", encoding="utf-8", opener=_open_lock_file
         )
     except OSError as exc:

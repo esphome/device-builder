@@ -35,7 +35,6 @@ from ..models import (
     ErrorCode,
     Label,
     RemoteBuildSettings,
-    StoredToken,
     UserPreferences,
 )
 
@@ -574,58 +573,24 @@ def save_preferences(config_dir: Path, prefs: UserPreferences) -> None:
         data[_PREFS_KEY] = prefs.to_dict()
 
 
-def _decode_tokens(raw: Any) -> list[StoredToken]:
-    """
-    Parse the on-disk ``_remote_build.tokens`` list, dropping malformed rows.
-
-    Mirrors :func:`_decode_labels`: one bad entry shouldn't blank
-    every other token from the receiver's view, since the operator
-    would lose access to all paired peers until disk repair. Each
-    row is validated independently; a row that fails to round-trip
-    through :class:`StoredToken` is skipped with a debug log.
-
-    The skip log only carries the non-sensitive ``token_id`` (the
-    public lookup key, never a secret), not the full entry dict.
-    A hand-edited sidecar could carry credential-adjacent fields
-    (e.g. an operator pasted the cleartext secret into the wrong
-    field by mistake), and ``%r``-dumping the whole row would
-    surface that material in logs / log shippers.
-    """
-    if not isinstance(raw, list):
-        return []
-    out: list[StoredToken] = []
-    for entry in raw:
-        if not isinstance(entry, dict):
-            continue
-        try:
-            out.append(StoredToken.from_dict(entry))
-        except Exception as err:
-            safe_id = entry.get("token_id")
-            safe_id_repr = (
-                safe_id if isinstance(safe_id, str) and len(safe_id) <= 64 else "<unknown>"
-            )
-            _LOGGER.debug("Skipping malformed token entry (token_id=%s): %s", safe_id_repr, err)
-    return out
-
-
 def _settings_from_raw(raw: Any) -> RemoteBuildSettings:
     """
-    Decode a ``_remote_build`` blob with row-level token tolerance.
+    Decode a ``_remote_build`` blob, falling back to defaults on shape mismatch.
 
-    The whole-blob fallback is preserved for corrupt
-    ``manual_hosts`` / ``enabled`` (those fields are atomic and a
-    schema break should reset to defaults loudly), but tokens
-    decode row-by-row so one bad token row doesn't disconnect
-    every paired peer.
+    A wholly malformed blob (corrupt ``manual_hosts`` /
+    ``enabled``) resets to defaults loudly so a schema break is
+    visible at startup rather than silently producing wrong
+    state. Legacy ``tokens`` entries on older
+    ``.device-builder.json`` files (deleted in phase 4a-r2) are
+    silently dropped — mashumaro's ``DataClassORJSONMixin``
+    ignores unknown keys by default.
     """
     if not isinstance(raw, dict):
         return RemoteBuildSettings()
-    # Pre-clean the tokens list so mashumaro's all-or-nothing
-    # ``from_dict`` doesn't refuse the whole blob over one bad row.
-    cleaned: dict[str, Any] = {
-        **raw,
-        "tokens": [t.to_dict() for t in _decode_tokens(raw.get("tokens"))],
-    }
+    # Drop the legacy ``tokens`` key explicitly so a corrupt
+    # token row in an older sidecar can't crash the whole
+    # ``from_dict`` decode of an otherwise-valid blob.
+    cleaned = {k: v for k, v in raw.items() if k != "tokens"}
     try:
         return RemoteBuildSettings.from_dict(cleaned)
     except Exception:
@@ -637,10 +602,9 @@ def load_remote_build_settings(config_dir: Path) -> RemoteBuildSettings:
     Load the receiver-side remote-build settings.
 
     Returns defaults (``enabled=False``) when the metadata file is
-    missing or the ``_remote_build`` key isn't present. Token rows
-    that fail to round-trip are dropped individually (see
-    :func:`_decode_tokens`); a wholly malformed blob falls back to
-    defaults rather than crashing dashboard startup.
+    missing or the ``_remote_build`` key isn't present. A wholly
+    malformed blob falls back to defaults rather than crashing
+    dashboard startup.
     """
     return _settings_from_raw(_load_metadata(config_dir).get(_REMOTE_BUILD_KEY, {}))
 

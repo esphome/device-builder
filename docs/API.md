@@ -265,42 +265,31 @@ Renaming or recoloring a label leaves device assignments untouched — devices r
 
 > Controller: [`RemoteBuildController`](../esphome_device_builder/controllers/remote_build.py)
 >
-> Models: [`RemoteBuildSettingsView`](../esphome_device_builder/models/remote_build.py), [`RemoteBuildPeer`](../esphome_device_builder/models/remote_build.py), [`ManualHost`](../esphome_device_builder/models/remote_build.py), [`TokenSummary`](../esphome_device_builder/models/remote_build.py), [`IdentityView`](../esphome_device_builder/models/remote_build.py)
+> Models: [`RemoteBuildSettingsView`](../esphome_device_builder/models/remote_build.py), [`RemoteBuildPeer`](../esphome_device_builder/models/remote_build.py), [`ManualHost`](../esphome_device_builder/models/remote_build.py), [`PeerSummary`](../esphome_device_builder/models/remote_build.py), [`IdentityView`](../esphome_device_builder/models/remote_build.py)
 
-Receiver-side surface for the remote-build offload feature (issue #106). Discovers peer dashboards via mDNS (`_esphomebuilder._tcp.local.`), lets the user add manual peers for cross-subnet LANs, and issues bearer tokens that paired offloaders present to the receiver's HTTPS listener (the listener itself lands in phase 3b2). Settings persist in `.device-builder.json` under `_remote_build`.
+Receiver-side surface for the remote-build offload feature (issue #106). Discovers peer dashboards via mDNS (`_esphomebuilder._tcp.local.`), lets the user add manual peers for cross-subnet LANs, and pairs with offloaders over the peer-link Noise WS (`/remote-build/peer-link`, default port 6055). Settings persist in `.device-builder.json` under `_remote_build`.
+
+The pre-pivot HTTPS+bearer auth surface (phases 3b1-3c) was wound down across phase 4a-r1 (listener body swap to Noise WS) and phase 4a-r2 (helper deletion); only the WS commands below ship today.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
 | `remote_build/list_hosts` | — | `[RemoteBuildPeer]` | Discovered (`source=mdns`) and manually-added (`source=manual`) peer dashboards merged into one list. |
-| `remote_build/get_settings` | — | `RemoteBuildSettingsView` | Read the receiver-side settings (enabled, manual_hosts, tokens). |
+| `remote_build/get_settings` | — | `RemoteBuildSettingsView` | Read the receiver-side settings (`enabled`, `manual_hosts`, `peers`). |
 | `remote_build/set_settings` | `{enabled}` | `RemoteBuildSettingsView` | Persist the master switch. Strict-bool; rejects truthy strings. |
 | `remote_build/add_manual_host` | `{hostname, port}` | `RemoteBuildSettingsView` | Add a manual peer for cross-subnet / non-mDNS LANs. Hostname normalised to lowercase. Duplicate `(hostname, port)` raises `already_exists`. |
 | `remote_build/remove_manual_host` | `{hostname, port}` | `RemoteBuildSettingsView` | Remove a manual peer. Unknown pair raises `not_found`. |
-| `remote_build/list_tokens` | — | `[TokenSummary]` | Issued bearer tokens, projected to omit the secret hash. |
-| `remote_build/add_token` | `{label, token_id, secret_sha256}` | `TokenSummary` | Register a client-generated bearer. **The frontend generates `token_id` + cleartext secret locally** and submits only `SHA-256(secret)`; the cleartext bearer never crosses the wire to the backend. Label 1-128 chars; `token_id` is base64url, **exactly 11 chars** (the textual form of 8 random bytes from `crypto.getRandomValues(new Uint8Array(8))`); `secret_sha256` is 64 lowercase hex chars. Duplicate labels allowed; duplicate `token_id` rejected with `already_exists`. |
-| `remote_build/remove_token` | `{token_id}` | `RemoteBuildSettingsView` | Revoke a token. Unknown / blank `token_id` raises `not_found` / `invalid_args` respectively. |
-| `remote_build/get_identity` | — | `IdentityView` | Read the receiver's stable identity: `{dashboard_id, pin_sha256, server_version, esphome_version, listener_bound}`. The cert + key PEMs are intentionally NOT included; only the SPKI fingerprint (`pin_sha256`, lowercase hex) is safe to ship. `listener_bound` reports whether the `/remote-build/v1/*` HTTPS site is currently serving traffic. Idempotent (no rotation triggered). Lazy-creates the cert + key pair on first call if missing. |
-| `remote_build/rotate_identity` | — | `IdentityView` | Mint a fresh cert + key pair, replacing whatever's on disk. Forces every paired offloader to re-pair: the new SPKI produces a new `pin_sha256`. `dashboard_id` is preserved across rotations (stable identity; only the cert changes). If remote-build is currently bound, the live listener is torn down (mDNS TXT drops both `pin_sha256` and `remote_build_port` for the duration) and rebuilt against the new cert; `listener_bound` reflects the rebuild outcome (`false` means the rebuild fail-softed and TXT stays cleared until the operator restarts the dashboard or fixes the underlying error). When the listener wasn't bound to begin with, rotation only touches disk — there's no listener for peers to connect to, so mDNS isn't updated either. Fires a `remote_build_identity_rotated` event on the bus carrying `{dashboard_id, pin_sha256}`. **Concurrent calls are rejected with `already_exists`** — back-to-back rotation is almost always an accidental double-click; the frontend is expected to confirm before each call. |
+| `remote_build/list_peers` | — | `[PeerSummary]` | Receiver-side list of paired (or pending) offloaders, projected to drop the raw X25519 pubkey bytes. |
+| `remote_build/approve_peer` | `{dashboard_id}` | `RemoteBuildSettingsView` | Promote a `PENDING` row to `APPROVED`. Fires `remote_build_pair_status_changed`. |
+| `remote_build/remove_peer` | `{dashboard_id}` | `RemoteBuildSettingsView` | Drop a peer row. Fires `remote_build_pair_status_changed` when the row was previously approved. |
+| `remote_build/set_pairing_window` | `{open}` | — | Open / close the pairing window for the calling WS client. The window narrows when `intent="pair_request"` Noise frames are even accepted; refcounted across clients with auto-close timeout. Fires `remote_build_pairing_window_changed` on transitions. |
+| `remote_build/get_identity` | — | `IdentityView` | Read the receiver's stable identity: `{dashboard_id, pin_sha256, server_version, esphome_version, listener_bound}`. The cert + key PEMs are intentionally NOT included; `pin_sha256` is the cert SPKI fingerprint (lowercase hex SHA-256) — a vestige of the pre-pivot bearer flow that the WS surface still returns until phase 4b+ swaps in the peer-link X25519 pubkey hash advertised in mDNS TXT. `listener_bound` reports whether the peer-link Noise WS listener is currently serving traffic. Idempotent (no rotation triggered). |
+| `remote_build/rotate_identity` | — | `IdentityView` | Mint a fresh dashboard cert + key pair, replacing whatever's on disk. **Note: this rotates the TLS cert from phase 3a (still used for `dashboard_id` provenance) but is *not* the peer-link rotation; the listener is torn down + rebuilt as a side effect, which reloads the X25519 peer-link identity from disk.** Phase 4b+ replaces this WS surface with peer-link identity rotation. |
 
-**Bearer wire format**: `{token_id}.{secret}` where `token_id` is the lookup key (the textual form of 8 random bytes after base64url encoding — exactly 11 chars, validated strictly by the backend) and `secret` is the verification value (32 random bytes after base64url encoding — 43 chars). The auth middleware splits on `.`, looks up by `token_id`, and `hmac.compare_digest`s `SHA-256(secret)` against the stored hash.
+#### Peer-link Noise WS receiver site
 
-**Cleartext bearer is generated client-side** by the frontend and never crosses the wire to the backend; only the SHA-256 of the secret half is sent in `add_token` and persisted. This closes the leak that would otherwise occur on plain-HTTP standalone deployments where the main port (default `6052`) carries the WS API in cleartext.
+A separate aiohttp `web.Application` binds on the dashboard's `--remote-build-port` (default `6055`) and serves `/remote-build/peer-link` — a `Noise_XX_25519_ChaChaPoly_SHA256` WebSocket endpoint. Default-off; binds only when `RemoteBuildSettings.enabled` is true. **Toggling `enabled` requires a dashboard restart for the listener to follow** — `set_settings` persists the new value but doesn't live-bind / unbind.
 
-**`bound_dashboard_id`** on `StoredToken` / `TokenSummary` is reserved for phase 3b3's first-use binding; it stays `null` until the first authenticated request arrives carrying the offloader's `X-Dashboard-ID` header.
-
-#### HTTPS receiver site (phase 3b2)
-
-A separate aiohttp `web.Application` binds on the dashboard's `--remote-build-port` (default `6055`) over TLS using the cert + key from phase 3a. Default-off; binds only when `RemoteBuildSettings.enabled` is true. **Toggling `enabled` requires a dashboard restart for the listener to follow** — `set_settings` persists the new value but doesn't live-bind / unbind the listener.
-
-| Endpoint | Auth | Notes |
-|---|---|---|
-| `GET /remote-build/v1/health` | `Authorization: Bearer {token_id}.{secret}` + `X-Dashboard-ID: {offloader_dashboard_id}` | Returns `{"ok": true}` on a valid bearer paired with the bound (or first-binding) dashboard_id; 401 without bearer; 400 without `X-Dashboard-ID`; 403 on dashboard_id mismatch; 429 with `Retry-After` after rate-limit lockout. |
-
-The bearer scheme is RFC 7235 case-insensitive (`Bearer`, `bearer`, `BEARER` all work) and tolerant of any RFC 7230 BWS (space or tab) between scheme and credentials.
-
-**First-use binding** (phase 3b3): every authenticated request must carry `X-Dashboard-ID` (the offloader's `dashboard_id` from phase 3a, base64url, ≤ 64 chars). On the first authenticated request for a token whose `bound_dashboard_id` is `null`, the receiver atomically writes the presented value as the binding. Subsequent requests with a mismatched `X-Dashboard-ID` are rejected with 403 (the token is valid; the peer is wrong). A `remote_build_binding_mismatch` event fires on every 403 mismatch so the receiver Settings UI can surface the attempt to the operator. Concurrent first-use requests with different dashboard_ids race for the slot under the metadata lock; the loser observes the winner's binding and gets 403.
-
-Per-IP rate limiter on failed attempts: 10 failures per 60 seconds triggers a 5-minute lockout for that source IP. Successful auth doesn't clear the limiter — there's no notion of "this peer is trustworthy now"; per-pairing trust is the binding step in phase 3b3.
+The Noise XX handshake exchanges static X25519 pubkeys mutually; the offloader pins the receiver's pin (out-of-band verified via `intent="preview"`) and the receiver looks up the offloader's pin against its `peers` list. Post-handshake, a single transport frame carries `{intent_response: ...}` and (in phase 4a) closes the WS. Phase 5+ extends `intent="peer_link"` to keep the WS open for application messages.
 
 The receiver advertises the listener's port over mDNS as a TXT property:
 
@@ -308,8 +297,8 @@ The receiver advertises the listener's port over mDNS as a TXT property:
 |---|---|---|
 | `server_version` | `"1.2.3"` | always |
 | `esphome_version` | `"2026.5.0"` | always |
-| `pin_sha256` | lowercase-hex SPKI fingerprint | when the remote-build receiver site is bound (the listener post-bind sets this; a misconfigured `enabled=true` that fails to bind leaves it absent) |
-| `remote_build_port` | stringified int (e.g. `"6055"`) | when the remote-build receiver site is bound (same condition as `pin_sha256`) |
+| `pin_sha256` | lowercase-hex SHA-256 of the X25519 peer-link pubkey | when the peer-link listener is bound |
+| `remote_build_port` | stringified int (e.g. `"6055"`) | when the peer-link listener is bound (same condition as `pin_sha256`) |
 
 Same-subnet peers read `remote_build_port` from TXT so a `--remote-build-port` override is auto-discovered. Cross-subnet peers (`add_manual_host` flow) provide the port at add time.
 
@@ -325,8 +314,10 @@ Same-subnet peers read `remote_build_port` from TXT so a `--remote-build-port` o
 - `importable_device_added`, `importable_device_removed`
 - `label_created`, `label_updated`, `label_deleted`
 - `job_queued`, `job_started`, `job_output`, `job_completed`, `job_failed`
-- `remote_build_binding_mismatch` — `{token_id, presented_dashboard_id, bound_dashboard_id, peer_ip, race_loss}` — fires when an authenticated `/remote-build/v1/*` request's `X-Dashboard-ID` doesn't match the token's bound value. `race_loss` is `true` when the mismatch happened during a first-use bind (concurrent legitimate-paste-into-two-offloaders is a likely cause), `false` when the token was already bound (more suspicious — points at a stolen-bearer or operator-paste-into-wrong-machine attempt). The Settings UI uses the flag to soften the wording on the race-loss case while keeping the mismatch path loud.
-- `remote_build_identity_rotated` — `{dashboard_id, pin_sha256}` — fires when the operator triggers `remote_build/rotate_identity`. Subscribers (the offloader-side peer-link in phase 4+, the receiver Settings UI in 3c2) refresh their cached pin without polling `get_identity`. Only fires when the on-disk rotation succeeds; the listener rebuild may still fail-soft, in which case the rotater's `IdentityView` response carries `listener_bound=false` while this event reflects only that the cert + key on disk changed.
+- `remote_build_pair_request_received` — `{dashboard_id, pin_sha256, label, peer_ip}` — fires when an offloader's `intent="pair_request"` Noise frame lands a new `PENDING` row inside the receiver's open pairing window. The Settings UI surfaces the row in the inbox with the offending `dashboard_id`, the peer-link `pin_sha256` (X25519 pubkey hash), the offloader's claimed `label`, and `peer_ip` for sanity-checking.
+- `remote_build_pair_status_changed` — `{dashboard_id, status}` (`status: "approved" | "removed"`) — fires when the receiver's admin promotes a pending row via `approve_peer` or drops a row via `remove_peer`. Subscribers refresh the paired-peers list without polling.
+- `remote_build_pairing_window_changed` — `{open, expires_in_seconds}` — fires when the pairing window opens / closes (refcount transitions, auto-close timeout, idle ageing). `expires_in_seconds` is `null` when `open` is `false`; otherwise it's the float remaining lifetime against the latest user-activity extend. Subscribers render the "Pairing window: X seconds remaining" countdown from this value (and tick locally between events).
+- `remote_build_identity_rotated` — `{dashboard_id, pin_sha256}` — fires when the operator triggers `remote_build/rotate_identity`. Subscribers refresh their cached pin without polling `get_identity`. Only fires when the on-disk rotation succeeds; the listener rebuild may still fail-soft, in which case the rotater's `IdentityView` response carries `listener_bound=false` while this event reflects only that the cert + key on disk changed.
 
 ---
 

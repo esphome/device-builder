@@ -958,6 +958,39 @@ def test_fallback_has_native_wifi(kwargs: dict, expected: bool) -> None:
     assert _fallback_has_native_wifi(**kwargs) is expected
 
 
+def test_fallback_has_native_wifi_rp2040_returns_true_when_boards_table_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``rp2040`` defaults to wi-fi-allowlist when the boards table is ``None``.
+
+    This branch is unreachable in practice: the module-load
+    ``try/except ImportError`` only sets
+    ``_ESPHOME_RP2040_BOARDS = None`` when the upstream
+    ``has_native_wifi`` helper IS available, in which case
+    ``_select_wifi_helper`` binds the alias to the upstream
+    dispatcher and the fallback never runs. But the type system
+    can't see that cross-branch correlation and surfaces
+    ``_ESPHOME_RP2040_BOARDS`` as ``dict[str, dict] | None`` —
+    the runtime narrowing (``if _ESPHOME_RP2040_BOARDS is None:
+    return True``) is what closes the gap.
+
+    Pin the runtime behaviour so a future refactor that
+    "simplifies" away the narrowing (and trips a real
+    ``AttributeError`` if both branches ever fire together)
+    surfaces here. ``True`` matches the upstream default for
+    unknown rp2040 boards: assume Wi-Fi present.
+    """
+    monkeypatch.setattr(device_yaml, "_ESPHOME_RP2040_BOARDS", None)
+
+    # Look the helper up through the live module attr rather than
+    # the test-time imported binding — ``tests/test_api_key.py``
+    # calls ``importlib.reload(device_yaml)``, which orphans any
+    # test-module binding captured at import time. The live attr
+    # survives the reload AND points at the same function instance
+    # the monkeypatched module globals are visible to.
+    assert device_yaml._fallback_has_native_wifi(platform="rp2040", board="any-board") is True
+
+
 def test_select_wifi_helper_prefers_upstream_when_available() -> None:
     """When esphome ships ``has_native_wifi``, the alias binds to it.
 
