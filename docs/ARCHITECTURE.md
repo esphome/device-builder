@@ -314,8 +314,8 @@ sequenceDiagram
     RB-->>RF: pair_status_changed approved
 
     OF->>OB: subscribe_pairings (live updates)
-    OB->>RB: Noise XX intent=pair_status (long-poll)
-    Note over RB: bus.listening on pair_status_changed<br/>+ pairing_window_changed
+    OB->>RB: Noise XX intent=pair_status (await flip)
+    Note over RB: bus.listening on pair_status_changed<br/>filtered to dashboard_id
     RB-->>OB: intent_response=approved (on RU click)
     OB-->>OF: offloader_pair_status_changed status=approved
 

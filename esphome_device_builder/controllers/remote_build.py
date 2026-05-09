@@ -1378,6 +1378,14 @@ class RemoteBuildController:
 
         # PENDING entry (in-memory): pop + cancel its listener.
         pending_dropped = self._pending_pairings.pop(key, None) is not None
+        # Cancel BEFORE the disk transaction: the listener task
+        # holds an open Noise WS to the receiver, and we want it
+        # closed promptly on user-clicks-Unpair without waiting on
+        # disk I/O. The cancel is sync; the actual WS-close
+        # happens on the next loop iteration as the cancelled
+        # task unwinds. Idempotent on absent keys (the typical
+        # APPROVED-only case where no listener was ever spawned).
+        self._cancel_pair_status_listener(clean_host, clean_port)
 
         # APPROVED entry (persisted): drop from disk if present.
         def _persist() -> bool:
@@ -1387,7 +1395,6 @@ class RemoteBuildController:
                 return _remove_pairing_by_address(settings, hostname=clean_host, port=clean_port)
 
         persisted_dropped = await loop.run_in_executor(None, _persist)
-        self._cancel_pair_status_listener(clean_host, clean_port)
         return {"removed": pending_dropped or persisted_dropped}
 
     @api_command("remote_build/list_pairings")

@@ -189,11 +189,18 @@ class RemoteBuildPairStatusChangedData(TypedDict):
     """
     Payload for ``EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED``.
 
-    Fired by ``approve_peer`` (``status="approved"``) and by
-    ``remove_peer`` for previously-APPROVED rows
-    (``status="removed"``). Removing a still-PENDING row is
-    rejection-as-cleanup and intentionally does not fire — see
-    ``remove_peer`` docstring.
+    Fires from three paths:
+
+    * ``approve_peer`` promoting a PENDING dict entry to
+      APPROVED (``status="approved"``).
+    * ``remove_peer`` dropping either a PENDING dict entry or
+      an APPROVED list row (``status="removed"``).
+    * Pairing-window-close clearing the in-memory PENDING dict
+      (``status="removed"`` per cleared entry).
+
+    The ``status="removed"`` event is what wakes any in-flight
+    ``intent="pair_status"`` long-poll on a paired offloader so
+    its listener task drops the offloader's local state.
     """
 
     dashboard_id: str

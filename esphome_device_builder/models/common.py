@@ -100,35 +100,44 @@ class EventType(StrEnum):
     # commands so the model surface lands together.
     REMOTE_BUILD_PAIR_REQUEST_RECEIVED = "remote_build_pair_request_received"
 
-    # A ``StoredPeer`` row's status changed. Payload:
-    # ``{dashboard_id, status: "approved" | "removed"}``. Fired
-    # by ``remote_build/approve_peer`` (status="approved") and by
-    # ``remote_build/remove_peer`` for previously-APPROVED rows
-    # (status="removed"). Removing a still-PENDING row is just
-    # rejection-as-cleanup and fires nothing; the row never
-    # represented an established trust relationship. Receiver
-    # Settings UI updates the inbox + approved-peers list on
-    # this event. The offloader-side counterpart event is
-    # :attr:`OFFLOADER_PAIR_STATUS_CHANGED`, fired on the
-    # offloader's local bus when its `subscribe_pairings` long-poll
-    # observes the receiver's flip; the two share a wire shape
-    # but live on different buses (receiver vs offloader) and
-    # carry different identifiers (offloader's dashboard_id vs
-    # the offloader's own ``(receiver_hostname, receiver_port)``
-    # coordinates).
+    # A peer entry's status changed. Payload:
+    # ``{dashboard_id, status: "approved" | "removed"}``. Fires
+    # from three paths: (a) ``remote_build/approve_peer``
+    # promoting a PENDING in-memory dict entry to APPROVED on
+    # disk (``status="approved"``), (b) ``remote_build/remove_peer``
+    # dropping either a PENDING dict entry or an APPROVED list
+    # row (``status="removed"``), (c) pairing-window-close
+    # clearing the in-memory PENDING dict (``status="removed"``
+    # per cleared entry). The ``status="removed"`` event is
+    # what wakes any in-flight ``intent="pair_status"`` long-poll
+    # on a paired offloader so its listener task drops the
+    # offloader's local state.
+    #
+    # Receiver Settings UI updates the inbox + approved-peers
+    # list on this event. The offloader-side counterpart event
+    # is :attr:`OFFLOADER_PAIR_STATUS_CHANGED`, fired on the
+    # offloader's local bus by the offloader's pair-status
+    # listener task after observing the receiver's response; the
+    # two share a wire shape but live on different buses
+    # (receiver vs offloader) and carry different identifiers
+    # (offloader's dashboard_id vs the offloader's own
+    # ``(receiver_hostname, receiver_port)`` coordinates).
     REMOTE_BUILD_PAIR_STATUS_CHANGED = "remote_build_pair_status_changed"
 
     # Offloader-side counterpart to ``REMOTE_BUILD_PAIR_STATUS_CHANGED``.
     # Payload: ``{receiver_hostname, receiver_port,
     # status: "approved" | "removed"}``. Fired by the offloader's
-    # ``subscribe_pairings`` long-poll dispatcher when it observes a
-    # PENDING row flipping APPROVED (admin clicked Accept) or
-    # the receiver returning REJECTED (admin clicked Reject; row
-    # never existed; pin rotated). Receiver-side keys are not
-    # carried because the offloader's :class:`StoredPairing`
-    # never stores the receiver's ``dashboard_id`` — the
-    # receiver coordinates the offloader knows are the
-    # ``(hostname, port)`` it dialled.
+    # per-row pair-status listener task
+    # (``RemoteBuildController._fire_offloader_pair_status_changed``,
+    # called from ``_apply_pair_status_result`` once an
+    # ``intent="pair_status"`` round-trip resolves). The
+    # ``subscribe_pairings`` WS command is a pure consumer of
+    # this event — it streams whatever the listener fires to the
+    # connected client, never produces the event itself.
+    # Receiver-side keys aren't carried because the offloader's
+    # :class:`StoredPairing` never stores the receiver's
+    # ``dashboard_id`` — the receiver coordinates the offloader
+    # knows are the ``(hostname, port)`` it dialled.
     OFFLOADER_PAIR_STATUS_CHANGED = "offloader_pair_status_changed"
 
     # Pairing window opened, extended, or closed. Payload:
