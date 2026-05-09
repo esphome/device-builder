@@ -75,13 +75,22 @@ _DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
 # Total budget for one ``intent="pair_status"`` long-poll round-trip.
-# Receiver-side ``lookup_peer_for_status`` holds a PENDING snapshot
-# open for up to 30s waiting for ``REMOTE_BUILD_PAIR_STATUS_CHANGED``;
-# the offloader-side total has to clear that plus TCP connect + 3-frame
-# Noise handshake + a comfortable slack so a clean idle round-trip
-# never trips the client-side timeout. 40s is the receiver's 30s ceiling
-# plus 10s for everything else.
-_PAIR_STATUS_LONG_POLL_TIMEOUT_SECONDS = 40.0
+# Receiver-side ``lookup_peer_for_status`` parks indefinitely on its
+# bus listener — there's no timeout, the connection stays open until
+# either an admin click flips the row or the receiver-side pairing
+# window closes (firing ``status="removed"`` events that wake the
+# wait). The pairing window's default lifetime is
+# ``_PAIRING_WINDOW_DURATION_SECONDS`` = 300s but extends on user
+# activity, so the receiver-side wait can legitimately span tens of
+# minutes. Pick a client-side total an order of magnitude above the
+# default window so a typical "admin opens screen, walks away to
+# verify, comes back, clicks Accept" flow doesn't trip the offloader's
+# ``aiohttp`` timeout and force a reconnect (which would itself land
+# back on the same long-poll, just with a Noise handshake of churn).
+# When the offloader process actually wants to give up — controller
+# stop, unpair — the listener task is cancelled directly and the WS
+# closes via the cancellation, not via this timeout.
+_PAIR_STATUS_LONG_POLL_TIMEOUT_SECONDS = 3600.0
 
 
 # Hard cap on a single inbound WS frame for the *control-plane*
@@ -404,17 +413,25 @@ class PollPairStatusResult:
 
     Returned by :func:`poll_pair_status` after the Noise XX
     handshake completes and the receiver's ``intent_response``
-    has been received (which on the receiver side may have
-    blocked for up to 30s waiting for an admin click).
+    has been received. The receiver-side handler parks
+    indefinitely on the bus event channel until either an admin
+    click flips the row or the pairing window closes (firing
+    removed events that wake the wait), so the round-trip can
+    legitimately take seconds to many minutes; the caller's
+    listener task is the only thing that puts an upper bound
+    on how long the WS stays open (via cancellation on
+    ``unpair`` / controller stop).
 
     * :attr:`status` is the receiver's verbatim response —
       :attr:`IntentResponse.APPROVED` if the matching
-      ``StoredPeer`` row is APPROVED, :attr:`IntentResponse.PENDING`
-      if it's still pending and the receiver's long-poll window
-      timed out, :attr:`IntentResponse.REJECTED` if no row matches
-      (admin clicked Reject, or rejected-as-cleanup, or pin
-      drift on the receiver side). The caller flips local state
-      accordingly.
+      ``StoredPeer`` row is APPROVED, or
+      :attr:`IntentResponse.REJECTED` if no row matches (admin
+      clicked Reject, or window-close cleared the receiver's
+      pending dict, or pin drift on the receiver side). The
+      caller flips local state accordingly.
+      :attr:`IntentResponse.PENDING` doesn't appear on this
+      path — the receiver doesn't return PENDING from
+      ``intent="pair_status"``; the long-poll keeps waiting.
     * :attr:`pin_sha256` is the lowercase-hex hash of the
       receiver's static X25519 pubkey observed on the live
       handshake. The :class:`StoredPairing` consumer compares
@@ -437,20 +454,31 @@ async def poll_pair_status(
 ) -> PollPairStatusResult:
     """Run an ``intent="pair_status"`` long-poll round-trip.
 
-    Used by the offloader's ``subscribe_pool`` long-poll
-    dispatcher (phase 4a-o part 4) to ask the receiver "has my
-    pending row flipped status yet?" with ~instant push
-    latency on the happy path.
+    Used by the offloader's pair-status listener tasks (phase
+    4a-o part 4) to ask the receiver "has my pending row
+    flipped status yet?" with sub-second latency on the
+    happy path.
 
     Receiver-side semantics: if the snapshot is APPROVED or
     REJECTED, returns immediately. If PENDING, the receiver
-    holds the response open for up to 30s waiting on its own
-    bus's :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED`
-    event for the matching ``dashboard_id``; returns the new
-    status when fired or the current PENDING snapshot on
-    timeout (so the offloader can reconnect for another
-    long-poll window without holding a stalled WS open
-    indefinitely).
+    holds the response open indefinitely (no timeout) while
+    parking on its own bus's
+    :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` event
+    for the matching ``dashboard_id``. Window-close clears the
+    receiver's pending dict and fires removed events for each
+    cleared entry, which wakes the wait and re-snapshots to
+    REJECTED (no row matches anymore) — the caller's listener
+    treats this the same as an admin Reject.
+
+    Client-side total budget is
+    :data:`_PAIR_STATUS_LONG_POLL_TIMEOUT_SECONDS` (~1h),
+    deliberately set well above the receiver's 5-min default
+    pairing-window lifetime so a typical "admin opens screen,
+    walks away to verify pin, comes back, clicks Accept" flow
+    doesn't trip the offloader's ``aiohttp`` timeout. The
+    listener task that owns the call is cancelled directly on
+    ``unpair`` / controller stop, so this timeout only fires
+    if a receiver-side process becomes wedged for an hour.
 
     Wire shape: the encrypted msg3 carries
     ``{"dashboard_id": dashboard_id}``. The receiver doesn't

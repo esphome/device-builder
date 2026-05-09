@@ -737,22 +737,28 @@ class RemoteBuildController:
         # cancelled it), so the callback just clears the dict and fires
         # the close event. ``None`` when the window is closed.
         self._pairing_window_handle: asyncio.TimerHandle | None = None
-        # One long-running asyncio.Task per PENDING StoredPairing,
-        # opened by ``request_pair`` after persist (and rebuilt at
-        # ``start`` for any rows already on disk). Each task holds
+        # One long-running asyncio.Task per PENDING
+        # :class:`StoredPairing`, spawned by ``request_pair`` when
+        # it lands a row in ``_pending_pairings`` and cancelled
+        # by ``unpair`` / a re-pair against the same address /
+        # the listener's own terminal-flip exit. The task holds
         # an open Noise WS to its receiver with
-        # ``intent="pair_status"``; the receiver's responder waits
-        # on its OWN bus event for an admin-click and pushes the
-        # response back, so the offloader gets the flip with
-        # sub-second latency without polling. Lifecycle-driven —
-        # ``unpair`` cancels the task, the task self-removes from
-        # the dict on a terminal flip — so there's no separate
-        # subscriber-presence refcount to manage; bus events fire
-        # whether anyone is currently subscribed or not, and
-        # ``subscribe_pool`` is a thin :func:`stream_events` drain
-        # that picks up any flip event during its lifetime.
+        # ``intent="pair_status"``; the receiver-side responder
+        # parks on its bus event for an admin-click and pushes
+        # the response back, so the offloader sees the flip with
+        # sub-second latency without polling.
+        #
+        # No cold-start spawn: PENDING is in-memory only, so a
+        # controller restart starts with an empty dict and there's
+        # nothing to rebuild from disk. ``subscribe_pool`` is a
+        # thin :func:`stream_events` drain that picks up the bus
+        # event a still-running listener fires on flip; bus
+        # events fire regardless of whether anyone is currently
+        # subscribed.
+        #
         # Keyed on ``(receiver_hostname, receiver_port)`` to match
-        # :func:`_remove_pairing_by_address`.
+        # :func:`_remove_pairing_by_address` and the
+        # ``_pending_pairings`` dict.
         self._pair_status_listeners: dict[tuple[str, int], asyncio.Task[None]] = {}
         # PENDING StoredPeer rows live here, keyed on dashboard_id.
         # Never persisted — the receiver's settings file
@@ -1311,10 +1317,22 @@ class RemoteBuildController:
         # PENDING: in-memory only, bounded by the receiver-side
         # pairing window. Disk only carries APPROVED rows so a
         # malicious LAN scanner can't fill the offloader's
-        # settings file with junk pair-attempts. The listener task
-        # observes the eventual flip (admin Accept) and
-        # promotes-to-disk via ``_promote_pairing_sync``.
+        # settings file with junk pair-attempts. The listener
+        # task observes the eventual flip (admin Accept) and
+        # promotes-to-disk via ``_persist_approved_pairing``.
+        #
+        # Re-pair against an existing PENDING entry (same
+        # ``(host, port)`` but possibly a different pin /
+        # pubkey because the receiver rotated its peer-link key
+        # between pair attempts) replaces the dict entry; the
+        # *existing* listener task captured the old pairing in
+        # its closure and would compare incoming pin_sha256
+        # against the stale value, so cancel it explicitly here
+        # before spawning a fresh listener with the new pairing.
+        # The cancelled task self-removes from
+        # ``_pair_status_listeners`` via its ``finally`` clause.
         self._pending_pairings[key] = pairing
+        self._cancel_pair_status_listener(clean_host, clean_port)
         self._spawn_pair_status_listener(pairing)
         return _pairing_summary(pairing, status=PeerStatus.PENDING)
 
@@ -1438,11 +1456,14 @@ class RemoteBuildController:
     def _spawn_pair_status_listener(self, pairing: StoredPairing) -> None:
         """Spawn the pair-status listener task for *pairing* if not running.
 
-        Called from :meth:`request_pair` after persisting a fresh
-        PENDING row, and from :meth:`start` when rebuilding listeners
-        for any rows already on disk. Idempotent — if a listener
-        for ``(host, port)`` already exists, returns without
-        spawning a duplicate.
+        Called from :meth:`request_pair` after landing a fresh
+        PENDING entry in ``_pending_pairings`` (and from the same
+        method on a re-pair after the prior listener was
+        cancelled to avoid stale-pin closure capture). Idempotent
+        on already-running listeners — returns early if a
+        listener for ``(host, port)`` already exists and isn't
+        done. Cold start has no PENDING entries to spawn against,
+        so this isn't called from :meth:`start`.
         """
         key = (pairing.receiver_hostname, pairing.receiver_port)
         existing = self._pair_status_listeners.get(key)
@@ -1497,6 +1518,14 @@ class RemoteBuildController:
                 terminal = await self._apply_pair_status_result(pairing, result)
                 if terminal:
                     return
+                # Non-terminal result reached the apply path —
+                # only happens on a misbehaving receiver returning
+                # an unexpected ``intent_response`` (PENDING / OK /
+                # NO_PAIRING_WINDOW from a `pair_status` query
+                # shouldn't happen). Back off before reconnecting
+                # so a bug in the receiver doesn't burn CPU /
+                # spam logs in a tight reconnect loop.
+                await asyncio.sleep(_PAIR_STATUS_RECONNECT_BACKOFF_SECONDS)
         finally:
             self._pair_status_listeners.pop(
                 (pairing.receiver_hostname, pairing.receiver_port), None
