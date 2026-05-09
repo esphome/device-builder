@@ -1120,10 +1120,7 @@ class RemoteBuildController:
             raise CommandError(ErrorCode.NOT_FOUND, msg)
 
         view = await self._modify_settings(_approve)
-        self._db.bus.fire(
-            EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED,
-            {"dashboard_id": clean_id, "status": "approved"},
-        )
+        self._fire_pair_status_changed(clean_id, "approved")
         return view
 
     @api_command("remote_build/remove_peer")
@@ -1165,10 +1162,7 @@ class RemoteBuildController:
 
         view = await self._modify_settings(_remove)
         if previous_status == PeerStatus.APPROVED:
-            self._db.bus.fire(
-                EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED,
-                {"dashboard_id": clean_id, "status": "removed"},
-            )
+            self._fire_pair_status_changed(clean_id, "removed")
         return view
 
     # ------------------------------------------------------------------
@@ -1252,15 +1246,44 @@ class RemoteBuildController:
         self._prune_stale_pairing_window_clients()
         return bool(self._pairing_window_clients)
 
-    def _pairing_window_state(self) -> PairingWindowState:
-        """Project the in-memory client map into a wire-shape response."""
+    def _pairing_window_remaining(self) -> float | None:
+        """
+        Seconds until the latest-extend deadline, or ``None`` if closed.
+
+        Single source of truth for the deadline math: prunes stale
+        clients first, then derives the remaining lifetime from the
+        most recent extend across all live clients. Consumed by both
+        the wire-projection (:meth:`_pairing_window_state`) and the
+        TimerHandle scheduler (:meth:`_reschedule_pairing_window_close`)
+        so they can't drift out of sync on the cutoff calculation.
+        """
         self._prune_stale_pairing_window_clients()
         if not self._pairing_window_clients:
-            return PairingWindowState(open=False, expires_in_seconds=None)
+            return None
         latest_extend = max(self._pairing_window_clients.values())
-        deadline = latest_extend + _PAIRING_WINDOW_DURATION_SECONDS
-        remaining = max(0.0, deadline - time.monotonic())
+        return max(0.0, latest_extend + _PAIRING_WINDOW_DURATION_SECONDS - time.monotonic())
+
+    def _pairing_window_state(self) -> PairingWindowState:
+        """Project the in-memory client map into a wire-shape response."""
+        remaining = self._pairing_window_remaining()
+        if remaining is None:
+            return PairingWindowState(open=False, expires_in_seconds=None)
         return PairingWindowState(open=True, expires_in_seconds=remaining)
+
+    def _fire_pair_status_changed(self, dashboard_id: str, status: str) -> None:
+        """
+        Fire ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` for a peer transition.
+
+        ``status`` is ``"approved"`` (from :meth:`approve_peer`) or
+        ``"removed"`` (from :meth:`remove_peer` of a previously-
+        APPROVED row). Mirrors :meth:`_fire_pairing_window_changed`
+        for shape; both methods are the named-intent boundary
+        between controller logic and the bus payload format.
+        """
+        self._db.bus.fire(
+            EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED,
+            {"dashboard_id": dashboard_id, "status": status},
+        )
 
     def _fire_pairing_window_changed(self) -> None:
         """Fire ``REMOTE_BUILD_PAIRING_WINDOW_CHANGED`` with the current state."""
@@ -1299,11 +1322,9 @@ class RemoteBuildController:
         if self._pairing_window_handle is not None:
             self._pairing_window_handle.cancel()
             self._pairing_window_handle = None
-        self._prune_stale_pairing_window_clients()
-        if not self._pairing_window_clients:
+        remaining = self._pairing_window_remaining()
+        if remaining is None:
             return
-        latest_extend = max(self._pairing_window_clients.values())
-        remaining = max(0.0, latest_extend + _PAIRING_WINDOW_DURATION_SECONDS - time.monotonic())
         loop = asyncio.get_running_loop()
         self._pairing_window_handle = loop.call_later(remaining, self._on_pairing_window_deadline)
 
