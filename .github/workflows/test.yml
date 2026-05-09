@@ -62,9 +62,17 @@ jobs:
         run: uv pip install --system -e '.[esphome,test]'
 
       - name: Run pre-commit (ruff lint + format, codespell, yaml/json checks)
-        # ``no-commit-to-branch`` is a local-only guard; CI runs on
-        # branches by definition, so skip it the same way matter-server does.
-        run: SKIP=no-commit-to-branch pre-commit run --all-files
+        # ``pre-commit/action`` caches ``~/.cache/pre-commit`` keyed
+        # on the config file hash, so the per-hook envs (ruff,
+        # codespell, …) only get installed when the config changes
+        # — the per-run pre-commit init that recreates every env
+        # from scratch (~30s) drops to a near-instant cache hit.
+        # ``SKIP=no-commit-to-branch`` is a local-only guard; CI
+        # runs on branches by definition, so skip it the same way
+        # matter-server does.
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd  # v3.0.1
+        env:
+          SKIP: no-commit-to-branch
 
       - name: Validate board / component manifests
         run: python script/validate_definitions.py
