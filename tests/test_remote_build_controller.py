@@ -1711,6 +1711,19 @@ async def test_approve_peer_rejects_invalid_dashboard_id(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_approve_peer_rejects_non_string_dashboard_id(tmp_path: Path) -> None:
+    """Non-string ``dashboard_id`` is rejected up front, not silently coerced."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await controller.approve_peer(dashboard_id=12345)  # type: ignore[arg-type]
+
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+    controller._db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_remove_peer_drops_pending_silently(tmp_path: Path) -> None:
     """Removing a PENDING peer is rejection-as-cleanup; no event fires."""
     controller = _make_controller(config_dir=tmp_path)
