@@ -233,7 +233,12 @@ async def test_async_save_now_awaits_inflight_write(tmp_path: Path) -> None:
 async def test_write_failure_logged_and_swallowed(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A write that raises is logged but doesn't crash the loop."""
+    """A write that raises is logged but doesn't crash the loop.
+
+    Also pins the diagnostic shape: the log line includes both
+    *name* and *config_dir* so production traces identify which
+    sub-key failed without the caller plumbing its own context.
+    """
 
     def _raising_write(_config_dir: Path, _value: object) -> None:
         msg = "boom"
@@ -248,6 +253,7 @@ async def test_write_failure_logged_and_swallowed(
         load_sync=_load,
         write_sync=_raising_write,
         shutdown_register=lambda _cb: None,
+        name="_pairings_test_key",
     )
 
     with caplog.at_level("ERROR"):
@@ -256,6 +262,38 @@ async def test_write_failure_logged_and_swallowed(
             lambda: any("Error writing metadata key" in r.message for r in caplog.records),
             timeout=1.0,
         )
+
+    matching = [r for r in caplog.records if "Error writing metadata key" in r.message]
+    assert matching, "expected error log line"
+    assert "_pairings_test_key" in matching[0].getMessage()
+    assert str(tmp_path) in matching[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_default_name_falls_back_to_config_dir(tmp_path: Path) -> None:
+    """Omitting *name* derives a stand-in from ``config_dir``.
+
+    Belt-and-braces so a caller that forgets to pass *name* still
+    gets *some* identifying string in error logs / asyncio task
+    names rather than a bare ``"metadata-store-write:None"``.
+    """
+
+    def _no_load(_config_dir: Path) -> object:  # pragma: no cover
+        msg = "load not used in this test"
+        raise AssertionError(msg)
+
+    def _noop_write(_config_dir: Path, _value: object) -> None:  # pragma: no cover
+        pass
+
+    store = MetadataKeyStore[object](
+        tmp_path,
+        load_sync=_no_load,
+        write_sync=_noop_write,
+        shutdown_register=lambda _cb: None,
+    )
+    # Internal but stable: the derived name embeds config_dir so a
+    # forgotten *name* still gives an operator a starting point.
+    assert str(tmp_path) in store._name
 
 
 @pytest.mark.asyncio

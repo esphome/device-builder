@@ -80,6 +80,9 @@ loader::
             # time. ``.append`` matches the
             # ``Callable[[ShutdownCallback], None]`` shape exactly.
             shutdown_register=self._db.shutdown_callbacks.append,
+            # Surfaces in error logs + the asyncio task name so a
+            # production failure trace identifies which sub-key broke.
+            name="_offloader_remote_build",
         )
     )
 
@@ -128,7 +131,7 @@ class MetadataKeyStore[T]:
     instances pointing at the same key is supported (each runs its
     own debounce) but redundant; production has one per controller.
 
-    *_T* is the type the caller's *data_func* returns and the type
+    *T* is the type the caller's *data_func* returns and the type
     *load_sync* yields back from disk; the store is agnostic to its
     shape (typically a mashumaro dataclass like
     :class:`OffloaderRemoteBuildSettings`).
@@ -141,6 +144,7 @@ class MetadataKeyStore[T]:
         load_sync: Callable[[Path], T],
         write_sync: Callable[[Path, T], None],
         shutdown_register: ShutdownRegister,
+        name: str | None = None,
     ) -> None:
         """Bind the store to ``config_dir`` + caller-supplied I/O hooks.
 
@@ -160,6 +164,14 @@ class MetadataKeyStore[T]:
         None`` to opt out, but production paths should always wire
         a real registry.
 
+        *name* is a free-form diagnostic label (typically the
+        sidecar sub-key, e.g. ``"_offloader_remote_build"``)
+        attached to the write task and to error log lines so
+        production failure traces identify *which* sidecar key
+        failed without the caller having to ship its own context
+        through. Optional; defaults to a stand-in derived from
+        ``config_dir`` when omitted.
+
         Injection avoids importing ``controllers.config`` from a
         helper module — the ``controllers.config`` layer already
         owns the metadata sidecar (lock + atomic write); this store
@@ -168,6 +180,7 @@ class MetadataKeyStore[T]:
         self._config_dir = config_dir
         self._load_sync_cb = load_sync
         self._write_sync_cb = write_sync
+        self._name = name or f"<unnamed:{config_dir}>"
         # Captured at every ``async_delay_save`` call; the actual
         # invocation happens at flush time inside the write lock so
         # the value reflects the latest in-RAM state.
@@ -241,7 +254,7 @@ class MetadataKeyStore[T]:
             return
         self._delay_handle = None
         self._inflight_write = asyncio.create_task(
-            self._async_handle_write(), name="metadata-store-write"
+            self._async_handle_write(), name=f"metadata-store-write:{self._name}"
         )
 
     async def _async_handle_write(self) -> None:
@@ -264,8 +277,14 @@ class MetadataKeyStore[T]:
                 # save) and a crash here would unwind through the
                 # asyncio task machinery noisily. Mirrors HA's
                 # swallow of WriteError / SerializationError in
-                # ``_async_handle_write_data``.
-                _LOGGER.exception("Error writing metadata key")
+                # ``_async_handle_write_data``. Include the store's
+                # *name* + ``config_dir`` so production traces can
+                # point at the failing sub-key.
+                _LOGGER.exception(
+                    "Error writing metadata key %s under %s",
+                    self._name,
+                    self._config_dir,
+                )
 
     async def async_save_now(self) -> None:
         """Cancel any pending delay + flush whatever's queued.
