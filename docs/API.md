@@ -285,7 +285,6 @@ A single `device-builder` process can be a *receiver* (accepts Noise WS connecti
 | `preview_pair` | offloader | Open a brief Noise WS to capture a receiver's pin for OOB display. |
 | `request_pair` | offloader | Send `intent=pair_request`. APPROVED result (re-pair against existing trust) → persist as APPROVED. PENDING result → store in the controller's in-memory `_pending_pairings` dict (never on disk) and spawn a `_pair_status_listener` task. |
 | `unpair` | offloader | Drop a local pairing — pops the in-memory PENDING dict entry if any, drops the persisted APPROVED row if any, cancels the listener task if any. Idempotent. |
-| `list_pairings` | offloader | Snapshot read merging in-memory PENDING pairings with persisted APPROVED rows. No wire calls. |
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|

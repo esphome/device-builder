@@ -1405,33 +1405,70 @@ class RemoteBuildController:
         if removed:
             # Fire the local bus event so other clients on the
             # global ``subscribe_events`` stream see the removal
-            # without polling :meth:`list_pairings`. Mirrors the
-            # receiver-side ``remove_peer`` firing the same shape
-            # on its bus.
+            # without re-fetching the pairings snapshot. Mirrors
+            # the receiver-side ``remove_peer`` firing the same
+            # shape on its bus.
             self._fire_offloader_pair_status_changed(clean_host, clean_port, "removed")
         return {"removed": removed}
 
-    @api_command("remote_build/list_pairings")
-    async def list_pairings(self, **kwargs: Any) -> list[PairingSummary]:
-        """Return a snapshot of the offloader's pairings (in-memory + persisted).
+    async def pairings_snapshot(self) -> list[PairingSummary]:
+        """Return the merged pairings snapshot (in-memory PENDING + persisted APPROVED).
 
-        Pure read, no wire calls to receivers. Merges in-memory
-        PENDING entries with persisted APPROVED rows from the
-        offloader settings file. Frontend uses this for the
-        initial render of the Send-builds peer list; live updates
-        flow through the existing global ``subscribe_events``
-        stream as ``OFFLOADER_PAIR_STATUS_CHANGED`` events fired
-        by the per-row pair-status listener task.
+        Pure read, no wire calls to receivers. Used by
+        :meth:`device_builder.DeviceBuilder._cmd_subscribe_events`
+        to seed the frontend's initial state — live updates after
+        that arrive as ``OFFLOADER_PAIR_STATUS_CHANGED`` bus
+        events through the same `subscribe_events` stream.
+
+        Not a WS command: the dashboard frontend always subscribes
+        on app-startup, so a separate snapshot read would just be
+        a redundant round-trip. (Earlier versions exposed this as
+        ``remote_build/list_pairings``; the WS surface was removed
+        once the initial-state path absorbed it.)
+
+        Race-free against concurrent mutations:
+
+        * Capture the dict view *synchronously* (as a frozen
+          ``list``) BEFORE the executor hop — any concurrent
+          ``unpair`` / listener-promote that pops the dict
+          afterwards doesn't affect our captured copy.
+        * Read the disk via the executor.
+        * Merge with dedupe by ``(receiver_hostname,
+          receiver_port)``; APPROVED wins on collision.
+
+        Without the dedupe, the executor hop opens a race window:
+        a listener task could pop the dict and persist a row
+        between our dict capture and our disk read, and the
+        snapshot would then contain the row twice (once PENDING
+        from the dict copy, once APPROVED from disk). Dedupe with
+        APPROVED-wins handles all timing cases:
+
+        * Dict-only (PENDING, no disk write seen) → row appears
+          PENDING. Subsequent ``status="approved"`` event flips
+          to APPROVED.
+        * Dict-and-disk (concurrent listener-promote mid-snapshot)
+          → row appears APPROVED. Subsequent ``status="approved"``
+          event is idempotent.
+        * Disk-only (post-listener-promote, dict already popped
+          before our capture) → row appears APPROVED.
         """
+        # Sync dict capture FIRST — atomic on the asyncio thread
+        # (no awaits between here and the .pop() / .values() read).
+        pending_copy = list(self._pending_pairings.values())
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
             None,
             load_offloader_remote_build_settings,
             self._db.settings.config_dir,
         )
-        return [
-            _pairing_summary(p, status=PeerStatus.PENDING) for p in self._pending_pairings.values()
-        ] + [_pairing_summary(p, status=PeerStatus.APPROVED) for p in settings.pairings]
+        # Dedupe by (host, port); persisted APPROVED rows take
+        # precedence over dict PENDING rows on collision.
+        merged: dict[tuple[str, int], tuple[PeerStatus, StoredPairing]] = {
+            (p.receiver_hostname, p.receiver_port): (PeerStatus.PENDING, p) for p in pending_copy
+        }
+        for p in settings.pairings:
+            merged[(p.receiver_hostname, p.receiver_port)] = (PeerStatus.APPROVED, p)
+        return [_pairing_summary(p, status=status) for status, p in merged.values()]
 
     # ------------------------------------------------------------------
     # Pair-status listeners (phase 4a-o part 4) — one task per PENDING

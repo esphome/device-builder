@@ -534,22 +534,29 @@ class DeviceBuilder:
             return
 
         async def _send_initial(_controls: StreamControls) -> None:
-            # Importable devices are populated by the mDNS browser
-            # and per-device events fire only on transitions; without
-            # seeding the snapshot here a fresh page load misses
-            # every importable device the dashboard had already seen
-            # by then.
+            # Snapshot every per-feature collection that the
+            # frontend needs to render its initial paint without a
+            # follow-up read. Importable devices and pairings are
+            # populated server-side by background activity (mDNS
+            # browser, ``request_pair`` outcomes), and per-event
+            # diffs fire only on transitions; without seeding the
+            # snapshot here a fresh page load would miss everything
+            # the dashboard had already accumulated by then.
+            initial: dict[str, Any] = {}
             if self.devices:
-                devices = self.devices.get_devices()
-                importable = self.devices.get_importable_devices()
-                await client.send_event(
-                    message_id,
-                    "initial_state",
-                    {
-                        "devices": [d.to_dict() for d in devices],
-                        "importable": [d.to_dict() for d in importable],
-                    },
-                )
+                initial["devices"] = [d.to_dict() for d in self.devices.get_devices()]
+                initial["importable"] = [d.to_dict() for d in self.devices.get_importable_devices()]
+            if self.remote_build is not None:
+                # Pairings come merged (in-memory PENDING +
+                # persisted APPROVED) so the frontend's Send-builds
+                # initial paint matches what
+                # ``OFFLOADER_PAIR_STATUS_CHANGED`` events will
+                # mutate against. The hop through the controller's
+                # method runs in-process — no wire calls.
+                initial["pairings"] = [
+                    summary.to_dict() for summary in await self.remote_build.pairings_snapshot()
+                ]
+            await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.
             await client.send_result(message_id, {"subscribed": True})

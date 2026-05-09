@@ -948,10 +948,10 @@ async def test_unpair_unknown_returns_removed_false_idempotent(
 
 
 @pytest.mark.asyncio
-async def test_list_pairings_merges_pending_dict_and_persisted_rows(
+async def test_pairings_snapshot_merges_pending_dict_and_persisted_rows(
     offloader_controller_dir: Path,
 ) -> None:
-    """list_pairings returns PENDING entries from the dict + APPROVED from disk."""
+    """pairings_snapshot returns PENDING entries from the dict + APPROVED from disk."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pending = _stub_pairing(
@@ -964,11 +964,68 @@ async def test_list_pairings_merges_pending_dict_and_persisted_rows(
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, offloader._persist_approved_pairing, approved)
 
-    rows = await offloader.list_pairings()
+    rows = await offloader.pairings_snapshot()
 
     by_host = {row.receiver_hostname: row for row in rows}
     assert by_host["pending.local"].status is PeerStatus.PENDING
     assert by_host["approved.local"].status is PeerStatus.APPROVED
+
+
+@pytest.mark.asyncio
+async def test_pairings_snapshot_dedupes_concurrent_listener_promote(
+    offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Snapshot dedupes when a listener promotes mid-executor-hop.
+
+    Race shape: snapshot's sync dict-capture sees ``X`` PENDING.
+    During the disk-read executor hop, a listener task pops X
+    from the dict and writes X as APPROVED to disk. Our disk read
+    returns AFTER that write, so settings.pairings has X. Without
+    dedupe the snapshot would contain X twice (PENDING from
+    captured dict + APPROVED from disk). The dedupe-by-(host,
+    port) with APPROVED-wins ensures one row, marked APPROVED.
+    Subsequent ``OFFLOADER_PAIR_STATUS_CHANGED("approved")`` event
+    delivery is then idempotent.
+    """
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pubkey = b"\xee" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+    )
+    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+
+    # Hook into the executor read so we can race a listener-promote
+    # against it. The fake load function pops the dict + writes the
+    # APPROVED row to disk (mirroring what _apply_pair_status_result
+    # does on APPROVED) BEFORE returning the (now-newly-written)
+    # settings to the caller.
+    real_load = load_offloader_remote_build_settings
+
+    def _racy_load(_target_dir: Path) -> object:
+        # Listener-style mutation: pop dict + persist APPROVED.
+        promoted = offloader._pending_pairings.pop(("rcv.local", 6055), None)
+        if promoted is not None:
+            offloader._persist_approved_pairing(promoted)
+        # Return the disk state AFTER the listener's write.
+        return real_load(_target_dir)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.load_offloader_remote_build_settings",
+        _racy_load,
+    )
+
+    rows = await offloader.pairings_snapshot()
+
+    # Exactly one entry for (rcv.local, 6055), marked APPROVED.
+    by_key = {(row.receiver_hostname, row.receiver_port): row for row in rows}
+    assert len(rows) == 1
+    assert ("rcv.local", 6055) in by_key
+    assert by_key[("rcv.local", 6055)].status is PeerStatus.APPROVED
 
 
 # ---------------------------------------------------------------------------
@@ -1176,7 +1233,7 @@ async def test_unpair_fires_offloader_pair_status_changed_removed(
     Mirrors how the receiver-side ``remove_peer`` fires
     ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` — other clients on the
     global ``subscribe_events`` stream see the removal without
-    polling :meth:`list_pairings`.
+    re-fetching the pairings snapshot.
     """
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
