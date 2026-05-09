@@ -187,7 +187,7 @@ Receiver-side surface for the remote-build offload feature (issue #106). The das
 
 ### Pairing auth flow (Noise XX, phase 4 target)
 
-Pairing is a two-side flow, but in the typical case both sides are operated by the same user with two dashboards open in different tabs (HA addon + ESPHome Desktop, two HA instances they own, etc.). The trust model already concentrates authority on each side: anyone with shell-level access to either dashboard's `<config_dir>` can read or rotate the X25519 peer-link keypair, mint pair_requests, or accept them, so distributing pair-time authority across multiple humans only makes sense when they're already shell co-administrators of the same deployment. The flow is open the receiver's Pairing requests screen in one tab, click Pair on the offloader in another, OOB-confirm the pin matches both UIs, click Accept back on the receiver. The two-operator case (a shared deployment) is supported and uses the same protocol; it just means switching tabs becomes "ask my colleague to look at theirs."
+Pairing is a two-side flow, but in the typical case both sides are operated by the same user with two dashboards open in different tabs (HA add-on + ESPHome Desktop, two HA instances they own, etc.). The trust model already concentrates authority on each side: anyone with shell-level access to either dashboard's `<config_dir>` can read or rotate the X25519 peer-link keypair, mint pair_requests, or accept them, so distributing pair-time authority across multiple humans only makes sense when they're already shell co-administrators of the same deployment. The flow is: open the receiver's Pairing requests screen in one tab, click Pair on the offloader in another, OOB-confirm the pin matches both UIs, click Accept back on the receiver. The two-operator case (a shared deployment) is supported and uses the same protocol; it just means switching tabs becomes "ask my colleague to look at theirs."
 
 Out-of-band pin verification defeats a LAN MITM at first contact (the only window where pinning hasn't established trust yet); the **pairing window** narrows when new requests are even accepted (only while the Pairing requests screen on the receiving dashboard is mounted) so an idle receiver doesn't accumulate inbox noise from arbitrary LAN scanners. Already-approved peers connect anytime for real builds; the window only gates new pair_requests.
 
@@ -213,7 +213,7 @@ sequenceDiagram
     participant OB as Offloader backend
     participant RB as Receiver backend
     participant RF as Receiver frontend
-    participant RU as Receiver admin
+    participant RU as Receiver user
 
     RU->>RF: open Pairing requests screen
     RF->>RB: set_pairing_window open=true
@@ -255,7 +255,7 @@ sequenceDiagram
 
 **Why two Noise handshakes for one pairing.** The preview handshake (step 3) captures the receiver's static pubkey for OOB display *before* the offloader has decided to trust this receiver; the WS closes immediately, no application data crosses the wire. The pair-request handshake (step 5) is a fresh handshake that re-binds the OOB-confirmed pin (defends against TOCTOU between preview and confirm: if the pubkey-hash on the second handshake doesn't match `pin_sha256` from preview, the offloader aborts). Re-handshakes are cheap because Noise's setup cost is negligible at this cadence (pair flows are rare, not a hot path).
 
-**Why polling instead of a long-held WS.** The offloader's `request_pair` returns immediately with `pending`; the offloader's frontend polls `list_pool` every 5s while a pending row is visible. The alternative (a long-held WS frame waiting for the admin to click Accept) fails on idle timeouts (load-balancer, HA addon ingress, offloader process restart) and forces the receiver to track stale connections across approval. Polling makes each interaction self-contained; a 2s server-side debounce on the offloader backend caches the receiver-side status to prevent cross-tab amplification.
+**Why polling instead of a long-held WS.** The offloader's `request_pair` returns immediately with `pending`; the offloader's frontend polls `list_pool` every 5s while a pending row is visible. The alternative (a long-held WS frame waiting for the admin to click Accept) fails on idle timeouts (load-balancer, HA add-on ingress, offloader process restart) and forces the receiver to track stale connections across approval. Polling makes each interaction self-contained; a 2s server-side debounce on the offloader backend caches the receiver-side status to prevent cross-tab amplification.
 
 **Identity rotation.** The peer-link X25519 keypair has its own rotation lifecycle (`rotate_peer_link_identity`), independent of the phase-3a Ed25519 cert. Rotating the 3a cert does NOT change the X25519 pubkey; only `rotate_peer_link_identity` does. When an admin rotates, the `dashboard_id` stays stable but `pin_sha256` changes; every paired peer sees a `pin_mismatch` event on the next handshake and has to re-pair (this is the desired behaviour for "operator suspects compromise"). The separate-keypair design was decided during PR #472 review: the alternative (deriving X25519 from Ed25519 via libsodium-style `crypto_sign_ed25519_sk_to_curve25519`) adds non-trivial code for no benefit pre-release, and an implicit cascade would hide a security-relevant rotation event behind a routine cert renewal.
 
