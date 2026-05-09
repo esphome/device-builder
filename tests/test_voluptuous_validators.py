@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 import voluptuous as vol
 
-from esphome_device_builder.helpers.voluptuous_validators import not_bool
+from esphome_device_builder.helpers.voluptuous_validators import lowercase_hex, not_bool
 
 
 def test_not_bool_rejects_true() -> None:
@@ -55,3 +55,48 @@ def test_not_bool_chains_with_int_range() -> None:
     assert schema(6055) == 6055
     with pytest.raises(vol.Invalid):
         schema(70000)
+
+
+def test_lowercase_hex_accepts_canonical_hash() -> None:
+    schema = vol.Schema(lowercase_hex(64))
+    assert schema("a" * 64) == "a" * 64
+    assert schema("0123456789abcdef" * 4) == "0123456789abcdef" * 4
+
+
+def test_lowercase_hex_rejects_uppercase() -> None:
+    schema = vol.Schema(lowercase_hex(64))
+    with pytest.raises(vol.Invalid):
+        schema("A" * 64)
+    with pytest.raises(vol.Invalid):
+        schema("0123456789ABCDEF" * 4)
+
+
+def test_lowercase_hex_rejects_non_hex_alphabet() -> None:
+    """Right length, wrong alphabet (``z`` is outside [0-9a-f])."""
+    schema = vol.Schema(lowercase_hex(64))
+    with pytest.raises(vol.Invalid):
+        schema("z" * 64)
+
+
+def test_lowercase_hex_rejects_wrong_length() -> None:
+    schema = vol.Schema(lowercase_hex(64))
+    with pytest.raises(vol.Invalid):
+        schema("a" * 63)
+    with pytest.raises(vol.Invalid):
+        schema("a" * 65)
+
+
+def test_lowercase_hex_rejects_non_string() -> None:
+    schema = vol.Schema(lowercase_hex(64))
+    with pytest.raises(vol.Invalid):
+        schema(b"a" * 64)
+
+
+def test_lowercase_hex_factory_parametric() -> None:
+    """The length is parametric so callers can validate other digest sizes."""
+    schema_8 = vol.Schema(lowercase_hex(8))  # config_hash shape
+    assert schema_8("deadbeef") == "deadbeef"
+    with pytest.raises(vol.Invalid):
+        schema_8("deadbeef0")  # too long
+    with pytest.raises(vol.Invalid):
+        schema_8("DEADBEEF")  # uppercase

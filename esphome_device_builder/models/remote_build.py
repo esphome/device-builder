@@ -9,7 +9,7 @@ from typing import Literal, TypedDict
 import voluptuous as vol
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
-from ..helpers.voluptuous_validators import not_bool
+from ..helpers.voluptuous_validators import lowercase_hex, not_bool
 
 
 class RemoteBuildPeerSource(StrEnum):
@@ -343,15 +343,12 @@ _PAIRING_VALIDATOR = vol.Schema(
         # without the explicit reject, ``receiver_port=True`` would pass
         # as port 1.
         vol.Required("receiver_port"): vol.All(not_bool, int, vol.Range(min=1, max=65535)),
-        # Lowercase-hex SHA-256: 64 chars from ``[0-9a-f]``. The regex
-        # is anchored so a non-hex char anywhere in the string fails;
-        # the explicit length is redundant with the regex's
-        # ``{64}`` quantifier but kept as a defensive belt — a future
-        # regex tweak that accidentally widens the alphabet still
-        # gets caught by the length check.
-        vol.Required("pin_sha256"): vol.All(
-            str, vol.Length(min=64, max=64), vol.Match(r"^[0-9a-f]{64}$")
-        ),
+        # Lowercase-hex SHA-256: 64 chars from ``[0-9a-f]``. Factory
+        # in ``helpers/voluptuous_validators.py`` so the same shape
+        # can be reused by the future ``StoredPeer`` validator (issue
+        # #106 follow-up) and the 4a-o parts 2-3 WS-command
+        # validators without drifting.
+        vol.Required("pin_sha256"): lowercase_hex(64),
         # ``static_x25519_pub`` is the raw X25519 pubkey — exactly 32
         # bytes per RFC 7748 §5.
         vol.Required("static_x25519_pub"): vol.All(bytes, vol.Length(min=32, max=32)),
