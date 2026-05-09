@@ -265,7 +265,7 @@ Renaming or recoloring a label leaves device assignments untouched — devices r
 
 > Controller: [`RemoteBuildController`](../esphome_device_builder/controllers/remote_build.py)
 >
-> Models: [`RemoteBuildSettingsView`](../esphome_device_builder/models/remote_build.py), [`RemoteBuildPeer`](../esphome_device_builder/models/remote_build.py), [`ManualHost`](../esphome_device_builder/models/remote_build.py), [`TokenSummary`](../esphome_device_builder/models/remote_build.py)
+> Models: [`RemoteBuildSettingsView`](../esphome_device_builder/models/remote_build.py), [`RemoteBuildPeer`](../esphome_device_builder/models/remote_build.py), [`ManualHost`](../esphome_device_builder/models/remote_build.py), [`TokenSummary`](../esphome_device_builder/models/remote_build.py), [`IdentityView`](../esphome_device_builder/models/remote_build.py)
 
 Receiver-side surface for the remote-build offload feature (issue #106). Discovers peer dashboards via mDNS (`_esphomebuilder._tcp.local.`), lets the user add manual peers for cross-subnet LANs, and issues bearer tokens that paired offloaders present to the receiver's HTTPS listener (the listener itself lands in phase 3b2). Settings persist in `.device-builder.json` under `_remote_build`.
 
@@ -279,6 +279,8 @@ Receiver-side surface for the remote-build offload feature (issue #106). Discove
 | `remote_build/list_tokens` | — | `[TokenSummary]` | Issued bearer tokens, projected to omit the secret hash. |
 | `remote_build/add_token` | `{label, token_id, secret_sha256}` | `TokenSummary` | Register a client-generated bearer. **The frontend generates `token_id` + cleartext secret locally** and submits only `SHA-256(secret)`; the cleartext bearer never crosses the wire to the backend. Label 1-128 chars; `token_id` is base64url, **exactly 11 chars** (the textual form of 8 random bytes from `crypto.getRandomValues(new Uint8Array(8))`); `secret_sha256` is 64 lowercase hex chars. Duplicate labels allowed; duplicate `token_id` rejected with `already_exists`. |
 | `remote_build/remove_token` | `{token_id}` | `RemoteBuildSettingsView` | Revoke a token. Unknown / blank `token_id` raises `not_found` / `invalid_args` respectively. |
+| `remote_build/get_identity` | — | `IdentityView` | Read the receiver's stable identity: `{dashboard_id, pin_sha256, server_version, esphome_version}`. The cert + key PEMs are intentionally NOT included; only the SPKI fingerprint (`pin_sha256`, lowercase hex) is safe to ship. Idempotent (no rotation triggered). |
+| `remote_build/rotate_identity` | — | `IdentityView` | Mint a fresh cert + key pair, replacing whatever's on disk. Forces every paired offloader to re-pair: the new SPKI produces a new `pin_sha256`. `dashboard_id` is preserved across rotations (stable identity; only the cert changes). If remote-build is currently bound, the live listener is rebuilt against the new cert; the mDNS advertise picks up the new pin either way so peers re-browsing see the rotation. |
 
 **Bearer wire format**: `{token_id}.{secret}` where `token_id` is the lookup key (the textual form of 8 random bytes after base64url encoding — exactly 11 chars, validated strictly by the backend) and `secret` is the verification value (32 random bytes after base64url encoding — 43 chars). The auth middleware splits on `.`, looks up by `token_id`, and `hmac.compare_digest`s `SHA-256(secret)` against the stored hash.
 

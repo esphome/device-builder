@@ -46,6 +46,7 @@ from esphome_device_builder.device_builder import (
 from esphome_device_builder.helpers.dashboard_identity import (
     _CERT_FILENAME,
     get_or_create_identity,
+    rotate_certificate,
 )
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.helpers.remote_build_auth import (
@@ -616,3 +617,95 @@ async def test_maybe_start_remote_build_site_warns_on_ha_addon(
                 await db._remote_build_runner.cleanup()
     warnings = [r for r in caplog.records if "HA addon" in r.getMessage()]
     assert warnings, "expected an HA-addon warning"
+
+
+@pytest.mark.asyncio
+async def test_reload_remote_build_identity_no_op_when_listener_unbound(
+    tmp_path: Path,
+) -> None:
+    """
+    Rotation when the listener isn't bound: pin push only, no rebuild.
+
+    A user can rotate from the Settings UI even with
+    remote-build disabled — the new pin should still propagate
+    to mDNS (so peers re-browsing see the rotation), but
+    there's no listener to rebuild.
+    """
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+    advertiser = MagicMock()
+    advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = advertiser
+    db._remote_build_runner = None
+
+    loop = asyncio.get_running_loop()
+    identity = await loop.run_in_executor(None, get_or_create_identity, tmp_path)
+
+    await db.reload_remote_build_identity(identity)
+
+    advertiser.set_pin_sha256.assert_called_once_with(identity.pin_sha256)
+    advertiser.refresh.assert_awaited_once()
+    assert db._remote_build_runner is None
+
+
+@pytest.mark.asyncio
+async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) -> None:
+    """
+    Rotation while the listener is bound: tear down + rebuild against the new cert.
+
+    Pins that the live socket picks up the rotated cert without
+    a dashboard restart. Done by checking that the runner ID
+    changes across the call (a fresh ``AppRunner`` is built).
+    """
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build = MagicMock()
+    db.remote_build.lookup_token = MagicMock(return_value=None)
+
+    try:
+        await db._maybe_start_remote_build_site()
+        assert db._remote_build_runner is not None
+        first_runner = db._remote_build_runner
+
+        # Rotate the cert + key on disk so the rebuild loads
+        # the new identity.
+        new_identity = await loop.run_in_executor(None, rotate_certificate, tmp_path)
+        await db.reload_remote_build_identity(new_identity)
+
+        # Listener was rebuilt — different ``AppRunner`` instance.
+        assert db._remote_build_runner is not None
+        assert db._remote_build_runner is not first_runner
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallowed(
+    tmp_path: Path,
+) -> None:
+    """A flaky mDNS refresh during rotation must not raise out of the helper."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+    advertiser = MagicMock()
+    advertiser.refresh = AsyncMock(side_effect=RuntimeError("zeroconf wedged"))
+    db._dashboard_advertiser = advertiser
+    db._remote_build_runner = None
+
+    loop = asyncio.get_running_loop()
+    identity = await loop.run_in_executor(None, get_or_create_identity, tmp_path)
+
+    # Must not raise — fail-soft contract on the refresh tick.
+    await db.reload_remote_build_identity(identity)
+    advertiser.set_pin_sha256.assert_called_once_with(identity.pin_sha256)

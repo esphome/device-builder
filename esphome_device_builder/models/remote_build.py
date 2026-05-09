@@ -154,3 +154,29 @@ class RemoteBuildPeer(DataClassORJSONMixin):
     addresses: list[str] = field(default_factory=list)
     server_version: str = ""
     esphome_version: str = ""
+
+
+@dataclass
+class IdentityView(DataClassORJSONMixin):
+    """
+    Receiver-side dashboard identity, projected for the Settings UI.
+
+    Returned from ``remote_build/get_identity`` and
+    ``remote_build/rotate_identity``. The cert + key PEMs are
+    intentionally NOT included: only the ``pin_sha256`` (the
+    SHA-256 of the cert's SubjectPublicKeyInfo, lowercase hex) is
+    safe to ship, and the cert PEM itself adds nothing the
+    fingerprint doesn't already let an offloader pin against.
+
+    ``server_version`` is this dashboard's package version;
+    ``esphome_version`` is the bundled esphome's. Both are also
+    advertised in mDNS TXT (see :class:`DashboardAdvertiser`),
+    but the Settings UI doesn't browse mDNS to render its own
+    "Build host" card — surfacing them here keeps the card a
+    single WS call.
+    """
+
+    dashboard_id: str
+    pin_sha256: str
+    server_version: str
+    esphome_version: str

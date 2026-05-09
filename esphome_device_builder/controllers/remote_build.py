@@ -56,13 +56,17 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from esphome.const import __version__ as esphome_version
 from zeroconf import IPVersion, ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
+from ..constants import __version__ as server_version
 from ..helpers.api import CommandError, api_command
 from ..helpers.dashboard_advertise import SERVICE_TYPE
+from ..helpers.dashboard_identity import get_or_create_identity, rotate_certificate
 from ..models import (
     ErrorCode,
+    IdentityView,
     ManualHost,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
@@ -75,6 +79,7 @@ from .config import load_remote_build_settings, remote_build_settings_transactio
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
+    from ..helpers.dashboard_identity import DashboardIdentity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -862,3 +867,76 @@ class RemoteBuildController:
             settings.tokens = kept
 
         return await self._modify_settings(_remove)
+
+    # ------------------------------------------------------------------
+    # Identity (phase 3c1) — surface the receiver's own dashboard_id +
+    # cert pin to the Settings UI without making it reach into the
+    # cert PEM directly. Rotation lives next door so the "rotate"
+    # button can land in the same controller.
+    # ------------------------------------------------------------------
+
+    @api_command("remote_build/get_identity")
+    async def get_identity(self, **kwargs: Any) -> IdentityView:
+        """
+        Return this dashboard's stable identity (id + cert pin + versions).
+
+        Reads the persistent identity via
+        :func:`helpers.dashboard_identity.get_or_create_identity`
+        (idempotent — if the cert + key pair is missing it gets
+        generated, but we expect the dashboard's startup to have
+        already done that). The cert + key PEMs themselves are
+        intentionally NOT returned; only the SPKI fingerprint
+        (``pin_sha256``) is safe to ship to a frontend, and the
+        fingerprint is what an offloader pins against anyway.
+
+        ``server_version`` and ``esphome_version`` ride on the
+        same response so the Settings UI can render the "Build
+        host" card from a single WS call instead of hopping
+        through the existing ``firmware/get_versions``-style
+        commands.
+        """
+        loop = asyncio.get_running_loop()
+        identity = await loop.run_in_executor(
+            None, get_or_create_identity, self._db.settings.config_dir
+        )
+        return _identity_view(identity)
+
+    @api_command("remote_build/rotate_identity")
+    async def rotate_identity(self, **kwargs: Any) -> IdentityView:
+        """
+        Mint a fresh cert + key pair, replacing whatever's on disk.
+
+        Forces every paired offloader to re-pair: the new SPKI
+        produces a new ``pin_sha256``, and any peer that pinned
+        the old one will see a fingerprint mismatch on the next
+        TLS handshake (peer-link work in phase 5+ surfaces this
+        through a re-verify wizard). The ``dashboard_id`` is
+        preserved so the receiver-side audit trail stays
+        readable across rotations.
+
+        Side effects: the in-process cert / key on the running
+        listener is replaced (the bound TCP site is rebuilt
+        with the new SSL context if remote-build is currently
+        enabled and bound). The mDNS advertise picks up the new
+        ``pin_sha256`` either way so peers that re-browse see
+        the rotation even if the listener wasn't bound.
+        """
+        loop = asyncio.get_running_loop()
+        identity = await loop.run_in_executor(
+            None, rotate_certificate, self._db.settings.config_dir
+        )
+        # Hand the new identity to the dashboard so the bound
+        # listener (if any) can rebuild against the new cert and
+        # the mDNS advertise picks up the new pin.
+        await self._db.reload_remote_build_identity(identity)
+        return _identity_view(identity)
+
+
+def _identity_view(identity: DashboardIdentity) -> IdentityView:
+    """Project a :class:`DashboardIdentity` into the wire shape."""
+    return IdentityView(
+        dashboard_id=identity.dashboard_id,
+        pin_sha256=identity.pin_sha256,
+        server_version=server_version,
+        esphome_version=esphome_version,
+    )

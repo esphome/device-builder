@@ -815,6 +815,48 @@ class DeviceBuilder:
                 identity.pin_sha256_formatted,
             )
 
+    async def reload_remote_build_identity(self, identity: DashboardIdentity) -> None:
+        """
+        Apply a freshly-rotated identity: rebuild the listener + push the new pin.
+
+        Called by ``RemoteBuildController.rotate_identity`` (phase
+        3c1) right after :func:`rotate_certificate` writes the new
+        cert + key to disk. Three side effects, in order:
+
+        * mDNS pin update — even if the listener isn't currently
+          bound, paired peers re-browsing should see the new pin
+          so they know a rotation happened. Fires before the
+          listener teardown so the wire shape catches up early.
+        * Listener teardown — the bound runner is still serving
+          the OLD cert from its cached SSL context. Without a
+          rebuild, an offloader connecting between rotation and
+          the next dashboard restart would still TLS-pin against
+          the old cert.
+        * Listener rebuild — re-runs the same path
+          ``_maybe_start_remote_build_site`` does at startup, which
+          loads the (now-rotated) identity and stages it through a
+          fresh SSL context. Fail-soft: a rebuild failure leaves
+          the dashboard running without a receiver listener (same
+          contract as the initial bind).
+
+        No-op when there's no advertiser AND no runner — the
+        rotation already landed on disk; future starts will pick
+        up the new state.
+        """
+        if self._dashboard_advertiser is not None:
+            self._dashboard_advertiser.set_pin_sha256(identity.pin_sha256)
+            with contextlib.suppress(Exception):
+                await self._dashboard_advertiser.refresh()
+
+        if self._remote_build_runner is None:
+            return
+
+        old_runner = self._remote_build_runner
+        self._remote_build_runner = None
+        with contextlib.suppress(Exception):
+            await old_runner.cleanup()
+        await self._maybe_start_remote_build_site()
+
     def _on_remote_build_binding_mismatch(self, mismatch: BindingMismatch) -> None:
         """
         Fire a ``REMOTE_BUILD_BINDING_MISMATCH`` event for the receiver UI.

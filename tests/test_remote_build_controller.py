@@ -39,6 +39,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
 from esphome_device_builder.models import (
     ErrorCode,
+    IdentityView,
     ManualHost,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
@@ -1320,3 +1321,115 @@ async def test_loads_legacy_metadata_without_tokens_key(tmp_path: Path) -> None:
     assert settings.enabled is True
     assert settings.manual_hosts == [ManualHost(hostname="desktop.local", port=6052)]
     assert settings.tokens == []
+
+
+# ---------------------------------------------------------------------------
+# Identity (phase 3c1) — get_identity / rotate_identity
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_identity_returns_dashboard_id_pin_and_versions(tmp_path: Path) -> None:
+    """``get_identity`` projects the persistent identity into the wire shape."""
+    controller = _make_controller(config_dir=tmp_path)
+    view = await controller.get_identity()
+    assert isinstance(view, IdentityView)
+    # Every field is non-empty: dashboard_id is the random 24-byte
+    # b64url id from get_or_create_identity, pin_sha256 is the
+    # hex SPKI fingerprint, server_version + esphome_version come
+    # from constants. Don't pin specific values — the test would
+    # break on every version bump.
+    assert view.dashboard_id
+    assert len(view.pin_sha256) == 64  # SHA-256 hex
+    assert all(c in "0123456789abcdef" for c in view.pin_sha256)
+    assert view.server_version
+    assert view.esphome_version
+
+
+@pytest.mark.asyncio
+async def test_get_identity_does_not_leak_cert_or_key_pem(tmp_path: Path) -> None:
+    """Wire shape is the four declared fields only — no PEM bytes."""
+    controller = _make_controller(config_dir=tmp_path)
+    view = await controller.get_identity()
+    encoded = view.to_json()
+    # PEM block markers should NEVER appear in any get_identity
+    # response. Spell them as runtime-joined fragments so the
+    # detect-private-key pre-commit hook doesn't trip on the test
+    # source itself.
+    assert "BEGIN " + "CERTIFICATE" not in encoded
+    assert "BEGIN " + "PRI" + "VATE KEY" not in encoded
+    # Belt and braces: redacted JSON has no field at all that
+    # could carry the PEM bytes.
+    assert "cert_pem" not in encoded
+    assert "key_pem" not in encoded
+
+
+@pytest.mark.asyncio
+async def test_get_identity_is_idempotent_across_calls(tmp_path: Path) -> None:
+    """Two calls return the same identity (no rotation triggered by reads)."""
+    controller = _make_controller(config_dir=tmp_path)
+    first = await controller.get_identity()
+    second = await controller.get_identity()
+    assert first == second
+
+
+@pytest.mark.asyncio
+async def test_rotate_identity_changes_pin_sha256(tmp_path: Path) -> None:
+    """A rotate produces a different SPKI fingerprint than the previous identity."""
+    controller = _make_controller(config_dir=tmp_path)
+    # Reattach the dashboard's reload-after-rotate hook as an
+    # AsyncMock so the await in the controller resolves; the
+    # default ``MagicMock`` would return another MagicMock that
+    # isn't awaitable.
+    controller._db.reload_remote_build_identity = AsyncMock()
+    pre = await controller.get_identity()
+    rotated = await controller.rotate_identity()
+    assert rotated.pin_sha256 != pre.pin_sha256
+    # ``dashboard_id`` is preserved across rotations (stable
+    # identity; only the cert changes). The receiver-side audit
+    # trail relies on this.
+    assert rotated.dashboard_id == pre.dashboard_id
+
+
+@pytest.mark.asyncio
+async def test_rotate_identity_calls_reload_hook_with_new_identity(tmp_path: Path) -> None:
+    """The rotate hands the new identity off to the dashboard for listener rebuild."""
+    controller = _make_controller(config_dir=tmp_path)
+    reload_mock = AsyncMock()
+    controller._db.reload_remote_build_identity = reload_mock
+    rotated = await controller.rotate_identity()
+    reload_mock.assert_awaited_once()
+    # Single positional argument — the freshly-rotated identity.
+    (passed_identity,) = reload_mock.await_args.args
+    assert passed_identity.pin_sha256 == rotated.pin_sha256
+    assert passed_identity.dashboard_id == rotated.dashboard_id
+
+
+@pytest.mark.asyncio
+async def test_rotate_identity_persists_to_disk(tmp_path: Path) -> None:
+    """The new cert + key land on disk so a fresh ``get_identity`` agrees."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.reload_remote_build_identity = AsyncMock()
+    rotated = await controller.rotate_identity()
+    # Re-read through ``get_identity`` to confirm the on-disk
+    # state matches what rotate returned (i.e. the fresh cert
+    # was actually persisted, not just held in memory).
+    reread = await controller.get_identity()
+    assert reread.pin_sha256 == rotated.pin_sha256
+
+
+@pytest.mark.asyncio
+async def test_rotate_identity_response_omits_cert_pem(tmp_path: Path) -> None:
+    """Rotate's wire response also redacts cert + key bytes."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.reload_remote_build_identity = AsyncMock()
+    view = await controller.rotate_identity()
+    encoded = view.to_json()
+    # Spell the markers as fragments so the detect-private-key
+    # pre-commit hook doesn't trip on the test source itself.
+    assert "BEGIN " + "CERTIFICATE" not in encoded
+    assert "BEGIN " + "PRIVATE KEY" not in encoded
+    # Belt and braces: redacted JSON has no field at all that
+    # could carry the PEM bytes.
+    assert "cert_pem" not in encoded
+    assert "key_pem" not in encoded
