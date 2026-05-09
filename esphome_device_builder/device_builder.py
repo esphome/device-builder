@@ -988,7 +988,7 @@ class DeviceBuilder:
                 None, get_or_create_peer_link_identity, self.settings.config_dir
             )
             app = web.Application(middlewares=[_strip_server_header_middleware])
-            handler = await make_peer_link_handler(self.remote_build)
+            handler = await make_peer_link_handler(self.remote_build, self.settings.config_dir)
             app.router.add_get(PEER_LINK_PATH, handler)
 
             runner = web.AppRunner(app)

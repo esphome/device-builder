@@ -317,7 +317,7 @@ async def peer_link_app(
     identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, tmp_path)
 
     app = web.Application()
-    handler = await make_peer_link_handler(controller)
+    handler = await make_peer_link_handler(controller, tmp_path)
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     client = TestClient(server)

@@ -44,6 +44,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import WSMsgType, web
@@ -94,6 +95,7 @@ _HANDSHAKE_READ_TIMEOUT_SECONDS = 10.0
 
 async def make_peer_link_handler(
     controller: RemoteBuildController,
+    config_dir: Path,
 ) -> Callable[[web.Request], Awaitable[web.WebSocketResponse]]:
     """
     Build the aiohttp handler for ``/remote-build/peer-link``.
@@ -105,11 +107,16 @@ async def make_peer_link_handler(
     hop on every handshake. Identity is stable for the process
     lifetime; rotation tears down + rebuilds the runner, which
     re-enters this factory.
+
+    ``config_dir`` is passed in explicitly rather than read off
+    the controller's private ``_db`` chain — the caller
+    (``DeviceBuilder._build_and_start_remote_build_runner``)
+    already has it in hand, and a sibling module reaching
+    through ``controller._db.settings.config_dir`` would be
+    a single-leading-underscore boundary violation.
     """
     loop = asyncio.get_running_loop()
-    identity = await loop.run_in_executor(
-        None, get_or_create_peer_link_identity, controller._db.settings.config_dir
-    )
+    identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, config_dir)
     identity_priv = identity.private_bytes
 
     async def handler(request: web.Request) -> web.WebSocketResponse:
