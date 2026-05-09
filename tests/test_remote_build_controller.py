@@ -103,6 +103,10 @@ def _make_controller(*, config_dir: Path, real_bus: bool = False) -> RemoteBuild
     # downstream; an explicit signature beats the silent failure
     # mode.
     db.settings.config_dir = config_dir
+    # ``set_settings`` calls ``apply_remote_build_enabled`` to
+    # live-rebind the listener; in-process tests don't exercise
+    # the bind path so a no-op AsyncMock is sufficient.
+    db.apply_remote_build_enabled = AsyncMock(return_value=False)
     if real_bus:
         # Long-poll tests for ``lookup_peer_for_status`` exercise the
         # bus.listening machinery for real (a MagicMock bus would

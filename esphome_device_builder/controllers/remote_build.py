@@ -1051,13 +1051,14 @@ class RemoteBuildController:
         the opposite of what the user intended on a security-
         sensitive toggle.
 
-        **Listener bind requires restart.** The peer-link Noise WS
-        listener is bound once in :meth:`DeviceBuilder.start` based
-        on the value at startup; flipping ``enabled`` here persists
-        the new value but does NOT live-rebind. The frontend should
-        surface a "restart required" hint to the operator. A future
-        PR can wire ``set_settings`` into the lifecycle hooks if
-        interactive toggling becomes a real UX concern.
+        Live-rebinds the peer-link Noise WS listener after the
+        write lands: a flip to ``True`` runs the same bind path
+        :meth:`DeviceBuilder._maybe_start_remote_build_site` does
+        at startup; a flip to ``False`` tears down the runner and
+        clears the mDNS pin/port advertise. Fail-soft on bind error
+        — the dashboard keeps running without a listener and a
+        subsequent ``set_settings`` retry can clear a transient
+        port conflict without a restart.
         """
         if not isinstance(enabled, bool):
             msg = "remote_build/set_settings: 'enabled' must be a boolean"
@@ -1066,7 +1067,9 @@ class RemoteBuildController:
         def _set(settings: RemoteBuildSettings) -> None:
             settings.enabled = enabled
 
-        return await self._modify_settings(_set)
+        view = await self._modify_settings(_set)
+        await self._db.apply_remote_build_enabled()
+        return view
 
     # ------------------------------------------------------------------
     # Manual hosts (phase 2b)

@@ -29,6 +29,7 @@ from esphome_device_builder.controllers.config import (
     DashboardSettings,
     remote_build_settings_transaction,
 )
+from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.device_builder import (
     DeviceBuilder,
     _strip_server_header_middleware,
@@ -37,6 +38,7 @@ from esphome_device_builder.helpers.dashboard_identity import (
     get_or_create_identity,
     rotate_certificate,
 )
+from esphome_device_builder.helpers.event_bus import EventBus
 
 
 @pytest.mark.asyncio
@@ -481,3 +483,161 @@ async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallo
     advertiser.set_pin_sha256.assert_called_once_with(None)
     advertiser.set_remote_build_port.assert_called_once_with(None)
     assert listener_bound is False
+
+
+# ---------------------------------------------------------------------------
+# Live-toggle: ``RemoteBuildController.set_settings`` calls
+# ``DeviceBuilder.apply_remote_build_enabled`` after persisting, so
+# flipping ``enabled`` doesn't require a dashboard restart.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_apply_remote_build_enabled_binds_when_disk_says_true(tmp_path: Path) -> None:
+    """Convergence: disk ``enabled=True`` + listener absent → bind."""
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
+
+    try:
+        bound = await db.apply_remote_build_enabled()
+        assert bound is True
+        assert db._remote_build_runner is not None
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_apply_remote_build_enabled_tears_down_when_disk_says_false(
+    tmp_path: Path,
+) -> None:
+    """Convergence: disk ``enabled=False`` + listener bound → teardown + advertiser clear."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+
+    advertiser = MagicMock()
+    advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = advertiser
+
+    # Fake a bound runner without standing up a real socket.
+    old_runner = MagicMock()
+    old_runner.cleanup = AsyncMock()
+    db._remote_build_runner = old_runner
+
+    advertiser.unregister = AsyncMock()
+
+    bound = await db.apply_remote_build_enabled()
+
+    assert bound is False
+    assert db._remote_build_runner is None
+    old_runner.cleanup.assert_awaited_once()
+    # mDNS pin + port both cleared so peers re-browsing don't try
+    # to connect to a port that's no longer serving traffic.
+    advertiser.set_pin_sha256.assert_called_once_with(None)
+    advertiser.set_remote_build_port.assert_called_once_with(None)
+    # Pin the "TXT update, not unregister" contract — peer caches
+    # mustn't see the dashboard service disappear and reappear
+    # when we just want to drop pin/port from the TXT.
+    advertiser.refresh.assert_awaited_once()
+    advertiser.unregister.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_remote_build_enabled_idempotent_when_already_off(tmp_path: Path) -> None:
+    """Disk ``enabled=False`` + listener absent → no-op (no advertiser touch)."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    advertiser = MagicMock()
+    advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = advertiser
+    db._remote_build_runner = None
+
+    bound = await db.apply_remote_build_enabled()
+
+    assert bound is False
+    assert db._remote_build_runner is None
+    advertiser.set_pin_sha256.assert_not_called()
+    advertiser.set_remote_build_port.assert_not_called()
+    advertiser.refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_remote_build_enabled_idempotent_when_already_on(tmp_path: Path) -> None:
+    """Disk ``enabled=True`` + listener bound → no-op (no rebind, no advertiser churn)."""
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
+
+    try:
+        await db._maybe_start_remote_build_site()
+        original_runner = db._remote_build_runner
+        assert original_runner is not None
+
+        bound = await db.apply_remote_build_enabled()
+
+        assert bound is True
+        # No rebind — the same runner instance is still serving.
+        assert db._remote_build_runner is original_runner
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_set_settings_live_rebinds_listener(tmp_path: Path) -> None:
+    """End-to-end: ``set_settings(enabled=True)`` flips disk + binds the listener."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.bus = EventBus()
+    # ``RemoteBuildController.__init__`` builds a per-file Store
+    # under ``config_dir / .offloader_pairings.json``; needs a
+    # real Path (tmp_path is fine).
+    db.remote_build = None  # not needed — controller doesn't read it
+    controller = RemoteBuildController(db)
+    db.remote_build = controller
+    # Wire the controller's mDNS-advertiser hook to a no-op.
+    db._dashboard_advertiser = None
+
+    try:
+        view = await controller.set_settings(enabled=True)
+        assert view.enabled is True
+        # Listener bound as a side effect of set_settings.
+        assert db._remote_build_runner is not None
+
+        view = await controller.set_settings(enabled=False)
+        assert view.enabled is False
+        # Listener torn down as a side effect.
+        assert db._remote_build_runner is None
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()
