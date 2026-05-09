@@ -329,19 +329,39 @@ _PAIRING_VALIDATOR = vol.Schema(
     {
         # RFC 1035 §2.3.4 caps a fully-qualified domain name at 253
         # characters; round up to 255 to leave room for trailing-dot
-        # variations.
-        vol.Required("receiver_hostname"): vol.All(str, vol.Length(min=1, max=255)),
+        # variations. The ``\S`` requirement rejects whitespace-only
+        # values that would otherwise pass ``Length(min=1)`` —
+        # storing a hostname that can't resolve is worse than
+        # rejecting at write time. Normalisation (strip + lowercase)
+        # is the WS-command validator's job; the storage seam just
+        # rejects malformed rows.
+        vol.Required("receiver_hostname"): vol.All(
+            str, vol.Length(min=1, max=255), vol.Match(r"\S")
+        ),
         # :func:`not_bool` first because voluptuous's ``int`` check
         # accepts ``bool`` (Python's ``isinstance(True, int)`` is true) —
         # without the explicit reject, ``receiver_port=True`` would pass
         # as port 1.
         vol.Required("receiver_port"): vol.All(not_bool, int, vol.Range(min=1, max=65535)),
-        vol.Required("pin_sha256"): vol.All(str, vol.Length(min=64, max=64)),
+        # Lowercase-hex SHA-256: 64 chars from ``[0-9a-f]``. The regex
+        # is anchored so a non-hex char anywhere in the string fails;
+        # the explicit length is redundant with the regex's
+        # ``{64}`` quantifier but kept as a defensive belt — a future
+        # regex tweak that accidentally widens the alphabet still
+        # gets caught by the length check.
+        vol.Required("pin_sha256"): vol.All(
+            str, vol.Length(min=64, max=64), vol.Match(r"^[0-9a-f]{64}$")
+        ),
         # ``static_x25519_pub`` is the raw X25519 pubkey — exactly 32
         # bytes per RFC 7748 §5.
         vol.Required("static_x25519_pub"): vol.All(bytes, vol.Length(min=32, max=32)),
         vol.Required("label"): vol.All(str, vol.Length(max=128)),
-        vol.Required("paired_at"): vol.Any(int, float),
+        # ``vol.All(not_bool, ...)`` rather than ``vol.Any(int, float,
+        # not_bool)`` because ``Any`` short-circuits on the first
+        # accepting branch — ``int`` would accept ``True``
+        # (``isinstance(True, int)`` is true) before ever reaching the
+        # bool reject. Run ``not_bool`` first, then assert int-or-float.
+        vol.Required("paired_at"): vol.All(not_bool, vol.Any(int, float)),
         vol.Required("status"): PeerStatus,
     }
 )

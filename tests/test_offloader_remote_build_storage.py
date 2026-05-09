@@ -78,6 +78,12 @@ def test_stored_pairing_rejects_oversize_hostname() -> None:
         _valid_pairing(receiver_hostname="x" * 256)
 
 
+def test_stored_pairing_rejects_whitespace_only_hostname() -> None:
+    """``"   "`` passes ``Length(min=1)`` but is unresolvable; reject pre-store."""
+    with pytest.raises(ValueError, match="receiver_hostname"):
+        _valid_pairing(receiver_hostname="   ")
+
+
 def test_stored_pairing_rejects_non_string_hostname() -> None:
     with pytest.raises(ValueError, match="receiver_hostname"):
         _valid_pairing(receiver_hostname=123)
@@ -103,6 +109,18 @@ def test_stored_pairing_rejects_wrong_pin_length() -> None:
         _valid_pairing(pin_sha256="a" * 65)
 
 
+def test_stored_pairing_rejects_uppercase_hex_pin() -> None:
+    """Pin is canonical lowercase-hex; uppercase is the canonicalisation seam."""
+    with pytest.raises(ValueError, match="pin_sha256"):
+        _valid_pairing(pin_sha256="A" * 64)
+
+
+def test_stored_pairing_rejects_non_hex_pin() -> None:
+    """Right length, wrong alphabet — schema's regex catches it."""
+    with pytest.raises(ValueError, match="pin_sha256"):
+        _valid_pairing(pin_sha256="z" * 64)
+
+
 def test_stored_pairing_rejects_wrong_pubkey_length() -> None:
     with pytest.raises(ValueError, match="static_x25519_pub"):
         _valid_pairing(static_x25519_pub=b"\x00" * 31)
@@ -113,6 +131,14 @@ def test_stored_pairing_rejects_wrong_pubkey_length() -> None:
 def test_stored_pairing_rejects_oversize_label() -> None:
     with pytest.raises(ValueError, match="label"):
         _valid_pairing(label="x" * 129)
+
+
+def test_stored_pairing_rejects_bool_paired_at() -> None:
+    """``paired_at=True`` would silently coerce to 1.0 without ``not_bool``."""
+    with pytest.raises(ValueError, match="paired_at"):
+        _valid_pairing(paired_at=True)
+    with pytest.raises(ValueError, match="paired_at"):
+        _valid_pairing(paired_at=False)
 
 
 def test_stored_pairing_accepts_empty_label() -> None:
