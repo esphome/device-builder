@@ -323,3 +323,31 @@ class DeviceReachabilityData(TypedDict):
     ping_last_seen_seconds_ago: float | None
     mqtt_last_seen_seconds_ago: float | None
     ping_rtt_ms: float | None
+
+
+class ImportableDeviceAddedData(TypedDict):
+    """
+    Payload for ``EventType.IMPORTABLE_DEVICE_ADDED``.
+
+    Carries the full ``AdoptableDevice`` so the frontend's
+    discoverable-device list has every field it needs (mDNS host,
+    port, version) without an additional fetch. Distinct from
+    ``IMPORTABLE_DEVICE_REMOVED`` (which only ships the name)
+    because the ADD event has to land a complete row whereas
+    REMOVE only needs the id key to delete the row.
+    """
+
+    device: AdoptableDevice
+
+
+class ImportableDeviceRemovedData(TypedDict):
+    """
+    Payload for ``EventType.IMPORTABLE_DEVICE_REMOVED``.
+
+    Carries only the removed device's mDNS name — the catalog row
+    is already gone, and clients track importable devices by name
+    (not by full payload) so the id key is all that's needed to
+    drop the row.
+    """
+
+    name: str

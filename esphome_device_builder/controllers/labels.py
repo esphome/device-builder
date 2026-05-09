@@ -9,7 +9,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from ..helpers.api import CommandError, api_command
-from ..models import ErrorCode, EventType, Label
+from ..models import ErrorCode, EventType, Label, LabelDeletedData, LabelEventData
 from .config import (
     delete_label_cascade,
     labels_transaction,
@@ -135,7 +135,7 @@ class LabelsController:
                 return created
 
         label = await asyncio.to_thread(_persist)
-        self._db.bus.fire(EventType.LABEL_CREATED, {"label": label})
+        self._db.bus.fire(EventType.LABEL_CREATED, LabelEventData(label=label))
         return label
 
     @api_command("labels/update")
@@ -177,7 +177,7 @@ class LabelsController:
                 return updated
 
         label = await asyncio.to_thread(_persist)
-        self._db.bus.fire(EventType.LABEL_UPDATED, {"label": label})
+        self._db.bus.fire(EventType.LABEL_UPDATED, LabelEventData(label=label))
         return label
 
     @api_command("labels/delete")
@@ -215,5 +215,5 @@ class LabelsController:
                 except Exception:
                     _LOGGER.warning("Failed to reload device %s after label cascade", filename)
 
-        self._db.bus.fire(EventType.LABEL_DELETED, {"label_id": label_id})
+        self._db.bus.fire(EventType.LABEL_DELETED, LabelDeletedData(label_id=label_id))
         return {"deleted": True}

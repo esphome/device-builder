@@ -62,6 +62,8 @@ from ...models import (
     DeviceStateChangedData,
     ErrorCode,
     EventType,
+    ImportableDeviceAddedData,
+    ImportableDeviceRemovedData,
     JobLifecycleData,
     JobStatus,
     JobType,
@@ -2080,7 +2082,9 @@ class DevicesController:
         if existing is not None and existing.ignored != ignore:
             updated = replace(existing, ignored=ignore)
             self.import_result[name] = updated
-            self._db.bus.fire(EventType.IMPORTABLE_DEVICE_ADDED, {"device": updated})
+            self._db.bus.fire(
+                EventType.IMPORTABLE_DEVICE_ADDED, ImportableDeviceAddedData(device=updated)
+            )
 
     # ------------------------------------------------------------------
     # API commands — per-connection streams (validate, logs)
@@ -2793,13 +2797,17 @@ class DevicesController:
         # configured devices and ``devices/ignore`` can flip the flag
         # by name without juggling the full mdns service-instance.
         self.import_result[device.name] = device
-        self._db.bus.fire(EventType.IMPORTABLE_DEVICE_ADDED, {"device": device})
+        self._db.bus.fire(
+            EventType.IMPORTABLE_DEVICE_ADDED, ImportableDeviceAddedData(device=device)
+        )
 
     def _on_importable_removed(self, name: str) -> None:
         """Forget an importable device that disappeared from mDNS."""
         if self.import_result.pop(name, None) is None:
             return
-        self._db.bus.fire(EventType.IMPORTABLE_DEVICE_REMOVED, {"name": name})
+        self._db.bus.fire(
+            EventType.IMPORTABLE_DEVICE_REMOVED, ImportableDeviceRemovedData(name=name)
+        )
 
     def get_importable_devices(self) -> list[AdoptableDevice]:
         """
