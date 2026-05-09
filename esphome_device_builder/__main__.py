@@ -157,9 +157,10 @@ def main() -> None:
         # ``DEFAULT_REMOTE_BUILD_PORT``).
         default=argparse.SUPPRESS,
         help=(
-            f"HTTPS port for the remote-build receiver site (default "
-            f"{DEFAULT_REMOTE_BUILD_PORT} or $ESPHOME_REMOTE_BUILD_PORT; "
-            "only bound when remote-build is enabled in Settings)"
+            f"Plain-TCP port for the remote-build peer-link Noise WS "
+            f"(default {DEFAULT_REMOTE_BUILD_PORT} or "
+            f"$ESPHOME_REMOTE_BUILD_PORT; only bound when remote-build "
+            "is enabled in Settings)"
         ),
     )
     parser.add_argument(

@@ -2022,3 +2022,261 @@ async def test_explicit_close_cancels_handle_no_duplicate_event(
 
     assert controller._db.bus.fire.call_count == initial_fire_count
     assert controller._pairing_window_handle is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 4a-r1 part 4: peer-link Noise WS dispatch helpers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_record_pair_request_creates_pending_row(tmp_path: Path) -> None:
+    """First pair_request from a previously-unknown dashboard_id creates PENDING."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    pubkey = b"\xaa" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+
+    response = await controller.record_pair_request(
+        dashboard_id="alpha",
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        label="alpha",
+        peer_ip="192.168.1.10",
+    )
+
+    assert response == "pending"
+    settings = load_remote_build_settings(tmp_path)
+    [peer] = settings.peers
+    assert peer.dashboard_id == "alpha"
+    assert peer.status == PeerStatus.PENDING
+    assert peer.pin_sha256 == pin
+    assert peer.static_x25519_pub == pubkey
+    assert peer.label == "alpha"
+
+
+@pytest.mark.asyncio
+async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
+    """Creating a PENDING row fires REMOTE_BUILD_PAIR_REQUEST_RECEIVED."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    pubkey = b"\xbb" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+
+    await controller.record_pair_request(
+        dashboard_id="alpha",
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        label="alpha",
+        peer_ip="192.168.1.10",
+    )
+
+    fire = controller._db.bus.fire
+    fire.assert_called_once()
+    event_type, payload = fire.call_args.args
+    assert event_type is EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED
+    assert payload == {
+        "dashboard_id": "alpha",
+        "pin_sha256": pin,
+        "label": "alpha",
+        "peer_ip": "192.168.1.10",
+    }
+
+
+@pytest.mark.asyncio
+async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path) -> None:
+    """Re-pair from same dashboard_id while PENDING refreshes pin / label / paired_at in place."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    initial = _stored_peer(
+        dashboard_id="alpha",
+        pin_sha256="oldpin",
+        static_x25519_pub=b"\x11" * 32,
+        label="old",
+        paired_at=1.0,
+        status=PeerStatus.PENDING,
+    )
+    await _seed_peer(tmp_path, initial)
+    new_pubkey = b"\xcc" * 32
+    new_pin = hashlib.sha256(new_pubkey).hexdigest()
+
+    response = await controller.record_pair_request(
+        dashboard_id="alpha",
+        pin_sha256=new_pin,
+        static_x25519_pub=new_pubkey,
+        label="renamed",
+        peer_ip="10.0.0.1",
+    )
+
+    assert response == "pending"
+    settings = load_remote_build_settings(tmp_path)
+    [peer] = settings.peers
+    assert peer.pin_sha256 == new_pin
+    assert peer.static_x25519_pub == new_pubkey
+    assert peer.label == "renamed"
+    assert peer.paired_at > 1.0
+    assert peer.status == PeerStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_record_pair_request_already_approved_returns_approved(tmp_path: Path) -> None:
+    """
+    Pair-request for an already-APPROVED peer returns "approved" without changing the row.
+
+    Demoting an already-trusted peer back to PENDING on every
+    stray pair_request would force the receiver-side user to
+    re-approve on every offloader hiccup; pin the
+    no-demotion contract.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    approved = _stored_peer(
+        dashboard_id="alpha",
+        pin_sha256="originalpin",
+        static_x25519_pub=b"\x22" * 32,
+        label="alpha",
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+    )
+    await _seed_peer(tmp_path, approved)
+
+    response = await controller.record_pair_request(
+        dashboard_id="alpha",
+        pin_sha256="newpin",
+        static_x25519_pub=b"\x33" * 32,
+        label="renamed",
+        peer_ip="10.0.0.1",
+    )
+
+    assert response == "approved"
+    settings = load_remote_build_settings(tmp_path)
+    [peer] = settings.peers
+    assert peer.status == PeerStatus.APPROVED
+    assert peer.pin_sha256 == "originalpin"
+    assert peer.static_x25519_pub == b"\x22" * 32
+    assert peer.label == "alpha"
+    assert peer.paired_at == 1.0
+    controller._db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_lookup_peer_for_session_approved_returns_ok(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    pubkey = b"\xdd" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    await _seed_peer(
+        tmp_path,
+        _stored_peer(
+            dashboard_id="alpha",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            status=PeerStatus.APPROVED,
+        ),
+    )
+
+    response = await controller.lookup_peer_for_session(dashboard_id="alpha", pin_sha256=pin)
+
+    assert response == "ok"
+
+
+@pytest.mark.asyncio
+async def test_lookup_peer_for_session_pending_returns_pending(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    pubkey = b"\xee" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    await _seed_peer(
+        tmp_path,
+        _stored_peer(
+            dashboard_id="alpha",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            status=PeerStatus.PENDING,
+        ),
+    )
+
+    response = await controller.lookup_peer_for_session(dashboard_id="alpha", pin_sha256=pin)
+
+    assert response == "pending"
+
+
+@pytest.mark.asyncio
+async def test_lookup_peer_for_session_unknown_returns_rejected(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    response = await controller.lookup_peer_for_session(dashboard_id="ghost", pin_sha256="anything")
+
+    assert response == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_lookup_peer_for_session_pin_mismatch_returns_rejected(tmp_path: Path) -> None:
+    """
+    Stored row exists but pin doesn't match the handshake's pubkey hash.
+
+    The Noise handshake authenticates the pubkey cryptographically;
+    if the handshake's pin doesn't match the stored value, the
+    offloader is presenting a different identity than the row was
+    paired against. Could be: rotation under us, stolen
+    dashboard_id, or fresh attacker. Either way: don't connect.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    stored_pubkey = b"\xff" * 32
+    stored_pin = hashlib.sha256(stored_pubkey).hexdigest()
+    await _seed_peer(
+        tmp_path,
+        _stored_peer(
+            dashboard_id="alpha",
+            pin_sha256=stored_pin,
+            static_x25519_pub=stored_pubkey,
+            status=PeerStatus.APPROVED,
+        ),
+    )
+
+    response = await controller.lookup_peer_for_session(
+        dashboard_id="alpha", pin_sha256="differentpin" * 4
+    )
+
+    assert response == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_lookup_peer_for_status_mirrors_session_but_uses_approved_string(
+    tmp_path: Path,
+) -> None:
+    """``pair_status`` returns "approved" where ``peer_link`` returns "ok"; rest is the same."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    pubkey = b"\x44" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    await _seed_peer(
+        tmp_path,
+        _stored_peer(
+            dashboard_id="alpha",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            status=PeerStatus.APPROVED,
+        ),
+    )
+
+    status_response = await controller.lookup_peer_for_status(dashboard_id="alpha", pin_sha256=pin)
+    session_response = await controller.lookup_peer_for_session(
+        dashboard_id="alpha", pin_sha256=pin
+    )
+
+    assert status_response == "approved"
+    assert session_response == "ok"
+
+
+@pytest.mark.asyncio
+async def test_lookup_peer_for_status_unknown_returns_rejected(tmp_path: Path) -> None:
+    """A removed/rejected peer (or one that never existed) returns rejected."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    response = await controller.lookup_peer_for_status(dashboard_id="ghost", pin_sha256="pin")
+
+    assert response == "rejected"

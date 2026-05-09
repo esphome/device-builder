@@ -110,6 +110,48 @@ class PeerStatus(StrEnum):
     APPROVED = "approved"
 
 
+class IntentResponse(StrEnum):
+    """
+    Wire ``intent_response`` value the receiver returns over the peer-link.
+
+    Sent in the post-handshake transport frame after the Noise XX
+    handshake completes. ``StrEnum`` so members serialise to their
+    wire string verbatim through ``json.dumps`` and so equality
+    comparisons against the raw string still work for callers that
+    haven't migrated yet.
+
+    Per-intent semantics (cross-referenced with #106 design choice
+    (h)):
+
+    * ``OK`` — success on ``intent="preview"`` (handshake captured
+      pubkey, nothing else needed) or on ``intent="peer_link"``
+      from an APPROVED peer (caller can keep the WS open for
+      application messages in phase 5+).
+    * ``APPROVED`` — ``intent="pair_status"`` poll observing an
+      APPROVED row, or ``intent="pair_request"`` from a peer
+      that's already APPROVED (we don't demote them; the offloader
+      is expected to switch to ``intent="peer_link"``).
+    * ``PENDING`` — ``intent="pair_request"`` created or refreshed
+      a PENDING row, or ``intent="pair_status"`` /
+      ``intent="peer_link"`` polled a row that's still PENDING.
+    * ``REJECTED`` — unknown ``dashboard_id``, pin mismatch
+      (handshake's pubkey doesn't match the stored row), or
+      unknown ``intent``. The offloader's UI surfaces a
+      "send a fresh pair_request" CTA.
+    * ``NO_PAIRING_WINDOW`` — ``intent="pair_request"`` arrived
+      while the receiver-side pairing window is closed; no row
+      created. The offloader's UI prompts the user to ask the
+      receiving dashboard's user to open the Pairing requests
+      screen.
+    """
+
+    OK = "ok"
+    APPROVED = "approved"
+    PENDING = "pending"
+    REJECTED = "rejected"
+    NO_PAIRING_WINDOW = "no_pairing_window"
+
+
 @dataclass
 class StoredPeer(DataClassORJSONMixin):
     """

@@ -73,6 +73,7 @@ from ..models import (
     ErrorCode,
     EventType,
     IdentityView,
+    IntentResponse,
     ManualHost,
     PairingWindowState,
     PeerStatus,
@@ -1174,6 +1175,172 @@ class RemoteBuildController:
         if previous_status == PeerStatus.APPROVED:
             self._fire_pair_status_changed(clean_id, "removed")
         return view
+
+    # ------------------------------------------------------------------
+    # Peer-link Noise WS dispatch helpers (phase 4a-r1 part 4) — called
+    # by the post-handshake intent dispatcher in
+    # :mod:`controllers.remote_build_peer_link`. These methods own the
+    # storage / event-firing side; the dispatcher owns the wire side.
+    # ------------------------------------------------------------------
+
+    async def record_pair_request(
+        self,
+        *,
+        dashboard_id: str,
+        pin_sha256: str,
+        static_x25519_pub: bytes,
+        label: str,
+        peer_ip: str,
+    ) -> IntentResponse:
+        """
+        Process an ``intent="pair_request"`` Noise session.
+
+        Caller is expected to have already gated on
+        :meth:`is_pairing_window_open` — this method does NOT
+        re-check, so a window-closed dispatch should never reach
+        here.
+
+        Returns:
+        * :attr:`IntentResponse.PENDING` — created a new
+          ``StoredPeer`` (or refreshed an existing PENDING row's
+          pin / label / paired_at). Fires
+          :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED` so
+          the receiver UI surfaces the request in the inbox.
+        * :attr:`IntentResponse.APPROVED` — a row already exists
+          for this ``dashboard_id`` with status APPROVED. Returns
+          ``APPROVED`` without changing the row or firing the
+          event; demoting an already-trusted peer back to PENDING
+          on every stray pair_request would force the receiving
+          dashboard's user to re-approve on every offloader
+          hiccup, which is hostile UX. The offloader treats
+          ``APPROVED`` as "you're already paired; switch to
+          intent=peer_link" and updates its local state.
+        """
+        already_approved: list[bool] = []  # mutable shim for the inner closure
+
+        def _record(settings: RemoteBuildSettings) -> None:
+            now = time.time()
+            for peer in settings.peers:
+                if peer.dashboard_id != dashboard_id:
+                    continue
+                if peer.status == PeerStatus.APPROVED:
+                    already_approved.append(True)
+                    return
+                # PENDING: refresh in place. The pin / pubkey may
+                # have changed (offloader rotated), the label may
+                # have changed (user renamed the dashboard before
+                # admin clicked Accept). Keep the row's status =
+                # PENDING; the user re-Accepts when ready.
+                peer.pin_sha256 = pin_sha256
+                peer.static_x25519_pub = static_x25519_pub
+                peer.label = label
+                peer.paired_at = now
+                return
+            settings.peers.append(
+                StoredPeer(
+                    dashboard_id=dashboard_id,
+                    pin_sha256=pin_sha256,
+                    static_x25519_pub=static_x25519_pub,
+                    label=label,
+                    paired_at=now,
+                    status=PeerStatus.PENDING,
+                )
+            )
+
+        await self._modify_settings(_record)
+        if already_approved:
+            return IntentResponse.APPROVED
+
+        self._db.bus.fire(
+            EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED,
+            {
+                "dashboard_id": dashboard_id,
+                "pin_sha256": pin_sha256,
+                "label": label,
+                "peer_ip": peer_ip,
+            },
+        )
+        return IntentResponse.PENDING
+
+    async def lookup_peer_for_session(
+        self,
+        *,
+        dashboard_id: str,
+        pin_sha256: str,
+    ) -> IntentResponse:
+        """
+        Resolve an ``intent="peer_link"`` request.
+
+        Returns:
+        * :attr:`IntentResponse.OK` — peer is APPROVED and the
+          handshake's pubkey hash matches the stored
+          ``pin_sha256``. Caller can keep the WS open for
+          application messages (phase 5+).
+        * :attr:`IntentResponse.PENDING` — peer's row exists but
+          status is PENDING (the receiver-side user hasn't
+          clicked Accept yet). Offloader's UI keeps polling.
+        * :attr:`IntentResponse.REJECTED` — no row matches OR the
+          row's stored ``pin_sha256`` doesn't match the
+          handshake's. Either the offloader has never paired
+          (unknown), or the offloader's peer-link identity
+          rotated under us, or someone is claiming Alice's
+          ``dashboard_id`` with their own keys. The offloader
+          treats this as "send a fresh pair_request".
+        """
+        loop = asyncio.get_running_loop()
+        settings = await loop.run_in_executor(
+            None, load_remote_build_settings, self._db.settings.config_dir
+        )
+        for peer in settings.peers:
+            if peer.dashboard_id != dashboard_id:
+                continue
+            if peer.pin_sha256 != pin_sha256:
+                # Pin mismatch is its own user-visible event in
+                # later phases (4b-3 surfaces a re-verify wizard);
+                # the wire response stays REJECTED so the
+                # offloader doesn't proceed with a stale session.
+                return IntentResponse.REJECTED
+            if peer.status == PeerStatus.APPROVED:
+                return IntentResponse.OK
+            return IntentResponse.PENDING
+        return IntentResponse.REJECTED
+
+    async def lookup_peer_for_status(
+        self,
+        *,
+        dashboard_id: str,
+        pin_sha256: str,
+    ) -> IntentResponse:
+        """
+        Resolve an ``intent="pair_status"`` poll query.
+
+        Returns:
+        * :attr:`IntentResponse.APPROVED` — peer is APPROVED.
+        * :attr:`IntentResponse.PENDING` — peer's row exists but
+          status is PENDING.
+        * :attr:`IntentResponse.REJECTED` — no row matches OR pin
+          mismatch. Caller's frontend interprets this as "the row
+          was rejected / revoked / never existed; surface
+          ``peer_revoked`` UI".
+
+        Differs from :meth:`lookup_peer_for_session` only in the
+        APPROVED-state wire member (``APPROVED`` vs ``OK``) because
+        pair_status is informational while peer_link is
+        connection-establishing.
+        """
+        loop = asyncio.get_running_loop()
+        settings = await loop.run_in_executor(
+            None, load_remote_build_settings, self._db.settings.config_dir
+        )
+        for peer in settings.peers:
+            if peer.dashboard_id != dashboard_id:
+                continue
+            if peer.pin_sha256 != pin_sha256:
+                return IntentResponse.REJECTED
+            if peer.status == PeerStatus.APPROVED:
+                return IntentResponse.APPROVED
+            return IntentResponse.PENDING
+        return IntentResponse.REJECTED
 
     # ------------------------------------------------------------------
     # Pairing window (phase 4a-r1 part 3) — in-process deadline that
