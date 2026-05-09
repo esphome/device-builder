@@ -34,9 +34,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote
 
 import aiohttp
+from yarl import URL
 
 from ..helpers import json as _json
 from ..helpers.peer_link_noise import (
@@ -103,18 +103,32 @@ class InitiatorRoundTrip:
     response: dict[str, Any]
 
 
-def _build_ws_url(hostname: str, port: int) -> str:
-    """Render the peer-link WS URL for *hostname* / *port*.
+def _build_ws_url(hostname: str, port: int) -> URL:
+    """Build the peer-link WS URL for *hostname* / *port*.
 
-    ``urllib.parse.quote`` on the hostname so a stray pathological
-    character (e.g. an IPv6 literal that should have been bracketed
-    by the caller, or a hostname containing a slash) can't smuggle
-    a different path or query into the URL. The receiver listens on
-    plain TCP — Noise XX provides the transport security — so the
-    scheme is ``ws://`` not ``wss://``.
+    Uses :class:`yarl.URL` (already in our dep closure via aiohttp)
+    rather than hand-rolled f-string + ``urllib.parse.quote``:
+
+    * IPv6 literals get auto-bracketed (``::1`` →
+      ``ws://[::1]:6055/...``); the f-string version would have
+      produced an unparsable URL.
+    * Pathological characters in the hostname (slash, query
+      terminators, fragment markers) raise ``ValueError`` loudly
+      instead of getting silently percent-encoded into a
+      non-resolvable form. ``_validate_hostname`` already
+      catches these at the WS-command boundary, but yarl
+      gives us a second line of defense at no extra code.
+    * Path is given to yarl as a constant; encoding stays
+      intact across versions.
+
+    The receiver listens on plain TCP — Noise XX provides the
+    transport security — so the scheme is ``ws://`` not
+    ``wss://``. Returns a :class:`URL` because
+    :meth:`aiohttp.ClientSession.ws_connect` accepts both
+    strings and ``URL`` instances; passing the typed shape
+    skips one re-parse on the aiohttp side.
     """
-    safe_host = quote(hostname, safe="")
-    return f"ws://{safe_host}:{port}{PEER_LINK_PATH}"
+    return URL.build(scheme="ws", host=hostname, port=port, path=PEER_LINK_PATH)
 
 
 async def drive_initiator_round_trip(

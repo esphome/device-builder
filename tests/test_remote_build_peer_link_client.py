@@ -231,13 +231,22 @@ async def test_preview_pair_rejects_garbage_post_handshake_frame(
 
 def test_build_ws_url_uses_plain_ws_scheme() -> None:
     """Peer-link runs over plain TCP; Noise XX provides transport security."""
-    assert _build_ws_url("desk.local", 6055) == "ws://desk.local:6055/remote-build/peer-link"
+    assert str(_build_ws_url("desk.local", 6055)) == "ws://desk.local:6055/remote-build/peer-link"
 
 
-def test_build_ws_url_quotes_hostname() -> None:
-    """Pathological characters in the hostname can't smuggle a different path."""
-    # ``/`` in a hostname is impossible per DNS but we defend anyway:
-    # quoting ensures the url stays bound to ``PEER_LINK_PATH``.
-    url = _build_ws_url("evil/path", 6055)
-    assert "evil%2Fpath" in url
-    assert url.endswith("/remote-build/peer-link")
+def test_build_ws_url_brackets_ipv6_literal() -> None:
+    """Yarl auto-brackets IPv6 hostnames; an f-string approach would have garbled them."""
+    assert str(_build_ws_url("::1", 6055)) == "ws://[::1]:6055/remote-build/peer-link"
+
+
+def test_build_ws_url_rejects_pathological_host() -> None:
+    """Yarl raises on path-injection attempts in the host position.
+
+    ``_validate_hostname`` is the primary gate at the WS-command
+    boundary; yarl gives us a second line of defense at no extra
+    cost — a slash in the host raises ``ValueError`` rather than
+    silently producing a URL whose path no longer points at
+    ``/remote-build/peer-link``.
+    """
+    with pytest.raises(ValueError, match="cannot contain"):
+        _build_ws_url("evil/path", 6055)
