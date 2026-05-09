@@ -20,6 +20,16 @@ class ErrorCode(StrEnum):
     INTERNAL_ERROR = "internal_error"
     NOT_AUTHENTICATED = "not_authenticated"
     RATE_LIMITED = "rate_limited"
+    # Transient external dependency failed — distinct from
+    # ``INTERNAL_ERROR`` (backend bug) and ``INVALID_ARGS`` (user
+    # typo). The frontend renders this as a "couldn't reach the
+    # receiver / try again" toast rather than a stack-trace
+    # diagnostic. Used by the offloader-side peer-link commands
+    # (``preview_pair`` / ``request_pair`` / ``list_pool``) when
+    # the remote dashboard isn't reachable, the Noise handshake
+    # fails to authenticate, or the post-handshake frame
+    # doesn't decrypt.
+    UNAVAILABLE = "unavailable"
 
 
 @dataclass

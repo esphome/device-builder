@@ -50,6 +50,19 @@ from .remote_build_peer_link import PEER_LINK_PATH
 
 _LOGGER = logging.getLogger(__name__)
 
+# Flat tuple of every exception class that can land out of the
+# decrypt + JSON-parse step. Built once at module level rather
+# than inlined as ``(*NOISE_ERRORS, _json.JSONDecodeError)`` in
+# the ``except`` clause so mypy can verify the type without
+# tripping on its star-unpack-in-except limitation (the runtime
+# would handle the inline form fine on Python 3.12+, but the
+# type checker can't follow it).
+_RESPONSE_DECODE_ERRORS: tuple[type[Exception], ...] = (
+    *NOISE_ERRORS,
+    _json.JSONDecodeError,
+)
+
+
 # Total budget for one initiator round-trip: TCP connect + WS
 # upgrade + 3 Noise messages + post-handshake response + clean
 # close. Bounded by LAN latency + the receiver's own per-step
@@ -169,12 +182,9 @@ async def drive_initiator_round_trip(
         _LOGGER.warning(msg, exc_info=True)
         raise PeerLinkClientError(msg) from exc
 
-    # ``NOISE_ERRORS`` is a tuple of classes; Python's ``except``
-    # syntax doesn't accept nested tuples, so star-unpack it into
-    # a flat tuple alongside the JSON decode error.
     try:
         decoded = _json.loads(sess.decrypt(response_ct))
-    except (*NOISE_ERRORS, _json.JSONDecodeError) as exc:
+    except _RESPONSE_DECODE_ERRORS as exc:
         msg = f"{label} response decode failed: {exc}"
         _LOGGER.warning(msg, exc_info=True)
         raise PeerLinkClientError(msg) from exc
