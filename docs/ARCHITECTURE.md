@@ -194,64 +194,63 @@ The cryptographic primitives are `Noise_XX_25519_ChaChaPoly_SHA256` (mutual iden
 ```mermaid
 sequenceDiagram
     autonumber
-    participant OF as Offloader<br/>frontend
-    participant OB as Offloader<br/>backend
-    participant RB as Receiver<br/>backend
-    participant RF as Receiver<br/>frontend
-    participant RU as Receiver<br/>admin
+    participant OF as Offloader frontend
+    participant OB as Offloader backend
+    participant RB as Receiver backend
+    participant RF as Receiver frontend
+    participant RU as Receiver admin
 
     Note over OF,RU: 1. Discovery (mDNS, advertised by both)
-    Note right of OB: _esphomebuilder._tcp.local TXT:<br/>peer_link_port + pin_sha256
+    Note right of OB: _esphomebuilder._tcp.local TXT carries peer_link_port + pin_sha256
 
     Note over OF,RU: 2. Receiver opens pairing window
     RU->>RF: navigate to Pairing requests screen
-    RF->>RB: set_pairing_window({open: true})
-    RB-->>RF: pairing_window_changed<br/>{open: true, expires_in: 300s}
-    Note right of RB: in-process deadline; closes on<br/>screen-unmount or user-idle timeout
+    RF->>RB: set_pairing_window({open true})
+    RB-->>RF: pairing_window_changed (open true, expires_in 300s)
+    Note right of RB: window is in-process; closes on screen-unmount or user-idle timeout
 
-    Note over OF,RU: 3. Preview pair (Noise XX, intent="preview")
+    Note over OF,RU: 3. Preview pair (Noise XX, intent=preview)
     OF->>OB: preview_pair({hostname, port})
-    OB->>RB: Noise XX msg1 (intent="preview")
+    OB->>RB: Noise XX msg1 (intent=preview)
     RB->>OB: Noise XX msg2 (carries responder static pubkey)
     OB->>RB: Noise XX msg3 (handshake complete; WS closes)
     OB-->>OF: {pin_sha256}
-    Note right of OB: pubkey captured from handshake<br/>transcript; no application data
+    Note right of OB: pubkey captured from handshake transcript; no application data
 
     Note over OF,RU: 4. OOB pin verification (human-mediated)
-    Note over OF,RF: User compares pin on offloader UI<br/>against receiver UI's "Build server" card
+    Note over OF,RF: User compares pin on offloader UI against receiver UI's Build server card
 
-    Note over OF,RU: 5. Pair request (Noise XX, intent="pair_request")
+    Note over OF,RU: 5. Pair request (Noise XX, intent=pair_request)
     OF->>OB: request_pair({pin_sha256, label, ...})
-    OB->>RB: fresh Noise XX (intent="pair_request",<br/>payload={label, dashboard_id})
+    OB->>RB: fresh Noise XX (intent=pair_request, payload {label, dashboard_id})
     alt pairing window open
-        RB->>RB: create StoredPeer<br/>(status=PENDING)
+        RB->>RB: create StoredPeer (status=PENDING)
         RB-->>RF: pair_request_received
-        RB-->>OB: intent_response="pending"
-        OB-->>OF: persisted StoredPairing<br/>(status=pending)
+        RB-->>OB: intent_response=pending
+        OB-->>OF: persisted StoredPairing (status=pending)
     else window closed
-        RB-->>OB: intent_response="no_pairing_window"
-        OB-->>OF: error: ask receiver admin<br/>to open the screen
+        RB-->>OB: intent_response=no_pairing_window
+        OB-->>OF: error; ask receiver admin to open the screen
     end
 
     Note over OF,RU: 6. Receiver admin approves
     RU->>RF: OOB-confirm offloader's pin, click Accept
     RF->>RB: approve_peer({dashboard_id})
-    RB->>RB: status PENDING → APPROVED
-    RB-->>RF: pair_status_changed(approved)
+    RB->>RB: status PENDING -> APPROVED
+    RB-->>RF: pair_status_changed (approved)
 
     Note over OF,RU: 7. Offloader observes approval (5s polling)
     loop while local row pending
         OF->>OB: list_pool
-        OB->>RB: Noise XX (intent="pair_status")
+        OB->>RB: Noise XX (intent=pair_status)
         RB-->>OB: status
     end
-    OB-->>OF: row updated to "paired"
+    OB-->>OF: row updated to paired
 
-    Note over OF,RU: 8. Subsequent real-build sessions
-    Note right of OB: NOT gated by pairing window;<br/>paired peers connect anytime
-    OB->>RB: Noise XX (intent="peer_link")
-    RB->>RB: lookup pubkey hash → APPROVED StoredPeer
-    RB-->>OB: intent_response="ok"; session continues
+    Note over OF,RU: 8. Subsequent real-build sessions (NOT gated by pairing window)
+    OB->>RB: Noise XX (intent=peer_link)
+    RB->>RB: lookup pubkey hash -> APPROVED StoredPeer
+    RB-->>OB: intent_response=ok; session continues
 ```
 
 **Why two Noise handshakes for one pairing.** The preview handshake (step 3) captures the receiver's static pubkey for OOB display *before* the offloader has decided to trust this receiver; the WS closes immediately, no application data crosses the wire. The pair-request handshake (step 5) is a fresh handshake that re-binds the OOB-confirmed pin (defends against TOCTOU between preview and confirm: if the pubkey-hash on the second handshake doesn't match `pin_sha256` from preview, the offloader aborts). Re-handshakes are cheap because Noise's setup cost is negligible at this cadence (pair flows are rare, not a hot path).
