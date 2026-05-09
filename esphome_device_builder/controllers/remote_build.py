@@ -66,6 +66,7 @@ from ..helpers.dashboard_advertise import SERVICE_TYPE
 from ..helpers.dashboard_identity import get_or_create_identity, rotate_certificate
 from ..models import (
     ErrorCode,
+    EventType,
     IdentityView,
     ManualHost,
     RemoteBuildPeer,
@@ -408,6 +409,18 @@ class RemoteBuildController:
         # never has to hit the filesystem on the request hot
         # path. Empty until ``start`` runs.
         self._tokens_by_id: dict[str, StoredToken] = {}
+        # Set while a ``rotate_identity`` call is in flight.
+        # Concurrent rotations would each tear down + rebuild the
+        # listener; their teardowns can interleave to leave the
+        # dashboard with no listener at all, and back-to-back
+        # rotations are almost always a buggy / accidental
+        # double-click rather than intentional. The second caller
+        # gets ``ALREADY_EXISTS`` rather than queuing — a queued
+        # second rotation would silently double the
+        # peer-re-pair disruption. Single-threaded asyncio
+        # guarantees the check + set in :meth:`rotate_identity`
+        # is atomic without an explicit lock.
+        self._rotation_in_flight = False
 
     async def start(self) -> None:
         """
@@ -882,12 +895,13 @@ class RemoteBuildController:
 
         Reads the persistent identity via
         :func:`helpers.dashboard_identity.get_or_create_identity`
-        (idempotent — if the cert + key pair is missing it gets
-        generated, but we expect the dashboard's startup to have
-        already done that). The cert + key PEMs themselves are
-        intentionally NOT returned; only the SPKI fingerprint
-        (``pin_sha256``) is safe to ship to a frontend, and the
-        fingerprint is what an offloader pins against anyway.
+        — idempotent, and lazy-creates the cert + key pair if
+        missing. ``listener_bound`` reports whether the
+        ``/remote-build/v1/*`` HTTPS site is currently serving
+        traffic. The cert + key PEMs themselves are intentionally
+        NOT returned; only the SPKI fingerprint (``pin_sha256``)
+        is safe to ship to a frontend, and the fingerprint is
+        what an offloader pins against anyway.
 
         ``server_version`` and ``esphome_version`` ride on the
         same response so the Settings UI can render the "Build
@@ -899,7 +913,7 @@ class RemoteBuildController:
         identity = await loop.run_in_executor(
             None, get_or_create_identity, self._db.settings.config_dir
         )
-        return _identity_view(identity)
+        return _identity_view(identity, listener_bound=self._db.is_remote_build_listener_bound)
 
     @api_command("remote_build/rotate_identity")
     async def rotate_identity(self, **kwargs: Any) -> IdentityView:
@@ -914,29 +928,64 @@ class RemoteBuildController:
         preserved so the receiver-side audit trail stays
         readable across rotations.
 
-        Side effects: the in-process cert / key on the running
-        listener is replaced (the bound TCP site is rebuilt
-        with the new SSL context if remote-build is currently
-        enabled and bound). The mDNS advertise picks up the new
-        ``pin_sha256`` either way so peers that re-browse see
-        the rotation even if the listener wasn't bound.
+        Side effects: (1) the bound TCP site is torn down and
+        rebuilt with a fresh SSL context if remote-build is
+        currently enabled and bound; the rebuild fail-softs
+        (``listener_bound=False`` in the response) so the
+        Settings UI can show "rotation succeeded but the
+        listener didn't come back up — check logs". (2) The
+        mDNS advertise picks up the new ``pin_sha256`` either
+        way so peers re-browsing see the rotation even when the
+        listener wasn't bound. (3) An
+        :attr:`EventType.REMOTE_BUILD_IDENTITY_ROTATED` event
+        fires on the bus carrying ``{dashboard_id, pin_sha256}``
+        so subscribers (the offloader-side peer-link in 4+, the
+        receiver Settings UI in 3c2) can refresh without
+        polling ``get_identity``.
+
+        **Concurrent calls fail with ``ALREADY_EXISTS``.** Two
+        rotations racing would each tear down + rebuild the
+        listener, and back-to-back rotation is almost always an
+        accidental double-click rather than two intentional
+        events; the frontend is expected to confirm before each
+        call. Rotation is otherwise intentionally cheap to
+        invoke (Ed25519 keygen + a couple of disk writes),
+        bounded only by the WS auth gate on this command's
+        channel.
         """
-        loop = asyncio.get_running_loop()
-        identity = await loop.run_in_executor(
-            None, rotate_certificate, self._db.settings.config_dir
-        )
-        # Hand the new identity to the dashboard so the bound
-        # listener (if any) can rebuild against the new cert and
-        # the mDNS advertise picks up the new pin.
-        await self._db.reload_remote_build_identity(identity)
-        return _identity_view(identity)
+        # Single-threaded asyncio guarantees the check + set is
+        # atomic — no other coroutine runs between these two
+        # statements without an ``await``.
+        if self._rotation_in_flight:
+            msg = "remote_build: an identity rotation is already in progress"
+            raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
+        self._rotation_in_flight = True
+        try:
+            loop = asyncio.get_running_loop()
+            identity = await loop.run_in_executor(
+                None, rotate_certificate, self._db.settings.config_dir
+            )
+            listener_bound = await self._db.reload_remote_build_identity(
+                pin_sha256=identity.pin_sha256,
+            )
+            self._db.bus.fire(
+                EventType.REMOTE_BUILD_IDENTITY_ROTATED,
+                {
+                    "dashboard_id": identity.dashboard_id,
+                    "pin_sha256": identity.pin_sha256,
+                },
+            )
+            return _identity_view(identity, listener_bound=listener_bound)
+        finally:
+            self._rotation_in_flight = False
 
 
-def _identity_view(identity: DashboardIdentity) -> IdentityView:
+def _identity_view(identity: DashboardIdentity, *, listener_bound: bool) -> IdentityView:
     """Project a :class:`DashboardIdentity` into the wire shape."""
     return IdentityView(
         dashboard_id=identity.dashboard_id,
         pin_sha256=identity.pin_sha256,
         server_version=server_version,
         esphome_version=esphome_version,
+        listener_bound=listener_bound,
     )

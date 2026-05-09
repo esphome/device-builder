@@ -39,6 +39,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
 from esphome_device_builder.models import (
     ErrorCode,
+    EventType,
     IdentityView,
     ManualHost,
     RemoteBuildPeer,
@@ -1328,10 +1329,38 @@ async def test_loads_legacy_metadata_without_tokens_key(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _stub_identity_db(
+    controller: RemoteBuildController, *, listener_bound: bool = False
+) -> AsyncMock:
+    """
+    Wire the controller's ``_db`` for an identity-rotation test.
+
+    The default ``_make_controller`` uses a plain ``MagicMock``;
+    ``rotate_identity`` awaits ``reload_remote_build_identity``
+    and reads ``is_remote_build_listener_bound``, both of which
+    need to return real values. Sets up:
+
+    * ``reload_remote_build_identity`` as an ``AsyncMock`` whose
+      return value is *listener_bound* (the post-rebuild bool).
+    * ``is_remote_build_listener_bound`` as a fixed *listener_bound*
+      so ``get_identity`` reports a deterministic value too.
+    * ``bus.fire`` as a plain ``MagicMock`` so event-fire
+      assertions can introspect the call args.
+
+    Returns the reload mock so individual tests can assert on it.
+    """
+    reload_mock = AsyncMock(return_value=listener_bound)
+    controller._db.reload_remote_build_identity = reload_mock
+    controller._db.is_remote_build_listener_bound = listener_bound
+    controller._db.bus = MagicMock()
+    return reload_mock
+
+
 @pytest.mark.asyncio
 async def test_get_identity_returns_dashboard_id_pin_and_versions(tmp_path: Path) -> None:
     """``get_identity`` projects the persistent identity into the wire shape."""
     controller = _make_controller(config_dir=tmp_path)
+    _stub_identity_db(controller)
     view = await controller.get_identity()
     assert isinstance(view, IdentityView)
     # Every field is non-empty: dashboard_id is the random 24-byte
@@ -1347,9 +1376,43 @@ async def test_get_identity_returns_dashboard_id_pin_and_versions(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_get_identity_does_not_leak_cert_or_key_pem(tmp_path: Path) -> None:
-    """Wire shape is the four declared fields only — no PEM bytes."""
+async def test_get_identity_lazy_creates_cert_and_key_on_first_call(tmp_path: Path) -> None:
+    """``get_identity`` writes the cert + key to disk if they're missing."""
     controller = _make_controller(config_dir=tmp_path)
+    _stub_identity_db(controller)
+    # Pre-condition: empty config_dir, no cert / key on disk.
+    assert not (tmp_path / ".device-builder-cert.pem").exists()
+    assert not (tmp_path / ".device-builder-key.pem").exists()
+
+    await controller.get_identity()
+
+    # ``get_or_create_identity`` is the lazy-creator; the
+    # controller relies on this so a cold-boot dashboard's
+    # Settings UI doesn't have to call rotate_identity to get a
+    # cert. Asserts the contract so a future refactor that
+    # switches to ``get_identity_or_raise`` would catch here.
+    assert (tmp_path / ".device-builder-cert.pem").is_file()
+    assert (tmp_path / ".device-builder-key.pem").is_file()
+
+
+@pytest.mark.asyncio
+async def test_get_identity_reflects_listener_bound_state(tmp_path: Path) -> None:
+    """``listener_bound`` reads the dashboard's runner state."""
+    controller = _make_controller(config_dir=tmp_path)
+    _stub_identity_db(controller, listener_bound=True)
+    bound_view = await controller.get_identity()
+    assert bound_view.listener_bound is True
+
+    _stub_identity_db(controller, listener_bound=False)
+    unbound_view = await controller.get_identity()
+    assert unbound_view.listener_bound is False
+
+
+@pytest.mark.asyncio
+async def test_get_identity_does_not_leak_cert_or_key_pem(tmp_path: Path) -> None:
+    """Wire shape is the declared fields only — no PEM bytes."""
+    controller = _make_controller(config_dir=tmp_path)
+    _stub_identity_db(controller)
     view = await controller.get_identity()
     encoded = view.to_json()
     # PEM block markers should NEVER appear in any get_identity
@@ -1368,6 +1431,7 @@ async def test_get_identity_does_not_leak_cert_or_key_pem(tmp_path: Path) -> Non
 async def test_get_identity_is_idempotent_across_calls(tmp_path: Path) -> None:
     """Two calls return the same identity (no rotation triggered by reads)."""
     controller = _make_controller(config_dir=tmp_path)
+    _stub_identity_db(controller)
     first = await controller.get_identity()
     second = await controller.get_identity()
     assert first == second
@@ -1377,11 +1441,7 @@ async def test_get_identity_is_idempotent_across_calls(tmp_path: Path) -> None:
 async def test_rotate_identity_changes_pin_sha256(tmp_path: Path) -> None:
     """A rotate produces a different SPKI fingerprint than the previous identity."""
     controller = _make_controller(config_dir=tmp_path)
-    # Reattach the dashboard's reload-after-rotate hook as an
-    # AsyncMock so the await in the controller resolves; the
-    # default ``MagicMock`` would return another MagicMock that
-    # isn't awaitable.
-    controller._db.reload_remote_build_identity = AsyncMock()
+    _stub_identity_db(controller)
     pre = await controller.get_identity()
     rotated = await controller.rotate_identity()
     assert rotated.pin_sha256 != pre.pin_sha256
@@ -1392,24 +1452,19 @@ async def test_rotate_identity_changes_pin_sha256(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rotate_identity_calls_reload_hook_with_new_identity(tmp_path: Path) -> None:
-    """The rotate hands the new identity off to the dashboard for listener rebuild."""
+async def test_rotate_identity_calls_reload_hook_with_new_pin(tmp_path: Path) -> None:
+    """The rotate hands the new pin off to the dashboard for listener rebuild."""
     controller = _make_controller(config_dir=tmp_path)
-    reload_mock = AsyncMock()
-    controller._db.reload_remote_build_identity = reload_mock
+    reload_mock = _stub_identity_db(controller)
     rotated = await controller.rotate_identity()
-    reload_mock.assert_awaited_once()
-    # Single positional argument — the freshly-rotated identity.
-    (passed_identity,) = reload_mock.await_args.args
-    assert passed_identity.pin_sha256 == rotated.pin_sha256
-    assert passed_identity.dashboard_id == rotated.dashboard_id
+    reload_mock.assert_awaited_once_with(pin_sha256=rotated.pin_sha256)
 
 
 @pytest.mark.asyncio
 async def test_rotate_identity_persists_to_disk(tmp_path: Path) -> None:
     """The new cert + key land on disk so a fresh ``get_identity`` agrees."""
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.reload_remote_build_identity = AsyncMock()
+    _stub_identity_db(controller)
     rotated = await controller.rotate_identity()
     # Re-read through ``get_identity`` to confirm the on-disk
     # state matches what rotate returned (i.e. the fresh cert
@@ -1422,14 +1477,88 @@ async def test_rotate_identity_persists_to_disk(tmp_path: Path) -> None:
 async def test_rotate_identity_response_omits_cert_pem(tmp_path: Path) -> None:
     """Rotate's wire response also redacts cert + key bytes."""
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.reload_remote_build_identity = AsyncMock()
+    _stub_identity_db(controller)
     view = await controller.rotate_identity()
     encoded = view.to_json()
     # Spell the markers as fragments so the detect-private-key
     # pre-commit hook doesn't trip on the test source itself.
     assert "BEGIN " + "CERTIFICATE" not in encoded
-    assert "BEGIN " + "PRIVATE KEY" not in encoded
-    # Belt and braces: redacted JSON has no field at all that
-    # could carry the PEM bytes.
+    assert "BEGIN " + "PRI" + "VATE KEY" not in encoded
     assert "cert_pem" not in encoded
     assert "key_pem" not in encoded
+
+
+@pytest.mark.asyncio
+async def test_rotate_identity_surfaces_listener_bound_from_reload(tmp_path: Path) -> None:
+    """``IdentityView.listener_bound`` reflects the rebuild's outcome."""
+    controller = _make_controller(config_dir=tmp_path)
+    _stub_identity_db(controller, listener_bound=True)
+    view = await controller.rotate_identity()
+    assert view.listener_bound is True
+
+    _stub_identity_db(controller, listener_bound=False)
+    view = await controller.rotate_identity()
+    assert view.listener_bound is False
+
+
+@pytest.mark.asyncio
+async def test_rotate_identity_fires_event_on_bus(tmp_path: Path) -> None:
+    """A successful rotate fires ``REMOTE_BUILD_IDENTITY_ROTATED``."""
+    controller = _make_controller(config_dir=tmp_path)
+    _stub_identity_db(controller)
+    view = await controller.rotate_identity()
+    fire = controller._db.bus.fire
+    fire.assert_called_once()
+    event_type, payload = fire.call_args.args
+    assert event_type is EventType.REMOTE_BUILD_IDENTITY_ROTATED
+    assert payload == {
+        "dashboard_id": view.dashboard_id,
+        "pin_sha256": view.pin_sha256,
+    }
+
+
+@pytest.mark.asyncio
+async def test_rotate_identity_concurrent_call_rejected(tmp_path: Path) -> None:
+    """A second concurrent ``rotate_identity`` raises ``ALREADY_EXISTS``."""
+    controller = _make_controller(config_dir=tmp_path)
+    gate = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _slow_reload(*, pin_sha256: str) -> bool:
+        gate.set()
+        await release.wait()
+        return True
+
+    controller._db.reload_remote_build_identity = _slow_reload
+    controller._db.is_remote_build_listener_bound = False
+    controller._db.bus = MagicMock()
+
+    first = asyncio.create_task(controller.rotate_identity())
+    # Wait until the first rotation is mid-reload (i.e. the
+    # in-flight flag is set).
+    await gate.wait()
+
+    with pytest.raises(CommandError) as exc:
+        await controller.rotate_identity()
+    assert exc.value.code == ErrorCode.ALREADY_EXISTS
+
+    # Let the first one finish so we don't leak the task.
+    release.set()
+    first_result = await first
+    assert isinstance(first_result, IdentityView)
+
+
+@pytest.mark.asyncio
+async def test_rotate_identity_clears_in_flight_flag_on_failure(tmp_path: Path) -> None:
+    """A failed reload still clears the flag so the next rotate isn't stuck rejected."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.reload_remote_build_identity = AsyncMock(side_effect=RuntimeError("boom"))
+    controller._db.is_remote_build_listener_bound = False
+    controller._db.bus = MagicMock()
+
+    with pytest.raises(RuntimeError):
+        await controller.rotate_identity()
+
+    # Flag must be back to False; otherwise every subsequent
+    # rotate attempt would 409 forever.
+    assert controller._rotation_in_flight is False

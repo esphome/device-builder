@@ -83,6 +83,19 @@ class EventType(StrEnum):
     # a stolen-token attempt and can revoke / rotate.
     REMOTE_BUILD_BINDING_MISMATCH = "remote_build_binding_mismatch"
 
+    # Receiver rotated its TLS keypair via
+    # ``remote_build/rotate_identity``. Payload carries
+    # ``{dashboard_id, pin_sha256}``: subscribers (the offloader-
+    # side peer-link in phase 4+, the receiver Settings UI in
+    # 3c2) can refresh their cached pin without polling
+    # ``get_identity``. The event fires after the on-disk
+    # rotation succeeds; the listener rebuild may still
+    # fail-soft, in which case the rotater's ``IdentityView``
+    # response carries ``listener_bound=False`` while the event
+    # itself reflects only that the cert + key on disk
+    # changed.
+    REMOTE_BUILD_IDENTITY_ROTATED = "remote_build_identity_rotated"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.

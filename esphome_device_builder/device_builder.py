@@ -843,20 +843,30 @@ class DeviceBuilder:
         with contextlib.suppress(Exception):
             await advertiser.refresh()
 
-    async def reload_remote_build_identity(self, identity: DashboardIdentity) -> None:
+    @property
+    def is_remote_build_listener_bound(self) -> bool:
+        """True iff the remote-build HTTPS receiver site is currently bound."""
+        return self._remote_build_runner is not None
+
+    async def reload_remote_build_identity(self, *, pin_sha256: str) -> bool:
         """
         Apply a freshly-rotated identity: rebuild the listener + push the new pin.
 
         Called by ``RemoteBuildController.rotate_identity`` (phase
         3c1) right after :func:`rotate_certificate` writes the new
-        cert + key to disk. Three side effects, in order:
+        cert + key to disk. The cert + key on disk are the source
+        of truth post-rotate — this method takes only ``pin_sha256``
+        because that's all the caller actually communicates;
+        the listener rebuild reads the (now-rotated) cert from
+        disk via ``_maybe_start_remote_build_site``'s normal load
+        path. Three side effects, in order:
 
         * mDNS pin update — even if the listener isn't currently
           bound, paired peers re-browsing should see the new pin
           so they know a rotation happened. Fires before the
           listener teardown so the wire shape catches up early
-          and remains correct even when the rebuild fails (which
-          is fail-soft inside ``_maybe_start_remote_build_site``).
+          and remains correct even when the rebuild fail-softs
+          inside ``_maybe_start_remote_build_site``.
         * Listener teardown — the bound runner is still serving
           the OLD cert from its cached SSL context. Without a
           rebuild, an offloader connecting between rotation and
@@ -864,24 +874,33 @@ class DeviceBuilder:
           the old cert.
         * Listener rebuild — re-runs the same path
           ``_maybe_start_remote_build_site`` does at startup, which
-          loads the (now-rotated) identity and stages it through a
-          fresh SSL context. Fail-soft: a rebuild failure leaves
-          the dashboard running without a receiver listener (same
-          contract as the initial bind).
+          loads the (now-rotated) identity from disk and stages
+          it through a fresh SSL context. Fail-soft: a rebuild
+          failure leaves the dashboard running without a receiver
+          listener (same contract as the initial bind), and the
+          return value reflects that so the rotater can surface
+          the failure to the operator.
 
-        No-op when there's no advertiser AND no runner — the
-        rotation already landed on disk; future starts will pick
-        up the new state.
+        Returns whether the receiver listener is currently bound
+        after this call. ``True`` means rotation landed on disk
+        AND the listener picked it up; ``False`` means rotation
+        landed on disk but no listener is serving the new cert
+        (either the rebuild fail-softed, or the listener wasn't
+        bound to begin with — the operator can't tell those apart
+        from this single bool, but combined with the prior
+        ``listener_bound`` from a recent ``get_identity`` they
+        can).
         """
-        await self._publish_remote_build_advertise(pin_sha256=identity.pin_sha256)
+        await self._publish_remote_build_advertise(pin_sha256=pin_sha256)
         if self._remote_build_runner is None:
-            return
+            return False
 
         old_runner = self._remote_build_runner
         self._remote_build_runner = None
         with contextlib.suppress(Exception):
             await old_runner.cleanup()
         await self._maybe_start_remote_build_site()
+        return self._remote_build_runner is not None
 
     def _on_remote_build_binding_mismatch(self, mismatch: BindingMismatch) -> None:
         """
@@ -947,7 +966,21 @@ class DeviceBuilder:
             runner = web.AppRunner(app)
             await runner.setup()
             configured_port = self.settings.remote_build_port
-            site = web.TCPSite(runner, self.settings.host, configured_port, ssl_context=ssl_context)
+            # ``reuse_address=True`` is the asyncio default on POSIX
+            # but defaults to False on Windows; pin it explicitly so
+            # the rotation rebuild path
+            # (``reload_remote_build_identity`` → teardown → re-bind)
+            # doesn't TIME_WAIT-block on a fixed configured port
+            # (default 6055) cross-platform. The ephemeral-port test
+            # path masks this risk because the OS picks a fresh port
+            # each rebuild; production deploys with a fixed port.
+            site = web.TCPSite(
+                runner,
+                self.settings.host,
+                configured_port,
+                ssl_context=ssl_context,
+                reuse_address=True,
+            )
             await site.start()
         except Exception:
             if runner is not None:

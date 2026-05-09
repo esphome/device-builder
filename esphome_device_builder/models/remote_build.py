@@ -174,9 +174,18 @@ class IdentityView(DataClassORJSONMixin):
     but the Settings UI doesn't browse mDNS to render its own
     "Build host" card — surfacing them here keeps the card a
     single WS call.
+
+    ``listener_bound`` reports whether the
+    ``/remote-build/v1/*`` HTTPS receiver site is currently
+    serving traffic on this dashboard. Lets the Settings UI
+    distinguish "rotation succeeded AND the listener is back
+    up" from "rotation succeeded but the rebuild fail-softed"
+    (port now bound by something else, cert load throws, …).
+    The latter is silent in the logs without this flag.
     """
 
     dashboard_id: str
     pin_sha256: str
     server_version: str
     esphome_version: str
+    listener_bound: bool = False

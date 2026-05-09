@@ -641,11 +641,13 @@ async def test_reload_remote_build_identity_no_op_when_listener_unbound(
     loop = asyncio.get_running_loop()
     identity = await loop.run_in_executor(None, get_or_create_identity, tmp_path)
 
-    await db.reload_remote_build_identity(identity)
+    listener_bound = await db.reload_remote_build_identity(pin_sha256=identity.pin_sha256)
 
     advertiser.set_pin_sha256.assert_called_once_with(identity.pin_sha256)
     advertiser.refresh.assert_awaited_once()
     assert db._remote_build_runner is None
+    # Reload returns ``False`` when there's no listener to rebuild.
+    assert listener_bound is False
 
 
 @pytest.mark.asyncio
@@ -681,11 +683,15 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
         # Rotate the cert + key on disk so the rebuild loads
         # the new identity.
         new_identity = await loop.run_in_executor(None, rotate_certificate, tmp_path)
-        await db.reload_remote_build_identity(new_identity)
+        listener_bound = await db.reload_remote_build_identity(
+            pin_sha256=new_identity.pin_sha256,
+        )
 
         # Listener was rebuilt — different ``AppRunner`` instance.
         assert db._remote_build_runner is not None
         assert db._remote_build_runner is not first_runner
+        # Reload reports the post-rebuild state — listener is up.
+        assert listener_bound is True
     finally:
         if db._remote_build_runner is not None:
             await db._remote_build_runner.cleanup()
@@ -707,5 +713,6 @@ async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallo
     identity = await loop.run_in_executor(None, get_or_create_identity, tmp_path)
 
     # Must not raise — fail-soft contract on the refresh tick.
-    await db.reload_remote_build_identity(identity)
+    listener_bound = await db.reload_remote_build_identity(pin_sha256=identity.pin_sha256)
     advertiser.set_pin_sha256.assert_called_once_with(identity.pin_sha256)
+    assert listener_bound is False
