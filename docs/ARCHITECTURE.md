@@ -193,13 +193,15 @@ The cryptographic primitives are `Noise_XX_25519_ChaChaPoly_SHA256` (mutual iden
 
 The numbered phases:
 
-1. **Discovery** — both dashboards advertise on mDNS (`_esphomebuilder._tcp.local`); TXT carries `peer_link_port` + `pin_sha256`.
-2. **Receiver opens pairing window** — admin navigates to the Pairing requests screen; the frontend calls `set_pairing_window` with `open=true`; the backend flips an in-process deadline and fires `pairing_window_changed`. The window closes automatically on screen-unmount or user-idle timeout.
+All WS commands below use the `remote_build/` namespace and all events use the `remote_build_` prefix (matching the existing convention in `docs/API.md` and `models/common.py`); the diagram further down strips both for readability.
+
+1. **Discovery** — both dashboards advertise on mDNS (`_esphomebuilder._tcp.local`); the post-pivot TXT carries `peer_link_port` + `pin_sha256`. (Currently-shipped TXT advertises `remote_build_port` + `pin_sha256` instead, where `remote_build_port` points at the about-to-be-removed 6055 HTTPS listener; the rename to `peer_link_port` lands with phase 4a-r2.)
+2. **Receiver opens pairing window** — admin navigates to the Pairing requests screen; the frontend calls `remote_build/set_pairing_window` with `open=true`; the backend flips an in-process deadline and fires `remote_build_pairing_window_changed`. The window closes automatically on screen-unmount or user-idle timeout.
 3. **Preview pair (intent=preview)** — three Noise XX handshake messages. The offloader captures the receiver's static pubkey from the handshake transcript and surfaces `pin_sha256` to the user; no application data crosses the wire.
 4. **OOB pin verification** — human-mediated. The user compares the pin shown on the offloader UI against the receiver UI's Build server card.
-5. **Pair request (intent=pair_request)** — fresh Noise XX with payload `{label, dashboard_id}`. If the pairing window is open, the receiver creates a PENDING `StoredPeer` row, fires `pair_request_received`, and returns `intent_response=pending`. If the window is closed, it returns `intent_response=no_pairing_window` without creating a row.
-6. **Receiver admin approves** — admin OOB-confirms the offloader's pin, clicks Accept; the receiver flips the row to APPROVED and fires `pair_status_changed`.
-7. **Offloader observes approval (5s polling)** — while the offloader's local row is pending, its frontend polls `list_pool`; the offloader backend opens a fresh Noise WS with `intent=pair_status` and writes the response back into the local row.
+5. **Pair request (intent=pair_request)** — fresh Noise XX with payload `{label, dashboard_id}`. If the pairing window is open, the receiver creates a PENDING `StoredPeer` row, fires `remote_build_pair_request_received`, and returns `intent_response=pending`. If the window is closed, it returns `intent_response=no_pairing_window` without creating a row.
+6. **Receiver admin approves** — admin OOB-confirms the offloader's pin, clicks Accept; the receiver `remote_build/approve_peer` flips the row to APPROVED and fires `remote_build_pair_status_changed`.
+7. **Offloader observes approval (5s polling)** — while the offloader's local row is pending, its frontend polls `remote_build/list_pool`; the offloader backend opens a fresh Noise WS with `intent=pair_status` and writes the response back into the local row.
 8. **Subsequent real-build sessions** — `intent=peer_link`. **Not gated by the pairing window**; paired peers connect anytime. The receiver looks up the offloader's static-pubkey-hash against its `StoredPeer` table; an APPROVED match returns `intent_response=ok` and the session stays open for application messages.
 
 ```mermaid
