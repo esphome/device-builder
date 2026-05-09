@@ -1086,7 +1086,8 @@ class DeviceStateMonitor:
         # ``browser_callback`` only acts on services that carry the
         # ``package_import_url`` TXT records, so harmlessly receiving
         # HTTP events is fine.
-        self._import_discovery = DashboardImportDiscovery(self._on_import_update)
+        import_discovery = DashboardImportDiscovery(self._on_import_update)
+        self._import_discovery = import_discovery
 
         def _dispatch(
             zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
@@ -1097,9 +1098,14 @@ class DeviceStateMonitor:
             # halves the zeroconf bookkeeping vs running two separate
             # browsers and lets the upstream ``DashboardImportDiscovery``
             # callback piggy-back on the same dispatch path.
+            #
+            # Closes over the local ``import_discovery`` rather than
+            # ``self._import_discovery`` so mypy sees a non-None value
+            # (the attribute is typed ``... | None`` for the
+            # pre-``start()`` window). Same instance either way.
             if service_type == _ESPHOME_SERVICE_TYPE:
                 _on_esphomelib_service_state_change(zeroconf, service_type, name, state_change)
-                self._import_discovery.browser_callback(zeroconf, service_type, name, state_change)
+                import_discovery.browser_callback(zeroconf, service_type, name, state_change)
             elif service_type == _HTTP_SERVICE_TYPE:
                 self._on_http_service_state_change(zeroconf, service_type, name, state_change)
 

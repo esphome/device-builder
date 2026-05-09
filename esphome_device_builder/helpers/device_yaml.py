@@ -132,6 +132,17 @@ def _fallback_has_native_wifi(
     if platform == "rp2040":
         if board is None:
             return True
+        # ``_ESPHOME_RP2040_BOARDS`` is typed ``dict[str, dict] | None``
+        # because the upstream-helper-available branch leaves it as
+        # ``None`` (the upstream ``has_native_wifi`` handles all
+        # platforms there). This fallback only runs when that branch
+        # didn't take, so the import-from-esphome assignment fired
+        # and the value is a real dict — but mypy can't see the
+        # runtime correlation. ``None`` here is treated the same as
+        # an unknown board: assume Wi-Fi present (matches upstream's
+        # default-to-wifi-allowlist semantics).
+        if _ESPHOME_RP2040_BOARDS is None:
+            return True
         info = _ESPHOME_RP2040_BOARDS.get(board)
         return True if info is None else info.get("wifi", False)
     return platform in _FALLBACK_WIFI_FIRST_PLATFORMS

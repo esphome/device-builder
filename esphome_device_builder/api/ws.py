@@ -260,6 +260,12 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         # via Authorization header instead of the in-band protocol.
         bearer = extract_bearer_token(request.headers.get("Authorization", ""))
         if bearer:
+            # ``device_builder.auth`` is typed ``AuthController | None``
+            # for the pre-``start()`` window where the controller hasn't
+            # been wired yet. The WS handler only runs after ``start()``
+            # so the runtime invariant is "auth is always set here";
+            # assert to make that explicit and let mypy narrow.
+            assert device_builder.auth is not None
             session = await device_builder.auth.session_store.validate(bearer)
             if session is not None:
                 pre_authenticated = True
