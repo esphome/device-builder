@@ -48,13 +48,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from ..models import DeviceState
+from ..models import DeviceReachabilityData, DeviceState
 
 # Wire-format dict the drawer's ``devices/subscribe_reachability`` event
-# carries. Defined as a TypedDict-style note rather than a runtime type
-# so we don't pay for an extra dataclass — the dict is JSON-serialized
-# by the WS layer either way.
-ReachabilitySnapshot = dict[str, object]
+# carries — see :class:`DeviceReachabilityData` for the field-by-field
+# shape. The alias is kept as the local name for the snapshot
+# constructions in this module; ``DeviceReachabilityData`` is the
+# canonical name used at fire / listener sites.
+ReachabilitySnapshot = DeviceReachabilityData
 
 # Callback fired every time we observe a freshness signal for a device,
 # so the per-device subscription stream can push a refreshed snapshot.

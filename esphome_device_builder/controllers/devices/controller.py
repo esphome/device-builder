@@ -56,8 +56,10 @@ from ...models import (
     AdoptableDevice,
     Device,
     DeviceEventData,
+    DeviceReachabilityData,
     DevicesResponse,
     DeviceState,
+    DeviceStateChangedData,
     ErrorCode,
     EventType,
     JobLifecycleData,
@@ -2517,7 +2519,7 @@ class DevicesController:
         """
         return self._scanner.get_by_name(name)
 
-    def _build_reachability_snapshot(self, name: str) -> dict[str, object] | None:
+    def _build_reachability_snapshot(self, name: str) -> DeviceReachabilityData | None:
         """
         Stitch state + tracker fields into the reachability wire shape.
 
@@ -2557,7 +2559,7 @@ class DevicesController:
             return
         self._db.bus.fire(EventType.DEVICE_REACHABILITY, snapshot)
 
-    def get_reachability_snapshot(self, name: str) -> dict[str, object] | None:
+    def get_reachability_snapshot(self, name: str) -> DeviceReachabilityData | None:
         """Return the current reachability snapshot for *name*, or ``None``.
 
         Public so the WS ``devices/subscribe_reachability`` handler can
@@ -2591,7 +2593,10 @@ class DevicesController:
             # exactly so the row's state cell flips on the next event.
             self._db.bus.fire(
                 EventType.DEVICE_STATE_CHANGED,
-                {"configuration": device.configuration, "state": state.value},
+                DeviceStateChangedData(
+                    configuration=device.configuration,
+                    state=state.value,
+                ),
             )
 
     def _on_ip_change(self, name: str, ip: str, addresses: list[str]) -> None:

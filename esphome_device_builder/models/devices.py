@@ -276,3 +276,49 @@ class DeviceEventData(TypedDict):
     """
 
     device: Device
+
+
+class DeviceStateChangedData(TypedDict):
+    """
+    Payload for ``EventType.DEVICE_STATE_CHANGED``.
+
+    Flat ``{configuration, state}`` shape — deliberately *not* the
+    full ``Device`` object. The frontend's
+    ``DeviceStateChangedEventData`` destructures these two fields
+    by name; sending the full device object made both resolve to
+    ``undefined`` and the table never updated when ping (or any
+    other source) flipped a device online. ``state`` ships as the
+    serialised ``DeviceState.value`` string for the same reason —
+    the JSON encoder for ``DeviceState`` produces the same form
+    but firing the enum object directly leaks an enum into the
+    listener's ``data["state"]``.
+    """
+
+    configuration: str
+    state: str
+
+
+class DeviceReachabilityData(TypedDict):
+    """
+    Payload for ``EventType.DEVICE_REACHABILITY``.
+
+    Per-device freshness snapshot fired every time a reachability
+    signal (mDNS announce / ICMP success / MQTT discover) lands
+    for a configured device. Wire shape mirrored on the frontend
+    by ``DeviceReachabilityEventData``; the device drawer's per-
+    device subscription keys on ``device`` and pushes the
+    snapshot to the client. Optional fields are ``None`` when the
+    corresponding signal hasn't been observed yet — the drawer
+    hides the row entirely in that case.
+    """
+
+    device: str
+    state: str
+    active_source: str
+    ip: str
+    mdns_last_seen_seconds_ago: float | None
+    mdns_ttl_remaining_seconds: float | None
+    mdns_txt_records: dict[str, str] | None
+    ping_last_seen_seconds_ago: float | None
+    mqtt_last_seen_seconds_ago: float | None
+    ping_rtt_ms: float | None
