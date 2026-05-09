@@ -1366,9 +1366,36 @@ class RemoteBuildController:
         Reads the offloader settings and walks the pairings,
         spawning :meth:`_spawn_pair_status_listener` for any
         PENDING row whose listener has exited or was never
-        spawned (e.g. NO_PAIRING_WINDOW exit, controller restart
-        with persisted PENDING rows from a previous session).
-        Idempotent — already-running listeners are left alone.
+        spawned. Idempotent — already-running listeners are
+        left alone (the spawn helper short-circuits on
+        existing+not-done).
+
+        In steady state this is a no-op; every PENDING row
+        already has a listener spawned at row-creation time
+        in :meth:`request_pair`. It does meaningful work in
+        two concrete situations:
+
+        1. **Cold start with persisted PENDING rows.** The
+           controller just came up, the offloader settings file
+           on disk has PENDING rows from a previous session, no
+           listeners are running yet. ``start()`` deliberately
+           does NOT pre-spawn at controller-up — that would hold
+           open Noise WSes whether or not anyone is looking at
+           Send-builds, defeating the user-action-driven design.
+           The first ``subscribe_pool`` call brings them online.
+        2. **After a NO_PAIRING_WINDOW exit.** Receiver-side
+           admin walked away from the Pairing requests screen
+           mid-pair, the listener exited cleanly via
+           :meth:`_apply_pair_status_result`, the row stayed
+           PENDING. The next ``subscribe_pool`` (user re-opens
+           Send-builds) respawns the listener for another
+           attempt; if admin is back on the screen by then, the
+           long-poll connects and works.
+
+        Receiver-key rotation is *not* one of the cases — that
+        path drops the row entirely (REJECTED via the receiver-
+        side pin check), so there's no PENDING row left to
+        respawn.
         """
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
