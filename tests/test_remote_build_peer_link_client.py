@@ -397,10 +397,11 @@ async def test_drive_initiator_round_trip_handshake_not_complete_raises_client_e
         sess.__class__ = _BrokenInitiator
         return sess
 
-    # Patch the symbol the driver actually imports — patching the
-    # classmethod on ``PeerLinkNoiseSession`` would affect the
-    # receiver-side handshake too and fail the test before the
-    # initiator's post-handshake access.
+    # Patch the symbol the driver actually imports. Overriding only
+    # ``initiator`` instances keeps the receiver-side ``responder``
+    # handshake intact, while changing shared base-class behavior
+    # such as ``remote_static_pub`` would affect both sides and fail
+    # the test before the initiator's post-handshake access.
     monkeypatch.setattr(
         remote_build_peer_link_client.PeerLinkNoiseSession,
         "initiator",
