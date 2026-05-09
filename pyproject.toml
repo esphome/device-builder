@@ -19,6 +19,12 @@ dependencies = [
   "mashumaro>=3.13",
   "orjson>=3.9.0",
   "pyyaml>=6.0",
+  # ESPHome already drags voluptuous in transitively, but the
+  # remote-build storage models (``models/remote_build.py``) use it
+  # directly via project-local validators. Pinning it explicitly so
+  # lean envs (the sync-boards pre-commit hook, any future
+  # esphome-less install path) don't drop it.
+  "voluptuous>=0.13.1",
 ]
 description = "ESPHome Device Builder"
 license = "Apache-2.0"

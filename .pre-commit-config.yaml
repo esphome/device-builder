@@ -19,7 +19,11 @@ repos:
         name: regenerate boards.json from manifests
         entry: python script/sync_boards.py
         language: python
-        additional_dependencies: [pyyaml, orjson, mashumaro]
+        # ``voluptuous`` is needed because importing
+        # ``esphome_device_builder.models.remote_build`` (transitively
+        # imported via the script's models import chain) runs the
+        # ``StoredPairing`` schema validator at module-load time.
+        additional_dependencies: [pyyaml, orjson, mashumaro, voluptuous]
         pass_filenames: false
         files: ^esphome_device_builder/definitions/boards/.*\.yaml$
         types: [yaml]
