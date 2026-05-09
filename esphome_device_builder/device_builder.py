@@ -410,10 +410,18 @@ class DeviceBuilder:
         # matters less here than for zeroconf, but doing it
         # first keeps the listener from servicing a request
         # that hits a torn-down controller mid-shutdown.
-        if self._remote_build_runner is not None:
-            with contextlib.suppress(Exception):
-                await self._remote_build_runner.cleanup()
-            self._remote_build_runner = None
+        # Acquire ``_remote_build_lifecycle_lock`` so a
+        # concurrent ``apply_remote_build_enabled`` /
+        # ``reload_remote_build_identity`` can't interleave its
+        # rebind with this teardown — without the lock, an
+        # in-flight toggle could land a fresh runner *after*
+        # ``stop()`` has cleared the slot, leaking a listener
+        # past shutdown.
+        async with self._get_remote_build_lifecycle_lock():
+            if self._remote_build_runner is not None:
+                with contextlib.suppress(Exception):
+                    await self._remote_build_runner.cleanup()
+                self._remote_build_runner = None
         # Cancel the remote-build browser BEFORE devices.stop()
         # closes the zeroconf socket the browser is using. Same
         # ordering rule as the dashboard advertise just below.
