@@ -982,7 +982,13 @@ def test_fallback_has_native_wifi_rp2040_returns_true_when_boards_table_missing(
     """
     monkeypatch.setattr(device_yaml, "_ESPHOME_RP2040_BOARDS", None)
 
-    assert _fallback_has_native_wifi(platform="rp2040", board="any-board") is True
+    # Look the helper up through the live module attr rather than
+    # the test-time imported binding — ``tests/test_api_key.py``
+    # calls ``importlib.reload(device_yaml)``, which orphans any
+    # test-module binding captured at import time. The live attr
+    # survives the reload AND points at the same function instance
+    # the monkeypatched module globals are visible to.
+    assert device_yaml._fallback_has_native_wifi(platform="rp2040", board="any-board") is True
 
 
 def test_select_wifi_helper_prefers_upstream_when_available() -> None:
