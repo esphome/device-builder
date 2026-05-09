@@ -15,11 +15,12 @@ writer of the same file (the callbacks own the
 ``metadata_transaction``).
 
 Drops every HA dependency we don't need: no ``hass.bus`` / no
-``EVENT_HOMEASSISTANT_FINAL_WRITE`` (we use an explicit
-:meth:`async_save_now` from controller ``stop()``), no ``_StoreManager``
-preload cache (the sidecar is one read), no version migration (the
-storage shape is owned by mashumaro on the controller side), no
-``_load_future`` reentrancy guard (we load once at controller start).
+``EVENT_HOMEASSISTANT_FINAL_WRITE`` (we replace it with a mandatory
+*shutdown_register* callback the caller supplies — see below), no
+``_StoreManager`` preload cache (the sidecar is one read), no
+version migration (the storage shape is owned by mashumaro on the
+controller side), no ``_load_future`` reentrancy guard (we load
+once at controller start).
 
 Keeps the parts that earn their complexity:
 
@@ -38,6 +39,22 @@ Keeps the parts that earn their complexity:
   call it inside the write critical section, so a mutation that
   lands between ``async_delay_save`` and the eventual flush picks up
   the latest in-RAM state.
+* **Mandatory shutdown registration.** The constructor takes a
+  *shutdown_register* callback that's invoked *exactly once* with
+  ``self.async_save_now`` at construction. The caller's lifecycle
+  layer (typically :class:`DeviceBuilder.shutdown_callbacks`) holds
+  the resulting list and ``await``s every callback during graceful
+  stop, so a debounced save scheduled microseconds before shutdown
+  always lands. Making registration a constructor parameter rather
+  than a "remember to call ``stop()``" convention closes the
+  forgot-to-wire-it footgun structurally — a store can't be
+  instantiated without telling the lifecycle who's responsible for
+  flushing it. Caveats: ``SIGKILL`` / process crash skip the
+  registry the same way HA's ``EVENT_HOMEASSISTANT_FINAL_WRITE``
+  skips on hard kills; in-RAM mutations not yet flushed are lost.
+  Persistence under crashes would require an after-every-mutation
+  write, defeating the debounce; for our use case (paired-receivers
+  list, similar low-frequency state) the trade is accepted.
 
 Typical use, paired with
 :func:`~controllers.config.metadata_transaction` and a per-key
@@ -59,6 +76,10 @@ loader::
             config_dir=self._db.settings.config_dir,
             load_sync=_load,
             write_sync=_save,
+            # Caller-owned: a list the lifecycle layer walks at stop
+            # time. ``.append`` matches the
+            # ``Callable[[ShutdownCallback], None]`` shape exactly.
+            shutdown_register=self._db.shutdown_callbacks.append,
         )
     )
 
@@ -66,19 +87,33 @@ loader::
     self._pairings[key] = pairing
     self._store.async_delay_save(self._serialize_pairings, delay=1.0)
 
-    # On controller stop:
-    await self._store.async_save_now()
+    # ``async_save_now`` is also still available for callers that
+    # want a synchronous flush outside the shutdown path (e.g. on a
+    # configuration import that wants the new state on disk before
+    # the response goes back).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
 
 _LOGGER = logging.getLogger(__name__)
+
+# Type aliases for the shutdown-registry contract. ``ShutdownCallback``
+# is what we hand the registry; ``ShutdownRegister`` is the registry's
+# own shape (a function that accepts one). Splitting them out means
+# call sites don't have to spell ``Callable[[Callable[[], Awaitable[None]]], None]``
+# inline, and a future audit that switches the registry to a more
+# structured type (e.g. an ``asyncio.TaskGroup`` exit hook) only
+# touches the alias. PEP 695 ``type`` syntax (Python 3.12+) so the
+# aliases live in their own namespace and don't need
+# ``from __future__ import annotations`` evaluation tricks.
+type ShutdownCallback = Callable[[], Awaitable[None]]
+type ShutdownRegister = Callable[[ShutdownCallback], None]
 
 
 class MetadataKeyStore[T]:
@@ -105,6 +140,7 @@ class MetadataKeyStore[T]:
         *,
         load_sync: Callable[[Path], T],
         write_sync: Callable[[Path, T], None],
+        shutdown_register: ShutdownRegister,
     ) -> None:
         """Bind the store to ``config_dir`` + caller-supplied I/O hooks.
 
@@ -112,6 +148,17 @@ class MetadataKeyStore[T]:
         value (or whatever default the caller chooses for missing
         keys). *write_sync* takes ``(config_dir, value)`` and
         atomically persists it. Both are sync (executor-bound).
+
+        *shutdown_register* is invoked exactly once during
+        construction with :meth:`async_save_now`; the caller's
+        lifecycle layer is then responsible for awaiting that
+        callback at graceful shutdown. The simplest valid value is
+        ``some_list.append`` — the lifecycle iterates the list and
+        ``await``s each entry. Required (not optional) so a store
+        can't be instantiated without telling someone who will
+        flush it; tests that don't care can pass ``lambda _cb:
+        None`` to opt out, but production paths should always wire
+        a real registry.
 
         Injection avoids importing ``controllers.config`` from a
         helper module — the ``controllers.config`` layer already
@@ -137,6 +184,13 @@ class MetadataKeyStore[T]:
         # awaits this before issuing its own final write so the two
         # don't interleave.
         self._inflight_write: asyncio.Task[None] | None = None
+        # Self-registration with the caller's lifecycle layer.
+        # Done last so a misbehaving registry that synchronously
+        # calls the callback (which would race a half-initialised
+        # ``self``) at least sees a fully-built object — it's
+        # legal but odd; production registries are list ``.append``
+        # which never invokes the callback at registration time.
+        shutdown_register(self.async_save_now)
 
     async def async_load(self) -> T:
         """Load the current value at this key from disk.

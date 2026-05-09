@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
-from esphome_device_builder.helpers.metadata_store import MetadataKeyStore
+from esphome_device_builder.helpers.metadata_store import (
+    MetadataKeyStore,
+    ShutdownCallback,
+)
 
 
 @dataclass
@@ -19,10 +22,14 @@ class _FakeBackend:
 
     Records how many times the writer ran + the latest payload, so
     tests can assert debounce collapsing without touching disk.
+    Bundles the shutdown callback list so a test can both inspect
+    *that the store registered* and run the registered callbacks
+    to simulate the lifecycle layer's ``stop()`` behaviour.
     """
 
     config_dir: Path
     writes: list[object]
+    shutdown_callbacks: list[ShutdownCallback] = field(default_factory=list)
     initial_value: object | None = None
 
     def load(self, config_dir: Path) -> object:
@@ -33,6 +40,11 @@ class _FakeBackend:
         assert config_dir == self.config_dir
         self.writes.append(value)
 
+    async def run_shutdown_callbacks(self) -> None:
+        """Mimic the lifecycle layer awaiting every registered store."""
+        for cb in self.shutdown_callbacks:
+            await cb()
+
 
 @pytest.fixture
 def backend(tmp_path: Path) -> _FakeBackend:
@@ -42,7 +54,10 @@ def backend(tmp_path: Path) -> _FakeBackend:
 @pytest.fixture
 def store(backend: _FakeBackend) -> MetadataKeyStore[object]:
     return MetadataKeyStore[object](
-        backend.config_dir, load_sync=backend.load, write_sync=backend.write
+        backend.config_dir,
+        load_sync=backend.load,
+        write_sync=backend.write,
+        shutdown_register=backend.shutdown_callbacks.append,
     )
 
 
@@ -193,7 +208,12 @@ async def test_async_save_now_awaits_inflight_write(tmp_path: Path) -> None:
         msg = "load not used in this test"
         raise AssertionError(msg)
 
-    store = MetadataKeyStore[object](tmp_path, load_sync=_load, write_sync=_slow_write)
+    store = MetadataKeyStore[object](
+        tmp_path,
+        load_sync=_load,
+        write_sync=_slow_write,
+        shutdown_register=lambda _cb: None,
+    )
 
     store.async_delay_save(lambda: "first", delay=0.0)
     # Wait for the executor thread to enter the write.
@@ -223,7 +243,12 @@ async def test_write_failure_logged_and_swallowed(
         msg = "load not used in this test"
         raise AssertionError(msg)
 
-    store = MetadataKeyStore[object](tmp_path, load_sync=_load, write_sync=_raising_write)
+    store = MetadataKeyStore[object](
+        tmp_path,
+        load_sync=_load,
+        write_sync=_raising_write,
+        shutdown_register=lambda _cb: None,
+    )
 
     with caplog.at_level("ERROR"):
         store.async_delay_save(lambda: "x", delay=0.0)
@@ -267,7 +292,12 @@ async def test_load_sync_runs_in_executor(
         msg = "should not be called"
         raise AssertionError(msg)
 
-    store = MetadataKeyStore[str](tmp_path, load_sync=_slow_load, write_sync=_write)
+    store = MetadataKeyStore[str](
+        tmp_path,
+        load_sync=_slow_load,
+        write_sync=_write,
+        shutdown_register=lambda _cb: None,
+    )
     assert await store.async_load() == "loaded"
 
 
@@ -293,6 +323,79 @@ async def test_save_now_skips_when_no_pending_data_after_drain(
     await store.async_save_now()
     # Still only one write — the second flush had nothing to do.
     assert backend.writes == ["v"]
+
+
+@pytest.mark.asyncio
+async def test_constructor_registers_shutdown_callback(
+    backend: _FakeBackend, store: MetadataKeyStore[object]
+) -> None:
+    """``shutdown_register`` is invoked exactly once at construction.
+
+    The registered callback is :meth:`async_save_now` itself —
+    awaiting it from the registry's flush loop drains any pending
+    debounced save without the caller having to thread a reference
+    to the store instance through the lifecycle layer.
+    """
+    assert len(backend.shutdown_callbacks) == 1
+    # The registered callback IS ``async_save_now``; awaiting it
+    # should drain a queued save just like a direct call.
+    store.async_delay_save(lambda: "via-shutdown", delay=10.0)
+    await backend.shutdown_callbacks[0]()
+    assert backend.writes == ["via-shutdown"]
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_walk_flushes_pending_saves_across_stores(
+    tmp_path: Path,
+) -> None:
+    """Multiple stores share one shutdown registry; the walker drains all of them.
+
+    Mirrors the production wiring where ``DeviceBuilder.stop()``
+    iterates a single registry list that every controller's stores
+    appended themselves to. A pending delayed save in any of them
+    must land before the lifecycle-layer's ``stop()`` returns.
+    """
+    callbacks: list[ShutdownCallback] = []
+
+    pairings_writes: list[object] = []
+    peers_writes: list[object] = []
+
+    def _no_load(_config_dir: Path) -> object:  # pragma: no cover
+        msg = "load not used in this test"
+        raise AssertionError(msg)
+
+    def _pairings_write(_config_dir: Path, value: object) -> None:
+        pairings_writes.append(value)
+
+    def _peers_write(_config_dir: Path, value: object) -> None:
+        peers_writes.append(value)
+
+    pairings = MetadataKeyStore[object](
+        tmp_path,
+        load_sync=_no_load,
+        write_sync=_pairings_write,
+        shutdown_register=callbacks.append,
+    )
+    peers = MetadataKeyStore[object](
+        tmp_path,
+        load_sync=_no_load,
+        write_sync=_peers_write,
+        shutdown_register=callbacks.append,
+    )
+
+    # Both stores have unflushed delayed saves with long deadlines.
+    pairings.async_delay_save(lambda: "pairings-final", delay=10.0)
+    peers.async_delay_save(lambda: "peers-final", delay=10.0)
+
+    assert pairings_writes == []
+    assert peers_writes == []
+
+    # Lifecycle-layer drain.
+    for cb in callbacks:
+        await cb()
+
+    assert pairings_writes == ["pairings-final"]
+    assert peers_writes == ["peers-final"]
 
 
 @pytest.mark.asyncio
