@@ -95,17 +95,13 @@ jobs:
       - name: Smoke-test component catalog
         run: python script/check_catalog.py
 
-      - name: Type-check (mypy, advisory)
+      - name: Type-check (mypy)
         # Mypy is configured strict in ``pyproject.toml``
         # (``disallow_untyped_defs``, ``disallow_incomplete_defs``,
-        # ``warn_return_any``) but the existing codebase wasn't
-        # mypy-clean at the point this gate landed. Run it as
-        # **advisory** for now (``continue-on-error: true``) so
-        # the report shows up in PR checks without blocking
-        # merges, and contributors get a baseline they can
-        # ratchet down. Flip to a hard gate once the standing
-        # error count hits zero.
-        continue-on-error: true
+        # ``warn_return_any``). Hard gate — a typing regression
+        # blocks the PR. Started life as advisory (#481) while the
+        # 24-error baseline got walked down to zero across PRs
+        # #483-#492; flipped on once the standing count hit zero.
         run: mypy esphome_device_builder
 
   test:
