@@ -14,13 +14,18 @@ import asyncio
 import hashlib
 import ssl
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import aiohttp
 import pytest
 from aiohttp import web
 
-from esphome_device_builder.controllers.config import remote_build_settings_transaction
+from esphome_device_builder.controllers.config import (
+    DashboardSettings,
+    remote_build_settings_transaction,
+)
 from esphome_device_builder.device_builder import (
+    DeviceBuilder,
     _build_remote_build_ssl_context,
     _remote_build_health,
 )
@@ -125,22 +130,56 @@ async def test_health_returns_200_with_valid_bearer(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_setting_remote_build_settings_keeps_listener_off_by_default(
-    tmp_path: Path,
-) -> None:
+async def test_maybe_start_remote_build_site_skips_when_disabled(tmp_path: Path) -> None:
     """
-    Default-off contract: a fresh config has ``enabled=False``.
+    Default-off: ``_maybe_start_remote_build_site`` early-returns when ``enabled=False``.
 
-    Pins the listener-binding gate at the settings layer (the
-    listener wiring inspects this same field). Defends against a
-    refactor that flips the default and exposes a port without
-    the operator opting in.
+    Pins the gate at the lifecycle hook, not just at the
+    settings layer — a refactor that bound the listener
+    unconditionally (or read the wrong field) would fail here
+    even if ``RemoteBuildSettings.enabled`` still defaulted to
+    ``False``.
+    """
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build = MagicMock()
+
+    await db._maybe_start_remote_build_site()
+    assert db._remote_build_runner is None
+
+
+@pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_binds_when_enabled(tmp_path: Path) -> None:
+    """
+    Flipping ``enabled=True`` makes the lifecycle hook bind the listener.
+
+    Round-trip: write ``enabled=True`` to the settings sidecar,
+    drive ``_maybe_start_remote_build_site`` through the same
+    code path the dashboard's startup uses, assert a runner
+    landed.
     """
     loop = asyncio.get_running_loop()
 
-    def _read() -> bool:
-        with remote_build_settings_transaction(tmp_path) as settings:
-            return settings.enabled
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
 
-    enabled = await loop.run_in_executor(None, _read)
-    assert enabled is False
+    await loop.run_in_executor(None, _enable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    # Pin the port to ``0`` so the OS picks a free one and the
+    # test doesn't collide with a real receiver if 6055 is in use.
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build = MagicMock()
+    db.remote_build.lookup_token = MagicMock(return_value=None)
+
+    try:
+        await db._maybe_start_remote_build_site()
+        assert db._remote_build_runner is not None
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()

@@ -266,9 +266,32 @@ Receiver-side surface for the remote-build offload feature (issue #106). Discove
 | `remote_build/add_token` | `{label}` | `TokenCreateResult` | Issue a fresh bearer. The cleartext `bearer` flashes through the response **once**; only `sha256(secret)` lands on disk. Label 1-128 chars; duplicates allowed (`token_id` is the unique key). |
 | `remote_build/remove_token` | `{token_id}` | `RemoteBuildSettingsView` | Revoke a token. Unknown / blank `token_id` raises `not_found` / `invalid_args` respectively. |
 
-**Bearer wire format**: `{token_id}.{secret}` where `token_id` is the lookup key (8-byte base64url, ~11 chars) and `secret` is the verification value (32-byte base64url, ~43 chars). Phase 3b2's auth middleware will split on `.`, look up by `token_id`, and `hmac.compare_digest` SHA-256(`secret`) against the stored hash.
+**Bearer wire format**: `{token_id}.{secret}` where `token_id` is the lookup key (8-byte base64url, ~11 chars) and `secret` is the verification value (32-byte base64url, ~43 chars). The phase-3b2 auth middleware splits on `.`, looks up by `token_id`, and `hmac.compare_digest`s `SHA-256(secret)` against the stored hash.
 
 **`bound_dashboard_id`** on `StoredToken` / `TokenSummary` is reserved for phase 3b3's first-use binding; it stays `null` until the first authenticated request arrives carrying the offloader's `X-Dashboard-ID` header.
+
+#### HTTPS receiver site (phase 3b2)
+
+A separate aiohttp `web.Application` binds on the dashboard's `--remote-build-port` (default `6055`) over TLS using the cert + key from phase 3a. Default-off; binds only when `RemoteBuildSettings.enabled` is true. **Toggling `enabled` requires a dashboard restart for the listener to follow** — `set_settings` persists the new value but doesn't live-bind / unbind the listener.
+
+| Endpoint | Auth | Notes |
+|---|---|---|
+| `GET /remote-build/v1/health` | `Authorization: Bearer {token_id}.{secret}` | Returns `{"ok": true}` on a valid bearer; 401 without; 429 with `Retry-After` after rate-limit lockout. |
+
+The bearer scheme is RFC 7235 case-insensitive (`Bearer`, `bearer`, `BEARER` all work) and tolerant of any RFC 7230 BWS (space or tab) between scheme and credentials.
+
+Per-IP rate limiter on failed attempts: 10 failures per 60 seconds triggers a 5-minute lockout for that source IP. Successful auth doesn't clear the limiter — there's no notion of "this peer is trustworthy now"; per-pairing trust is the binding step in phase 3b3.
+
+The receiver advertises the listener's port over mDNS as a TXT property:
+
+| TXT property | Value | When present |
+|---|---|---|
+| `server_version` | `"1.2.3"` | always |
+| `esphome_version` | `"2026.5.0"` | always |
+| `pin_sha256` | lowercase-hex SPKI fingerprint | when remote-build is enabled |
+| `remote_build_port` | stringified int (e.g. `"6055"`) | when remote-build is enabled |
+
+Same-subnet peers read `remote_build_port` from TXT so a `--remote-build-port` override is auto-discovered. Cross-subnet peers (`add_manual_host` flow) provide the port at add time.
 
 ### Utility
 

@@ -8,21 +8,29 @@ cross-subnet / non-multicast LANs, and the receiver-issued
 bearer-token list; merges discovery sources into a single
 ``remote_build/list_hosts`` snapshot.
 
-Current scope:
+The ``enabled`` flag gates the HTTPS receiver site
+:class:`DeviceBuilder` binds at startup (``/remote-build/v1/*``,
+default port 6055). Toggling ``enabled`` at runtime persists
+the new value but does NOT live-bind / unbind the listener;
+flipping it requires a dashboard restart for the listener
+state to follow. The 3c Settings UI surfaces this constraint;
+a future PR can wire the start / stop hooks if interactive
+toggling matters.
 
-* No HTTP / WS endpoints under ``/remote-build/v1/*`` yet (the
-  HTTPS listener + auth middleware land alongside the token
-  store's first consumer).
-* No pairing or peer-link WS yet.
-* The ``enabled`` setting is persisted but not wired to any
-  endpoint registration; flipping it currently has no observable
-  effect beyond round-tripping in the settings UI.
-* Tokens are issuable / revocable but nothing consumes them yet;
-  ``add_token`` returns the cleartext bearer once at creation
-  time, only the SHA-256 of the secret half lands on disk.
-* Manual hosts have no version / fingerprint resolution; they
-  land in ``list_hosts`` with empty ``server_version`` /
-  ``esphome_version`` until phase 4 attempts the connection.
+Tokens are validated by the auth middleware on that site
+against an in-memory index seeded from disk in :meth:`start`
+and refreshed on every CRUD mutation. ``add_token`` flashes
+the cleartext bearer through its response once at creation
+time; only the SHA-256 of the secret half lands on disk.
+
+Pairing flow + peer-link WS arrive in later phases. The
+listener currently serves only ``/remote-build/v1/health`` as
+a smoke endpoint; phase 5+ adds the real bundle / build /
+firmware RPCs against the same auth surface.
+
+Manual hosts have no version / fingerprint resolution yet;
+they land in ``list_hosts`` with empty ``server_version`` /
+``esphome_version`` until pairing attempts the connection.
 
 Browser uses the existing ``AsyncEsphomeZeroconf`` instance owned by
 :class:`~esphome_device_builder.controllers._device_state_monitor.DeviceStateMonitor`,
@@ -566,15 +574,24 @@ class RemoteBuildController:
         """
         Persist the receiver-side ``enabled`` master switch.
 
-        Read-modify-write so manual hosts and any future phase-3+
-        fields stay intact; a client toggling just ``enabled``
-        doesn't reset every other field to its default.
+        Read-modify-write so manual hosts, tokens, and any future
+        phase-3+ fields stay intact; a client toggling just
+        ``enabled`` doesn't reset every other field to its default.
 
         Validates ``enabled`` is strictly a ``bool`` rather than
         coercing truthiness; a client sending the string ``"false"``
         for example would otherwise persist as ``True``, which is
         the opposite of what the user intended on a security-
         sensitive toggle.
+
+        **Listener bind requires restart.** The HTTPS receiver
+        site (``/remote-build/v1/*``) is bound once in
+        :meth:`DeviceBuilder.start` based on the value at startup;
+        flipping ``enabled`` here persists the new value but does
+        NOT live-rebind. The frontend should surface a "restart
+        required" hint to the operator. A future PR can wire
+        ``set_settings`` into the lifecycle hooks if interactive
+        toggling becomes a real UX concern.
         """
         if not isinstance(enabled, bool):
             msg = "remote_build/set_settings: 'enabled' must be a boolean"

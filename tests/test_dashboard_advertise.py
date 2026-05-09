@@ -293,6 +293,36 @@ def test_set_pin_sha256_updates_subsequent_advertise() -> None:
     assert decoded["pin_sha256"] == "b" * 64
 
 
+def test_build_service_info_carries_remote_build_port_when_set() -> None:
+    """``remote_build_port`` lands in TXT as a stringified int when set."""
+    advertiser = DashboardAdvertiser(
+        port=6052,
+        server_version="1.2.3",
+        esphome_version="2026.5.0",
+        remote_build_port=6055,
+    )
+    info = advertiser.build_service_info()
+    decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    assert decoded["remote_build_port"] == "6055"
+
+
+def test_build_service_info_omits_remote_build_port_when_unset() -> None:
+    """``remote_build_port`` is absent when the listener isn't bound."""
+    advertiser = _make_advertiser()
+    info = advertiser.build_service_info()
+    decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    assert "remote_build_port" not in decoded
+
+
+def test_set_remote_build_port_updates_subsequent_advertise() -> None:
+    """``set_remote_build_port`` makes the next advertise carry the new port."""
+    advertiser = _make_advertiser()
+    advertiser.set_remote_build_port(7000)
+    info = advertiser.build_service_info()
+    decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    assert decoded["remote_build_port"] == "7000"
+
+
 def test_build_service_info_keeps_trailing_dot_on_explicit_fqdn() -> None:
     """An already-trailing-dot hostname round-trips unchanged."""
     advertiser = _make_advertiser(name="green", hostname="green.local.")

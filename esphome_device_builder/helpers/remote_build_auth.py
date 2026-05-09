@@ -54,12 +54,35 @@ _RATE_LIMIT_WINDOW_SECONDS = 60.0
 _RATE_LIMIT_LOCKOUT_SECONDS = 300.0
 
 
-_BEARER_PREFIX = "Bearer "
 # Stored ``secret_sha256`` is lowercase hex of SHA-256, so 64 chars.
 # Used as the constant-time placeholder when the token_id misses,
 # to keep "unknown token" indistinguishable from "wrong secret"
 # under timing analysis.
 _DUMMY_HASH = "0" * 64
+
+
+def _parse_bearer_credentials(auth_header: str | None) -> tuple[str, str] | None:
+    """
+    Split ``Authorization: Bearer {token_id}.{secret}`` into ``(id, secret)``.
+
+    Returns ``None`` for any malformed header (missing, wrong
+    scheme, no dot, empty halves). RFC 7235 §2.1 makes the scheme
+    case-insensitive and RFC 7230 §3.2.3 allows BWS (space / tab)
+    between scheme and credentials; ``str.split(None, 1)``
+    collapses any whitespace run into the single delimiter.
+    """
+    if not auth_header:
+        return None
+    parts = auth_header.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    bearer = parts[1].strip()
+    if "." not in bearer:
+        return None
+    token_id, _, secret = bearer.partition(".")
+    if not token_id or not secret:
+        return None
+    return token_id, secret
 
 
 def verify_bearer(
@@ -78,14 +101,10 @@ def verify_bearer(
     timing the response can't distinguish "no such token_id"
     from "wrong secret".
     """
-    if not auth_header or not auth_header.startswith(_BEARER_PREFIX):
+    parsed = _parse_bearer_credentials(auth_header)
+    if parsed is None:
         return None
-    bearer = auth_header[len(_BEARER_PREFIX) :].strip()
-    if "." not in bearer:
-        return None
-    token_id, _, secret = bearer.partition(".")
-    if not token_id or not secret:
-        return None
+    token_id, secret = parsed
     presented_hash = hashlib.sha256(secret.encode("ascii")).hexdigest()
     stored = lookup(token_id)
     if stored is None:

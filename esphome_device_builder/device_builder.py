@@ -119,6 +119,13 @@ def _build_remote_build_ssl_context(identity: DashboardIdentity) -> ssl.SSLConte
     return so nothing sensitive lingers on disk longer than the
     handshake setup.
 
+    The brief on-disk window is protected by ``mkdtemp``'s
+    default ``0o700`` mode — the staging directory is private
+    to the dashboard's user. A future refactor that moves the
+    staging out of ``mkdtemp`` to a known-path location (e.g.
+    a sibling of ``config_dir``) MUST keep that mode invariant
+    or the key file leaks to other users on the host.
+
     Sync; called via ``run_in_executor`` from the start hook so
     the loop doesn't block on the file I/O + crypto setup.
     """
@@ -142,6 +149,26 @@ async def _remote_build_health(_: web.Request) -> web.Response:
     receiver is reachable AND that its token is honoured.
     """
     return web.json_response({"ok": True})
+
+
+@web.middleware
+async def _strip_server_header_middleware(
+    request: web.Request,
+    handler: Any,
+) -> web.StreamResponse:
+    """
+    Drop aiohttp's default ``Server: Python/x.y aiohttp/z.w`` banner.
+
+    Defence-in-depth on the LAN-reachable surface: the banner is
+    a free version-fingerprint for any scanner that touches the
+    listener. The remote-build site is bearer-gated, so the
+    leak is bounded, but stripping the header costs nothing and
+    keeps the signal off the wire.
+    """
+    response = await handler(request)
+    if "Server" in response.headers:
+        del response.headers["Server"]
+    return response
 
 
 def _resolve_base_href(request: web.Request, *, tail: str = "") -> str:
@@ -733,14 +760,9 @@ class DeviceBuilder:
         identity = await loop.run_in_executor(
             None, get_or_create_identity, self.settings.config_dir
         )
-        # Tell the controller about the cert pin so the next mDNS
-        # advertise refresh carries it in TXT.
-        if self._dashboard_advertiser is not None:
-            self._dashboard_advertiser.set_pin_sha256(identity.pin_sha256)
-
         ssl_context = await loop.run_in_executor(None, _build_remote_build_ssl_context, identity)
-        middleware = make_remote_build_auth_middleware(self.remote_build.lookup_token)
-        app = web.Application(middlewares=[middleware])
+        auth_middleware_fn = make_remote_build_auth_middleware(self.remote_build.lookup_token)
+        app = web.Application(middlewares=[_strip_server_header_middleware, auth_middleware_fn])
         app.router.add_get("/remote-build/v1/health", _remote_build_health)
 
         runner = web.AppRunner(app)
@@ -750,6 +772,15 @@ class DeviceBuilder:
         site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
         await site.start()
         self._remote_build_runner = runner
+
+        # Update the mDNS advertise AFTER the bind succeeds. If the
+        # bind raised (port in use, permission denied, ...) the
+        # advertiser stays at its pre-listener state instead of
+        # broadcasting a pin + port that nothing's actually
+        # listening on.
+        if self._dashboard_advertiser is not None:
+            self._dashboard_advertiser.set_pin_sha256(identity.pin_sha256)
+            self._dashboard_advertiser.set_remote_build_port(port)
 
         if self.settings.on_ha_addon:
             _LOGGER.warning(

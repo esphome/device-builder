@@ -84,6 +84,23 @@ def test_verify_bearer_returns_token_on_match() -> None:
     assert matched is stored
 
 
+@pytest.mark.parametrize(
+    "header",
+    [
+        pytest.param("bearer known.right-secret", id="lowercase"),
+        pytest.param("BEARER known.right-secret", id="uppercase"),
+        pytest.param("BeArEr known.right-secret", id="mixed-case"),
+        pytest.param("Bearer\tknown.right-secret", id="tab-delimited"),
+        pytest.param("Bearer  known.right-secret", id="double-space"),
+    ],
+)
+def test_verify_bearer_accepts_case_insensitive_scheme_and_bws(header: str) -> None:
+    """RFC 7235 §2.1 + RFC 7230 §3.2.3: scheme is case-insensitive, BWS allowed."""
+    stored = _stored(token_id="known", secret="right-secret")
+    matched = verify_bearer(header, _table_lookup([stored]))
+    assert matched is stored
+
+
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------
