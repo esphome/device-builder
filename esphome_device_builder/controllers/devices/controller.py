@@ -1823,10 +1823,17 @@ class DevicesController:
         try:
             resolved = yaml.safe_load(stdout_bytes.decode("utf-8", errors="replace"))
         except yaml.YAMLError as exc:
+            # ``str(yaml.YAMLError)`` includes context lines from
+            # the input, which were emitted with ``--show-secrets``
+            # and therefore carry the resolved Wi-Fi password,
+            # API key, etc. verbatim. Log only the exception class
+            # name so a malformed-output failure surfaces in debug
+            # logs without leaking those secrets into the operator's
+            # log scrape / support bundle.
             _LOGGER.debug(
-                "esphome config output for %s did not parse as YAML: %s",
+                "esphome config output for %s did not parse as YAML (%s)",
                 configuration,
-                exc,
+                type(exc).__name__,
             )
             return ""
         return get_api_encryption_key(resolved)
