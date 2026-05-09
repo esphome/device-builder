@@ -61,10 +61,25 @@ jobs:
         # without a ``uv run`` prefix.
         run: uv pip install --system -e '.[esphome,test]'
 
+      - name: Cache pre-commit hook envs
+        # Keyed on the python version + ``.pre-commit-config.yaml``
+        # hash so any hook bump invalidates automatically. Mirrors
+        # what ``pre-commit/action`` does internally — inlined here
+        # because that action's transitive ``actions/cache@v4``
+        # reference isn't SHA-pinned, which the org policy blocks
+        # ("all actions must be pinned to a full-length commit SHA").
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit|${{ env.pythonLocation }}|${{ hashFiles('.pre-commit-config.yaml') }}
+
       - name: Run pre-commit (ruff lint + format, codespell, yaml/json checks)
-        # ``no-commit-to-branch`` is a local-only guard; CI runs on
-        # branches by definition, so skip it the same way matter-server does.
-        run: SKIP=no-commit-to-branch pre-commit run --all-files
+        # On a cache hit the per-hook envs (ruff, codespell, …) are
+        # already on disk, so the previously-30s init phase drops
+        # to a near-instant restore. ``no-commit-to-branch`` is a
+        # local-only guard; CI runs on branches by definition, so
+        # skip it the same way matter-server does.
+        run: SKIP=no-commit-to-branch pre-commit run --all-files --show-diff-on-failure --color=always
 
       - name: Validate board / component manifests
         run: python script/validate_definitions.py
