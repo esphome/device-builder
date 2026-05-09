@@ -25,6 +25,7 @@ import asyncio
 import hashlib
 import ssl
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
@@ -46,10 +47,11 @@ from esphome_device_builder.helpers.dashboard_identity import (
     _CERT_FILENAME,
     get_or_create_identity,
 )
+from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.helpers.remote_build_auth import (
     make_remote_build_auth_middleware,
 )
-from esphome_device_builder.models import StoredToken
+from esphome_device_builder.models import EventType, StoredToken
 
 
 async def _bring_up_site(
@@ -257,6 +259,46 @@ async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
 
     # Sanity: with the stub removed, a fresh call would succeed.
     monkeypatch.setattr(web.TCPSite, "start", real_start)
+
+
+@pytest.mark.asyncio
+async def test_on_remote_build_binding_mismatch_fires_event(tmp_path: Path) -> None:
+    """
+    The mismatch hook fires a ``REMOTE_BUILD_BINDING_MISMATCH`` event.
+
+    The auth middleware calls this method when an authenticated
+    request's ``X-Dashboard-ID`` doesn't match the token's bound
+    value. Subscribers (3c's Settings UI) surface the attempt
+    to the operator. Pin the event payload shape so a refactor
+    can't silently change what the UI receives.
+    """
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+
+    captured: list[tuple[EventType, dict[str, Any]]] = []
+
+    def _listener(event: Event) -> None:
+        captured.append((event.event_type, event.data))
+
+    db.bus.add_listener(EventType.REMOTE_BUILD_BINDING_MISMATCH, _listener)
+    db._on_remote_build_binding_mismatch(
+        token_id="abc",
+        presented_dashboard_id="laptop-2",
+        bound_dashboard_id="green-1",
+        peer_ip="10.0.0.42",
+    )
+
+    assert captured == [
+        (
+            EventType.REMOTE_BUILD_BINDING_MISMATCH,
+            {
+                "token_id": "abc",
+                "presented_dashboard_id": "laptop-2",
+                "bound_dashboard_id": "green-1",
+                "peer_ip": "10.0.0.42",
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio
