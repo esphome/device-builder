@@ -1009,6 +1009,53 @@ async def test_pairings_snapshot_returns_ram_dict(
     assert by_host["approved.local"].status is PeerStatus.APPROVED
 
 
+@pytest.mark.asyncio
+async def test_start_seeds_pairings_dict_from_disk(
+    offloader_controller_dir: Path,
+) -> None:
+    """``start()`` loads APPROVED pairings off disk into ``_pairings``.
+
+    Pre-seed the per-file ``Store`` with a row, instantiate a
+    fresh controller pointing at the same dir, call ``start()``,
+    and assert the dict is populated. Pins the cold-start
+    contract — APPROVED rows survive a controller restart so the
+    user doesn't have to re-pair on every dashboard bounce.
+    """
+    # Stand up an offloader, write a row through its store, flush.
+    seeder = _make_offloader_controller(config_dir=offloader_controller_dir)
+    seeder._db.bus = MagicMock()
+    pubkey = b"\xee" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    seeded = _stub_pairing(
+        receiver_hostname="seeded.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        status=PeerStatus.APPROVED,
+    )
+    seeder._pairings[("seeded.local", 6055)] = seeded
+    seeder._pairings_store.async_delay_save(seeder._serialize_pairings, delay=0.0)
+    for cb in seeder._shutdown_callbacks:
+        await cb()
+
+    # Fresh controller against the same config dir; ``start`` should
+    # populate ``_pairings`` from disk. ``_db.devices`` returning
+    # ``None`` short-circuits the rest of ``start`` (browser
+    # construction etc.) — the pairings load runs unconditionally
+    # ahead of the zeroconf-dependent block, so it lands either
+    # way.
+    fresh = _make_offloader_controller(config_dir=offloader_controller_dir)
+    fresh._db.bus = MagicMock()
+    fresh._db.devices = None  # short-circuit the post-load branches.
+    await fresh.start()
+
+    assert ("seeded.local", 6055) in fresh._pairings
+    loaded = fresh._pairings[("seeded.local", 6055)]
+    assert loaded.pin_sha256 == pin
+    assert loaded.static_x25519_pub == pubkey
+    assert loaded.status is PeerStatus.APPROVED
+
+
 # ---------------------------------------------------------------------------
 # _apply_pair_status_result branches — dict mutation + event firing without
 # running a real listener task.
