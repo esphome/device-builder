@@ -124,21 +124,22 @@ in case anything has resurfaced.
   backward compat in `api/legacy.py`.
 - **Event payloads use TypedDict, not dataclass.** Mirrors
   Home Assistant core's `EventStateChangedData` /
-  `EventStateReportedData` pattern. The wire shape stays
-  `dict[str, Any]` because `EventBus.fire`'s signature is
-  generic; each event-specific shape gets a `TypedDict`
-  declaration next to the controller that fires it (e.g.
-  `RemoteBuildPairRequestReceivedData` in
+  `EventStateReportedData` pattern. Each event-specific shape
+  gets a `TypedDict` declaration next to the controller that
+  fires it (e.g. `RemoteBuildPairRequestReceivedData` in
   `models/remote_build.py`). Call sites build
-  `payload: SomeEventData = {...}` before
-  `bus.fire(EventType.X, payload)` so type checkers validate the
-  keys without changing the wire serialisation. Subscribers that
-  want the same view annotate `data: SomeEventData = event.data`
-  on the receive side. See `docs/ARCHITECTURE.md` "Event bus →
+  `payload: SomeEventData = {...}` then
+  `bus.fire(EventType.X, payload)` — type checkers validate the
+  keys at construction. `EventBus.fire` and `Event.data` use
+  `Mapping[str, Any]` (not `dict[str, Any]`) so TypedDicts pass
+  through without `cast()`; subscribers consume via
+  `event.data.get(...)` since none of them needs the full
+  TypedDict view today. See `docs/ARCHITECTURE.md` "Event bus →
   Typing event payloads" for the full rationale (why TypedDict
-  vs dataclass; how it interacts with `helpers.json.dumps`).
-  Older payloads fired with raw dicts predate this convention;
-  new events should ship with a TypedDict from day one.
+  vs dataclass; why we use `Mapping` rather than HA's fully
+  generic `Event[_DataT]`). Older payloads fired with raw dicts
+  predate this convention; new events should ship with a
+  TypedDict from day one.
 - **Persistent firmware queue.** One job runs at a time; queue +
   output buffers survive restarts. See `controllers/firmware.py`.
 - **Component catalog is generated**, not hand-edited. Source is

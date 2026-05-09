@@ -1,22 +1,31 @@
 """
-End-to-end TLS verification of the phase-3b2 remote-build HTTPS site.
+Listener lifecycle + dormant bearer-auth tests for the remote-build feature.
 
-Covers the auth + listener wiring for the receiver site:
+Two layers of coverage:
 
-* A strict-TLS aiohttp client gets 401 without a valid bearer
-  and 200 with one (real handshake against the cert + key from
-  phase 3a, real auth middleware from phase 3b2 against the
-  token store from phase 3b1).
-* The lifecycle hook ``_maybe_start_remote_build_site``
-  default-skips when ``enabled=False``, binds when
-  ``enabled=True``, fails-soft on bind error, advertises the
-  OS-assigned port for ephemeral binds, and warns on
-  HA-addon mode.
-* The strip-Server-header middleware removes aiohttp's default
-  banner from on-the-wire responses.
+* **Listener lifecycle (live)** — exercises the real
+  :func:`DeviceBuilder._maybe_start_remote_build_site` and
+  :func:`DeviceBuilder.reload_remote_build_identity` hooks.
+  Default-skip when ``enabled=False``; bind when
+  ``enabled=True``; fail-soft on bind error; advertise the
+  OS-assigned port for ephemeral binds; warn on HA-addon mode;
+  rebuild the listener (now serving the peer-link Noise WS at
+  ``/remote-build/peer-link``) on identity rotation. These
+  tests stay relevant post-pivot because the lifecycle hook
+  now binds the Noise WS rather than the old HTTPS site.
+* **Dormant HTTPS+bearer auth (phase 4a-r2 tear-out)** —
+  stands up an inline aiohttp HTTPS app that mirrors the
+  pre-pivot ``/remote-build/v1/health`` route + bearer
+  middleware so the auth-middleware unit + binding-mismatch
+  event-fire surface stay covered until issue #106 phase
+  4a-r2 deletes the bearer machinery wholesale. The tests'
+  inline setup decouples them from production wiring; this
+  file flagging itself as the home for "dormant pre-pivot
+  bearer code" makes the 4a-r2 deletion easier to land.
 
-Pin-vs-observed-cert verification is the pairing flow's job
-(phase 4) and isn't exercised here.
+Pin-vs-handshake verification is the pairing flow's job
+(``test_remote_build_peer_link.py``); the dormant tests here
+don't exercise the post-pivot Noise WS at all.
 """
 
 from __future__ import annotations

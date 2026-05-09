@@ -73,11 +73,11 @@ esphome_device_builder/
 
 ## Event bus
 
-In-process pub/sub, owned by `DeviceBuilder.bus` (an `EventBus` from `helpers/event_bus`). Controllers fire events on state transitions; WS commands subscribe via `subscribe_events` and stream them to connected clients. Event types are declared in `models/common.py` as `EventType(StrEnum)` members; the bus accepts `(event_type, data: dict[str, Any])`.
+In-process pub/sub, owned by `DeviceBuilder.bus` (an `EventBus` from `helpers/event_bus`). Controllers fire events on state transitions; WS commands subscribe via `subscribe_events` and stream them to connected clients. Event types are declared in `models/common.py` as `EventType(StrEnum)` members; the bus signature is `fire(event_type, data: Mapping[str, Any] | None)`.
 
 ### Typing event payloads
 
-Mirrors Home Assistant core's `EventStateChangedData` / `EventStateReportedData` pattern: the wire shape stays a `dict[str, Any]` (so `EventBus.fire`'s signature stays generic, JSON serialisation is direct, and the bus doesn't need to know about every event's fields), but each event-specific dict shape is declared as a `TypedDict` next to the controller that fires it.
+Mirrors Home Assistant core's `EventStateChangedData` / `EventStateReportedData` pattern: the wire shape stays a `dict`, but each event-specific shape is declared as a `TypedDict` next to the controller that fires it so type checkers validate the keys at the construction site.
 
 Concretely, in `models/remote_build.py`:
 
@@ -89,7 +89,7 @@ class RemoteBuildPairRequestReceivedData(TypedDict):
     peer_ip: str
 ```
 
-And the call site builds the typed dict before firing:
+The call site builds the typed dict before firing:
 
 ```python
 payload: RemoteBuildPairRequestReceivedData = {
@@ -101,13 +101,7 @@ payload: RemoteBuildPairRequestReceivedData = {
 self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
 ```
 
-Type checkers see the dict's keys + value types; subscribers that want the same view annotate the receive side:
-
-```python
-def _on_pair_request(event: Event) -> None:
-    data: RemoteBuildPairRequestReceivedData = event.data
-    ...
-```
+`EventBus.fire` (and `Event.data`) takes `Mapping[str, Any]` rather than `dict[str, Any]` so a `TypedDict` flows through without a `cast()` — `TypedDict` is structurally compatible with a read-only `Mapping`, and every consumer in the codebase reads via `event.data.get(...)` / `event.data["k"]` rather than mutating. Home Assistant goes one step further with a fully generic `Event[_DataT]` / `EventType[_DataT]` so subscribers also get a typed `event.data`; we don't need that depth, since no subscriber annotates `event.data` as a `TypedDict` today — they all just `.get()` the key they care about.
 
 `TypedDict` rather than `@dataclass` because:
 

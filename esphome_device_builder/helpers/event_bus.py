@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from functools import partial
@@ -25,10 +25,22 @@ _DEFAULT_STREAM_QUEUE_MAX = 4000
 
 @dataclass
 class Event:
-    """A device builder event."""
+    """
+    A device builder event.
+
+    ``data`` is typed as a read-only :class:`Mapping` so per-event
+    :class:`TypedDict` payloads are accepted at the fire site
+    without a ``cast()``. ``TypedDict`` is structurally compatible
+    with ``Mapping[str, Any]`` (read-only access), which is all
+    subscribers ever do — every ``event.data`` reference in the
+    codebase is a ``.get(...)`` or ``[key]`` lookup, never a
+    mutation. Mirrors HA's ``Event[_DataT]`` pattern's *result*
+    (typed access without casts) without paying for the full
+    generic infrastructure HA needs in core.
+    """
 
     event_type: EventType
-    data: dict[str, Any]
+    data: Mapping[str, Any]
 
 
 class EventBus:
@@ -47,8 +59,16 @@ class EventBus:
     def _remove_listener(self, event_type: EventType, listener: Callable[[Event], None]) -> None:
         self._listeners.get(event_type, set()).discard(listener)
 
-    def fire(self, event_type: EventType, data: dict[str, Any] | None = None) -> None:
-        """Fire an event to all listeners."""
+    def fire(self, event_type: EventType, data: Mapping[str, Any] | None = None) -> None:
+        """
+        Fire an event to all listeners.
+
+        ``data`` is :class:`Mapping[str, Any]` so per-event
+        :class:`TypedDict` payloads pass through without a cast —
+        ``payload: SomeEventData = {...}; bus.fire(EventType.X,
+        payload)`` type-checks. See :class:`Event` for the rest
+        of the rationale.
+        """
         event = Event(event_type, data or {})
         for listener in list(self._listeners.get(event_type, set())):
             try:
