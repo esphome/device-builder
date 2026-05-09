@@ -135,7 +135,10 @@ async def test_health_returns_200_with_valid_bearer(tmp_path: Path) -> None:
             session.get(
                 f"https://localhost:{port}/remote-build/v1/health",
                 server_hostname="localhost",
-                headers={"Authorization": f"Bearer abc123.{secret}"},
+                headers={
+                    "Authorization": f"Bearer abc123.{secret}",
+                    "X-Dashboard-ID": "test-dashboard-id",
+                },
             ) as resp,
         ):
             assert resp.status == 200

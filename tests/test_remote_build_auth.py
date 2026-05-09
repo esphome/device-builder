@@ -122,10 +122,14 @@ def test_verify_bearer_handles_non_ascii_secret_without_raising() -> None:
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_DASHBOARD_ID = "green-dashboard-id"
+
+
 async def _hit_middleware(
     middleware: Any,
     *,
     auth_header: str | None = None,
+    dashboard_id: str | None = _DEFAULT_DASHBOARD_ID,
     peer_ip: str = "10.0.0.42",
 ) -> web.StreamResponse:
     """
@@ -134,10 +138,17 @@ async def _hit_middleware(
     Wraps a noop downstream handler that returns 200 so we can
     distinguish "middleware allowed through" (200 from the handler)
     from "middleware short-circuited" (whatever it returned).
+
+    *dashboard_id* defaults to a non-empty value so tests that
+    only care about bearer-side behaviour don't have to spell
+    out the binding header. Pass ``None`` explicitly to test
+    the missing-header path.
     """
     headers: dict[str, str] = {}
     if auth_header is not None:
         headers["Authorization"] = auth_header
+    if dashboard_id is not None:
+        headers["X-Dashboard-ID"] = dashboard_id
     request = make_mocked_request(
         "GET", "/remote-build/v1/health", headers=headers, client_max_size=0
     )
@@ -169,7 +180,7 @@ async def test_middleware_401_with_bad_bearer() -> None:
 
 @pytest.mark.asyncio
 async def test_middleware_200_with_good_bearer_and_stashes_token() -> None:
-    """A valid bearer reaches the handler and stashes the token on the request."""
+    """A valid bearer + dashboard_id reaches the handler and stashes the token."""
     stored = _stored(token_id="abc", secret="right")
 
     received: dict[str, Any] = {}
@@ -178,12 +189,18 @@ async def test_middleware_200_with_good_bearer_and_stashes_token() -> None:
         received["token"] = request.get("remote_build_token")
         return web.Response(status=200, text="ok")
 
+    # No bind callback → middleware treats unbound tokens as
+    # already-matching (test-only convenience; the production
+    # callback in 3b3 persists the binding atomically).
     auth = make_remote_build_auth_middleware(_table_lookup([stored]))
 
     request = make_mocked_request(
         "GET",
         "/remote-build/v1/health",
-        headers={"Authorization": "Bearer abc.right"},
+        headers={
+            "Authorization": "Bearer abc.right",
+            "X-Dashboard-ID": _DEFAULT_DASHBOARD_ID,
+        },
         client_max_size=0,
     )
     request._transport_peername = ("10.0.0.42", 12345)
@@ -240,3 +257,161 @@ async def test_middleware_rate_limit_per_ip() -> None:
         middleware, auth_header="Bearer abc.right", peer_ip="10.0.0.42"
     )
     assert response.status == 200
+
+
+# ---------------------------------------------------------------------------
+# First-use binding (phase 3b3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "header_value",
+    [
+        pytest.param(None, id="missing"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="whitespace-only"),
+        pytest.param("has spaces", id="non-base64url-chars"),
+        pytest.param("has\x00null", id="control-chars"),
+        pytest.param("x" * 100, id="overlong"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_middleware_400_when_dashboard_id_missing_or_malformed(
+    header_value: str | None,
+) -> None:
+    """Bearer valid but X-Dashboard-ID missing / malformed → 400."""
+    stored = _stored(token_id="abc", secret="right")
+    auth = make_remote_build_auth_middleware(_table_lookup([stored]))
+    response = await _hit_middleware(
+        auth, auth_header="Bearer abc.right", dashboard_id=header_value
+    )
+    assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_middleware_binds_token_on_first_use_and_passes() -> None:
+    """First authenticated request persists the binding and reaches the handler."""
+    stored = _stored(token_id="abc", secret="right")
+
+    persisted: list[tuple[str, str]] = []
+
+    async def _bind(token_id: str, dashboard_id: str) -> StoredToken:
+        persisted.append((token_id, dashboard_id))
+        return StoredToken(
+            token_id=stored.token_id,
+            label=stored.label,
+            secret_sha256=stored.secret_sha256,
+            created_at=stored.created_at,
+            bound_dashboard_id=dashboard_id,
+        )
+
+    auth = make_remote_build_auth_middleware(_table_lookup([stored]), bind_first_use=_bind)
+    response = await _hit_middleware(auth, auth_header="Bearer abc.right", dashboard_id="green-1")
+    assert response.status == 200
+    assert persisted == [("abc", "green-1")]
+
+
+@pytest.mark.asyncio
+async def test_middleware_passes_when_dashboard_id_matches_existing_binding() -> None:
+    """Second request from the same offloader reaches the handler (no rebind)."""
+    stored = StoredToken(
+        token_id="abc",
+        label="Green",
+        secret_sha256=hashlib.sha256(b"right").hexdigest(),
+        created_at=1.0,
+        bound_dashboard_id="green-1",
+    )
+
+    persisted: list[tuple[str, str]] = []
+
+    async def _bind(token_id: str, dashboard_id: str) -> StoredToken:
+        persisted.append((token_id, dashboard_id))
+        return stored
+
+    auth = make_remote_build_auth_middleware(_table_lookup([stored]), bind_first_use=_bind)
+    response = await _hit_middleware(auth, auth_header="Bearer abc.right", dashboard_id="green-1")
+    assert response.status == 200
+    # Already bound — bind callback NOT called.
+    assert persisted == []
+
+
+@pytest.mark.asyncio
+async def test_middleware_403_when_dashboard_id_mismatches_binding() -> None:
+    """Stolen-bearer scenario: same token, different dashboard_id → 403."""
+    stored = StoredToken(
+        token_id="abc",
+        label="Green",
+        secret_sha256=hashlib.sha256(b"right").hexdigest(),
+        created_at=1.0,
+        bound_dashboard_id="green-1",
+    )
+
+    mismatch_calls: list[tuple[str, str, str, str]] = []
+
+    def _on_mismatch(token_id: str, presented: str, bound: str, peer_ip: str) -> None:
+        mismatch_calls.append((token_id, presented, bound, peer_ip))
+
+    auth = make_remote_build_auth_middleware(
+        _table_lookup([stored]),
+        on_binding_mismatch=_on_mismatch,
+    )
+    response = await _hit_middleware(
+        auth,
+        auth_header="Bearer abc.right",
+        dashboard_id="laptop-2",  # different from bound "green-1"
+    )
+    assert response.status == 403
+    assert mismatch_calls == [("abc", "laptop-2", "green-1", "10.0.0.42")]
+
+
+@pytest.mark.asyncio
+async def test_middleware_403_when_first_use_bind_loses_race() -> None:
+    """
+    Concurrent first-use: loser observes a different binding → 403 + event.
+
+    Two offloaders race on a fresh token. The first wins the
+    metadata transaction and persists its dashboard_id. The
+    second's ``bind_first_use`` returns a token bound to the
+    winner's id; the middleware sees the mismatch and 403s.
+    """
+    stored = _stored(token_id="abc", secret="right")
+    winner = "first-offloader"
+    loser = "second-offloader"
+
+    async def _bind(token_id: str, dashboard_id: str) -> StoredToken:
+        # Winner already wrote; loser's call returns the
+        # winner-bound token.
+        return StoredToken(
+            token_id=stored.token_id,
+            label=stored.label,
+            secret_sha256=stored.secret_sha256,
+            created_at=stored.created_at,
+            bound_dashboard_id=winner,
+        )
+
+    mismatch_calls: list[tuple[str, str, str, str]] = []
+
+    def _on_mismatch(token_id: str, presented: str, bound: str, peer_ip: str) -> None:
+        mismatch_calls.append((token_id, presented, bound, peer_ip))
+
+    auth = make_remote_build_auth_middleware(
+        _table_lookup([stored]),
+        bind_first_use=_bind,
+        on_binding_mismatch=_on_mismatch,
+    )
+    response = await _hit_middleware(auth, auth_header="Bearer abc.right", dashboard_id=loser)
+    assert response.status == 403
+    assert mismatch_calls == [("abc", loser, winner, "10.0.0.42")]
+
+
+@pytest.mark.asyncio
+async def test_middleware_403_when_token_removed_during_bind() -> None:
+    """A token revoked between verify and bind → 403."""
+    stored = _stored(token_id="abc", secret="right")
+
+    async def _bind(token_id: str, dashboard_id: str) -> StoredToken | None:
+        return None  # token is gone
+
+    auth = make_remote_build_auth_middleware(_table_lookup([stored]), bind_first_use=_bind)
+    response = await _hit_middleware(auth, auth_header="Bearer abc.right", dashboard_id="green-1")
+    assert response.status == 403

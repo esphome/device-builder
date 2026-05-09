@@ -859,6 +859,74 @@ async def test_remove_token_drops_only_target(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_bind_token_first_use_persists_dashboard_id(tmp_path: Path) -> None:
+    """First-use bind writes the dashboard_id to the stored token."""
+    controller = _make_controller(config_dir=tmp_path)
+    issued = await controller.add_token(label="Green")
+
+    bound = await controller.bind_token_first_use(issued.token_id, "green-dashboard-id")
+
+    assert bound is not None
+    assert bound.bound_dashboard_id == "green-dashboard-id"
+    # Persisted: re-reading the index gets the bound value back.
+    assert controller.lookup_token(issued.token_id).bound_dashboard_id == "green-dashboard-id"
+
+
+@pytest.mark.asyncio
+async def test_bind_token_first_use_is_idempotent(tmp_path: Path) -> None:
+    """A second bind with the same id is a no-op write; binding sticks."""
+    controller = _make_controller(config_dir=tmp_path)
+    issued = await controller.add_token(label="Green")
+
+    first = await controller.bind_token_first_use(issued.token_id, "green-1")
+    second = await controller.bind_token_first_use(issued.token_id, "green-1")
+
+    assert first.bound_dashboard_id == "green-1"
+    assert second.bound_dashboard_id == "green-1"
+
+
+@pytest.mark.asyncio
+async def test_bind_token_first_use_preserves_existing_binding(tmp_path: Path) -> None:
+    """A bind call with a different id on an already-bound token returns the EXISTING binding."""
+    controller = _make_controller(config_dir=tmp_path)
+    issued = await controller.add_token(label="Green")
+
+    await controller.bind_token_first_use(issued.token_id, "green-1")
+    # A second offloader (different dashboard_id) would race here in
+    # production; the bind call returns the already-bound token.
+    second = await controller.bind_token_first_use(issued.token_id, "laptop-2")
+
+    assert second.bound_dashboard_id == "green-1"  # NOT laptop-2
+    assert controller.lookup_token(issued.token_id).bound_dashboard_id == "green-1"
+
+
+@pytest.mark.asyncio
+async def test_bind_token_first_use_returns_none_for_unknown_token(tmp_path: Path) -> None:
+    """Binding an unknown token_id returns ``None`` (token was removed)."""
+    controller = _make_controller(config_dir=tmp_path)
+    bound = await controller.bind_token_first_use("not-a-real-token", "green-1")
+    assert bound is None
+
+
+@pytest.mark.asyncio
+async def test_bind_token_first_use_finds_target_among_many(tmp_path: Path) -> None:
+    """The bind iteration skips non-matching tokens to find the target."""
+    controller = _make_controller(config_dir=tmp_path)
+    # Mint multiple tokens; bind the third so the iteration has
+    # to step past two non-matches.
+    await controller.add_token(label="A")
+    await controller.add_token(label="B")
+    target = await controller.add_token(label="C")
+    await controller.add_token(label="D")
+
+    bound = await controller.bind_token_first_use(target.token_id, "green-1")
+
+    assert bound is not None
+    assert bound.token_id == target.token_id
+    assert bound.bound_dashboard_id == "green-1"
+
+
+@pytest.mark.asyncio
 async def test_lookup_token_round_trips_through_index(tmp_path: Path) -> None:
     """
     ``lookup_token`` returns the in-memory ``StoredToken`` for a known id.

@@ -810,6 +810,34 @@ class DeviceBuilder:
                 identity.pin_sha256_formatted,
             )
 
+    def _on_remote_build_binding_mismatch(
+        self,
+        token_id: str,
+        presented_dashboard_id: str,
+        bound_dashboard_id: str,
+        peer_ip: str,
+    ) -> None:
+        """
+        Fire a ``REMOTE_BUILD_BINDING_MISMATCH`` event for the receiver UI.
+
+        Called by the auth middleware when an authenticated
+        request's ``X-Dashboard-ID`` doesn't match the token's
+        bound value (or when a first-use bind raced and lost).
+        Subscribers (the Settings UI in 3c) surface the attempt
+        to the operator with the offending token's id, the
+        offloader's claimed identity, and the peer IP — enough
+        context to decide whether to revoke + rotate.
+        """
+        self.bus.fire(
+            EventType.REMOTE_BUILD_BINDING_MISMATCH,
+            {
+                "token_id": token_id,
+                "presented_dashboard_id": presented_dashboard_id,
+                "bound_dashboard_id": bound_dashboard_id,
+                "peer_ip": peer_ip,
+            },
+        )
+
     async def _build_and_start_remote_build_runner(
         self,
     ) -> tuple[web.AppRunner, DashboardIdentity, int]:
@@ -845,7 +873,11 @@ class DeviceBuilder:
         runner: web.AppRunner | None = None
         try:
             identity, ssl_context = await loop.run_in_executor(None, _load_identity_and_ssl_context)
-            auth_middleware_fn = make_remote_build_auth_middleware(self.remote_build.lookup_token)
+            auth_middleware_fn = make_remote_build_auth_middleware(
+                self.remote_build.lookup_token,
+                bind_first_use=self.remote_build.bind_token_first_use,
+                on_binding_mismatch=self._on_remote_build_binding_mismatch,
+            )
             app = web.Application(middlewares=[_strip_server_header_middleware, auth_middleware_fn])
             app.router.add_get("/remote-build/v1/health", _remote_build_health)
 

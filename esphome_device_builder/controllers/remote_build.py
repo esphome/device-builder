@@ -569,6 +569,46 @@ class RemoteBuildController:
         """
         return self._tokens_by_id.get(token_id)
 
+    async def bind_token_first_use(self, token_id: str, dashboard_id: str) -> StoredToken | None:
+        """
+        Atomically bind ``token_id`` to ``dashboard_id`` on first authenticated use.
+
+        Returns the post-write :class:`StoredToken` (with
+        ``bound_dashboard_id`` populated), or ``None`` if the
+        token has been removed in the meantime.
+
+        Idempotent: if the token is already bound, the existing
+        ``bound_dashboard_id`` is preserved and the call is a
+        no-op write. Two concurrent first-use requests with
+        different ``dashboard_id`` values race for the slot; the
+        winner's id sticks, the loser's call returns the
+        winner-bound token. Callers compare the returned
+        ``bound_dashboard_id`` against the value they presented
+        to detect a race-loss → 403 mismatch.
+
+        Phase-3b2's auth middleware is the only caller. The
+        write hops through ``run_in_executor`` because the
+        underlying ``metadata_transaction`` is sync filesystem
+        I/O.
+        """
+
+        def _bind(settings: RemoteBuildSettings) -> StoredToken | None:
+            for token in settings.tokens:
+                if token.token_id != token_id:
+                    continue
+                if token.bound_dashboard_id is None:
+                    token.bound_dashboard_id = dashboard_id
+                return token
+            return None
+
+        captured: list[StoredToken | None] = []
+
+        def _capture(settings: RemoteBuildSettings) -> None:
+            captured.append(_bind(settings))
+
+        await self._modify_settings(_capture)
+        return captured[0] if captured else None
+
     @api_command("remote_build/set_settings")
     async def set_settings(self, *, enabled: bool, **kwargs: Any) -> RemoteBuildSettingsView:
         """

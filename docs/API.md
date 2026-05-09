@@ -276,9 +276,11 @@ A separate aiohttp `web.Application` binds on the dashboard's `--remote-build-po
 
 | Endpoint | Auth | Notes |
 |---|---|---|
-| `GET /remote-build/v1/health` | `Authorization: Bearer {token_id}.{secret}` | Returns `{"ok": true}` on a valid bearer; 401 without; 429 with `Retry-After` after rate-limit lockout. |
+| `GET /remote-build/v1/health` | `Authorization: Bearer {token_id}.{secret}` + `X-Dashboard-ID: {offloader_dashboard_id}` | Returns `{"ok": true}` on a valid bearer paired with the bound (or first-binding) dashboard_id; 401 without bearer; 400 without `X-Dashboard-ID`; 403 on dashboard_id mismatch; 429 with `Retry-After` after rate-limit lockout. |
 
 The bearer scheme is RFC 7235 case-insensitive (`Bearer`, `bearer`, `BEARER` all work) and tolerant of any RFC 7230 BWS (space or tab) between scheme and credentials.
+
+**First-use binding** (phase 3b3): every authenticated request must carry `X-Dashboard-ID` (the offloader's `dashboard_id` from phase 3a, base64url, ≤ 64 chars). On the first authenticated request for a token whose `bound_dashboard_id` is `null`, the receiver atomically writes the presented value as the binding. Subsequent requests with a mismatched `X-Dashboard-ID` are rejected with 403 (the token is valid; the peer is wrong). A `remote_build_binding_mismatch` event fires on every 403 mismatch so the receiver Settings UI can surface the attempt to the operator. Concurrent first-use requests with different dashboard_ids race for the slot under the metadata lock; the loser observes the winner's binding and gets 403.
 
 Per-IP rate limiter on failed attempts: 10 failures per 60 seconds triggers a 5-minute lockout for that source IP. Successful auth doesn't clear the limiter — there's no notion of "this peer is trustworthy now"; per-pairing trust is the binding step in phase 3b3.
 
@@ -305,6 +307,7 @@ Same-subnet peers read `remote_build_port` from TXT so a `--remote-build-port` o
 - `importable_device_added`, `importable_device_removed`
 - `label_created`, `label_updated`, `label_deleted`
 - `job_queued`, `job_started`, `job_output`, `job_completed`, `job_failed`
+- `remote_build_binding_mismatch` — `{token_id, presented_dashboard_id, bound_dashboard_id, peer_ip}` — fires when an authenticated `/remote-build/v1/*` request's `X-Dashboard-ID` doesn't match the token's bound value. Receiver Settings UI surfaces this so the operator can revoke / rotate.
 
 ---
 

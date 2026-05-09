@@ -74,6 +74,15 @@ class EventType(StrEnum):
     JOB_FAILED = "job_failed"
     JOB_CANCELLED = "job_cancelled"
 
+    # Remote-build receiver-side events.
+    # ``REMOTE_BUILD_BINDING_MISMATCH`` fires when an authenticated
+    # request's ``X-Dashboard-ID`` doesn't match the bound value
+    # for the presented token (or when a first-use bind raced
+    # and the loser observed a different bound id). The
+    # receiver Settings UI surfaces this so the operator sees
+    # a stolen-token attempt and can revoke / rotate.
+    REMOTE_BUILD_BINDING_MISMATCH = "remote_build_binding_mismatch"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.
