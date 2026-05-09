@@ -2046,7 +2046,8 @@ async def test_record_pair_request_creates_pending_row(tmp_path: Path) -> None:
     )
 
     assert response == "pending"
-    settings = load_remote_build_settings(tmp_path)
+    loop = asyncio.get_running_loop()
+    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
     [peer] = settings.peers
     assert peer.dashboard_id == "alpha"
     assert peer.status == PeerStatus.PENDING
@@ -2109,7 +2110,8 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
     )
 
     assert response == "pending"
-    settings = load_remote_build_settings(tmp_path)
+    loop = asyncio.get_running_loop()
+    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
     [peer] = settings.peers
     assert peer.pin_sha256 == new_pin
     assert peer.static_x25519_pub == new_pubkey
@@ -2149,7 +2151,8 @@ async def test_record_pair_request_already_approved_returns_approved(tmp_path: P
     )
 
     assert response == "approved"
-    settings = load_remote_build_settings(tmp_path)
+    loop = asyncio.get_running_loop()
+    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
     [peer] = settings.peers
     assert peer.status == PeerStatus.APPROVED
     assert peer.pin_sha256 == "originalpin"
