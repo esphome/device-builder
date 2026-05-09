@@ -1393,3 +1393,64 @@ def test_load_device_without_previous_defaults_api_encryption_active_to_none(
     device = load_device_from_storage(yaml_path)
 
     assert device.api_encryption_active is None
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_api_encrypted_falls_back_to_wire_signal(tmp_path: Path) -> None:
+    """A truthy ``api_encryption_active`` carry-forward promotes ``api_encrypted=True``.
+
+    Issue #437: a config that wires encryption via ESPHome's
+    Jinja-templated packages leaves the dashboard's
+    ``yaml_util.load_yaml`` pass with ``api_encrypted=False``
+    because the dashboard doesn't run the Jinja preprocessor.
+    The live mDNS broadcast does carry the cipher because the
+    firmware really IS running encryption — fold that into
+    ``api_encrypted`` at scan time so the flag matches the
+    truth-on-the-wire even after a fresh reload throws away the
+    previous in-memory ``api_encrypted`` value.
+
+    Drives the scan path (not the mDNS-callback path covered by
+    ``test_on_api_encryption_change_promotes_api_encrypted_when_yaml_missed_it``)
+    by setting ``previous.api_encryption_active`` to a cipher
+    string and reloading; the YAML itself has no ``encryption:``
+    block so the YAML signal still says false.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    # No ``api: encryption:`` here — pure plaintext-looking YAML.
+    yaml_path.write_text("esphome:\n  name: kitchen\napi:\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    previous = load_device_from_storage(yaml_path)
+    assert previous.api_encrypted is False  # YAML signal alone says no
+    previous.api_encryption_active = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+
+    reloaded = load_device_from_storage(yaml_path, previous=previous)
+
+    assert reloaded.api_encrypted is True
+    assert reloaded.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_api_encrypted_stays_false_for_plaintext_wire(tmp_path: Path) -> None:
+    """``api_encryption_active=""`` (confirmed plaintext) doesn't flip ``api_encrypted``.
+
+    The empty-string is the "TXT seen, key absent → device
+    confirmed plaintext" tri-state signal. Combined with a YAML
+    that doesn't declare encryption, the device is unambiguously
+    plaintext — the wire-fold-in must not promote
+    ``api_encrypted`` just because ``api_encryption_active`` is
+    non-null. Pins the boundary between the two falsy values
+    (``None`` and ``""``) so future logic that treats them
+    interchangeably gets caught here.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\napi:\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    previous = load_device_from_storage(yaml_path)
+    previous.api_encryption_active = ""  # mDNS confirmed plaintext
+
+    reloaded = load_device_from_storage(yaml_path, previous=previous)
+
+    assert reloaded.api_encrypted is False
+    assert reloaded.api_encryption_active == ""

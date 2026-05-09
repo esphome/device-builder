@@ -138,13 +138,106 @@ async def test_on_api_encryption_change_records_empty_string() -> None:
 
 @pytest.mark.asyncio
 async def test_on_api_encryption_change_skips_when_same() -> None:
-    """No-op when the in-memory device already has the announced value."""
-    device = _device(api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256")
+    """No-op when the in-memory device already has the announced value AND ``api_encrypted`` agrees.
+
+    Both halves matter: the YAML signal (``api_encrypted=True``)
+    and the wire signal (truthy ``api_encryption_active``) have
+    to be in agreement before we suppress the bus event. Without
+    the second half, a device whose YAML pass missed the
+    encryption (issue #437) but whose wire signal already
+    reported the cipher would never get its ``api_encrypted``
+    flag promoted on subsequent identical broadcasts — the
+    handler would short-circuit before the promotion ran. The
+    next test pins the promote-on-mismatch path that requires
+    falling through this check.
+    """
+    device = _device(
+        api_encrypted=True,
+        api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+    )
     controller, captured = make_devices_controller_with_bus([device])
 
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
     assert captured == []
+
+
+@pytest.mark.asyncio
+async def test_on_api_encryption_change_promotes_api_encrypted_when_yaml_missed_it() -> None:
+    """Truthy mDNS broadcast flips ``api_encrypted=True`` when YAML missed it.
+
+    Issue #437: a config that wires encryption via ESPHome's
+    Jinja-templated packages leaves the dashboard's YAML pass
+    with ``api_encrypted=False`` because ``yaml_util.load_yaml``
+    doesn't render Jinja. The live mDNS broadcast carries the
+    cipher because the firmware really IS running encryption —
+    promote ``api_encrypted`` so non-frontend consumers
+    (HA integration, table-row menu, "Show API key" gate) see
+    the truth.
+    """
+    device = _device(api_encrypted=False, api_encryption_active=None)
+    controller, captured = make_devices_controller_with_bus([device])
+
+    controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
+
+    assert device.api_encrypted is True
+    assert device.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    assert len(captured) == 1
+
+
+@pytest.mark.asyncio
+async def test_on_api_encryption_change_promotion_fires_even_when_active_unchanged() -> None:
+    """Repeat truthy broadcast still promotes ``api_encrypted`` if YAML scan reset it.
+
+    The atomic-save scanner pattern (see
+    ``DeviceScanner._set_device``) rebuilds devices on YAML
+    edits. If a YAML edit retriggers the scan and the YAML pass
+    still misses the encryption (the Jinja blind spot is
+    persistent across scans), ``api_encrypted`` resets to
+    False even though ``api_encryption_active`` is still the
+    cipher string. The next mDNS broadcast — which carries the
+    same cipher — must still re-promote, which means the
+    "skip when same" short-circuit can't apply when the YAML
+    side disagrees with the wire side.
+    """
+    device = _device(
+        api_encrypted=False,
+        api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+    )
+    controller, captured = make_devices_controller_with_bus([device])
+
+    controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
+
+    assert device.api_encrypted is True
+    assert len(captured) == 1
+
+
+@pytest.mark.asyncio
+async def test_on_api_encryption_change_empty_does_not_clear_api_encrypted() -> None:
+    """Wire-confirmed-plaintext doesn't *demote* a YAML-claimed encryption.
+
+    ``api_encryption_active = ""`` is the "TXT seen, key absent
+    → device confirmed plaintext" tri-state signal. When the
+    YAML says encrypted but the wire says plaintext, the right
+    state is "mismatch" / "pending" (the user hasn't reflashed
+    yet), not "demote ``api_encrypted`` to False." The frontend
+    state machine already encodes that distinction; the
+    backend must not flatten it by clearing the flag.
+    """
+    device = _device(
+        api_encrypted=True,
+        api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+    )
+    controller, captured = make_devices_controller_with_bus([device])
+
+    controller._on_api_encryption_change("kitchen", "")
+
+    # ``api_encryption_active`` updated to the new (empty) value;
+    # ``api_encrypted`` stayed truthy (state machine handles the
+    # mismatch vs pending distinction from there).
+    assert device.api_encryption_active == ""
+    assert device.api_encrypted is True
+    assert len(captured) == 1
 
 
 @pytest.mark.asyncio

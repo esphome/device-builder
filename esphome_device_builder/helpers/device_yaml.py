@@ -16,9 +16,10 @@ import secrets
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from esphome import const, yaml_util
 from esphome.const import CONF_PACKAGES
 from esphome.storage_json import StorageJSON, ext_storage_path
+
+from esphome import const, yaml_util
 
 # Prefer the central dispatcher landing in esphome/esphome#16300
 # so we depend on a stable upstream API rather than reaching into
@@ -896,9 +897,29 @@ def load_device_from_storage(
     ethernet_mac, bluetooth_mac = derive_interface_macs(
         mac_address, target_platform, loaded_integrations
     )
-    api_encrypted = get_api_encryption_block(
-        resolved_config
-    ) is not None or yaml_has_api_encryption(yaml_content)
+    # ``api_encrypted`` mirrors the same union shape as ``api_enabled``:
+    #
+    #   1. Resolved YAML config — primary source for local
+    #      ``!include`` / package-merged encryption blocks.
+    #   2. Raw-text scan — keeps the indicator stable mid-edit
+    #      when ``yaml_util.load_yaml`` fails on an invalid draft.
+    #   3. Live mDNS broadcast (``api_encryption_active`` truthy)
+    #      — authoritative when the YAML pass diverges from the
+    #      running firmware. ESPHome's compile pipeline runs the
+    #      Jinja preprocessor over packages before YAML parsing
+    #      (``api: |\n  # set ns = ...  ${ns.cfg}``), the
+    #      dashboard's ``yaml_util.load_yaml`` doesn't, so the
+    #      YAML pass can come back ``False`` for a fully-
+    #      encrypted device. The wire signal is the truthful
+    #      one; without this the dashboard mislabels the device
+    #      as plaintext (issue #437) and hides the
+    #      "Show API key" affordance even though encryption is
+    #      live on the firmware.
+    api_encrypted = (
+        get_api_encryption_block(resolved_config) is not None
+        or yaml_has_api_encryption(yaml_content)
+        or bool(api_encryption_active)
+    )
     return Device(
         name=name,
         friendly_name=friendly_name,

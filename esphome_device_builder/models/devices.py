@@ -103,10 +103,23 @@ class Device(DataClassORJSONMixin):
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
     # Native API surface flags — drive the lock-icon indicator in the
     # device list. ``api_enabled`` is True when the resolved YAML
-    # carries a top-level ``api:`` block; ``api_encrypted`` only adds
-    # the inner ``encryption:`` check. Both come from the resolved
-    # config so ``!include`` / packages are followed; the actual key
-    # is fetched on demand via ``devices/get_api_key``.
+    # carries a top-level ``api:`` block; ``api_encrypted`` adds the
+    # inner ``encryption:`` check.
+    #
+    # Both come from the resolved YAML config so ``!include`` /
+    # packages are followed. ``api_encrypted`` ALSO folds in the
+    # live mDNS broadcast (``api_encryption_active`` truthy) so a
+    # configuration whose YAML resolves through ESPHome's Jinja
+    # preprocessor (``api: |\n  # set ... ${ns.cfg}``) — which the
+    # dashboard's ``yaml_util.load_yaml`` doesn't run — still
+    # surfaces as encrypted once the firmware announces (issue
+    # #437). The truthful "encryption is on right now" signal is
+    # the wire; the YAML pass is a useful first approximation that
+    # fails open for any preprocessor feature the dashboard
+    # doesn't reproduce.
+    #
+    # The actual key is fetched on demand via
+    # ``devices/get_api_key``.
     api_enabled: bool = False
     api_encrypted: bool = False
     # Encryption status as observed from the device's

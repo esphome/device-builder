@@ -19,11 +19,12 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from esphome import const
 from esphome.components.dashboard_import import import_config
 from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 from esphome.zeroconf import AsyncEsphomeZeroconf
+
+from esphome import const
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_size import coerce_sidecar_int
@@ -2624,7 +2625,7 @@ class DevicesController:
             self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     def _on_api_encryption_change(self, name: str, encryption: str) -> None:
-        """
+        r"""
         Apply the API-encryption state observed via mDNS.
 
         Stores the broadcast value (or empty string for "TXT absent —
@@ -2632,11 +2633,31 @@ class DevicesController:
         four-state lock indicator reads this together with
         ``api_encrypted`` to distinguish active / pending-flash /
         mismatch / plaintext.
+
+        Also folds the wire signal into ``api_encrypted`` itself when
+        a truthy cipher string arrives. ESPHome's compile pipeline
+        runs the Jinja preprocessor over packages before YAML parsing
+        (``api: |\n  # set ns = ...  ${ns.cfg}``); the dashboard's
+        ``yaml_util.load_yaml`` doesn't, so the scan-time YAML pass
+        can come back ``api_encrypted=False`` for a fully-encrypted
+        device (issue #437). The live broadcast is the truthful
+        signal — promoting ``api_encrypted`` here closes the gap for
+        non-frontend consumers (HA integration, table-row menu
+        gating, the ``Show API key`` affordance) that otherwise hide
+        encryption-aware affordances on a YAML-detection miss. The
+        symmetric "wire confirms plaintext" case (empty-string
+        broadcast) deliberately doesn't *clear* ``api_encrypted`` —
+        a wire-says-no while YAML-says-yes is the legitimate
+        "mismatch" / "pending" shape the existing state machine
+        already handles.
         """
         for device in self._devices_by_name(name):
-            if device.api_encryption_active == encryption:
+            wire_promotes_encrypted = bool(encryption) and not device.api_encrypted
+            if device.api_encryption_active == encryption and not wire_promotes_encrypted:
                 continue
             device.api_encryption_active = encryption
+            if wire_promotes_encrypted:
+                device.api_encrypted = True
             self._db.bus.fire(EventType.DEVICE_UPDATED, {"device": device})
 
     def _on_config_hash_change(self, name: str, config_hash: str) -> None:
