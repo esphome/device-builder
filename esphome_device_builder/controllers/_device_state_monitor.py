@@ -261,11 +261,19 @@ def _decode_txt_bytes_to_sorted_pairs(txt_bytes: bytes) -> tuple[tuple[str, str]
     info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"_decode.{_ESPHOME_SERVICE_TYPE}")
     info.text = txt_bytes
     decoded = info.decoded_properties
-    return tuple(
-        (key, decoded[key] if isinstance(decoded[key], str) else "")
-        for key in sorted(decoded)
-        if isinstance(key, str)
-    )
+    # Bind ``value`` to a local so mypy can narrow with
+    # ``isinstance(value, str)`` — narrowing on a subscript
+    # expression (``decoded[key]``) doesn't carry across the two
+    # references in the conditional, so the comprehension form
+    # was inferred as ``tuple[str, str | None]`` and tripped
+    # ``[misc]`` at the call site.
+    pairs: list[tuple[str, str]] = []
+    for key in sorted(decoded):
+        if not isinstance(key, str):
+            continue
+        value = decoded[key]
+        pairs.append((key, value if isinstance(value, str) else ""))
+    return tuple(pairs)
 
 
 def _decode_mdns_txt_records(txt_dns_records: list[Any]) -> dict[str, str]:
