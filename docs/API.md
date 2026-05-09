@@ -277,10 +277,10 @@ Receiver-side surface for the remote-build offload feature (issue #106). Discove
 | `remote_build/add_manual_host` | `{hostname, port}` | `RemoteBuildSettingsView` | Add a manual peer for cross-subnet / non-mDNS LANs. Hostname normalised to lowercase. Duplicate `(hostname, port)` raises `already_exists`. |
 | `remote_build/remove_manual_host` | `{hostname, port}` | `RemoteBuildSettingsView` | Remove a manual peer. Unknown pair raises `not_found`. |
 | `remote_build/list_tokens` | — | `[TokenSummary]` | Issued bearer tokens, projected to omit the secret hash. |
-| `remote_build/add_token` | `{label, token_id, secret_sha256}` | `TokenSummary` | Register a client-generated bearer. **The frontend generates `token_id` + cleartext secret locally** and submits only `SHA-256(secret)`; the cleartext bearer never crosses the wire to the backend. Label 1-128 chars; `token_id` is base64url ≤ 64 chars; `secret_sha256` is 64 lowercase hex chars. Duplicate labels allowed; duplicate `token_id` rejected with `already_exists`. |
+| `remote_build/add_token` | `{label, token_id, secret_sha256}` | `TokenSummary` | Register a client-generated bearer. **The frontend generates `token_id` + cleartext secret locally** and submits only `SHA-256(secret)`; the cleartext bearer never crosses the wire to the backend. Label 1-128 chars; `token_id` is base64url, **exactly 11 chars** (the textual form of 8 random bytes from `crypto.getRandomValues(new Uint8Array(8))`); `secret_sha256` is 64 lowercase hex chars. Duplicate labels allowed; duplicate `token_id` rejected with `already_exists`. |
 | `remote_build/remove_token` | `{token_id}` | `RemoteBuildSettingsView` | Revoke a token. Unknown / blank `token_id` raises `not_found` / `invalid_args` respectively. |
 
-**Bearer wire format**: `{token_id}.{secret}` where `token_id` is the lookup key (8-byte base64url, ~11 chars) and `secret` is the verification value (32-byte base64url, ~43 chars). The auth middleware splits on `.`, looks up by `token_id`, and `hmac.compare_digest`s `SHA-256(secret)` against the stored hash.
+**Bearer wire format**: `{token_id}.{secret}` where `token_id` is the lookup key (the textual form of 8 random bytes after base64url encoding — exactly 11 chars, validated strictly by the backend) and `secret` is the verification value (32 random bytes after base64url encoding — 43 chars). The auth middleware splits on `.`, looks up by `token_id`, and `hmac.compare_digest`s `SHA-256(secret)` against the stored hash.
 
 **Cleartext bearer is generated client-side** by the frontend and never crosses the wire to the backend; only the SHA-256 of the secret half is sent in `add_token` and persisted. This closes the leak that would otherwise occur on plain-HTTP standalone deployments where the main port (default `6052`) carries the WS API in cleartext.
 
@@ -323,7 +323,7 @@ Same-subnet peers read `remote_build_port` from TXT so a `--remote-build-port` o
 - `importable_device_added`, `importable_device_removed`
 - `label_created`, `label_updated`, `label_deleted`
 - `job_queued`, `job_started`, `job_output`, `job_completed`, `job_failed`
-- `remote_build_binding_mismatch` — `{token_id, presented_dashboard_id, bound_dashboard_id, peer_ip}` — fires when an authenticated `/remote-build/v1/*` request's `X-Dashboard-ID` doesn't match the token's bound value. Receiver Settings UI surfaces this so the operator can revoke / rotate.
+- `remote_build_binding_mismatch` — `{token_id, presented_dashboard_id, bound_dashboard_id, peer_ip, race_loss}` — fires when an authenticated `/remote-build/v1/*` request's `X-Dashboard-ID` doesn't match the token's bound value. `race_loss` is `true` when the mismatch happened during a first-use bind (concurrent legitimate-paste-into-two-offloaders is a likely cause), `false` when the token was already bound (more suspicious — points at a stolen-bearer or operator-paste-into-wrong-machine attempt). The Settings UI uses the flag to soften the wording on the race-loss case while keeping the mismatch path loud.
 
 ---
 
