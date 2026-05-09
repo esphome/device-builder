@@ -19,12 +19,11 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from esphome import const
 from esphome.components.dashboard_import import import_config
 from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON, ext_storage_path, ignored_devices_storage_path
 from esphome.zeroconf import AsyncEsphomeZeroconf
-
-from esphome import const
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_size import coerce_sidecar_int

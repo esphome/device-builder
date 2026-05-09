@@ -16,10 +16,9 @@ import secrets
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from esphome import const, yaml_util
 from esphome.const import CONF_PACKAGES
 from esphome.storage_json import StorageJSON, ext_storage_path
-
-from esphome import const, yaml_util
 
 # Prefer the central dispatcher landing in esphome/esphome#16300
 # so we depend on a stable upstream API rather than reaching into
