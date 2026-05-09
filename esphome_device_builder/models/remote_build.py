@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Literal, TypedDict
 
@@ -405,17 +405,7 @@ class StoredPairing(DataClassORJSONMixin):
     def __post_init__(self) -> None:
         """Run :data:`_PAIRING_VALIDATOR`; re-raise as ``ValueError``."""
         try:
-            _PAIRING_VALIDATOR(
-                {
-                    "receiver_hostname": self.receiver_hostname,
-                    "receiver_port": self.receiver_port,
-                    "pin_sha256": self.pin_sha256,
-                    "static_x25519_pub": self.static_x25519_pub,
-                    "label": self.label,
-                    "paired_at": self.paired_at,
-                    "status": self.status,
-                }
-            )
+            _PAIRING_VALIDATOR(asdict(self))
         except vol.Invalid as exc:
             field_name = exc.path[0] if exc.path else "<row>"
             raise ValueError(f"StoredPairing.{field_name}: {exc.msg}") from exc
