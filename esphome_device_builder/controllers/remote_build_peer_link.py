@@ -276,12 +276,6 @@ async def _send_handshake_message(
     try:
         await ws.send_bytes(encoded)
     except ConnectionResetError:
-        # Peer dropped mid-handshake; bubble up so the handler's
-        # outer ``except Exception:`` logs + closes the WS. Naming
-        # ``CancelledError`` here would be redundant —
-        # ``CancelledError`` is a ``BaseException`` subclass since
-        # Python 3.8, so the ``except Exception:`` below already
-        # doesn't catch it.
         raise
     except Exception:
         _LOGGER.debug("peer-link send %s failed", step, exc_info=True)
@@ -304,10 +298,6 @@ async def _send_response(
     try:
         await ws.send_bytes(encrypted)
     except ConnectionResetError:
-        # Bubble up so the handler's outer ``except Exception:``
-        # logs + closes; ``CancelledError`` propagates naturally
-        # (it's a ``BaseException`` subclass not caught by the
-        # ``except Exception:`` below).
         raise
     except Exception:
         _LOGGER.debug("peer-link send response failed", exc_info=True)

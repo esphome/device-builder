@@ -218,14 +218,6 @@ async def test_dispatch_pair_status_pending_returns_pending(tmp_path: Path) -> N
     assert response is IntentResponse.PENDING
 
 
-# NOTE: a "test_dispatch_unknown_intent_returns_rejected" used to live here.
-# After the ``intent: PeerLinkIntent`` typing, an unknown wire value can't reach
-# ``_dispatch_intent`` — it's filtered out by ``_parse_intent`` returning None,
-# and the unknown-intent wire behaviour is verified end-to-end by
-# ``test_e2e_unknown_intent_completes_handshake_then_rejects`` +
-# ``test_e2e_garbage_msg1_payload_handled_gracefully`` below.
-
-
 # ---------------------------------------------------------------------------
 # End-to-end Noise round-trips via aiohttp test client
 # ---------------------------------------------------------------------------
