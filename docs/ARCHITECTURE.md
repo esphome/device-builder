@@ -71,6 +71,52 @@ esphome_device_builder/
 | RemoteBuild | mDNS browse + manual host entry + token store + first-use binding for the remote-build offload feature (issue #106) |
 | Built-in | ping, subscribe_events |
 
+## Event bus
+
+In-process pub/sub, owned by `DeviceBuilder.bus` (an `EventBus` from `helpers/event_bus`). Controllers fire events on state transitions; WS commands subscribe via `subscribe_events` and stream them to connected clients. Event types are declared in `models/common.py` as `EventType(StrEnum)` members; the bus accepts `(event_type, data: dict[str, Any])`.
+
+### Typing event payloads
+
+Mirrors Home Assistant core's `EventStateChangedData` / `EventStateReportedData` pattern: the wire shape stays a `dict[str, Any]` (so `EventBus.fire`'s signature stays generic, JSON serialisation is direct, and the bus doesn't need to know about every event's fields), but each event-specific dict shape is declared as a `TypedDict` next to the controller that fires it.
+
+Concretely, in `models/remote_build.py`:
+
+```python
+class RemoteBuildPairRequestReceivedData(TypedDict):
+    dashboard_id: str
+    pin_sha256: str
+    label: str
+    peer_ip: str
+```
+
+And the call site builds the typed dict before firing:
+
+```python
+payload: RemoteBuildPairRequestReceivedData = {
+    "dashboard_id": dashboard_id,
+    "pin_sha256": pin_sha256,
+    "label": label,
+    "peer_ip": peer_ip,
+}
+self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
+```
+
+Type checkers see the dict's keys + value types; subscribers that want the same view annotate the receive side:
+
+```python
+def _on_pair_request(event: Event) -> None:
+    data: RemoteBuildPairRequestReceivedData = event.data
+    ...
+```
+
+`TypedDict` rather than `@dataclass` because:
+
+- The wire shape is a `dict`, not a class instance. `TypedDict` matches the runtime shape; `@dataclass` would need an `asdict()` step on every fire.
+- Subscribers that ride the existing `subscribe_events` WS plumbing serialise the payload through `helpers.json.dumps` (orjson), which handles `dict` natively.
+- It mirrors HA's convention so contributors moving between this codebase and HA find the same pattern.
+
+Older event payloads (e.g. `REMOTE_BUILD_BINDING_MISMATCH`'s, fired with `asdict(BindingMismatch)`) predate this convention and get the typed treatment as they're touched. New events should ship with a TypedDict from day one.
+
 ## Firmware Job Queue
 
 Jobs are persistent, event-driven, and decoupled from WebSocket connections:
@@ -191,13 +237,13 @@ Pairing is a two-side flow, but in the typical case both sides are operated by t
 
 Out-of-band pin verification defeats a LAN MITM at first contact (the only window where pinning hasn't established trust yet); the **pairing window** narrows when new requests are even accepted (only while the Pairing requests screen on the receiving dashboard is mounted) so an idle receiver doesn't accumulate inbox noise from arbitrary LAN scanners. Already-approved peers connect anytime for real builds; the window only gates new pair_requests.
 
-The cryptographic primitives are `Noise_XX_25519_ChaChaPoly_SHA256` (mutual identity exchange + forward secrecy) over a dedicated peer-link TCP listener (default port 6058, separate from the dashboard UI port). Each dashboard holds a long-lived X25519 keypair as its peer-link identity, persisted at `<config_dir>/.device-builder-peer-link-key.bin` (0o600); `pin_sha256` is the lowercase-hex SHA-256 of the static pubkey.
+The cryptographic primitives are `Noise_XX_25519_ChaChaPoly_SHA256` (mutual identity exchange + forward secrecy) over a dedicated peer-link TCP listener (default port 6055, separate from the dashboard UI port; configurable via `--remote-build-port`). Phases 3b1-3c shipped the same port as an HTTPS+bearer site; phase 4a-r1 part 4 swapped the body to plain-TCP serving the Noise WS. Each dashboard holds a long-lived X25519 keypair as its peer-link identity, persisted at `<config_dir>/.device-builder-peer-link-key.bin` (0o600); `pin_sha256` is the lowercase-hex SHA-256 of the static pubkey.
 
 The numbered phases:
 
 All WS commands below use the `remote_build/` namespace and all events use the `remote_build_` prefix (matching the existing convention in `docs/API.md` and `models/common.py`); the diagram further down strips both for readability.
 
-1. **Discovery** — both dashboards advertise on mDNS (`_esphomebuilder._tcp.local`); the post-pivot TXT carries `peer_link_port` + `pin_sha256`. (Currently-shipped TXT advertises `remote_build_port` + `pin_sha256` instead, where `remote_build_port` points at the about-to-be-removed 6055 HTTPS listener; the rename to `peer_link_port` lands with phase 4a-r2.)
+1. **Discovery** — both dashboards advertise on mDNS (`_esphomebuilder._tcp.local`); TXT carries `remote_build_port` + `pin_sha256`. The TXT keys themselves don't change across the bearer→Noise pivot; the `pin_sha256` value semantic does (was the Ed25519 cert SPKI hash, becomes the X25519 pubkey hash after phase 4a-r1 part 4 swaps the listener body).
 2. **Receiver opens pairing window** — the user opens Settings → Build server → Pairing requests on the receiving dashboard; the frontend calls `remote_build/set_pairing_window` with `open=true`; the backend flips an in-process deadline and fires `remote_build_pairing_window_changed`. The window closes automatically on screen-unmount or user-idle timeout.
 3. **Preview pair (intent=preview)** — three Noise XX handshake messages. The offloader captures the receiver's static pubkey from the handshake transcript and surfaces `pin_sha256` to the user; no application data crosses the wire.
 4. **OOB pin verification** — human-mediated. The user compares the pin shown on the offloader UI against the receiver UI's Build server card.
