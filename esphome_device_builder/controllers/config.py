@@ -146,7 +146,30 @@ class DashboardSettings:
         self.host = getattr(args, "host", "0.0.0.0")
         self.ingress_port = getattr(args, "ingress_port", DEFAULT_INGRESS_PORT)
         self.ingress_host = getattr(args, "ingress_host", "") or ""
-        self.remote_build_port = getattr(args, "remote_build_port", DEFAULT_REMOTE_BUILD_PORT)
+        # ``--remote-build-port`` (or ``$ESPHOME_REMOTE_BUILD_PORT``).
+        # Precedence mirrors ``--trusted-domains`` below: an explicit
+        # CLI value (including the default) wins; ``None`` means
+        # "flag not set, consult the env var". Container deployments
+        # that fix the CMD in the Dockerfile and override via env
+        # can flip the listener port without rebuilding the image.
+        cli_remote_build_port = getattr(args, "remote_build_port", None)
+        if cli_remote_build_port is not None:
+            self.remote_build_port = cli_remote_build_port
+        else:
+            env_remote_build_port = os.getenv("ESPHOME_REMOTE_BUILD_PORT", "")
+            try:
+                self.remote_build_port = (
+                    int(env_remote_build_port)
+                    if env_remote_build_port
+                    else DEFAULT_REMOTE_BUILD_PORT
+                )
+            except ValueError:
+                _LOGGER.warning(
+                    "Invalid ESPHOME_REMOTE_BUILD_PORT=%r; falling back to %d",
+                    env_remote_build_port,
+                    DEFAULT_REMOTE_BUILD_PORT,
+                )
+                self.remote_build_port = DEFAULT_REMOTE_BUILD_PORT
         self.dev_mode = bool(getattr(args, "dev", False))
         # ``--trusted-domains a,b,c`` (or ``$ESPHOME_TRUSTED_DOMAINS``).
         # Comma-separated. Lower-cased for the case-insensitive match

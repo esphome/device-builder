@@ -150,11 +150,12 @@ def main() -> None:
     parser.add_argument(
         "--remote-build-port",
         type=int,
-        default=DEFAULT_REMOTE_BUILD_PORT,
+        default=None,
         help=(
-            "HTTPS port for the remote-build receiver site "
-            f"(default {DEFAULT_REMOTE_BUILD_PORT}; only bound when "
-            "remote-build is enabled in Settings)"
+            "HTTPS port for the remote-build receiver site (default "
+            f"{DEFAULT_REMOTE_BUILD_PORT}; only bound when "
+            "remote-build is enabled in Settings; falls back to "
+            "$ESPHOME_REMOTE_BUILD_PORT when the flag isn't passed)"
         ),
     )
     parser.add_argument(

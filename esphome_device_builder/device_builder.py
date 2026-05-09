@@ -763,50 +763,16 @@ class DeviceBuilder:
             )
             return
 
-        runner: web.AppRunner | None = None
         try:
-            identity = await loop.run_in_executor(
-                None, get_or_create_identity, self.settings.config_dir
-            )
-            ssl_context = await loop.run_in_executor(
-                None, _build_remote_build_ssl_context, identity
-            )
-            auth_middleware_fn = make_remote_build_auth_middleware(self.remote_build.lookup_token)
-            app = web.Application(middlewares=[_strip_server_header_middleware, auth_middleware_fn])
-            app.router.add_get("/remote-build/v1/health", _remote_build_health)
-
-            runner = web.AppRunner(app)
-            await runner.setup()
-            host = self.settings.host
-            configured_port = self.settings.remote_build_port
-            site = web.TCPSite(runner, host, configured_port, ssl_context=ssl_context)
-            await site.start()
-            self._remote_build_runner = runner
-            # Resolve the actually-bound port. ``configured_port=0``
-            # tells the OS to pick an ephemeral port; if we then
-            # advertised ``0`` in mDNS TXT and logged ``0``,
-            # discovery would point peers at port 0 (unreachable)
-            # and the operator's "what port am I on?" question
-            # would be unanswerable. Read the real port off the
-            # bound socket. When ``configured_port`` is non-zero
-            # this returns the same value, so the branch is
-            # harmless on the default path too.
-            port = configured_port
-            if configured_port == 0 and site._server is not None:
-                sockets = site._server.sockets
-                if sockets:
-                    port = sockets[0].getsockname()[1]
+            runner, identity, port = await self._build_and_start_remote_build_runner()
         except Exception:
             _LOGGER.exception(
                 "Remote-build HTTPS site failed to start; dashboard continues "
                 "without the receiver listener. Disable in Settings or "
                 "fix the underlying error and restart."
             )
-            if runner is not None:
-                with contextlib.suppress(Exception):
-                    await runner.cleanup()
-            self._remote_build_runner = None
             return
+        self._remote_build_runner = runner
 
         # Update the mDNS advertise AFTER the bind succeeds. If the
         # bind raised (port in use, permission denied, ...) the
@@ -827,16 +793,76 @@ class DeviceBuilder:
                 "Remote-build HTTPS site bound on %s:%d while running as HA "
                 "addon. Peers won't reach this port unless the addon's "
                 "``ports:`` config exposes it to the host.",
-                host,
+                self.settings.host,
                 port,
             )
         else:
             _LOGGER.info(
                 "Remote-build HTTPS site listening on %s:%d (TLS pin %s)",
-                host,
+                self.settings.host,
                 port,
                 identity.pin_sha256_formatted,
             )
+
+    async def _build_and_start_remote_build_runner(
+        self,
+    ) -> tuple[web.AppRunner, DashboardIdentity, int]:
+        """
+        Construct the runner, build the SSL context, bind the listener.
+
+        Extracted from :meth:`_maybe_start_remote_build_site` so the
+        large try-block doesn't bury the orchestration in error
+        handling. Returns ``(runner, identity, bound_port)`` on
+        success; on any exception, cleans up the partial runner
+        before re-raising so the caller's ``except`` only has to
+        log + return.
+
+        ``bound_port`` is the OS-assigned port when the operator
+        passed ``--remote-build-port 0`` (ephemeral); otherwise the
+        configured value verbatim. Reading the real port off the
+        socket prevents mDNS / log lines from claiming port 0.
+        """
+        loop = self.loop
+        assert loop is not None  # caller-checked
+        assert self.remote_build is not None  # caller-checked
+
+        def _load_identity_and_ssl_context() -> tuple[DashboardIdentity, ssl.SSLContext]:
+            # Chain the two sync helpers in a single executor hop:
+            # ``get_or_create_identity`` reads / generates the cert
+            # + key + dashboard_id, then ``_build_remote_build_ssl_context``
+            # stages the PEMs through tempfiles into an SSLContext.
+            # Doing them as separate hops costs an extra
+            # event-loop -> worker-thread round-trip for nothing.
+            ident = get_or_create_identity(self.settings.config_dir)
+            return ident, _build_remote_build_ssl_context(ident)
+
+        runner: web.AppRunner | None = None
+        try:
+            identity, ssl_context = await loop.run_in_executor(None, _load_identity_and_ssl_context)
+            auth_middleware_fn = make_remote_build_auth_middleware(self.remote_build.lookup_token)
+            app = web.Application(middlewares=[_strip_server_header_middleware, auth_middleware_fn])
+            app.router.add_get("/remote-build/v1/health", _remote_build_health)
+
+            runner = web.AppRunner(app)
+            await runner.setup()
+            configured_port = self.settings.remote_build_port
+            site = web.TCPSite(runner, self.settings.host, configured_port, ssl_context=ssl_context)
+            await site.start()
+        except Exception:
+            if runner is not None:
+                with contextlib.suppress(Exception):
+                    await runner.cleanup()
+            raise
+
+        # Resolve the actually-bound port. ``configured_port=0``
+        # tells the OS to pick an ephemeral port; the bound port
+        # lives on the started server socket.
+        port = configured_port
+        if configured_port == 0 and site._server is not None:
+            sockets = site._server.sockets
+            if sockets:
+                port = sockets[0].getsockname()[1]
+        return runner, identity, port
 
     def run(self) -> None:
         """Start the HTTP server (blocking)."""
