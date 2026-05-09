@@ -1484,6 +1484,8 @@ async def test_record_pair_request_creates_pending_row(tmp_path: Path) -> None:
     """First pair_request from a previously-unknown dashboard_id creates PENDING."""
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
+    await controller.set_pairing_window(open=True, client="receiver-tab")
+    controller._db.bus.fire.reset_mock()
     pubkey = b"\xaa" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
 
@@ -1511,6 +1513,8 @@ async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
     """Creating a PENDING row fires REMOTE_BUILD_PAIR_REQUEST_RECEIVED."""
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
+    await controller.set_pairing_window(open=True, client="receiver-tab")
+    controller._db.bus.fire.reset_mock()
     pubkey = b"\xbb" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
 
@@ -1548,6 +1552,8 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
         status=PeerStatus.PENDING,
     )
     await _seed_peer(tmp_path, initial)
+    await controller.set_pairing_window(open=True, client="receiver-tab")
+    controller._db.bus.fire.reset_mock()
     new_pubkey = b"\xcc" * 32
     new_pin = hashlib.sha256(new_pubkey).hexdigest()
 
@@ -1615,6 +1621,83 @@ async def test_record_pair_request_already_approved_same_pin_returns_approved(
     assert peer.label == "alpha"
     assert peer.paired_at == 1.0
     controller._db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_record_pair_request_unknown_dashboard_id_closed_window_returns_no_pairing_window(
+    tmp_path: Path,
+) -> None:
+    """A new offloader hitting pair_request while window is closed returns NO_PAIRING_WINDOW.
+
+    The pairing window only gates branches that would create or
+    refresh a PENDING row (new authorization). With no row for
+    the offloader yet and the window closed, the result is
+    NO_PAIRING_WINDOW — admin needs to open the screen for new
+    pair-requests to even be accepted.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    pubkey = b"\x33" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+
+    response = await controller.record_pair_request(
+        dashboard_id="newcomer",
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        label="newcomer",
+        peer_ip="10.0.0.1",
+    )
+
+    assert response is IntentResponse.NO_PAIRING_WINDOW
+    # No row was created — the gate fired before the append.
+    loop = asyncio.get_running_loop()
+    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
+    assert settings.peers == []
+    # No event fired either — the pair_request_received event is
+    # for surfacing rows in the inbox, and no row was created.
+    controller._db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_record_pair_request_already_approved_bypasses_closed_window(
+    tmp_path: Path,
+) -> None:
+    """An already-approved peer re-pairing with matching pin bypasses the window gate.
+
+    The window only narrows when *new authorization* is being
+    requested. A pair_request from a peer whose pubkey matches
+    an APPROVED row is just re-establishing existing trust —
+    admin doesn't need to be on the Pairing requests screen for
+    that to work. Otherwise an offloader's pair-request retry
+    after a network blip would surface NO_PAIRING_WINDOW just
+    because the receiver-side admin closed the screen between
+    pairings, forcing the user to re-engage with no security
+    benefit.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    pubkey = b"\x44" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    approved = _stored_peer(
+        dashboard_id="alpha",
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        label="alpha",
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+    )
+    await _seed_peer(tmp_path, approved)
+    # Window stays CLOSED — no set_pairing_window call.
+
+    response = await controller.record_pair_request(
+        dashboard_id="alpha",
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        label="alpha",
+        peer_ip="10.0.0.1",
+    )
+
+    assert response is IntentResponse.APPROVED
 
 
 @pytest.mark.asyncio

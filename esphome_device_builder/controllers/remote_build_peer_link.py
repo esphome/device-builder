@@ -274,8 +274,14 @@ async def _dispatch_intent(
         return IntentResponse.REJECTED
 
     if inp.intent is PeerLinkIntent.PAIR_REQUEST:
-        if not controller.is_pairing_window_open():
-            return IntentResponse.NO_PAIRING_WINDOW
+        # The pairing-window gate lives inside ``record_pair_request``
+        # rather than here so it can short-circuit only the cases
+        # where new admin authorization is actually being requested
+        # (new PENDING row created, or pubkey rotated under an
+        # existing PENDING / APPROVED row). A re-pair against an
+        # already-APPROVED row whose pubkey still matches doesn't
+        # need admin action and bypasses the window check — the
+        # offloader is just re-establishing existing trust.
         return await controller.record_pair_request(
             dashboard_id=inp.dashboard_id,
             pin_sha256=inp.pin_sha256,

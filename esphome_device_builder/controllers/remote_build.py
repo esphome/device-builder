@@ -1756,17 +1756,7 @@ class RemoteBuildController:
         """
         Process an ``intent="pair_request"`` Noise session.
 
-        Caller is expected to have already gated on
-        :meth:`is_pairing_window_open` — this method does NOT
-        re-check, so a window-closed dispatch should never reach
-        here.
-
         Returns:
-        * :attr:`IntentResponse.PENDING` — created a new
-          ``StoredPeer`` (or refreshed an existing PENDING row's
-          pin / label / paired_at). Fires
-          :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED` so
-          the receiver UI surfaces the request in the inbox.
         * :attr:`IntentResponse.APPROVED` — a row already exists
           for this ``dashboard_id`` with status APPROVED **and**
           its stored pin matches the handshake's. Returns
@@ -1774,15 +1764,34 @@ class RemoteBuildController:
           event; demoting an already-trusted peer back to PENDING
           on every stray pair_request would force the receiving
           dashboard's user to re-approve on every offloader
-          hiccup, which is hostile UX.
+          hiccup, which is hostile UX. **Bypasses the pairing
+          window** — the offloader is re-establishing existing
+          trust, not asking for new authorization, so admin
+          doesn't need to be on the Pairing requests screen.
+        * :attr:`IntentResponse.PENDING` — created a new
+          ``StoredPeer`` (or refreshed an existing PENDING row's
+          pin / label / paired_at). Only reachable while the
+          pairing window is open — both branches that would
+          create / refresh a PENDING row check
+          :meth:`is_pairing_window_open` first and return
+          ``NO_PAIRING_WINDOW`` when closed (admin has to be on
+          the Pairing requests screen for new authorization). On
+          the PENDING path, fires
+          :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED` so
+          the receiver UI surfaces the request in the inbox.
         * :attr:`IntentResponse.REJECTED` — a row exists for this
           ``dashboard_id`` with status APPROVED but the
           handshake's pin doesn't match the stored pin. Either
           the offloader rotated their identity under us, or
           someone is presenting a fresh keypair and claiming
-          Alice's ``dashboard_id``. Refuse the operation; the
-          receiver-side user has to remove the peer and re-pair
-          if the rotation is legitimate.
+          Alice's ``dashboard_id``. Refuse regardless of window
+          state; the receiver-side user has to remove the peer
+          and re-pair if the rotation is legitimate.
+        * :attr:`IntentResponse.NO_PAIRING_WINDOW` — admin isn't
+          on the Pairing requests screen, and this request would
+          create or refresh a PENDING row. Returned for the
+          unknown-dashboard_id branch and the existing-PENDING
+          branch only.
         """
         outcome = _PairRequestOutcome()
 
@@ -1790,6 +1799,12 @@ class RemoteBuildController:
             now = time.time()
             peer = _find_peer_by_dashboard_id(settings, dashboard_id)
             if peer is None:
+                # New offloader requesting authorization — gated on
+                # the pairing window so admins can refuse to even
+                # accumulate inbox noise from arbitrary LAN scanners.
+                if not self.is_pairing_window_open():
+                    outcome.response = IntentResponse.NO_PAIRING_WINDOW
+                    return
                 settings.peers.append(
                     StoredPeer(
                         dashboard_id=dashboard_id,
@@ -1807,16 +1822,24 @@ class RemoteBuildController:
                     # Pin mismatch on an APPROVED row is a
                     # rotation-or-impersonation signal; refuse
                     # rather than silently re-approve under the
-                    # new identity.
+                    # new identity. Independent of window state.
                     outcome.response = IntentResponse.REJECTED
                     return
+                # Already-approved + pin still matches: re-pair
+                # against existing trust. No admin action needed,
+                # so window state is irrelevant.
                 outcome.response = IntentResponse.APPROVED
                 return
-            # PENDING: refresh in place. The pin / pubkey may
-            # have changed (offloader rotated), the label may
-            # have changed (user renamed the dashboard before
-            # they clicked Accept). Keep the row's status =
-            # PENDING; the user re-Accepts when ready.
+            # PENDING: refresh in place. The pin / pubkey may have
+            # changed (offloader rotated), the label may have
+            # changed (user renamed the dashboard before they
+            # clicked Accept). The refresh modifies what admin
+            # would see in the inbox, so it's still gated on
+            # window state — admin can't silently get a different
+            # request than the inbox row they see.
+            if not self.is_pairing_window_open():
+                outcome.response = IntentResponse.NO_PAIRING_WINDOW
+                return
             peer.refresh_from_pair_request(
                 pin_sha256=pin_sha256,
                 static_x25519_pub=static_x25519_pub,
