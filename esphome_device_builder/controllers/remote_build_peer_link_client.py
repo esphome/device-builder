@@ -74,6 +74,19 @@ _RESPONSE_DECODE_ERRORS: tuple[type[Exception], ...] = (
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
+# Hard cap on a single inbound WS frame the offloader will read
+# from a peer-link receiver. Each receiver response is a Noise-
+# encrypted JSON object with a small fixed shape (status code,
+# pubkey hash, optional label) — well under 1 KiB in practice.
+# aiohttp's default ``max_msg_size`` is 4 MiB, which is wildly
+# generous here: a malicious or buggy receiver could otherwise
+# spend ~4 MiB of offloader memory + Noise-decrypt + JSON-parse
+# CPU per round-trip. 64 KiB is two orders of magnitude above
+# the realistic max while still giving aiohttp a reasonable
+# header-and-frame slack.
+_RECEIVER_RESPONSE_MAX_BYTES = 64 * 1024
+
+
 class PeerLinkClientError(RuntimeError):
     """Raised on transport / handshake / decrypt failure on the offloader side.
 
@@ -203,7 +216,7 @@ async def drive_initiator_round_trip(
         url = _build_ws_url(hostname, port)
         async with (
             aiohttp.ClientSession(timeout=timeout) as http,
-            http.ws_connect(url) as ws,
+            http.ws_connect(url, max_msg_size=_RECEIVER_RESPONSE_MAX_BYTES) as ws,
         ):
             msg1 = _json.dumps({"intent": intent.value})
             await ws.send_bytes(sess.write_handshake_message(msg1))

@@ -462,6 +462,19 @@ def _validate_pair_label(raw: object, *, field: _PairLabelField) -> str:
     allowed; the user may legitimately not name the receiver
     yet, and the frontend can render a placeholder.
 
+    Rejects strings containing C0 / C1 control chars (incl. null
+    bytes, ANSI escapes, newlines, DEL) via :meth:`str.isprintable`.
+    The ``offloader_label`` transits to the receiver-side admin
+    UI's pairing-requests inbox; refusing control chars here is
+    defense-in-depth against ANSI / bidi-override / null-byte
+    injection attacks against an admin terminal or log reader
+    (the load-bearing fix is on the receiver side, but symmetric
+    rejection here catches honest typos and a future
+    direct-driver caller that bypasses the receiver's normaliser).
+    Non-ASCII printables (CJK, accented Latin, emoji) pass —
+    :meth:`str.isprintable` only excludes the C0/C1 control sets
+    plus surrogates, which is the right cut for a name field.
+
     *field* names the failing arg in the diagnostic via
     :class:`_PairLabelField` so the frontend can pin the inline
     error to the right input.
@@ -472,6 +485,9 @@ def _validate_pair_label(raw: object, *, field: _PairLabelField) -> str:
     cleaned = raw.strip()
     if len(cleaned) > _PAIR_LABEL_MAX_CHARS:
         msg = f"{field} must be at most {_PAIR_LABEL_MAX_CHARS} characters"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if not cleaned.isprintable():
+        msg = f"{field} must contain only printable characters"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return cleaned
 
@@ -533,6 +549,10 @@ def _enforce_pin_match(*, expected: str, observed: str) -> None:
     quick visual scan; the human OOB check is the
     load-bearing security property, so full digest wins.
     """
+    # Plain ``==`` is fine here: the pin is a SHA-256 of a public
+    # key, broadcast in mDNS and rendered in the receiver's UI.
+    # There's no secret to leak via timing; constant-time
+    # comparison would be defending nothing.
     if expected == observed:
         return
     msg = f"receiver pin changed since preview; expected {expected}, got {observed}"
@@ -543,12 +563,24 @@ def _upsert_pairing(settings: OffloaderRemoteBuildSettings, pairing: StoredPairi
     """Replace any existing row for ``(receiver_hostname, receiver_port)``.
 
     Re-pair from the same offloader to the same receiver should
-    overwrite, not duplicate — the user's intent is "pair me
+    overwrite, not duplicate; the user's intent is "pair me
     with this receiver again" not "give me two rows pointing
     at the same place." Used by ``request_pair`` (part 3); a
     future ``list_pool`` (part 4) status refresh can reuse the
     same shape when the receiver's response flips a row's
     status.
+
+    Security note: an upsert against an existing ``(host, port)``
+    silently replaces the stored ``pin_sha256`` and
+    ``static_x25519_pub`` even when they differ from the prior
+    row. The OOB pin check the user performs during
+    ``preview_pair`` is the load-bearing defense against an
+    attacker spoofing the receiver's address; if the user is
+    socially engineered into approving a different pin, the
+    legitimate row is overwritten without an audit trail. A
+    future hardening could require an explicit ``unpair`` step
+    before re-pairing to a different identity at the same
+    address; out of scope here.
     """
     settings.pairings = [
         p

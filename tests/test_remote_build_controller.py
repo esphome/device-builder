@@ -1868,6 +1868,38 @@ def test_validate_pair_label_rejects_non_string() -> None:
     assert "receiver_label" in str(exc.value)
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param("evil\x1b[31mboo", id="ansi_escape"),
+        pytest.param("two\nlines", id="newline"),
+        pytest.param("car\rriage", id="carriage_return"),
+        pytest.param("null\x00byte", id="null_byte"),
+        pytest.param("zero\u200bwidth", id="zero_width"),
+        pytest.param("bidi\u202eflip", id="bidi_override"),
+    ],
+)
+def test_validate_pair_label_rejects_control_characters(payload: str) -> None:
+    """Control / bidi / zero-width chars are rejected (defense-in-depth).
+
+    The ``offloader_label`` transits to the receiver-side admin
+    inbox; a malicious offloader must not be able to inject ANSI
+    escapes, newlines, null bytes, or bidi-override Unicode that
+    could fake a label's identity in a terminal-rendered admin
+    tool.
+    """
+    with pytest.raises(CommandError) as exc:
+        _validate_pair_label(payload, field=_PairLabelField.OFFLOADER_LABEL)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "printable" in str(exc.value)
+
+
+def test_validate_pair_label_accepts_non_ascii_printables() -> None:
+    """Non-ASCII printables (CJK, accented Latin, emoji) round-trip cleanly."""
+    assert _validate_pair_label("キッチン", field=_PairLabelField.RECEIVER_LABEL) == "キッチン"
+    assert _validate_pair_label("café 🚀", field=_PairLabelField.RECEIVER_LABEL) == "café 🚀"
+
+
 # --- _intent_response_to_command_error ---
 
 
