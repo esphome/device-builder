@@ -108,10 +108,28 @@ class EventType(StrEnum):
     # rejection-as-cleanup and fires nothing; the row never
     # represented an established trust relationship. Receiver
     # Settings UI updates the inbox + approved-peers list on
-    # this event; in phase 4b-3 the offloader's polling loop
-    # observes the same flip via the offloader-side ``list_pool``
-    # WS command.
+    # this event. The offloader-side counterpart event is
+    # :attr:`OFFLOADER_PAIR_STATUS_CHANGED`, fired on the
+    # offloader's local bus when its `subscribe_pool` long-poll
+    # observes the receiver's flip; the two share a wire shape
+    # but live on different buses (receiver vs offloader) and
+    # carry different identifiers (offloader's dashboard_id vs
+    # the offloader's own ``(receiver_hostname, receiver_port)``
+    # coordinates).
     REMOTE_BUILD_PAIR_STATUS_CHANGED = "remote_build_pair_status_changed"
+
+    # Offloader-side counterpart to ``REMOTE_BUILD_PAIR_STATUS_CHANGED``.
+    # Payload: ``{receiver_hostname, receiver_port,
+    # status: "approved" | "removed"}``. Fired by the offloader's
+    # ``subscribe_pool`` long-poll dispatcher when it observes a
+    # PENDING row flipping APPROVED (admin clicked Accept) or
+    # the receiver returning REJECTED (admin clicked Reject; row
+    # never existed; pin rotated). Receiver-side keys are not
+    # carried because the offloader's :class:`StoredPairing`
+    # never stores the receiver's ``dashboard_id`` — the
+    # receiver coordinates the offloader knows are the
+    # ``(hostname, port)`` it dialled.
+    OFFLOADER_PAIR_STATUS_CHANGED = "offloader_pair_status_changed"
 
     # Pairing window opened, extended, or closed. Payload:
     # ``{open: bool, expires_in_seconds: float | None}``. Fires

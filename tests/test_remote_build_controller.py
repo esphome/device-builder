@@ -44,6 +44,7 @@ from esphome_device_builder.controllers.remote_build import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
+from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
     ErrorCode,
     EventType,
@@ -87,13 +88,20 @@ def _fake_service_info(
     return info
 
 
-def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
+def _make_controller(*, config_dir: Any = None, real_bus: bool = False) -> RemoteBuildController:
     db = MagicMock()
     db.devices = MagicMock()
     db.devices.zeroconf = None
     db._dashboard_advertiser = None
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
+    if real_bus:
+        # Long-poll tests for ``lookup_peer_for_status`` exercise the
+        # bus.listening machinery for real (a MagicMock bus would
+        # never deliver events to the listener and the long-poll
+        # would only ever take the timeout fallback). Bring up an
+        # actual ``EventBus`` for those.
+        db.bus = EventBus()
     return RemoteBuildController(db)
 
 
@@ -1782,6 +1790,108 @@ async def test_lookup_peer_for_status_unknown_returns_rejected(tmp_path: Path) -
     response = await controller.lookup_peer_for_status(dashboard_id="ghost", pin_sha256="pin")
 
     assert response == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_lookup_peer_for_status_long_polls_until_approve_fires(
+    tmp_path: Path,
+) -> None:
+    """Long-poll wakes promptly when ``approve_peer`` flips the row mid-wait.
+
+    Mirrors the production wire flow: an offloader's ``intent="pair_status"``
+    arrives while its row is still PENDING; the receiver's admin clicks
+    Accept on a second WS, which fires ``REMOTE_BUILD_PAIR_STATUS_CHANGED``
+    on the bus; the long-poll wakes, re-snapshots the now-APPROVED row,
+    returns ``APPROVED``. Uses a real :class:`EventBus` so the listener
+    machinery actually runs (the MagicMock fixture used elsewhere doesn't
+    deliver events).
+    """
+    controller = _make_controller(config_dir=tmp_path, real_bus=True)
+    pubkey = b"\x55" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    await _seed_peer(
+        tmp_path,
+        _stored_peer(
+            dashboard_id="alpha",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            status=PeerStatus.PENDING,
+        ),
+    )
+    # Window-gate the long-poll: receiver only honours pair_status
+    # from PENDING peers while the admin is on the Pairing requests
+    # screen.
+    await controller.set_pairing_window(open=True, client="receiver-tab")
+
+    async def _flip_after_short_delay() -> None:
+        # Yield enough loop ticks that ``lookup_peer_for_status`` has
+        # time to register its bus listener and park on the wait.
+        await asyncio.sleep(0.05)
+        await controller.approve_peer(dashboard_id="alpha")
+
+    flip_task = asyncio.create_task(_flip_after_short_delay())
+    try:
+        response = await controller.lookup_peer_for_status(dashboard_id="alpha", pin_sha256=pin)
+    finally:
+        await flip_task
+        await controller.stop()
+
+    assert response is IntentResponse.APPROVED
+
+
+@pytest.mark.asyncio
+async def test_lookup_peer_for_status_long_poll_ignores_other_dashboard_ids(
+    tmp_path: Path,
+) -> None:
+    """Bus events for unrelated ``dashboard_id`` don't wake the long-poll.
+
+    Two pending rows; firing approve_peer for bravo must not unpark
+    alpha's waiter. Closing the pairing window mid-wait short-circuits
+    alpha's long-poll with NO_PAIRING_WINDOW (deterministic exit
+    without a wall-clock timeout).
+    """
+    controller = _make_controller(config_dir=tmp_path, real_bus=True)
+    pubkey = b"\x66" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    await _seed_peer(
+        tmp_path,
+        _stored_peer(
+            dashboard_id="alpha",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            status=PeerStatus.PENDING,
+        ),
+    )
+    await _seed_peer(
+        tmp_path,
+        _stored_peer(
+            dashboard_id="bravo",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            status=PeerStatus.PENDING,
+        ),
+    )
+    await controller.set_pairing_window(open=True, client="receiver-tab")
+
+    async def _approve_bravo_then_close_window() -> None:
+        # Yield long enough for alpha's long-poll to park.
+        await asyncio.sleep(0.02)
+        await controller.approve_peer(dashboard_id="bravo")
+        # Bravo's flip event must NOT have unparked alpha. Then
+        # close the window to deterministically end alpha's wait
+        # (else the test parks indefinitely — no timeout exists).
+        await asyncio.sleep(0.02)
+        await controller.set_pairing_window(open=False, client="receiver-tab")
+
+    flip_task = asyncio.create_task(_approve_bravo_then_close_window())
+    try:
+        response = await controller.lookup_peer_for_status(dashboard_id="alpha", pin_sha256=pin)
+    finally:
+        await flip_task
+        await controller.stop()
+
+    # Window-close exit, not bravo's flip event.
+    assert response is IntentResponse.NO_PAIRING_WINDOW
 
 
 # ---------------------------------------------------------------------------

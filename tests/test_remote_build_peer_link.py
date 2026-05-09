@@ -285,7 +285,18 @@ async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_pair_status_pending_returns_pending(tmp_path: Path) -> None:
+async def test_dispatch_pair_status_pending_closed_window_returns_no_pairing_window(
+    tmp_path: Path,
+) -> None:
+    """A PENDING peer hitting pair_status while window is closed → NO_PAIRING_WINDOW.
+
+    Pending peers can only long-poll while the receiver-side admin
+    is on the Pairing requests screen (the bus event channel that
+    drives the long-poll only carries flips while admin is engaged).
+    With window closed, snapshot=PENDING returns NO_PAIRING_WINDOW
+    immediately so the offloader's listener exits cleanly rather
+    than holding an open Noise session for nothing.
+    """
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
     pubkey = b"\xcc" * 32
@@ -314,7 +325,7 @@ async def test_dispatch_pair_status_pending_returns_pending(tmp_path: Path) -> N
         ),
     )
 
-    assert response is IntentResponse.PENDING
+    assert response is IntentResponse.NO_PAIRING_WINDOW
 
 
 # ---------------------------------------------------------------------------

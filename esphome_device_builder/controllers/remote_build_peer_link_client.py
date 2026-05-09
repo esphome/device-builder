@@ -74,6 +74,16 @@ _RESPONSE_DECODE_ERRORS: tuple[type[Exception], ...] = (
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
+# Total budget for one ``intent="pair_status"`` long-poll round-trip.
+# Receiver-side ``lookup_peer_for_status`` holds a PENDING snapshot
+# open for up to 30s waiting for ``REMOTE_BUILD_PAIR_STATUS_CHANGED``;
+# the offloader-side total has to clear that plus TCP connect + 3-frame
+# Noise handshake + a comfortable slack so a clean idle round-trip
+# never trips the client-side timeout. 40s is the receiver's 30s ceiling
+# plus 10s for everything else.
+_PAIR_STATUS_LONG_POLL_TIMEOUT_SECONDS = 40.0
+
+
 # Hard cap on a single inbound WS frame for the *control-plane*
 # round-trip driven by :func:`drive_initiator_round_trip`. Each
 # receiver response on this path is a Noise-encrypted JSON object
@@ -385,4 +395,97 @@ async def request_pair(
         status=status,
         pin_sha256=pin_sha256_for_pubkey(rt.remote_static_pub),
         remote_static_pub=rt.remote_static_pub,
+    )
+
+
+@dataclass(frozen=True)
+class PollPairStatusResult:
+    """Outcome of an ``intent="pair_status"`` long-poll round-trip.
+
+    Returned by :func:`poll_pair_status` after the Noise XX
+    handshake completes and the receiver's ``intent_response``
+    has been received (which on the receiver side may have
+    blocked for up to 30s waiting for an admin click).
+
+    * :attr:`status` is the receiver's verbatim response —
+      :attr:`IntentResponse.APPROVED` if the matching
+      ``StoredPeer`` row is APPROVED, :attr:`IntentResponse.PENDING`
+      if it's still pending and the receiver's long-poll window
+      timed out, :attr:`IntentResponse.REJECTED` if no row matches
+      (admin clicked Reject, or rejected-as-cleanup, or pin
+      drift on the receiver side). The caller flips local state
+      accordingly.
+    * :attr:`pin_sha256` is the lowercase-hex hash of the
+      receiver's static X25519 pubkey observed on the live
+      handshake. The :class:`StoredPairing` consumer compares
+      this against its stored ``pin_sha256`` so a receiver-side
+      identity rotation between :func:`request_pair` and the
+      first :func:`poll_pair_status` doesn't silently slide a
+      compromised pubkey into ``APPROVED`` state.
+    """
+
+    status: IntentResponse
+    pin_sha256: str
+
+
+async def poll_pair_status(
+    *,
+    hostname: str,
+    port: int,
+    identity_priv: bytes,
+    dashboard_id: str,
+) -> PollPairStatusResult:
+    """Run an ``intent="pair_status"`` long-poll round-trip.
+
+    Used by the offloader's ``subscribe_pool`` long-poll
+    dispatcher (phase 4a-o part 4) to ask the receiver "has my
+    pending row flipped status yet?" with ~instant push
+    latency on the happy path.
+
+    Receiver-side semantics: if the snapshot is APPROVED or
+    REJECTED, returns immediately. If PENDING, the receiver
+    holds the response open for up to 30s waiting on its own
+    bus's :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED`
+    event for the matching ``dashboard_id``; returns the new
+    status when fired or the current PENDING snapshot on
+    timeout (so the offloader can reconnect for another
+    long-poll window without holding a stalled WS open
+    indefinitely).
+
+    Wire shape: the encrypted msg3 carries
+    ``{"dashboard_id": dashboard_id}``. The receiver doesn't
+    need any other field — the row already exists, the pin is
+    captured from the handshake transcript, and there's no
+    ``label`` to update on a status query.
+
+    Caller is responsible for the pin-drift check: compare
+    :attr:`PollPairStatusResult.pin_sha256` against the stored
+    :attr:`models.StoredPairing.pin_sha256`. A mismatch means
+    the receiver rotated identity since pair time; the caller
+    should treat that as a peer-revoked signal (drop the local
+    row + fire ``status="removed"``) rather than persisting a
+    silently-substituted pubkey.
+
+    Maps unknown ``intent_response`` strings to
+    :class:`PeerLinkClientError`; the WS-command layer treats
+    that as ``UNAVAILABLE`` (transient receiver protocol bug,
+    not a confirmed peer-revoked signal).
+    """
+    msg3_payload = _json.dumps({"dashboard_id": dashboard_id})
+    rt = await drive_initiator_round_trip(
+        hostname=hostname,
+        port=port,
+        identity_priv=identity_priv,
+        intent=PeerLinkIntent.PAIR_STATUS,
+        msg3_payload=msg3_payload,
+        timeout_seconds=_PAIR_STATUS_LONG_POLL_TIMEOUT_SECONDS,
+    )
+    try:
+        status = IntentResponse(rt.intent_response)
+    except ValueError as exc:
+        msg = f"peer-link pair_status: unknown intent_response={rt.intent_response!r}"
+        raise PeerLinkClientError(msg) from exc
+    return PollPairStatusResult(
+        status=status,
+        pin_sha256=pin_sha256_for_pubkey(rt.remote_static_pub),
     )

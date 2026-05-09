@@ -200,6 +200,30 @@ class RemoteBuildPairStatusChangedData(TypedDict):
     status: Literal["approved", "removed"]
 
 
+class OffloaderPairStatusChangedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_PAIR_STATUS_CHANGED``.
+
+    Offloader-side counterpart to
+    :class:`RemoteBuildPairStatusChangedData`. Fired on the
+    offloader's local bus by the ``subscribe_pool`` long-poll
+    dispatcher when a previously-PENDING :class:`StoredPairing`
+    row is observed flipping to ``APPROVED`` (admin clicked
+    Accept) or being dropped because the receiver returned
+    ``REJECTED`` (admin clicked Reject; row never existed; pin
+    rotated). The two events have the same wire shape but live
+    on different buses (receiver vs offloader) and key on
+    different identifiers — the offloader's
+    :class:`StoredPairing` never stores the receiver's
+    ``dashboard_id``, so the receiver coordinates are the
+    ``(hostname, port)`` the user originally dialled.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    status: Literal["approved", "removed"]
+
+
 class RemoteBuildPairingWindowChangedData(TypedDict):
     """
     Payload for ``EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED``.
