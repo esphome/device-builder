@@ -17,9 +17,9 @@ This identity is **separate** from the phase-3a Ed25519 cert
 keypair (``.device-builder-key.pem``). The cert remains the
 dashboard's TLS identity for any externally-fronted HTTPS use;
 the X25519 keypair here is the dashboard's identity for
-:class:`~helpers.peer_link_noise.PeerLinkNoiseSession` (the Noise
-XX peer-link channel from phase 4a). The two have independent
-rotation lifecycles.
+:class:`~esphome_device_builder.helpers.peer_link_noise.PeerLinkNoiseSession`
+(the Noise XX peer-link channel from phase 4a). The two have
+independent rotation lifecycles.
 
 Generation is one ``X25519PrivateKey.generate()`` call plus a
 single atomic file write. Sync and blocking; async callers must
@@ -58,8 +58,8 @@ class PeerLinkIdentity:
     The persistent peer-link identity for one dashboard installation.
 
     ``private_bytes`` is the raw 32-byte X25519 secret used by
-    :class:`~helpers.peer_link_noise.PeerLinkNoiseSession` (passed
-    to :meth:`noise.connection.NoiseConnection.set_keypair_from_private_bytes`).
+    :class:`~esphome_device_builder.helpers.peer_link_noise.PeerLinkNoiseSession`
+    (passed to :meth:`noise.connection.NoiseConnection.set_keypair_from_private_bytes`).
     ``public_bytes`` is the matching 32-byte X25519 pubkey.
     ``pin_sha256`` is the lowercase-hex SHA-256 of ``public_bytes``;
     the wire-friendly form UIs render for OOB fingerprint
@@ -145,11 +145,12 @@ def _load_key(key_path: Path) -> bytes | None:
     """
     Read the persisted X25519 private key, returning ``None`` on any miss.
 
-    Treats wrong-length or unparsable input as "missing" so the
-    caller regenerates rather than failing. A half-written or
-    truncated key file means the on-disk state is wrong, and the
-    user-visible cost of regenerating is "every peer has to re-pair
-    once" (same outcome as a deliberate rotation).
+    Treats wrong-length input as "missing" so the caller regenerates
+    rather than failing. A half-written or truncated key file means
+    the on-disk state is wrong; the user-visible cost of regenerating
+    is "every peer has to re-pair once", the same outcome as a
+    deliberate rotation. Any 32-byte string is a valid X25519 private
+    key after clamping, so a length-correct read is always usable.
     """
     if not key_path.is_file():
         return None
@@ -164,19 +165,6 @@ def _load_key(key_path: Path) -> bytes | None:
             key_path,
             len(data),
             _KEY_LENGTH,
-        )
-        return None
-    # Validate by attempting to construct the X25519 key. If this
-    # raises, the bytes parse as the right size but aren't a valid
-    # private key under the curve's clamping rules; treat as
-    # missing.
-    try:
-        X25519PrivateKey.from_private_bytes(data)
-    except Exception as exc:
-        _LOGGER.warning(
-            "Peer-link key at %s does not parse as X25519 (%s); regenerating",
-            key_path,
-            exc,
         )
         return None
     return data
