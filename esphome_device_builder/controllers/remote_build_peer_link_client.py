@@ -74,23 +74,24 @@ _RESPONSE_DECODE_ERRORS: tuple[type[Exception], ...] = (
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
-# Total budget for one ``intent="pair_status"`` long-poll round-trip.
-# Receiver-side ``lookup_peer_for_status`` parks indefinitely on its
-# bus listener — there's no timeout, the connection stays open until
-# either an admin click flips the row or the receiver-side pairing
-# window closes (firing ``status="removed"`` events that wake the
-# wait). The pairing window's default lifetime is
-# ``_PAIRING_WINDOW_DURATION_SECONDS`` = 300s but extends on user
-# activity, so the receiver-side wait can legitimately span tens of
-# minutes. Pick a client-side total an order of magnitude above the
-# default window so a typical "admin opens screen, walks away to
-# verify, comes back, clicks Accept" flow doesn't trip the offloader's
-# ``aiohttp`` timeout and force a reconnect (which would itself land
-# back on the same long-poll, just with a Noise handshake of churn).
-# When the offloader process actually wants to give up — controller
-# stop, unpair — the listener task is cancelled directly and the WS
+# Total budget for one ``intent="pair_status"`` round-trip.
+# Receiver-side ``lookup_peer_for_status`` parks indefinitely on
+# its bus listener — there's no internal timeout, the connection
+# stays open until either an admin click flips the row or the
+# receiver-side pairing window closes (firing ``status="removed"``
+# events that wake the wait). The pairing window's default
+# lifetime is ``_PAIRING_WINDOW_DURATION_SECONDS`` = 300s but
+# extends on user activity, so the receiver-side wait can
+# legitimately span tens of minutes. Pick a client-side total an
+# order of magnitude above the default window so a typical
+# "admin opens screen, walks away to verify, comes back, clicks
+# Accept" flow doesn't trip the offloader's ``aiohttp`` timeout
+# and force a reconnect (which would itself land back on the
+# same wait, just with a Noise handshake of churn). When the
+# offloader process actually wants to give up — controller stop,
+# unpair — the listener task is cancelled directly and the WS
 # closes via the cancellation, not via this timeout.
-_PAIR_STATUS_LONG_POLL_TIMEOUT_SECONDS = 3600.0
+_PAIR_STATUS_TIMEOUT_SECONDS = 3600.0
 
 
 # Hard cap on a single inbound WS frame for the *control-plane*
@@ -471,7 +472,7 @@ async def await_pair_status(
     treats this the same as an admin Reject.
 
     Client-side total budget is
-    :data:`_PAIR_STATUS_LONG_POLL_TIMEOUT_SECONDS` (~1h),
+    :data:`_PAIR_STATUS_TIMEOUT_SECONDS` (~1h),
     deliberately set well above the receiver's 5-min default
     pairing-window lifetime so a typical "admin opens screen,
     walks away to verify pin, comes back, clicks Accept" flow
@@ -506,7 +507,7 @@ async def await_pair_status(
         identity_priv=identity_priv,
         intent=PeerLinkIntent.PAIR_STATUS,
         msg3_payload=msg3_payload,
-        timeout_seconds=_PAIR_STATUS_LONG_POLL_TIMEOUT_SECONDS,
+        timeout_seconds=_PAIR_STATUS_TIMEOUT_SECONDS,
     )
     try:
         status = IntentResponse(rt.intent_response)
