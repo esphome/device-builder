@@ -300,6 +300,31 @@ class PeerSummary(DataClassORJSONMixin):
 # field bounds beat hand-rolled if-chains for readability, and
 # (c) the upstream ESPHome codebase uses the same primitive so
 # contributors moving between repos see a familiar shape.
+#
+# **Maintenance note.** The schema below is a second source of
+# truth alongside the dataclass field annotations: each
+# ``vol.Required(...)`` mirrors a field declared on
+# :class:`StoredPairing`, and dropping or renaming a field in
+# one place without the other will silently desync (the schema
+# would either fail-pass — ``vol.Required`` against a missing
+# key raises — or accept-everything if the annotation widens).
+# Keep the two in lockstep when changing the row shape: add /
+# rename / remove the dataclass field AND the corresponding
+# schema entry in the same change.
+#
+# **Asymmetry with :class:`StoredPeer`.** The receiver-side
+# row doesn't run a comparable schema in
+# ``__post_init__``: ``record_pair_request`` is its only
+# constructor in production, and that path runs after a
+# successful Noise XX handshake (the noiseprotocol library
+# guarantees ``static_x25519_pub`` is exactly 32 bytes; the
+# dispatcher validates ``dashboard_id`` against
+# ``DASHBOARD_ID_PATTERN`` and caps ``label`` via
+# ``_normalize_label`` *before* reaching the controller). A
+# follow-up applying the same storage-seam validator to
+# ``StoredPeer`` for symmetry is on the 4a-o follow-up list;
+# for now this PR is documenting the inconsistency rather
+# than masking it.
 _PAIRING_VALIDATOR = vol.Schema(
     {
         # RFC 1035 §2.3.4 caps a fully-qualified domain name at 253
