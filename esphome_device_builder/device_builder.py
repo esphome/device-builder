@@ -12,17 +12,13 @@ import contextlib
 import html
 import logging
 import re
-import ssl
-import tempfile
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .helpers.dashboard_identity import DashboardIdentity
     from .helpers.peer_link_identity import PeerLinkIdentity
 
 from aiohttp import web
@@ -53,7 +49,6 @@ from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
 from .helpers.peer_link_identity import get_or_create_peer_link_identity
-from .helpers.remote_build_auth import BindingMismatch
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
 
@@ -113,49 +108,6 @@ _BASE_HREF_PLACEHOLDER = "__ESPHOME_BASE_HREF__"
 _BASE_HREF_VARY = "X-Ingress-Path, X-Forwarded-Prefix"
 
 
-def _build_remote_build_ssl_context(identity: DashboardIdentity) -> ssl.SSLContext:
-    """
-    Build the ``SSLContext`` used by the remote-build receiver site.
-
-    Python's ``ssl.SSLContext.load_cert_chain`` only accepts
-    filenames, not bytes. Stage the cert + key in tempfiles
-    inside a single ``mkdtemp`` directory so the load is atomic
-    from the API's perspective; the directory is deleted before
-    return so nothing sensitive lingers on disk longer than the
-    handshake setup.
-
-    The brief on-disk window is protected by ``mkdtemp``'s
-    default ``0o700`` mode — the staging directory is private
-    to the dashboard's user. A future refactor that moves the
-    staging out of ``mkdtemp`` to a known-path location (e.g.
-    a sibling of ``config_dir``) MUST keep that mode invariant
-    or the key file leaks to other users on the host.
-
-    Sync; called via ``run_in_executor`` from the start hook so
-    the loop doesn't block on the file I/O + crypto setup.
-    """
-    ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    with tempfile.TemporaryDirectory(prefix="esphome-remote-build-tls-") as tmpdir:
-        cert_path = Path(tmpdir) / "cert.pem"
-        key_path = Path(tmpdir) / "key.pem"
-        cert_path.write_bytes(identity.cert_pem)
-        key_path.write_bytes(identity.key_pem)
-        ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
-    return ctx
-
-
-async def _remote_build_health(_: web.Request) -> web.Response:
-    """
-    Smoke endpoint for ``/remote-build/v1/health``.
-
-    The auth middleware fires before this handler — by the time
-    the handler runs the bearer is already validated. Returns
-    a minimal JSON ack so a paired offloader can prove the
-    receiver is reachable AND that its token is honoured.
-    """
-    return web.json_response({"ok": True})
-
-
 @web.middleware
 async def _strip_server_header_middleware(
     request: web.Request,
@@ -164,11 +116,10 @@ async def _strip_server_header_middleware(
     """
     Override aiohttp's default ``Server: Python/x.y aiohttp/z.w`` banner.
 
-    Defence-in-depth on the LAN-reachable surface: the banner is
-    a free version-fingerprint for any scanner that touches the
-    listener. The remote-build site is bearer-gated, so the
-    leak is bounded, but stripping the header costs nothing and
-    keeps the signal off the wire.
+    Defence-in-depth on the peer-link receiver surface: the banner
+    is a free version-fingerprint for any scanner that touches the
+    listener. Stripping the header costs nothing and keeps the
+    signal off the wire.
 
     aiohttp injects the banner at the connection-write layer
     when the response doesn't carry a ``Server`` header — a
@@ -304,9 +255,10 @@ class DeviceBuilder:
         self._bg_task: asyncio.Task | None = None
 
         self._ingress_runner: web.AppRunner | None = None
-        # HTTPS receiver site for ``/remote-build/v1/*`` (issue #106
-        # phase 3b2). Bound only when ``RemoteBuildSettings.enabled``
-        # is true; ``None`` otherwise.
+        # Peer-link Noise WS receiver site for
+        # ``/remote-build/peer-link`` (issue #106 phase 4a-r1).
+        # Bound only when ``RemoteBuildSettings.enabled`` is true;
+        # ``None`` otherwise.
         self._remote_build_runner: web.AppRunner | None = None
 
     def _install_default_executor(self) -> None:
@@ -397,8 +349,8 @@ class DeviceBuilder:
         # discovered list.
         await self.remote_build.start()
 
-        # Phase 3b2: bind the HTTPS receiver site for
-        # ``/remote-build/v1/*`` if the user has opted in via
+        # Bind the peer-link Noise WS receiver site at
+        # ``/remote-build/peer-link`` if the user has opted in via
         # ``RemoteBuildSettings.enabled``. Default-off so a
         # fresh install never opens an inbound port without a
         # deliberate operator action.
@@ -934,24 +886,6 @@ class DeviceBuilder:
         )
         await self._maybe_start_remote_build_site()
         return self._remote_build_runner is not None
-
-    def _on_remote_build_binding_mismatch(self, mismatch: BindingMismatch) -> None:
-        """
-        Fire a ``REMOTE_BUILD_BINDING_MISMATCH`` event for the receiver UI.
-
-        Called by the auth middleware when an authenticated
-        request's ``X-Dashboard-ID`` doesn't match the token's
-        bound value (or when a first-use bind raced and lost).
-        Subscribers (the Settings UI in 3c) surface the attempt
-        to the operator with the offending token's id, the
-        offloader's claimed identity, and the peer IP, plus the
-        ``race_loss`` flag so the UI can soften the wording when
-        the mismatch came from a concurrent first-use bind
-        (likely an operator pasting the cleartext into two
-        offloaders) rather than a hit on an already-bound token
-        (more suspicious; points at a stolen bearer).
-        """
-        self.bus.fire(EventType.REMOTE_BUILD_BINDING_MISMATCH, asdict(mismatch))
 
     async def _build_and_start_remote_build_runner(
         self,

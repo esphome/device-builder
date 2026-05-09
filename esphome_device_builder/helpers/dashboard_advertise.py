@@ -30,7 +30,7 @@ browse response on its own:
   pairing pins out-of-band. Omitted when the identity helper
   hasn't run yet.
 * ``remote_build_port`` (optional) — the TLS port the receiver's
-  ``/remote-build/v1/*`` listener is bound to. Carried in TXT so
+  peer-link Noise WS listener is bound to. Carried in TXT so
   paired peers connect to the right port even when the operator
   has overridden ``--remote-build-port``. Omitted when the
   receiver site isn't bound (default-off mode).
@@ -257,7 +257,7 @@ class DashboardAdvertiser:
         the dashboard's own remote-build feature is disabled).
 
         ``remote_build_port`` is the TLS port the receiver's
-        ``/remote-build/v1/*`` listener is bound to. Carried in TXT
+        peer-link Noise WS listener is bound to. Carried in TXT
         so paired peers can connect to the right port without
         re-typing it; the SRV record's port stays at the dashboard's
         main HTTP port (``port`` arg) so the existing browse path

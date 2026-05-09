@@ -34,10 +34,13 @@ Pairing model (phase 4a-r1):
   the same ``/remote-build/peer-link`` endpoint without
   re-prompting the receiver-side user.
 
-Bearer-token machinery from the abandoned phase-4a (HTTPS +
-``/remote-build/v1/*`` receiver site) was rewound in #449 and
-the dormant pieces will be torn out in the planned phase 4a-r2
-follow-up; see issue #106.
+The HTTPS+bearer receiver site that shipped in phases 3b1-3c
+(token CRUD, ``StoredToken`` persistence, bearer auth
+middleware, first-use binding) was wound down across phases
+4a-r1 (listener body swap to Noise WS) and 4a-r2 (helper
+deletion); only ``StoredPeer`` + the peer-link Noise dispatch
+ship in production today. See issue #106 for the historical
+trail.
 
 Manual hosts have no version / fingerprint resolution yet;
 they land in ``list_hosts`` with empty ``server_version`` /
@@ -56,7 +59,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import time
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass as _dataclass
@@ -92,8 +94,6 @@ from ..models import (
     RemoteBuildSettings,
     RemoteBuildSettingsView,
     StoredPeer,
-    StoredToken,
-    TokenSummary,
 )
 from .config import load_remote_build_settings, remote_build_settings_transaction
 
@@ -233,180 +233,17 @@ def _validate_hostname(raw: object) -> str:
     return trimmed
 
 
-# Wire format for the bearer the offloader presents is
-# ``{token_id}.{secret}``: a fixed 11-char base64url ``token_id``
-# (the textual form of 8 random bytes — 64 bits, plenty against
-# birthday collisions at the ``_MAX_TOKENS = 100`` cap) plus a
-# 43-char base64url ``secret`` (the textual form of 32 random
-# bytes — 256 bits, infeasible to brute force). Both halves are
-# base64url so the wire form has no shell-quoting hazards.
-# ``_validate_token_id`` enforces the exact 11-char length so
-# the collision math stays load-bearing — without that pin, a
-# client could ship arbitrary-length ids and the backend's
-# bookkeeping would still work but the entropy guarantee
-# wouldn't.
-#
-# **The cleartext bearer is never sent to the backend.** The
-# frontend generates ``token_id`` + ``secret`` client-side
-# (``crypto.getRandomValues`` — the only acceptable source;
-# any fallback to ``Math.random`` or similar is a security
-# regression because the backend has no way to verify the
-# entropy of a hash, only its shape), computes
-# ``SHA-256(secret)`` locally, and POSTs
-# ``{label, token_id, secret_sha256}``. The backend stores only
-# the hash; the cleartext bearer stays on the user's screen
-# long enough to copy into the offloader, then discarded. This
-# closes the leak that would otherwise occur when the dashboard
-# is reachable on plain HTTP (for example a standalone
-# ``--host 0.0.0.0`` deployment without a reverse-proxy TLS
-# terminator).
-
-# Cap label length to keep ``list_tokens`` payloads bounded and
-# prevent a misbehaving frontend from accidentally storing a
-# multi-megabyte string. Generous enough for "Green dashboard
-# (kitchen)" style labels.
-_TOKEN_LABEL_MAX = 128
-
-# ``secrets.token_urlsafe`` emits the base64url alphabet only;
-# any other character means the caller is sending something that
-# isn't a token_id (most likely the full bearer or a typo). Pin
-# the exact length to ``base64url(8 bytes) = 11`` so the
-# collision math stays load-bearing — a client that shipped
-# longer / shorter ids would still work for storage but the
-# 64-bit entropy guarantee wouldn't.
-_TOKEN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-_TOKEN_ID_LEN = 11
-
-# Soft cap on the receiver-side token list so a misbehaving
-# frontend looping ``add_token`` can't grow the metadata file
-# unboundedly. 100 is well above any realistic
-# pairings-per-receiver count and gives the UI a clean upper
-# bound to render.
-_MAX_TOKENS = 100
-
-
-def _validate_label(raw: object) -> str:
-    """
-    Normalise a user-entered token label to a stripped, length-bounded form.
-
-    Rejects non-string, empty / whitespace-only, and too-long
-    inputs with :class:`CommandError(INVALID_ARGS)`. Duplicate
-    labels are NOT rejected: ``token_id`` is the unique key, and
-    a user might legitimately want two tokens both labelled
-    "Green" (different machines or different purposes).
-    """
-    if not isinstance(raw, str):
-        msg = "token: 'label' must be a string"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    trimmed = raw.strip()
-    if not trimmed:
-        msg = "token: 'label' must not be empty"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    if len(trimmed) > _TOKEN_LABEL_MAX:
-        msg = f"token: 'label' must be at most {_TOKEN_LABEL_MAX} characters"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return trimmed
-
-
-def _validate_token_id(raw: object) -> str:
-    """
-    Validate a user-supplied token_id.
-
-    Pins the exact 11-char length so the 64-bit entropy
-    guarantee in the bearer-format docstring stays accurate;
-    the frontend's ``crypto.getRandomValues(new Uint8Array(8))``
-    + base64url encode produces 11 chars, and ``secrets.token_urlsafe(8)``
-    on the test side does the same. A shorter id shrinks the
-    namespace; a longer one isn't generated by any honest
-    client and almost certainly indicates the caller stuffed
-    extra data in.
-
-    Also rejects values containing ``.``: the bearer wire form
-    is ``{token_id}.{secret}``, so a value with a dot is most
-    likely the full bearer mistakenly passed instead of the id
-    half. Rejecting before the value lands in any error message
-    keeps the cleartext secret out of logs / DevTools / frontend
-    telemetry.
-
-    Shape-checks only; the existence check happens in the mutator
-    under the metadata lock so look-up and delete are atomic.
-    """
-    if not isinstance(raw, str):
-        msg = "token: 'token_id' must be a string"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    trimmed = raw.strip()
-    if not trimmed:
-        msg = "token: 'token_id' must not be empty"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    if "." in trimmed:
-        # Specifically don't echo ``trimmed`` back: it might be a
-        # full bearer, in which case the secret half is in this
-        # variable.
-        msg = "token: 'token_id' must be the id half only, not the full bearer"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    if len(trimmed) != _TOKEN_ID_LEN:
-        msg = f"token: 'token_id' must be exactly {_TOKEN_ID_LEN} characters"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    if not _TOKEN_ID_PATTERN.fullmatch(trimmed):
-        msg = "token: 'token_id' must contain base64url characters only"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return trimmed
-
-
-_SECRET_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-
-
-def _validate_secret_sha256(raw: object) -> str:
-    """
-    Validate a client-supplied SHA-256 hash of the bearer secret half.
-
-    Must be exactly 64 lowercase hex chars (the textual form of
-    SHA-256). Catches frontend bugs that send the cleartext
-    secret instead of the hash, send an uppercase / mixed-case
-    digest, or send a different-length string.
-
-    The frontend computes ``sha256(secret)`` client-side so the
-    cleartext bearer never crosses the wire to the backend; the
-    backend persists only this hash. Defending against
-    malformed-input here is a sanity check, not a security
-    boundary — even a valid-shape hash with no matching cleartext
-    is just an unusable token row.
-    """
-    if not isinstance(raw, str):
-        msg = "token: 'secret_sha256' must be a string"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    trimmed = raw.strip()
-    if not _SECRET_SHA256_PATTERN.fullmatch(trimmed):
-        msg = "token: 'secret_sha256' must be 64 lowercase hex characters"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return trimmed
-
-
-def _summarise_token(token: StoredToken) -> TokenSummary:
-    """Project a :class:`StoredToken` to its public-facing :class:`TokenSummary`."""
-    return TokenSummary(
-        token_id=token.token_id,
-        label=token.label,
-        created_at=token.created_at,
-        bound_dashboard_id=token.bound_dashboard_id,
-    )
-
-
 def _to_view(settings: RemoteBuildSettings) -> RemoteBuildSettingsView:
     """
     Project a :class:`RemoteBuildSettings` to its wire :class:`RemoteBuildSettingsView`.
 
-    Drops ``secret_sha256`` from each token row and the raw
-    ``static_x25519_pub`` bytes from each peer row. Every
-    controller method that returns settings to a client routes
-    through here so the stored secrets never leave the server,
-    even when a CRUD response also touches the tokens or peers
-    list.
+    Drops the raw ``static_x25519_pub`` bytes from each peer row
+    so the pubkey only stays server-side. Every controller method
+    that returns settings to a client routes through here.
     """
     return RemoteBuildSettingsView(
         enabled=settings.enabled,
         manual_hosts=list(settings.manual_hosts),
-        tokens=[_summarise_token(t) for t in settings.tokens],
         peers=[_peer_summary(p) for p in settings.peers],
     )
 
@@ -449,11 +286,12 @@ def _validate_dashboard_id(raw: object) -> str:
     """
     Validate a user-supplied ``dashboard_id`` argument.
 
-    Same alphabet and length cap as the phase 3a / 3b3 ``X-Dashboard-ID``
-    header contract; the regex + max-length live in
-    :mod:`helpers.dashboard_identity` so the WS-command path here
-    and the HTTP-header path in :mod:`helpers.remote_build_auth`
-    can't drift apart.
+    Same alphabet and length cap the peer-link Noise dispatcher
+    enforces on the msg3-supplied ``dashboard_id`` (see
+    :func:`controllers.remote_build_peer_link._dispatch_intent`);
+    the regex + max-length live in :mod:`helpers.dashboard_identity`
+    so the WS-command path here and the Noise-frame path can't
+    drift apart.
 
     Rejects non-string / empty / oversized / non-base64url input
     with ``INVALID_ARGS`` rather than silently looking up nothing
@@ -515,12 +353,6 @@ class RemoteBuildController:
         # advertiser was skipped (HA addon mode, zeroconf failed),
         # in which case there's nothing to filter.
         self._own_instance_name: str | None = None
-        # In-memory token index keyed off ``token_id``. Built from
-        # disk at start; refreshed after every CRUD mutation so
-        # the auth middleware's lookup is constant-time and
-        # never has to hit the filesystem on the request hot
-        # path. Empty until ``start`` runs.
-        self._tokens_by_id: dict[str, StoredToken] = {}
         # Set while a ``rotate_identity`` call is in flight.
         # Concurrent rotations would each tear down + rebuild the
         # listener; their teardowns can interleave to leave the
@@ -573,18 +405,6 @@ class RemoteBuildController:
         restart. Same fail-soft contract as
         :class:`DashboardAdvertiser`.
         """
-        # Seed the token index from disk before the zeroconf gate
-        # below: the index is consumed by the HTTPS auth middleware
-        # (phase 3b2), not by the zeroconf browser. Even on a
-        # zeroconf-disabled deployment (HA addon, container with
-        # mDNS broken) the index needs to be live so the listener
-        # can validate bearers.
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
-        )
-        self._tokens_by_id = {t.token_id: t for t in settings.tokens}
-
         if self._db.devices is None:
             _LOGGER.debug("RemoteBuildController.start called before devices controller")
             return
@@ -750,76 +570,15 @@ class RemoteBuildController:
 
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(None, _txn)
-        # Keep the auth middleware's lookup index in sync with the
-        # post-write state. Add / remove / first-use-binding all
-        # route through here, so this is the one place that needs
-        # to refresh.
-        self._tokens_by_id = {t.token_id: t for t in settings.tokens}
         return _to_view(settings)
-
-    def lookup_token(self, token_id: str) -> StoredToken | None:
-        """
-        Return the matching :class:`StoredToken` for ``token_id``, or ``None``.
-
-        Public accessor for the phase-3b2 auth middleware. Reads
-        the in-memory index (constant-time dict hit, no I/O on
-        the request hot path). The index is seeded in
-        :meth:`start` and kept in sync via
-        :meth:`_modify_settings`.
-        """
-        return self._tokens_by_id.get(token_id)
-
-    async def bind_token_first_use(self, token_id: str, dashboard_id: str) -> StoredToken | None:
-        """
-        Atomically bind ``token_id`` to ``dashboard_id`` on first authenticated use.
-
-        Returns the post-write :class:`StoredToken` (with
-        ``bound_dashboard_id`` populated), or ``None`` if the
-        token has been removed in the meantime.
-
-        Idempotent: if the token is already bound, the existing
-        ``bound_dashboard_id`` is preserved and the call is a
-        no-op write. Two concurrent first-use requests with
-        different ``dashboard_id`` values race for the slot; the
-        winner's id sticks, the loser's call returns the
-        winner-bound token. Callers compare the returned
-        ``bound_dashboard_id`` against the value they presented
-        to detect a race-loss → 403 mismatch.
-
-        Phase-3b2's auth middleware is the only caller. The
-        write hops through ``run_in_executor`` because the
-        underlying ``metadata_transaction`` is sync filesystem
-        I/O.
-        """
-
-        def _bind(settings: RemoteBuildSettings) -> StoredToken | None:
-            for token in settings.tokens:
-                if token.token_id != token_id:
-                    continue
-                if token.bound_dashboard_id is None:
-                    token.bound_dashboard_id = dashboard_id
-                return token
-            return None
-
-        captured: list[StoredToken | None] = []
-
-        def _capture(settings: RemoteBuildSettings) -> None:
-            captured.append(_bind(settings))
-
-        # ``_modify_settings`` either runs the mutator exactly
-        # once and returns, or it raises (which propagates).
-        # Either way ``captured`` has length 1 on the success
-        # path; ``[0]`` is safe.
-        await self._modify_settings(_capture)
-        return captured[0]
 
     @api_command("remote_build/set_settings")
     async def set_settings(self, *, enabled: bool, **kwargs: Any) -> RemoteBuildSettingsView:
         """
         Persist the receiver-side ``enabled`` master switch.
 
-        Read-modify-write so manual hosts, tokens, and any future
-        phase-3+ fields stay intact; a client toggling just
+        Read-modify-write so manual hosts, peers, and any future
+        phase-4+ fields stay intact; a client toggling just
         ``enabled`` doesn't reset every other field to its default.
 
         Validates ``enabled`` is strictly a ``bool`` rather than
@@ -828,14 +587,13 @@ class RemoteBuildController:
         the opposite of what the user intended on a security-
         sensitive toggle.
 
-        **Listener bind requires restart.** The HTTPS receiver
-        site (``/remote-build/v1/*``) is bound once in
-        :meth:`DeviceBuilder.start` based on the value at startup;
-        flipping ``enabled`` here persists the new value but does
-        NOT live-rebind. The frontend should surface a "restart
-        required" hint to the operator. A future PR can wire
-        ``set_settings`` into the lifecycle hooks if interactive
-        toggling becomes a real UX concern.
+        **Listener bind requires restart.** The peer-link Noise WS
+        listener is bound once in :meth:`DeviceBuilder.start` based
+        on the value at startup; flipping ``enabled`` here persists
+        the new value but does NOT live-rebind. The frontend should
+        surface a "restart required" hint to the operator. A future
+        PR can wire ``set_settings`` into the lifecycle hooks if
+        interactive toggling becomes a real UX concern.
         """
         if not isinstance(enabled, bool):
             msg = "remote_build/set_settings: 'enabled' must be a boolean"
@@ -912,121 +670,6 @@ class RemoteBuildController:
         return await self._modify_settings(_remove)
 
     # ------------------------------------------------------------------
-    # Token CRUD (phase 3b1)
-    # ------------------------------------------------------------------
-
-    @api_command("remote_build/list_tokens")
-    async def list_tokens(self, **kwargs: Any) -> list[TokenSummary]:
-        """
-        Return every issued bearer token, by ``TokenSummary``.
-
-        ``TokenSummary`` rows never carry the secret hash; the
-        cleartext bearer is generated client-side at
-        ``add_token`` time and never crosses the wire to the
-        backend, so this list intentionally has no path to
-        recover it. The frontend renders the token_id + label +
-        bound dashboard_id (if any) so the operator can audit
-        which peers are paired.
-        """
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
-        )
-        return [_summarise_token(token) for token in settings.tokens]
-
-    @api_command("remote_build/add_token")
-    async def add_token(
-        self, *, label: str, token_id: str, secret_sha256: str, **kwargs: Any
-    ) -> TokenSummary:
-        """
-        Register a client-generated bearer token under *label*.
-
-        The CLIENT generates ``token_id`` + the cleartext secret,
-        computes ``SHA-256(secret)`` locally, and submits
-        ``{label, token_id, secret_sha256}``. The cleartext bearer
-        never crosses the wire to the backend; only the hash is
-        persisted. The frontend keeps the cleartext on screen
-        long enough for the user to copy it into the offloader,
-        then discards it.
-
-        This wire shape closes the leak that would otherwise
-        occur on plain-HTTP standalone deployments: the bearer
-        is never present in any backend log, response, or stored
-        request body. ``list_tokens`` returns
-        :class:`TokenSummary` rows that don't carry the hash;
-        if the user loses the cleartext, the only recovery is
-        to remove the token and register a fresh one.
-
-        Duplicate labels are allowed (``token_id`` is the unique
-        key); a user may legitimately want two tokens both
-        labelled "Green". Duplicate ``token_id`` is rejected
-        with ``ALREADY_EXISTS`` — the client should retry with a
-        freshly-generated id (collision is improbable at 64
-        bits but not impossible at the soft cap).
-        """
-        clean_label = _validate_label(label)
-        clean_token_id = _validate_token_id(token_id)
-        clean_secret_sha256 = _validate_secret_sha256(secret_sha256)
-        created_at = time.time()
-
-        def _add(settings: RemoteBuildSettings) -> None:
-            if len(settings.tokens) >= _MAX_TOKENS:
-                msg = (
-                    f"token list at capacity ({_MAX_TOKENS}); "
-                    "remove an unused token before issuing a new one"
-                )
-                raise CommandError(ErrorCode.INVALID_ARGS, msg)
-            for existing in settings.tokens:
-                if existing.token_id == clean_token_id:
-                    # Don't echo the token_id (already in the
-                    # caller's hand; not a credential, but no
-                    # need to mirror it back through error logs).
-                    msg = "token_id collides with an existing token; retry with a fresh id"
-                    raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
-            settings.tokens.append(
-                StoredToken(
-                    token_id=clean_token_id,
-                    label=clean_label,
-                    secret_sha256=clean_secret_sha256,
-                    created_at=created_at,
-                )
-            )
-
-        await self._modify_settings(_add)
-        return TokenSummary(
-            token_id=clean_token_id,
-            label=clean_label,
-            created_at=created_at,
-        )
-
-    @api_command("remote_build/remove_token")
-    async def remove_token(self, *, token_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
-        """
-        Revoke a previously-issued token.
-
-        Removing a bound token immediately disconnects the
-        offloader it's paired to: the next request the offloader
-        sends presents a token_id the receiver no longer
-        recognises and gets a 401. A non-existent ``token_id``
-        raises ``NOT_FOUND`` so the caller knows the call was a
-        no-op.
-        """
-        clean_id = _validate_token_id(token_id)
-
-        def _remove(settings: RemoteBuildSettings) -> None:
-            kept = [token for token in settings.tokens if token.token_id != clean_id]
-            if len(kept) == len(settings.tokens):
-                # Don't echo ``clean_id`` (or any user-supplied
-                # input) here: validation rejects bearers up
-                # front, but the principle is to keep credential-
-                # adjacent input out of error messages by default.
-                msg = "token is not registered"
-                raise CommandError(ErrorCode.NOT_FOUND, msg)
-            settings.tokens = kept
-
-        return await self._modify_settings(_remove)
-
-    # ------------------------------------------------------------------
     # Identity (phase 3c1) — surface the receiver's own dashboard_id +
     # cert pin to the Settings UI without making it reach into the
     # cert PEM directly. Rotation lives next door so the "rotate"
@@ -1042,7 +685,7 @@ class RemoteBuildController:
         :func:`helpers.dashboard_identity.get_or_create_identity`
         — idempotent, and lazy-creates the cert + key pair if
         missing. ``listener_bound`` reports whether the
-        ``/remote-build/v1/*`` HTTPS site is currently serving
+        peer-link Noise WS listener is currently serving
         traffic. The cert + key PEMs themselves are intentionally
         NOT returned; only the SPKI fingerprint (``pin_sha256``)
         is safe to ship to a frontend, and the fingerprint is

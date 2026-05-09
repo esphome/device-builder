@@ -51,11 +51,11 @@ _DASHBOARD_ID_BYTES = 24
 # chars at the current 24-byte entropy size). The cap of 64
 # defends against runaway inputs without rejecting legitimate
 # values; the pattern catches probes carrying control bytes /
-# non-printables. Both consumers (``helpers/remote_build_auth``
-# for HTTP header parsing today; ``controllers/remote_build``
-# for WS-command argument validation in phase 4a-r1) import
-# these so a future entropy bump or alphabet change happens in
-# one place.
+# non-printables. Both consumers (``controllers/remote_build``
+# for WS-command argument validation, and
+# ``controllers/remote_build_peer_link`` for msg3-supplied
+# values on the Noise WS) import these so a future entropy bump
+# or alphabet change happens in one place.
 DASHBOARD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 DASHBOARD_ID_MAX_CHARS = 64
 
