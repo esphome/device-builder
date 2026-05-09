@@ -52,7 +52,12 @@ pip install esphome-device-builder
 esphome-device-builder ~/esphome-configs
 ```
 
-Pass `--pre` to `pip install` to track the beta channel.
+For the beta channel, pass `--pre` to opt the resolver into
+prereleases — e.g. `pip install --pre esphome-device-builder` for a
+fresh install, or `pip install --upgrade --pre esphome-device-builder`
+to pull the newest beta on top of an existing install. `--pre` only
+opts the *current* command into prereleases; rerun the upgrade
+command to refresh.
 
 The server starts on `http://localhost:6052`. Run with `--help` for
 the full flag set.
