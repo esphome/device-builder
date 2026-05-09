@@ -191,6 +191,17 @@ Pairing is a two-human action: an offloader-side user picks a discovered receive
 
 The cryptographic primitives are `Noise_XX_25519_ChaChaPoly_SHA256` (mutual identity exchange + forward secrecy) over a dedicated peer-link TCP listener (default port 6058, separate from the dashboard UI port). Each dashboard holds a long-lived X25519 keypair as its peer-link identity, persisted at `<config_dir>/.device-builder-peer-link-key.bin` (0o600); `pin_sha256` is the lowercase-hex SHA-256 of the static pubkey.
 
+The numbered phases:
+
+1. **Discovery** — both dashboards advertise on mDNS (`_esphomebuilder._tcp.local`); TXT carries `peer_link_port` + `pin_sha256`.
+2. **Receiver opens pairing window** — admin navigates to the Pairing requests screen; the frontend calls `set_pairing_window` with `open=true`; the backend flips an in-process deadline and fires `pairing_window_changed`. The window closes automatically on screen-unmount or user-idle timeout.
+3. **Preview pair (intent=preview)** — three Noise XX handshake messages. The offloader captures the receiver's static pubkey from the handshake transcript and surfaces `pin_sha256` to the user; no application data crosses the wire.
+4. **OOB pin verification** — human-mediated. The user compares the pin shown on the offloader UI against the receiver UI's Build server card.
+5. **Pair request (intent=pair_request)** — fresh Noise XX with payload `{label, dashboard_id}`. If the pairing window is open, the receiver creates a PENDING `StoredPeer` row, fires `pair_request_received`, and returns `intent_response=pending`. If the window is closed, it returns `intent_response=no_pairing_window` without creating a row.
+6. **Receiver admin approves** — admin OOB-confirms the offloader's pin, clicks Accept; the receiver flips the row to APPROVED and fires `pair_status_changed`.
+7. **Offloader observes approval (5s polling)** — while the offloader's local row is pending, its frontend polls `list_pool`; the offloader backend opens a fresh Noise WS with `intent=pair_status` and writes the response back into the local row.
+8. **Subsequent real-build sessions** — `intent=peer_link`. **Not gated by the pairing window**; paired peers connect anytime. The receiver looks up the offloader's static-pubkey-hash against its `StoredPeer` table; an APPROVED match returns `intent_response=ok` and the session stays open for application messages.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -200,57 +211,42 @@ sequenceDiagram
     participant RF as Receiver frontend
     participant RU as Receiver admin
 
-    Note over OF,RU: 1. Discovery (mDNS, advertised by both)
-    Note right of OB: _esphomebuilder._tcp.local TXT carries peer_link_port + pin_sha256
+    RU->>RF: open Pairing requests screen
+    RF->>RB: set_pairing_window open=true
+    RB-->>RF: pairing_window_changed expires_in=300
 
-    Note over OF,RU: 2. Receiver opens pairing window
-    RU->>RF: navigate to Pairing requests screen
-    RF->>RB: set_pairing_window({open true})
-    RB-->>RF: pairing_window_changed (open true, expires_in 300s)
-    Note right of RB: window is in-process; closes on screen-unmount or user-idle timeout
+    OF->>OB: preview_pair
+    OB->>RB: Noise XX msg1 intent=preview
+    RB->>OB: Noise XX msg2 responder pubkey
+    OB->>RB: Noise XX msg3 finish
+    OB-->>OF: pin_sha256
 
-    Note over OF,RU: 3. Preview pair (Noise XX, intent=preview)
-    OF->>OB: preview_pair({hostname, port})
-    OB->>RB: Noise XX msg1 (intent=preview)
-    RB->>OB: Noise XX msg2 (carries responder static pubkey)
-    OB->>RB: Noise XX msg3 (handshake complete; WS closes)
-    OB-->>OF: {pin_sha256}
-    Note right of OB: pubkey captured from handshake transcript; no application data
+    Note over OF,RF: OOB pin verification
 
-    Note over OF,RU: 4. OOB pin verification (human-mediated)
-    Note over OF,RF: User compares pin on offloader UI against receiver UI's Build server card
-
-    Note over OF,RU: 5. Pair request (Noise XX, intent=pair_request)
-    OF->>OB: request_pair({pin_sha256, label, ...})
-    OB->>RB: fresh Noise XX (intent=pair_request, payload {label, dashboard_id})
+    OF->>OB: request_pair
+    OB->>RB: Noise XX intent=pair_request
     alt pairing window open
-        RB->>RB: create StoredPeer (status=PENDING)
+        RB->>RB: create StoredPeer PENDING
         RB-->>RF: pair_request_received
         RB-->>OB: intent_response=pending
-        OB-->>OF: persisted StoredPairing (status=pending)
     else window closed
         RB-->>OB: intent_response=no_pairing_window
-        OB-->>OF: error; ask receiver admin to open the screen
     end
 
-    Note over OF,RU: 6. Receiver admin approves
-    RU->>RF: OOB-confirm offloader's pin, click Accept
-    RF->>RB: approve_peer({dashboard_id})
-    RB->>RB: status PENDING -> APPROVED
-    RB-->>RF: pair_status_changed (approved)
+    RU->>RF: OOB-confirm pin, click Accept
+    RF->>RB: approve_peer
+    RB->>RB: PENDING to APPROVED
+    RB-->>RF: pair_status_changed approved
 
-    Note over OF,RU: 7. Offloader observes approval (5s polling)
-    loop while local row pending
+    loop while pending
         OF->>OB: list_pool
-        OB->>RB: Noise XX (intent=pair_status)
+        OB->>RB: Noise XX intent=pair_status
         RB-->>OB: status
     end
-    OB-->>OF: row updated to paired
+    OB-->>OF: paired
 
-    Note over OF,RU: 8. Subsequent real-build sessions (NOT gated by pairing window)
-    OB->>RB: Noise XX (intent=peer_link)
-    RB->>RB: lookup pubkey hash -> APPROVED StoredPeer
-    RB-->>OB: intent_response=ok; session continues
+    OB->>RB: Noise XX intent=peer_link
+    RB-->>OB: intent_response=ok
 ```
 
 **Why two Noise handshakes for one pairing.** The preview handshake (step 3) captures the receiver's static pubkey for OOB display *before* the offloader has decided to trust this receiver; the WS closes immediately, no application data crosses the wire. The pair-request handshake (step 5) is a fresh handshake that re-binds the OOB-confirmed pin (defends against TOCTOU between preview and confirm: if the pubkey-hash on the second handshake doesn't match `pin_sha256` from preview, the offloader aborts). Re-handshakes are cheap because Noise's setup cost is negligible at this cadence (pair flows are rare, not a hot path).
