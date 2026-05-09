@@ -65,7 +65,6 @@ from esphome_device_builder.helpers.peer_link_noise import (
 from esphome_device_builder.models import (
     IntentResponse,
     PeerLinkIntent,
-    PeerStatus,
     StoredPeer,
 )
 
@@ -191,7 +190,6 @@ async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
             static_x25519_pub=pubkey,
             label="alpha",
             paired_at=1.0,
-            status=PeerStatus.APPROVED,
         ),
     )
 
@@ -285,33 +283,27 @@ async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_pair_status_pending_closed_window_returns_no_pairing_window(
+async def test_dispatch_pair_status_unknown_after_window_close_returns_rejected(
     tmp_path: Path,
 ) -> None:
-    """A PENDING peer hitting pair_status while window is closed → NO_PAIRING_WINDOW.
+    """A pair_status from a peer that no longer has a row gets REJECTED.
 
-    Pending peers can only long-poll while the receiver-side admin
-    is on the Pairing requests screen (the bus event channel that
-    drives the long-poll only carries flips while admin is engaged).
-    With window closed, snapshot=PENDING returns NO_PAIRING_WINDOW
-    immediately so the offloader's listener exits cleanly rather
-    than holding an open Noise session for nothing.
+    Concrete scenario: offloader sent a pair_request during an
+    open window, receiver added a PENDING entry to its in-memory
+    dict, admin closed the window before clicking Accept.
+    Window-close clears the dict. The offloader's stale pair_status
+    listener reconnects; with the dict cleared and the peer never
+    promoted to ``settings.peers``, the lookup returns REJECTED.
+    The offloader's listener treats REJECTED as peer-revoked +
+    drops its local pending state — clean exit, user re-pairs
+    when admin reopens the window.
     """
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
     pubkey = b"\xcc" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
-    await _seed_peer(
-        tmp_path,
-        StoredPeer(
-            dashboard_id="alpha",
-            pin_sha256=pin,
-            static_x25519_pub=pubkey,
-            label="alpha",
-            paired_at=1.0,
-            status=PeerStatus.PENDING,
-        ),
-    )
+    # No seed — the dict is empty (admin closed the window) and
+    # settings.peers has no row (admin never approved).
 
     response = await _dispatch_intent(
         controller,
@@ -325,7 +317,7 @@ async def test_dispatch_pair_status_pending_closed_window_returns_no_pairing_win
         ),
     )
 
-    assert response is IntentResponse.NO_PAIRING_WINDOW
+    assert response is IntentResponse.REJECTED
 
 
 # ---------------------------------------------------------------------------
@@ -840,20 +832,19 @@ async def test_e2e_pair_request_open_window_creates_row(
         == IntentResponse.PENDING
     )
 
+    # PENDING entries land in the in-memory dict, not on disk.
     loop = asyncio.get_running_loop()
     settings = await loop.run_in_executor(
         None, load_remote_build_settings, controller._db.settings.config_dir
     )
-    [peer] = settings.peers
-    assert peer.dashboard_id == "alpha"
-    assert peer.label == "alpha"
-    assert peer.status == PeerStatus.PENDING
+    assert settings.peers == []
+    pending = controller._pending_peers["alpha"]
+    assert pending.label == "alpha"
     # The receiver's controller derived the pin from the
     # handshake transcript's authenticated initiator static
-    # pubkey, not from anything in msg3. Pin the round-trip:
-    # what we presented is what landed on disk.
-    assert peer.static_x25519_pub == round_trip.initiator_static_pub
-    assert peer.pin_sha256 == pin_sha256_for_pubkey(round_trip.initiator_static_pub)
+    # pubkey, not from anything in msg3.
+    assert pending.static_x25519_pub == round_trip.initiator_static_pub
+    assert pending.pin_sha256 == pin_sha256_for_pubkey(round_trip.initiator_static_pub)
 
 
 @pytest.mark.asyncio
@@ -905,7 +896,6 @@ async def test_e2e_peer_link_approved_returns_ok(
             static_x25519_pub=initiator_pub,
             label="alpha",
             paired_at=1.0,
-            status=PeerStatus.APPROVED,
         ),
     )
 

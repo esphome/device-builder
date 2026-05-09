@@ -61,7 +61,6 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Hashable
-from contextlib import suppress
 from dataclasses import dataclass as _dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -367,44 +366,34 @@ def _validate_hostname(
     return trimmed
 
 
-def _to_view(settings: RemoteBuildSettings) -> RemoteBuildSettingsView:
-    """
-    Project a :class:`RemoteBuildSettings` to its wire :class:`RemoteBuildSettingsView`.
-
-    Drops the raw ``static_x25519_pub`` bytes from each peer row
-    so the pubkey only stays server-side. Every controller method
-    that returns settings to a client routes through here.
-    """
-    return RemoteBuildSettingsView(
-        enabled=settings.enabled,
-        manual_hosts=list(settings.manual_hosts),
-        peers=[_peer_summary(p) for p in settings.peers],
-    )
-
-
-def _peer_summary(peer: StoredPeer) -> PeerSummary:
+def _peer_summary(peer: StoredPeer, *, status: PeerStatus) -> PeerSummary:
     """Project a :class:`StoredPeer` to wire :class:`PeerSummary`.
 
     Drops the raw ``static_x25519_pub`` bytes; ``pin_sha256`` is
     the wire-friendly form UIs render for OOB-verification, and
     the pubkey is only needed server-side to look up the peer
-    against an incoming Noise handshake.
+    against an incoming Noise handshake. ``status`` is supplied
+    by the caller because :class:`StoredPeer` itself doesn't
+    carry one — pending peers live in the controller's in-memory
+    dict and persisted peers are implicitly approved.
     """
     return PeerSummary(
         dashboard_id=peer.dashboard_id,
         pin_sha256=peer.pin_sha256,
         label=peer.label,
         paired_at=peer.paired_at,
-        status=peer.status,
+        status=status,
     )
 
 
-def _pairing_summary(pairing: StoredPairing) -> PairingSummary:
+def _pairing_summary(pairing: StoredPairing, *, status: PeerStatus) -> PairingSummary:
     """Project a :class:`StoredPairing` to wire :class:`PairingSummary`.
 
-    Mirror of :func:`_peer_summary` for the offloader side.
-    Drops the raw ``static_x25519_pub`` bytes; the rest is
-    safe to send to the frontend.
+    Mirror of :func:`_peer_summary` for the offloader side. Drops
+    the raw ``static_x25519_pub`` bytes; ``status`` comes from
+    the caller because :class:`StoredPairing` itself doesn't
+    carry one (pending pairings live in the offloader controller's
+    in-memory dict; persisted pairings are implicitly approved).
     """
     return PairingSummary(
         receiver_hostname=pairing.receiver_hostname,
@@ -412,7 +401,7 @@ def _pairing_summary(pairing: StoredPairing) -> PairingSummary:
         pin_sha256=pairing.pin_sha256,
         label=pairing.label,
         paired_at=pairing.paired_at,
-        status=pairing.status,
+        status=status,
     )
 
 
@@ -765,6 +754,25 @@ class RemoteBuildController:
         # Keyed on ``(receiver_hostname, receiver_port)`` to match
         # :func:`_remove_pairing_by_address`.
         self._pair_status_listeners: dict[tuple[str, int], asyncio.Task[None]] = {}
+        # PENDING StoredPeer rows live here, keyed on dashboard_id.
+        # Never persisted — the receiver's settings file
+        # (.device-builder.json) only stores APPROVED peers.
+        # Bounded lifetime: rows land via ``record_pair_request``
+        # while the pairing window is open, and the dict is
+        # cleared on window auto-close so a malicious LAN scanner
+        # can't fill the receiver's persistent state with junk
+        # pair-requests. Cleared rows fire
+        # OFFLOADER_PAIR_STATUS_CHANGED("removed") so any
+        # offloader currently long-polling pair_status sees the
+        # cancellation. On controller restart this dict is empty
+        # — any in-flight pair attempts have to be re-initiated
+        # by the offloader.
+        self._pending_peers: dict[str, StoredPeer] = {}
+        # Same pattern, offloader side. PENDING StoredPairing
+        # rows keyed on (receiver_hostname, receiver_port). The
+        # offloader's settings file's ``pairings`` list is
+        # APPROVED-only.
+        self._pending_pairings: dict[tuple[str, int], StoredPairing] = {}
 
     async def start(self) -> None:
         """
@@ -824,6 +832,8 @@ class RemoteBuildController:
             self._pairing_window_handle.cancel()
             self._pairing_window_handle = None
         self._pairing_window_clients.clear()
+        self._pending_peers.clear()
+        self._pending_pairings.clear()
         self._peers.clear()
 
     # ------------------------------------------------------------------
@@ -910,7 +920,26 @@ class RemoteBuildController:
         settings = await loop.run_in_executor(
             None, load_remote_build_settings, self._db.settings.config_dir
         )
-        return _to_view(settings)
+        return self._to_view(settings)
+
+    def _to_view(self, settings: RemoteBuildSettings) -> RemoteBuildSettingsView:
+        """Project receiver settings to wire view, merging in-memory PENDING peers.
+
+        The persisted ``settings.peers`` list is APPROVED-only —
+        PENDING entries live in ``self._pending_peers`` for the
+        active pairing window's lifetime and never hit disk. The
+        wire view splices them together so the frontend's "Pairing
+        requests inbox + paired peers" UI sees one merged list
+        with the right ``status`` discriminator on each row.
+        """
+        return RemoteBuildSettingsView(
+            enabled=settings.enabled,
+            manual_hosts=list(settings.manual_hosts),
+            peers=[
+                _peer_summary(p, status=PeerStatus.PENDING) for p in self._pending_peers.values()
+            ]
+            + [_peer_summary(p, status=PeerStatus.APPROVED) for p in settings.peers],
+        )
 
     async def _modify_settings(
         self, mutator: Callable[[RemoteBuildSettings], None]
@@ -941,7 +970,7 @@ class RemoteBuildController:
 
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(None, _txn)
-        return _to_view(settings)
+        return self._to_view(settings)
 
     @api_command("remote_build/set_settings")
     async def set_settings(self, *, enabled: bool, **kwargs: Any) -> RemoteBuildSettingsView:
@@ -1212,11 +1241,9 @@ class RemoteBuildController:
         # receiver previously and the receiver-side row is still
         # APPROVED — the receiver short-circuits the inbox dance.
         # ``paired_at`` reflects this re-pair attempt (last-touch
-        # semantic), not the original first-pair time. ``_upsert_pairing``
-        # below replaces the row wholesale, so any earlier ``paired_at``
-        # is overwritten. That's right for the inbox-sort use case
-        # (most recent on top) but a future "first paired on" UI would
-        # need a separate ``first_paired_at`` field.
+        # semantic); ``_upsert_pairing`` replaces any prior row
+        # wholesale, so a stale ``paired_at`` from an earlier
+        # session is overwritten.
         pairing = StoredPairing(
             receiver_hostname=clean_host,
             receiver_port=clean_port,
@@ -1224,23 +1251,33 @@ class RemoteBuildController:
             static_x25519_pub=result.remote_static_pub,
             label=clean_receiver_label,
             paired_at=time.time(),
-            status=(
-                PeerStatus.APPROVED
-                if result.status is IntentResponse.APPROVED
-                else PeerStatus.PENDING
-            ),
         )
+        key = (clean_host, clean_port)
+        if result.status is IntentResponse.APPROVED:
+            # Persisted: durable trust anchor that survives restart.
+            # Drop any in-memory PENDING entry for the same address
+            # (re-pair from PENDING straight to APPROVED) so the
+            # frontend's wire view doesn't double-count.
+            self._pending_pairings.pop(key, None)
 
-        def _persist() -> None:
-            with offloader_remote_build_settings_transaction(
-                self._db.settings.config_dir
-            ) as settings:
-                _upsert_pairing(settings, pairing)
+            def _persist() -> None:
+                with offloader_remote_build_settings_transaction(
+                    self._db.settings.config_dir
+                ) as settings:
+                    _upsert_pairing(settings, pairing)
 
-        await loop.run_in_executor(None, _persist)
-        if pairing.status is PeerStatus.PENDING:
-            self._spawn_pair_status_listener(pairing)
-        return _pairing_summary(pairing)
+            await loop.run_in_executor(None, _persist)
+            return _pairing_summary(pairing, status=PeerStatus.APPROVED)
+
+        # PENDING: in-memory only, bounded by the receiver-side
+        # pairing window. Disk only carries APPROVED rows so a
+        # malicious LAN scanner can't fill the offloader's
+        # settings file with junk pair-attempts. The listener task
+        # observes the eventual flip (admin Accept) and
+        # promotes-to-disk via ``_promote_pairing_sync``.
+        self._pending_pairings[key] = pairing
+        self._spawn_pair_status_listener(pairing)
+        return _pairing_summary(pairing, status=PeerStatus.PENDING)
 
     @api_command("remote_build/unpair")
     async def unpair(
@@ -1274,30 +1311,33 @@ class RemoteBuildController:
         """
         clean_host = _validate_hostname(hostname, context=_HostFieldContext.RECEIVER)
         clean_port = _validate_port(port, context=_HostFieldContext.RECEIVER)
+        key = (clean_host, clean_port)
         loop = asyncio.get_running_loop()
 
+        # PENDING entry (in-memory): pop + cancel its listener.
+        pending_dropped = self._pending_pairings.pop(key, None) is not None
+
+        # APPROVED entry (persisted): drop from disk if present.
         def _persist() -> bool:
             with offloader_remote_build_settings_transaction(
                 self._db.settings.config_dir
             ) as settings:
                 return _remove_pairing_by_address(settings, hostname=clean_host, port=clean_port)
 
-        removed = await loop.run_in_executor(None, _persist)
+        persisted_dropped = await loop.run_in_executor(None, _persist)
         self._cancel_pair_status_listener(clean_host, clean_port)
-        return {"removed": removed}
+        return {"removed": pending_dropped or persisted_dropped}
 
     @api_command("remote_build/list_pool")
     async def list_pool(self, **kwargs: Any) -> list[PairingSummary]:
-        """Return a snapshot of the offloader's persisted pairings.
+        """Return a snapshot of the offloader's pairings (in-memory + persisted).
 
-        Pure read, no wire calls to receivers; the frontend uses this
-        as the initial render of the Send-builds peer list and then
-        subscribes to ``OFFLOADER_PAIR_STATUS_CHANGED`` events via
-        :meth:`subscribe_pool` for live updates. Splitting the
-        snapshot from the live channel keeps the "first paint" cheap
-        — a closed pairing window on every receiver would otherwise
-        force the user's Settings load to wait on every Noise
-        handshake before any row painted.
+        Pure read, no wire calls to receivers. Merges in-memory
+        PENDING entries with persisted APPROVED rows from the
+        offloader settings file. Frontend uses this for the
+        initial render of the Send-builds peer list, then
+        subscribes to ``OFFLOADER_PAIR_STATUS_CHANGED`` events
+        via :meth:`subscribe_pool` for live updates.
         """
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
@@ -1305,7 +1345,9 @@ class RemoteBuildController:
             load_offloader_remote_build_settings,
             self._db.settings.config_dir,
         )
-        return [_pairing_summary(p) for p in settings.pairings]
+        return [
+            _pairing_summary(p, status=PeerStatus.PENDING) for p in self._pending_pairings.values()
+        ] + [_pairing_summary(p, status=PeerStatus.APPROVED) for p in settings.pairings]
 
     @api_command("remote_build/subscribe_pool")
     async def subscribe_pool(
@@ -1314,20 +1356,14 @@ class RemoteBuildController:
         """Subscribe to live ``OFFLOADER_PAIR_STATUS_CHANGED`` events.
 
         Thin :func:`stream_events` drain — parks until the WS
-        closes (cancelling this task), unsubscribing on cleanup.
-        The actual long-poll Noise WSs that surface flips are
-        owned by the controller's per-row listener tasks
-        (``_pair_status_listeners``), spawned at row-creation time
-        in :meth:`request_pair` and cancelled in :meth:`unpair`;
-        they fire ``OFFLOADER_PAIR_STATUS_CHANGED`` on the bus
-        regardless of whether anyone is currently subscribed,
-        so this command stays a pure consumer.
+        closes, then unsubscribes. The pair-status listener tasks
+        that fire the event are spawned at row creation in
+        :meth:`request_pair` and cancelled in :meth:`unpair`;
+        they fire on the bus whether or not anyone is currently
+        subscribed, so this command stays a pure consumer.
 
         Frontend pattern: call :meth:`list_pool` for the initial
-        paint (snapshot read, no wire calls), then ``subscribe_pool``
-        for live updates. Splits "first paint" cost from "live
-        updates" so a slow / unreachable receiver doesn't block
-        the user's Settings load.
+        paint, then ``subscribe_pool`` for live updates.
         """
         if client is None:
             return
@@ -1342,15 +1378,6 @@ class RemoteBuildController:
         def _handle_event(event: Event[Any], controls: StreamControls) -> None:
             controls.push_or_terminate(event.event_type.value, dict(event.data))
 
-        # Subscribe is a "user is here, want updates now" signal —
-        # respawn pair-status listeners for any PENDING row that
-        # doesn't currently have one. Listeners exit cleanly on
-        # NO_PAIRING_WINDOW (receiver admin walked away), and only
-        # this path brings them back. Without it a row would land
-        # in a "pending forever, no listener" state until the user
-        # clicks unpair / re-pair.
-        await self._respawn_dormant_pair_status_listeners()
-
         await stream_events(
             client=client,
             message_id=message_id,
@@ -1359,53 +1386,6 @@ class RemoteBuildController:
             handle_event=_handle_event,
             send_initial=_send_initial,
         )
-
-    async def _respawn_dormant_pair_status_listeners(self) -> None:
-        """Spawn a listener for every PENDING row that doesn't have one.
-
-        Reads the offloader settings and walks the pairings,
-        spawning :meth:`_spawn_pair_status_listener` for any
-        PENDING row whose listener has exited or was never
-        spawned. Idempotent — already-running listeners are
-        left alone (the spawn helper short-circuits on
-        existing+not-done).
-
-        In steady state this is a no-op; every PENDING row
-        already has a listener spawned at row-creation time
-        in :meth:`request_pair`. It does meaningful work in
-        two concrete situations:
-
-        1. **Cold start with persisted PENDING rows.** The
-           controller just came up, the offloader settings file
-           on disk has PENDING rows from a previous session, no
-           listeners are running yet. ``start()`` deliberately
-           does NOT pre-spawn at controller-up — that would hold
-           open Noise WSes whether or not anyone is looking at
-           Send-builds, defeating the user-action-driven design.
-           The first ``subscribe_pool`` call brings them online.
-        2. **After a NO_PAIRING_WINDOW exit.** Receiver-side
-           admin walked away from the Pairing requests screen
-           mid-pair, the listener exited cleanly via
-           :meth:`_apply_pair_status_result`, the row stayed
-           PENDING. The next ``subscribe_pool`` (user re-opens
-           Send-builds) respawns the listener for another
-           attempt; if admin is back on the screen by then, the
-           long-poll connects and works.
-
-        Receiver-key rotation is *not* one of the cases — that
-        path drops the row entirely (REJECTED via the receiver-
-        side pin check), so there's no PENDING row left to
-        respawn.
-        """
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None,
-            load_offloader_remote_build_settings,
-            self._db.settings.config_dir,
-        )
-        for pairing in settings.pairings:
-            if pairing.status is PeerStatus.PENDING:
-                self._spawn_pair_status_listener(pairing)
 
     # ------------------------------------------------------------------
     # Pair-status listeners (phase 4a-o part 4) — one task per PENDING
@@ -1488,26 +1468,34 @@ class RemoteBuildController:
     ) -> bool:
         """Apply a poll result. Return True when the listener should exit.
 
-        * APPROVED + matching pin → flip row APPROVED, fire
-          ``status="approved"``, exit.
-        * APPROVED + drifted pin → drop row, fire ``status="removed"``,
-          exit. Receiver-side identity rotated since pair time;
-          treat as peer-revoked rather than silently substituting
-          the new pubkey under the user's existing trust.
-        * REJECTED → drop row, fire ``status="removed"``, exit.
-          Admin clicked Reject (the row never existed, the
-          offloader's identity rotated, etc.).
-        * NO_PAIRING_WINDOW → exit cleanly without mutating local
-          state. Receiver-side admin walked away from the Pairing
-          requests screen; nothing to wait on. The next
-          :meth:`subscribe_pool` entry (user opens Send-builds
-          screen) re-spawns the listener; if admin re-engages
-          and the row is still PENDING we'll pick it up then.
-        * PENDING / OK shouldn't appear here — receiver returns
-          one of the above on ``intent="pair_status"``. Log + reconnect.
+        Listener only ever runs for entries in the in-memory
+        ``_pending_pairings`` dict, so the result branches all
+        end the same way: pop from dict, fire the appropriate
+        event, exit. APPROVED + matching pin additionally
+        promotes the row to disk.
+
+        * APPROVED + matching pin → pop dict, persist as APPROVED,
+          fire ``status="approved"``.
+        * APPROVED + drifted pin → pop dict (no persist), fire
+          ``status="removed"``. Receiver-side identity rotated
+          since pair time; treat as peer-revoked rather than
+          silently substituting the new pubkey under the user's
+          existing trust.
+        * REJECTED → pop dict, fire ``status="removed"``.
+          Receiver returned this when admin clicked Reject, the
+          window closed (clearing the receiver-side pending
+          dict), the offloader's identity rotated, or the row
+          never existed on the receiver. From the offloader's
+          POV all four cases collapse to "drop the local row,
+          user can re-pair if they want."
+        * PENDING / OK / NO_PAIRING_WINDOW shouldn't appear here
+          — the long-poll only returns APPROVED or REJECTED.
+          Log + reconnect on the off-chance a future receiver
+          bug emits something unexpected.
         """
         host = pairing.receiver_hostname
         port = pairing.receiver_port
+        key = (host, port)
         loop = asyncio.get_running_loop()
         if result.status is IntentResponse.APPROVED:
             if result.pin_sha256 != pairing.pin_sha256:
@@ -1518,21 +1506,19 @@ class RemoteBuildController:
                     pairing.pin_sha256,
                     result.pin_sha256,
                 )
-                await loop.run_in_executor(None, self._drop_pairing_sync, host, port)
+                self._pending_pairings.pop(key, None)
                 self._fire_offloader_pair_status_changed(host, port, "removed")
                 return True
-            await loop.run_in_executor(None, self._promote_pairing_sync, host, port)
+            # Promote pending → persistent. Pop the in-memory entry
+            # first so the listener's ``finally`` cleanup doesn't
+            # race with the transaction's append.
+            promoted = self._pending_pairings.pop(key, pairing)
+            await loop.run_in_executor(None, self._persist_approved_pairing, promoted)
             self._fire_offloader_pair_status_changed(host, port, "approved")
             return True
         if result.status is IntentResponse.REJECTED:
-            await loop.run_in_executor(None, self._drop_pairing_sync, host, port)
+            self._pending_pairings.pop(key, None)
             self._fire_offloader_pair_status_changed(host, port, "removed")
-            return True
-        if result.status is IntentResponse.NO_PAIRING_WINDOW:
-            # Window-closed exit: leave the row where it is. The
-            # next subscribe_pool call respawns the listener; if
-            # the user closes the dashboard for the day the row
-            # naturally goes idle until they come back to it.
             return True
         _LOGGER.warning(
             "pair-status returned unexpected status %r for %s:%s",
@@ -1542,18 +1528,15 @@ class RemoteBuildController:
         )
         return False
 
-    def _promote_pairing_sync(self, hostname: str, port: int) -> None:
-        """Flip the row at ``(host, port)`` to APPROVED. Sync; idempotent."""
-        with offloader_remote_build_settings_transaction(self._db.settings.config_dir) as settings:
-            for pairing in settings.pairings:
-                if pairing.receiver_hostname == hostname and pairing.receiver_port == port:
-                    pairing.status = PeerStatus.APPROVED
-                    return
+    def _persist_approved_pairing(self, pairing: StoredPairing) -> None:
+        """Write *pairing* to disk as an APPROVED row. Sync; for executor hop.
 
-    def _drop_pairing_sync(self, hostname: str, port: int) -> None:
-        """Drop the row at ``(host, port)``. Sync; idempotent."""
+        Uses :func:`_upsert_pairing` to replace any prior entry at
+        the same ``(host, port)`` (covers re-pair against existing
+        trust without duplicating).
+        """
         with offloader_remote_build_settings_transaction(self._db.settings.config_dir) as settings:
-            _remove_pairing_by_address(settings, hostname=hostname, port=port)
+            _upsert_pairing(settings, pairing)
 
     def _fire_offloader_pair_status_changed(
         self,
@@ -1683,45 +1666,58 @@ class RemoteBuildController:
     @api_command("remote_build/list_peers")
     async def list_peers(self, **kwargs: Any) -> list[PeerSummary]:
         """
-        Return every ``StoredPeer`` row, projected to wire shape.
+        Return every peer row, projected to wire shape.
 
-        Includes both PENDING (waiting for admin Accept) and APPROVED
-        (paired) rows; the wire view drops the raw ``static_x25519_pub``
-        bytes and exposes only ``pin_sha256``. The frontend filters by
-        ``status`` to render the inbox vs the paired list.
+        Merges in-memory PENDING entries (the live pairing-window
+        inbox) with persisted APPROVED entries from
+        ``settings.peers``. The frontend filters by ``status`` to
+        render the inbox vs the paired list.
         """
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
             None, load_remote_build_settings, self._db.settings.config_dir
         )
-        return [_peer_summary(peer) for peer in settings.peers]
+        return [
+            _peer_summary(peer, status=PeerStatus.PENDING) for peer in self._pending_peers.values()
+        ] + [_peer_summary(peer, status=PeerStatus.APPROVED) for peer in settings.peers]
 
     @api_command("remote_build/approve_peer")
     async def approve_peer(self, *, dashboard_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
         """
         Promote a PENDING peer to APPROVED.
 
-        Fires :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` with
-        ``{dashboard_id, status: "approved"}``. The offloader observes
-        the flip via its own polling loop (phase 4a-o ``list_pool``).
-        ``NOT_FOUND`` if no peer with this ``dashboard_id`` exists;
-        ``INVALID_ARGS`` if the peer is already APPROVED (a duplicate
-        Accept click is almost always a UI race and the receiver
-        should not silently re-fire the event).
+        Pops the in-memory PENDING entry, appends it to the
+        persistent ``settings.peers`` list, fires
+        :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` with
+        ``{dashboard_id, status: "approved"}``. The offloader's
+        pair-status listener observes the flip via the bus event +
+        re-snapshot path. ``NOT_FOUND`` if no PENDING entry
+        matches; ``INVALID_ARGS`` if the dashboard_id already
+        corresponds to an APPROVED row (duplicate Accept click,
+        almost always a UI race; refuse rather than silently
+        re-fire the event).
         """
         clean_id = _validate_dashboard_id(dashboard_id)
 
-        def _approve(settings: RemoteBuildSettings) -> None:
-            peer = _find_peer_by_dashboard_id(settings, clean_id)
-            if peer is None:
-                msg = f"no peer with dashboard_id: {clean_id}"
-                raise CommandError(ErrorCode.NOT_FOUND, msg)
-            if peer.status == PeerStatus.APPROVED:
+        pending = self._pending_peers.pop(clean_id, None)
+        if pending is None:
+            # Differentiate "already approved" from "never existed"
+            # so the frontend can decide whether to refresh or
+            # surface an error.
+            loop = asyncio.get_running_loop()
+            settings = await loop.run_in_executor(
+                None, load_remote_build_settings, self._db.settings.config_dir
+            )
+            if _find_peer_by_dashboard_id(settings, clean_id) is not None:
                 msg = f"peer is already approved: {clean_id}"
                 raise CommandError(ErrorCode.INVALID_ARGS, msg)
-            peer.status = PeerStatus.APPROVED
+            msg = f"no pending peer with dashboard_id: {clean_id}"
+            raise CommandError(ErrorCode.NOT_FOUND, msg)
 
-        view = await self._modify_settings(_approve)
+        def _persist(settings: RemoteBuildSettings) -> None:
+            settings.peers.append(pending)
+
+        view = await self._modify_settings(_persist)
         self._fire_pair_status_changed(clean_id, "approved")
         return view
 
@@ -1732,36 +1728,45 @@ class RemoteBuildController:
 
         Two semantically distinct outcomes share the same WS command:
 
-        * Removing a PENDING row is *rejection* — the row never
-          represented an established trust relationship, so this is
-          inbox cleanup. No event fires.
-        * Removing an APPROVED row is *revocation* — fires
-          :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` with
-          ``{dashboard_id, status: "removed"}`` so the offloader's
-          polling loop sees the revocation and can surface a
-          ``peer_revoked`` UI alert (phase 4b-3).
+        * Removing a PENDING entry from the in-memory dict is
+          *rejection* — the row never represented established
+          trust, so this is inbox cleanup. Fires the
+          ``status="removed"`` event so any offloader currently
+          long-polling pair_status sees the cancellation and
+          drops its local state.
+        * Removing an APPROVED row from the persisted list is
+          *revocation* — fires the same
+          :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED`
+          ``status="removed"`` event so the offloader can
+          surface a ``peer_revoked`` UI alert (phase 4b-3).
 
-        ``NOT_FOUND`` if no peer with this ``dashboard_id`` exists.
+        ``NOT_FOUND`` if neither dict nor list has a row.
         """
         clean_id = _validate_dashboard_id(dashboard_id)
-        # ``_modify_settings`` returns the view but doesn't tell us
-        # what the peer's status was *before* the remove; capture
-        # that in the mutator so the event-fire decision below has
-        # the right answer.
-        previous_status: PeerStatus | None = None
+
+        # PENDING: in-memory, no transaction.
+        if self._pending_peers.pop(clean_id, None) is not None:
+            self._fire_pair_status_changed(clean_id, "removed")
+            loop = asyncio.get_running_loop()
+            settings = await loop.run_in_executor(
+                None, load_remote_build_settings, self._db.settings.config_dir
+            )
+            return self._to_view(settings)
+
+        # APPROVED: drop from persisted list.
+        found_in_persistent = False
 
         def _remove(settings: RemoteBuildSettings) -> None:
-            nonlocal previous_status
-            peer = _find_peer_by_dashboard_id(settings, clean_id)
-            if peer is None:
-                msg = f"no peer with dashboard_id: {clean_id}"
-                raise CommandError(ErrorCode.NOT_FOUND, msg)
-            previous_status = peer.status
+            nonlocal found_in_persistent
+            before = len(settings.peers)
             settings.peers = [p for p in settings.peers if p.dashboard_id != clean_id]
+            found_in_persistent = len(settings.peers) != before
 
         view = await self._modify_settings(_remove)
-        if previous_status == PeerStatus.APPROVED:
-            self._fire_pair_status_changed(clean_id, "removed")
+        if not found_in_persistent:
+            msg = f"no peer with dashboard_id: {clean_id}"
+            raise CommandError(ErrorCode.NOT_FOUND, msg)
+        self._fire_pair_status_changed(clean_id, "removed")
         return view
 
     # ------------------------------------------------------------------
@@ -1820,70 +1825,46 @@ class RemoteBuildController:
           unknown-dashboard_id branch and the existing-PENDING
           branch only.
         """
-        outcome = _PairRequestOutcome()
+        # Already-APPROVED branch — read from the persisted list.
+        # No transaction needed because we don't mutate disk.
+        loop = asyncio.get_running_loop()
+        settings = await loop.run_in_executor(
+            None, load_remote_build_settings, self._db.settings.config_dir
+        )
+        approved_peer = _find_peer_by_dashboard_id(settings, dashboard_id)
+        if approved_peer is not None:
+            if approved_peer.pin_sha256 != pin_sha256:
+                # Pin mismatch on an APPROVED row is a
+                # rotation-or-impersonation signal; refuse rather
+                # than silently re-approve under the new identity.
+                # Independent of window state.
+                return IntentResponse.REJECTED
+            # Already-approved + pin still matches: re-pair against
+            # existing trust. No admin action needed, so window
+            # state is irrelevant.
+            return IntentResponse.APPROVED
 
-        def _record(settings: RemoteBuildSettings) -> None:
-            now = time.time()
-            peer = _find_peer_by_dashboard_id(settings, dashboard_id)
-            if peer is None:
-                # New offloader requesting authorization — gated on
-                # the pairing window so admins can refuse to even
-                # accumulate inbox noise from arbitrary LAN scanners.
-                if not self.is_pairing_window_open():
-                    outcome.response = IntentResponse.NO_PAIRING_WINDOW
-                    return
-                settings.peers.append(
-                    StoredPeer(
-                        dashboard_id=dashboard_id,
-                        pin_sha256=pin_sha256,
-                        static_x25519_pub=static_x25519_pub,
-                        label=label,
-                        paired_at=now,
-                        status=PeerStatus.PENDING,
-                    )
-                )
-                outcome.response = IntentResponse.PENDING
-                return
-            if peer.status == PeerStatus.APPROVED:
-                if peer.pin_sha256 != pin_sha256:
-                    # Pin mismatch on an APPROVED row is a
-                    # rotation-or-impersonation signal; refuse
-                    # rather than silently re-approve under the
-                    # new identity. Independent of window state.
-                    outcome.response = IntentResponse.REJECTED
-                    return
-                # Already-approved + pin still matches: re-pair
-                # against existing trust. No admin action needed,
-                # so window state is irrelevant.
-                outcome.response = IntentResponse.APPROVED
-                return
-            # PENDING: refresh in place. The pin / pubkey may have
-            # changed (offloader rotated), the label may have
-            # changed (user renamed the dashboard before they
-            # clicked Accept). The refresh modifies what admin
-            # would see in the inbox, so it's still gated on
-            # window state — admin can't silently get a different
-            # request than the inbox row they see.
-            if not self.is_pairing_window_open():
-                outcome.response = IntentResponse.NO_PAIRING_WINDOW
-                return
-            peer.refresh_from_pair_request(
-                pin_sha256=pin_sha256,
-                static_x25519_pub=static_x25519_pub,
-                label=label,
-                paired_at=now,
-            )
-            outcome.response = IntentResponse.PENDING
+        # New or pending — gated on the pairing window so admins
+        # can refuse to even accumulate inbox noise (in memory or
+        # on disk) from arbitrary LAN scanners. The dict-only
+        # storage means a malicious LAN client can't fill the
+        # receiver's persistent state with junk pair-requests
+        # even within an open window — the dict is bounded by
+        # window lifetime + cleared on auto-close.
+        if not self.is_pairing_window_open():
+            return IntentResponse.NO_PAIRING_WINDOW
 
-        await self._modify_settings(_record)
-        # Every branch of ``_record`` sets ``outcome.response``;
-        # the type narrowing is for mypy / pyright only, gated
-        # behind ``TYPE_CHECKING`` so it costs nothing at runtime.
-        if TYPE_CHECKING:
-            assert outcome.response is not None
-        if outcome.response is not IntentResponse.PENDING:
-            return outcome.response
-
+        # Add or refresh the in-memory PENDING entry. The dict is
+        # keyed on dashboard_id so a re-pair while still pending
+        # (offloader retried before admin clicked) overwrites the
+        # earlier dict entry rather than creating a duplicate.
+        self._pending_peers[dashboard_id] = StoredPeer(
+            dashboard_id=dashboard_id,
+            pin_sha256=pin_sha256,
+            static_x25519_pub=static_x25519_pub,
+            label=label,
+            paired_at=time.time(),
+        )
         payload: RemoteBuildPairRequestReceivedData = {
             "dashboard_id": dashboard_id,
             "pin_sha256": pin_sha256,
@@ -1891,7 +1872,7 @@ class RemoteBuildController:
             "peer_ip": peer_ip,
         }
         self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
-        return outcome.response
+        return IntentResponse.PENDING
 
     async def lookup_peer_for_session(
         self,
@@ -1963,11 +1944,19 @@ class RemoteBuildController:
         cost is one parked task per pending peer, bounded by the
         pending-row count.
 
-        Window-gating prevents pending peers from holding open
-        Noise sessions while admin isn't actively pairing — the
-        bus event channel only carries flips while admin is
-        engaged, so an idle pending peer otherwise has no way to
-        learn anything new and shouldn't keep the connection.
+        Window-gating is *implicit* now that PENDING peers live
+        in an in-memory dict cleared on window auto-close: when
+        the window is closed there are no PENDING entries to
+        snapshot, so the snapshot returns ``REJECTED`` (no row
+        matches) immediately and the long-poll never starts.
+        That makes the explicit ``is_pairing_window_open()``
+        check unnecessary on the entry path; what we still need
+        is to wake the long-poll when admin closes the window
+        mid-wait, so a window-close event fires
+        ``REMOTE_BUILD_PAIR_STATUS_CHANGED status="removed"``
+        for each cleared dict entry, which the
+        ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` listener below picks
+        up alongside admin-Accept events.
 
         Listener registration order is load-bearing: bus
         ``listening`` attaches BEFORE the snapshot read so an
@@ -1978,31 +1967,19 @@ class RemoteBuildController:
         pin-drift (e.g. offloader rotated peer-link key between
         pair and poll → REJECTED on the re-snapshot).
 
-        Differs from :meth:`lookup_peer_for_session` in two
-        ways: (1) APPROVED returns ``APPROVED`` vs ``OK`` because
+        Differs from :meth:`lookup_peer_for_session` in just
+        one way: APPROVED returns ``APPROVED`` vs ``OK`` because
         pair_status is informational while peer_link is
-        connection-establishing; (2) only this path long-polls
-        and gates on the window — peer_link expects an immediate
-        snapshot for an APPROVED peer and the window is irrelevant
-        to a peer that's already approved.
+        connection-establishing. Both paths consult the same
+        dict + list pair via :meth:`_lookup_peer_response`.
         """
         flip_event = asyncio.Event()
-        window_close_event = asyncio.Event()
 
         def _on_pair_status(event: Event[RemoteBuildPairStatusChangedData]) -> None:
             if event.data["dashboard_id"] == dashboard_id:
                 flip_event.set()
 
-        def _on_window_change(event: Event[RemoteBuildPairingWindowChangedData]) -> None:
-            if not event.data["open"]:
-                window_close_event.set()
-
-        with (
-            self._db.bus.listening([EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED], _on_pair_status),
-            self._db.bus.listening(
-                [EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED], _on_window_change
-            ),
-        ):
+        with self._db.bus.listening([EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED], _on_pair_status):
             snapshot = await self._lookup_peer_response(
                 dashboard_id=dashboard_id,
                 pin_sha256=pin_sha256,
@@ -2010,37 +1987,12 @@ class RemoteBuildController:
             )
             if snapshot is not IntentResponse.PENDING:
                 return snapshot
-            # Pending peer: only honour the long-poll while admin
-            # is actively pairing.
-            if not self.is_pairing_window_open():
-                return IntentResponse.NO_PAIRING_WINDOW
-            flip_task = asyncio.create_task(flip_event.wait())
-            close_task = asyncio.create_task(window_close_event.wait())
-            try:
-                done, _pending = await asyncio.wait(
-                    [flip_task, close_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-            finally:
-                for task in (flip_task, close_task):
-                    if not task.done():
-                        task.cancel()
-                # Drain the cancelled task so its CancelledError
-                # is consumed (avoids "task exception was never
-                # retrieved" warnings in tests / debug runs).
-                # Tasks here are pure ``Event.wait()`` calls so
-                # only CancelledError is expected; let anything
-                # else surface.
-                for task in (flip_task, close_task):
-                    with suppress(asyncio.CancelledError):
-                        await task
-            if flip_task in done:
-                return await self._lookup_peer_response(
-                    dashboard_id=dashboard_id,
-                    pin_sha256=pin_sha256,
-                    approved_response=IntentResponse.APPROVED,
-                )
-            return IntentResponse.NO_PAIRING_WINDOW
+            await flip_event.wait()
+            return await self._lookup_peer_response(
+                dashboard_id=dashboard_id,
+                pin_sha256=pin_sha256,
+                approved_response=IntentResponse.APPROVED,
+            )
 
     async def _lookup_peer_response(
         self,
@@ -2052,15 +2004,24 @@ class RemoteBuildController:
         """
         Shared lookup core for the peer_link / pair_status WS dispatch paths.
 
-        Both wire intents do the same lookup ("find this
-        ``dashboard_id`` and verify its stored pin matches the
-        handshake's") and differ only in what they return for an
-        APPROVED match. Pulling that one variation out as
-        ``approved_response`` keeps the logic in one place; a
-        future change (e.g. constant-time pin compare, log
-        mismatches, fire a pin-mismatch event) lands on one
-        method, not two.
+        Walks the in-memory PENDING dict first, then the persisted
+        APPROVED list. Both intents need the same pin-match check
+        on either store; only the APPROVED return value differs
+        (caller passes :attr:`IntentResponse.OK` for peer_link,
+        :attr:`IntentResponse.APPROVED` for pair_status).
+
+        Returns ``REJECTED`` when no row matches OR pin doesn't
+        match — the offloader treats either case the same (drop
+        local row + surface re-pair UI).
         """
+        # PENDING dict first — most pair-flow traffic is pending
+        # peers polling pair_status, so checking the small
+        # in-memory dict before the disk-backed list saves I/O.
+        pending = self._pending_peers.get(dashboard_id)
+        if pending is not None:
+            if pending.pin_sha256 != pin_sha256:
+                return IntentResponse.REJECTED
+            return IntentResponse.PENDING
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
             None, load_remote_build_settings, self._db.settings.config_dir
@@ -2068,9 +2029,7 @@ class RemoteBuildController:
         peer = _find_peer_by_dashboard_id(settings, dashboard_id)
         if peer is None or peer.pin_sha256 != pin_sha256:
             return IntentResponse.REJECTED
-        if peer.status == PeerStatus.APPROVED:
-            return approved_response
-        return IntentResponse.PENDING
+        return approved_response
 
     # ------------------------------------------------------------------
     # Pairing window (phase 4a-r1 part 3) — in-process deadline that
@@ -2149,6 +2108,11 @@ class RemoteBuildController:
         # change) doesn't fire.
         if was_open != is_open or (open and is_open):
             self._fire_pairing_window_changed()
+        # Closed-transition: clear the in-memory PENDING dict +
+        # notify any in-flight pair_status long-polls that their
+        # row is gone. Mirror of the auto-close path.
+        if was_open and not is_open:
+            self._clear_pending_peers_on_window_close()
         return self._pairing_window_state()
 
     def is_pairing_window_open(self) -> bool:
@@ -2256,13 +2220,37 @@ class RemoteBuildController:
         The handle was scheduled to the latest-extend deadline; if
         any later extend had bumped the deadline, the handle would
         have been cancelled and rescheduled, so by the time we run
-        every client has aged out. Clear the dict, fire the close
-        event, done. No re-check loop needed (which is the whole
-        point of TimerHandle vs an asyncio.sleep coroutine).
+        every client has aged out. Clear the client refcount + the
+        in-memory PENDING peers dict, fire the close event +
+        cancellation events, done.
         """
         self._pairing_window_handle = None
         self._pairing_window_clients.clear()
         self._fire_pairing_window_changed()
+        self._clear_pending_peers_on_window_close()
+
+    def _clear_pending_peers_on_window_close(self) -> None:
+        """Drop every PENDING peer + fire removal events.
+
+        Called from the window-close transition paths (auto-close
+        timer fire, explicit ``set_pairing_window(open=False)``,
+        controller stop). Fires
+        :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED`
+        ``status="removed"`` for each cleared row so any offloader
+        currently long-polling :meth:`lookup_peer_for_status`
+        wakes, re-snapshots (now misses), and returns ``REJECTED``
+        to its listener — which drops the offloader's local
+        StoredPairing and surfaces "admin walked away" to the
+        user.
+
+        Idempotent — calling on an empty dict is a no-op.
+        """
+        if not self._pending_peers:
+            return
+        cleared = list(self._pending_peers)
+        self._pending_peers.clear()
+        for dashboard_id in cleared:
+            self._fire_pair_status_changed(dashboard_id, "removed")
 
 
 def _identity_view(identity: DashboardIdentity, *, listener_bound: bool) -> IdentityView:

@@ -273,7 +273,6 @@ class StoredPeer(DataClassORJSONMixin):
     static_x25519_pub: bytes
     label: str
     paired_at: float
-    status: PeerStatus = PeerStatus.PENDING
 
     def refresh_from_pair_request(
         self,
@@ -401,7 +400,6 @@ _PAIRING_VALIDATOR = vol.Schema(
         # (``isinstance(True, int)`` is true) before ever reaching the
         # bool reject. Run ``not_bool`` first, then assert int-or-float.
         vol.Required("paired_at"): vol.All(not_bool, vol.Any(int, float)),
-        vol.Required("status"): PeerStatus,
     }
 )
 
@@ -459,7 +457,6 @@ class StoredPairing(DataClassORJSONMixin):
     static_x25519_pub: bytes
     label: str
     paired_at: float
-    status: PeerStatus = PeerStatus.PENDING
 
     def __post_init__(self) -> None:
         """Run :data:`_PAIRING_VALIDATOR`; re-raise as ``ValueError``."""

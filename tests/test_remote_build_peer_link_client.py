@@ -707,12 +707,14 @@ async def test_controller_request_pair_persists_pending_row(
     assert summary.pin_sha256 == expected_pin
     assert summary.label == "my-receiver"
     assert summary.status is PeerStatus.PENDING
-    # Persisted to disk under the offloader's _offloader_remote_build key.
+    # PENDING entries live in the offloader controller's in-memory
+    # dict; the persisted file stays APPROVED-only so a malicious
+    # receiver can't bloat the offloader's settings file.
     saved = await asyncio.get_running_loop().run_in_executor(
         None, load_offloader_remote_build_settings, offloader_controller_dir
     )
-    assert len(saved.pairings) == 1
-    assert saved.pairings[0].pin_sha256 == expected_pin
+    assert saved.pairings == []
+    assert ("127.0.0.1", server.port) in offloader._pending_pairings
 
 
 @pytest.mark.asyncio
