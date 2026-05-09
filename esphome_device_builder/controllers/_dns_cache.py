@@ -22,6 +22,7 @@ import logging
 import time
 from contextlib import suppress
 from ipaddress import ip_address
+from typing import cast
 
 try:
     from icmplib import NameLookupError, async_resolve
@@ -148,6 +149,12 @@ class DNSCache:
     async def _try_resolve(hostname: str) -> list[str] | None:
         try:
             async with asyncio.timeout(_RESOLVE_TIMEOUT_SECONDS):
-                return await async_resolve(hostname)
+                # ``icmplib`` ships no type stubs, so ``async_resolve``
+                # arrives untyped and mypy widens its return to ``Any``.
+                # Cast at the boundary to keep the public signature
+                # honest — the runtime shape is documented as
+                # ``list[str]``, and ``except _RESOLVE_EXCEPTIONS`` is
+                # the only path that produces ``None``.
+                return cast("list[str] | None", await async_resolve(hostname))
         except _RESOLVE_EXCEPTIONS:
             return None
