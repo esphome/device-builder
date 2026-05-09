@@ -234,20 +234,29 @@ def _persist_cert_pair(cert_path: Path, key_path: Path, cert_pem: bytes, key_pem
     atomic_write(cert_path, cert_pem)
 
 
-def _spki_fingerprint(cert_pem: bytes) -> str:
+def compute_spki_fingerprint(cert: x509.Certificate) -> str:
     """
     Return the SHA-256 of the cert's SubjectPublicKeyInfo as lowercase hex.
 
     Pins the public key, not the whole cert, so reissuing with the
     same keypair (e.g. to refresh metadata) doesn't invalidate
     paired peers.
+
+    Public — :mod:`helpers.remote_build_pin_auth` reuses this
+    against DER-loaded certs from the live TLS handshake. Both
+    call sites MUST produce the same byte-for-byte output for
+    the same keypair.
     """
-    cert = x509.load_pem_x509_certificate(cert_pem)
     spki_der = cert.public_key().public_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
     return hashlib.sha256(spki_der).hexdigest()
+
+
+def _spki_fingerprint(cert_pem: bytes) -> str:
+    """PEM-input wrapper around :func:`compute_spki_fingerprint`."""
+    return compute_spki_fingerprint(x509.load_pem_x509_certificate(cert_pem))
 
 
 def _generate_dashboard_id() -> str:
