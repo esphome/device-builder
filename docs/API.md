@@ -230,6 +230,20 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 | `config/set_preferences` | `{theme?, dashboard_view?, ...}` | `UserPreferences` | Update preferences (partial) |
 | `config/get_secrets` | — | `[string]` | List secret key names |
 
+### Onboarding
+
+> Controller: [`OnboardingController`](../esphome_device_builder/controllers/onboarding.py)
+>
+> Models: [`OnboardingState`, `OnboardingStep`, `OnboardingStepId`, `OnboardingStepStatus`](../esphome_device_builder/models/onboarding.py)
+
+First-run setup tracking. Each step's `status` is computed from live data on every `get_state` call (never persisted), so the frontend's "needs attention" indicators clear the moment the user fixes the underlying state — even via a manual `secrets.yaml` edit. `completed_version` is the last onboarding-flow version the user has explicitly acknowledged; bumping `ONBOARDING_VERSION` (server-side constant) re-prompts users at lower versions when new steps are added.
+
+| Command | Args | Response | Description |
+|---------|------|----------|-------------|
+| `onboarding/get_state` | — | `OnboardingState` | Snapshot of current vs acknowledged version + per-step `pending` / `done` status. Currently one step (`wifi_credentials`) — pending when `secrets.yaml`'s `wifi_ssid` is missing, empty, whitespace-only, or matches the bootstrap placeholder. |
+| `onboarding/set_wifi_credentials` | `{ssid, password?}` | `OnboardingState` | Update `wifi_ssid` / `wifi_password` in `secrets.yaml` via a line-based rewrite that preserves standalone and inline trailing comments and other secrets. Validates against ESPHome's own length limits (32 char SSID, 64 char password) plus a control-character check; empty / whitespace-only SSID, oversize values, and control characters (other than `\t`) raise `INVALID_ARGS`. `password` is optional and defaults to the empty string for open networks. |
+| `onboarding/mark_acknowledged` | — | `OnboardingState` | Record that the user has finished the current onboarding flow (sets `onboarding_completed_version` to `ONBOARDING_VERSION`). Idempotent and monotonic — never downgrades a higher stored value. Use this on save AND on explicit decline ("I don't use Wi-Fi") so the wizard stops re-popping; the per-step `pending` status stays accurate so the dedicated `Set up Wi-Fi…` kebab entry still surfaces the re-entry path until the underlying data is set. |
+
 ### Labels
 
 > Models: [`Label`](../esphome_device_builder/models/labels.py)

@@ -42,6 +42,7 @@ from .controllers.devices import DevicesController
 from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
 from .controllers.labels import LabelsController
+from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import RemoteBuildController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
@@ -282,6 +283,7 @@ class DeviceBuilder:
         self.firmware: FirmwareController | None = None
         self.editor: EditorController | None = None
         self.labels: LabelsController | None = None
+        self.onboarding: OnboardingController | None = None
         self.remote_build: RemoteBuildController | None = None
 
         # mDNS advertise — populated in start() once we know zeroconf
@@ -345,6 +347,7 @@ class DeviceBuilder:
         self.firmware = FirmwareController(self)
         self.editor = EditorController(self)
         self.labels = LabelsController(self)
+        self.onboarding = OnboardingController(self)
         self.remote_build = RemoteBuildController(self)
         await self.devices.start()
         await self.firmware.start()
@@ -409,6 +412,7 @@ class DeviceBuilder:
             self.firmware,
             self.editor,
             self.labels,
+            self.onboarding,
             self.remote_build,
         ):
             self.command_handlers.update(collect_api_commands(controller))

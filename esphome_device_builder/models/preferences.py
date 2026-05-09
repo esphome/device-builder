@@ -51,3 +51,11 @@ class UserPreferences(DataClassORJSONMixin):
     table_column_visibility: dict[str, bool] = field(default_factory=dict)
     table_sort_column: str | None = None
     table_sort_direction: SortDirection | None = None
+
+    # Highest onboarding-flow version the user has acknowledged.
+    # Default 0 ⇒ never gone through onboarding; the dashboard
+    # surfaces the wizard on next load. See
+    # ``models/onboarding.ONBOARDING_VERSION`` for the server
+    # side; bumping that constant when adding new steps re-prompts
+    # users at lower versions.
+    onboarding_completed_version: int = 0

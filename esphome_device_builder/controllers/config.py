@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from esphome import yaml_util
 from esphome.const import __version__ as esphome_version
 from esphome.core import CORE
 from esphome.helpers import get_bool_env
@@ -27,7 +26,18 @@ from ..constants import __version__ as server_version
 from ..helpers.api import CommandError, api_command
 from ..helpers.auth import hash_password
 from ..helpers.json import JSONDecodeError, dumps_indent, loads
-from ..models import ErrorCode, Label, RemoteBuildSettings, StoredToken, UserPreferences
+from ..helpers.secrets_state import (
+    PLACEHOLDER_WIFI_PASSWORD,
+    PLACEHOLDER_WIFI_SSID,
+    read_secrets_yaml,
+)
+from ..models import (
+    ErrorCode,
+    Label,
+    RemoteBuildSettings,
+    StoredToken,
+    UserPreferences,
+)
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -129,8 +139,10 @@ class DashboardSettings:
         # validation-fail before the device is even saved
         # ("Failed to create device: SSID can't be empty."). The
         # placeholders validate clean and clearly signal to the user
-        # that the values need to be replaced before flashing — same
-        # UX contract ESPHome's CLI ``wizard`` enforces by prompting.
+        # that the values need to be replaced before flashing —
+        # ``OnboardingController`` reads the same constants from
+        # ``helpers.secrets_state`` to detect the unconfigured state
+        # and surface the setup wizard.
         secrets_path = self.config_dir / "secrets.yaml"
         if not secrets_path.exists():
             atomic_write_file(
@@ -138,8 +150,8 @@ class DashboardSettings:
                 "# Secrets — referenced from device configs via !secret\n"
                 "# Replace these placeholders with your real Wi-Fi\n"
                 "# credentials before flashing or installing OTA.\n"
-                'wifi_ssid: "REPLACE_WITH_YOUR_WIFI_NETWORK"\n'
-                'wifi_password: "REPLACE_WITH_YOUR_WIFI_PASSWORD"\n',
+                f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n'
+                f'wifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n',
             )
         self.log_level = getattr(args, "log_level", "info")
         self.port = getattr(args, "port", 6052)
@@ -884,23 +896,16 @@ class ConfigController:
     async def get_secrets(self, **kwargs: Any) -> list[str]:
         """Get secret key names from secrets.yaml."""
         loop = asyncio.get_running_loop()
-
-        def _read_secrets() -> list[str]:
-            secrets_path = self._db.settings.config_dir / "secrets.yaml"
-            if not secrets_path.exists():
-                return []
-            try:
-                # ``yaml_util.load_yaml`` expects a ``Path``, not a
-                # ``str`` — passing a string raises ``AttributeError``
-                # at ``fname.open(...)`` and the bare except below
-                # would silently swallow it, leaving the secrets
-                # dropdown permanently empty.
-                data = yaml_util.load_yaml(secrets_path)
-                return sorted(data.keys()) if isinstance(data, dict) else []
-            except Exception:
-                return []
-
-        return await loop.run_in_executor(None, _read_secrets)
+        config_dir = self._db.settings.config_dir
+        data = await loop.run_in_executor(None, read_secrets_yaml, config_dir)
+        if not data:
+            return []
+        # ``secrets.yaml`` could legitimately have non-string keys
+        # (a YAML scalar like ``42:`` parses to ``int``). ``sorted()``
+        # on mixed types raises ``TypeError`` in Python 3, so filter
+        # to string keys before sorting — non-string keys aren't
+        # usable in ``!secret`` references anyway.
+        return sorted(k for k in data if isinstance(k, str))
 
     @api_command("config/get_info")
     async def get_info(self, *, configuration: str, **kwargs: Any) -> dict | None:
