@@ -59,6 +59,7 @@ from ...models import (
     DeviceState,
     ErrorCode,
     EventType,
+    JobLifecycleData,
     JobStatus,
     JobType,
     ReachabilitySource,
@@ -2806,7 +2807,7 @@ class DevicesController:
         configured_names = {d.name for d in self._scanner.devices}
         return [d for d in self.import_result.values() if d.name not in configured_names]
 
-    def _on_firmware_job_completed(self, event: Any) -> None:
+    def _on_firmware_job_completed(self, event: Event[JobLifecycleData]) -> None:
         """
         Refresh a device's cached state after a successful firmware job.
 

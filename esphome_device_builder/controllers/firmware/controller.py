@@ -40,6 +40,9 @@ from ...models import (
     ErrorCode,
     EventType,
     FirmwareJob,
+    JobLifecycleData,
+    JobOutputData,
+    JobProgressData,
     JobStatus,
     JobType,
     StreamEvent,
@@ -647,7 +650,8 @@ class FirmwareController:
             _mark_job_terminal(job, JobStatus.CANCELLED)
             self._prune_history()
             await self._persist_jobs()
-            self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
+            cancelled_payload: JobLifecycleData = {"job": job}
+            self._db.bus.fire(EventType.JOB_CANCELLED, cancelled_payload)
             return
 
         if job.status == JobStatus.RUNNING:
@@ -798,7 +802,8 @@ class FirmwareController:
             job.job_type,
             job.configuration,
         )
-        self._db.bus.fire(EventType.JOB_STARTED, {"job": job})
+        started_payload: JobLifecycleData = {"job": job}
+        self._db.bus.fire(EventType.JOB_STARTED, started_payload)
         await self._persist_jobs()
 
         try:
@@ -865,10 +870,11 @@ class FirmwareController:
                 current = job.progress or 0
                 if progress > current:
                     job.progress = progress
-                    self._db.bus.fire(
-                        EventType.JOB_PROGRESS,
-                        {"job_id": job.job_id, "progress": progress},
-                    )
+                    progress_payload: JobProgressData = {
+                        "job_id": job.job_id,
+                        "progress": progress,
+                    }
+                    self._db.bus.fire(EventType.JOB_PROGRESS, progress_payload)
 
             async with self._tracked_subprocess(
                 *cmd,
@@ -919,10 +925,11 @@ class FirmwareController:
                     # fit between trims.
                     if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
                         _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
-                    self._db.bus.fire(
-                        EventType.JOB_OUTPUT,
-                        {"job_id": job.job_id, "line": line},
-                    )
+                    output_payload: JobOutputData = {
+                        "job_id": job.job_id,
+                        "line": line,
+                    }
+                    self._db.bus.fire(EventType.JOB_OUTPUT, output_payload)
                     _check_error(line)
                     _check_progress(line)
 
@@ -952,7 +959,8 @@ class FirmwareController:
                     _LOGGER.warning("Job %s: %s", job.job_id, job.error)
 
                 event = EventType.JOB_COMPLETED if success else EventType.JOB_FAILED
-                self._db.bus.fire(event, {"job": job})
+                terminal_payload: JobLifecycleData = {"job": job}
+                self._db.bus.fire(event, terminal_payload)
                 _LOGGER.info(
                     "Job %s %s (exit code %s)",
                     job.job_id,
@@ -980,7 +988,8 @@ class FirmwareController:
             else:
                 job.error = str(exc)
                 _mark_job_terminal(job, JobStatus.FAILED)
-                self._db.bus.fire(EventType.JOB_FAILED, {"job": job})
+                failed_payload: JobLifecycleData = {"job": job}
+                self._db.bus.fire(EventType.JOB_FAILED, failed_payload)
                 _LOGGER.exception("Job %s failed: %s", job.job_id, exc)
         finally:
             self._current_job = None
@@ -1072,7 +1081,8 @@ class FirmwareController:
         """
         self._cancel_requested.discard(job.job_id)
         _mark_job_terminal(job, JobStatus.CANCELLED)
-        self._db.bus.fire(EventType.JOB_CANCELLED, {"job": job})
+        post_cancel_payload: JobLifecycleData = {"job": job}
+        self._db.bus.fire(EventType.JOB_CANCELLED, post_cancel_payload)
 
     def _raise_if_cancelled(self, job: FirmwareJob, phase: str) -> None:
         """
@@ -1386,7 +1396,8 @@ class FirmwareController:
         """
         self._check_rename_lock(job)
         await self._queue.put(job)
-        self._db.bus.fire(EventType.JOB_QUEUED, {"job": job})
+        queued_payload: JobLifecycleData = {"job": job}
+        self._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
         if job.configuration:
             await self._supersede_active_jobs(job.configuration, exclude_job_id=job.job_id)
         await self._persist_jobs()

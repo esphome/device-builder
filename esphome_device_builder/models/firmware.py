@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
@@ -127,3 +128,57 @@ _RECOVERY_NOTICE = (
     "... [dashboard restarted mid-build; the previous run's log is above, "
     "the rebuild begins below] ...\n"
 )
+
+
+# ---------------------------------------------------------------------------
+# Event payload shapes (TypedDict so the bus.fire data dict is
+# type-checked at the call site without changing the wire shape;
+# mirrors HA's ``EventStateChangedData`` / ``EventStateReportedData``
+# pattern). See ``mypy_plan.md`` for the migration scope and
+# ``Event[DataT]`` for the subscriber-side narrowing pattern.
+# ---------------------------------------------------------------------------
+
+
+class JobLifecycleData(TypedDict):
+    """
+    Payload for the five terminal-or-lifecycle ``EventType.JOB_*`` events.
+
+    ``EventType.JOB_QUEUED`` / ``JOB_STARTED`` / ``JOB_COMPLETED`` /
+    ``JOB_FAILED`` / ``JOB_CANCELLED`` share a single shape;
+    subscribers differentiate by the ``EventType`` carried
+    alongside, not by inspecting the payload. The full
+    ``FirmwareJob`` rides through so the frontend's job-table
+    renderer has every field it needs (status, exit_code,
+    progress, output) without an additional fetch.
+    """
+
+    job: FirmwareJob
+
+
+class JobOutputData(TypedDict):
+    """
+    Payload for ``EventType.JOB_OUTPUT``.
+
+    One event per output line of a running subprocess. ``job_id``
+    keys the line to its job; ``line`` is the raw stdout/stderr
+    text (without trailing newline). The ``follow_job`` /
+    ``stream_logs`` streams push these through verbatim.
+    """
+
+    job_id: str
+    line: str
+
+
+class JobProgressData(TypedDict):
+    """
+    Payload for ``EventType.JOB_PROGRESS``.
+
+    Coarse 0-100 progress estimate parsed from PlatformIO /
+    esptool output. ``progress`` is monotonically non-decreasing
+    while the job runs (the runner only fires when the parsed
+    percentage advances). The dashboard renders this as a
+    progress bar in the firmware-tasks panel.
+    """
+
+    job_id: str
+    progress: int
