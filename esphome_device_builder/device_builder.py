@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .helpers.dashboard_identity import DashboardIdentity
+    from .helpers.peer_link_identity import PeerLinkIdentity
 
 from aiohttp import web
 from esphome.const import __version__ as esphome_version
@@ -45,13 +46,14 @@ from .controllers.firmware import FirmwareController
 from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import RemoteBuildController
+from .controllers.remote_build_peer_link import PEER_LINK_PATH, make_peer_link_handler
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser
-from .helpers.dashboard_identity import get_or_create_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
-from .helpers.remote_build_auth import BindingMismatch, make_remote_build_auth_middleware
+from .helpers.peer_link_identity import get_or_create_peer_link_identity
+from .helpers.remote_build_auth import BindingMismatch
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
 
@@ -741,24 +743,25 @@ class DeviceBuilder:
 
     async def _maybe_start_remote_build_site(self) -> None:
         """
-        Bind the HTTPS receiver site for ``/remote-build/v1/*`` if enabled.
+        Bind the peer-link Noise WS listener if remote-build is enabled.
 
         Default-off: the listener only binds when
-        ``RemoteBuildSettings.enabled`` is true. Reads the cert + key
-        + identity off disk via :func:`get_or_create_identity` and
-        builds an aiohttp ``SSLContext`` from the on-disk PEM files.
-        Both reads hop through ``run_in_executor`` because the
+        ``RemoteBuildSettings.enabled`` is true. Loads the X25519
+        peer-link identity off disk via
+        :func:`get_or_create_peer_link_identity` (separate from the
+        3a Ed25519 cert; the cert is no longer involved on this
+        listener). Hops through ``run_in_executor`` because the
         helper is sync-blocking by design.
 
-        Fail-soft: any exception during identity load, SSL setup, or
-        bind is caught and logged. The main dashboard keeps running;
-        the operator gets a warning and the listener is simply
-        absent until the next restart with the issue resolved.
+        Fail-soft: any exception during identity load or bind is
+        caught and logged. The main dashboard keeps running; the
+        operator gets a warning and the listener is simply absent
+        until the next restart with the issue resolved.
 
         On HA addon mode with the listener enabled, logs a warning
         that the addon's ``ports:`` config must expose the bound
         port for LAN peers to actually reach it. The bind itself
-        proceeds — "not supported by default today" rather than
+        proceeds; "not supported by default today" rather than
         "hard-refused forever."
         """
         if self.remote_build is None or self.loop is None:
@@ -769,7 +772,7 @@ class DeviceBuilder:
         )
         if not rb_settings.enabled:
             _LOGGER.debug(
-                "Skipping remote-build HTTPS site: not enabled in settings "
+                "Skipping remote-build peer-link site: not enabled in settings "
                 "(set ``remote_build/set_settings`` enabled=true to bind)"
             )
             return
@@ -778,7 +781,7 @@ class DeviceBuilder:
             runner, identity, port = await self._build_and_start_remote_build_runner()
         except Exception:
             _LOGGER.exception(
-                "Remote-build HTTPS site failed to start; dashboard continues "
+                "Remote-build peer-link site failed to start; dashboard continues "
                 "without the receiver listener. Disable in Settings or "
                 "fix the underlying error and restart."
             )
@@ -797,7 +800,7 @@ class DeviceBuilder:
 
         if self.settings.on_ha_addon:
             _LOGGER.warning(
-                "Remote-build HTTPS site bound on %s:%d while running as HA "
+                "Remote-build peer-link site bound on %s:%d while running as HA "
                 "addon. Peers won't reach this port unless the addon's "
                 "``ports:`` config exposes it to the host.",
                 self.settings.host,
@@ -805,7 +808,7 @@ class DeviceBuilder:
             )
         else:
             _LOGGER.info(
-                "Remote-build HTTPS site listening on %s:%d (TLS pin %s)",
+                "Remote-build peer-link site listening on %s:%d (peer-link pin %s)",
                 self.settings.host,
                 port,
                 identity.pin_sha256_formatted,
@@ -947,16 +950,28 @@ class DeviceBuilder:
 
     async def _build_and_start_remote_build_runner(
         self,
-    ) -> tuple[web.AppRunner, DashboardIdentity, int]:
+    ) -> tuple[web.AppRunner, PeerLinkIdentity, int]:
         """
-        Construct the runner, build the SSL context, bind the listener.
+        Construct the runner and bind the peer-link Noise WS listener.
 
-        Extracted from :meth:`_maybe_start_remote_build_site` so the
-        large try-block doesn't bury the orchestration in error
-        handling. Returns ``(runner, identity, bound_port)`` on
-        success; on any exception, cleans up the partial runner
-        before re-raising so the caller's ``except`` only has to
-        log + return.
+        Loads the X25519 peer-link identity (separate from the 3a
+        Ed25519 cert; see PR #473) and binds a plain-TCP TCPSite
+        serving exactly one route: the WS upgrade at
+        ``/remote-build/peer-link``. Noise XX provides
+        confidentiality + mutual auth + forward secrecy at the
+        application layer, so there's no SSL context to manage and
+        no cert hot-swap when the 3a cert rotates.
+
+        Phases 3b1-3c shipped this same listener as HTTPS+bearer;
+        phase 4a-r1 part 4 swaps the body to plain-TCP / Noise WS
+        on the same port + flag + constant + runner slot. The
+        bearer machinery (token CRUD, auth middleware, models) is
+        now dormant and gets deleted in 4a-r2.
+
+        Returns ``(runner, identity, bound_port)`` on success; on
+        any exception, cleans up the partial runner before
+        re-raising so the caller's ``except`` only has to log +
+        return.
 
         ``bound_port`` is the OS-assigned port when the operator
         passed ``--remote-build-port 0`` (ephemeral); otherwise the
@@ -967,26 +982,13 @@ class DeviceBuilder:
         assert loop is not None  # caller-checked
         assert self.remote_build is not None  # caller-checked
 
-        def _load_identity_and_ssl_context() -> tuple[DashboardIdentity, ssl.SSLContext]:
-            # Chain the two sync helpers in a single executor hop:
-            # ``get_or_create_identity`` reads / generates the cert
-            # + key + dashboard_id, then ``_build_remote_build_ssl_context``
-            # stages the PEMs through tempfiles into an SSLContext.
-            # Doing them as separate hops costs an extra
-            # event-loop -> worker-thread round-trip for nothing.
-            ident = get_or_create_identity(self.settings.config_dir)
-            return ident, _build_remote_build_ssl_context(ident)
-
         runner: web.AppRunner | None = None
         try:
-            identity, ssl_context = await loop.run_in_executor(None, _load_identity_and_ssl_context)
-            auth_middleware_fn = make_remote_build_auth_middleware(
-                self.remote_build.lookup_token,
-                bind_first_use=self.remote_build.bind_token_first_use,
-                on_binding_mismatch=self._on_remote_build_binding_mismatch,
+            identity = await loop.run_in_executor(
+                None, get_or_create_peer_link_identity, self.settings.config_dir
             )
-            app = web.Application(middlewares=[_strip_server_header_middleware, auth_middleware_fn])
-            app.router.add_get("/remote-build/v1/health", _remote_build_health)
+            app = web.Application(middlewares=[_strip_server_header_middleware])
+            app.router.add_get(PEER_LINK_PATH, make_peer_link_handler(self.remote_build))
 
             runner = web.AppRunner(app)
             await runner.setup()
@@ -1003,7 +1005,6 @@ class DeviceBuilder:
                 runner,
                 self.settings.host,
                 configured_port,
-                ssl_context=ssl_context,
                 reuse_address=True,
             )
             await site.start()
