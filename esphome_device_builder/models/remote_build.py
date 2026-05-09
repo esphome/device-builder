@@ -84,25 +84,6 @@ class TokenSummary(DataClassORJSONMixin):
 
 
 @dataclass
-class TokenCreateResult(DataClassORJSONMixin):
-    """
-    Response from ``remote_build/add_token``.
-
-    The cleartext ``bearer`` flashes through this response exactly
-    once at creation time; subsequent ``list_tokens`` calls return
-    :class:`TokenSummary` rows that never carry the secret. The
-    frontend is expected to show ``bearer`` to the user with a
-    copy-to-clipboard control and stop displaying it once the
-    dialog is dismissed.
-    """
-
-    token_id: str
-    label: str
-    created_at: float
-    bearer: str
-
-
-@dataclass
 class RemoteBuildSettings(DataClassORJSONMixin):
     """
     Receiver-side settings for the remote-build feature (storage shape).

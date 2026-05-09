@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import secrets as _secrets
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -43,6 +44,7 @@ from esphome_device_builder.models import (
     RemoteBuildPeerSource,
     RemoteBuildSettingsView,
     StoredToken,
+    TokenSummary,
 )
 
 # ---------------------------------------------------------------------------
@@ -704,6 +706,39 @@ async def test_add_manual_host_rejects_blank_hostname(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _mint_credentials(*, label_id: str = "abc") -> tuple[str, str, str]:
+    """
+    Mint client-side ``(token_id, secret, secret_sha256)`` for tests.
+
+    Mirrors the production frontend flow: the client generates the
+    token_id + cleartext secret locally, hashes the secret, and
+    sends ``{label, token_id, secret_sha256}`` to the backend.
+    The cleartext never crosses the wire to the backend.
+    """
+    token_id = f"{label_id}-{_secrets.token_urlsafe(6)}"
+    secret = _secrets.token_urlsafe(32)
+    return token_id, secret, hashlib.sha256(secret.encode("ascii")).hexdigest()
+
+
+async def _issue_token(
+    controller: RemoteBuildController,
+    *,
+    label: str,
+    label_id: str = "abc",
+) -> tuple[TokenSummary, str, str]:
+    """
+    Wrap ``controller.add_token`` with fresh client-minted credentials.
+
+    Returns ``(summary, token_id, secret)``. Tests that need the
+    bearer string compose it as ``f"{token_id}.{secret}"``.
+    """
+    token_id, secret, secret_sha256 = _mint_credentials(label_id=label_id)
+    summary = await controller.add_token(
+        label=label, token_id=token_id, secret_sha256=secret_sha256
+    )
+    return summary, token_id, secret
+
+
 def _split_bearer(bearer: str) -> tuple[str, str]:
     """Return ``(token_id, secret)`` from a wire bearer."""
     token_id, secret = bearer.split(".", 1)
@@ -711,30 +746,25 @@ def _split_bearer(bearer: str) -> tuple[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_add_token_returns_cleartext_bearer_once(tmp_path: Path) -> None:
+async def test_add_token_response_carries_no_cleartext_or_hash(tmp_path: Path) -> None:
     """
-    ``add_token`` flashes the cleartext bearer through exactly once.
+    The ``add_token`` response is a ``TokenSummary`` with no secret material.
 
-    Also pins the wire form (``{token_id}.{secret}``) and that
-    both halves are high-entropy distinct values across calls;
-    a refactor that swapped to a counter or a label-derived id
-    would fail here.
+    The frontend generates the cleartext bearer locally; the
+    backend response carries only the public fields
+    (``token_id``, ``label``, ``created_at``). A refactor that
+    accidentally added a ``bearer`` or ``secret_sha256`` field
+    to the response would silently leak credential material
+    over the (potentially plain-HTTP) main port.
     """
     controller = _make_controller(config_dir=tmp_path)
-    first = await controller.add_token(label="Green dashboard")
-    second = await controller.add_token(label="Green dashboard")
-
-    assert first.label == "Green dashboard"
-    assert first.created_at > 0
-    # Wire form: ``{token_id}.{secret}`` with both halves substantial.
-    fid, fsecret = _split_bearer(first.bearer)
-    sid, ssecret = _split_bearer(second.bearer)
-    assert fid == first.token_id
-    assert sid == second.token_id
-    # Two calls give distinct high-entropy values everywhere.
-    assert fid != sid
-    assert fsecret != ssecret
-    assert len(fid) >= 8 and len(fsecret) >= 40
+    summary, token_id, _secret = await _issue_token(controller, label="Green")
+    assert summary.token_id == token_id
+    assert summary.label == "Green"
+    assert summary.created_at > 0
+    # ``TokenSummary`` does not expose the hash or any cleartext.
+    assert not hasattr(summary, "bearer")
+    assert not hasattr(summary, "secret_sha256")
 
 
 @pytest.mark.asyncio
@@ -750,14 +780,13 @@ async def test_add_token_persists_only_hashed_secret(tmp_path: Path) -> None:
     representation that lands on disk.
     """
     controller = _make_controller(config_dir=tmp_path)
-    result = await controller.add_token(label="Green")
-    _, secret = _split_bearer(result.bearer)
+    _summary, token_id, secret = await _issue_token(controller, label="Green")
 
     loop = asyncio.get_running_loop()
     on_disk = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
     assert len(on_disk.tokens) == 1
     stored = on_disk.tokens[0]
-    assert stored.token_id == result.token_id
+    assert stored.token_id == token_id
     assert stored.secret_sha256 == hashlib.sha256(secret.encode("ascii")).hexdigest()
     assert secret not in stored.secret_sha256
     assert stored.bound_dashboard_id is None
@@ -776,7 +805,7 @@ async def test_settings_responses_never_carry_secret_hash(tmp_path: Path) -> Non
     none of the wire returns expose the field.
     """
     controller = _make_controller(config_dir=tmp_path)
-    issued = await controller.add_token(label="Green")
+    _summary, token_id, _secret = await _issue_token(controller, label="Green")
 
     # Every method that returns settings to the wire.
     responses = [
@@ -784,7 +813,7 @@ async def test_settings_responses_never_carry_secret_hash(tmp_path: Path) -> Non
         await controller.set_settings(enabled=True),
         await controller.add_manual_host(hostname="desktop.local", port=6052),
         await controller.remove_manual_host(hostname="desktop.local", port=6052),
-        await controller.remove_token(token_id=issued.token_id),
+        await controller.remove_token(token_id=token_id),
     ]
     for response in responses:
         # ``RemoteBuildSettingsView.tokens`` is ``list[TokenSummary]``;
@@ -799,8 +828,8 @@ async def test_settings_responses_never_carry_secret_hash(tmp_path: Path) -> Non
 async def test_list_tokens_omits_secret_hash(tmp_path: Path) -> None:
     """The ``list_tokens`` projection drops ``secret_sha256`` and allows dup labels."""
     controller = _make_controller(config_dir=tmp_path)
-    first = await controller.add_token(label="phone")
-    second = await controller.add_token(label="phone")
+    first, _, _ = await _issue_token(controller, label="phone", label_id="a")
+    second, _, _ = await _issue_token(controller, label="phone", label_id="b")
     assert first.token_id != second.token_id  # token_id is the unique key
 
     summaries = await controller.list_tokens()
@@ -828,8 +857,69 @@ async def test_add_token_rejects_invalid_label(
     """Empty / overlong / non-string labels don't slip through."""
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(CommandError) as exc:
-        await controller.add_token(label=label)  # type: ignore[arg-type]
+        await controller.add_token(label=label, token_id="abc", secret_sha256="0" * 64)  # type: ignore[arg-type]
     assert exc.value.code == expected_code
+
+
+@pytest.mark.parametrize(
+    "secret_sha256",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("not-hex", id="non-hex"),
+        pytest.param("a" * 63, id="too-short"),
+        pytest.param("a" * 65, id="too-long"),
+        pytest.param("A" * 64, id="uppercase-hex"),
+        pytest.param("g" * 64, id="non-hex-letter"),
+        pytest.param(123, id="non-string"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_add_token_rejects_invalid_secret_sha256(
+    tmp_path: Path, secret_sha256: object
+) -> None:
+    """Malformed ``secret_sha256`` is rejected with ``INVALID_ARGS``."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.add_token(
+            label="Green",
+            token_id="abc-123",
+            secret_sha256=secret_sha256,  # type: ignore[arg-type]
+        )
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+async def test_add_token_rejects_token_id_collision(tmp_path: Path) -> None:
+    """A second ``add_token`` with the same ``token_id`` is rejected."""
+    controller = _make_controller(config_dir=tmp_path)
+    token_id, _, secret_sha256 = _mint_credentials()
+    await controller.add_token(label="first", token_id=token_id, secret_sha256=secret_sha256)
+    # Second add reuses the same token_id (different secret hash).
+    other_hash = hashlib.sha256(b"different secret").hexdigest()
+    with pytest.raises(CommandError) as exc:
+        await controller.add_token(label="second", token_id=token_id, secret_sha256=other_hash)
+    assert exc.value.code == ErrorCode.ALREADY_EXISTS
+    # The first token's hash is preserved.
+    assert controller.lookup_token(token_id).secret_sha256 == secret_sha256
+
+
+@pytest.mark.asyncio
+async def test_add_token_response_omits_bearer_field_entirely(tmp_path: Path) -> None:
+    """
+    The dict-form of the response carries no ``bearer`` / ``secret_sha256`` fields.
+
+    Pin the wire shape so a regression that re-adds a cleartext-
+    carrying field surfaces here, not on a security audit. The
+    cleartext stays client-side; the server response is just
+    ``TokenSummary`` (token_id, label, created_at,
+    bound_dashboard_id).
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    summary, _, _ = await _issue_token(controller, label="Green")
+    serialised = summary.to_dict()
+    assert set(serialised.keys()) == {"token_id", "label", "created_at", "bound_dashboard_id"}
+    assert "bearer" not in serialised
+    assert "secret_sha256" not in serialised
 
 
 @pytest.mark.asyncio
@@ -838,7 +928,7 @@ async def test_add_token_keeps_other_settings_intact(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     await controller.set_settings(enabled=True)
     await controller.add_manual_host(hostname="desktop.local", port=6052)
-    await controller.add_token(label="Green")
+    await _issue_token(controller, label="Green")
 
     settings = await controller.get_settings()
     assert settings.enabled is True
@@ -850,9 +940,9 @@ async def test_add_token_keeps_other_settings_intact(tmp_path: Path) -> None:
 async def test_remove_token_drops_only_target(tmp_path: Path) -> None:
     """Removing one token leaves the rest of the list intact."""
     controller = _make_controller(config_dir=tmp_path)
-    keep_a = await controller.add_token(label="Green")
-    target = await controller.add_token(label="Laptop")
-    keep_b = await controller.add_token(label="Phone")
+    keep_a, _, _ = await _issue_token(controller, label="Green", label_id="a")
+    target, _, _ = await _issue_token(controller, label="Laptop", label_id="b")
+    keep_b, _, _ = await _issue_token(controller, label="Phone", label_id="c")
 
     settings = await controller.remove_token(token_id=target.token_id)
     assert [t.token_id for t in settings.tokens] == [keep_a.token_id, keep_b.token_id]
@@ -862,7 +952,7 @@ async def test_remove_token_drops_only_target(tmp_path: Path) -> None:
 async def test_bind_token_first_use_persists_dashboard_id(tmp_path: Path) -> None:
     """First-use bind writes the dashboard_id to the stored token."""
     controller = _make_controller(config_dir=tmp_path)
-    issued = await controller.add_token(label="Green")
+    issued, _, _ = await _issue_token(controller, label="Green")
 
     bound = await controller.bind_token_first_use(issued.token_id, "green-dashboard-id")
 
@@ -876,7 +966,7 @@ async def test_bind_token_first_use_persists_dashboard_id(tmp_path: Path) -> Non
 async def test_bind_token_first_use_is_idempotent(tmp_path: Path) -> None:
     """A second bind with the same id is a no-op write; binding sticks."""
     controller = _make_controller(config_dir=tmp_path)
-    issued = await controller.add_token(label="Green")
+    issued, _, _ = await _issue_token(controller, label="Green")
 
     first = await controller.bind_token_first_use(issued.token_id, "green-1")
     second = await controller.bind_token_first_use(issued.token_id, "green-1")
@@ -889,7 +979,7 @@ async def test_bind_token_first_use_is_idempotent(tmp_path: Path) -> None:
 async def test_bind_token_first_use_preserves_existing_binding(tmp_path: Path) -> None:
     """A bind call with a different id on an already-bound token returns the EXISTING binding."""
     controller = _make_controller(config_dir=tmp_path)
-    issued = await controller.add_token(label="Green")
+    issued, _, _ = await _issue_token(controller, label="Green")
 
     await controller.bind_token_first_use(issued.token_id, "green-1")
     # A second offloader (different dashboard_id) would race here in
@@ -914,10 +1004,10 @@ async def test_bind_token_first_use_finds_target_among_many(tmp_path: Path) -> N
     controller = _make_controller(config_dir=tmp_path)
     # Mint multiple tokens; bind the third so the iteration has
     # to step past two non-matches.
-    await controller.add_token(label="A")
-    await controller.add_token(label="B")
-    target = await controller.add_token(label="C")
-    await controller.add_token(label="D")
+    await _issue_token(controller, label="A", label_id="a")
+    await _issue_token(controller, label="B", label_id="b")
+    target, _, _ = await _issue_token(controller, label="C", label_id="c")
+    await _issue_token(controller, label="D", label_id="d")
 
     bound = await controller.bind_token_first_use(target.token_id, "green-1")
 
@@ -939,7 +1029,7 @@ async def test_lookup_token_round_trips_through_index(tmp_path: Path) -> None:
     confirm the lookup returns ``None``.
     """
     controller = _make_controller(config_dir=tmp_path)
-    issued = await controller.add_token(label="Green")
+    issued, _, _ = await _issue_token(controller, label="Green")
 
     found = controller.lookup_token(issued.token_id)
     assert found is not None
@@ -992,9 +1082,8 @@ async def test_remove_token_rejects_full_bearer_without_echoing_secret(
     message must NOT echo the secret back.
     """
     controller = _make_controller(config_dir=tmp_path)
-    issued = await controller.add_token(label="Green")
-    full_bearer = issued.bearer  # ``{token_id}.{secret}``
-    secret = full_bearer.split(".", 1)[1]
+    _summary, token_id, secret = await _issue_token(controller, label="Green")
+    full_bearer = f"{token_id}.{secret}"
 
     with pytest.raises(CommandError) as exc:
         await controller.remove_token(token_id=full_bearer)
@@ -1046,7 +1135,7 @@ async def test_add_token_rejects_when_at_capacity(tmp_path: Path) -> None:
 
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(CommandError) as exc:
-        await controller.add_token(label="overflow")
+        await _issue_token(controller, label="overflow")
     assert exc.value.code == ErrorCode.INVALID_ARGS
     # Cap message names the limit so the operator can act.
     assert str(_MAX_TOKENS) in str(exc.value)

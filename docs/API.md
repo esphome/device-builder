@@ -251,7 +251,7 @@ Renaming or recoloring a label leaves device assignments untouched — devices r
 
 > Controller: [`RemoteBuildController`](../esphome_device_builder/controllers/remote_build.py)
 >
-> Models: [`RemoteBuildSettingsView`](../esphome_device_builder/models/remote_build.py), [`RemoteBuildPeer`](../esphome_device_builder/models/remote_build.py), [`ManualHost`](../esphome_device_builder/models/remote_build.py), [`TokenSummary`](../esphome_device_builder/models/remote_build.py), [`TokenCreateResult`](../esphome_device_builder/models/remote_build.py)
+> Models: [`RemoteBuildSettingsView`](../esphome_device_builder/models/remote_build.py), [`RemoteBuildPeer`](../esphome_device_builder/models/remote_build.py), [`ManualHost`](../esphome_device_builder/models/remote_build.py), [`TokenSummary`](../esphome_device_builder/models/remote_build.py)
 
 Receiver-side surface for the remote-build offload feature (issue #106). Discovers peer dashboards via mDNS (`_esphomebuilder._tcp.local.`), lets the user add manual peers for cross-subnet LANs, and issues bearer tokens that paired offloaders present to the receiver's HTTPS listener (the listener itself lands in phase 3b2). Settings persist in `.device-builder.json` under `_remote_build`.
 
@@ -263,10 +263,12 @@ Receiver-side surface for the remote-build offload feature (issue #106). Discove
 | `remote_build/add_manual_host` | `{hostname, port}` | `RemoteBuildSettingsView` | Add a manual peer for cross-subnet / non-mDNS LANs. Hostname normalised to lowercase. Duplicate `(hostname, port)` raises `already_exists`. |
 | `remote_build/remove_manual_host` | `{hostname, port}` | `RemoteBuildSettingsView` | Remove a manual peer. Unknown pair raises `not_found`. |
 | `remote_build/list_tokens` | — | `[TokenSummary]` | Issued bearer tokens, projected to omit the secret hash. |
-| `remote_build/add_token` | `{label}` | `TokenCreateResult` | Issue a fresh bearer. The cleartext `bearer` flashes through the response **once**; only `sha256(secret)` lands on disk. Label 1-128 chars; duplicates allowed (`token_id` is the unique key). |
+| `remote_build/add_token` | `{label, token_id, secret_sha256}` | `TokenSummary` | Register a client-generated bearer. **The frontend generates `token_id` + cleartext secret locally** and submits only `SHA-256(secret)`; the cleartext bearer never crosses the wire to the backend. Label 1-128 chars; `token_id` is base64url ≤ 64 chars; `secret_sha256` is 64 lowercase hex chars. Duplicate labels allowed; duplicate `token_id` rejected with `already_exists`. |
 | `remote_build/remove_token` | `{token_id}` | `RemoteBuildSettingsView` | Revoke a token. Unknown / blank `token_id` raises `not_found` / `invalid_args` respectively. |
 
-**Bearer wire format**: `{token_id}.{secret}` where `token_id` is the lookup key (8-byte base64url, ~11 chars) and `secret` is the verification value (32-byte base64url, ~43 chars). The phase-3b2 auth middleware splits on `.`, looks up by `token_id`, and `hmac.compare_digest`s `SHA-256(secret)` against the stored hash.
+**Bearer wire format**: `{token_id}.{secret}` where `token_id` is the lookup key (8-byte base64url, ~11 chars) and `secret` is the verification value (32-byte base64url, ~43 chars). The auth middleware splits on `.`, looks up by `token_id`, and `hmac.compare_digest`s `SHA-256(secret)` against the stored hash.
+
+**Cleartext bearer is generated client-side** by the frontend and never crosses the wire to the backend; only the SHA-256 of the secret half is sent in `add_token` and persisted. This closes the leak that would otherwise occur on plain-HTTP standalone deployments where the main port (default `6052`) carries the WS API in cleartext.
 
 **`bound_dashboard_id`** on `StoredToken` / `TokenSummary` is reserved for phase 3b3's first-use binding; it stays `null` until the first authenticated request arrives carrying the offloader's `X-Dashboard-ID` header.
 
