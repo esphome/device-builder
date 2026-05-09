@@ -934,6 +934,33 @@ async def test_e2e_unknown_intent_completes_handshake_then_rejects(
 
 
 @pytest.mark.asyncio
+async def test_e2e_non_dict_msg3_payload_treated_as_empty(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+) -> None:
+    """A msg3 JSON list isn't a crash; treated as empty dict, REJECTED via dashboard_id gate."""
+    client, _, _ = peer_link_app
+
+    initiator_priv = secrets.token_bytes(32)
+    session = PeerLinkNoiseSession.initiator(initiator_priv)
+    ws = await client.ws_connect(PEER_LINK_PATH)
+    try:
+        msg1 = session.write_handshake_message(_json.dumps({"intent": "peer_link"}))
+        await ws.send_bytes(msg1)
+        msg2 = await ws.receive_bytes()
+        session.read_handshake_message(msg2)
+        # JSON array — valid JSON but not a dict; ``.get()`` would
+        # crash without the isinstance check.
+        msg3 = session.write_handshake_message(_json.dumps([1, 2, 3]))
+        await ws.send_bytes(msg3)
+        encrypted = await ws.receive_bytes()
+    finally:
+        await ws.close()
+
+    # Empty dashboard_id (because msg3 didn't carry one) → REJECTED.
+    assert _decode_intent_response(session, encrypted) == IntentResponse.REJECTED
+
+
+@pytest.mark.asyncio
 async def test_e2e_garbage_msg1_payload_handled_gracefully(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:

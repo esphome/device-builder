@@ -27,8 +27,9 @@ Pairing model (phase 4a-r1):
   ``pair_request`` lands a ``PENDING`` row inside the
   receiver-controlled "pairing window"; the receiver UI
   shows the row in the inbox and the user clicks
-  Accept (``record_pair_request`` →
-  ``approve_pair_request``).
+  Accept, which calls the ``remote_build/approve_peer`` WS
+  command → :meth:`RemoteBuildController.approve_peer` (the
+  per-row counterpart to :meth:`record_pair_request`).
 * Approved peers can then run ``intent="peer_link"`` against
   the same ``/remote-build/peer-link`` endpoint without
   re-prompting the receiver-side user.

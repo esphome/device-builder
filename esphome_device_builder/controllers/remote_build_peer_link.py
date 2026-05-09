@@ -229,7 +229,8 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     msg3_payload = await _read_handshake_message(session, ws, _HandshakeStep.MSG3)
     if msg3_payload is None:
         return
-    msg3 = _parse_json(msg3_payload) or {}
+    parsed = _parse_json(msg3_payload)
+    msg3 = parsed if isinstance(parsed, dict) else {}
 
     try:
         remote_static_pub = session.remote_static_pub
