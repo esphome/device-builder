@@ -1296,28 +1296,48 @@ class DeviceStateMonitor:
             self.apply_config_hash(device_name, config_hash)
         if mac := props.get("mac"):
             self.apply_mac_address(device_name, mac)
-        # Apply api_encryption ONLY when the TXT key is actually
-        # present in this announcement (value can be empty — that's
-        # the meaningful "device confirmed plaintext" signal). When
-        # the TXT key is absent we keep the device's current value
-        # as the last-known truth: a transient / fragmented mDNS
-        # re-announcement that omits the TXT used to overwrite a
-        # previously-truthy ``api_encryption_active`` with ``""``,
-        # flipping the dashboard's lock indicator to "mismatch" /
-        # "pending" and prompting the user to reinstall a device
-        # that was actually fine. Tri-state on the model side
-        # (``"…"`` / ``""`` / ``None``) already encodes
-        # "confirmed-encrypted / confirmed-plaintext / unknown"; the
-        # apply path was conflating "TXT absent in *this*
-        # announcement" with "TXT absent on the device", which is
-        # only true once we observe the absence directly. Older
-        # firmwares that never broadcast the TXT remain at the
-        # ``None`` initial — the frontend's ``getEncryptionState``
-        # falls back to the YAML's ``api_encrypted`` flag in that
-        # case, which is the right behaviour.
-        api_encryption = props.get("api_encryption")
-        if api_encryption is not None:
-            self.apply_api_encryption(device_name, api_encryption)
+        # api_encryption tri-state semantics on this announce:
+        #
+        # * Key present with truthy value (``Noise_...``):
+        #   encryption confirmed live → apply with that string.
+        #
+        # * Key present with bare-key / ``api_encryption=`` empty
+        #   value (zeroconf collapses both to ``None`` in
+        #   ``decoded_properties``): device explicitly broadcast
+        #   "no key" → apply with ``""``. The pre-fix code used
+        #   ``props.get("api_encryption") is not None`` which
+        #   dropped this case onto the floor; with the explicit
+        #   ``in props`` check it now flows through.
+        #
+        # * Key absent AND the announce carried other content
+        #   (``version`` / ``mac`` / ``config_hash`` / ...): the
+        #   firmware was rebuilt without encryption and is
+        #   re-announcing its real new state. Apply with ``""``
+        #   so the dashboard's encryption indicator follows the
+        #   wire instead of staying frozen on a stale truthy
+        #   value. ESPHome's TXT broadcasts are atomic per
+        #   announce — there's no fragmentation shape that would
+        #   carry ``version`` but drop ``api_encryption`` — so a
+        #   TXT with content but no encryption key IS
+        #   authoritative for "encryption was removed."
+        #
+        # * Key absent AND props is empty (no other keys either):
+        #   preserve. This is the cache-eviction /
+        #   truly-empty-fragment shape the original guard was
+        #   written for; a non-content announce shouldn't
+        #   overwrite a previously-truthy state and prompt an
+        #   unnecessary reinstall.
+        #
+        # Older firmwares that never broadcast the TXT keep the
+        # ``None`` initial value — the frontend's
+        # ``getEncryptionState`` falls back to the YAML's
+        # ``api_encrypted`` flag in that case, which is the right
+        # behaviour.
+        if "api_encryption" in props:
+            value = props["api_encryption"]
+            self.apply_api_encryption(device_name, value if isinstance(value, str) else "")
+        elif props:
+            self.apply_api_encryption(device_name, "")
 
     async def _ping_loop(self) -> None:
         # First sweep after the short bootstrap window — gives mDNS a

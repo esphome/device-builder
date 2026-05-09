@@ -597,6 +597,103 @@ async def test_dispatch_added_without_api_encryption_txt_keeps_unknown_at_none(
         await _stop_and_drain(monitor)
 
 
+@pytest.mark.asyncio
+async def test_dispatch_added_api_encryption_absent_with_other_content_clears_to_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TXT carries other keys but ``api_encryption`` is missing → confirm plaintext.
+
+    The firmware was rebuilt without encryption and is
+    re-announcing its real new state. ESPHome's TXT broadcasts
+    are atomic per announce — there's no fragmentation shape
+    that would carry ``version`` / ``mac`` / ``config_hash``
+    but drop only ``api_encryption`` — so the absence of the
+    key inside an otherwise-populated TXT IS authoritative for
+    "encryption was removed."
+
+    Pre-fix: the old guard ``if api_encryption is not None``
+    treated this case identically to a transient empty-fragment
+    (no apply, previous truthy value preserved). The result
+    was a stale lock indicator that stayed green long after
+    the device's firmware was downgraded to plaintext.
+    """
+    truthy = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    device = _device(api_encryption_active=truthy)
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    # Real-shaped TXT: version/mac/config_hash present, but
+    # ``api_encryption`` absent. ESPHome firmware that was
+    # rebuilt without encryption broadcasts exactly this shape.
+    fake_info.decoded_properties = {
+        "version": "2026.4.0",
+        "mac": "aabbccddeeff",
+        "config_hash": "abc12345",
+    }
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        # Wire authoritatively says no encryption — flip to
+        # confirmed-plaintext so the lock indicator follows.
+        assert device.api_encryption_active == ""
+    finally:
+        await _stop_and_drain(monitor)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_added_api_encryption_bare_key_pushes_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bare-key TXT (``api_encryption`` with no ``=`` value) → confirm plaintext.
+
+    zeroconf collapses bare keys (``foo``) and empty-value
+    entries (``foo=``) to the same ``None`` in
+    ``decoded_properties``. Both shapes are how ESPHome firmware
+    broadcasts "I have the key in my TXT but the value slot
+    is empty" — the documented confirmed-plaintext signal.
+
+    Pre-fix: ``props.get(...) is not None`` returned False for
+    ``None`` so the apply was skipped — a latent bug where the
+    confirmed-plaintext signal wasn't actually flowing through.
+    Now the explicit ``in props`` check catches the key
+    presence and treats the ``None`` value as the empty-string
+    plaintext signal.
+    """
+    truthy = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    device = _device(api_encryption_active=truthy)
+    monitor, _callbacks = _make_monitor([device])
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = True
+    fake_info.parsed_scoped_addresses = lambda _mode: []
+    # Mirror what zeroconf actually returns for ``api_encryption=``
+    # or bare ``api_encryption``: the key is present in the dict
+    # but the value is ``None``.
+    fake_info.decoded_properties = {"api_encryption": None}
+    monkeypatch.setattr(state_monitor_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        assert device.api_encryption_active == ""
+    finally:
+        await _stop_and_drain(monitor)
+
+
 # ---------------------------------------------------------------------------
 # Defense-in-depth: TXT-absent / TXT-empty must preserve the device's
 # last-known value for every mDNS-derived field that doesn't have an
