@@ -144,11 +144,17 @@ async def test_set_wifi_credentials_creates_file_when_missing(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
-async def test_set_wifi_credentials_strips_ssid_whitespace(tmp_path: Path) -> None:
+async def test_set_wifi_credentials_preserves_ssid_whitespace(tmp_path: Path) -> None:
+    """IEEE 802.11 allows leading/trailing whitespace in SSIDs.
+
+    Trimming would silently change the network name and the device
+    would fail to associate. Preserve the value as-typed; the
+    user knows what their AP advertises.
+    """
     controller = _make_controller(tmp_path)
     await controller.set_wifi_credentials(ssid="  MyNetwork  ", password="hunter2")
     content = (tmp_path / "secrets.yaml").read_text()
-    assert 'wifi_ssid: "MyNetwork"' in content
+    assert 'wifi_ssid: "  MyNetwork  "' in content
 
 
 @pytest.mark.asyncio
@@ -288,6 +294,28 @@ async def test_set_wifi_credentials_allows_tab_in_value(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     state = await controller.set_wifi_credentials(ssid="MyAP", password="hunter\t2")
     assert state.steps[0].status == OnboardingStepStatus.DONE
+
+
+@pytest.mark.asyncio
+async def test_set_wifi_credentials_preserves_inline_comments(
+    tmp_path: Path,
+) -> None:
+    """A power-user `wifi_ssid: foo  # office` keeps the annotation.
+
+    The line-based rewrite captures the trailing ``  # …`` and
+    re-attaches it after replacing the value. Without this, the
+    old behaviour stripped any inline annotation on credential
+    lines.
+    """
+    _write_secrets(
+        tmp_path,
+        'wifi_ssid: "old"  # Apt 4B router\nwifi_password: "p"  # WPA2\n',
+    )
+    controller = _make_controller(tmp_path)
+    await controller.set_wifi_credentials(ssid="MyAP", password="newpw")
+    content = (tmp_path / "secrets.yaml").read_text()
+    assert 'wifi_ssid: "MyAP"  # Apt 4B router' in content
+    assert 'wifi_password: "newpw"  # WPA2' in content
 
 
 @pytest.mark.asyncio

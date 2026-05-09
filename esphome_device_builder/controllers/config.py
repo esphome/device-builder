@@ -868,7 +868,14 @@ class ConfigController:
         loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
         data = await loop.run_in_executor(None, read_secrets_yaml, config_dir)
-        return sorted(data.keys()) if data else []
+        if not data:
+            return []
+        # ``secrets.yaml`` could legitimately have non-string keys
+        # (a YAML scalar like ``42:`` parses to ``int``). ``sorted()``
+        # on mixed types raises ``TypeError`` in Python 3, so filter
+        # to string keys before sorting — non-string keys aren't
+        # usable in ``!secret`` references anyway.
+        return sorted(k for k in data if isinstance(k, str))
 
     @api_command("config/get_info")
     async def get_info(self, *, configuration: str, **kwargs: Any) -> dict | None:

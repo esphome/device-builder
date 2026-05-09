@@ -104,8 +104,13 @@ class OnboardingController:
         Preserves any other secret keys + the file's comments via a
         line-based rewrite.
         """
-        ssid = ssid.strip()
-        if not ssid:
+        # IEEE 802.11 SSIDs may legally contain leading or trailing
+        # whitespace, so don't mutate the user's input — they may
+        # have an awkwardly-named network on purpose. Reject only
+        # the all-whitespace / empty case (which can't address a
+        # real network) and use the original ``ssid`` for the
+        # length check + the file write.
+        if not ssid.strip():
             raise CommandError(ErrorCode.INVALID_ARGS, "SSID can't be empty.")
         if len(ssid) > _MAX_SSID_LEN:
             raise CommandError(
@@ -166,10 +171,13 @@ class OnboardingController:
         return await self.get_state()
 
 
-# ``key: value`` line where ``key`` is the captured group. Permissive
-# on whitespace + value shape so we match both ``wifi_ssid: ""`` and
-# ``wifi_ssid: REPLACE_WITH_…`` and ``wifi_ssid:`` (empty raw).
-_SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_][\w]*)\s*:.*$")
+# ``key: value`` line. Captures: 1=indent, 2=key, 3=trailing
+# ``  # comment`` (with at least one space before the ``#``, so
+# a ``#`` inside a quoted value doesn't trip it). Permissive on
+# value shape so we match both ``wifi_ssid: ""`` and bare
+# ``wifi_ssid:`` — the value itself is discarded on rewrite,
+# only indent / key / trailing comment carry over.
+_SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
 
 
 def _write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
@@ -183,7 +191,7 @@ def _write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     here).
     """
     secrets_path = config_dir / "secrets.yaml"
-    original = secrets_path.read_text() if secrets_path.exists() else ""
+    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
 
     updated = _replace_or_append_secret(
         _replace_or_append_secret(original, "wifi_ssid", ssid),
@@ -201,14 +209,11 @@ def _replace_or_append_secret(content: str, key: str, value: str) -> str:
     duplicated key in ``secrets.yaml`` is malformed (PyYAML keeps
     only the last on read), but writing only the first match
     would leave the stale duplicate as the live value and
-    onboarding would stay PENDING after a "successful" save. If
-    no line matches, appends ``key: "value"`` at the end with a
-    trailing newline. Comments on other lines (and any inline
-    ``# …`` trailing the matched ``key:`` line) are dropped from
-    the rewritten line — secrets.yaml is conventionally
-    comment-free on credential lines, but flagged here so a
-    future caller wanting full-fidelity round-trip knows to
-    reach for a structured YAML editor instead.
+    onboarding would stay PENDING after a "successful" save. Any
+    inline ``# comment`` trailing the matched line is preserved
+    so a power-user with ``wifi_ssid: home  # Apt 4B router``
+    keeps the annotation. If no line matches, appends
+    ``key: "value"`` at the end with a trailing newline.
     """
     encoded = _quote_yaml_string(value)
     lines = content.split("\n")
@@ -216,7 +221,8 @@ def _replace_or_append_secret(content: str, key: str, value: str) -> str:
     for i, line in enumerate(lines):
         m = _SECRET_LINE_RE.match(line)
         if m and m.group(2) == key:
-            lines[i] = f"{m.group(1)}{key}: {encoded}"
+            trailing_comment = m.group(3) or ""
+            lines[i] = f"{m.group(1)}{key}: {encoded}{trailing_comment}"
             matched = True
     if matched:
         return "\n".join(lines)
