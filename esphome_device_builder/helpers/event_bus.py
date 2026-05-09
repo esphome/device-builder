@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from functools import partial
@@ -24,52 +24,67 @@ _DEFAULT_STREAM_QUEUE_MAX = 4000
 
 
 @dataclass
-class Event:
+class Event[DataT]:
     """
     A device builder event.
 
-    ``data`` is typed as a read-only :class:`Mapping` so per-event
-    :class:`TypedDict` payloads are accepted at the fire site
-    without a ``cast()``. ``TypedDict`` is structurally compatible
-    with ``Mapping[str, Any]`` (read-only access), which is all
-    subscribers ever do — every ``event.data`` reference in the
-    codebase is a ``.get(...)`` or ``[key]`` lookup, never a
-    mutation. Mirrors HA's ``Event[_DataT]`` pattern's *result*
-    (typed access without casts) without paying for the full
-    generic infrastructure HA needs in core.
+    Generic over the data shape so each subscriber sees the
+    precise TypedDict it consumes. Subscribers declare their
+    callback as ``def _on_x(event: Event[XData]) -> None: ...``
+    and ``event.data["k"]`` types correctly. Bus-side storage
+    is type-erased to ``Event[Any]`` because listeners with
+    different ``DataT`` share a bucket — the precision lives at
+    the *callback signature*, not the storage.
+
+    ``Event[_DataT]`` matches HA core's pattern. Deliberate
+    divergence: HA bounds ``DataT`` to ``Mapping[str, Any]`` so
+    untyped events fall through; we drop the bound entirely.
+    Untyped fire sites pass plain ``dict[str, Any]`` and mypy
+    infers ``DataT`` from the call.
     """
 
     event_type: EventType
-    data: Mapping[str, Any]
+    data: DataT
+
+
+# Listener bucket shape — type-erased ``Event[Any]`` because the
+# bus dispatches every listener for an EventType from the same
+# set, regardless of which ``DataT`` each subscriber declared.
+# Subscribers narrow themselves via their callback signature
+# (``def _on_x(event: Event[XData])``); ``Any`` bridges the
+# variance gap so mypy accepts the per-subscriber types.
+_ListenerCallback = Callable[[Event[Any]], None]
 
 
 class EventBus:
     """Simple synchronous event bus for dashboard state changes."""
 
     def __init__(self) -> None:
-        self._listeners: dict[EventType, set[Callable[[Event], None]]] = {}
+        self._listeners: dict[EventType, set[_ListenerCallback]] = {}
 
     def add_listener(
-        self, event_type: EventType, listener: Callable[[Event], None]
+        self, event_type: EventType, listener: _ListenerCallback
     ) -> Callable[[], None]:
         """Add a listener. Returns an unsubscribe callback."""
         self._listeners.setdefault(event_type, set()).add(listener)
         return partial(self._remove_listener, event_type, listener)
 
-    def _remove_listener(self, event_type: EventType, listener: Callable[[Event], None]) -> None:
+    def _remove_listener(self, event_type: EventType, listener: _ListenerCallback) -> None:
         self._listeners.get(event_type, set()).discard(listener)
 
-    def fire(self, event_type: EventType, data: Mapping[str, Any] | None = None) -> None:
+    def fire[DataT](self, event_type: EventType, data: DataT) -> None:
         """
         Fire an event to all listeners.
 
-        ``data`` is :class:`Mapping[str, Any]` so per-event
-        :class:`TypedDict` payloads pass through without a cast —
-        ``payload: SomeEventData = {...}; bus.fire(EventType.X,
-        payload)`` type-checks. See :class:`Event` for the rest
-        of the rationale.
+        Generic on ``DataT`` so a typed payload (``payload:
+        SomeEventData = {...}; bus.fire(EventType.X, payload)``)
+        flows through without a ``cast()`` and without a wider
+        ``Mapping[str, Any]`` parameter that strips the shape
+        info. Untyped sites pass a plain ``dict`` literal and
+        mypy infers ``DataT`` from the call; typed sites get
+        construction-site validation against the TypedDict.
         """
-        event = Event(event_type, data or {})
+        event: Event[DataT] = Event(event_type, data)
         for listener in list(self._listeners.get(event_type, set())):
             try:
                 listener(event)
@@ -80,7 +95,7 @@ class EventBus:
     def listening(
         self,
         event_types: Iterable[EventType],
-        listener: Callable[[Event], None],
+        listener: _ListenerCallback,
     ) -> Iterator[None]:
         """
         Subscribe *listener* to every event in *event_types* for the block.
@@ -188,7 +203,7 @@ async def stream_events(
     message_id: str,
     bus: EventBus,
     event_types: Iterable[EventType],
-    handle_event: Callable[[Event, StreamControls], None],
+    handle_event: Callable[[Event[Any], StreamControls], None],
     send_initial: Callable[[StreamControls], Awaitable[None]] | None = None,
     queue_max: int = _DEFAULT_STREAM_QUEUE_MAX,
 ) -> None:
@@ -267,7 +282,7 @@ async def stream_events(
         end=lambda: _force_enqueue(None),
     )
 
-    def _on_event(event: Event) -> None:
+    def _on_event(event: Event[Any]) -> None:
         handle_event(event, controls)
 
     with bus.listening(event_types, _on_event):
