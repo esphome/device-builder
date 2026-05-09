@@ -1177,6 +1177,7 @@ class RemoteBuildController:
         self,
         *,
         open: bool,  # noqa: A002 — wire format names this field "open"
+        client: Any = None,
         **kwargs: Any,
     ) -> PairingWindowState:
         """
@@ -1192,6 +1193,18 @@ class RemoteBuildController:
         ``beforeunload``. An explicit "extend" / "still pairing?"
         button in the UI is just another caller of ``open=true``;
         no separate wire command is needed for it.
+
+        ``client`` is the WS connection object that the dispatcher
+        injects on every command call (see ``api/ws.py``); we use
+        the connection itself as the refcount dict key, so two
+        browser tabs / two users get distinct entries. The
+        ``client=None`` default exists only for direct callers in
+        tests; in that path each test creates a fresh controller,
+        so falling under the same ``None`` bucket is harmless. A
+        future production code path that legitimately needs to
+        call this without a WS client should pass an explicit
+        hashable identity (a ``uuid.uuid4()`` works) rather than
+        relying on the default.
 
         Fires :attr:`EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED` on
         every state transition. Idempotent calls that don't change
@@ -1211,7 +1224,6 @@ class RemoteBuildController:
             msg = "remote_build/set_pairing_window: 'open' must be a bool"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-        client = kwargs.get("client")
         was_open = self.is_pairing_window_open()
         if open:
             self._pairing_window_clients[client] = time.monotonic()
