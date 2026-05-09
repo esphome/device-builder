@@ -27,6 +27,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
+from esphome_device_builder.controllers import remote_build_peer_link_client
 from esphome_device_builder.controllers.config import (
     load_offloader_remote_build_settings,
 )
@@ -48,6 +49,7 @@ from esphome_device_builder.helpers.peer_link_identity import (
     get_or_create_peer_link_identity,
 )
 from esphome_device_builder.helpers.peer_link_noise import (
+    HandshakeNotCompleteError,
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
@@ -230,6 +232,235 @@ async def test_preview_pair_rejects_garbage_post_handshake_frame(
                 hostname="127.0.0.1",
                 port=server.port,
                 identity_priv=initiator_priv,
+            )
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_preview_pair_non_ok_intent_response_raises_client_error() -> None:
+    """Receiver's preview returns a non-OK intent_response → PeerLinkClientError.
+
+    Preview's accept-set is just ``IntentResponse.OK``. Anything
+    else (a future code we don't know, a deployment bug, a
+    receiver that's mid-rotation) has to surface as a client
+    error so the WS-command layer can map it to ``UNAVAILABLE``
+    without leaking the raw response.
+    """
+    receiver_priv = secrets.token_bytes(32)
+
+    async def _handler(request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        sess = PeerLinkNoiseSession.responder(receiver_priv)
+        sess.read_handshake_message(await ws.receive_bytes())
+        await ws.send_bytes(sess.write_handshake_message(b""))
+        sess.read_handshake_message(await ws.receive_bytes())
+        # Preview never gets ``rejected`` from a real receiver
+        # (preview's responder branch unconditionally answers
+        # OK), but a misbehaving deployment could; pin the
+        # offloader-side rejection regardless.
+        await ws.send_bytes(sess.encrypt(b'{"intent_response": "rejected"}'))
+        await ws.close()
+        return ws
+
+    app = web.Application()
+    app.router.add_get(PEER_LINK_PATH, _handler)
+    server = TestServer(app)
+    await server.start_server()
+    initiator_priv = secrets.token_bytes(32)
+    try:
+        with pytest.raises(PeerLinkClientError, match="preview rejected"):
+            await preview_pair(
+                hostname="127.0.0.1",
+                port=server.port,
+                identity_priv=initiator_priv,
+            )
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_drive_initiator_round_trip_non_object_response_raises_client_error() -> None:
+    """Receiver's response decrypts to a JSON value that isn't a dict → PeerLinkClientError.
+
+    Defends against a wire-format slip where the receiver
+    encrypts a list / scalar / null instead of the agreed
+    ``{intent_response: ...}`` object. The driver has to refuse
+    cleanly so the caller doesn't pass a malformed value to
+    ``decoded.get(...)``.
+    """
+    receiver_priv = secrets.token_bytes(32)
+
+    async def _handler(request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        sess = PeerLinkNoiseSession.responder(receiver_priv)
+        sess.read_handshake_message(await ws.receive_bytes())
+        await ws.send_bytes(sess.write_handshake_message(b""))
+        sess.read_handshake_message(await ws.receive_bytes())
+        # Valid Noise + valid JSON, but not the object shape.
+        await ws.send_bytes(sess.encrypt(b'["surprise", 1, 2]'))
+        await ws.close()
+        return ws
+
+    app = web.Application()
+    app.router.add_get(PEER_LINK_PATH, _handler)
+    server = TestServer(app)
+    await server.start_server()
+    initiator_priv = secrets.token_bytes(32)
+    try:
+        with pytest.raises(PeerLinkClientError, match="not a JSON object"):
+            await drive_initiator_round_trip(
+                hostname="127.0.0.1",
+                port=server.port,
+                identity_priv=initiator_priv,
+                intent=PeerLinkIntent.PREVIEW,
+            )
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_drive_initiator_round_trip_missing_intent_response_raises_client_error() -> None:
+    """Response object without an ``intent_response`` string field → PeerLinkClientError.
+
+    Pin the contract: the driver has to refuse rather than pass
+    a missing-key dict to the caller's accept-set check (which
+    would silently mismatch every known response code).
+    """
+    receiver_priv = secrets.token_bytes(32)
+
+    async def _handler(request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        sess = PeerLinkNoiseSession.responder(receiver_priv)
+        sess.read_handshake_message(await ws.receive_bytes())
+        await ws.send_bytes(sess.write_handshake_message(b""))
+        sess.read_handshake_message(await ws.receive_bytes())
+        # Object shape but the wrong keys.
+        await ws.send_bytes(sess.encrypt(b'{"unrelated": "payload"}'))
+        await ws.close()
+        return ws
+
+    app = web.Application()
+    app.router.add_get(PEER_LINK_PATH, _handler)
+    server = TestServer(app)
+    await server.start_server()
+    initiator_priv = secrets.token_bytes(32)
+    try:
+        with pytest.raises(PeerLinkClientError, match="missing 'intent_response'"):
+            await drive_initiator_round_trip(
+                hostname="127.0.0.1",
+                port=server.port,
+                identity_priv=initiator_priv,
+                intent=PeerLinkIntent.PREVIEW,
+            )
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_drive_initiator_round_trip_handshake_not_complete_raises_client_error(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defensive: ``remote_static_pub`` raising ``HandshakeNotCompleteError`` is mapped.
+
+    Structurally unreachable from a black-box receiver — the
+    property only raises when the handshake hasn't completed,
+    and the driver only reaches that access after a successful
+    decrypt + JSON-parse + intent_response check (all of which
+    require a completed handshake). Replace the *initiator*
+    factory with a subclass whose ``remote_static_pub`` always
+    raises so the guard's mapping is exercised; the receiver's
+    factory is untouched so the in-process handshake still
+    completes normally. Without this guard, a future refactor
+    that broke the post-handshake state (an upstream API change
+    in noiseprotocol, a session that swallowed the captured
+    pubkey) would surface as an uncaught exception instead of
+    the documented ``PeerLinkClientError`` → ``UNAVAILABLE``
+    shape.
+    """
+    server, _, _ = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+
+    class _BrokenInitiator(PeerLinkNoiseSession):
+        @property
+        def remote_static_pub(self) -> bytes:
+            raise HandshakeNotCompleteError("forced for test")
+
+    real_initiator = PeerLinkNoiseSession.initiator
+
+    def _broken_factory(identity_priv: bytes) -> PeerLinkNoiseSession:
+        sess = real_initiator(identity_priv)
+        sess.__class__ = _BrokenInitiator
+        return sess
+
+    # Patch the symbol the driver actually imports — patching the
+    # classmethod on ``PeerLinkNoiseSession`` would affect the
+    # receiver-side handshake too and fail the test before the
+    # initiator's post-handshake access.
+    monkeypatch.setattr(
+        remote_build_peer_link_client.PeerLinkNoiseSession,
+        "initiator",
+        staticmethod(_broken_factory),
+    )
+
+    with pytest.raises(PeerLinkClientError, match="without capturing remote static pubkey"):
+        await drive_initiator_round_trip(
+            hostname="127.0.0.1",
+            port=server.port,
+            identity_priv=initiator_priv,
+            intent=PeerLinkIntent.PREVIEW,
+        )
+
+
+@pytest.mark.asyncio
+async def test_drive_initiator_round_trip_short_msg2_raises_noise_handshake_failed() -> None:
+    """A msg2 too short to parse → ``NoiseValueError`` → PeerLinkClientError.
+
+    The Noise read on msg2 raises out of :data:`NOISE_ERRORS`
+    rather than the connect-time / decode-time tuple. Pin that
+    the driver's separate ``except NOISE_ERRORS`` branch maps it
+    to the same :class:`PeerLinkClientError` surface (with the
+    distinguishing ``"Noise handshake failed"`` text in the
+    message) so the WS-command layer keeps a single
+    ``UNAVAILABLE`` mapping while logs preserve the underlying
+    cause.
+
+    A *too-short* msg2 lands as ``NoiseValueError("Invalid
+    length of public_bytes")``; a *length-correct but
+    cryptographically wrong* msg2 lands as a bare ``ValueError``
+    from the X25519 shared-key step (caught by the broader
+    transport-failure branch). Both surface as
+    ``PeerLinkClientError``, but only the short-msg2 path
+    exercises the dedicated ``NOISE_ERRORS`` clause.
+    """
+
+    async def _handler(request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        # Read msg1 to keep the WS upgrade clean, then write a
+        # too-short payload that trips ``NoiseValueError`` on
+        # the public-key parse before any crypto runs.
+        await ws.receive_bytes()
+        await ws.send_bytes(b"")
+        await ws.close()
+        return ws
+
+    app = web.Application()
+    app.router.add_get(PEER_LINK_PATH, _handler)
+    server = TestServer(app)
+    await server.start_server()
+    initiator_priv = secrets.token_bytes(32)
+    try:
+        with pytest.raises(PeerLinkClientError, match="Noise handshake failed"):
+            await drive_initiator_round_trip(
+                hostname="127.0.0.1",
+                port=server.port,
+                identity_priv=initiator_priv,
+                intent=PeerLinkIntent.PREVIEW,
             )
     finally:
         await server.close()
