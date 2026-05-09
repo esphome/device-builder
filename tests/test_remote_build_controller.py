@@ -522,6 +522,19 @@ def test_validate_hostname_rejects_empty() -> None:
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
+def test_validate_hostname_rejects_oversize() -> None:
+    """A megabyte-string masquerading as a hostname is rejected pre-store.
+
+    Caps at 255 chars (RFC 1035 §2.3.4 = 253, plus slack for
+    trailing-dot variations). The error message names the cap so a
+    misbehaving frontend can surface a useful diagnostic to the user.
+    """
+    with pytest.raises(CommandError) as exc:
+        _validate_hostname("a" * 256)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "255 characters" in str(exc.value)
+
+
 def test_validate_port_accepts_typical() -> None:
     assert _validate_port(6052) == 6052
 
