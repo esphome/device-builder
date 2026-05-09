@@ -30,7 +30,9 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.remote_build import (
     RemoteBuildController,
+    _decode_pairings,
     _decode_txt_value,
+    _encode_pairings,
     _enforce_pin_match,
     _intent_response_to_command_error,
     _pairing_summary,
@@ -51,6 +53,7 @@ from esphome_device_builder.models import (
     IdentityView,
     IntentResponse,
     ManualHost,
+    OffloaderRemoteBuildSettings,
     PairingSummary,
     PeerStatus,
     RemoteBuildPeer,
@@ -2197,3 +2200,50 @@ def test_pairing_summary_drops_static_pubkey() -> None:
     assert summary.status is PeerStatus.PENDING
     # PairingSummary doesn't carry the raw bytes.
     assert not hasattr(summary, "static_x25519_pub")
+
+
+# --- _decode_pairings / _encode_pairings ---
+
+
+def test_encode_decode_pairings_round_trip() -> None:
+    """Encoded bytes round-trip back through the decoder unchanged."""
+    settings = OffloaderRemoteBuildSettings(pairings=[_valid_stored_pairing()])
+    payload = _encode_pairings(settings)
+    decoded = _decode_pairings(payload)
+    assert decoded == settings
+
+
+def test_decode_pairings_recovers_to_empty_on_garbage(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A corrupt or unparsable file resets to empty + logs the exception.
+
+    The dashboard's policy on a corrupt offloader pairings file is
+    soft-recovery: every offloader has to re-pair (annoying but
+    not fatal), versus crashing the dashboard at startup which
+    would lock the user out entirely. The recovery is observable
+    via the logged exception so an operator can see *why* their
+    pairings vanished.
+    """
+    with caplog.at_level("ERROR"):
+        result = _decode_pairings(b"this is not json {{{")
+    assert result == OffloaderRemoteBuildSettings()
+    assert any("Corrupt offloader pairings file" in r.message for r in caplog.records), (
+        "expected corruption-recovery log line"
+    )
+
+
+def test_decode_pairings_recovers_to_empty_on_schema_drift(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """JSON parses but ``OffloaderRemoteBuildSettings.from_dict`` rejects → empty.
+
+    Pins the second branch of the recovery: valid JSON but a
+    payload mashumaro can't coerce (e.g. a list at the top level
+    where a dict is expected, or a future-shape sidecar a
+    downgraded dashboard read).
+    """
+    with caplog.at_level("ERROR"):
+        result = _decode_pairings(b'["unexpected", "list", "shape"]')
+    assert result == OffloaderRemoteBuildSettings()
+    assert any("Corrupt offloader pairings file" in r.message for r in caplog.records)

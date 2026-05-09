@@ -478,10 +478,21 @@ class StoredPairing(DataClassORJSONMixin):
     holds one in-RAM dict containing both PENDING and APPROVED
     rows; the disk filter in ``_serialize_pairings`` strips
     PENDING rows so the on-disk shape stays APPROVED-only.
-    ``status`` defaults to ``APPROVED`` so a row loaded from disk
-    lands in the right state without an explicit field on older
-    sidecars (mashumaro fills the default when the JSON key is
-    missing).
+    ``status`` defaults to ``APPROVED`` for two reasons:
+
+    * **Disk shape invariant** — only APPROVED rows ever reach
+      disk, so reading a row back from the per-file ``Store``
+      always produces an APPROVED row. The default matches the
+      invariant.
+    * **Test ergonomics** — fixtures and ad-hoc constructions
+      that don't care about lifecycle (most of the
+      validator-shape tests, the reflection-driven event-payload
+      contracts) don't have to thread a status arg through.
+
+    PENDING is the explicit case — ``request_pair`` sets it on
+    the row before adding it to the dict; ``_apply_pair_status_result``
+    flips it to APPROVED in place when the receiver reports the
+    flip.
 
     ``__post_init__`` enforces upper bounds on the user-supplied
     string fields (hostname, label) + shape on the cryptographic
