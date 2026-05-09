@@ -242,16 +242,30 @@ def _log_uncaught_exception(
     exc_traceback: object,
 ) -> None:
     """Forward an uncaught main-thread exception into ``logger.exception``."""
+    # typeshed types ``logger.exception(exc_info=...)`` more strictly
+    # than the runtime ABI: the triple form requires exc_traceback to
+    # be ``TracebackType | None``, not ``object``. Our caller is
+    # ``sys.excepthook`` which the runtime documents as passing
+    # exactly that triple shape. ``# type: ignore[arg-type]`` is the
+    # standard lever for this stdlib annotation gap.
     logging.getLogger().exception(
-        "Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback)
+        "Uncaught exception",
+        exc_info=(exc_type, exc_value, exc_traceback),  # type: ignore[arg-type]
     )
 
 
 def _log_uncaught_thread_exception(args: threading.ExceptHookArgs) -> None:
     """Forward an uncaught worker-thread exception into ``logger.exception``."""
+    # ``threading.ExceptHookArgs.exc_value`` is typed
+    # ``BaseException | None`` (the docs note threads can be killed
+    # without an exception object), but ``logger.exception``'s
+    # exc_info-triple form rejects ``None`` for the value slot. The
+    # runtime accepts the malformed-but-documented shape and renders
+    # "no exception" cleanly; ``# type: ignore[arg-type]`` keeps the
+    # typeshed strictness while preserving the runtime behaviour.
     logging.getLogger().exception(
         "Uncaught thread exception",
-        exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback),  # type: ignore[arg-type]
     )
 
 
