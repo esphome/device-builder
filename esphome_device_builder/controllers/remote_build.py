@@ -55,7 +55,7 @@ import re
 import time
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass as _dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from esphome.const import __version__ as esphome_version
 from zeroconf import IPVersion, ServiceStateChange
@@ -421,6 +421,23 @@ def _peer_summary(peer: StoredPeer) -> PeerSummary:
         paired_at=peer.paired_at,
         status=peer.status,
     )
+
+
+def _find_peer_by_dashboard_id(
+    settings: RemoteBuildSettings, dashboard_id: str
+) -> StoredPeer | None:
+    """Return the first :class:`StoredPeer` with this ``dashboard_id``, or ``None``.
+
+    Single-pass linear scan; ``dashboard_id`` is the table's
+    de-facto primary key (the receiver-UI WS commands key on it,
+    the peer-link dispatcher keys on it, the offloader's polling
+    loop keys on it) so a name-keyed index would just duplicate
+    state. The peer table is small (one row per paired offloader),
+    so the scan cost is fine and the convention "shape stays
+    list-of-dataclasses on disk" outweighs the O(N) -> O(1) win
+    for any production-realistic peer count.
+    """
+    return next((peer for peer in settings.peers if peer.dashboard_id == dashboard_id), None)
 
 
 def _validate_dashboard_id(raw: object) -> str:
@@ -1142,15 +1159,14 @@ class RemoteBuildController:
         clean_id = _validate_dashboard_id(dashboard_id)
 
         def _approve(settings: RemoteBuildSettings) -> None:
-            for peer in settings.peers:
-                if peer.dashboard_id == clean_id:
-                    if peer.status == PeerStatus.APPROVED:
-                        msg = f"peer is already approved: {clean_id}"
-                        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-                    peer.status = PeerStatus.APPROVED
-                    return
-            msg = f"no peer with dashboard_id: {clean_id}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
+            peer = _find_peer_by_dashboard_id(settings, clean_id)
+            if peer is None:
+                msg = f"no peer with dashboard_id: {clean_id}"
+                raise CommandError(ErrorCode.NOT_FOUND, msg)
+            if peer.status == PeerStatus.APPROVED:
+                msg = f"peer is already approved: {clean_id}"
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
+            peer.status = PeerStatus.APPROVED
 
         view = await self._modify_settings(_approve)
         self._fire_pair_status_changed(clean_id, "approved")
@@ -1183,15 +1199,12 @@ class RemoteBuildController:
 
         def _remove(settings: RemoteBuildSettings) -> None:
             nonlocal previous_status
-            for peer in settings.peers:
-                if peer.dashboard_id == clean_id:
-                    previous_status = peer.status
-                    break
-            kept = [peer for peer in settings.peers if peer.dashboard_id != clean_id]
-            if len(kept) == len(settings.peers):
+            peer = _find_peer_by_dashboard_id(settings, clean_id)
+            if peer is None:
                 msg = f"no peer with dashboard_id: {clean_id}"
                 raise CommandError(ErrorCode.NOT_FOUND, msg)
-            settings.peers = kept
+            previous_status = peer.status
+            settings.peers = [p for p in settings.peers if p.dashboard_id != clean_id]
 
         view = await self._modify_settings(_remove)
         if previous_status == PeerStatus.APPROVED:
@@ -1249,41 +1262,40 @@ class RemoteBuildController:
 
         def _record(settings: RemoteBuildSettings) -> None:
             now = time.time()
-            for peer in settings.peers:
-                if peer.dashboard_id != dashboard_id:
-                    continue
-                if peer.status == PeerStatus.APPROVED:
-                    if peer.pin_sha256 != pin_sha256:
-                        # Pin mismatch on an APPROVED row is a
-                        # rotation-or-impersonation signal; refuse
-                        # rather than silently re-approve under the
-                        # new identity.
-                        outcome.response = IntentResponse.REJECTED
-                        return
-                    outcome.response = IntentResponse.APPROVED
-                    return
-                # PENDING: refresh in place. The pin / pubkey may
-                # have changed (offloader rotated), the label may
-                # have changed (user renamed the dashboard before
-                # they clicked Accept). Keep the row's status =
-                # PENDING; the user re-Accepts when ready.
-                peer.refresh_from_pair_request(
-                    pin_sha256=pin_sha256,
-                    static_x25519_pub=static_x25519_pub,
-                    label=label,
-                    paired_at=now,
+            peer = _find_peer_by_dashboard_id(settings, dashboard_id)
+            if peer is None:
+                settings.peers.append(
+                    StoredPeer(
+                        dashboard_id=dashboard_id,
+                        pin_sha256=pin_sha256,
+                        static_x25519_pub=static_x25519_pub,
+                        label=label,
+                        paired_at=now,
+                        status=PeerStatus.PENDING,
+                    )
                 )
                 outcome.response = IntentResponse.PENDING
                 return
-            settings.peers.append(
-                StoredPeer(
-                    dashboard_id=dashboard_id,
-                    pin_sha256=pin_sha256,
-                    static_x25519_pub=static_x25519_pub,
-                    label=label,
-                    paired_at=now,
-                    status=PeerStatus.PENDING,
-                )
+            if peer.status == PeerStatus.APPROVED:
+                if peer.pin_sha256 != pin_sha256:
+                    # Pin mismatch on an APPROVED row is a
+                    # rotation-or-impersonation signal; refuse
+                    # rather than silently re-approve under the
+                    # new identity.
+                    outcome.response = IntentResponse.REJECTED
+                    return
+                outcome.response = IntentResponse.APPROVED
+                return
+            # PENDING: refresh in place. The pin / pubkey may
+            # have changed (offloader rotated), the label may
+            # have changed (user renamed the dashboard before
+            # they clicked Accept). Keep the row's status =
+            # PENDING; the user re-Accepts when ready.
+            peer.refresh_from_pair_request(
+                pin_sha256=pin_sha256,
+                static_x25519_pub=static_x25519_pub,
+                label=label,
+                paired_at=now,
             )
             outcome.response = IntentResponse.PENDING
 
@@ -1388,15 +1400,12 @@ class RemoteBuildController:
         settings = await loop.run_in_executor(
             None, load_remote_build_settings, self._db.settings.config_dir
         )
-        for peer in settings.peers:
-            if peer.dashboard_id != dashboard_id:
-                continue
-            if peer.pin_sha256 != pin_sha256:
-                return IntentResponse.REJECTED
-            if peer.status == PeerStatus.APPROVED:
-                return approved_response
-            return IntentResponse.PENDING
-        return IntentResponse.REJECTED
+        peer = _find_peer_by_dashboard_id(settings, dashboard_id)
+        if peer is None or peer.pin_sha256 != pin_sha256:
+            return IntentResponse.REJECTED
+        if peer.status == PeerStatus.APPROVED:
+            return approved_response
+        return IntentResponse.PENDING
 
     # ------------------------------------------------------------------
     # Pairing window (phase 4a-r1 part 3) — in-process deadline that
@@ -1513,7 +1522,9 @@ class RemoteBuildController:
             return PairingWindowState(open=False, expires_in_seconds=None)
         return PairingWindowState(open=True, expires_in_seconds=remaining)
 
-    def _fire_pair_status_changed(self, dashboard_id: str, status: str) -> None:
+    def _fire_pair_status_changed(
+        self, dashboard_id: str, status: Literal["approved", "removed"]
+    ) -> None:
         """
         Fire ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` for a peer transition.
 

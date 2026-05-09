@@ -39,6 +39,7 @@ from esphome_device_builder.controllers.remote_build import RemoteBuildControlle
 from esphome_device_builder.controllers.remote_build_peer_link import (
     PEER_LINK_PATH,
     _dispatch_intent,
+    _DispatchInput,
     make_peer_link_handler,
 )
 from esphome_device_builder.helpers import json as _json
@@ -89,13 +90,15 @@ async def test_dispatch_preview_returns_ok(tmp_path: Path) -> None:
     controller._db.bus = MagicMock()
 
     response = await _dispatch_intent(
-        controller=controller,
-        intent=PeerLinkIntent.PREVIEW,
-        dashboard_id="alpha",
-        label="alpha",
-        pin_sha256="pin",
-        static_x25519_pub=b"\x00" * 32,
-        peer_ip="192.168.1.10",
+        controller,
+        _DispatchInput(
+            intent=PeerLinkIntent.PREVIEW,
+            dashboard_id="alpha",
+            label="alpha",
+            pin_sha256="pin",
+            static_x25519_pub=b"\x00" * 32,
+            peer_ip="192.168.1.10",
+        ),
     )
 
     assert response is IntentResponse.OK
@@ -113,13 +116,15 @@ async def test_dispatch_pair_request_open_window_creates_pending(tmp_path: Path)
     pubkey = b"\xaa" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
     response = await _dispatch_intent(
-        controller=controller,
-        intent=PeerLinkIntent.PAIR_REQUEST,
-        dashboard_id="alpha",
-        label="alpha",
-        pin_sha256=pin,
-        static_x25519_pub=pubkey,
-        peer_ip="192.168.1.10",
+        controller,
+        _DispatchInput(
+            intent=PeerLinkIntent.PAIR_REQUEST,
+            dashboard_id="alpha",
+            label="alpha",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            peer_ip="192.168.1.10",
+        ),
     )
 
     assert response is IntentResponse.PENDING
@@ -140,13 +145,15 @@ async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
     controller._db.bus = MagicMock()
 
     response = await _dispatch_intent(
-        controller=controller,
-        intent=PeerLinkIntent.PAIR_REQUEST,
-        dashboard_id="alpha",
-        label="alpha",
-        pin_sha256="pin",
-        static_x25519_pub=b"\x00" * 32,
-        peer_ip="192.168.1.10",
+        controller,
+        _DispatchInput(
+            intent=PeerLinkIntent.PAIR_REQUEST,
+            dashboard_id="alpha",
+            label="alpha",
+            pin_sha256="pin",
+            static_x25519_pub=b"\x00" * 32,
+            peer_ip="192.168.1.10",
+        ),
     )
 
     assert response is IntentResponse.NO_PAIRING_WINDOW
@@ -177,13 +184,15 @@ async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
     )
 
     response = await _dispatch_intent(
-        controller=controller,
-        intent=PeerLinkIntent.PEER_LINK,
-        dashboard_id="alpha",
-        label="",
-        pin_sha256=pin,
-        static_x25519_pub=pubkey,
-        peer_ip="192.168.1.10",
+        controller,
+        _DispatchInput(
+            intent=PeerLinkIntent.PEER_LINK,
+            dashboard_id="alpha",
+            label="",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            peer_ip="192.168.1.10",
+        ),
     )
 
     assert response is IntentResponse.OK
@@ -205,13 +214,15 @@ async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_pat
     controller._db.bus.fire.reset_mock()
 
     response = await _dispatch_intent(
-        controller=controller,
-        intent=PeerLinkIntent.PAIR_REQUEST,
-        dashboard_id="",  # empty — should fail the gate
-        label="alpha",
-        pin_sha256="pin",
-        static_x25519_pub=b"\x00" * 32,
-        peer_ip="192.168.1.10",
+        controller,
+        _DispatchInput(
+            intent=PeerLinkIntent.PAIR_REQUEST,
+            dashboard_id="",  # empty — should fail the gate
+            label="alpha",
+            pin_sha256="pin",
+            static_x25519_pub=b"\x00" * 32,
+            peer_ip="192.168.1.10",
+        ),
     )
 
     assert response is IntentResponse.REJECTED
@@ -242,13 +253,15 @@ async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
 
     # Spaces aren't in the base64url alphabet.
     response = await _dispatch_intent(
-        controller=controller,
-        intent=PeerLinkIntent.PAIR_REQUEST,
-        dashboard_id="has spaces!",
-        label="alpha",
-        pin_sha256="pin",
-        static_x25519_pub=b"\x00" * 32,
-        peer_ip="192.168.1.10",
+        controller,
+        _DispatchInput(
+            intent=PeerLinkIntent.PAIR_REQUEST,
+            dashboard_id="has spaces!",
+            label="alpha",
+            pin_sha256="pin",
+            static_x25519_pub=b"\x00" * 32,
+            peer_ip="192.168.1.10",
+        ),
     )
 
     assert response is IntentResponse.REJECTED
@@ -278,13 +291,15 @@ async def test_dispatch_pair_status_pending_returns_pending(tmp_path: Path) -> N
     )
 
     response = await _dispatch_intent(
-        controller=controller,
-        intent=PeerLinkIntent.PAIR_STATUS,
-        dashboard_id="alpha",
-        label="",
-        pin_sha256=pin,
-        static_x25519_pub=pubkey,
-        peer_ip="192.168.1.10",
+        controller,
+        _DispatchInput(
+            intent=PeerLinkIntent.PAIR_STATUS,
+            dashboard_id="alpha",
+            label="",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            peer_ip="192.168.1.10",
+        ),
     )
 
     assert response is IntentResponse.PENDING

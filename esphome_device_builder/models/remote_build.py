@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
@@ -220,7 +220,7 @@ class RemoteBuildPairStatusChangedData(TypedDict):
     """
 
     dashboard_id: str
-    status: str  # "approved" | "removed"
+    status: Literal["approved", "removed"]
 
 
 class RemoteBuildPairingWindowChangedData(TypedDict):

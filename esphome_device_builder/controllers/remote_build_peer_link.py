@@ -43,11 +43,18 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import WSMsgType, web
+from noise.exceptions import (
+    NoiseHandshakeError,
+    NoiseInvalidMessage,
+    NoiseMaxNonceError,
+    NoiseValueError,
+)
 
 from ..helpers import json as _json
 from ..helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
@@ -58,6 +65,21 @@ from ..helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ..models import IntentResponse, PeerLinkIntent
+
+# noiseprotocol exceptions don't share a common base; tuple-catch
+# the relevant subset rather than ``except Exception:``. Covers
+# malformed-Noise-frame failures from ``read_message`` /
+# ``write_message`` and nonce / state errors from ``encrypt`` /
+# ``decrypt``. A genuine bug (using the API wrong) raises one of
+# these too, but the WS handler's outer ``except Exception:`` in
+# :func:`make_peer_link_handler`'s closure still catches anything
+# else and logs with traceback.
+_NOISE_ERRORS = (
+    NoiseHandshakeError,
+    NoiseInvalidMessage,
+    NoiseMaxNonceError,
+    NoiseValueError,
+)
 
 
 class _HandshakeStep(StrEnum):
@@ -77,6 +99,29 @@ class _HandshakeStep(StrEnum):
     MSG1 = "msg1"
     MSG2 = "msg2"
     MSG3 = "msg3"
+
+
+@dataclass(frozen=True)
+class _DispatchInput:
+    """
+    Per-session inputs to :func:`_dispatch_intent`.
+
+    Bundles the six values ``_drive_peer_link_session`` extracts
+    from the Noise handshake transcript + msg3 payload + WS
+    request: the intent discriminator, the offloader-supplied
+    metadata (dashboard_id, label), the handshake-derived
+    identity (pin_sha256 + static_x25519_pub) and the connection
+    metadata (peer_ip). Frozen because the dispatcher only reads;
+    a single object beats threading six kwargs through the call
+    site.
+    """
+
+    intent: PeerLinkIntent
+    dashboard_id: str
+    label: str
+    pin_sha256: str
+    static_x25519_pub: bytes
+    peer_ip: str
 
 
 if TYPE_CHECKING:
@@ -190,26 +235,22 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     label = _str_or_empty(msg3.get("label"))
 
     response = await _dispatch_intent(
-        controller=controller,
-        intent=intent,
-        dashboard_id=dashboard_id,
-        label=label,
-        pin_sha256=pin,
-        static_x25519_pub=remote_static_pub,
-        peer_ip=peer_ip,
+        controller,
+        _DispatchInput(
+            intent=intent,
+            dashboard_id=dashboard_id,
+            label=label,
+            pin_sha256=pin,
+            static_x25519_pub=remote_static_pub,
+            peer_ip=peer_ip,
+        ),
     )
     await _send_response(session, ws, response)
 
 
 async def _dispatch_intent(
-    *,
     controller: RemoteBuildController,
-    intent: PeerLinkIntent,
-    dashboard_id: str,
-    label: str,
-    pin_sha256: str,
-    static_x25519_pub: bytes,
-    peer_ip: str,
+    inp: _DispatchInput,
 ) -> IntentResponse:
     """
     Resolve a single peer-link intent into a typed :class:`IntentResponse`.
@@ -222,7 +263,7 @@ async def _dispatch_intent(
     member; an unknown wire value returns ``IntentResponse.REJECTED``
     before reaching this function.
     """
-    if intent is PeerLinkIntent.PREVIEW:
+    if inp.intent is PeerLinkIntent.PREVIEW:
         # Preview captures the responder's static pubkey via the
         # handshake transcript; nothing else to do server-side
         # and the offloader doesn't need a dashboard_id yet.
@@ -236,28 +277,30 @@ async def _dispatch_intent(
     # the WS-command path; both consumers import the constants
     # from ``helpers.dashboard_identity`` so they can't drift.
     if (
-        not dashboard_id
-        or len(dashboard_id) > DASHBOARD_ID_MAX_CHARS
-        or not DASHBOARD_ID_PATTERN.fullmatch(dashboard_id)
+        not inp.dashboard_id
+        or len(inp.dashboard_id) > DASHBOARD_ID_MAX_CHARS
+        or not DASHBOARD_ID_PATTERN.fullmatch(inp.dashboard_id)
     ):
         return IntentResponse.REJECTED
 
-    if intent is PeerLinkIntent.PAIR_REQUEST:
+    if inp.intent is PeerLinkIntent.PAIR_REQUEST:
         if not controller.is_pairing_window_open():
             return IntentResponse.NO_PAIRING_WINDOW
         return await controller.record_pair_request(
-            dashboard_id=dashboard_id,
-            pin_sha256=pin_sha256,
-            static_x25519_pub=static_x25519_pub,
-            label=label,
-            peer_ip=peer_ip,
+            dashboard_id=inp.dashboard_id,
+            pin_sha256=inp.pin_sha256,
+            static_x25519_pub=inp.static_x25519_pub,
+            label=inp.label,
+            peer_ip=inp.peer_ip,
         )
-    if intent is PeerLinkIntent.PEER_LINK:
+    if inp.intent is PeerLinkIntent.PEER_LINK:
         return await controller.lookup_peer_for_session(
-            dashboard_id=dashboard_id, pin_sha256=pin_sha256
+            dashboard_id=inp.dashboard_id, pin_sha256=inp.pin_sha256
         )
     # PeerLinkIntent.PAIR_STATUS — exhaustive enum match.
-    return await controller.lookup_peer_for_status(dashboard_id=dashboard_id, pin_sha256=pin_sha256)
+    return await controller.lookup_peer_for_status(
+        dashboard_id=inp.dashboard_id, pin_sha256=inp.pin_sha256
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -285,9 +328,35 @@ async def _read_handshake_message(
         return None
     try:
         return session.read_handshake_message(msg.data)
-    except Exception:
+    except _NOISE_ERRORS:
         _LOGGER.warning("peer-link Noise %s read failed", step, exc_info=True)
         return None
+
+
+async def _send_bytes_safely(
+    ws: web.WebSocketResponse,
+    encoded: bytes,
+    *,
+    log_label: str,
+) -> bool:
+    """
+    Write *encoded* to *ws* and return True on success.
+
+    Re-raises ``ConnectionResetError`` so the outer handler's
+    ``except Exception:`` (in :func:`make_peer_link_handler`'s
+    closure) can log the disconnect with traceback and let the
+    finally-block close the WS. Other exceptions are debug-logged
+    and the function returns False so the caller can short-circuit
+    the rest of the handshake / response sequence.
+    """
+    try:
+        await ws.send_bytes(encoded)
+    except ConnectionResetError:
+        raise
+    except Exception:
+        _LOGGER.debug("peer-link send %s failed", log_label, exc_info=True)
+        return False
+    return True
 
 
 async def _send_handshake_message(
@@ -299,17 +368,10 @@ async def _send_handshake_message(
     """Send one Noise handshake message as a binary WS frame; return True on success."""
     try:
         encoded = session.write_handshake_message(payload)
-    except Exception:
+    except _NOISE_ERRORS:
         _LOGGER.warning("peer-link Noise %s write failed", step, exc_info=True)
         return False
-    try:
-        await ws.send_bytes(encoded)
-    except ConnectionResetError:
-        raise
-    except Exception:
-        _LOGGER.debug("peer-link send %s failed", step, exc_info=True)
-        return False
-    return True
+    return await _send_bytes_safely(ws, encoded, log_label=str(step))
 
 
 async def _send_response(
@@ -321,15 +383,10 @@ async def _send_response(
     body = _json.dumps({"intent_response": response.value})
     try:
         encrypted = session.encrypt(body)
-    except Exception:
+    except _NOISE_ERRORS:
         _LOGGER.warning("peer-link transport encrypt failed", exc_info=True)
         return
-    try:
-        await ws.send_bytes(encrypted)
-    except ConnectionResetError:
-        raise
-    except Exception:
-        _LOGGER.debug("peer-link send response failed", exc_info=True)
+    await _send_bytes_safely(ws, encrypted, log_label="response")
 
 
 def _parse_intent(payload: bytes) -> PeerLinkIntent | None:
