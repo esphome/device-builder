@@ -223,6 +223,43 @@ async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
+    tmp_path: Path,
+) -> None:
+    """
+    pair_request with a dashboard_id that fails the regex/length check is REJECTED.
+
+    The dispatcher uses the same ``DASHBOARD_ID_PATTERN`` /
+    ``DASHBOARD_ID_MAX_CHARS`` contract that the WS-command path
+    enforces, so an offloader sending ``"has spaces!"`` or a
+    65-char string can't create a row that the WS-command path
+    would later refuse to operate on.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await controller.set_pairing_window(open=True, client="receiver-tab")
+    controller._db.bus.fire.reset_mock()
+
+    # Spaces aren't in the base64url alphabet.
+    response = await _dispatch_intent(
+        controller=controller,
+        intent=PeerLinkIntent.PAIR_REQUEST,
+        dashboard_id="has spaces!",
+        label="alpha",
+        pin_sha256="pin",
+        static_x25519_pub=b"\x00" * 32,
+        peer_ip="192.168.1.10",
+    )
+
+    assert response is IntentResponse.REJECTED
+    controller._db.bus.fire.assert_not_called()
+    loop = asyncio.get_running_loop()
+    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
+    assert settings.peers == []
+    await controller.stop()
+
+
+@pytest.mark.asyncio
 async def test_dispatch_pair_status_pending_returns_pending(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()

@@ -49,6 +49,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import WSMsgType, web
 
 from ..helpers import json as _json
+from ..helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
 from ..helpers.peer_link_identity import get_or_create_peer_link_identity
 from ..helpers.peer_link_noise import (
     HandshakeNotCompleteError,
@@ -221,9 +222,17 @@ async def _dispatch_intent(
         return IntentResponse.OK
 
     # Every other intent identifies the offloader by dashboard_id;
-    # an empty / missing value would create or look up nonsense
-    # rows, so reject before any controller call.
-    if not dashboard_id:
+    # an empty / missing / malformed value would create or look up
+    # nonsense rows, so reject before any controller call. The
+    # alphabet + length contract is the same one
+    # ``helpers.remote_build_auth._validate_dashboard_id`` uses for
+    # the WS-command path; both consumers import the constants
+    # from ``helpers.dashboard_identity`` so they can't drift.
+    if (
+        not dashboard_id
+        or len(dashboard_id) > DASHBOARD_ID_MAX_CHARS
+        or not DASHBOARD_ID_PATTERN.fullmatch(dashboard_id)
+    ):
         return IntentResponse.REJECTED
 
     if intent is PeerLinkIntent.PAIR_REQUEST:
