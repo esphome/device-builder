@@ -778,10 +778,24 @@ class DeviceBuilder:
             runner = web.AppRunner(app)
             await runner.setup()
             host = self.settings.host
-            port = self.settings.remote_build_port
-            site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
+            configured_port = self.settings.remote_build_port
+            site = web.TCPSite(runner, host, configured_port, ssl_context=ssl_context)
             await site.start()
             self._remote_build_runner = runner
+            # Resolve the actually-bound port. ``configured_port=0``
+            # tells the OS to pick an ephemeral port; if we then
+            # advertised ``0`` in mDNS TXT and logged ``0``,
+            # discovery would point peers at port 0 (unreachable)
+            # and the operator's "what port am I on?" question
+            # would be unanswerable. Read the real port off the
+            # bound socket. When ``configured_port`` is non-zero
+            # this returns the same value, so the branch is
+            # harmless on the default path too.
+            port = configured_port
+            if configured_port == 0 and site._server is not None:
+                sockets = site._server.sockets
+                if sockets:
+                    port = sockets[0].getsockname()[1]
         except Exception:
             _LOGGER.exception(
                 "Remote-build HTTPS site failed to start; dashboard continues "

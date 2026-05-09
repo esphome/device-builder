@@ -296,6 +296,55 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
 
 
 @pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemeral(
+    tmp_path: Path,
+) -> None:
+    """
+    ``remote_build_port=0`` advertises the OS-assigned port, not literal 0.
+
+    When the operator binds with ``--remote-build-port 0`` (or a
+    test pins it to 0 to avoid collisions), the OS picks an
+    ephemeral port. Advertising or logging ``0`` would point
+    peers at an unreachable port and the operator couldn't
+    answer "what port am I on?". Resolve the actual bound port
+    from the socket and pass that to the advertiser.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0  # ask the OS for an ephemeral port
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build = MagicMock()
+    db.remote_build.lookup_token = MagicMock(return_value=None)
+
+    fake_advertiser = MagicMock()
+    fake_advertiser.set_pin_sha256 = MagicMock()
+    fake_advertiser.set_remote_build_port = MagicMock()
+    fake_advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = fake_advertiser
+
+    try:
+        await db._maybe_start_remote_build_site()
+        assert db._remote_build_runner is not None
+        # The advertiser receives the OS-assigned port, never 0.
+        assert fake_advertiser.set_remote_build_port.called
+        advertised = fake_advertiser.set_remote_build_port.call_args.args[0]
+        assert advertised != 0
+        assert 1024 <= advertised <= 65535
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()
+
+
+@pytest.mark.asyncio
 async def test_maybe_start_remote_build_site_warns_on_ha_addon(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
