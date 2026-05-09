@@ -261,15 +261,6 @@ def test_unhandled_job_type_with_configuration_falls_through_silently() -> None:
     controller._build_size.request.assert_not_called()
 
 
-def test_event_without_job_payload_is_safe() -> None:
-    """Defensive: ``data["job"]`` missing must not raise."""
-    controller, captured = _make_controller()
-
-    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {}))
-
-    assert captured == []
-
-
 # ----------------------------------------------------------------------
 # DevicesController._refresh_after_firmware_job
 # ----------------------------------------------------------------------

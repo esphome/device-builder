@@ -2821,12 +2821,10 @@ class DevicesController:
         compare against the firmware's broadcast hash; UPLOAD doesn't
         recompile, so it reuses whatever the previous compile cached.
         """
-        job = event.data.get("job")
-        if job is None:
+        job = event.data["job"]
+        if job.status != JobStatus.COMPLETED:
             return
-        if getattr(job, "status", None) != JobStatus.COMPLETED:
-            return
-        job_type = getattr(job, "job_type", None)
+        job_type = job.job_type
         if job_type == JobType.RENAME:
             # ``esphome rename`` deletes the old YAML and writes a new
             # one with a different filename — neither path is the
@@ -2835,7 +2833,7 @@ class DevicesController:
             # old entry and the appearance of the new one.
             self._db.create_background_task(self._scanner.scan())
             return
-        configuration = getattr(job, "configuration", "")
+        configuration = job.configuration
         if not configuration:
             return
         if job_type == JobType.CLEAN:

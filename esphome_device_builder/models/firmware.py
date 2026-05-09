@@ -156,13 +156,19 @@ class JobLifecycleData(TypedDict):
 
 
 class JobOutputData(TypedDict):
-    """
+    r"""
     Payload for ``EventType.JOB_OUTPUT``.
 
-    One event per output line of a running subprocess. ``job_id``
-    keys the line to its job; ``line`` is the raw stdout/stderr
-    text (without trailing newline). The ``follow_job`` /
-    ``stream_logs`` streams push these through verbatim.
+    One event per output chunk of a running subprocess. ``job_id``
+    keys the chunk to its job; ``line`` is the raw stdout/stderr
+    text *with its trailing terminator preserved* — ``\n``,
+    ``\r``, or ``\r\n`` (see ``iter_lines_with_progress`` for why
+    the terminator rides through). Carriage-return-only chunks
+    are esptool / PlatformIO progress overwrites; the frontend's
+    ansi-log renderer leans on the distinction to decide whether
+    to append a new line or overwrite the last one. The
+    ``follow_job`` / ``stream_logs`` streams push these through
+    verbatim.
     """
 
     job_id: str
