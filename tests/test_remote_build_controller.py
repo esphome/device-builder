@@ -33,6 +33,7 @@ from esphome_device_builder.controllers.remote_build import (
     _enforce_pin_match,
     _intent_response_to_command_error,
     _pairing_summary,
+    _PairLabelField,
     _peer_from_manual_host,
     _peer_from_service_info,
     _upsert_pairing,
@@ -1845,24 +1846,26 @@ def test_validate_pin_sha256_rejects_non_string() -> None:
 
 
 def test_validate_pair_label_strips_and_returns() -> None:
-    assert _validate_pair_label("  Kitchen  ") == "Kitchen"
+    assert _validate_pair_label("  Kitchen  ", field=_PairLabelField.RECEIVER_LABEL) == "Kitchen"
 
 
 def test_validate_pair_label_accepts_empty() -> None:
-    """Empty label is fine — user may not have named the receiver."""
-    assert _validate_pair_label("") == ""
+    """Empty label is fine; user may not have named the receiver."""
+    assert _validate_pair_label("", field=_PairLabelField.RECEIVER_LABEL) == ""
 
 
 def test_validate_pair_label_rejects_oversize() -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_pair_label("x" * 129)
+        _validate_pair_label("x" * 129, field=_PairLabelField.OFFLOADER_LABEL)
     assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "offloader_label" in str(exc.value)
 
 
 def test_validate_pair_label_rejects_non_string() -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_pair_label(42)  # type: ignore[arg-type]
+        _validate_pair_label(42, field=_PairLabelField.RECEIVER_LABEL)  # type: ignore[arg-type]
     assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "receiver_label" in str(exc.value)
 
 
 # --- _intent_response_to_command_error ---

@@ -62,6 +62,7 @@ import logging
 import time
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass as _dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -252,7 +253,48 @@ def _peer_from_manual_host(entry: ManualHost) -> RemoteBuildPeer:
 _HOSTNAME_MAX_CHARS = 255  # RFC 1035 §2.3.4 caps a FQDN at 253; round up to 255.
 
 
-def _validate_hostname(raw: object) -> str:
+class _HostFieldContext(StrEnum):
+    """Error-message prefix for the shared host / port validators.
+
+    The same ``_validate_hostname`` / ``_validate_port`` pair gates
+    both the receiver-side ``add_manual_host`` surface and the
+    offloader-side ``preview_pair`` / ``request_pair`` flow.
+    Hardcoding ``"manual host:"`` in the error messages would leak
+    misleading diagnostics into the WS layer when a frontend bug
+    sends a bad ``hostname`` to ``request_pair`` ("manual host:
+    'hostname' must not be empty" — but the user wasn't editing
+    a manual host). Pick the right prefix at the call site
+    instead.
+
+    StrEnum values are the message prefix verbatim; new call sites
+    that want a distinct user-facing string add a new enum member
+    rather than passing a free-form string (so the prefixes are
+    grep-able and don't drift).
+    """
+
+    MANUAL_HOST = "manual host"
+    RECEIVER = "receiver"
+
+
+class _PairLabelField(StrEnum):
+    """Wire arg name for ``_validate_pair_label`` error messages.
+
+    ``request_pair`` takes two distinct labels — ``receiver_label``
+    for local storage and ``offloader_label`` sent to the receiver
+    in msg3 — and a validation failure must name the failing arg so
+    the frontend can pin the inline error to the right input. StrEnum
+    values are the wire arg name verbatim; new call sites add a new
+    enum member rather than passing a free-form string (mirrors
+    :class:`_HostFieldContext`).
+    """
+
+    RECEIVER_LABEL = "receiver_label"
+    OFFLOADER_LABEL = "offloader_label"
+
+
+def _validate_hostname(
+    raw: object, *, context: _HostFieldContext = _HostFieldContext.MANUAL_HOST
+) -> str:
     """
     Normalise a user-entered hostname to its canonical lowercase form.
 
@@ -294,14 +336,14 @@ def _validate_hostname(raw: object) -> str:
     for later.
     """
     if not isinstance(raw, str):
-        msg = "manual host: 'hostname' must be a string"
+        msg = f"{context}: 'hostname' must be a string"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     trimmed = raw.strip().lower()
     if not trimmed:
-        msg = "manual host: 'hostname' must not be empty"
+        msg = f"{context}: 'hostname' must not be empty"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     if len(trimmed) > _HOSTNAME_MAX_CHARS:
-        msg = f"manual host: 'hostname' must be at most {_HOSTNAME_MAX_CHARS} characters"
+        msg = f"{context}: 'hostname' must be at most {_HOSTNAME_MAX_CHARS} characters"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     # The ``port=80, path="/"`` are sentinels for the build call
     # — only the host arg is being validated. yarl's host parser
@@ -311,7 +353,7 @@ def _validate_hostname(raw: object) -> str:
     try:
         URL.build(scheme="ws", host=trimmed, port=80, path="/")
     except ValueError as exc:
-        msg = f"manual host: 'hostname' is not a valid host: {exc}"
+        msg = f"{context}: 'hostname' is not a valid host: {exc}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
     return trimmed
 
@@ -409,23 +451,27 @@ def _validate_pin_sha256(raw: object) -> str:
     return cleaned
 
 
-def _validate_pair_label(raw: object) -> str:
-    """Validate the user-supplied ``label`` for a new pairing.
+def _validate_pair_label(raw: object, *, field: _PairLabelField) -> str:
+    """Validate a user-supplied pair-flow label.
 
     Capped at 128 chars to match
     :data:`controllers.remote_build_peer_link._PEER_LABEL_MAX_CHARS`
     (the receiver's truncation cap on the same field), so a
     label that round-trips through pair_request lands in both
     sides' tables with identical content. Empty labels are
-    allowed — the user may legitimately not name the receiver
-    yet; the frontend can render a placeholder.
+    allowed; the user may legitimately not name the receiver
+    yet, and the frontend can render a placeholder.
+
+    *field* names the failing arg in the diagnostic via
+    :class:`_PairLabelField` so the frontend can pin the inline
+    error to the right input.
     """
     if not isinstance(raw, str):
-        msg = "label must be a string"
+        msg = f"{field} must be a string"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     cleaned = raw.strip()
     if len(cleaned) > _PAIR_LABEL_MAX_CHARS:
-        msg = f"label must be at most {_PAIR_LABEL_MAX_CHARS} characters"
+        msg = f"{field} must be at most {_PAIR_LABEL_MAX_CHARS} characters"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return cleaned
 
@@ -544,7 +590,9 @@ def _validate_dashboard_id(raw: object) -> str:
     return cleaned
 
 
-def _validate_port(raw: object) -> int:
+def _validate_port(
+    raw: object, *, context: _HostFieldContext = _HostFieldContext.MANUAL_HOST
+) -> int:
     """
     Validate a user-entered port number.
 
@@ -553,12 +601,16 @@ def _validate_port(raw: object) -> int:
     (silently coerces to 1, which IANA reserves for tcpmux).
     Range is the IANA-registered ephemeral plus
     well-known: 1-65535.
+
+    *context* prefixes every error message; see
+    :class:`_HostFieldContext` for the rationale and the
+    list of valid prefixes.
     """
     if isinstance(raw, bool) or not isinstance(raw, int):
-        msg = "manual host: 'port' must be an integer"
+        msg = f"{context}: 'port' must be an integer"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     if not 1 <= raw <= 65535:
-        msg = "manual host: 'port' must be between 1 and 65535"
+        msg = f"{context}: 'port' must be between 1 and 65535"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return raw
 
@@ -939,8 +991,8 @@ class RemoteBuildController:
             timeout, malformed Noise frame, mismatched
             ``intent_response``).
         """
-        clean_host = _validate_hostname(hostname)
-        clean_port = _validate_port(port)
+        clean_host = _validate_hostname(hostname, context=_HostFieldContext.RECEIVER)
+        clean_port = _validate_port(port, context=_HostFieldContext.RECEIVER)
         loop = asyncio.get_running_loop()
         identity = await loop.run_in_executor(
             None,
@@ -964,17 +1016,35 @@ class RemoteBuildController:
         hostname: str,
         port: int,
         pin_sha256: str,
-        label: str,
+        receiver_label: str,
+        offloader_label: str,
         **kwargs: Any,
     ) -> PairingSummary:
         """Open a Noise XX WS, send ``intent="pair_request"``, persist a local row.
 
         The offloader's second handshake with a receiver, after
         the user has OOB-confirmed the receiver's pin via
-        :meth:`preview_pair`. Sends ``{"label": label,
-        "dashboard_id": <ours>}`` in the encrypted msg3
-        payload; the receiver's response decides what state the
-        local :class:`StoredPairing` row lands in.
+        :meth:`preview_pair`. Sends ``{"label":
+        offloader_label, "dashboard_id": <ours>}`` in the
+        encrypted msg3 payload; the receiver's response decides
+        what state the local :class:`StoredPairing` row lands
+        in.
+
+        Two distinct labels because the offloader-side and
+        receiver-side rows mean different things:
+
+        * *receiver_label* — what the offloader's user calls the
+          receiver in their own settings UI (e.g. "desktop").
+          Persisted to ``StoredPairing.label``; never sent to
+          the receiver.
+        * *offloader_label* — what the offloader-side user
+          identifies *itself* as so the receiver-side admin's
+          Pairing requests inbox shows a friendly name (e.g.
+          "green-laptop"). Sent to the receiver in the
+          encrypted msg3 payload; the receiver's
+          ``record_pair_request`` lands it in
+          ``StoredPeer.label``. Never persisted on the
+          offloader side.
 
         TOCTOU defense: the *pin_sha256* arg is the value the
         user OOB-confirmed in preview; the live handshake
@@ -993,13 +1063,11 @@ class RemoteBuildController:
             pin_sha256: Lowercase-hex SHA-256 of the receiver's
                 X25519 pubkey, captured + OOB-verified during
                 ``preview_pair``.
-            label: Human-readable name the offloader's user
-                gives this receiver (the value lands in the
-                local ``StoredPairing`` row's ``label``;
-                separately, the receiver's
-                :class:`StoredPeer.label` comes from a
-                receiver-side rendering of *our* label, not
-                this one).
+            receiver_label: Offloader-side display name for the
+                receiver (stored locally only).
+            offloader_label: Offloader-side self-identification
+                label (sent to the receiver, stored receiver-
+                side).
 
         Returns:
             :class:`PairingSummary` for the newly-created or
@@ -1022,10 +1090,15 @@ class RemoteBuildController:
                 receiver-side admin to open the Pairing
                 requests screen.
         """
-        clean_host = _validate_hostname(hostname)
-        clean_port = _validate_port(port)
+        clean_host = _validate_hostname(hostname, context=_HostFieldContext.RECEIVER)
+        clean_port = _validate_port(port, context=_HostFieldContext.RECEIVER)
         clean_pin = _validate_pin_sha256(pin_sha256)
-        clean_label = _validate_pair_label(label)
+        clean_receiver_label = _validate_pair_label(
+            receiver_label, field=_PairLabelField.RECEIVER_LABEL
+        )
+        clean_offloader_label = _validate_pair_label(
+            offloader_label, field=_PairLabelField.OFFLOADER_LABEL
+        )
         loop = asyncio.get_running_loop()
         peer_link_identity, dashboard_identity = await loop.run_in_executor(
             None, _load_offloader_identities, self._db.settings.config_dir
@@ -1036,7 +1109,7 @@ class RemoteBuildController:
                 hostname=clean_host,
                 port=clean_port,
                 identity_priv=peer_link_identity.private_bytes,
-                label=clean_label,
+                label=clean_offloader_label,
                 dashboard_id=dashboard_identity.dashboard_id,
             )
         except PeerLinkClientError as exc:
@@ -1063,7 +1136,7 @@ class RemoteBuildController:
             receiver_port=clean_port,
             pin_sha256=result.pin_sha256,
             static_x25519_pub=result.remote_static_pub,
-            label=clean_label,
+            label=clean_receiver_label,
             paired_at=time.time(),
             status=(
                 PeerStatus.APPROVED

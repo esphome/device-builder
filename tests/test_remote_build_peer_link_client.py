@@ -424,7 +424,8 @@ async def test_controller_request_pair_persists_pending_row(
         hostname="127.0.0.1",
         port=server.port,
         pin_sha256=expected_pin,
-        label="my-receiver",
+        receiver_label="my-receiver",
+        offloader_label="my-builder",
     )
 
     assert summary.receiver_hostname == "127.0.0.1"
@@ -461,7 +462,8 @@ async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
             hostname="127.0.0.1",
             port=server.port,
             pin_sha256="b" * 64,  # not the receiver's actual pin
-            label="my-receiver",
+            receiver_label="my-receiver",
+            offloader_label="my-builder",
         )
     assert exc.value.code == ErrorCode.PRECONDITION_FAILED
     # Pin-mismatch bails before persisting; offloader sidecar stays empty.
@@ -488,7 +490,8 @@ async def test_controller_request_pair_closed_window_raises_no_pairing_window(
             hostname="127.0.0.1",
             port=server.port,
             pin_sha256=expected_pin,
-            label="my-receiver",
+            receiver_label="my-receiver",
+            offloader_label="my-builder",
         )
     assert exc.value.code == ErrorCode.NO_PAIRING_WINDOW
 
@@ -507,7 +510,8 @@ async def test_controller_request_pair_unavailable_on_unreachable_receiver(
             hostname="127.0.0.1",
             port=unused_tcp_port,
             pin_sha256="a" * 64,
-            label="my-receiver",
+            receiver_label="my-receiver",
+            offloader_label="my-builder",
         )
     assert exc.value.code == ErrorCode.UNAVAILABLE
 
@@ -551,6 +555,7 @@ async def test_controller_request_pair_unexpected_status_raises_internal_error(
             hostname="127.0.0.1",
             port=6055,
             pin_sha256=fake_pin,
-            label="my-receiver",
+            receiver_label="my-receiver",
+            offloader_label="my-builder",
         )
     assert exc.value.code == ErrorCode.INTERNAL_ERROR
