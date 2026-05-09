@@ -24,7 +24,7 @@ every initiator-side intent the offloader needs (``preview``,
 ``pair_request``, ``pair_status``, eventually ``peer_link``);
 only the msg3 payload and which response codes count as success
 differ. :func:`drive_initiator_round_trip` owns the shared flow;
-each public ``preview_pair`` / ``request_pair`` / ``poll_pair_status``
+each public ``preview_pair`` / ``request_pair`` / ``await_pair_status``
 function (parts 2-4 of phase 4a-o) is a thin wrapper that
 provides the intent + msg3 payload + accepted-response set.
 """
@@ -408,10 +408,10 @@ async def request_pair(
 
 
 @dataclass(frozen=True)
-class PollPairStatusResult:
+class PairStatusResult:
     """Outcome of an ``intent="pair_status"`` long-poll round-trip.
 
-    Returned by :func:`poll_pair_status` after the Noise XX
+    Returned by :func:`await_pair_status` after the Noise XX
     handshake completes and the receiver's ``intent_response``
     has been received. The receiver-side handler parks
     indefinitely on the bus event channel until either an admin
@@ -437,7 +437,7 @@ class PollPairStatusResult:
       handshake. The :class:`StoredPairing` consumer compares
       this against its stored ``pin_sha256`` so a receiver-side
       identity rotation between :func:`request_pair` and the
-      first :func:`poll_pair_status` doesn't silently slide a
+      first :func:`await_pair_status` doesn't silently slide a
       compromised pubkey into ``APPROVED`` state.
     """
 
@@ -445,13 +445,13 @@ class PollPairStatusResult:
     pin_sha256: str
 
 
-async def poll_pair_status(
+async def await_pair_status(
     *,
     hostname: str,
     port: int,
     identity_priv: bytes,
     dashboard_id: str,
-) -> PollPairStatusResult:
+) -> PairStatusResult:
     """Run an ``intent="pair_status"`` long-poll round-trip.
 
     Used by the offloader's pair-status listener tasks (phase
@@ -487,7 +487,7 @@ async def poll_pair_status(
     ``label`` to update on a status query.
 
     Caller is responsible for the pin-drift check: compare
-    :attr:`PollPairStatusResult.pin_sha256` against the stored
+    :attr:`PairStatusResult.pin_sha256` against the stored
     :attr:`models.StoredPairing.pin_sha256`. A mismatch means
     the receiver rotated identity since pair time; the caller
     should treat that as a peer-revoked signal (drop the local
@@ -513,7 +513,7 @@ async def poll_pair_status(
     except ValueError as exc:
         msg = f"peer-link pair_status: unknown intent_response={rt.intent_response!r}"
         raise PeerLinkClientError(msg) from exc
-    return PollPairStatusResult(
+    return PairStatusResult(
         status=status,
         pin_sha256=pin_sha256_for_pubkey(rt.remote_static_pub),
     )

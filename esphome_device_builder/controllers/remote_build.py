@@ -112,11 +112,11 @@ from .config import (
     remote_build_settings_transaction,
 )
 from .remote_build_peer_link_client import (
+    PairStatusResult,
     PeerLinkClientError,
-    PollPairStatusResult,
 )
 from .remote_build_peer_link_client import (
-    poll_pair_status as peer_link_poll_pair_status,
+    await_pair_status as peer_link_await_pair_status,
 )
 from .remote_build_peer_link_client import (
     preview_pair as peer_link_preview_pair,
@@ -1503,7 +1503,7 @@ class RemoteBuildController:
         try:
             while True:
                 try:
-                    result = await peer_link_poll_pair_status(
+                    result = await peer_link_await_pair_status(
                         hostname=pairing.receiver_hostname,
                         port=pairing.receiver_port,
                         identity_priv=peer_link_identity.private_bytes,
@@ -1535,7 +1535,7 @@ class RemoteBuildController:
             )
 
     async def _apply_pair_status_result(
-        self, pairing: StoredPairing, result: PollPairStatusResult
+        self, pairing: StoredPairing, result: PairStatusResult
     ) -> bool:
         """Apply a poll result. Return True when the listener should exit.
 

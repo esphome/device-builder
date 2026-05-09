@@ -173,7 +173,7 @@ async def test_drive_initiator_round_trip_timeout_raises_client_error() -> None:
     Tests the shared driver directly via the ``timeout_seconds``
     kwarg rather than monkeypatching a module-level constant —
     the wrapper functions (preview_pair, future request_pair /
-    poll_pair_status) all funnel through the driver, so the
+    await_pair_status) all funnel through the driver, so the
     timeout contract stays under one test.
     """
     loop = asyncio.get_running_loop()
@@ -1048,7 +1048,7 @@ async def test_apply_pair_status_result_approved_promotes_and_fires(
         static_x25519_pub=pubkey,
     )
     offloader._pending_pairings[("rcv.local", 6055)] = pairing
-    result = remote_build_peer_link_client.PollPairStatusResult(
+    result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.APPROVED, pin_sha256=pin
     )
 
@@ -1084,7 +1084,7 @@ async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_remov
     # Receiver returned APPROVED but its pubkey hash doesn't match
     # what we stored; treat as peer-revoked rather than silently
     # adopting the new identity.
-    result = remote_build_peer_link_client.PollPairStatusResult(
+    result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.APPROVED, pin_sha256="b" * 64
     )
 
@@ -1110,7 +1110,7 @@ async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
     offloader._pending_pairings[("rcv.local", 6055)] = pairing
-    result = remote_build_peer_link_client.PollPairStatusResult(
+    result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.REJECTED, pin_sha256="a" * 64
     )
 
@@ -1131,7 +1131,7 @@ async def test_apply_pair_status_result_unexpected_status_logs_and_continues(
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
     offloader._pending_pairings[("rcv.local", 6055)] = pairing
-    result = remote_build_peer_link_client.PollPairStatusResult(
+    result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.OK, pin_sha256="a" * 64
     )
 
@@ -1338,18 +1338,18 @@ async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected
 
 
 # ---------------------------------------------------------------------------
-# poll_pair_status — exercise the wire helper directly (rather than only
+# await_pair_status — exercise the wire helper directly (rather than only
 # through the controller's listener task) so its module-level coverage
 # tracks against the surface area it actually owns.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_poll_pair_status_returns_approved_when_receiver_approved(
+async def test_await_pair_status_returns_approved_when_receiver_approved(
     receiver_server: tuple[TestServer, RemoteBuildController, str],
     offloader_controller_dir: Path,
 ) -> None:
-    """poll_pair_status against an APPROVED receiver row returns APPROVED + receiver pin."""
+    """await_pair_status against an APPROVED receiver row returns APPROVED + receiver pin."""
     server, controller, expected_pin = receiver_server
     pubkey = b"\x55" * 32
     pair_pin = hashlib.sha256(pubkey).hexdigest()
@@ -1377,7 +1377,7 @@ async def test_poll_pair_status_returns_approved_when_receiver_approved(
         lambda: _seed_approved_peer_sync(controller, "tester", real_pin, pubkey_real),
     )
 
-    result = await remote_build_peer_link_client.poll_pair_status(
+    result = await remote_build_peer_link_client.await_pair_status(
         hostname="127.0.0.1",
         port=server.port,
         identity_priv=offloader_id_priv,
@@ -1389,14 +1389,14 @@ async def test_poll_pair_status_returns_approved_when_receiver_approved(
 
 
 @pytest.mark.asyncio
-async def test_poll_pair_status_unknown_dashboard_id_returns_rejected(
+async def test_await_pair_status_unknown_dashboard_id_returns_rejected(
     receiver_server: tuple[TestServer, RemoteBuildController, str],
 ) -> None:
-    """poll_pair_status against an unknown dashboard_id returns REJECTED."""
+    """await_pair_status against an unknown dashboard_id returns REJECTED."""
     server, _, _ = receiver_server
     offloader_id_priv = secrets.token_bytes(32)
 
-    result = await remote_build_peer_link_client.poll_pair_status(
+    result = await remote_build_peer_link_client.await_pair_status(
         hostname="127.0.0.1",
         port=server.port,
         identity_priv=offloader_id_priv,
@@ -1427,7 +1427,7 @@ def _seed_approved_peer_sync(
 
 
 @pytest.mark.asyncio
-async def test_poll_pair_status_unknown_intent_response_raises_client_error(
+async def test_await_pair_status_unknown_intent_response_raises_client_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An ``intent_response`` not in the IntentResponse enum becomes a PeerLinkClientError.
@@ -1450,7 +1450,7 @@ async def test_poll_pair_status_unknown_intent_response_raises_client_error(
     )
 
     with pytest.raises(PeerLinkClientError, match="unknown intent_response"):
-        await remote_build_peer_link_client.poll_pair_status(
+        await remote_build_peer_link_client.await_pair_status(
             hostname="rcv.local",
             port=6055,
             identity_priv=b"\x00" * 32,
@@ -1509,7 +1509,7 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
     poll attempt) so the backoff branch is covered without a
     real-time test wait. Patches ``_PAIR_STATUS_RECONNECT_BACKOFF_SECONDS``
     to a tiny value so the test doesn't actually sleep 2s, and
-    swaps in a fake ``peer_link_poll_pair_status`` that raises
+    swaps in a fake ``peer_link_await_pair_status`` that raises
     on the first call and returns APPROVED on the second.
     """
     monkeypatch.setattr(
@@ -1530,17 +1530,17 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
 
     calls = 0
 
-    async def _fake_poll(**_: object) -> remote_build_peer_link_client.PollPairStatusResult:
+    async def _fake_poll(**_: object) -> remote_build_peer_link_client.PairStatusResult:
         nonlocal calls
         calls += 1
         if calls == 1:
             raise PeerLinkClientError("simulated transport blip")
-        return remote_build_peer_link_client.PollPairStatusResult(
+        return remote_build_peer_link_client.PairStatusResult(
             status=IntentResponse.APPROVED, pin_sha256=pin
         )
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.peer_link_poll_pair_status",
+        "esphome_device_builder.controllers.remote_build.peer_link_await_pair_status",
         _fake_poll,
     )
     # Stub identity load so it doesn't try to read real key files.
@@ -1589,20 +1589,20 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
 
     calls = 0
 
-    async def _fake_poll(**_: object) -> remote_build_peer_link_client.PollPairStatusResult:
+    async def _fake_poll(**_: object) -> remote_build_peer_link_client.PairStatusResult:
         nonlocal calls
         calls += 1
         if calls == 1:
             # Unexpected status — listener should sleep + reconnect.
-            return remote_build_peer_link_client.PollPairStatusResult(
+            return remote_build_peer_link_client.PairStatusResult(
                 status=IntentResponse.OK, pin_sha256=pin
             )
-        return remote_build_peer_link_client.PollPairStatusResult(
+        return remote_build_peer_link_client.PairStatusResult(
             status=IntentResponse.REJECTED, pin_sha256=pin
         )
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.peer_link_poll_pair_status",
+        "esphome_device_builder.controllers.remote_build.peer_link_await_pair_status",
         _fake_poll,
     )
     fake_identity = MagicMock()
