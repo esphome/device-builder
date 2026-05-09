@@ -63,7 +63,12 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 from ..constants import __version__ as server_version
 from ..helpers.api import CommandError, api_command
 from ..helpers.dashboard_advertise import SERVICE_TYPE
-from ..helpers.dashboard_identity import get_or_create_identity, rotate_certificate
+from ..helpers.dashboard_identity import (
+    DASHBOARD_ID_MAX_CHARS,
+    DASHBOARD_ID_PATTERN,
+    get_or_create_identity,
+    rotate_certificate,
+)
 from ..models import (
     ErrorCode,
     EventType,
@@ -399,23 +404,28 @@ def _validate_dashboard_id(raw: object) -> str:
     """
     Validate a user-supplied ``dashboard_id`` argument.
 
-    Same shape as the phase 3a / 3b3 ``X-Dashboard-ID`` header
-    contract: base64url alphabet, ≤ 64 chars, non-empty. Rejects
-    other shapes with ``INVALID_ARGS`` rather than silently
-    looking up nothing (which would yield a misleading
-    ``NOT_FOUND``).
+    Same alphabet and length cap as the phase 3a / 3b3 ``X-Dashboard-ID``
+    header contract; the regex + max-length live in
+    :mod:`helpers.dashboard_identity` so the WS-command path here
+    and the HTTP-header path in :mod:`helpers.remote_build_auth`
+    can't drift apart.
+
+    Rejects non-string / empty / oversized / non-base64url input
+    with ``INVALID_ARGS`` rather than silently looking up nothing
+    (which would yield a misleading ``NOT_FOUND``).
     """
     if not isinstance(raw, str):
         msg = "dashboard_id must be a string"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     cleaned = raw.strip()
-    if not cleaned or len(cleaned) > 64 or not _DASHBOARD_ID_PATTERN.match(cleaned):
-        msg = "dashboard_id must be 1-64 base64url chars"
+    if (
+        not cleaned
+        or len(cleaned) > DASHBOARD_ID_MAX_CHARS
+        or not DASHBOARD_ID_PATTERN.fullmatch(cleaned)
+    ):
+        msg = f"dashboard_id must be 1-{DASHBOARD_ID_MAX_CHARS} base64url chars"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return cleaned
-
-
-_DASHBOARD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _validate_port(raw: object) -> int:
@@ -1177,7 +1187,7 @@ class RemoteBuildController:
         self,
         *,
         open: bool,  # noqa: A002 — wire format names this field "open"
-        client: Any = None,
+        client: Any,
         **kwargs: Any,
     ) -> PairingWindowState:
         """
@@ -1197,14 +1207,12 @@ class RemoteBuildController:
         ``client`` is the WS connection object that the dispatcher
         injects on every command call (see ``api/ws.py``); we use
         the connection itself as the refcount dict key, so two
-        browser tabs / two users get distinct entries. The
-        ``client=None`` default exists only for direct callers in
-        tests; in that path each test creates a fresh controller,
-        so falling under the same ``None`` bucket is harmless. A
-        future production code path that legitimately needs to
-        call this without a WS client should pass an explicit
-        hashable identity (a ``uuid.uuid4()`` works) rather than
-        relying on the default.
+        browser tabs / two users get distinct entries. Required
+        kwarg with no default: a missing ``client`` would silently
+        bucket every caller under the same key and break the
+        refcount, so we want the loud ``TypeError`` from a missing
+        kwarg instead. Tests pass a stand-in hashable (``"tab-1"``,
+        etc.) to simulate distinct clients.
 
         Fires :attr:`EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED` on
         every state transition. Idempotent calls that don't change

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import secrets
 import threading
 from dataclasses import dataclass
@@ -43,6 +44,21 @@ _CERT_FILENAME = ".device-builder-cert.pem"
 _KEY_FILENAME = ".device-builder-key.pem"
 _KEY_MODE = 0o600
 _DASHBOARD_ID_BYTES = 24
+
+# Public validation contract for ``dashboard_id`` strings on the
+# wire. ``dashboard_id`` is generated via
+# ``secrets.token_urlsafe(_DASHBOARD_ID_BYTES)`` (32 base64url
+# chars at the current 24-byte entropy size). The cap of 64
+# defends against runaway inputs without rejecting legitimate
+# values; the pattern catches probes carrying control bytes /
+# non-printables. Both consumers (``helpers/remote_build_auth``
+# for HTTP header parsing today; ``controllers/remote_build``
+# for WS-command argument validation in phase 4a-r1) import
+# these so a future entropy bump or alphabet change happens in
+# one place.
+DASHBOARD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+DASHBOARD_ID_MAX_CHARS = 64
+
 _CERT_VALIDITY_YEARS = 100  # rotation is explicit; never driven by expiry
 _CERT_NOT_BEFORE_BACKDATE = timedelta(minutes=5)  # tolerate small peer-clock skew
 _CERT_COMMON_NAME = "ESPHome Device Builder"

@@ -44,7 +44,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -53,6 +52,7 @@ from aiohttp import web
 
 from ..models import StoredToken
 from .auth import RateLimiter
+from .dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
 
 if TYPE_CHECKING:
     from collections.abc import Callable as _Callable
@@ -104,23 +104,22 @@ _DUMMY_HASH = "0" * 64
 # token; later requests with a mismatched id are rejected as 403.
 _DASHBOARD_ID_HEADER = "X-Dashboard-ID"
 
-# ``dashboard_id`` is generated via ``secrets.token_urlsafe(24)``
-# in phase 3a, so 32 base64url chars. Cap the accepted length at
-# 64 to defend against a runaway header carrying megabytes; the
-# pattern (base64url chars only) catches probes carrying control
-# bytes / non-printables.
-_DASHBOARD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-_DASHBOARD_ID_MAX_CHARS = 64
-
 
 def _validate_dashboard_id(raw: str | None) -> str | None:
-    """Return the trimmed value if the header parses cleanly, else ``None``."""
+    """
+    Return the trimmed value if the header parses cleanly, else ``None``.
+
+    Uses the shared ``DASHBOARD_ID_*`` validation constants from
+    :mod:`helpers.dashboard_identity` so the WS-command path
+    (:func:`controllers.remote_build._validate_dashboard_id`) can't
+    drift from the HTTP-header path here.
+    """
     if not raw:
         return None
     trimmed = raw.strip()
-    if not trimmed or len(trimmed) > _DASHBOARD_ID_MAX_CHARS:
+    if not trimmed or len(trimmed) > DASHBOARD_ID_MAX_CHARS:
         return None
-    if not _DASHBOARD_ID_PATTERN.fullmatch(trimmed):
+    if not DASHBOARD_ID_PATTERN.fullmatch(trimmed):
         return None
     return trimmed
 
