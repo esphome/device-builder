@@ -313,7 +313,7 @@ def _validate_hostname(
     to leave room for trailing-dot variations). The cap stops a
     misbehaving frontend from bloating the on-disk sidecar (and,
     for the offloader-side pairing pool, the wire payload of
-    ``list_pool``) with a megabyte-string masquerading as a
+    ``list_pairings``) with a megabyte-string masquerading as a
     hostname.
 
     Defers the URL-validity check to :class:`yarl.URL.build` so
@@ -412,9 +412,10 @@ def _find_peer_by_dashboard_id(
 
     Single-pass linear scan; ``dashboard_id`` is the table's
     de-facto primary key (the receiver-UI WS commands key on it,
-    the peer-link dispatcher keys on it, the offloader's polling
-    loop keys on it) so a name-keyed index would just duplicate
-    state. The peer table is small (one row per paired offloader),
+    the peer-link dispatcher keys on it, the offloader's
+    pair-status listener keys on it) so a name-keyed index would
+    just duplicate state. The peer table is small (one row per
+    paired offloader),
     so the scan cost is fine and the convention "shape stays
     list-of-dataclasses on disk" outweighs the O(N) -> O(1) win
     for any production-realistic peer count.
@@ -492,10 +493,11 @@ def _validate_pair_label(raw: object, *, field: _PairLabelField) -> str:
 
 # Maps non-success ``IntentResponse`` values from a peer-link
 # round-trip to the typed :class:`CommandError` the frontend
-# branches on. Used by ``request_pair`` (part 3) and
-# ``list_pool``'s pair_status polling (part 4); shared so both
-# WS commands surface receiver decisions through the same wire
-# error codes.
+# branches on. Used by ``request_pair`` to surface the receiver's
+# decision (the offloader-side pair-status listener task handles
+# its own ``IntentResponse`` branches inline rather than going
+# through CommandError, so this map only covers the WS-command
+# request_pair path).
 _INTENT_RESPONSE_ERRORS: dict[IntentResponse, tuple[ErrorCode, str]] = {
     IntentResponse.NO_PAIRING_WINDOW: (
         ErrorCode.NO_PAIRING_WINDOW,
@@ -589,7 +591,7 @@ def _upsert_pairing(settings: OffloaderRemoteBuildSettings, pairing: StoredPairi
     overwrite, not duplicate; the user's intent is "pair me
     with this receiver again" not "give me two rows pointing
     at the same place." Used by ``request_pair`` (part 3); a
-    future ``list_pool`` (part 4) status refresh can reuse the
+    future ``list_pairings`` (part 4) status refresh can reuse the
     same shape when the receiver's response flips a row's
     status.
 
@@ -750,7 +752,7 @@ class RemoteBuildController:
         #
         # No cold-start spawn: PENDING is in-memory only, so a
         # controller restart starts with an empty dict and there's
-        # nothing to rebuild from disk. ``subscribe_pool`` is a
+        # nothing to rebuild from disk. ``subscribe_pairings`` is a
         # thin :func:`stream_events` drain that picks up the bus
         # event a still-running listener fires on flip; bus
         # events fire regardless of whether anyone is currently
@@ -1352,7 +1354,7 @@ class RemoteBuildController:
         Idempotent: returns ``{"removed": False}`` when no row matches
         rather than raising — the frontend's "Unpair" button should
         always succeed visually even when the row was already gone
-        (race with a concurrent ``subscribe_pool`` flip-to-removed).
+        (race with a concurrent ``subscribe_pairings`` flip-to-removed).
 
         Receiver-side state is *not* notified. The receiver's
         :class:`StoredPeer` row stays until the receiver's admin
@@ -1388,8 +1390,8 @@ class RemoteBuildController:
         self._cancel_pair_status_listener(clean_host, clean_port)
         return {"removed": pending_dropped or persisted_dropped}
 
-    @api_command("remote_build/list_pool")
-    async def list_pool(self, **kwargs: Any) -> list[PairingSummary]:
+    @api_command("remote_build/list_pairings")
+    async def list_pairings(self, **kwargs: Any) -> list[PairingSummary]:
         """Return a snapshot of the offloader's pairings (in-memory + persisted).
 
         Pure read, no wire calls to receivers. Merges in-memory
@@ -1397,7 +1399,7 @@ class RemoteBuildController:
         offloader settings file. Frontend uses this for the
         initial render of the Send-builds peer list, then
         subscribes to ``OFFLOADER_PAIR_STATUS_CHANGED`` events
-        via :meth:`subscribe_pool` for live updates.
+        via :meth:`subscribe_pairings` for live updates.
         """
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
@@ -1409,8 +1411,8 @@ class RemoteBuildController:
             _pairing_summary(p, status=PeerStatus.PENDING) for p in self._pending_pairings.values()
         ] + [_pairing_summary(p, status=PeerStatus.APPROVED) for p in settings.pairings]
 
-    @api_command("remote_build/subscribe_pool")
-    async def subscribe_pool(
+    @api_command("remote_build/subscribe_pairings")
+    async def subscribe_pairings(
         self, *, client: Any = None, message_id: str = "", **kwargs: Any
     ) -> None:
         """Subscribe to live ``OFFLOADER_PAIR_STATUS_CHANGED`` events.
@@ -1422,8 +1424,8 @@ class RemoteBuildController:
         they fire on the bus whether or not anyone is currently
         subscribed, so this command stays a pure consumer.
 
-        Frontend pattern: call :meth:`list_pool` for the initial
-        paint, then ``subscribe_pool`` for live updates.
+        Frontend pattern: call :meth:`list_pairings` for the initial
+        paint, then ``subscribe_pairings`` for live updates.
         """
         if client is None:
             return
@@ -1431,7 +1433,7 @@ class RemoteBuildController:
         async def _send_initial(_controls: StreamControls) -> None:
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives. No initial
-            # pool snapshot here — list_pool is the dedicated
+            # pool snapshot here — list_pairings is the dedicated
             # snapshot read and double-shipping would just race.
             await client.send_result(message_id, {"subscribed": True})
 
@@ -1537,7 +1539,7 @@ class RemoteBuildController:
     async def _apply_pair_status_result(
         self, pairing: StoredPairing, result: PairStatusResult
     ) -> bool:
-        """Apply a poll result. Return True when the listener should exit.
+        """Apply a pair-status response. Return True when the listener should exit.
 
         Listener only ever runs for entries in the in-memory
         ``_pending_pairings`` dict, so the result branches all
@@ -1959,9 +1961,14 @@ class RemoteBuildController:
           handshake's pubkey hash matches the stored
           ``pin_sha256``. Caller can keep the WS open for
           application messages (phase 5+).
-        * :attr:`IntentResponse.PENDING` — peer's row exists but
-          status is PENDING (the receiver-side user hasn't
-          clicked Accept yet). Offloader's UI keeps polling.
+        * :attr:`IntentResponse.PENDING` — peer's row exists in
+          the receiver's in-memory PENDING dict (admin hasn't
+          clicked Accept yet). The offloader's frontend reflects
+          this via the offloader-side ``OFFLOADER_PAIR_STATUS_CHANGED``
+          event stream rather than retrying ``peer_link``;
+          ``peer_link`` is for established sessions, not for
+          waiting on admin approval — that's the
+          ``intent="pair_status"`` long-poll's job.
         * :attr:`IntentResponse.REJECTED` — no row matches OR the
           row's stored ``pin_sha256`` doesn't match the
           handshake's. Either the offloader has never paired

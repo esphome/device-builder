@@ -110,7 +110,7 @@ class EventType(StrEnum):
     # Settings UI updates the inbox + approved-peers list on
     # this event. The offloader-side counterpart event is
     # :attr:`OFFLOADER_PAIR_STATUS_CHANGED`, fired on the
-    # offloader's local bus when its `subscribe_pool` long-poll
+    # offloader's local bus when its `subscribe_pairings` long-poll
     # observes the receiver's flip; the two share a wire shape
     # but live on different buses (receiver vs offloader) and
     # carry different identifiers (offloader's dashboard_id vs
@@ -121,7 +121,7 @@ class EventType(StrEnum):
     # Offloader-side counterpart to ``REMOTE_BUILD_PAIR_STATUS_CHANGED``.
     # Payload: ``{receiver_hostname, receiver_port,
     # status: "approved" | "removed"}``. Fired by the offloader's
-    # ``subscribe_pool`` long-poll dispatcher when it observes a
+    # ``subscribe_pairings`` long-poll dispatcher when it observes a
     # PENDING row flipping APPROVED (admin clicked Accept) or
     # the receiver returning REJECTED (admin clicked Reject; row
     # never existed; pin rotated). Receiver-side keys are not

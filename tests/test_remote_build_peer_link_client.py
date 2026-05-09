@@ -849,8 +849,8 @@ async def test_controller_request_pair_unexpected_status_raises_internal_error(
 
 
 # ---------------------------------------------------------------------------
-# RemoteBuildController offloader-side surface — unpair / list_pool /
-# subscribe_pool / _apply_pair_status_result branches (post-pivot to
+# RemoteBuildController offloader-side surface — unpair / list_pairings /
+# subscribe_pairings / _apply_pair_status_result branches (post-pivot to
 # in-memory PENDING). The peer-link wire path is exercised by the
 # request_pair end-to-end tests above; these focus on the dict /
 # disk lifecycle without driving the wire.
@@ -946,10 +946,10 @@ async def test_unpair_unknown_returns_removed_false_idempotent(
 
 
 @pytest.mark.asyncio
-async def test_list_pool_merges_pending_dict_and_persisted_rows(
+async def test_list_pairings_merges_pending_dict_and_persisted_rows(
     offloader_controller_dir: Path,
 ) -> None:
-    """list_pool returns PENDING entries from the dict + APPROVED from disk."""
+    """list_pairings returns PENDING entries from the dict + APPROVED from disk."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pending = _stub_pairing(
@@ -962,7 +962,7 @@ async def test_list_pool_merges_pending_dict_and_persisted_rows(
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, offloader._persist_approved_pairing, approved)
 
-    rows = await offloader.list_pool()
+    rows = await offloader.list_pairings()
 
     by_host = {row.receiver_hostname: row for row in rows}
     assert by_host["pending.local"].status is PeerStatus.PENDING
@@ -970,10 +970,10 @@ async def test_list_pool_merges_pending_dict_and_persisted_rows(
 
 
 @pytest.mark.asyncio
-async def test_subscribe_pool_streams_offloader_pair_status_changed_events(
+async def test_subscribe_pairings_streams_offloader_pair_status_changed_events(
     offloader_controller_dir: Path,
 ) -> None:
-    """subscribe_pool drains OFFLOADER_PAIR_STATUS_CHANGED events to the client.
+    """subscribe_pairings drains OFFLOADER_PAIR_STATUS_CHANGED events to the client.
 
     Drives the bus directly via ``_fire_offloader_pair_status_changed``
     rather than running a real listener task; this isolates the
@@ -996,7 +996,7 @@ async def test_subscribe_pool_streams_offloader_pair_status_changed_events(
     client.send_result = _send_result
     client.send_event = _send_event
 
-    sub_task = asyncio.create_task(offloader.subscribe_pool(client=client, message_id="msg-1"))
+    sub_task = asyncio.create_task(offloader.subscribe_pairings(client=client, message_id="msg-1"))
     try:
         await asyncio.wait_for(subscribed.wait(), timeout=1.0)
         offloader._fire_offloader_pair_status_changed("rcv.local", 6055, "approved")
@@ -1459,16 +1459,16 @@ async def test_await_pair_status_unknown_intent_response_raises_client_error(
 
 
 @pytest.mark.asyncio
-async def test_subscribe_pool_returns_immediately_when_client_is_none(
+async def test_subscribe_pairings_returns_immediately_when_client_is_none(
     offloader_controller_dir: Path,
 ) -> None:
-    """``subscribe_pool`` with no client (e.g. internal call) returns early."""
+    """``subscribe_pairings`` with no client (e.g. internal call) returns early."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
 
     # client=None is the default and exercises the early-return
     # guard before any stream_events drain runs.
-    result = await offloader.subscribe_pool()
+    result = await offloader.subscribe_pairings()
 
     assert result is None
 

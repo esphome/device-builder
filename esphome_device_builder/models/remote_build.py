@@ -213,7 +213,7 @@ class OffloaderPairStatusChangedData(TypedDict):
     observed flipping to ``APPROVED`` (admin clicked Accept) or
     being dropped because the receiver returned ``REJECTED``
     (admin clicked Reject; window closed clearing the receiver-
-    side dict; row never existed; pin rotated). ``subscribe_pool``
+    side dict; row never existed; pin rotated). ``subscribe_pairings``
     is a pure consumer of the event — it streams whatever the
     listener fires to the connected WS client, never produces
     the event itself.
