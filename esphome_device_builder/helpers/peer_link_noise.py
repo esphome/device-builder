@@ -60,12 +60,34 @@ import hashlib
 from typing import cast
 
 from noise.connection import Keypair, NoiseConnection
+from noise.exceptions import (
+    NoiseHandshakeError,
+    NoiseInvalidMessage,
+    NoiseMaxNonceError,
+    NoiseValueError,
+)
 
 # Standard Noise pattern name. Same cipher suite the ESPHome device
 # API uses (``Noise_NNpsk0_25519_ChaChaPoly_SHA256``); only the
 # pattern differs — XX vs NNpsk0 — because we want mutual identity
 # exchange, not a pre-shared key.
 NOISE_PATTERN = b"Noise_XX_25519_ChaChaPoly_SHA256"
+
+# Tuple-catchable subset of ``noise.exceptions`` for callers that
+# want to wrap protocol errors without the verbosity of a 4-element
+# ``except`` clause. The library's exceptions don't share a common
+# base, so the tuple is the recommended shape per its docs. Used
+# by both the responder (``controllers/remote_build_peer_link``) and
+# the initiator (``controllers/remote_build_peer_link_client``);
+# kept here so a future ``noiseprotocol`` upgrade adding a new
+# exception class only has to be threaded through this single
+# constant.
+NOISE_ERRORS: tuple[type[Exception], ...] = (
+    NoiseHandshakeError,
+    NoiseInvalidMessage,
+    NoiseMaxNonceError,
+    NoiseValueError,
+)
 
 
 class HandshakeNotCompleteError(RuntimeError):

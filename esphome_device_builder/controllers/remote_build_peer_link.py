@@ -49,37 +49,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import WSMsgType, web
-from noise.exceptions import (
-    NoiseHandshakeError,
-    NoiseInvalidMessage,
-    NoiseMaxNonceError,
-    NoiseValueError,
-)
 
 from ..helpers import json as _json
 from ..helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
 from ..helpers.peer_link_identity import get_or_create_peer_link_identity
 from ..helpers.peer_link_noise import (
+    NOISE_ERRORS,
     HandshakeNotCompleteError,
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
 from ..models import IntentResponse, PeerLinkIntent
-
-# noiseprotocol exceptions don't share a common base; tuple-catch
-# the relevant subset rather than ``except Exception:``. Covers
-# malformed-Noise-frame failures from ``read_message`` /
-# ``write_message`` and nonce / state errors from ``encrypt`` /
-# ``decrypt``. A genuine bug (using the API wrong) raises one of
-# these too, but the WS handler's outer ``except Exception:`` in
-# :func:`make_peer_link_handler`'s closure still catches anything
-# else and logs with traceback.
-_NOISE_ERRORS = (
-    NoiseHandshakeError,
-    NoiseInvalidMessage,
-    NoiseMaxNonceError,
-    NoiseValueError,
-)
 
 
 class _HandshakeStep(StrEnum):
@@ -338,7 +318,7 @@ async def _read_handshake_message(
         return None
     try:
         return session.read_handshake_message(msg.data)
-    except _NOISE_ERRORS:
+    except NOISE_ERRORS:
         _LOGGER.warning("peer-link Noise %s read failed", step, exc_info=True)
         return None
 
@@ -378,7 +358,7 @@ async def _send_handshake_message(
     """Send one Noise handshake message as a binary WS frame; return True on success."""
     try:
         encoded = session.write_handshake_message(payload)
-    except _NOISE_ERRORS:
+    except NOISE_ERRORS:
         _LOGGER.warning("peer-link Noise %s write failed", step, exc_info=True)
         return False
     return await _send_bytes_safely(ws, encoded, log_label=str(step))
@@ -393,7 +373,7 @@ async def _send_response(
     body = _json.dumps({"intent_response": response.value})
     try:
         encrypted = session.encrypt(body)
-    except _NOISE_ERRORS:
+    except NOISE_ERRORS:
         _LOGGER.warning("peer-link transport encrypt failed", exc_info=True)
         return
     await _send_bytes_safely(ws, encrypted, log_label="response")

@@ -1,0 +1,239 @@
+"""
+Tests for the offloader-side peer-link Noise WS client (phase 4a-o part 2).
+
+Two layers:
+
+* End-to-end: stand up the receiver-side handler in-process via
+  :func:`make_peer_link_handler` against an
+  :class:`aiohttp.test_utils.TestServer`, then drive
+  :func:`preview_pair` from the offloader side and assert the
+  captured ``pin_sha256`` matches the receiver's actual identity.
+* Error mapping: the various transport / handshake / decode
+  failure modes all surface as :class:`PeerLinkClientError` so
+  the WS-command layer can map them to a single
+  ``UNAVAILABLE`` :class:`CommandError` without enumerating
+  every cause.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import secrets
+from collections.abc import AsyncGenerator
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestServer
+
+from esphome_device_builder.controllers.remote_build import RemoteBuildController
+from esphome_device_builder.controllers.remote_build_peer_link import (
+    PEER_LINK_PATH,
+    make_peer_link_handler,
+)
+from esphome_device_builder.controllers.remote_build_peer_link_client import (
+    PeerLinkClientError,
+    _build_ws_url,
+    preview_pair,
+)
+from esphome_device_builder.helpers.peer_link_identity import (
+    get_or_create_peer_link_identity,
+)
+from esphome_device_builder.helpers.peer_link_noise import (
+    PeerLinkNoiseSession,
+    pin_sha256_for_pubkey,
+)
+
+
+def _make_controller(*, config_dir: Path) -> RemoteBuildController:
+    db = MagicMock()
+    db.devices = MagicMock()
+    db.devices.zeroconf = None
+    db._dashboard_advertiser = None
+    db.settings = MagicMock()
+    db.settings.config_dir = config_dir
+    return RemoteBuildController(db)
+
+
+@pytest.fixture
+async def receiver_server(
+    tmp_path: Path,
+) -> AsyncGenerator[tuple[TestServer, RemoteBuildController, str], None]:
+    """Spin up an in-process receiver. Yields (server, controller, expected_pin)."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    loop = asyncio.get_running_loop()
+    identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, tmp_path)
+
+    app = web.Application()
+    handler = await make_peer_link_handler(controller, tmp_path)
+    app.router.add_get(PEER_LINK_PATH, handler)
+    server = TestServer(app)
+    await server.start_server()
+    try:
+        yield server, controller, pin_sha256_for_pubkey(identity.public_bytes)
+    finally:
+        await server.close()
+        await controller.stop()
+
+
+# ---------------------------------------------------------------------------
+# preview_pair — happy path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_preview_pair_returns_receivers_pin(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    tmp_path: Path,
+) -> None:
+    """The captured pin from the handshake matches the receiver's actual identity."""
+    server, _, expected_pin = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+
+    pin = await preview_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        identity_priv=initiator_priv,
+    )
+
+    assert pin == expected_pin
+
+
+@pytest.mark.asyncio
+async def test_preview_pair_does_not_persist_state_on_receiver(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+) -> None:
+    """``intent="preview"`` returns ``OK`` without creating a peer row.
+
+    Pin the contract that preview is read-only against the
+    receiver's pairing state — the offloader runs preview before
+    the user has decided whether to trust the receiver, so
+    receiver-side bookkeeping must not happen yet.
+    """
+    server, controller, _ = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+
+    await preview_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        identity_priv=initiator_priv,
+    )
+    # No pair_request_received event fired (preview doesn't create rows).
+    controller._db.bus.fire.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# preview_pair — error mapping
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_preview_pair_connection_refused_raises_client_error(
+    tmp_path: Path,
+    unused_tcp_port: int,
+) -> None:
+    """Connecting to a closed port raises :class:`PeerLinkClientError`."""
+    initiator_priv = secrets.token_bytes(32)
+    with pytest.raises(PeerLinkClientError, match="failed"):
+        await preview_pair(
+            hostname="127.0.0.1",
+            port=unused_tcp_port,
+            identity_priv=initiator_priv,
+        )
+
+
+@pytest.mark.asyncio
+async def test_preview_pair_timeout_raises_client_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hung TCP socket trips the WS handshake timeout, surfaced as PeerLinkClientError."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build_peer_link_client._PREVIEW_TIMEOUT_SECONDS",
+        0.1,
+    )
+
+    # Bind a TCP socket that accepts connections but never speaks.
+    loop = asyncio.get_running_loop()
+    server = await loop.create_server(asyncio.Protocol, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    initiator_priv = secrets.token_bytes(32)
+    try:
+        with pytest.raises(PeerLinkClientError):
+            await preview_pair(
+                hostname="127.0.0.1",
+                port=port,
+                identity_priv=initiator_priv,
+            )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+# ---------------------------------------------------------------------------
+# URL builder
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_preview_pair_rejects_garbage_post_handshake_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Receiver sends a frame that decrypts to non-JSON → PeerLinkClientError.
+
+    Stand up a custom WS handler that runs a real Noise XX
+    responder for the 3 handshake messages but then writes a
+    *plaintext* frame instead of a properly encrypted
+    intent_response. The offloader's ``decrypt`` (or the JSON
+    parse) on that frame should fail and surface as
+    :class:`PeerLinkClientError` rather than escape uncaught.
+    """
+    receiver_priv = secrets.token_bytes(32)
+
+    async def _faulty_handler(request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        sess = PeerLinkNoiseSession.responder(receiver_priv)
+        # msg1
+        msg1 = await ws.receive_bytes()
+        sess.read_handshake_message(msg1)
+        # msg2
+        await ws.send_bytes(sess.write_handshake_message(b""))
+        # msg3
+        msg3 = await ws.receive_bytes()
+        sess.read_handshake_message(msg3)
+        # Send a plaintext (non-Noise) frame so decrypt fails.
+        await ws.send_bytes(b"this is not an encrypted frame")
+        await ws.close()
+        return ws
+
+    app = web.Application()
+    app.router.add_get(PEER_LINK_PATH, _faulty_handler)
+    server = TestServer(app)
+    await server.start_server()
+    initiator_priv = secrets.token_bytes(32)
+    try:
+        with pytest.raises(PeerLinkClientError, match="decode failed"):
+            await preview_pair(
+                hostname="127.0.0.1",
+                port=server.port,
+                identity_priv=initiator_priv,
+            )
+    finally:
+        await server.close()
+
+
+def test_build_ws_url_uses_plain_ws_scheme() -> None:
+    """Peer-link runs over plain TCP; Noise XX provides transport security."""
+    assert _build_ws_url("desk.local", 6055) == "ws://desk.local:6055/remote-build/peer-link"
+
+
+def test_build_ws_url_quotes_hostname() -> None:
+    """Pathological characters in the hostname can't smuggle a different path."""
+    # ``/`` in a hostname is impossible per DNS but we defend anyway:
+    # quoting ensures the url stays bound to ``PEER_LINK_PATH``.
+    url = _build_ws_url("evil/path", 6055)
+    assert "evil%2Fpath" in url
+    assert url.endswith("/remote-build/peer-link")
