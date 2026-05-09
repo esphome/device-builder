@@ -242,10 +242,9 @@ def compute_spki_fingerprint(cert: x509.Certificate) -> str:
     same keypair (e.g. to refresh metadata) doesn't invalidate
     paired peers.
 
-    Public — :mod:`helpers.remote_build_pin_auth` reuses this
-    against DER-loaded certs from the live TLS handshake. Both
-    call sites MUST produce the same byte-for-byte output for
-    the same keypair.
+    Public so future cert-pinning consumers can reuse it directly
+    against an already-parsed :class:`x509.Certificate` rather
+    than going through the PEM-input wrapper.
     """
     spki_der = cert.public_key().public_bytes(
         encoding=serialization.Encoding.DER,

@@ -3,11 +3,11 @@ Noise XX handshake + ChaCha20-Poly1305 framing for the peer-link WS.
 
 Phase 4a's auth model. Two dashboards meet on the peer-link WS
 (``ws://<receiver>:<peer_link_port>/remote-build/peer-link``);
-each side has a long-lived X25519 keypair (its own peer-link
-identity, persisted in :mod:`helpers.peer_link_identity`); the
-Noise XX pattern exchanges and authenticates both static keys,
-derives a forward-secret session key, and ChaCha20-Poly1305
-wraps every subsequent frame.
+each side holds a long-lived X25519 keypair (its own peer-link
+identity, supplied by the caller — keypair lifecycle helper lands
+later in 4a-r1). The Noise XX pattern exchanges and authenticates
+both static keys, derives a forward-secret session key, and
+ChaCha20-Poly1305 wraps every subsequent frame.
 
 Library: ``noiseprotocol`` (already a transitive dep through
 ``aioesphomeapi``, which uses it with ``Noise_NNpsk0_…`` for the
@@ -26,13 +26,26 @@ Wire shape for the handshake itself: each Noise XX message is sent
 as one binary WS frame. XX produces 3 messages — initiator sends
 ``e``, responder sends ``e, ee, s, es``, initiator sends ``s, se``.
 After the third message both sides have authenticated each other's
-static pubkey and derived the same session key. The handshake
-payload is encrypted from message 2 onward, so the offloader can
-already include its ``intent`` / ``label`` / ``dashboard_id`` /
-``cert_pem`` in message 1's plaintext payload without it being
-visible on the wire AFTER the handshake (a passive sniffer who
-saw the entire transcript still can't decrypt past frames because
-the ephemeral keys are session-bound).
+static pubkey and derived the same session key.
+
+**Payload confidentiality across the handshake** (load-bearing for
+callers that want to put application data in handshake frames):
+
+* **msg1 payload is plaintext on the wire.** A passive sniffer
+  observes it verbatim. Don't put sensitive data there. Putting
+  a coarse, non-sensitive ``intent`` discriminator there is
+  fine if the receiver needs it before completing the handshake.
+* **msg2 payload is encrypted** (after the ``es`` token mixes
+  the responder's static into the symmetric state). Safe for
+  receiver-side application data.
+* **msg3 payload is encrypted** (under the now-mixed keys).
+  Safe for the initiator's application data — this is where
+  sensitive offloader-side fields like ``label`` or
+  ``dashboard_id`` belong, not in msg1.
+
+For most use cases the cleanest choice is to leave msg1 / msg2
+payloads empty and put all application data in transport frames
+after the handshake completes (``encrypt`` / ``decrypt`` below).
 
 Capturing the remote static pubkey: ``noiseprotocol`` wipes the
 protocol's ``handshake_state`` reference when the handshake
@@ -44,11 +57,8 @@ through it. The held-ref pattern is verified by the unit tests.
 from __future__ import annotations
 
 import hashlib
-import logging
 
 from noise.connection import Keypair, NoiseConnection
-
-_LOGGER = logging.getLogger(__name__)
 
 # Standard Noise pattern name. Same cipher suite the ESPHome device
 # API uses (``Noise_NNpsk0_25519_ChaChaPoly_SHA256``); only the

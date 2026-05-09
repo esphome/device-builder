@@ -88,12 +88,16 @@ class PeerStatus(StrEnum):
     Lifecycle state of a :class:`StoredPeer` row.
 
     ``PENDING``: an offloader's pair-request landed and the
-    receiver's admin hasn't accepted yet. The middleware allows
-    the offloader to poll ``/pair_status`` against this row but
-    rejects every other endpoint with 403.
+    receiver's admin hasn't accepted yet. The peer-link auth
+    gate lets a connection from this peer's pubkey complete the
+    Noise handshake but only honours an ``intent="pair_status"``
+    query; every other intent is rejected at the post-handshake
+    dispatch.
 
-    ``APPROVED``: admin clicked Accept. Full access to peer-link
-    endpoints; cert-pin assertion at every TLS handshake.
+    ``APPROVED``: admin clicked Accept. Full access — the auth
+    gate looks up the offloader's static X25519 pubkey hash
+    (extracted from the Noise XX handshake transcript) against
+    this row on every connection.
 
     No explicit ``REJECTED`` terminal state — a rejected request
     deletes the row. If the same offloader retries, it lands as
@@ -149,8 +153,9 @@ class PeerSummary(DataClassORJSONMixin):
     Public-facing wire view of :class:`StoredPeer`.
 
     Drops ``static_x25519_pub`` — the raw 32-byte pubkey is
-    on-disk only; ``pin_sha256`` is the wire-friendly form
-    that UIs render for OOB-verification.
+    on-disk only; ``pin_sha256`` (lowercase-hex SHA-256 of the
+    pubkey) is the wire-friendly form that UIs render for
+    OOB-verification.
     """
 
     dashboard_id: str
@@ -174,9 +179,9 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     the server.
 
     ``peers`` carries phase-4a :class:`StoredPeer` rows: the
-    receiver's pinned offloaders (mTLS auth replaces the bearer
-    flow). ``tokens`` is on a deletion path (phase 4a-r2) once
-    the new auth has soaked.
+    receiver's pinned offloaders (Noise XX over a dedicated
+    peer-link port replaces the bearer flow). ``tokens`` is on
+    a deletion path (phase 4a-r2) once the new auth has soaked.
     """
 
     enabled: bool = False
