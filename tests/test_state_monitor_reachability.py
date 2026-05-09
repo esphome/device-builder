@@ -710,6 +710,30 @@ def test_decode_txt_bytes_to_sorted_pairs_caches_by_bytes() -> None:
     assert third is first  # value-equal bytes hit the same cache slot
 
 
+def test_decode_txt_bytes_to_sorted_pairs_collapses_none_values_to_empty_string() -> None:
+    """A TXT entry with no ``=`` separator decodes as ``None`` → ``""``.
+
+    zeroconf's ``decoded_properties`` returns ``dict[str, str | None]``:
+    a TXT entry written as ``key`` (no ``=``) or ``key=`` (empty
+    payload) both surface as ``{"key": None}``. The reachability
+    snapshot then materialises a ``dict[str, str]`` for the wire,
+    so ``None`` has to collapse to ``""`` here — otherwise a
+    downstream consumer that expects "always a string" trips on
+    a ``None`` it never asked for. Pin both the decode shape and
+    the collapse so a future zeroconf API change can't silently
+    leak ``None`` values into the snapshot.
+    """
+    _decode_txt_bytes_to_sorted_pairs.cache_clear()
+    # Mix the no-``=`` form with a normal ``key=value`` entry to
+    # confirm both branches of the value ternary are exercised in
+    # the same call.
+    txt = b"".join(bytes([len(e)]) + e for e in (b"empty", b"version=1"))
+    assert _decode_txt_bytes_to_sorted_pairs(txt) == (
+        ("empty", ""),
+        ("version", "1"),
+    )
+
+
 def test_get_mdns_cache_info_no_txt_records_returns_empty_mapping() -> None:
     """
     Address records present but no TXT → ``txt_records == {}``.

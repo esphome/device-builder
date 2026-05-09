@@ -261,16 +261,16 @@ def _decode_txt_bytes_to_sorted_pairs(txt_bytes: bytes) -> tuple[tuple[str, str]
     info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"_decode.{_ESPHOME_SERVICE_TYPE}")
     info.text = txt_bytes
     decoded = info.decoded_properties
-    # Bind ``value`` to a local so mypy can narrow with
-    # ``isinstance(value, str)`` — narrowing on a subscript
-    # expression (``decoded[key]``) doesn't carry across the two
-    # references in the conditional, so the comprehension form
-    # was inferred as ``tuple[str, str | None]`` and tripped
-    # ``[misc]`` at the call site.
+    # Filter to string keys *before* sorting — ``decoded`` can
+    # contain ``bytes`` keys when a TXT entry fails UTF-8 decode,
+    # and ``sorted()`` of a mixed ``str | bytes`` set raises
+    # ``TypeError`` in Python 3. Binding ``value`` to a local also
+    # lets mypy narrow with ``isinstance(value, str)`` — narrowing
+    # on a subscript expression (``decoded[key]``) doesn't carry
+    # across the two references in the inline conditional.
+    str_keys = sorted(key for key in decoded if isinstance(key, str))
     pairs: list[tuple[str, str]] = []
-    for key in sorted(decoded):
-        if not isinstance(key, str):
-            continue
+    for key in str_keys:
         value = decoded[key]
         pairs.append((key, value if isinstance(value, str) else ""))
     return tuple(pairs)
