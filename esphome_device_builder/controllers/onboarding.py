@@ -101,6 +101,16 @@ class OnboardingController:
         Preserves any other secret keys + the file's comments via a
         line-based rewrite.
         """
+        # The WS layer doesn't enforce JSON value types, so a
+        # client sending ``ssid: 42`` or ``password: null`` would
+        # otherwise reach ``.strip()`` / ``len()`` and surface as
+        # an ``INTERNAL_ERROR`` (AttributeError / TypeError).
+        # Reject up-front with a clean ``INVALID_ARGS`` so the
+        # frontend can render the error inline in the wizard.
+        if not isinstance(ssid, str):
+            raise CommandError(ErrorCode.INVALID_ARGS, "SSID must be a string.")
+        if not isinstance(password, str):
+            raise CommandError(ErrorCode.INVALID_ARGS, "Password must be a string.")
         # IEEE 802.11 SSIDs may legally contain leading or trailing
         # whitespace, so don't mutate the user's input — they may
         # have an awkwardly-named network on purpose. Reject only
@@ -169,11 +179,19 @@ class OnboardingController:
 
 
 # ``key: value`` line. Captures: 1=indent, 2=key, 3=trailing
-# ``  # comment`` (with at least one space before the ``#``, so
-# a ``#`` inside a quoted value doesn't trip it). Permissive on
-# value shape so we match both ``wifi_ssid: ""`` and bare
-# ``wifi_ssid:`` — the value itself is discarded on rewrite,
-# only indent / key / trailing comment carry over.
+# ``  # comment`` (with at least one space before the ``#``).
+# Permissive on value shape so we match both ``wifi_ssid: ""``
+# and bare ``wifi_ssid:`` — the value itself is discarded on
+# rewrite, only indent / key / trailing comment carry over.
+#
+# Known limitation: a ``#`` *inside a quoted value* preceded by
+# whitespace (e.g. ``wifi_ssid: "foo # bar"``) is mis-parsed as
+# a trailing comment. The rewrite still produces valid YAML
+# because the new value is re-quoted, but the spurious tail is
+# preserved as a comment. See the dedicated regression test in
+# ``tests/test_onboarding_controller.py``. Realistic impact is
+# low — ``#`` in SSIDs is uncommon and the user's hand-edit has
+# to land before they re-run the wizard.
 _SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
 
 

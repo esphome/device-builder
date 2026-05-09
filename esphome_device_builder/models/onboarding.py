@@ -31,8 +31,10 @@ from mashumaro.mixins.orjson import DataClassORJSONMixin
 class OnboardingStepId(StrEnum):
     """Stable identifiers for onboarding steps.
 
-    Don't rename — the frontend keys its UI on these strings and
-    existing user prefs refer to them.
+    Don't rename — the frontend keys its UI off these strings.
+    Acknowledgement is tracked via ``onboarding_completed_version``
+    (an int), not per-step, so the only stability requirement is
+    the wire-format string the frontend dispatches on.
     """
 
     WIFI_CREDENTIALS = "wifi_credentials"

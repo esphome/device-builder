@@ -179,6 +179,26 @@ async def test_set_wifi_credentials_rejects_empty_ssid(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_set_wifi_credentials_rejects_non_string_ssid(tmp_path: Path) -> None:
+    """A misbehaving client sending a number / null gets a clean error.
+
+    The WS layer doesn't enforce JSON value types, so without the
+    isinstance gate ``ssid: 42`` would reach ``.strip()`` and
+    surface as ``INTERNAL_ERROR``.
+    """
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError, match="SSID must be a string"):
+        await controller.set_wifi_credentials(ssid=42, password="p")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_set_wifi_credentials_rejects_non_string_password(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError, match="Password must be a string"):
+        await controller.set_wifi_credentials(ssid="MyAP", password=None)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
 async def test_set_wifi_credentials_rejects_oversize_ssid(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     with pytest.raises(CommandError, match="32 characters"):
