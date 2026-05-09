@@ -97,11 +97,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import tempfile
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
+
+from .atomic_io import atomic_write
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -143,6 +143,7 @@ class Store[T]:
         decoder: Callable[[bytes], T],
         shutdown_register: ShutdownRegister,
         name: str | None = None,
+        mode: int = 0o600,
     ) -> None:
         """Bind the store to *path* + caller-supplied codec hooks.
 
@@ -167,11 +168,23 @@ class Store[T]:
         traces identify which store failed without the caller
         having to ship its own context through. Optional; defaults
         to *path*.
+
+        *mode* is the POSIX file mode applied to the persisted
+        file (and the staging tempfile). Defaults to ``0o600``
+        (owner read/write only) because the dominant consumers are
+        cryptographic state — pinned receiver pubkeys, peer
+        identities, future API tokens — none of which should be
+        readable by group or other. Override for a non-sensitive
+        consumer (e.g. ``0o644`` for a public catalog snapshot).
+        Ignored on Windows; ``os.chmod`` only honours the
+        write-bit there, which the default already keeps writeable
+        for the owning user.
         """
         self._path = path
         self._encoder = encoder
         self._decoder = decoder
         self._name = name or str(path)
+        self._mode = mode
         # Captured at every ``async_delay_save`` call; the actual
         # invocation happens at flush time inside the write lock so
         # the value reflects the latest in-RAM state.
@@ -264,7 +277,23 @@ class Store[T]:
         )
 
     async def _async_handle_write(self) -> None:
-        """Run one write under the lock; clear the captured data_func."""
+        """Run one write under the lock; clear the captured data_func.
+
+        Splits the work between threads:
+
+        * ``data_func()`` runs on the event loop. It's typically a
+          fast snapshot of in-RAM state (e.g. a dataclass
+          construction); pulling it out of the executor keeps
+          ordering simple and lets the data_func close over
+          consumer state without thread-safety concerns.
+        * ``encoder()`` + ``_atomic_write()`` run inside one
+          executor call. The encoder can do meaningful work
+          (orjson serialisation of a large dict) and the file I/O
+          is unconditionally synchronous; bundling them avoids
+          two executor hops and keeps the loop responsive even
+          when the encoder blocks (e.g. tests using a
+          ``threading.Event`` to gate the write).
+        """
         async with self._write_lock:
             data_func = self._data_func
             self._data_func = None
@@ -275,8 +304,7 @@ class Store[T]:
             loop = asyncio.get_running_loop()
             try:
                 value = data_func()
-                payload = self._encoder(value)
-                await loop.run_in_executor(None, self._atomic_write, payload)
+                await loop.run_in_executor(None, self._encode_and_write, value)
             except Exception:
                 # Disk-write failures shouldn't propagate out of a
                 # background task — the consumer's mutation is
@@ -289,35 +317,24 @@ class Store[T]:
                 # broke.
                 _LOGGER.exception("Error writing store %s at %s", self._name, self._path)
 
+    def _encode_and_write(self, value: T) -> None:
+        """Encode + atomic-write inside a single executor hop."""
+        payload = self._encoder(value)
+        self._atomic_write(payload)
+
     def _atomic_write(self, payload: bytes) -> None:
-        """Stage to a sibling temp file then ``os.replace``.
+        """Persist *payload* atomically at the configured mode.
 
-        Same-FS rename is atomic (POSIX guarantee) so a partial
-        write can't leave the destination half-corrupted. The temp
-        file lands in the destination directory specifically so
-        the rename never crosses filesystems — a cross-FS
-        ``shutil.move`` falls back to copy+delete which is *not*
-        atomic. Mirrors the contract documented in CLAUDE.md for
-        in-place writes of user-editable data.
-
-        Creates the parent directory if missing so callers don't
-        have to ensure it exists at construction time.
+        Delegates to :func:`helpers.atomic_io.atomic_write` for the
+        actual ``mkstemp`` + ``chmod`` + ``os.replace`` dance — that
+        helper already handles the rare ``os.fdopen`` failure path
+        (closes the raw fd to avoid leaking it before the with-block
+        manages the file) and the on-error tempfile cleanup. We just
+        ensure the parent directory exists first; ``atomic_write``
+        assumes it does.
         """
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(
-            prefix=f"{self._path.name}.",
-            suffix=".tmp",
-            dir=str(self._path.parent),
-        )
-        tmp_path = Path(tmp_name)
-        try:
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(payload)
-            os.replace(tmp_path, self._path)
-        except Exception:
-            with suppress(OSError):
-                tmp_path.unlink()
-            raise
+        atomic_write(self._path, payload, mode=self._mode)
 
     async def async_save_now(self) -> None:
         """Cancel any pending delay + flush whatever's queued.

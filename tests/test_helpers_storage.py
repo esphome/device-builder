@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import stat
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -292,6 +294,49 @@ async def test_atomic_write_creates_parent_directory(tmp_path: Path) -> None:
     store.async_delay_save(lambda: b"nested", delay=0.0)
     await _drain_loop_until(store_path.exists, timeout=1.0)
     assert store_path.read_bytes() == b"nested"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
+@pytest.mark.asyncio
+async def test_default_mode_is_owner_only(tmp_path: Path) -> None:
+    """The default ``mode=0o600`` keeps persisted state owner-only.
+
+    Pins the security-relevant default — pinned receiver pubkeys,
+    peer identities, future API tokens are all routed through
+    ``Store`` and shouldn't be readable by group / other.
+    """
+    store_path = tmp_path / "data.json"
+    store = Store[bytes](
+        store_path,
+        encoder=_identity_encoder,
+        decoder=_identity_decoder,
+        shutdown_register=lambda _cb: None,
+    )
+    store.async_delay_save(lambda: b"sensitive", delay=0.0)
+    await _drain_loop_until(store_path.exists, timeout=1.0)
+    assert stat.S_IMODE(store_path.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
+@pytest.mark.asyncio
+async def test_explicit_mode_is_applied(tmp_path: Path) -> None:
+    """Caller-supplied *mode* lands on the persisted file.
+
+    Non-sensitive consumers (e.g. a public catalog snapshot) can
+    opt into ``0o644`` so other dashboard processes can read it
+    without sudo.
+    """
+    store_path = tmp_path / "data.json"
+    store = Store[bytes](
+        store_path,
+        encoder=_identity_encoder,
+        decoder=_identity_decoder,
+        shutdown_register=lambda _cb: None,
+        mode=0o644,
+    )
+    store.async_delay_save(lambda: b"public", delay=0.0)
+    await _drain_loop_until(store_path.exists, timeout=1.0)
+    assert stat.S_IMODE(store_path.stat().st_mode) == 0o644
 
 
 @pytest.mark.asyncio
