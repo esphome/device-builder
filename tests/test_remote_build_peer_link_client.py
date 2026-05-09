@@ -1327,6 +1327,37 @@ async def test_request_pair_repair_then_unpair_clean_state(
         _fake_request_pair,
     )
 
+    # The spawned ``_await_pair_status_flip`` listener calls the
+    # real ``peer_link_await_pair_status`` + ``_load_offloader_identities``
+    # otherwise — that hits real DNS for ``rcv.local`` and parks
+    # the cancellation behind a thread-pool ``getaddrinfo`` until
+    # the OS resolver times out (5-30s on macOS mDNS, longer on
+    # CI). Park the listener on an asyncio.Event instead so the
+    # cancel-then-await calls below are deterministic.
+    park = asyncio.Event()
+
+    async def _fake_await_pair_status(
+        **_: object,
+    ) -> remote_build_peer_link_client.PairStatusResult:
+        # Parks indefinitely; the test only exercises the
+        # cancel-on-respawn / cancel-on-unpair paths, so the
+        # listener never needs to return a real result.
+        await park.wait()
+        raise AssertionError("park event should never be set in this test")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.peer_link_await_pair_status",
+        _fake_await_pair_status,
+    )
+    fake_identity = MagicMock()
+    fake_identity.private_bytes = b"\x00" * 32
+    fake_dashboard = MagicMock()
+    fake_dashboard.dashboard_id = "dashboard-stub"
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build._load_offloader_identities",
+        lambda _config_dir: (fake_identity, fake_dashboard),
+    )
+
     # First pair lands PENDING with pin1.
     await offloader.request_pair(
         hostname="rcv.local",
