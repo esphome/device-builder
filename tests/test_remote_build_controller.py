@@ -30,9 +30,15 @@ from esphome_device_builder.controllers.config import (
 from esphome_device_builder.controllers.remote_build import (
     RemoteBuildController,
     _decode_txt_value,
+    _enforce_pin_match,
+    _intent_response_to_command_error,
+    _pairing_summary,
     _peer_from_manual_host,
     _peer_from_service_info,
+    _upsert_pairing,
     _validate_hostname,
+    _validate_pair_label,
+    _validate_pin_sha256,
     _validate_port,
 )
 from esphome_device_builder.helpers.api import CommandError
@@ -41,11 +47,15 @@ from esphome_device_builder.models import (
     ErrorCode,
     EventType,
     IdentityView,
+    IntentResponse,
     ManualHost,
+    OffloaderRemoteBuildSettings,
+    PairingSummary,
     PeerStatus,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
     RemoteBuildSettingsView,
+    StoredPairing,
     StoredPeer,
 )
 
@@ -1771,3 +1781,175 @@ async def test_lookup_peer_for_status_unknown_returns_rejected(tmp_path: Path) -
     response = await controller.lookup_peer_for_status(dashboard_id="ghost", pin_sha256="pin")
 
     assert response == "rejected"
+
+
+# ---------------------------------------------------------------------------
+# Offloader-side pair-flow helpers (phase 4a-o part 3)
+# ---------------------------------------------------------------------------
+
+
+def _valid_stored_pairing(
+    *,
+    receiver_hostname: str = "build.local",
+    receiver_port: int = 6055,
+    label: str = "desktop",
+    paired_at: float = 1.0,
+    status: PeerStatus = PeerStatus.PENDING,
+) -> StoredPairing:
+    """Build a passing :class:`StoredPairing` so tests don't repeat the boilerplate."""
+    return StoredPairing(
+        receiver_hostname=receiver_hostname,
+        receiver_port=receiver_port,
+        pin_sha256="a" * 64,
+        static_x25519_pub=b"\x01" * 32,
+        label=label,
+        paired_at=paired_at,
+        status=status,
+    )
+
+
+# --- _validate_pin_sha256 ---
+
+
+def test_validate_pin_sha256_accepts_canonical() -> None:
+    assert _validate_pin_sha256("a" * 64) == "a" * 64
+    assert _validate_pin_sha256("0123456789abcdef" * 4) == "0123456789abcdef" * 4
+
+
+def test_validate_pin_sha256_strips_whitespace() -> None:
+    assert _validate_pin_sha256("  " + "a" * 64 + "  ") == "a" * 64
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "a" * 63,  # too short
+        "a" * 65,  # too long
+        "A" * 64,  # uppercase
+        "z" * 64,  # outside hex alphabet
+    ],
+)
+def test_validate_pin_sha256_rejects_invalid_shapes(bad: str) -> None:
+    with pytest.raises(CommandError) as exc:
+        _validate_pin_sha256(bad)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_validate_pin_sha256_rejects_non_string() -> None:
+    with pytest.raises(CommandError) as exc:
+        _validate_pin_sha256(123)  # type: ignore[arg-type]
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+# --- _validate_pair_label ---
+
+
+def test_validate_pair_label_strips_and_returns() -> None:
+    assert _validate_pair_label("  Kitchen  ") == "Kitchen"
+
+
+def test_validate_pair_label_accepts_empty() -> None:
+    """Empty label is fine — user may not have named the receiver."""
+    assert _validate_pair_label("") == ""
+
+
+def test_validate_pair_label_rejects_oversize() -> None:
+    with pytest.raises(CommandError) as exc:
+        _validate_pair_label("x" * 129)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_validate_pair_label_rejects_non_string() -> None:
+    with pytest.raises(CommandError) as exc:
+        _validate_pair_label(42)  # type: ignore[arg-type]
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+# --- _intent_response_to_command_error ---
+
+
+def test_intent_response_to_command_error_pending_returns_none() -> None:
+    """Success values aren't translated; the caller branches on them for persistence."""
+    assert _intent_response_to_command_error(IntentResponse.PENDING) is None
+    assert _intent_response_to_command_error(IntentResponse.APPROVED) is None
+    assert _intent_response_to_command_error(IntentResponse.OK) is None
+
+
+def test_intent_response_to_command_error_no_pairing_window() -> None:
+    err = _intent_response_to_command_error(IntentResponse.NO_PAIRING_WINDOW)
+    assert err is not None
+    assert err.code == ErrorCode.NO_PAIRING_WINDOW
+
+
+def test_intent_response_to_command_error_rejected() -> None:
+    err = _intent_response_to_command_error(IntentResponse.REJECTED)
+    assert err is not None
+    assert err.code == ErrorCode.PRECONDITION_FAILED
+
+
+# --- _enforce_pin_match ---
+
+
+def test_enforce_pin_match_passes_on_match() -> None:
+    """No exception raised when expected and observed pins agree."""
+    _enforce_pin_match(expected="a" * 64, observed="a" * 64)
+
+
+def test_enforce_pin_match_raises_precondition_failed_on_drift() -> None:
+    """A pubkey-hash drift between preview and request → PRECONDITION_FAILED."""
+    with pytest.raises(CommandError) as exc:
+        _enforce_pin_match(expected="a" * 64, observed="b" * 64)
+    assert exc.value.code == ErrorCode.PRECONDITION_FAILED
+    # The error message includes a prefix of each pin so log-readers
+    # can spot the rotation, but truncates to avoid full hash dumps.
+    assert "expected " + "a" * 16 in str(exc.value)
+
+
+# --- _upsert_pairing ---
+
+
+def test_upsert_pairing_appends_when_no_existing_row() -> None:
+    settings = OffloaderRemoteBuildSettings()
+    pairing = _valid_stored_pairing()
+    _upsert_pairing(settings, pairing)
+    assert settings.pairings == [pairing]
+
+
+def test_upsert_pairing_replaces_existing_row_for_same_host_port() -> None:
+    """Re-pair from the same offloader to the same receiver overwrites, doesn't duplicate."""
+    old = _valid_stored_pairing(label="old", paired_at=1.0)
+    new = _valid_stored_pairing(label="new", paired_at=2.0, status=PeerStatus.APPROVED)
+    settings = OffloaderRemoteBuildSettings(pairings=[old])
+    _upsert_pairing(settings, new)
+    assert len(settings.pairings) == 1
+    assert settings.pairings[0].label == "new"
+    assert settings.pairings[0].status is PeerStatus.APPROVED
+
+
+def test_upsert_pairing_keeps_other_rows_intact() -> None:
+    """Replacement is keyed on (hostname, port) — different receivers are independent."""
+    other = _valid_stored_pairing(receiver_hostname="other.local")
+    target_old = _valid_stored_pairing(receiver_hostname="target.local", label="old")
+    target_new = _valid_stored_pairing(receiver_hostname="target.local", label="new")
+    settings = OffloaderRemoteBuildSettings(pairings=[other, target_old])
+    _upsert_pairing(settings, target_new)
+    assert {(p.receiver_hostname, p.label) for p in settings.pairings} == {
+        ("other.local", "desktop"),
+        ("target.local", "new"),
+    }
+
+
+# --- _pairing_summary ---
+
+
+def test_pairing_summary_drops_static_pubkey() -> None:
+    """Wire view drops ``static_x25519_pub`` so the raw pubkey stays server-side."""
+    pairing = _valid_stored_pairing()
+    summary = _pairing_summary(pairing)
+    assert isinstance(summary, PairingSummary)
+    assert summary.receiver_hostname == "build.local"
+    assert summary.pin_sha256 == "a" * 64
+    assert summary.label == "desktop"
+    assert summary.status is PeerStatus.PENDING
+    # PairingSummary doesn't carry the raw bytes.
+    assert not hasattr(summary, "static_x25519_pub")

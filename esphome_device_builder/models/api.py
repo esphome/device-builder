@@ -30,6 +30,30 @@ class ErrorCode(StrEnum):
     # fails to authenticate, or the post-handshake frame
     # doesn't decrypt.
     UNAVAILABLE = "unavailable"
+    # State precondition not met — the operation is well-formed
+    # and the remote is reachable, but the current state of one
+    # side disqualifies the request. Used by the offloader's
+    # ``request_pair`` for: (a) pin mismatch between the value
+    # the user OOB-confirmed in ``preview_pair`` and the actual
+    # pubkey from the live handshake (TOCTOU defense — the
+    # receiver may have rotated identity, or there's an active
+    # MITM), and (b) the receiver returning ``rejected`` (admin
+    # explicitly declined or there's a stale "rejected" memo
+    # within the soft-block window). The frontend rendering
+    # distinguishes these via the ``details`` field; both share
+    # the same "you can't proceed past this without out-of-band
+    # action" semantic.
+    PRECONDITION_FAILED = "precondition_failed"
+    # Pairing window on the receiver is closed — the offloader's
+    # ``intent="pair_request"`` arrived outside the receiver's
+    # admin-supervised acceptance window. The frontend prompts
+    # the user to ask the receiver-side admin to open the
+    # Pairing requests screen, then retry. Distinct from
+    # ``UNAVAILABLE`` (transport failure: receiver unreachable)
+    # and ``PRECONDITION_FAILED`` (receiver reachable + made a
+    # decision); this is "receiver reachable but not currently
+    # listening."
+    NO_PAIRING_WINDOW = "no_pairing_window"
 
 
 @dataclass

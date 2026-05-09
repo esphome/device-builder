@@ -27,6 +27,9 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
+from esphome_device_builder.controllers.config import (
+    load_offloader_remote_build_settings,
+)
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build_peer_link import (
     PEER_LINK_PATH,
@@ -37,7 +40,9 @@ from esphome_device_builder.controllers.remote_build_peer_link_client import (
     _build_ws_url,
     drive_initiator_round_trip,
     preview_pair,
+    request_pair,
 )
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.peer_link_identity import (
     get_or_create_peer_link_identity,
 )
@@ -45,7 +50,7 @@ from esphome_device_builder.helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from esphome_device_builder.models import PeerLinkIntent
+from esphome_device_builder.models import ErrorCode, IntentResponse, PeerLinkIntent, PeerStatus
 
 
 def _make_controller(*, config_dir: Path) -> RemoteBuildController:
@@ -275,3 +280,187 @@ async def test_drive_initiator_round_trip_maps_pathological_host_to_client_error
             identity_priv=initiator_priv,
             intent=PeerLinkIntent.PREVIEW,
         )
+
+
+# ---------------------------------------------------------------------------
+# request_pair — happy path + receiver-side response shapes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_request_pair_open_window_returns_pending(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+) -> None:
+    """Request_pair against an open pairing window returns PENDING + lands a peer row."""
+    server, controller, expected_pin = receiver_server
+    await controller.set_pairing_window(open=True, client="test-tab")
+    initiator_priv = secrets.token_bytes(32)
+
+    result = await request_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        identity_priv=initiator_priv,
+        label="green",
+        dashboard_id="abcdef0123456789",
+    )
+
+    assert result.status is IntentResponse.PENDING
+    assert result.pin_sha256 == expected_pin
+    assert len(result.remote_static_pub) == 32
+    # Receiver's StoredPeer table got a new PENDING row keyed on
+    # the offloader's dashboard_id.
+    peers = await controller.list_peers()
+    assert len(peers) == 1
+    assert peers[0].dashboard_id == "abcdef0123456789"
+    assert peers[0].status is PeerStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_request_pair_closed_window_returns_no_pairing_window(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+) -> None:
+    """Request_pair when the receiver window is closed returns NO_PAIRING_WINDOW."""
+    server, _, _ = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+
+    result = await request_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        identity_priv=initiator_priv,
+        label="green",
+        dashboard_id="abcdef0123456789",
+    )
+
+    assert result.status is IntentResponse.NO_PAIRING_WINDOW
+
+
+# ---------------------------------------------------------------------------
+# RemoteBuildController.request_pair — end-to-end through the WS-command shell
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def offloader_controller_dir(tmp_path: Path) -> Path:
+    """Sibling directory to the receiver fixture's ``tmp_path``.
+
+    Each side has its own peer-link key + dashboard cert, so the
+    offloader's identities don't collide with the receiver's
+    when both run in the same test process.
+    """
+    offloader_dir = tmp_path / "offloader"
+    offloader_dir.mkdir()
+    return offloader_dir
+
+
+def _make_offloader_controller(*, config_dir: Path) -> RemoteBuildController:
+    db = MagicMock()
+    db.devices = MagicMock()
+    db.devices.zeroconf = None
+    db._dashboard_advertiser = None
+    db.settings = MagicMock()
+    db.settings.config_dir = config_dir
+    return RemoteBuildController(db)
+
+
+@pytest.mark.asyncio
+async def test_controller_request_pair_persists_pending_row(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    offloader_controller_dir: Path,
+) -> None:
+    """End-to-end: ``RemoteBuildController.request_pair`` persists a PENDING StoredPairing."""
+    server, receiver_controller, expected_pin = receiver_server
+    await receiver_controller.set_pairing_window(open=True, client="test-tab")
+
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    summary = await offloader.request_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        pin_sha256=expected_pin,
+        label="my-receiver",
+    )
+
+    assert summary.receiver_hostname == "127.0.0.1"
+    assert summary.receiver_port == server.port
+    assert summary.pin_sha256 == expected_pin
+    assert summary.label == "my-receiver"
+    assert summary.status is PeerStatus.PENDING
+    # Persisted to disk under the offloader's _offloader_remote_build key.
+    saved = await asyncio.get_running_loop().run_in_executor(
+        None, load_offloader_remote_build_settings, offloader_controller_dir
+    )
+    assert len(saved.pairings) == 1
+    assert saved.pairings[0].pin_sha256 == expected_pin
+
+
+@pytest.mark.asyncio
+async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    offloader_controller_dir: Path,
+) -> None:
+    """User-supplied pin doesn't match the handshake → PRECONDITION_FAILED.
+
+    A receiver-side identity rotation between preview and request would land here
+    in production; the test forces the same shape by passing a wrong pin.
+    """
+    server, receiver_controller, _ = receiver_server
+    await receiver_controller.set_pairing_window(open=True, client="test-tab")
+
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await offloader.request_pair(
+            hostname="127.0.0.1",
+            port=server.port,
+            pin_sha256="b" * 64,  # not the receiver's actual pin
+            label="my-receiver",
+        )
+    assert exc.value.code == ErrorCode.PRECONDITION_FAILED
+    # Pin-mismatch bails before persisting; offloader sidecar stays empty.
+    saved = await asyncio.get_running_loop().run_in_executor(
+        None, load_offloader_remote_build_settings, offloader_controller_dir
+    )
+    assert saved.pairings == []
+
+
+@pytest.mark.asyncio
+async def test_controller_request_pair_closed_window_raises_no_pairing_window(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    offloader_controller_dir: Path,
+) -> None:
+    """Receiver window closed → CommandError(NO_PAIRING_WINDOW)."""
+    server, _, expected_pin = receiver_server
+    # Don't open the pairing window; receiver replies no_pairing_window.
+
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await offloader.request_pair(
+            hostname="127.0.0.1",
+            port=server.port,
+            pin_sha256=expected_pin,
+            label="my-receiver",
+        )
+    assert exc.value.code == ErrorCode.NO_PAIRING_WINDOW
+
+
+@pytest.mark.asyncio
+async def test_controller_request_pair_unavailable_on_unreachable_receiver(
+    offloader_controller_dir: Path,
+    unused_tcp_port: int,
+) -> None:
+    """Receiver unreachable → CommandError(UNAVAILABLE)."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await offloader.request_pair(
+            hostname="127.0.0.1",
+            port=unused_tcp_port,
+            pin_sha256="a" * 64,
+            label="my-receiver",
+        )
+    assert exc.value.code == ErrorCode.UNAVAILABLE
