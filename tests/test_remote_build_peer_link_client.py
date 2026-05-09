@@ -35,6 +35,7 @@ from esphome_device_builder.controllers.remote_build_peer_link import (
 from esphome_device_builder.controllers.remote_build_peer_link_client import (
     PeerLinkClientError,
     _build_ws_url,
+    drive_initiator_round_trip,
     preview_pair,
 )
 from esphome_device_builder.helpers.peer_link_identity import (
@@ -44,6 +45,7 @@ from esphome_device_builder.helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
+from esphome_device_builder.models import PeerLinkIntent
 
 
 def _make_controller(*, config_dir: Path) -> RemoteBuildController:
@@ -146,26 +148,28 @@ async def test_preview_pair_connection_refused_raises_client_error(
 
 
 @pytest.mark.asyncio
-async def test_preview_pair_timeout_raises_client_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A hung TCP socket trips the WS handshake timeout, surfaced as PeerLinkClientError."""
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link_client._PREVIEW_TIMEOUT_SECONDS",
-        0.1,
-    )
+async def test_drive_initiator_round_trip_timeout_raises_client_error() -> None:
+    """A hung TCP socket trips the WS handshake timeout, surfaced as PeerLinkClientError.
 
-    # Bind a TCP socket that accepts connections but never speaks.
+    Tests the shared driver directly via the ``timeout_seconds``
+    kwarg rather than monkeypatching a module-level constant —
+    the wrapper functions (preview_pair, future request_pair /
+    poll_pair_status) all funnel through the driver, so the
+    timeout contract stays under one test.
+    """
     loop = asyncio.get_running_loop()
+    # Bind a TCP socket that accepts connections but never speaks.
     server = await loop.create_server(asyncio.Protocol, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     initiator_priv = secrets.token_bytes(32)
     try:
         with pytest.raises(PeerLinkClientError):
-            await preview_pair(
+            await drive_initiator_round_trip(
                 hostname="127.0.0.1",
                 port=port,
                 identity_priv=initiator_priv,
+                intent=PeerLinkIntent.PREVIEW,
+                timeout_seconds=0.1,
             )
     finally:
         server.close()

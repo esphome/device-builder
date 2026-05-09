@@ -18,23 +18,22 @@ exception-tuple (:data:`helpers.peer_link_noise.NOISE_ERRORS`)
 so a future ``noiseprotocol`` upgrade only has to thread through
 one place.
 
-Scope of this part 2 PR:
-
-* :func:`preview_pair` — runs an ``intent="preview"`` round-trip
-  and returns the receiver's ``pin_sha256`` for OOB display.
-  Used by the new ``remote_build/preview_pair`` WS command.
-
-Subsequent 4a-o PRs add ``request_pair`` (part 3,
-:func:`request_pair_handshake`-style helper) and
-``intent="pair_status"`` polling (part 4, used by
-``list_pool``); the shared driver below is shaped so they can
-slot in without re-implementing the connect / read / write
-plumbing.
+The wire-flow shape — TCP connect, 3 Noise XX messages, post-
+handshake transport frame, error mapping — is identical across
+every initiator-side intent the offloader needs (``preview``,
+``pair_request``, ``pair_status``, eventually ``peer_link``);
+only the msg3 payload and which response codes count as success
+differ. :func:`drive_initiator_round_trip` owns the shared flow;
+each public ``preview_pair`` / ``request_pair`` / ``poll_pair_status``
+function (parts 2-4 of phase 4a-o) is a thin wrapper that
+provides the intent + msg3 payload + accepted-response set.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from typing import Any
 from urllib.parse import quote
 
 import aiohttp
@@ -51,7 +50,7 @@ from .remote_build_peer_link import PEER_LINK_PATH
 
 _LOGGER = logging.getLogger(__name__)
 
-# Total budget for the preview round-trip: TCP connect + WS
+# Total budget for one initiator round-trip: TCP connect + WS
 # upgrade + 3 Noise messages + post-handshake response + clean
 # close. Bounded by LAN latency + the receiver's own per-step
 # timeout (10s in
@@ -59,7 +58,7 @@ _LOGGER = logging.getLogger(__name__)
 # 10s here matches that budget so we don't give up before the
 # receiver does, but doesn't pin a coroutine forever if the
 # remote side is gone.
-_PREVIEW_TIMEOUT_SECONDS = 10.0
+_DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
 class PeerLinkClientError(RuntimeError):
@@ -71,6 +70,24 @@ class PeerLinkClientError(RuntimeError):
     layer can map to a single ``UNAVAILABLE`` :class:`CommandError`
     without having to enumerate every transport failure mode.
     """
+
+
+@dataclass(frozen=True)
+class InitiatorRoundTrip:
+    """One offloader-side Noise XX round-trip's outputs.
+
+    Returned by :func:`drive_initiator_round_trip`. Bundles
+    everything a caller might need from a completed handshake +
+    response: the receiver's pubkey (so :func:`preview_pair`
+    can hash it), the ``intent_response`` value (so callers can
+    branch on PENDING / APPROVED / REJECTED / NO_PAIRING_WINDOW),
+    and the full decoded response dict for any future fields a
+    caller wants beyond the discriminator.
+    """
+
+    intent_response: str
+    remote_static_pub: bytes
+    response: dict[str, Any]
 
 
 def _build_ws_url(hostname: str, port: int) -> str:
@@ -87,6 +104,102 @@ def _build_ws_url(hostname: str, port: int) -> str:
     return f"ws://{safe_host}:{port}{PEER_LINK_PATH}"
 
 
+async def drive_initiator_round_trip(
+    *,
+    hostname: str,
+    port: int,
+    identity_priv: bytes,
+    intent: PeerLinkIntent,
+    msg3_payload: bytes = b"",
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> InitiatorRoundTrip:
+    """Run one Noise XX round-trip from the initiator side.
+
+    The flow is identical for every offloader-side intent
+    (``preview`` / ``pair_request`` / ``pair_status`` /
+    ``peer_link``); callers vary only the *intent* discriminator
+    (cleartext on msg1) and the encrypted *msg3_payload* (carries
+    ``label`` + ``dashboard_id`` for ``pair_request`` and
+    similar). The shared driver here keeps the connect / send /
+    receive / decode / error-map plumbing in one place so future
+    intents don't reinvent it.
+
+    Wire shape, mirroring the receiver-side responder in
+    :func:`controllers.remote_build_peer_link._drive_peer_link_session`:
+
+    * msg1 — send ``{"intent": "..."}`` cleartext-but-noise-framed
+      (msg1's payload is plaintext on the wire per Noise XX;
+      coarse intent only, no sensitive fields).
+    * msg2 — receive the responder's ephemeral + static; the
+      library's read-message places ``static_x25519_pub`` into
+      our handshake state.
+    * msg3 — send our static + the *msg3_payload* (encrypted
+      under the now-mixed cipher).
+    * Post-handshake — receive one transport frame carrying
+      ``{"intent_response": "..."}``; decrypt + JSON-parse.
+
+    Raises :class:`PeerLinkClientError` on any transport,
+    handshake, or decode failure with the underlying exception
+    attached as ``__cause__`` for log inspection. The caller is
+    responsible for branching on
+    :attr:`InitiatorRoundTrip.intent_response` (each intent has
+    its own accept-set).
+    """
+    sess = PeerLinkNoiseSession.initiator(identity_priv)
+    url = _build_ws_url(hostname, port)
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    label = f"peer-link {intent.value} to {hostname}:{port}"
+
+    try:
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as http,
+            http.ws_connect(url) as ws,
+        ):
+            msg1 = _json.dumps({"intent": intent.value})
+            await ws.send_bytes(sess.write_handshake_message(msg1))
+            sess.read_handshake_message(await ws.receive_bytes())
+            await ws.send_bytes(sess.write_handshake_message(msg3_payload))
+            response_ct = await ws.receive_bytes()
+    except (TimeoutError, aiohttp.ClientError, OSError) as exc:
+        msg = f"{label} failed: {exc}"
+        _LOGGER.debug(msg, exc_info=True)
+        raise PeerLinkClientError(msg) from exc
+    except NOISE_ERRORS as exc:
+        msg = f"{label} Noise handshake failed: {exc}"
+        _LOGGER.warning(msg, exc_info=True)
+        raise PeerLinkClientError(msg) from exc
+
+    # ``NOISE_ERRORS`` is a tuple of classes; Python's ``except``
+    # syntax doesn't accept nested tuples, so star-unpack it into
+    # a flat tuple alongside the JSON decode error.
+    try:
+        decoded = _json.loads(sess.decrypt(response_ct))
+    except (*NOISE_ERRORS, _json.JSONDecodeError) as exc:
+        msg = f"{label} response decode failed: {exc}"
+        _LOGGER.warning(msg, exc_info=True)
+        raise PeerLinkClientError(msg) from exc
+
+    if not isinstance(decoded, dict):
+        msg = f"{label} response was not a JSON object: {decoded!r}"
+        raise PeerLinkClientError(msg)
+    intent_response = decoded.get("intent_response")
+    if not isinstance(intent_response, str):
+        msg = f"{label} response missing 'intent_response' string: {decoded!r}"
+        raise PeerLinkClientError(msg)
+
+    try:
+        remote_static = sess.remote_static_pub
+    except HandshakeNotCompleteError as exc:
+        msg = f"{label} handshake completed without capturing remote static pubkey"
+        raise PeerLinkClientError(msg) from exc
+
+    return InitiatorRoundTrip(
+        intent_response=intent_response,
+        remote_static_pub=remote_static,
+        response=decoded,
+    )
+
+
 async def preview_pair(
     *,
     hostname: str,
@@ -95,78 +208,24 @@ async def preview_pair(
 ) -> str:
     """Run an ``intent="preview"`` round-trip; return the receiver's pin_sha256.
 
-    Drives the three Noise XX messages from the initiator side:
+    Thin wrapper around :func:`drive_initiator_round_trip`:
+    preview's accept-set is just ``IntentResponse.OK`` (anything
+    else is a receiver-side bug or a misconfigured deployment);
+    its msg3 payload is empty (the receiver already has what it
+    needs from msg2 from the offloader's perspective).
 
-    1. msg1 — send ``{"intent": "preview"}`` cleartext-but-noise-
-       framed (msg1's payload is plaintext on the wire per the
-       Noise XX wire spec; coarse intent only, no sensitive
-       fields).
-    2. msg2 — receive the responder's ephemeral + static; the
-       library's read-message is what actually places
-       ``static_x25519_pub`` into our handshake state.
-    3. msg3 — send our static (empty payload; the receiver
-       already knows what it needs after msg2 from the
-       offloader-side perspective).
-
-    Then drains the post-handshake transport frame the receiver
-    sends (``{"intent_response": "ok"}``) so the WS close is
-    clean; the value is asserted (``OK`` is the only non-error
-    response on a successful preview) but not surfaced to the
-    caller — preview's only output is the captured pin.
-
-    Raises :class:`PeerLinkClientError` on any transport,
-    handshake, or decode failure with the underlying exception
-    attached as ``__cause__`` for log inspection.
+    The frontend renders the returned ``pin_sha256`` for the
+    user to OOB-verify against the receiver's "Build server"
+    Settings card; only after that confirmation does the
+    offloader call ``request_pair`` (phase 4a-o part 3).
     """
-    sess = PeerLinkNoiseSession.initiator(identity_priv)
-    url = _build_ws_url(hostname, port)
-    timeout = aiohttp.ClientTimeout(total=_PREVIEW_TIMEOUT_SECONDS)
-
-    try:
-        async with (
-            aiohttp.ClientSession(timeout=timeout) as http,
-            http.ws_connect(url) as ws,
-        ):
-            # msg1: plaintext intent
-            msg1_payload = _json.dumps({"intent": PeerLinkIntent.PREVIEW.value})
-            await ws.send_bytes(sess.write_handshake_message(msg1_payload))
-            # msg2: receiver's ephemeral + static. ``receive_bytes``
-            # raises if the frame is wrong type; that surfaces as
-            # ``aiohttp.ClientError``.
-            sess.read_handshake_message(await ws.receive_bytes())
-            # msg3: our static; preview carries no msg3 payload.
-            await ws.send_bytes(sess.write_handshake_message(b""))
-            # Post-handshake transport frame. Drain for clean
-            # close; assert OK so a future receiver bug that
-            # rejects preview gets surfaced rather than masked.
-            response_ct = await ws.receive_bytes()
-    except (TimeoutError, aiohttp.ClientError, OSError) as exc:
-        msg = f"peer-link preview to {hostname}:{port} failed: {exc}"
-        _LOGGER.debug(msg, exc_info=True)
-        raise PeerLinkClientError(msg) from exc
-    except NOISE_ERRORS as exc:
-        msg = f"peer-link preview Noise handshake failed: {exc}"
-        _LOGGER.warning(msg, exc_info=True)
-        raise PeerLinkClientError(msg) from exc
-
-    # ``NOISE_ERRORS`` is a tuple of classes; Python's ``except``
-    # syntax doesn't accept nested tuples, so star-unpack it into
-    # a flat tuple alongside the JSON decode error.
-    try:
-        response = _json.loads(sess.decrypt(response_ct))
-    except (*NOISE_ERRORS, _json.JSONDecodeError) as exc:
-        msg = f"peer-link preview response decode failed: {exc}"
-        _LOGGER.warning(msg, exc_info=True)
-        raise PeerLinkClientError(msg) from exc
-
-    intent_response = response.get("intent_response") if isinstance(response, dict) else None
-    if intent_response != IntentResponse.OK.value:
-        msg = f"peer-link preview rejected with intent_response={intent_response!r}"
+    rt = await drive_initiator_round_trip(
+        hostname=hostname,
+        port=port,
+        identity_priv=identity_priv,
+        intent=PeerLinkIntent.PREVIEW,
+    )
+    if rt.intent_response != IntentResponse.OK.value:
+        msg = f"peer-link preview rejected with intent_response={rt.intent_response!r}"
         raise PeerLinkClientError(msg)
-
-    try:
-        remote_static = sess.remote_static_pub
-    except HandshakeNotCompleteError as exc:
-        msg = "peer-link preview handshake completed without capturing remote static pubkey"
-        raise PeerLinkClientError(msg) from exc
-    return pin_sha256_for_pubkey(remote_static)
+    return pin_sha256_for_pubkey(rt.remote_static_pub)
