@@ -69,10 +69,14 @@ from ..models import (
     EventType,
     IdentityView,
     ManualHost,
+    PairingWindowState,
+    PeerStatus,
+    PeerSummary,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
     RemoteBuildSettings,
     RemoteBuildSettingsView,
+    StoredPeer,
     StoredToken,
     TokenSummary,
 )
@@ -93,6 +97,16 @@ _LOGGER = logging.getLogger(__name__)
 # seconds"; not the device-state miss the shorter timeout
 # protects against.
 _RESOLVE_TIMEOUT_MS = 3000
+
+# Default lifetime of a pairing window (seconds). The window opens
+# when the receiver-side Pairing requests screen mounts and
+# auto-closes after this much idle time. The frontend extends by
+# calling ``remote_build/set_pairing_window`` with ``open=true``
+# again on each user-activity tick (debounced to once per 30s on
+# the wire). Five minutes balances "long enough to OOB-confirm a
+# pin without rushing" against "short enough that an idle tab
+# isn't an attack surface". See issue #106 design choice (c).
+_PAIRING_WINDOW_DURATION_SECONDS = 300.0
 
 
 def _decode_txt_value(raw: bytes | None) -> str:
@@ -349,16 +363,59 @@ def _to_view(settings: RemoteBuildSettings) -> RemoteBuildSettingsView:
     """
     Project a :class:`RemoteBuildSettings` to its wire :class:`RemoteBuildSettingsView`.
 
-    Drops ``secret_sha256`` from each token row. Every controller
-    method that returns settings to a client routes through here
-    so the stored hash never leaves the server, even when a CRUD
-    response also touches the tokens list.
+    Drops ``secret_sha256`` from each token row and the raw
+    ``static_x25519_pub`` bytes from each peer row. Every
+    controller method that returns settings to a client routes
+    through here so the stored secrets never leave the server,
+    even when a CRUD response also touches the tokens or peers
+    list.
     """
     return RemoteBuildSettingsView(
         enabled=settings.enabled,
         manual_hosts=list(settings.manual_hosts),
         tokens=[_summarise_token(t) for t in settings.tokens],
+        peers=[_peer_summary(p) for p in settings.peers],
     )
+
+
+def _peer_summary(peer: StoredPeer) -> PeerSummary:
+    """Project a :class:`StoredPeer` to wire :class:`PeerSummary`.
+
+    Drops the raw ``static_x25519_pub`` bytes; ``pin_sha256`` is
+    the wire-friendly form UIs render for OOB-verification, and
+    the pubkey is only needed server-side to look up the peer
+    against an incoming Noise handshake.
+    """
+    return PeerSummary(
+        dashboard_id=peer.dashboard_id,
+        pin_sha256=peer.pin_sha256,
+        label=peer.label,
+        paired_at=peer.paired_at,
+        status=peer.status,
+    )
+
+
+def _validate_dashboard_id(raw: object) -> str:
+    """
+    Validate a user-supplied ``dashboard_id`` argument.
+
+    Same shape as the phase 3a / 3b3 ``X-Dashboard-ID`` header
+    contract: base64url alphabet, ≤ 64 chars, non-empty. Rejects
+    other shapes with ``INVALID_ARGS`` rather than silently
+    looking up nothing (which would yield a misleading
+    ``NOT_FOUND``).
+    """
+    if not isinstance(raw, str):
+        msg = "dashboard_id must be a string"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    cleaned = raw.strip()
+    if not cleaned or len(cleaned) > 64 or not _DASHBOARD_ID_PATTERN.match(cleaned):
+        msg = "dashboard_id must be 1-64 base64url chars"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return cleaned
+
+
+_DASHBOARD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _validate_port(raw: object) -> int:
@@ -421,6 +478,32 @@ class RemoteBuildController:
         # guarantees the check + set in :meth:`rotate_identity`
         # is atomic without an explicit lock.
         self._rotation_in_flight = False
+        # Pairing window state (issue #106 design choice (c)).
+        # The window narrows acceptance of ``intent="pair_request"``
+        # Noise frames so an idle receiver doesn't accumulate inbox
+        # noise from arbitrary LAN scanners. Already-approved peers
+        # are NOT gated by the window; they connect anytime via
+        # ``intent="peer_link"``.
+        #
+        # Refcounted by client so two browser tabs / two users with
+        # the Pairing requests screen open both keep the window open
+        # together. Each ``set_pairing_window(open=true)`` call adds
+        # the calling WS client to the map (or refreshes its
+        # last-extend timestamp); ``open=false`` removes it. The
+        # window is open iff the map has any client whose last-extend
+        # timestamp is within ``_PAIRING_WINDOW_DURATION_SECONDS``.
+        # Crashed / disconnected clients (no graceful ``open=false``)
+        # age out via the same timeout, so a one-tab close in a
+        # multi-tab session doesn't immediately close the window for
+        # the other tab, and a crashed tab doesn't keep the window
+        # open forever. State lives in-memory only and resets on
+        # dashboard restart (which is fine; admins re-open the
+        # screen and the window opens fresh).
+        self._pairing_window_clients: dict[Any, float] = {}
+        # Background task that wakes at the next deadline and either
+        # re-sleeps (someone extended) or closes the window + fires
+        # the event (everyone aged out / closed).
+        self._pairing_window_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         """
@@ -488,6 +571,11 @@ class RemoteBuildController:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
             self._tasks.clear()
+        if self._pairing_window_task is not None:
+            self._pairing_window_task.cancel()
+            await asyncio.gather(self._pairing_window_task, return_exceptions=True)
+            self._pairing_window_task = None
+        self._pairing_window_clients.clear()
         self._peers.clear()
 
     # ------------------------------------------------------------------
@@ -978,6 +1066,246 @@ class RemoteBuildController:
             return _identity_view(identity, listener_bound=listener_bound)
         finally:
             self._rotation_in_flight = False
+
+    # ------------------------------------------------------------------
+    # Peer CRUD (phase 4a-r1 part 3) — receiver-UI surface for the
+    # Pairing requests inbox and the approved-peers list. The peer-link
+    # listener (phase 4a-r1 part 4) is the actual creator of PENDING
+    # rows; these commands are the receiver-side admin's UI surface for
+    # acting on them.
+    # ------------------------------------------------------------------
+
+    @api_command("remote_build/list_peers")
+    async def list_peers(self, **kwargs: Any) -> list[PeerSummary]:
+        """
+        Return every ``StoredPeer`` row, projected to wire shape.
+
+        Includes both PENDING (waiting for admin Accept) and APPROVED
+        (paired) rows; the wire view drops the raw ``static_x25519_pub``
+        bytes and exposes only ``pin_sha256``. The frontend filters by
+        ``status`` to render the inbox vs the paired list.
+        """
+        loop = asyncio.get_running_loop()
+        settings = await loop.run_in_executor(
+            None, load_remote_build_settings, self._db.settings.config_dir
+        )
+        return [_peer_summary(peer) for peer in settings.peers]
+
+    @api_command("remote_build/approve_peer")
+    async def approve_peer(self, *, dashboard_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
+        """
+        Promote a PENDING peer to APPROVED.
+
+        Fires :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` with
+        ``{dashboard_id, status: "approved"}``. The offloader observes
+        the flip via its own polling loop (phase 4a-o ``list_pool``).
+        ``NOT_FOUND`` if no peer with this ``dashboard_id`` exists;
+        ``INVALID_ARGS`` if the peer is already APPROVED (a duplicate
+        Accept click is almost always a UI race and the receiver
+        should not silently re-fire the event).
+        """
+        clean_id = _validate_dashboard_id(dashboard_id)
+
+        def _approve(settings: RemoteBuildSettings) -> None:
+            for peer in settings.peers:
+                if peer.dashboard_id == clean_id:
+                    if peer.status == PeerStatus.APPROVED:
+                        msg = f"peer is already approved: {clean_id}"
+                        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+                    peer.status = PeerStatus.APPROVED
+                    return
+            msg = f"no peer with dashboard_id: {clean_id}"
+            raise CommandError(ErrorCode.NOT_FOUND, msg)
+
+        view = await self._modify_settings(_approve)
+        self._db.bus.fire(
+            EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED,
+            {"dashboard_id": clean_id, "status": "approved"},
+        )
+        return view
+
+    @api_command("remote_build/remove_peer")
+    async def remove_peer(self, *, dashboard_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
+        """
+        Delete a peer row (works on both PENDING and APPROVED).
+
+        Two semantically distinct outcomes share the same WS command:
+
+        * Removing a PENDING row is *rejection* — the row never
+          represented an established trust relationship, so this is
+          inbox cleanup. No event fires.
+        * Removing an APPROVED row is *revocation* — fires
+          :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` with
+          ``{dashboard_id, status: "removed"}`` so the offloader's
+          polling loop sees the revocation and can surface a
+          ``peer_revoked`` UI alert (phase 4b-3).
+
+        ``NOT_FOUND`` if no peer with this ``dashboard_id`` exists.
+        """
+        clean_id = _validate_dashboard_id(dashboard_id)
+        # ``_modify_settings`` returns the view but doesn't tell us
+        # what the peer's status was *before* the remove; capture
+        # that in the mutator so the event-fire decision below has
+        # the right answer.
+        previous_status: PeerStatus | None = None
+
+        def _remove(settings: RemoteBuildSettings) -> None:
+            nonlocal previous_status
+            for peer in settings.peers:
+                if peer.dashboard_id == clean_id:
+                    previous_status = peer.status
+                    break
+            kept = [peer for peer in settings.peers if peer.dashboard_id != clean_id]
+            if len(kept) == len(settings.peers):
+                msg = f"no peer with dashboard_id: {clean_id}"
+                raise CommandError(ErrorCode.NOT_FOUND, msg)
+            settings.peers = kept
+
+        view = await self._modify_settings(_remove)
+        if previous_status == PeerStatus.APPROVED:
+            self._db.bus.fire(
+                EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED,
+                {"dashboard_id": clean_id, "status": "removed"},
+            )
+        return view
+
+    # ------------------------------------------------------------------
+    # Pairing window (phase 4a-r1 part 3) — in-process deadline that
+    # gates ``intent="pair_request"`` Noise frames at the listener
+    # (phase 4a-r1 part 4 consumes :meth:`is_pairing_window_open`).
+    # See issue #106 design choice (c).
+    # ------------------------------------------------------------------
+
+    @api_command("remote_build/set_pairing_window")
+    async def set_pairing_window(
+        self,
+        *,
+        open: bool,  # noqa: A002 — wire format names this field "open"
+        **kwargs: Any,
+    ) -> PairingWindowState:
+        """
+        Open, extend, or close the pairing window for the calling client.
+
+        Wire shape: ``{open: bool}``. Refcounted by WS client: each
+        ``open=true`` adds (or refreshes) the caller's entry in the
+        active-clients map; ``open=false`` removes it. The window is
+        open iff *any* client has a non-stale entry. The
+        receiver-side frontend calls this on screen-mount and on
+        each activity-driven extend tick (debounced to once per 30s
+        on the wire), and ``open=false`` on screen-unmount /
+        ``beforeunload``. An explicit "extend" / "still pairing?"
+        button in the UI is just another caller of ``open=true``;
+        no separate wire command is needed for it.
+
+        Fires :attr:`EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED` on
+        every state transition. Idempotent calls that don't change
+        state (close-while-already-closed; or close from a client
+        that wasn't extending while another client still is) do NOT
+        fire; the frontend renders countdown ticks client-side and
+        doesn't need a per-second fire.
+
+        Two-tab / two-user behaviour: window stays open as long as
+        at least one client is extending. A crashed tab ages out
+        naturally via the 5min idle timeout (no per-client
+        disconnect hook is needed); a graceful close from one tab
+        leaves the window open for the other tab. See issue #106
+        design choice (c).
+        """
+        if not isinstance(open, bool):
+            msg = "remote_build/set_pairing_window: 'open' must be a bool"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+        client = kwargs.get("client")
+        was_open = self.is_pairing_window_open()
+        if open:
+            self._pairing_window_clients[client] = time.monotonic()
+            if self._pairing_window_task is None or self._pairing_window_task.done():
+                self._pairing_window_task = asyncio.create_task(self._run_pairing_window_task())
+        else:
+            self._pairing_window_clients.pop(client, None)
+        self._prune_stale_pairing_window_clients()
+        is_open = self.is_pairing_window_open()
+
+        # Fire on state transitions, AND on every successful extend
+        # (open=True with the window already open) so the frontend's
+        # live countdown re-syncs against the bumped deadline. A
+        # spurious open=False from a non-extending client (no state
+        # change) doesn't fire.
+        if was_open != is_open or (open and is_open):
+            self._fire_pairing_window_changed()
+        return self._pairing_window_state()
+
+    def is_pairing_window_open(self) -> bool:
+        """
+        Return whether the pairing window is currently open.
+
+        Consumed by the peer-link listener (phase 4a-r1 part 4) to
+        gate ``intent="pair_request"`` Noise frames. A closed window
+        rejects the frame with ``intent_response=no_pairing_window``
+        and closes the WS without creating a row.
+        """
+        self._prune_stale_pairing_window_clients()
+        return bool(self._pairing_window_clients)
+
+    def _pairing_window_state(self) -> PairingWindowState:
+        """Project the in-memory client map into a wire-shape response."""
+        self._prune_stale_pairing_window_clients()
+        if not self._pairing_window_clients:
+            return PairingWindowState(open=False, expires_in_seconds=None)
+        latest_extend = max(self._pairing_window_clients.values())
+        deadline = latest_extend + _PAIRING_WINDOW_DURATION_SECONDS
+        remaining = max(0.0, deadline - time.monotonic())
+        return PairingWindowState(open=True, expires_in_seconds=remaining)
+
+    def _fire_pairing_window_changed(self) -> None:
+        """Fire ``REMOTE_BUILD_PAIRING_WINDOW_CHANGED`` with the current state."""
+        state = self._pairing_window_state()
+        self._db.bus.fire(
+            EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED,
+            {"open": state.open, "expires_in_seconds": state.expires_in_seconds},
+        )
+
+    def _prune_stale_pairing_window_clients(self) -> None:
+        """Drop client entries whose last-extend timestamp aged out."""
+        if not self._pairing_window_clients:
+            return
+        cutoff = time.monotonic() - _PAIRING_WINDOW_DURATION_SECONDS
+        self._pairing_window_clients = {
+            client: extended_at
+            for client, extended_at in self._pairing_window_clients.items()
+            if extended_at >= cutoff
+        }
+
+    async def _run_pairing_window_task(self) -> None:
+        """
+        Sleep until the latest client's deadline; on wake, close or re-sleep.
+
+        Tolerates extension: when any client extends while we're
+        sleeping, the new latest-extend timestamp pushes the deadline
+        out, our sleep wakes at the *old* deadline, sees the new
+        deadline still in the future, and re-sleeps. One task handles
+        arbitrary numbers of extensions across all clients; the cost
+        is one wasted wake per extension, negligible at the 30s
+        debounced extend cadence.
+
+        Closes the window (and fires the event) when the prune sweep
+        on wake finds no clients left.
+        """
+        while True:
+            self._prune_stale_pairing_window_clients()
+            if not self._pairing_window_clients:
+                # Auto-closed: every client aged out. Fire the close
+                # event so the frontend can render "window expired".
+                self._fire_pairing_window_changed()
+                return
+            latest_extend = max(self._pairing_window_clients.values())
+            deadline = latest_extend + _PAIRING_WINDOW_DURATION_SECONDS
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                # Fell through pruning's epsilon window; loop back to
+                # re-sweep and close on the next iteration.
+                continue
+            await asyncio.sleep(remaining)
 
 
 def _identity_view(identity: DashboardIdentity, *, listener_bound: bool) -> IdentityView:

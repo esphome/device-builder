@@ -96,6 +96,45 @@ class EventType(StrEnum):
     # changed.
     REMOTE_BUILD_IDENTITY_ROTATED = "remote_build_identity_rotated"
 
+    # A pair_request Noise frame landed for a previously-unknown
+    # peer while the receiver's pairing window was open (phase 4
+    # auth flow; see issue #106 design choice (b)/(c)). Payload:
+    # ``{dashboard_id, pin_sha256, label, peer_ip}``. The receiver
+    # Settings UI surfaces this in the Pairing requests inbox.
+    # Fires only when the pairing window is open; closed-window
+    # pair_requests are rejected at the listener with
+    # ``intent_response=no_pairing_window`` and don't create a
+    # row. The listener (part 4) is the actual emitter; this
+    # entry is added in part 3 alongside the receiver-UI WS
+    # commands so the model surface lands together.
+    REMOTE_BUILD_PAIR_REQUEST_RECEIVED = "remote_build_pair_request_received"
+
+    # A ``StoredPeer`` row's status changed. Payload:
+    # ``{dashboard_id, status: "approved" | "removed"}``. Fired
+    # by ``remote_build/approve_peer`` (status="approved") and by
+    # ``remote_build/remove_peer`` for previously-APPROVED rows
+    # (status="removed"). Removing a still-PENDING row is just
+    # rejection-as-cleanup and fires nothing; the row never
+    # represented an established trust relationship. Receiver
+    # Settings UI updates the inbox + approved-peers list on
+    # this event; in phase 4b-3 the offloader's polling loop
+    # observes the same flip via the offloader-side ``list_pool``
+    # WS command.
+    REMOTE_BUILD_PAIR_STATUS_CHANGED = "remote_build_pair_status_changed"
+
+    # Pairing window opened, extended, or closed. Payload:
+    # ``{open: bool, expires_in_seconds: float | None}``. Fires
+    # on every state transition: window open (open=true,
+    # expires_in_seconds=300), activity-driven extension
+    # (open=true, expires_in_seconds=300 again, deadline
+    # bumped), explicit close from the frontend (open=false,
+    # expires_in_seconds=null), or auto-close on deadline reach
+    # (open=false). The receiver frontend renders a live
+    # countdown from ``expires_in_seconds``; idempotent calls
+    # that don't change state (e.g. close-while-already-closed)
+    # do NOT fire the event.
+    REMOTE_BUILD_PAIRING_WINDOW_CHANGED = "remote_build_pairing_window_changed"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.

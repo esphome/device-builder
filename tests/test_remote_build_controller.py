@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from zeroconf import ServiceStateChange
 
+from esphome_device_builder.controllers import remote_build as rb
 from esphome_device_builder.controllers.config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
@@ -42,9 +43,11 @@ from esphome_device_builder.models import (
     EventType,
     IdentityView,
     ManualHost,
+    PeerStatus,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
     RemoteBuildSettingsView,
+    StoredPeer,
     StoredToken,
     TokenSummary,
 )
@@ -1562,3 +1565,385 @@ async def test_rotate_identity_clears_in_flight_flag_on_failure(tmp_path: Path) 
     # Flag must be back to False; otherwise every subsequent
     # rotate attempt would 409 forever.
     assert controller._rotation_in_flight is False
+
+
+# ---------------------------------------------------------------------------
+# Phase 4a-r1 part 3: peer CRUD + pairing window
+# ---------------------------------------------------------------------------
+
+
+def _stored_peer(
+    *,
+    dashboard_id: str = "alpha",
+    label: str = "alpha",
+    pin_sha256: str | None = None,
+    static_x25519_pub: bytes | None = None,
+    paired_at: float = 1_700_000_000.0,
+    status: PeerStatus = PeerStatus.PENDING,
+) -> StoredPeer:
+    """Construct a ``StoredPeer`` with sensible defaults for tests."""
+    pub = static_x25519_pub if static_x25519_pub is not None else _secrets.token_bytes(32)
+    pin = pin_sha256 if pin_sha256 is not None else hashlib.sha256(pub).hexdigest()
+    return StoredPeer(
+        dashboard_id=dashboard_id,
+        pin_sha256=pin,
+        static_x25519_pub=pub,
+        label=label,
+        paired_at=paired_at,
+        status=status,
+    )
+
+
+async def _seed_peer(config_dir: Path, peer: StoredPeer) -> None:
+    """Persist a single ``StoredPeer`` row under ``_remote_build.peers``."""
+    loop = asyncio.get_running_loop()
+
+    def _write() -> None:
+        with remote_build_settings_transaction(config_dir) as settings:
+            settings.peers.append(peer)
+
+    await loop.run_in_executor(None, _write)
+
+
+@pytest.mark.asyncio
+async def test_list_peers_returns_empty_when_none_stored(tmp_path: Path) -> None:
+    """List on a fresh dashboard returns an empty list, not an error."""
+    controller = _make_controller(config_dir=tmp_path)
+    assert await controller.list_peers() == []
+
+
+@pytest.mark.asyncio
+async def test_list_peers_returns_summary_for_each_row(tmp_path: Path) -> None:
+    """``list_peers`` projects every stored peer to ``PeerSummary``."""
+    controller = _make_controller(config_dir=tmp_path)
+    pending = _stored_peer(dashboard_id="pending", status=PeerStatus.PENDING)
+    approved = _stored_peer(dashboard_id="approved", status=PeerStatus.APPROVED)
+    await _seed_peer(tmp_path, pending)
+    await _seed_peer(tmp_path, approved)
+
+    rows = await controller.list_peers()
+
+    assert {row.dashboard_id for row in rows} == {"pending", "approved"}
+    statuses = {row.dashboard_id: row.status for row in rows}
+    assert statuses == {"pending": PeerStatus.PENDING, "approved": PeerStatus.APPROVED}
+
+
+@pytest.mark.asyncio
+async def test_list_peers_drops_static_x25519_pub_from_wire(tmp_path: Path) -> None:
+    """The wire summary must not expose raw ``static_x25519_pub`` bytes."""
+    controller = _make_controller(config_dir=tmp_path)
+    await _seed_peer(tmp_path, _stored_peer(static_x25519_pub=b"\xaa" * 32))
+
+    [row] = await controller.list_peers()
+
+    serialised = row.to_dict()
+    assert "static_x25519_pub" not in serialised
+    assert serialised["pin_sha256"]  # the wire-friendly form is present
+
+
+@pytest.mark.asyncio
+async def test_approve_peer_promotes_pending_to_approved(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await _seed_peer(tmp_path, _stored_peer(dashboard_id="alpha", status=PeerStatus.PENDING))
+
+    view = await controller.approve_peer(dashboard_id="alpha")
+
+    assert view.peers[0].status == PeerStatus.APPROVED
+    settings = load_remote_build_settings(tmp_path)
+    assert settings.peers[0].status == PeerStatus.APPROVED
+
+
+@pytest.mark.asyncio
+async def test_approve_peer_fires_pair_status_changed(tmp_path: Path) -> None:
+    """Approval fires ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` with status=approved."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await _seed_peer(tmp_path, _stored_peer(dashboard_id="alpha"))
+
+    await controller.approve_peer(dashboard_id="alpha")
+
+    fire = controller._db.bus.fire
+    fire.assert_called_once()
+    event_type, payload = fire.call_args.args
+    assert event_type is EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED
+    assert payload == {"dashboard_id": "alpha", "status": "approved"}
+
+
+@pytest.mark.asyncio
+async def test_approve_peer_unknown_returns_not_found(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await controller.approve_peer(dashboard_id="ghost")
+
+    assert exc.value.code is ErrorCode.NOT_FOUND
+    controller._db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_approve_peer_already_approved_returns_invalid_args(tmp_path: Path) -> None:
+    """Re-approving an already-APPROVED peer is rejected, not silently re-fired."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await _seed_peer(tmp_path, _stored_peer(dashboard_id="alpha", status=PeerStatus.APPROVED))
+
+    with pytest.raises(CommandError) as exc:
+        await controller.approve_peer(dashboard_id="alpha")
+
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+    controller._db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_approve_peer_rejects_invalid_dashboard_id(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await controller.approve_peer(dashboard_id="has spaces!")
+
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+async def test_remove_peer_drops_pending_silently(tmp_path: Path) -> None:
+    """Removing a PENDING peer is rejection-as-cleanup; no event fires."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await _seed_peer(tmp_path, _stored_peer(dashboard_id="alpha", status=PeerStatus.PENDING))
+
+    view = await controller.remove_peer(dashboard_id="alpha")
+
+    assert view.peers == []
+    controller._db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_remove_peer_drops_approved_and_fires_event(tmp_path: Path) -> None:
+    """Removing an APPROVED peer is revocation; fires the removed event."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await _seed_peer(tmp_path, _stored_peer(dashboard_id="alpha", status=PeerStatus.APPROVED))
+
+    view = await controller.remove_peer(dashboard_id="alpha")
+
+    assert view.peers == []
+    fire = controller._db.bus.fire
+    fire.assert_called_once()
+    event_type, payload = fire.call_args.args
+    assert event_type is EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED
+    assert payload == {"dashboard_id": "alpha", "status": "removed"}
+
+
+@pytest.mark.asyncio
+async def test_remove_peer_keeps_other_rows(tmp_path: Path) -> None:
+    """``remove_peer`` only touches the matching dashboard_id."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await _seed_peer(tmp_path, _stored_peer(dashboard_id="keep"))
+    await _seed_peer(tmp_path, _stored_peer(dashboard_id="drop"))
+
+    view = await controller.remove_peer(dashboard_id="drop")
+
+    assert {peer.dashboard_id for peer in view.peers} == {"keep"}
+
+
+@pytest.mark.asyncio
+async def test_remove_peer_unknown_returns_not_found(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await controller.remove_peer(dashboard_id="ghost")
+
+    assert exc.value.code is ErrorCode.NOT_FOUND
+    controller._db.bus.fire.assert_not_called()
+
+
+# --- pairing window ---
+
+
+@pytest.mark.asyncio
+async def test_pairing_window_starts_closed(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    assert controller.is_pairing_window_open() is False
+
+
+@pytest.mark.asyncio
+async def test_set_pairing_window_open_opens_and_fires(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    state = await controller.set_pairing_window(open=True, client="tab-1")
+
+    assert state.open is True
+    assert state.expires_in_seconds is not None
+    assert 0 < state.expires_in_seconds <= 300.0
+    assert controller.is_pairing_window_open() is True
+    fire = controller._db.bus.fire
+    fire.assert_called_once()
+    event_type, payload = fire.call_args.args
+    assert event_type is EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED
+    assert payload["open"] is True
+    assert payload["expires_in_seconds"] is not None
+
+    # cleanup the auto-close task so the test loop can exit
+    await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_set_pairing_window_close_closes_and_fires(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await controller.set_pairing_window(open=True, client="tab-1")
+    controller._db.bus.fire.reset_mock()
+
+    state = await controller.set_pairing_window(open=False, client="tab-1")
+
+    assert state.open is False
+    assert state.expires_in_seconds is None
+    assert controller.is_pairing_window_open() is False
+    fire = controller._db.bus.fire
+    fire.assert_called_once()
+    event_type, payload = fire.call_args.args
+    assert event_type is EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED
+    assert payload == {"open": False, "expires_in_seconds": None}
+
+    await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_set_pairing_window_close_while_already_closed_is_silent(tmp_path: Path) -> None:
+    """A close from a client that wasn't extending must not fire."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    state = await controller.set_pairing_window(open=False, client="tab-1")
+
+    assert state.open is False
+    controller._db.bus.fire.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_set_pairing_window_extend_refreshes_deadline_and_fires(tmp_path: Path) -> None:
+    """Repeat ``open=true`` extends the deadline AND fires the event."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    first = await controller.set_pairing_window(open=True, client="tab-1")
+    # tiny sleep so the second extend's deadline is strictly later than the first's
+    await asyncio.sleep(0.01)
+    second = await controller.set_pairing_window(open=True, client="tab-1")
+
+    assert first.expires_in_seconds is not None
+    assert second.expires_in_seconds is not None
+    # Both fires landed (open + extend); both events have open=True.
+    assert controller._db.bus.fire.call_count == 2
+    for call in controller._db.bus.fire.call_args_list:
+        _, payload = call.args
+        assert payload["open"] is True
+
+    await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_pairing_window_two_clients_refcount(tmp_path: Path) -> None:
+    """Two tabs / two users: window stays open until the LAST client closes."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    await controller.set_pairing_window(open=True, client="tab-A")
+    await controller.set_pairing_window(open=True, client="tab-B")
+    assert controller.is_pairing_window_open() is True
+
+    # Tab A graceful close: tab B is still extending → window must stay open.
+    await controller.set_pairing_window(open=False, client="tab-A")
+    assert controller.is_pairing_window_open() is True
+
+    # Tab B graceful close: now no clients are extending → window closes.
+    await controller.set_pairing_window(open=False, client="tab-B")
+    assert controller.is_pairing_window_open() is False
+
+    # Three events: open (tab A), extend (tab B opens, fires too), close (tab B unsets).
+    # Tab A's close was non-state-changing (tab B still extending) → no fire.
+    fire_calls = controller._db.bus.fire.call_args_list
+    open_states = [call.args[1]["open"] for call in fire_calls]
+    assert open_states == [True, True, False]
+
+    await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_pairing_window_close_from_non_extender_does_not_fire(tmp_path: Path) -> None:
+    """A spurious open=False from a client that wasn't extending is a no-op."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await controller.set_pairing_window(open=True, client="tab-A")
+    controller._db.bus.fire.reset_mock()
+
+    # tab-B never called open=true; its close call is a no-op.
+    await controller.set_pairing_window(open=False, client="tab-B")
+
+    assert controller.is_pairing_window_open() is True
+    controller._db.bus.fire.assert_not_called()
+
+    await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_set_pairing_window_rejects_non_bool(tmp_path: Path) -> None:
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await controller.set_pairing_window(open="yes", client="tab-1")  # type: ignore[arg-type]
+
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+async def test_pairing_window_auto_closes_when_clients_age_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The window auto-closes when every client's last-extend ages past the duration."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    # Patch the duration to ~0 so the auto-close fires almost immediately.
+    monkeypatch.setattr(rb, "_PAIRING_WINDOW_DURATION_SECONDS", 0.05)
+
+    await controller.set_pairing_window(open=True, client="tab-1")
+    assert controller.is_pairing_window_open() is True
+    controller._db.bus.fire.reset_mock()
+
+    # Wait for the deadline to lapse + a hair for the task to settle.
+    await asyncio.sleep(0.2)
+
+    assert controller.is_pairing_window_open() is False
+    # An auto-close event fired (open=False).
+    fire = controller._db.bus.fire
+    assert fire.call_count >= 1
+    last_event_type, last_payload = fire.call_args.args
+    assert last_event_type is EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED
+    assert last_payload["open"] is False
+
+    await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_pairing_window_task(tmp_path: Path) -> None:
+    """``controller.stop()`` cleans up the auto-close task without leaking."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    await controller.set_pairing_window(open=True, client="tab-1")
+    task = controller._pairing_window_task
+    assert task is not None
+    assert task.done() is False
+
+    await controller.stop()
+
+    assert controller._pairing_window_task is None
+    assert task.done() is True
+    assert controller.is_pairing_window_open() is False

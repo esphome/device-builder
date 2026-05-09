@@ -214,6 +214,34 @@ class RemoteBuildSettingsView(DataClassORJSONMixin):
 
 
 @dataclass
+class PairingWindowState(DataClassORJSONMixin):
+    """
+    In-process pairing-window state on the receiver.
+
+    The pairing window narrows when ``intent="pair_request"``
+    Noise frames are even accepted: only while the receiver-side
+    Pairing requests screen is mounted. ``open`` is the boolean
+    state; ``expires_in_seconds`` is the remaining lifetime when
+    the window is open (``None`` when closed). The frontend
+    renders a live countdown from ``expires_in_seconds`` and
+    re-extends by calling ``remote_build/set_pairing_window``
+    with ``open=true`` on each activity-driven extend tick (one
+    call per 30s on the wire).
+
+    Wire shape for the ``set_pairing_window`` response and the
+    ``remote_build_pairing_window_changed`` event payload. Not
+    persisted; the deadline lives in
+    :attr:`RemoteBuildController._pairing_window_open_until`
+    only and resets on every dashboard restart (which is fine —
+    the receiver-side admin re-opens the screen after restart
+    and the window opens fresh).
+    """
+
+    open: bool
+    expires_in_seconds: float | None = None
+
+
+@dataclass
 class RemoteBuildPeer(DataClassORJSONMixin):
     """
     A peer dashboard known to this dashboard.
