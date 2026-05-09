@@ -74,17 +74,28 @@ _RESPONSE_DECODE_ERRORS: tuple[type[Exception], ...] = (
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
-# Hard cap on a single inbound WS frame the offloader will read
-# from a peer-link receiver. Each receiver response is a Noise-
-# encrypted JSON object with a small fixed shape (status code,
-# pubkey hash, optional label) — well under 1 KiB in practice.
-# aiohttp's default ``max_msg_size`` is 4 MiB, which is wildly
-# generous here: a malicious or buggy receiver could otherwise
-# spend ~4 MiB of offloader memory + Noise-decrypt + JSON-parse
-# CPU per round-trip. 64 KiB is two orders of magnitude above
-# the realistic max while still giving aiohttp a reasonable
-# header-and-frame slack.
-_RECEIVER_RESPONSE_MAX_BYTES = 64 * 1024
+# Hard cap on a single inbound WS frame for the *control-plane*
+# round-trip driven by :func:`drive_initiator_round_trip`. Each
+# receiver response on this path is a Noise-encrypted JSON object
+# with a small fixed shape (status code, pubkey hash, optional
+# label); well under 1 KiB in practice. aiohttp's default
+# ``max_msg_size`` is 4 MiB, which is wildly generous here: a
+# malicious or buggy receiver could otherwise spend ~4 MiB of
+# offloader memory + Noise-decrypt + JSON-parse CPU per round-
+# trip. 64 KiB is two orders of magnitude above the realistic
+# max while still giving aiohttp a reasonable header-and-frame
+# slack.
+#
+# This cap explicitly does NOT apply to the future firmware-bytes
+# ``peer_link`` intent (issue #106 phase 4c onward). That payload
+# is megabytes of compiled firmware and will use a separate
+# streaming driver — Noise has a hard 65535-byte ciphertext frame
+# limit, so the firmware path will read many small frames and
+# stream them to disk, not a single ``receive_bytes()`` call.
+# When that driver lands, it gets its own ``max_msg_size``
+# tuned to one Noise frame (~64 KiB + slack); this constant
+# stays scoped to the JSON status responses.
+_CONTROL_RESPONSE_MAX_BYTES = 64 * 1024
 
 
 class PeerLinkClientError(RuntimeError):
@@ -216,7 +227,7 @@ async def drive_initiator_round_trip(
         url = _build_ws_url(hostname, port)
         async with (
             aiohttp.ClientSession(timeout=timeout) as http,
-            http.ws_connect(url, max_msg_size=_RECEIVER_RESPONSE_MAX_BYTES) as ws,
+            http.ws_connect(url, max_msg_size=_CONTROL_RESPONSE_MAX_BYTES) as ws,
         ):
             msg1 = _json.dumps({"intent": intent.value})
             await ws.send_bytes(sess.write_handshake_message(msg1))

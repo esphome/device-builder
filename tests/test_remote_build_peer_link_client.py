@@ -409,6 +409,48 @@ def _make_offloader_controller(*, config_dir: Path) -> RemoteBuildController:
 
 
 @pytest.mark.asyncio
+async def test_controller_preview_pair_returns_receiver_pin(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    offloader_controller_dir: Path,
+) -> None:
+    """End-to-end: ``RemoteBuildController.preview_pair`` returns the receiver's pin."""
+    server, _, expected_pin = receiver_server
+
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    result = await offloader.preview_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+    )
+
+    assert result == {"pin_sha256": expected_pin}
+    # Preview is read-only on the offloader side too: no StoredPairing
+    # row written until the user OOB-confirms and calls request_pair.
+    saved = await asyncio.get_running_loop().run_in_executor(
+        None, load_offloader_remote_build_settings, offloader_controller_dir
+    )
+    assert saved.pairings == []
+
+
+@pytest.mark.asyncio
+async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
+    offloader_controller_dir: Path,
+    unused_tcp_port: int,
+) -> None:
+    """Receiver unreachable → CommandError(UNAVAILABLE)."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await offloader.preview_pair(
+            hostname="127.0.0.1",
+            port=unused_tcp_port,
+        )
+    assert exc.value.code == ErrorCode.UNAVAILABLE
+
+
+@pytest.mark.asyncio
 async def test_controller_request_pair_persists_pending_row(
     receiver_server: tuple[TestServer, RemoteBuildController, str],
     offloader_controller_dir: Path,
