@@ -229,10 +229,20 @@ def make_remote_build_auth_middleware(
     *rate_limiter* defaults to a fresh per-instance
     :class:`helpers.auth.RateLimiter` with the module-level
     constants; tests can pass a custom instance to drive
-    threshold-specific assertions. The limiter records FAILED
-    bearer attempts only — a successful auth does not "clear"
-    the IP because there's no notion of "this peer is
-    trustworthy now".
+    threshold-specific assertions. The limiter records both
+    failed bearer attempts (401) and the 400 path for missing
+    / malformed ``X-Dashboard-ID``. The 400 path counts
+    because a 400 response confirms the bearer was valid;
+    without rate-limiting it, a peer holding a stolen bearer
+    could probe the binding surface unlimited times. The 403
+    binding-mismatch path does NOT record a failure because
+    that path fires the ``on_binding_mismatch`` event, which
+    the receiver Settings UI surfaces to the operator;
+    rate-limiting it would mask the alert under the same
+    threshold as routine bad bearers. Successful auth does
+    NOT clear the IP — there's no notion of "this peer is
+    trustworthy now"; per-pairing trust is the binding step
+    itself.
 
     On 401 / 429 / 403 the middleware emits a warning log line
     with the peer IP and the request path so an operator hunting

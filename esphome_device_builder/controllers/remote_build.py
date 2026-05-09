@@ -758,11 +758,12 @@ class RemoteBuildController:
         Return every issued bearer token, by ``TokenSummary``.
 
         ``TokenSummary`` rows never carry the secret hash; the
-        cleartext bearer flashes through ``add_token``'s response
-        once at create time and isn't recoverable from disk after
-        that. The frontend renders the token_id + label + bound
-        dashboard_id (if any) so the operator can audit which
-        peers are paired.
+        cleartext bearer is generated client-side at
+        ``add_token`` time and never crosses the wire to the
+        backend, so this list intentionally has no path to
+        recover it. The frontend renders the token_id + label +
+        bound dashboard_id (if any) so the operator can audit
+        which peers are paired.
         """
         loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
