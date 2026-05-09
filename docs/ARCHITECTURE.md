@@ -274,7 +274,7 @@ All WS commands below use the `remote_build/` namespace and all events use the `
 4. **OOB pin verification** — human-mediated. The user compares the pin shown on the offloader UI against the receiver UI's Build server card.
 5. **Pair request (intent=pair_request)** — fresh Noise XX with payload `{label, dashboard_id}`. If the pairing window is open, the receiver creates a PENDING `StoredPeer` row, fires `remote_build_pair_request_received`, and returns `intent_response=pending`. If the window is closed, it returns `intent_response=no_pairing_window` without creating a row.
 6. **Receiver-side approve** — user OOB-confirms the offloader's pin, clicks Accept on the receiving dashboard; `remote_build/approve_peer` flips the row to APPROVED and fires `remote_build_pair_status_changed`.
-7. **Offloader observes approval (5s polling)** — while the offloader's local row is pending, its frontend polls `remote_build/list_pool`; the offloader backend opens a fresh Noise WS with `intent=pair_status` and writes the response back into the local row.
+7. **Offloader observes approval (event-pushed, no polling)** — when the offloader persists a PENDING `StoredPairing`, the controller spawns one `_pair_status_listener` asyncio task per row. The listener opens a Noise WS to the receiver with `intent=pair_status`; the receiver-side handler `lookup_peer_for_status` registers a bus listener for `remote_build_pair_status_changed` (filtered to the matching `dashboard_id`) and parks until either the admin clicks Accept / Reject (bus event fires → re-snapshot → return `approved` / `rejected`) or the pairing window closes (return `no_pairing_window`). No periodic polling; the offloader's frontend gets push notifications via `remote_build/subscribe_pool` over the existing dashboard `/ws`.
 8. **Subsequent real-build sessions** — `intent=peer_link`. **Not gated by the pairing window**; paired peers connect anytime. The receiver looks up the offloader's static-pubkey-hash against its `StoredPeer` table; an APPROVED match returns `intent_response=ok` and the session stays open for application messages.
 
 ```mermaid
@@ -313,12 +313,11 @@ sequenceDiagram
     RB->>RB: PENDING to APPROVED
     RB-->>RF: pair_status_changed approved
 
-    loop while pending
-        OF->>OB: list_pool
-        OB->>RB: Noise XX intent=pair_status
-        RB-->>OB: status
-    end
-    OB-->>OF: paired
+    OF->>OB: subscribe_pool (live updates)
+    OB->>RB: Noise XX intent=pair_status (long-poll)
+    Note over RB: bus.listening on pair_status_changed<br/>+ pairing_window_changed
+    RB-->>OB: intent_response=approved (on RU click)
+    OB-->>OF: offloader_pair_status_changed status=approved
 
     OB->>RB: Noise XX intent=peer_link
     RB-->>OB: intent_response=ok
@@ -326,7 +325,11 @@ sequenceDiagram
 
 **Why two Noise handshakes for one pairing.** The preview handshake (step 3) captures the receiver's static pubkey for OOB display *before* the offloader has decided to trust this receiver; the WS closes immediately, no application data crosses the wire. The pair-request handshake (step 5) is a fresh handshake that re-binds the OOB-confirmed pin (defends against TOCTOU between preview and confirm: if the pubkey-hash on the second handshake doesn't match `pin_sha256` from preview, the offloader aborts). Re-handshakes are cheap because Noise's setup cost is negligible at this cadence (pair flows are rare, not a hot path).
 
-**Why polling instead of a long-held WS.** The offloader's `request_pair` returns immediately with `pending`; the offloader's frontend polls `list_pool` every 5s while a pending row is visible. The alternative (a long-held WS frame waiting for the user to click Accept on the receiving dashboard) fails on idle timeouts (load-balancer, HA add-on ingress, offloader process restart) and forces the receiver to track stale connections across approval. Polling makes each interaction self-contained; a 2s server-side debounce on the offloader backend caches the receiver-side status to prevent cross-tab amplification.
+**Why long-poll instead of frontend polling.** The original design polled `list_pool` every 5s while a pending row was visible; the current design holds a Noise WS open with `intent=pair_status` for each PENDING row. The receiver-side `lookup_peer_for_status` parks on bus events (`pair_status_changed` filtered to `dashboard_id`, plus `pairing_window_changed` for closed-mid-wait) and pushes the response when admin clicks Accept / Reject — sub-second flip latency without a poll cadence. Idle-timeout robustness comes from how listeners restart: terminal flips exit the task; transport errors retry after a 2s backoff; window-close exits cleanly with `no_pairing_window` (admin walked away → no flip can happen). The offloader's `subscribe_pool` re-spawns dormant listeners on entry (user comes back to Send-builds → kick listeners back on for any rows that exited via `no_pairing_window`).
+
+**Why pending peers are gated on the pairing window.** A PENDING peer's pair_status long-poll is honoured only while the receiver-side admin has the Pairing requests screen mounted. The bus event channel that drives the long-poll only fires while admin is engaged (admin click is what produces the flip), so an idle pending peer holding an open Noise session would just be parked on a wait that can't complete. Closing the WS at the receiver end is symmetric with the affordance the user is offering: when admin walks away, pending peers get told to come back later. APPROVED peers' `pair_status` returns immediately from the snapshot — no window gate — because they're already trusted.
+
+**Window-state disclosure.** The `no_pairing_window` response only reaches an offloader whose static pubkey already matches the stored PENDING row's `pin_sha256` (the pin check in `_lookup_peer_response` short-circuits before the window check). Random callers — unknown `dashboard_id`, mismatched pin, attacker substituting their own pubkey — get `rejected` regardless of window state, so the window flag isn't an enumeration oracle. Only the legitimate paired-or-pending offloader can observe the receiver's window state, which is exactly what they need to know to handle the closed-window exit branch.
 
 **Identity rotation.** The peer-link X25519 keypair has its own rotation lifecycle (`rotate_peer_link_identity`), independent of the phase-3a Ed25519 cert. Rotating the 3a cert does NOT change the X25519 pubkey; only `rotate_peer_link_identity` does. When the user rotates, the `dashboard_id` stays stable but `pin_sha256` changes; every paired peer sees a `pin_mismatch` event on the next handshake and has to re-pair (this is the desired behaviour for "operator suspects compromise"). The separate-keypair design was decided during PR #472 review: the alternative (deriving X25519 from Ed25519 via libsodium-style `crypto_sign_ed25519_sk_to_curve25519`) adds non-trivial code for no benefit pre-release, and an implicit cascade would hide a security-relevant rotation event behind a routine cert renewal.
 
