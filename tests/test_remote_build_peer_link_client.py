@@ -1327,21 +1327,25 @@ async def test_request_pair_repair_then_unpair_clean_state(
         _fake_request_pair,
     )
 
-    # The spawned ``_await_pair_status_flip`` listener calls the
-    # real ``peer_link_await_pair_status`` + ``_load_offloader_identities``
-    # otherwise — that hits real DNS for ``rcv.local`` and parks
-    # the cancellation behind a thread-pool ``getaddrinfo`` until
-    # the OS resolver times out (5-30s on macOS mDNS, longer on
-    # CI). Park the listener on an asyncio.Event instead so the
-    # cancel-then-await calls below are deterministic.
+    # The spawned ``_await_pair_status_flip`` listener would
+    # otherwise call the real ``peer_link_await_pair_status`` +
+    # ``_load_offloader_identities`` — hitting real DNS for
+    # ``rcv.local``. Park each listener on an ``asyncio.Event``
+    # via the fake instead, and signal back when each listener
+    # has actually reached the parked state — the test below
+    # uses that signal to force the precise race that previously
+    # orphaned ``listener_v2``.
     park = asyncio.Event()
+    parked_signals: list[asyncio.Event] = [asyncio.Event(), asyncio.Event()]
+    park_call_index = 0
 
     async def _fake_await_pair_status(
         **_: object,
     ) -> remote_build_peer_link_client.PairStatusResult:
-        # Parks indefinitely; the test only exercises the
-        # cancel-on-respawn / cancel-on-unpair paths, so the
-        # listener never needs to return a real result.
+        nonlocal park_call_index
+        if park_call_index < len(parked_signals):
+            parked_signals[park_call_index].set()
+        park_call_index += 1
         await park.wait()
         raise AssertionError("park event should never be set in this test")
 
@@ -1367,6 +1371,20 @@ async def test_request_pair_repair_then_unpair_clean_state(
         offloader_label="off",
     )
     listener_v1 = offloader._pair_status_listeners[("rcv.local", 6055)]
+
+    # Wait until ``listener_v1`` has actually reached its
+    # ``await peer_link_await_pair_status`` parked state.
+    # Without this barrier the second ``request_pair`` below
+    # often cancels ``listener_v1`` while it's still at its
+    # initial ``run_in_executor`` await — so the cancel raises
+    # before the body's ``try`` block, ``listener_v1``'s
+    # ``finally`` never runs, and the orphan-listener bug
+    # (``listener_v1``'s ``finally`` evicting ``listener_v2``
+    # from ``_pair_status_listeners``) is masked. This was the
+    # exact CI/local divergence behind the original flake — the
+    # bug only fires when ``listener_v1`` advances past the
+    # critical section before being cancelled.
+    await parked_signals[0].wait()
 
     # Re-pair with pin2 — listener_v1 must be cancelled, listener_v2 spawned.
     await offloader.request_pair(

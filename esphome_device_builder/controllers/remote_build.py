@@ -1549,9 +1549,16 @@ class RemoteBuildController:
                 # spam logs in a tight reconnect loop.
                 await asyncio.sleep(_PAIR_STATUS_RECONNECT_BACKOFF_SECONDS)
         finally:
-            self._pair_status_listeners.pop(
-                (pairing.receiver_hostname, pairing.receiver_port), None
-            )
+            # Only clear the slot if it still points at this task.
+            # On a re-pair, ``_cancel_pair_status_listener`` has
+            # already popped this task and ``_spawn_pair_status_listener``
+            # has put the replacement in the slot — blindly
+            # ``pop()``-ing here would evict the replacement and
+            # orphan it (no entry left for ``unpair`` to cancel,
+            # the new listener parks forever).
+            key = (pairing.receiver_hostname, pairing.receiver_port)
+            if self._pair_status_listeners.get(key) is asyncio.current_task():
+                del self._pair_status_listeners[key]
 
     async def _apply_pair_status_result(
         self, pairing: StoredPairing, result: PairStatusResult
