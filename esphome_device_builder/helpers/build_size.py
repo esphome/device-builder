@@ -298,7 +298,11 @@ def coerce_sidecar_int(value: object) -> int:
     ``0`` matches the "never walked" sentinel and lets the next
     refresh repopulate from the build dir.
     """
-    if value is None:
+    # Narrow before ``int(...)`` so mypy can resolve the overload —
+    # JSON-decoded sidecars realistically carry only these scalar
+    # shapes; lists / dicts / arbitrary objects fall straight to
+    # the ``0`` sentinel without an exception round-trip.
+    if not isinstance(value, (int, float, str, bytes)):
         return 0
     try:
         return int(value)
