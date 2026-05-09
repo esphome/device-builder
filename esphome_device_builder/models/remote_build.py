@@ -206,13 +206,20 @@ class OffloaderPairStatusChangedData(TypedDict):
 
     Offloader-side counterpart to
     :class:`RemoteBuildPairStatusChangedData`. Fired on the
-    offloader's local bus by the ``subscribe_pool`` long-poll
-    dispatcher when a previously-PENDING :class:`StoredPairing`
-    row is observed flipping to ``APPROVED`` (admin clicked
-    Accept) or being dropped because the receiver returned
-    ``REJECTED`` (admin clicked Reject; row never existed; pin
-    rotated). The two events have the same wire shape but live
-    on different buses (receiver vs offloader) and key on
+    offloader's local bus by the per-row pair-status listener
+    task (``RemoteBuildController._await_pair_status_flip`` →
+    ``_apply_pair_status_result`` → ``_fire_offloader_pair_status_changed``)
+    when a previously-PENDING :class:`StoredPairing` row is
+    observed flipping to ``APPROVED`` (admin clicked Accept) or
+    being dropped because the receiver returned ``REJECTED``
+    (admin clicked Reject; window closed clearing the receiver-
+    side dict; row never existed; pin rotated). ``subscribe_pool``
+    is a pure consumer of the event — it streams whatever the
+    listener fires to the connected WS client, never produces
+    the event itself.
+
+    The two events have the same wire shape but live on
+    different buses (receiver vs offloader) and key on
     different identifiers — the offloader's
     :class:`StoredPairing` never stores the receiver's
     ``dashboard_id``, so the receiver coordinates are the

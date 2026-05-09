@@ -768,11 +768,14 @@ class RemoteBuildController:
         # cleared on window auto-close so a malicious LAN scanner
         # can't fill the receiver's persistent state with junk
         # pair-requests. Cleared rows fire
-        # OFFLOADER_PAIR_STATUS_CHANGED("removed") so any
-        # offloader currently long-polling pair_status sees the
-        # cancellation. On controller restart this dict is empty
-        # — any in-flight pair attempts have to be re-initiated
-        # by the offloader.
+        # ``REMOTE_BUILD_PAIR_STATUS_CHANGED("removed")`` (the
+        # *receiver-side* bus event — distinct from the
+        # offloader-side ``OFFLOADER_PAIR_STATUS_CHANGED`` event
+        # that the offloader's listener task fires after observing
+        # the pair_status response) so any offloader currently
+        # long-polling pair_status sees the cancellation. On
+        # controller restart this dict is empty — any in-flight
+        # pair attempts have to be re-initiated by the offloader.
         self._pending_peers: dict[str, StoredPeer] = {}
         # Same pattern, offloader side. PENDING StoredPairing
         # rows keyed on (receiver_hostname, receiver_port). The
@@ -1986,45 +1989,42 @@ class RemoteBuildController:
         * :attr:`IntentResponse.APPROVED` — peer is APPROVED.
           Snapshot path; returns immediately.
         * :attr:`IntentResponse.REJECTED` — no row matches OR pin
-          mismatch. Either the offloader has never paired, the
-          offloader's peer-link identity rotated under us, the
-          admin clicked Reject (which deletes the row), or
-          someone is claiming Alice's ``dashboard_id`` with
-          their own keys. Offloader treats this as a peer-revoked
-          signal: drop the local row.
-        * :attr:`IntentResponse.NO_PAIRING_WINDOW` — row is PENDING
-          but the receiver-side admin isn't on the Pairing requests
-          screen, so no admin-click can flip the row. Returned
-          either at entry (window already closed) or mid-wait
-          (window closed before flip). Offloader's listener exits
-          cleanly; the next ``subscribe_pool`` entry (user opens
-          the Send-builds screen) re-spawns it.
+          mismatch. Reached three ways: (a) the offloader has
+          never paired, (b) admin clicked Reject (deletes the
+          dict entry), (c) the offloader's peer-link identity
+          rotated under us, (d) the receiver's pairing window
+          closed mid-wait — window-close clears the pending
+          dict and fires ``REMOTE_BUILD_PAIR_STATUS_CHANGED``
+          ``status="removed"`` for each cleared entry, the
+          flip-event wakes the long-poll, and the re-snapshot
+          finds no matching row. The offloader treats REJECTED
+          as a peer-revoked signal regardless of which path
+          produced it: drop the local row.
 
-        Long-poll semantics: with the snapshot at PENDING and the
-        window open, await either the
-        :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` event
-        for the matching ``dashboard_id`` (admin clicked Accept /
-        Reject) or
-        :attr:`EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED`
-        transitioning to closed (admin walked away). No timeout
-        — an open WS hangs until the WS closes (offloader
-        cancellation) or one of the two events fires. Receiver-side
-        cost is one parked task per pending peer, bounded by the
-        pending-row count.
+        Long-poll semantics: with the snapshot at PENDING, await
+        :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` for
+        the matching ``dashboard_id``. No timeout — the WS hangs
+        until either the offloader cancels its end, an admin
+        click flips the row (event fires APPROVED), or
+        window-close clears the dict (event fires "removed",
+        re-snapshot returns REJECTED). Receiver-side cost is one
+        parked task per pending peer, bounded by the pending-row
+        count.
 
         Window-gating is *implicit* now that PENDING peers live
-        in an in-memory dict cleared on window auto-close: when
-        the window is closed there are no PENDING entries to
-        snapshot, so the snapshot returns ``REJECTED`` (no row
-        matches) immediately and the long-poll never starts.
-        That makes the explicit ``is_pairing_window_open()``
-        check unnecessary on the entry path; what we still need
-        is to wake the long-poll when admin closes the window
-        mid-wait, so a window-close event fires
-        ``REMOTE_BUILD_PAIR_STATUS_CHANGED status="removed"``
-        for each cleared dict entry, which the
-        ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` listener below picks
-        up alongside admin-Accept events.
+        in an in-memory dict cleared on window-close: when the
+        window is closed there are no PENDING entries to
+        snapshot, so the snapshot returns REJECTED immediately
+        and the long-poll never starts. The ``is_pairing_window_open()``
+        check at the entry path is unnecessary and absent.
+        ``NO_PAIRING_WINDOW`` is *not* a return value here —
+        closed-window manifests as REJECTED via the empty-dict
+        path; an earlier draft of this method gated explicitly
+        on the window and returned NO_PAIRING_WINDOW, but the
+        in-memory-dict refactor collapsed both cases to REJECTED
+        (cleaner offloader-side branch table — listener treats
+        REJECTED as terminal, doesn't need a separate "window
+        closed, retry later" branch).
 
         Listener registration order is load-bearing: bus
         ``listening`` attaches BEFORE the snapshot read so an
