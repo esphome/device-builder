@@ -16,6 +16,7 @@ import ssl
 import tempfile
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -50,7 +51,7 @@ from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
-from .helpers.remote_build_auth import make_remote_build_auth_middleware
+from .helpers.remote_build_auth import BindingMismatch, make_remote_build_auth_middleware
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
 
@@ -814,13 +815,7 @@ class DeviceBuilder:
                 identity.pin_sha256_formatted,
             )
 
-    def _on_remote_build_binding_mismatch(
-        self,
-        token_id: str,
-        presented_dashboard_id: str,
-        bound_dashboard_id: str,
-        peer_ip: str,
-    ) -> None:
+    def _on_remote_build_binding_mismatch(self, mismatch: BindingMismatch) -> None:
         """
         Fire a ``REMOTE_BUILD_BINDING_MISMATCH`` event for the receiver UI.
 
@@ -829,18 +824,14 @@ class DeviceBuilder:
         bound value (or when a first-use bind raced and lost).
         Subscribers (the Settings UI in 3c) surface the attempt
         to the operator with the offending token's id, the
-        offloader's claimed identity, and the peer IP — enough
-        context to decide whether to revoke + rotate.
+        offloader's claimed identity, and the peer IP, plus the
+        ``race_loss`` flag so the UI can soften the wording when
+        the mismatch came from a concurrent first-use bind
+        (likely an operator pasting the cleartext into two
+        offloaders) rather than a hit on an already-bound token
+        (more suspicious; points at a stolen bearer).
         """
-        self.bus.fire(
-            EventType.REMOTE_BUILD_BINDING_MISMATCH,
-            {
-                "token_id": token_id,
-                "presented_dashboard_id": presented_dashboard_id,
-                "bound_dashboard_id": bound_dashboard_id,
-                "peer_ip": peer_ip,
-            },
-        )
+        self.bus.fire(EventType.REMOTE_BUILD_BINDING_MISMATCH, asdict(mismatch))
 
     async def _build_and_start_remote_build_runner(
         self,

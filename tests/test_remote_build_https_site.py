@@ -49,6 +49,7 @@ from esphome_device_builder.helpers.dashboard_identity import (
 )
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.helpers.remote_build_auth import (
+    BindingMismatch,
     make_remote_build_auth_middleware,
 )
 from esphome_device_builder.models import EventType, StoredToken
@@ -58,6 +59,8 @@ async def _bring_up_site(
     tmp_path: Path,
     *,
     tokens: list[StoredToken],
+    bind_first_use: Any | None = None,
+    on_binding_mismatch: Any | None = None,
 ) -> tuple[web.AppRunner, int]:
     """
     Stand up a real HTTPS listener bound to a real ephemeral port.
@@ -65,18 +68,20 @@ async def _bring_up_site(
     Mirrors what ``DeviceBuilder._maybe_start_remote_build_site``
     does, but inline so the tests can drive it without booting
     the whole dashboard. Returns the runner (for cleanup) and
-    the bound port.
+    the bound port. *bind_first_use* / *on_binding_mismatch*
+    forward to the auth middleware so binding-aware tests can
+    drive the full 400 / 403 / event-fire surface end-to-end.
     """
     loop = asyncio.get_running_loop()
     identity = await loop.run_in_executor(None, get_or_create_identity, tmp_path)
     ssl_ctx = await loop.run_in_executor(None, _build_remote_build_ssl_context, identity)
 
     by_id = {t.token_id: t for t in tokens}
-
-    def _lookup(token_id: str) -> StoredToken | None:
-        return by_id.get(token_id)
-
-    auth_middleware = make_remote_build_auth_middleware(_lookup)
+    auth_middleware = make_remote_build_auth_middleware(
+        by_id.get,
+        bind_first_use=bind_first_use,
+        on_binding_mismatch=on_binding_mismatch,
+    )
     # Mirror production's middleware stack: server-header strip
     # first (so its post-handler step runs LAST on the way out),
     # auth gate inside.
@@ -153,6 +158,94 @@ async def test_health_returns_200_with_valid_bearer(tmp_path: Path) -> None:
             # default banner is overridden. Empty value (not
             # absent) is the expected wire shape.
             assert resp.headers.get("Server", "") == ""
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_health_returns_400_without_dashboard_id_header(tmp_path: Path) -> None:
+    """
+    Valid bearer + missing ``X-Dashboard-ID`` → 400 over the real TLS surface.
+
+    Pinned end-to-end (not just at the middleware unit-test
+    layer) so a regression in aiohttp's request shape, the
+    middleware ordering, or the ``X-Dashboard-ID`` plumbing
+    surfaces as a TLS-level test failure.
+    """
+    secret = "the-canary-secret"
+    token = StoredToken(
+        token_id="abc123",
+        label="Green",
+        secret_sha256=hashlib.sha256(secret.encode("ascii")).hexdigest(),
+        created_at=1.0,
+    )
+    runner, port = await _bring_up_site(tmp_path, tokens=[token])
+    try:
+        loop = asyncio.get_running_loop()
+        client_ctx = await loop.run_in_executor(None, _build_client_ctx, tmp_path)
+        connector = aiohttp.TCPConnector(ssl=client_ctx)
+        async with (
+            aiohttp.ClientSession(connector=connector) as session,
+            session.get(
+                f"https://localhost:{port}/remote-build/v1/health",
+                server_hostname="localhost",
+                headers={"Authorization": f"Bearer abc123.{secret}"},
+            ) as resp,
+        ):
+            assert resp.status == 400
+
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_health_returns_403_when_dashboard_id_mismatches_binding(
+    tmp_path: Path,
+) -> None:
+    """
+    Valid bearer + already-bound token + wrong ``X-Dashboard-ID`` → 403.
+
+    Drives the mismatch path through the real TLS surface and
+    asserts the binding-mismatch callback fires with
+    ``race_loss=False`` (the already-bound, more-suspicious
+    case).
+    """
+    secret = "the-canary-secret"
+    token = StoredToken(
+        token_id="abc123",
+        label="Green",
+        secret_sha256=hashlib.sha256(secret.encode("ascii")).hexdigest(),
+        created_at=1.0,
+        bound_dashboard_id="green-1",
+    )
+    mismatch_calls: list[BindingMismatch] = []
+    runner, port = await _bring_up_site(
+        tmp_path,
+        tokens=[token],
+        on_binding_mismatch=mismatch_calls.append,
+    )
+    try:
+        loop = asyncio.get_running_loop()
+        client_ctx = await loop.run_in_executor(None, _build_client_ctx, tmp_path)
+        connector = aiohttp.TCPConnector(ssl=client_ctx)
+        async with (
+            aiohttp.ClientSession(connector=connector) as session,
+            session.get(
+                f"https://localhost:{port}/remote-build/v1/health",
+                server_hostname="localhost",
+                headers={
+                    "Authorization": f"Bearer abc123.{secret}",
+                    "X-Dashboard-ID": "laptop-2",  # bound to green-1
+                },
+            ) as resp,
+        ):
+            assert resp.status == 403
+        assert len(mismatch_calls) == 1
+        mm = mismatch_calls[0]
+        assert mm.token_id == "abc123"
+        assert mm.presented_dashboard_id == "laptop-2"
+        assert mm.bound_dashboard_id == "green-1"
+        assert mm.race_loss is False
     finally:
         await runner.cleanup()
 
@@ -282,10 +375,13 @@ async def test_on_remote_build_binding_mismatch_fires_event(tmp_path: Path) -> N
 
     db.bus.add_listener(EventType.REMOTE_BUILD_BINDING_MISMATCH, _listener)
     db._on_remote_build_binding_mismatch(
-        token_id="abc",
-        presented_dashboard_id="laptop-2",
-        bound_dashboard_id="green-1",
-        peer_ip="10.0.0.42",
+        BindingMismatch(
+            token_id="abc",
+            presented_dashboard_id="laptop-2",
+            bound_dashboard_id="green-1",
+            peer_ip="10.0.0.42",
+            race_loss=False,
+        )
     )
 
     assert captured == [
@@ -296,9 +392,81 @@ async def test_on_remote_build_binding_mismatch_fires_event(tmp_path: Path) -> N
                 "presented_dashboard_id": "laptop-2",
                 "bound_dashboard_id": "green-1",
                 "peer_ip": "10.0.0.42",
+                "race_loss": False,
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_e2e_binding_mismatch_event_lands_on_bus_via_real_runner(
+    tmp_path: Path,
+) -> None:
+    """
+    A live mismatched request through ``_build_and_start_remote_build_runner``.
+
+    Pin that the production wiring in
+    ``DeviceBuilder._build_and_start_remote_build_runner``
+    (lookup -> bind_first_use -> on_binding_mismatch ->
+    bus.fire) survives end-to-end. A refactor that drops the
+    ``on_binding_mismatch=`` arg would only fail at runtime
+    today; this test catches it at CI time.
+    """
+    loop = asyncio.get_running_loop()
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+
+    secret = "the-canary-secret"
+    bound_token = StoredToken(
+        token_id="abc123",
+        label="Green",
+        secret_sha256=hashlib.sha256(secret.encode("ascii")).hexdigest(),
+        created_at=1.0,
+        bound_dashboard_id="green-1",
+    )
+
+    db.remote_build = MagicMock()
+    db.remote_build.lookup_token = MagicMock(return_value=bound_token)
+    db.remote_build.bind_token_first_use = AsyncMock(return_value=bound_token)
+
+    captured: list[dict[str, Any]] = []
+
+    def _listener(event: Event) -> None:
+        captured.append(event.data)
+
+    db.bus.add_listener(EventType.REMOTE_BUILD_BINDING_MISMATCH, _listener)
+
+    runner, _identity, port = await db._build_and_start_remote_build_runner()
+    try:
+        client_ctx = await loop.run_in_executor(None, _build_client_ctx, tmp_path)
+        connector = aiohttp.TCPConnector(ssl=client_ctx)
+        async with (
+            aiohttp.ClientSession(connector=connector) as session,
+            session.get(
+                f"https://localhost:{port}/remote-build/v1/health",
+                server_hostname="localhost",
+                headers={
+                    "Authorization": f"Bearer abc123.{secret}",
+                    "X-Dashboard-ID": "laptop-2",  # bound to green-1
+                },
+            ) as resp,
+        ):
+            assert resp.status == 403
+    finally:
+        await runner.cleanup()
+
+    assert len(captured) == 1
+    payload = captured[0]
+    assert payload["token_id"] == "abc123"
+    assert payload["presented_dashboard_id"] == "laptop-2"
+    assert payload["bound_dashboard_id"] == "green-1"
+    assert payload["race_loss"] is False
+    # Loopback peer; format is the IP literal from the socket.
+    assert payload["peer_ip"] in {"127.0.0.1", "::1"}
 
 
 @pytest.mark.asyncio

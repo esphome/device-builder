@@ -46,6 +46,7 @@ import hmac
 import logging
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from aiohttp import web
@@ -55,6 +56,28 @@ from .auth import RateLimiter
 
 if TYPE_CHECKING:
     from collections.abc import Callable as _Callable
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class BindingMismatch:
+    """
+    Payload for the ``on_binding_mismatch`` callback.
+
+    Bundled into a dataclass instead of a long positional
+    argument list so callers don't have to remember the order
+    and so future fields can be added without touching every
+    call site. ``race_loss`` distinguishes a concurrent first-
+    use bind that lost the race (likely an operator pasting
+    the cleartext into two offloaders, ``True``) from a hit on
+    an already-bound token (more suspicious; points at a
+    stolen bearer, ``False``).
+    """
+
+    token_id: str
+    presented_dashboard_id: str
+    bound_dashboard_id: str
+    peer_ip: str
+    race_loss: bool
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -168,7 +191,7 @@ def make_remote_build_auth_middleware(
     lookup: Callable[[str], StoredToken | None],
     *,
     bind_first_use: Callable[[str, str], Awaitable[StoredToken | None]] | None = None,
-    on_binding_mismatch: Callable[[str, str, str, str], None] | None = None,
+    on_binding_mismatch: Callable[[BindingMismatch], None] | None = None,
     rate_limiter: RateLimiter | None = None,
 ) -> _Callable:
     """
@@ -191,10 +214,17 @@ def make_remote_build_auth_middleware(
     *on_binding_mismatch* fires when an authenticated request's
     ``X-Dashboard-ID`` doesn't match the token's already-bound
     value, OR when a first-use bind raced against a concurrent
-    bind that won with a different id. Receives ``(token_id,
-    presented_dashboard_id, bound_dashboard_id, peer_ip)``. The
-    Settings UI surfaces this so the operator sees a stolen-
-    token attempt.
+    bind that won with a different id. Receives a
+    :class:`BindingMismatch` carrying the offending token id,
+    the presented and bound dashboard ids, the peer IP, and a
+    ``race_loss`` flag. ``race_loss=True`` when the mismatch
+    happened during a first-use bind (concurrent
+    legitimate-paste-into-two-offloaders is a likely cause);
+    ``False`` when the token was already bound (more
+    suspicious; points at a stolen-bearer or
+    operator-paste-into-wrong-machine attempt). The Settings
+    UI uses the flag to soften the wording on the race-loss
+    case while keeping the mismatch path loud.
 
     *rate_limiter* defaults to a fresh per-instance
     :class:`helpers.auth.RateLimiter` with the module-level
@@ -252,14 +282,26 @@ def make_remote_build_auth_middleware(
 
         # First-use binding: every authenticated request must
         # carry an ``X-Dashboard-ID`` header naming the
-        # offloader's installation. A missing or malformed
-        # header is a 400 — the bearer is valid, the request is
-        # not. Do NOT 401 here: 401 would invite a probing
-        # client to retry with different bearers; 400 says
-        # "your request shape is wrong" without revealing which
-        # bearer was valid.
+        # offloader's installation. By this point the bearer
+        # has already passed ``verify_bearer`` above, so a 401
+        # here would be wrong — the credentials WERE accepted.
+        # A 400 accurately says "your bearer was valid but the
+        # request shape is malformed (missing / bad header)";
+        # the offloader's UI can render that as "you're using
+        # an old client that doesn't send X-Dashboard-ID" rather
+        # than the misleading "credentials rejected".
         presented_dashboard_id = _validate_dashboard_id(request.headers.get(_DASHBOARD_ID_HEADER))
         if presented_dashboard_id is None:
+            # The 400 path leaks "this bearer was valid" (vs the
+            # 401 path's "this bearer was rejected"). A peer
+            # holding a stolen valid bearer could otherwise
+            # probe the binding surface unlimited times to find
+            # the right ``X-Dashboard-ID`` value. Count
+            # malformed-header attempts against the same per-IP
+            # limiter so the probe rate is capped at the same
+            # 10/60s/IP threshold bad bearers face. Legitimate
+            # clients always send the header, never hit this.
+            limiter.record_failure(peer_ip)
             _LOGGER.warning(
                 "Remote-build auth: missing / malformed X-Dashboard-ID from %s "
                 "(path=%s, token_id=%s)",
@@ -295,7 +337,7 @@ async def _resolve_binding(
     presented_dashboard_id: str,
     *,
     bind_first_use: Callable[[str, str], Awaitable[StoredToken | None]] | None,
-    on_binding_mismatch: Callable[[str, str, str, str], None] | None,
+    on_binding_mismatch: Callable[[BindingMismatch], None] | None,
     peer_ip: str,
 ) -> StoredToken | None:
     """
@@ -349,11 +391,21 @@ async def _resolve_binding(
                 bound.bound_dashboard_id,
             )
             if on_binding_mismatch is not None:
+                # ``race_loss=True``: this mismatch was a
+                # concurrent first-use bind that lost the race;
+                # the most-likely cause is an operator pasting
+                # the cleartext into two offloaders by mistake,
+                # not a stolen-bearer attempt. The flag lets the
+                # Settings UI soften the wording (and avoid
+                # firing a security alert) on the first event.
                 on_binding_mismatch(
-                    token.token_id,
-                    presented_dashboard_id,
-                    bound.bound_dashboard_id or "",
-                    peer_ip,
+                    BindingMismatch(
+                        token_id=token.token_id,
+                        presented_dashboard_id=presented_dashboard_id,
+                        bound_dashboard_id=bound.bound_dashboard_id or "",
+                        peer_ip=peer_ip,
+                        race_loss=True,
+                    )
                 )
             return None
         return bound
@@ -368,11 +420,20 @@ async def _resolve_binding(
             token.bound_dashboard_id,
         )
         if on_binding_mismatch is not None:
+            # ``race_loss=False``: the token was already bound
+            # before this request arrived. Distinct from the
+            # race-loss case above; points at a stolen-bearer
+            # attempt OR an operator pasting into the wrong
+            # machine after the binding stuck. The Settings UI
+            # treats this as the loud / suspicious case.
             on_binding_mismatch(
-                token.token_id,
-                presented_dashboard_id,
-                token.bound_dashboard_id,
-                peer_ip,
+                BindingMismatch(
+                    token_id=token.token_id,
+                    presented_dashboard_id=presented_dashboard_id,
+                    bound_dashboard_id=token.bound_dashboard_id,
+                    peer_ip=peer_ip,
+                    race_loss=False,
+                )
             )
         return None
     return token

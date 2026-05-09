@@ -12,6 +12,7 @@ from aiohttp.test_utils import make_mocked_request
 
 from esphome_device_builder.helpers.auth import RateLimiter
 from esphome_device_builder.helpers.remote_build_auth import (
+    BindingMismatch,
     make_remote_build_auth_middleware,
     verify_bearer,
 )
@@ -33,12 +34,7 @@ def _stored(token_id: str = _DEFAULT_ID, secret: str = _DEFAULT_SECRET) -> Store
 
 def _table_lookup(rows: list[StoredToken]) -> Callable[[str], StoredToken | None]:
     """Build a lookup callable from a list of stored tokens."""
-    by_id = {t.token_id: t for t in rows}
-
-    def _lookup(token_id: str) -> StoredToken | None:
-        return by_id.get(token_id)
-
-    return _lookup
+    return {t.token_id: t for t in rows}.get
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +285,37 @@ async def test_middleware_400_when_dashboard_id_missing_or_malformed(
 
 
 @pytest.mark.asyncio
+async def test_middleware_400_path_is_rate_limited() -> None:
+    """
+    The 400-on-malformed-X-Dashboard-ID path counts against the rate limiter.
+
+    A 400 confirms the bearer is valid (the 401 path comes
+    earlier), so a peer holding a stolen valid bearer could
+    otherwise probe the binding surface unlimited times. The
+    rate limiter caps the probe rate at the same threshold bad
+    bearers face.
+    """
+    stored = _stored(token_id="abc", secret="right")
+    limiter = RateLimiter(max_attempts=3, window_seconds=60.0, lockout_seconds=300.0)
+    auth = make_remote_build_auth_middleware(
+        _table_lookup([stored]),
+        rate_limiter=limiter,
+    )
+
+    # Burn three attempts on the 400 path (valid bearer, no
+    # X-Dashboard-ID header).
+    for _ in range(3):
+        response = await _hit_middleware(auth, auth_header="Bearer abc.right", dashboard_id=None)
+        assert response.status == 400
+
+    # Fourth attempt — same valid bearer, same missing header —
+    # gets 429 instead of 400 because the IP is now locked out.
+    response = await _hit_middleware(auth, auth_header="Bearer abc.right", dashboard_id=None)
+    assert response.status == 429
+    assert "Retry-After" in response.headers
+
+
+@pytest.mark.asyncio
 async def test_middleware_binds_token_on_first_use_and_passes() -> None:
     """First authenticated request persists the binding and reaches the handler."""
     stored = _stored(token_id="abc", secret="right")
@@ -346,14 +373,11 @@ async def test_middleware_403_when_dashboard_id_mismatches_binding() -> None:
         bound_dashboard_id="green-1",
     )
 
-    mismatch_calls: list[tuple[str, str, str, str]] = []
-
-    def _on_mismatch(token_id: str, presented: str, bound: str, peer_ip: str) -> None:
-        mismatch_calls.append((token_id, presented, bound, peer_ip))
+    mismatch_calls: list[BindingMismatch] = []
 
     auth = make_remote_build_auth_middleware(
         _table_lookup([stored]),
-        on_binding_mismatch=_on_mismatch,
+        on_binding_mismatch=mismatch_calls.append,
     )
     response = await _hit_middleware(
         auth,
@@ -361,7 +385,17 @@ async def test_middleware_403_when_dashboard_id_mismatches_binding() -> None:
         dashboard_id="laptop-2",  # different from bound "green-1"
     )
     assert response.status == 403
-    assert mismatch_calls == [("abc", "laptop-2", "green-1", "10.0.0.42")]
+    # ``race_loss=False`` because the token was already bound
+    # before this request — the more-suspicious case.
+    assert mismatch_calls == [
+        BindingMismatch(
+            token_id="abc",
+            presented_dashboard_id="laptop-2",
+            bound_dashboard_id="green-1",
+            peer_ip="10.0.0.42",
+            race_loss=False,
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -389,19 +423,27 @@ async def test_middleware_403_when_first_use_bind_loses_race() -> None:
             bound_dashboard_id=winner,
         )
 
-    mismatch_calls: list[tuple[str, str, str, str]] = []
-
-    def _on_mismatch(token_id: str, presented: str, bound: str, peer_ip: str) -> None:
-        mismatch_calls.append((token_id, presented, bound, peer_ip))
+    mismatch_calls: list[BindingMismatch] = []
 
     auth = make_remote_build_auth_middleware(
         _table_lookup([stored]),
         bind_first_use=_bind,
-        on_binding_mismatch=_on_mismatch,
+        on_binding_mismatch=mismatch_calls.append,
     )
     response = await _hit_middleware(auth, auth_header="Bearer abc.right", dashboard_id=loser)
     assert response.status == 403
-    assert mismatch_calls == [("abc", loser, winner, "10.0.0.42")]
+    # ``race_loss=True``: the second offloader lost the
+    # concurrent first-use bind. The Settings UI uses this to
+    # soften the wording (likely a paste-into-two mistake).
+    assert mismatch_calls == [
+        BindingMismatch(
+            token_id="abc",
+            presented_dashboard_id=loser,
+            bound_dashboard_id=winner,
+            peer_ip="10.0.0.42",
+            race_loss=True,
+        )
+    ]
 
 
 @pytest.mark.asyncio

@@ -706,7 +706,7 @@ async def test_add_manual_host_rejects_blank_hostname(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _mint_credentials(*, label_id: str = "abc") -> tuple[str, str, str]:
+def _mint_credentials() -> tuple[str, str, str]:
     """
     Mint client-side ``(token_id, secret, secret_sha256)`` for tests.
 
@@ -714,8 +714,11 @@ def _mint_credentials(*, label_id: str = "abc") -> tuple[str, str, str]:
     token_id + cleartext secret locally, hashes the secret, and
     sends ``{label, token_id, secret_sha256}`` to the backend.
     The cleartext never crosses the wire to the backend.
+
+    ``secrets.token_urlsafe(8)`` produces an 11-char base64url
+    string, matching the strict length the validator requires.
     """
-    token_id = f"{label_id}-{_secrets.token_urlsafe(6)}"
+    token_id = _secrets.token_urlsafe(8)
     secret = _secrets.token_urlsafe(32)
     return token_id, secret, hashlib.sha256(secret.encode("ascii")).hexdigest()
 
@@ -724,7 +727,6 @@ async def _issue_token(
     controller: RemoteBuildController,
     *,
     label: str,
-    label_id: str = "abc",
 ) -> tuple[TokenSummary, str, str]:
     """
     Wrap ``controller.add_token`` with fresh client-minted credentials.
@@ -732,7 +734,7 @@ async def _issue_token(
     Returns ``(summary, token_id, secret)``. Tests that need the
     bearer string compose it as ``f"{token_id}.{secret}"``.
     """
-    token_id, secret, secret_sha256 = _mint_credentials(label_id=label_id)
+    token_id, secret, secret_sha256 = _mint_credentials()
     summary = await controller.add_token(
         label=label, token_id=token_id, secret_sha256=secret_sha256
     )
@@ -828,8 +830,8 @@ async def test_settings_responses_never_carry_secret_hash(tmp_path: Path) -> Non
 async def test_list_tokens_omits_secret_hash(tmp_path: Path) -> None:
     """The ``list_tokens`` projection drops ``secret_sha256`` and allows dup labels."""
     controller = _make_controller(config_dir=tmp_path)
-    first, _, _ = await _issue_token(controller, label="phone", label_id="a")
-    second, _, _ = await _issue_token(controller, label="phone", label_id="b")
+    first, _, _ = await _issue_token(controller, label="phone")
+    second, _, _ = await _issue_token(controller, label="phone")
     assert first.token_id != second.token_id  # token_id is the unique key
 
     summaries = await controller.list_tokens()
@@ -879,10 +881,11 @@ async def test_add_token_rejects_invalid_secret_sha256(
 ) -> None:
     """Malformed ``secret_sha256`` is rejected with ``INVALID_ARGS``."""
     controller = _make_controller(config_dir=tmp_path)
+    valid_token_id, _, _ = _mint_credentials()
     with pytest.raises(CommandError) as exc:
         await controller.add_token(
             label="Green",
-            token_id="abc-123",
+            token_id=valid_token_id,
             secret_sha256=secret_sha256,  # type: ignore[arg-type]
         )
     assert exc.value.code == ErrorCode.INVALID_ARGS
@@ -940,9 +943,9 @@ async def test_add_token_keeps_other_settings_intact(tmp_path: Path) -> None:
 async def test_remove_token_drops_only_target(tmp_path: Path) -> None:
     """Removing one token leaves the rest of the list intact."""
     controller = _make_controller(config_dir=tmp_path)
-    keep_a, _, _ = await _issue_token(controller, label="Green", label_id="a")
-    target, _, _ = await _issue_token(controller, label="Laptop", label_id="b")
-    keep_b, _, _ = await _issue_token(controller, label="Phone", label_id="c")
+    keep_a, _, _ = await _issue_token(controller, label="Green")
+    target, _, _ = await _issue_token(controller, label="Laptop")
+    keep_b, _, _ = await _issue_token(controller, label="Phone")
 
     settings = await controller.remove_token(token_id=target.token_id)
     assert [t.token_id for t in settings.tokens] == [keep_a.token_id, keep_b.token_id]
@@ -1004,10 +1007,10 @@ async def test_bind_token_first_use_finds_target_among_many(tmp_path: Path) -> N
     controller = _make_controller(config_dir=tmp_path)
     # Mint multiple tokens; bind the third so the iteration has
     # to step past two non-matches.
-    await _issue_token(controller, label="A", label_id="a")
-    await _issue_token(controller, label="B", label_id="b")
-    target, _, _ = await _issue_token(controller, label="C", label_id="c")
-    await _issue_token(controller, label="D", label_id="d")
+    await _issue_token(controller, label="A")
+    await _issue_token(controller, label="B")
+    target, _, _ = await _issue_token(controller, label="C")
+    await _issue_token(controller, label="D")
 
     bound = await controller.bind_token_first_use(target.token_id, "green-1")
 
@@ -1047,7 +1050,10 @@ async def test_lookup_token_round_trips_through_index(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("token_id", "expected_code"),
     [
-        pytest.param("ghost123", ErrorCode.NOT_FOUND, id="unknown-id"),
+        # 11-char base64url id that the validator accepts but no
+        # token row matches. Pins NOT_FOUND vs INVALID_ARGS for
+        # well-formed-but-unknown ids.
+        pytest.param("aaaaaaaaaaa", ErrorCode.NOT_FOUND, id="unknown-id"),
         pytest.param("   ", ErrorCode.INVALID_ARGS, id="blank-id"),
         pytest.param("", ErrorCode.INVALID_ARGS, id="empty-id"),
         pytest.param(123, ErrorCode.INVALID_ARGS, id="non-string-int"),
@@ -1098,7 +1104,8 @@ async def test_remove_token_rejects_full_bearer_without_echoing_secret(
 async def test_remove_token_not_found_does_not_echo_id(tmp_path: Path) -> None:
     """The ``NOT_FOUND`` message doesn't echo the user-supplied ``token_id``."""
     controller = _make_controller(config_dir=tmp_path)
-    suspicious = "lookslike-id-but-isnt"
+    # 11-char well-formed id that doesn't match any stored token.
+    suspicious = "bbbbbbbbbbb"
     with pytest.raises(CommandError) as exc:
         await controller.remove_token(token_id=suspicious)
     assert exc.value.code == ErrorCode.NOT_FOUND
