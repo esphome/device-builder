@@ -852,32 +852,38 @@ class DeviceBuilder:
 
     @property
     def is_remote_build_listener_bound(self) -> bool:
-        """True iff the remote-build HTTPS receiver site is currently bound."""
+        """True iff the remote-build peer-link Noise WS listener is currently bound."""
         return self._remote_build_runner is not None
 
     async def reload_remote_build_identity(self, *, pin_sha256: str) -> bool:
         """
-        Apply a freshly-rotated identity: rebuild the listener if bound.
+        Rebuild the peer-link listener after a TLS cert rotation.
 
-        Called by ``RemoteBuildController.rotate_identity`` (phase
+        Wired up to ``RemoteBuildController.rotate_identity`` (phase
         3c1) right after :func:`rotate_certificate` writes the new
-        cert + key to disk. The cert + key on disk are the source
-        of truth post-rotate — this method takes only ``pin_sha256``
-        because that's all the caller actually communicates,
-        though it's currently unused on the dashboard side
-        (the rebuild reads the cert from disk via
-        ``_maybe_start_remote_build_site``'s normal load path);
-        kept on the signature so future hooks (e.g. peer-link
-        push of ``terminate {reason: server_upgraded}`` in phase
-        4+) have access without another helper.
+        cert + key to disk. **This rotation path is dormant after
+        the phase 4a-r1 pivot** — the listener no longer terminates
+        TLS, the pin advertised in mDNS is now the X25519 peer-link
+        identity's ``pin_sha256_formatted`` (loaded once at handler-
+        factory time), and the cert + key on disk are unused by the
+        receiver site. Calling this method still tears down + rebinds
+        the listener (so the X25519 identity is reloaded from disk
+        too), but the ``pin_sha256`` argument is the *cert* SPKI hash
+        that no peer pins against any longer.
+
+        Phase 4a-r2 (issue #106) tears out the dormant cert-rotation
+        WS commands and replaces them with a peer-link identity
+        rotation that actually rotates the right key + invalidates
+        every paired peer; until then this method is a vestigial
+        no-op for the rotation contract that just happens to also
+        rebind the X25519 identity as a side effect.
 
         When the listener is bound, three side effects in order:
 
-        * Listener teardown — the bound runner is still serving
-          the OLD cert from its cached SSL context. Without a
-          rebuild, an offloader connecting between rotation and
-          the next dashboard restart would still TLS-pin against
-          the old cert.
+        * Listener teardown — the bound runner is still holding
+          the old X25519 peer-link identity in its handler closure.
+          Without a rebuild, the next session would still drive the
+          handshake against the old key.
         * mDNS clear — both ``pin_sha256`` and ``remote_build_port``
           drop out of TXT immediately. The TXT contract is
           "these fields appear iff the listener is currently
@@ -888,9 +894,9 @@ class DeviceBuilder:
           failure the cleared state is the steady state.
         * Listener rebuild — re-runs the same path
           ``_maybe_start_remote_build_site`` does at startup, which
-          loads the (now-rotated) identity from disk, stages it
-          through a fresh SSL context, and (on success) re-pushes
-          the new pin + port to mDNS. Fail-soft: a rebuild
+          loads the (post-rotation but unused) cert + the X25519
+          peer-link identity from disk, and (on success) re-pushes
+          the new peer-link pin + port to mDNS. Fail-soft: a rebuild
           failure leaves the dashboard running without a receiver
           listener (same contract as the initial bind), and the
           return value reflects that so the rotater can surface
@@ -904,9 +910,8 @@ class DeviceBuilder:
         bind picks them up.
 
         Returns whether the receiver listener is currently bound
-        after this call. ``True`` means rotation landed on disk
-        AND the listener picked it up; ``False`` means rotation
-        landed on disk but no listener is serving the new cert
+        after this call. ``True`` means the rebind landed; ``False``
+        means rotation landed on disk but no listener is serving
         (rebuild fail-softed, or listener wasn't bound to begin
         with).
         """

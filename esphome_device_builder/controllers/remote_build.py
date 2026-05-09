@@ -1,38 +1,42 @@
 """
-Remote-build feature; peer dashboard discovery + settings + tokens.
+Remote-build feature; peer dashboard discovery + pairing + peers.
 
 Browses ``_esphomebuilder._tcp.local.`` to list other dashboards
 reachable on the LAN; persists the receiver-side ``enabled``
 master switch, the user-supplied manual-host list for
-cross-subnet / non-multicast LANs, and the receiver-issued
-bearer-token list; merges discovery sources into a single
+cross-subnet / non-multicast LANs, and the paired-peer list;
+merges discovery sources into a single
 ``remote_build/list_hosts`` snapshot.
 
-The ``enabled`` flag gates the HTTPS receiver site
-:class:`DeviceBuilder` binds at startup (``/remote-build/v1/*``,
-default port 6055). Toggling ``enabled`` at runtime persists
-the new value but does NOT live-bind / unbind the listener;
-flipping it requires a dashboard restart for the listener
-state to follow. The 3c Settings UI surfaces this constraint;
-a future PR can wire the start / stop hooks if interactive
-toggling matters.
+The ``enabled`` flag gates the peer-link Noise WS listener
+:class:`DeviceBuilder` binds at startup
+(``/remote-build/peer-link``, default port 6055). Toggling
+``enabled`` at runtime persists the new value but does NOT
+live-bind / unbind the listener; flipping it requires a
+dashboard restart for the listener state to follow. The 3c
+Settings UI surfaces this constraint; a future PR can wire
+the start / stop hooks if interactive toggling matters.
 
-Tokens are validated by the auth middleware on that site
-against an in-memory index seeded from disk in :meth:`start`
-and refreshed on every CRUD mutation. **The frontend
-generates the bearer (token_id + secret) client-side** and
-submits only ``SHA-256(secret)`` to the backend; the
-cleartext bearer never crosses the wire from frontend to
-dashboard. This closes the leak that would otherwise occur
-when the dashboard is reachable on plain HTTP (standalone
-``--host 0.0.0.0`` without a reverse-proxy TLS terminator).
-Only the hash lands on disk; if the user loses the cleartext,
-the recovery is to remove the token and register a fresh one.
+Pairing model (phase 4a-r1):
 
-Pairing flow + peer-link WS arrive in later phases. The
-listener currently serves only ``/remote-build/v1/health`` as
-a smoke endpoint; phase 5+ adds the real bundle / build /
-firmware RPCs against the same auth surface.
+* Receiver-side state is a list of :class:`StoredPeer` rows
+  keyed on ``dashboard_id``, with X25519 ``pin_sha256`` +
+  ``static_x25519_pub`` derived from the offloader's peer-link
+  Noise handshake transcript.
+* Approval is a two-step gate: the offloader's first
+  ``pair_request`` lands a ``PENDING`` row inside the
+  receiver-controlled "pairing window"; the receiver UI
+  shows the row in the inbox and the user clicks
+  Accept (``record_pair_request`` →
+  ``approve_pair_request``).
+* Approved peers can then run ``intent="peer_link"`` against
+  the same ``/remote-build/peer-link`` endpoint without
+  re-prompting the receiver-side user.
+
+Bearer-token machinery from the abandoned phase-4a (HTTPS +
+``/remote-build/v1/*`` receiver site) was rewound in #449 and
+the dormant pieces will be torn out in the planned phase 4a-r2
+follow-up; see issue #106.
 
 Manual hosts have no version / fingerprint resolution yet;
 they land in ``list_hosts`` with empty ``server_version`` /

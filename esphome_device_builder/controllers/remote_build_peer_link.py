@@ -170,6 +170,13 @@ async def make_peer_link_handler(
         peer_ip = request.remote or ""
         try:
             await _drive_peer_link_session(controller, ws, peer_ip, identity_priv)
+        except ConnectionResetError:
+            # Expected in normal operation — peer hung up mid-handshake
+            # or mid-response. ``_send_bytes_safely`` re-raises so this
+            # handler can run the ``finally`` close path; logging at
+            # ``exception`` level here would generate noisy tracebacks
+            # for every flaky LAN client. Drop to ``debug`` instead.
+            _LOGGER.debug("peer-link session reset by %s", peer_ip)
         except Exception:
             _LOGGER.exception("peer-link session error from %s", peer_ip)
         finally:
