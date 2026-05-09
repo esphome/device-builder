@@ -1896,13 +1896,19 @@ def test_enforce_pin_match_passes_on_match() -> None:
 
 
 def test_enforce_pin_match_raises_precondition_failed_on_drift() -> None:
-    """A pubkey-hash drift between preview and request → PRECONDITION_FAILED."""
+    """A pubkey-hash drift between preview and request → PRECONDITION_FAILED.
+
+    The error message carries both pins in full (no
+    truncation) so the user can do a full side-by-side OOB
+    comparison; an attacker who collides a 16-char prefix
+    can't slip the mismatch past a quick visual scan.
+    """
     with pytest.raises(CommandError) as exc:
         _enforce_pin_match(expected="a" * 64, observed="b" * 64)
     assert exc.value.code == ErrorCode.PRECONDITION_FAILED
-    # The error message includes a prefix of each pin so log-readers
-    # can spot the rotation, but truncates to avoid full hash dumps.
-    assert "expected " + "a" * 16 in str(exc.value)
+    # Full digest is shown for both expected and observed.
+    assert "expected " + "a" * 64 in str(exc.value)
+    assert "got " + "b" * 64 in str(exc.value)
 
 
 # --- _upsert_pairing ---

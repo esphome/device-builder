@@ -62,6 +62,7 @@ import logging
 import time
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass as _dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from esphome.const import __version__ as esphome_version
@@ -118,8 +119,31 @@ from .remote_build_peer_link_client import (
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
     from ..helpers.dashboard_identity import DashboardIdentity
+    from ..helpers.peer_link_identity import PeerLinkIdentity
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _load_offloader_identities(
+    config_dir: Path,
+) -> tuple[PeerLinkIdentity, DashboardIdentity]:
+    """Load both offloader-side identities in one executor hop.
+
+    The peer-link X25519 keypair drives the Noise XX handshake;
+    the dashboard cert (phase 3a) carries the stable
+    ``dashboard_id`` we send in msg3 so the receiver's
+    ``StoredPeer`` row keys on it. The two are both lazy-create
+    on first read, both protected by per-process locks
+    in their respective helpers, and both involve disk I/O
+    (each is one file read + occasional first-call generation).
+    Bundling into a single sync helper means one
+    ``run_in_executor`` round-trip rather than two — matters
+    less for the threadpool overhead than for the
+    "two awaits where one would do" code shape; keeps the
+    caller's body tight.
+    """
+    return get_or_create_peer_link_identity(config_dir), get_or_create_identity(config_dir)
+
 
 # Timeout for the cache-miss resolve path. Longer than
 # ``DeviceStateMonitor._MDNS_RESOLVE_TIMEOUT_MS`` (2s) because peer
@@ -452,10 +476,20 @@ def _enforce_pin_match(*, expected: str, observed: str) -> None:
     receiver rotated identity (or a MITM intervened) between
     preview and request; the offloader bails before persisting
     the row so a fresh preview round-trip is required.
+
+    The error message carries both pins in full (no
+    truncation) so the user can do a side-by-side OOB
+    comparison against the receiver's "Build server"
+    Settings card and tell which end's pin changed.
+    Truncating the displayed pin would shrink the log volume
+    but at the cost of letting an attacker who deliberately
+    collides a 16-char prefix slip the mismatch past a
+    quick visual scan; the human OOB check is the
+    load-bearing security property, so full digest wins.
     """
     if expected == observed:
         return
-    msg = f"receiver pin changed since preview; expected {expected[:16]}..., got {observed[:16]}..."
+    msg = f"receiver pin changed since preview; expected {expected}, got {observed}"
     raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
 
@@ -993,14 +1027,8 @@ class RemoteBuildController:
         clean_pin = _validate_pin_sha256(pin_sha256)
         clean_label = _validate_pair_label(label)
         loop = asyncio.get_running_loop()
-        # X25519 peer-link key drives the Noise handshake; the
-        # dashboard_id is what we send in msg3 so the receiver's
-        # ``StoredPeer`` row keys on it.
-        peer_link_identity = await loop.run_in_executor(
-            None, get_or_create_peer_link_identity, self._db.settings.config_dir
-        )
-        dashboard_identity = await loop.run_in_executor(
-            None, get_or_create_identity, self._db.settings.config_dir
+        peer_link_identity, dashboard_identity = await loop.run_in_executor(
+            None, _load_offloader_identities, self._db.settings.config_dir
         )
 
         try:
@@ -1024,6 +1052,12 @@ class RemoteBuildController:
         # APPROVED happens when this offloader paired with the same
         # receiver previously and the receiver-side row is still
         # APPROVED — the receiver short-circuits the inbox dance.
+        # ``paired_at`` reflects this re-pair attempt (last-touch
+        # semantic), not the original first-pair time. ``_upsert_pairing``
+        # below replaces the row wholesale, so any earlier ``paired_at``
+        # is overwritten. That's right for the inbox-sort use case
+        # (most recent on top) but a future "first paired on" UI would
+        # need a separate ``first_paired_at`` field.
         pairing = StoredPairing(
             receiver_hostname=clean_host,
             receiver_port=clean_port,

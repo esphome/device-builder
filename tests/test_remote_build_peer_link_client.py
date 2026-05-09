@@ -297,6 +297,10 @@ async def test_request_pair_open_window_returns_pending(
     await controller.set_pairing_window(open=True, client="test-tab")
     initiator_priv = secrets.token_bytes(32)
 
+    # ``dashboard_id`` is deliberately a 16-char base64url shape
+    # rather than the 32-char production form. Either passes the
+    # receiver's validator (``DASHBOARD_ID_PATTERN`` allows 1-64
+    # base64url chars); shorter keeps the test readable.
     result = await request_pair(
         hostname="127.0.0.1",
         port=server.port,
