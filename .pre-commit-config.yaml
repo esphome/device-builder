@@ -21,8 +21,11 @@ repos:
         language: python
         # ``voluptuous`` is needed because importing
         # ``esphome_device_builder.models.remote_build`` (transitively
-        # imported via the script's models import chain) runs the
-        # ``StoredPairing`` schema validator at module-load time.
+        # imported via the script's models import chain) builds the
+        # ``StoredPairing`` ``vol.Schema`` at module-load time. The
+        # schema only *runs* later, in ``__post_init__``, but the
+        # ``import voluptuous as vol`` at the top of the module
+        # fails without the dep installed in the hook's slim env.
         additional_dependencies: [pyyaml, orjson, mashumaro, voluptuous]
         pass_filenames: false
         files: ^esphome_device_builder/definitions/boards/.*\.yaml$
