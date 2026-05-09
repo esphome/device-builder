@@ -789,15 +789,11 @@ class DeviceBuilder:
         # bind raised (port in use, permission denied, ...) the
         # advertiser stays at its pre-listener state instead of
         # broadcasting a pin + port that nothing's actually
-        # listening on. ``refresh`` republishes the ServiceInfo
-        # if the TXT properties changed; without that call the
-        # setter-driven update would only land on the wire on the
-        # next periodic refresh tick (5 min).
-        if self._dashboard_advertiser is not None:
-            self._dashboard_advertiser.set_pin_sha256(identity.pin_sha256)
-            self._dashboard_advertiser.set_remote_build_port(port)
-            with contextlib.suppress(Exception):
-                await self._dashboard_advertiser.refresh()
+        # listening on.
+        await self._publish_remote_build_advertise(
+            pin_sha256=identity.pin_sha256,
+            remote_build_port=port,
+        )
 
         if self.settings.on_ha_addon:
             _LOGGER.warning(
@@ -815,6 +811,38 @@ class DeviceBuilder:
                 identity.pin_sha256_formatted,
             )
 
+    async def _publish_remote_build_advertise(
+        self,
+        *,
+        pin_sha256: str | None,
+        remote_build_port: int | None = None,
+    ) -> None:
+        """
+        Push pin / port updates to the mDNS advertise, fail-soft on refresh.
+
+        Centralises the setter-then-refresh dance shared by
+        ``_maybe_start_remote_build_site`` (which has both pin
+        AND port to push after a successful bind) and
+        ``reload_remote_build_identity`` (which only changes the
+        pin — the port is preserved across rotations). The
+        explicit ``refresh`` call republishes the ServiceInfo if
+        the TXT properties changed; without it the setter-driven
+        update would only land on the wire on the next periodic
+        refresh tick (5 min). A flaky zeroconf refresh is
+        swallowed so caller paths (bind, rotate) don't fail just
+        because the responder is wedged.
+
+        No-op when no advertiser is attached.
+        """
+        advertiser = self._dashboard_advertiser
+        if advertiser is None:
+            return
+        advertiser.set_pin_sha256(pin_sha256)
+        if remote_build_port is not None:
+            advertiser.set_remote_build_port(remote_build_port)
+        with contextlib.suppress(Exception):
+            await advertiser.refresh()
+
     async def reload_remote_build_identity(self, identity: DashboardIdentity) -> None:
         """
         Apply a freshly-rotated identity: rebuild the listener + push the new pin.
@@ -826,7 +854,9 @@ class DeviceBuilder:
         * mDNS pin update — even if the listener isn't currently
           bound, paired peers re-browsing should see the new pin
           so they know a rotation happened. Fires before the
-          listener teardown so the wire shape catches up early.
+          listener teardown so the wire shape catches up early
+          and remains correct even when the rebuild fails (which
+          is fail-soft inside ``_maybe_start_remote_build_site``).
         * Listener teardown — the bound runner is still serving
           the OLD cert from its cached SSL context. Without a
           rebuild, an offloader connecting between rotation and
@@ -843,11 +873,7 @@ class DeviceBuilder:
         rotation already landed on disk; future starts will pick
         up the new state.
         """
-        if self._dashboard_advertiser is not None:
-            self._dashboard_advertiser.set_pin_sha256(identity.pin_sha256)
-            with contextlib.suppress(Exception):
-                await self._dashboard_advertiser.refresh()
-
+        await self._publish_remote_build_advertise(pin_sha256=identity.pin_sha256)
         if self._remote_build_runner is None:
             return
 
