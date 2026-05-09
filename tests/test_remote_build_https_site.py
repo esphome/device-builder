@@ -14,11 +14,12 @@ import asyncio
 import hashlib
 import ssl
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
 from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 
 from esphome_device_builder.controllers.config import (
     DashboardSettings,
@@ -28,6 +29,7 @@ from esphome_device_builder.device_builder import (
     DeviceBuilder,
     _build_remote_build_ssl_context,
     _remote_build_health,
+    _strip_server_header_middleware,
 )
 from esphome_device_builder.helpers.dashboard_identity import (
     _CERT_FILENAME,
@@ -183,3 +185,145 @@ async def test_maybe_start_remote_build_site_binds_when_enabled(tmp_path: Path) 
     finally:
         if db._remote_build_runner is not None:
             await db._remote_build_runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    A failed bind logs the error and leaves the dashboard running.
+
+    Drive ``_maybe_start_remote_build_site`` through the enabled
+    path with a port that fails to bind (port 1, can't bind as
+    non-root). The hook MUST NOT raise; the runner must end up
+    cleaned up; the dashboard's main flow continues unaffected.
+    Pins the fail-soft contract so a misconfiguration in
+    Settings (typo'd port, port already in use, cert load
+    failure) doesn't take down the whole dashboard.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    # Force the bind to fail by stubbing TCPSite.start to raise.
+    real_start = web.TCPSite.start
+
+    async def _failing_start(self: web.TCPSite) -> None:
+        raise OSError("address in use (test stub)")
+
+    monkeypatch.setattr(web.TCPSite, "start", _failing_start)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build = MagicMock()
+    db.remote_build.lookup_token = MagicMock(return_value=None)
+
+    # Must not raise — the dashboard keeps running on bind failure.
+    await db._maybe_start_remote_build_site()
+    assert db._remote_build_runner is None
+
+    # Sanity: with the stub removed, a fresh call would succeed.
+    monkeypatch.setattr(web.TCPSite, "start", real_start)
+
+
+@pytest.mark.asyncio
+async def test_strip_server_header_middleware_drops_server_banner(tmp_path: Path) -> None:
+    """The Server header gets dropped from the response."""
+
+    async def _handler(_: web.Request) -> web.StreamResponse:
+        # Simulate aiohttp's default server banner.
+        return web.Response(status=200, headers={"Server": "Python/3.14 aiohttp/3.13"})
+
+    request = make_mocked_request("GET", "/remote-build/v1/health", client_max_size=0)
+    response = await _strip_server_header_middleware(request, _handler)
+    assert "Server" not in response.headers
+
+
+@pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
+    tmp_path: Path,
+) -> None:
+    """
+    Successful bind pushes ``pin_sha256`` + ``remote_build_port`` into the advertiser.
+
+    Pins the post-bind advertiser-update wiring so a refactor that
+    accidentally drops the setter calls (or moves them before the
+    bind) surfaces here.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build = MagicMock()
+    db.remote_build.lookup_token = MagicMock(return_value=None)
+
+    fake_advertiser = MagicMock()
+    fake_advertiser.set_pin_sha256 = MagicMock()
+    fake_advertiser.set_remote_build_port = MagicMock()
+    fake_advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = fake_advertiser
+
+    try:
+        await db._maybe_start_remote_build_site()
+        assert db._remote_build_runner is not None
+        # SPKI pin and listener port both made it to the advertiser.
+        assert fake_advertiser.set_pin_sha256.called
+        assert fake_advertiser.set_remote_build_port.called
+        # ``refresh`` was awaited so the TXT change actually
+        # leaves the local cache.
+        assert fake_advertiser.refresh.called
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_warns_on_ha_addon(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """HA-addon mode logs a warning when the listener binds."""
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    settings.on_ha_addon = True  # the branch under test
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build = MagicMock()
+    db.remote_build.lookup_token = MagicMock(return_value=None)
+
+    with caplog.at_level("WARNING", logger="esphome_device_builder.device_builder"):
+        try:
+            await db._maybe_start_remote_build_site()
+            assert db._remote_build_runner is not None
+        finally:
+            if db._remote_build_runner is not None:
+                await db._remote_build_runner.cleanup()
+    warnings = [r for r in caplog.records if "HA addon" in r.getMessage()]
+    assert warnings, "expected an HA-addon warning"

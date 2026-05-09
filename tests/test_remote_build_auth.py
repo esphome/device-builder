@@ -101,6 +101,22 @@ def test_verify_bearer_accepts_case_insensitive_scheme_and_bws(header: str) -> N
     assert matched is stored
 
 
+def test_verify_bearer_handles_non_ascii_secret_without_raising() -> None:
+    """
+    A non-ASCII secret half is rejected as 401, not 500.
+
+    A genuine bearer is base64url (always ASCII), so a non-ASCII
+    payload is either a malformed client or an attacker's probe.
+    The pre-fix code did ``secret.encode("ascii")`` which raised
+    ``UnicodeEncodeError`` and turned the auth failure into a
+    500. Pin the rejection-not-crash contract.
+    """
+    stored = _stored(token_id="known", secret="right-secret")
+    # ``é`` is non-ASCII; would have raised under the old encode("ascii").
+    matched = verify_bearer("Bearer known.café", _table_lookup([stored]))
+    assert matched is None
+
+
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------

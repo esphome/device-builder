@@ -323,6 +323,67 @@ def test_set_remote_build_port_updates_subsequent_advertise() -> None:
     assert decoded["remote_build_port"] == "7000"
 
 
+@pytest.mark.asyncio
+async def test_refresh_republishes_when_only_txt_changed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    A TXT-only change triggers ``async_update_service`` on the next refresh.
+
+    Pre-fix, ``refresh`` short-circuited when the address set was
+    unchanged, so a setter-driven TXT update (``set_pin_sha256``,
+    ``set_remote_build_port``) never made it onto the wire after
+    the initial register. The fix detects TXT differences too;
+    pin that contract.
+    """
+    advertiser = _make_advertiser()
+    # Pre-seed an "already registered" state. We don't actually
+    # talk to a real zeroconf instance — fake the bits ``refresh``
+    # reads / writes.
+    initial_addresses = ["10.0.0.5"]
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.dashboard_advertise._local_addresses",
+        lambda: list(initial_addresses),
+    )
+    advertiser._info = advertiser.build_service_info(initial_addresses)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_update_service = AsyncMock()
+    advertiser._zeroconf = fake_zeroconf
+
+    # Now set a TXT field WITHOUT changing addresses.
+    advertiser.set_pin_sha256("a" * 64)
+    refreshed = await advertiser.refresh()
+
+    assert refreshed is True
+    assert fake_zeroconf.async_update_service.called
+    # The republished info carries the new pin.
+    new_info = fake_zeroconf.async_update_service.call_args.args[0]
+    decoded = {k.decode(): v.decode() for k, v in new_info.properties.items()}
+    assert decoded["pin_sha256"] == "a" * 64
+
+
+@pytest.mark.asyncio
+async def test_refresh_no_op_when_nothing_changed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``refresh`` returns False without calling zeroconf when nothing changed."""
+    advertiser = _make_advertiser()
+    initial_addresses = ["10.0.0.5"]
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.dashboard_advertise._local_addresses",
+        lambda: list(initial_addresses),
+    )
+    advertiser._info = advertiser.build_service_info(initial_addresses)
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.async_update_service = AsyncMock()
+    advertiser._zeroconf = fake_zeroconf
+
+    refreshed = await advertiser.refresh()
+
+    assert refreshed is False
+    assert not fake_zeroconf.async_update_service.called
+
+
 def test_build_service_info_keeps_trailing_dot_on_explicit_fqdn() -> None:
     """An already-trailing-dot hostname round-trips unchanged."""
     advertiser = _make_advertiser(name="green", hostname="green.local.")

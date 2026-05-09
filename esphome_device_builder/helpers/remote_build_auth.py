@@ -105,7 +105,13 @@ def verify_bearer(
     if parsed is None:
         return None
     token_id, secret = parsed
-    presented_hash = hashlib.sha256(secret.encode("ascii")).hexdigest()
+    # Encode as UTF-8 (never raises) rather than ASCII (would
+    # raise ``UnicodeEncodeError`` on a malformed header carrying
+    # non-ASCII bytes, turning a 401 into a 500). Genuine bearers
+    # come from ``secrets.token_urlsafe`` and are pure ASCII; an
+    # attacker-supplied non-ASCII bearer just produces a hash
+    # that doesn't match anything stored.
+    presented_hash = hashlib.sha256(secret.encode("utf-8")).hexdigest()
     stored = lookup(token_id)
     if stored is None:
         # Burn the same compare_digest cost the success path

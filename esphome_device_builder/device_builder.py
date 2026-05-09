@@ -14,6 +14,7 @@ import logging
 import re
 import ssl
 import tempfile
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
@@ -154,7 +155,7 @@ async def _remote_build_health(_: web.Request) -> web.Response:
 @web.middleware
 async def _strip_server_header_middleware(
     request: web.Request,
-    handler: Any,
+    handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
 ) -> web.StreamResponse:
     """
     Drop aiohttp's default ``Server: Python/x.y aiohttp/z.w`` banner.
@@ -738,6 +739,11 @@ class DeviceBuilder:
         Both reads hop through ``run_in_executor`` because the
         helper is sync-blocking by design.
 
+        Fail-soft: any exception during identity load, SSL setup, or
+        bind is caught and logged. The main dashboard keeps running;
+        the operator gets a warning and the listener is simply
+        absent until the next restart with the issue resolved.
+
         On HA addon mode with the listener enabled, logs a warning
         that the addon's ``ports:`` config must expose the bound
         port for LAN peers to actually reach it. The bind itself
@@ -757,30 +763,50 @@ class DeviceBuilder:
             )
             return
 
-        identity = await loop.run_in_executor(
-            None, get_or_create_identity, self.settings.config_dir
-        )
-        ssl_context = await loop.run_in_executor(None, _build_remote_build_ssl_context, identity)
-        auth_middleware_fn = make_remote_build_auth_middleware(self.remote_build.lookup_token)
-        app = web.Application(middlewares=[_strip_server_header_middleware, auth_middleware_fn])
-        app.router.add_get("/remote-build/v1/health", _remote_build_health)
+        runner: web.AppRunner | None = None
+        try:
+            identity = await loop.run_in_executor(
+                None, get_or_create_identity, self.settings.config_dir
+            )
+            ssl_context = await loop.run_in_executor(
+                None, _build_remote_build_ssl_context, identity
+            )
+            auth_middleware_fn = make_remote_build_auth_middleware(self.remote_build.lookup_token)
+            app = web.Application(middlewares=[_strip_server_header_middleware, auth_middleware_fn])
+            app.router.add_get("/remote-build/v1/health", _remote_build_health)
 
-        runner = web.AppRunner(app)
-        await runner.setup()
-        host = self.settings.host
-        port = self.settings.remote_build_port
-        site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
-        await site.start()
-        self._remote_build_runner = runner
+            runner = web.AppRunner(app)
+            await runner.setup()
+            host = self.settings.host
+            port = self.settings.remote_build_port
+            site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
+            await site.start()
+            self._remote_build_runner = runner
+        except Exception:
+            _LOGGER.exception(
+                "Remote-build HTTPS site failed to start; dashboard continues "
+                "without the receiver listener. Disable in Settings or "
+                "fix the underlying error and restart."
+            )
+            if runner is not None:
+                with contextlib.suppress(Exception):
+                    await runner.cleanup()
+            self._remote_build_runner = None
+            return
 
         # Update the mDNS advertise AFTER the bind succeeds. If the
         # bind raised (port in use, permission denied, ...) the
         # advertiser stays at its pre-listener state instead of
         # broadcasting a pin + port that nothing's actually
-        # listening on.
+        # listening on. ``refresh`` republishes the ServiceInfo
+        # if the TXT properties changed; without that call the
+        # setter-driven update would only land on the wire on the
+        # next periodic refresh tick (5 min).
         if self._dashboard_advertiser is not None:
             self._dashboard_advertiser.set_pin_sha256(identity.pin_sha256)
             self._dashboard_advertiser.set_remote_build_port(port)
+            with contextlib.suppress(Exception):
+                await self._dashboard_advertiser.refresh()
 
         if self.settings.on_ha_addon:
             _LOGGER.warning(

@@ -858,6 +858,34 @@ async def test_remove_token_drops_only_target(tmp_path: Path) -> None:
     assert [t.token_id for t in settings.tokens] == [keep_a.token_id, keep_b.token_id]
 
 
+@pytest.mark.asyncio
+async def test_lookup_token_round_trips_through_index(tmp_path: Path) -> None:
+    """
+    ``lookup_token`` returns the in-memory ``StoredToken`` for a known id.
+
+    The auth middleware (phase 3b2) reads through this accessor
+    on every authenticated request — it has to be constant-time
+    after CRUD mutations as well as after the startup seed. Round
+    trip a fresh token through ``add_token`` and confirm
+    ``lookup_token`` returns a matching record; remove it and
+    confirm the lookup returns ``None``.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    issued = await controller.add_token(label="Green")
+
+    found = controller.lookup_token(issued.token_id)
+    assert found is not None
+    assert found.token_id == issued.token_id
+    assert found.label == "Green"
+
+    # Unknown id -> None.
+    assert controller.lookup_token("not-a-real-id") is None
+
+    # Removal updates the index.
+    await controller.remove_token(token_id=issued.token_id)
+    assert controller.lookup_token(issued.token_id) is None
+
+
 @pytest.mark.parametrize(
     ("token_id", "expected_code"),
     [

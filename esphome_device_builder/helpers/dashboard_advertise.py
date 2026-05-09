@@ -463,20 +463,19 @@ class DashboardAdvertiser:
 
     async def refresh(self) -> bool:
         """
-        Re-publish the advertise if the local-address set has changed.
+        Re-publish the advertise if anything observable on the wire changed.
 
-        Re-runs :func:`_local_addresses` (via the executor — see
-        :meth:`register`), compares the result against the address
-        list that's currently on the wire, and calls
-        :meth:`AsyncEsphomeZeroconf.async_update_service` only when the
-        sorted sets differ. The no-op return path keeps callers
-        free to invoke this on a tick / interface-change event
-        without flooding the network with unchanged updates.
+        Compares both the local-address set AND the TXT properties
+        against what's currently published; calls
+        :meth:`AsyncEsphomeZeroconf.async_update_service` only when
+        either differs. The no-op return path keeps callers free to
+        invoke this on a tick / interface-change event / TXT-field
+        update without flooding the network with unchanged updates.
 
         Returns ``True`` if a re-publish actually fired, ``False``
-        when the cached and freshly-enumerated address sets matched
-        (or when the advertiser isn't currently registered, in
-        which case there's nothing to refresh against).
+        when the cached state matched (or when the advertiser isn't
+        currently registered, in which case there's nothing to
+        refresh against).
         """
         info = self._info
         zeroconf = self._zeroconf
@@ -484,12 +483,18 @@ class DashboardAdvertiser:
             return False
         loop = asyncio.get_running_loop()
         new_addresses = await loop.run_in_executor(None, _local_addresses)
+        new_info = self.build_service_info(new_addresses)
         # Compare normalized sets so the order ifaddr returns
         # interfaces in (which can shift between calls on some
-        # platforms) doesn't trigger a spurious re-publish.
-        if sorted(new_addresses) == sorted(info.parsed_addresses()):
+        # platforms) doesn't trigger a spurious re-publish. Also
+        # compare TXT properties so a setter-driven change (e.g.
+        # ``set_pin_sha256``, ``set_remote_build_port``) actually
+        # makes it onto the wire — without this, a TXT update
+        # after register would never propagate.
+        addresses_unchanged = sorted(new_addresses) == sorted(info.parsed_addresses())
+        properties_unchanged = new_info.properties == info.properties
+        if addresses_unchanged and properties_unchanged:
             return False
-        new_info = self.build_service_info(new_addresses)
         try:
             await zeroconf.async_update_service(new_info)
         except Exception:
