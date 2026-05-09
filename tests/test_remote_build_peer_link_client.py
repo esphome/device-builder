@@ -45,6 +45,7 @@ from esphome_device_builder.controllers.remote_build_peer_link_client import (
     request_pair,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import (
     get_or_create_peer_link_identity,
 )
@@ -53,7 +54,13 @@ from esphome_device_builder.helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from esphome_device_builder.models import ErrorCode, IntentResponse, PeerLinkIntent, PeerStatus
+from esphome_device_builder.models import (
+    ErrorCode,
+    IntentResponse,
+    PeerLinkIntent,
+    PeerStatus,
+    StoredPairing,
+)
 
 
 def _make_controller(*, config_dir: Path) -> RemoteBuildController:
@@ -835,3 +842,299 @@ async def test_controller_request_pair_unexpected_status_raises_internal_error(
             offloader_label="my-builder",
         )
     assert exc.value.code == ErrorCode.INTERNAL_ERROR
+
+
+# ---------------------------------------------------------------------------
+# RemoteBuildController offloader-side surface — unpair / list_pool /
+# subscribe_pool / _apply_pair_status_result branches (post-pivot to
+# in-memory PENDING). The peer-link wire path is exercised by the
+# request_pair end-to-end tests above; these focus on the dict /
+# disk lifecycle without driving the wire.
+# ---------------------------------------------------------------------------
+
+
+def _stub_pairing(
+    *,
+    receiver_hostname: str = "build.local",
+    receiver_port: int = 6055,
+    label: str = "desktop",
+    paired_at: float = 1.0,
+    pin_sha256: str | None = None,
+    static_x25519_pub: bytes | None = None,
+) -> StoredPairing:
+    """Build a :class:`StoredPairing` with sensible defaults for tests."""
+    pub = static_x25519_pub if static_x25519_pub is not None else b"\x00" * 32
+    pin = pin_sha256 if pin_sha256 is not None else "a" * 64
+    return StoredPairing(
+        receiver_hostname=receiver_hostname,
+        receiver_port=receiver_port,
+        pin_sha256=pin,
+        static_x25519_pub=pub,
+        label=label,
+        paired_at=paired_at,
+    )
+
+
+@pytest.mark.asyncio
+async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
+    offloader_controller_dir: Path,
+) -> None:
+    """Unpair on a PENDING row pops the dict + cancels its listener task."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
+    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    # A no-op listener task standing in for the real long-poll
+    # task; the test verifies cancel + cleanup, not the wire flow.
+    park = asyncio.Event()
+
+    async def _park() -> None:
+        await park.wait()
+
+    offloader._pair_status_listeners[("rcv.local", 6055)] = asyncio.create_task(_park())
+    # Settle one event-loop tick so the create_task is actually
+    # scheduled before unpair tries to cancel it.
+    await asyncio.sleep(0)
+
+    result = await offloader.unpair(hostname="rcv.local", port=6055)
+
+    assert result == {"removed": True}
+    assert ("rcv.local", 6055) not in offloader._pending_pairings
+    # Listener was cancelled; let the loop run so the cancellation
+    # propagates and we can drain it cleanly.
+    listener = offloader._pair_status_listeners.get(("rcv.local", 6055))
+    if listener is not None:
+        with pytest.raises(asyncio.CancelledError):
+            await listener
+
+
+@pytest.mark.asyncio
+async def test_unpair_drops_persisted_row(
+    offloader_controller_dir: Path,
+) -> None:
+    """Unpair on an APPROVED (persisted) row drops the disk entry."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, offloader._persist_approved_pairing, pairing)
+
+    result = await offloader.unpair(hostname="rcv.local", port=6055)
+
+    assert result == {"removed": True}
+    saved = await loop.run_in_executor(
+        None, load_offloader_remote_build_settings, offloader_controller_dir
+    )
+    assert saved.pairings == []
+
+
+@pytest.mark.asyncio
+async def test_unpair_unknown_returns_removed_false_idempotent(
+    offloader_controller_dir: Path,
+) -> None:
+    """Unpair on a non-existent (host, port) is a clean no-op."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    result = await offloader.unpair(hostname="ghost.local", port=6055)
+
+    assert result == {"removed": False}
+
+
+@pytest.mark.asyncio
+async def test_list_pool_merges_pending_dict_and_persisted_rows(
+    offloader_controller_dir: Path,
+) -> None:
+    """list_pool returns PENDING entries from the dict + APPROVED from disk."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pending = _stub_pairing(
+        receiver_hostname="pending.local", receiver_port=6055, label="pending-receiver"
+    )
+    approved = _stub_pairing(
+        receiver_hostname="approved.local", receiver_port=6055, label="approved-receiver"
+    )
+    offloader._pending_pairings[("pending.local", 6055)] = pending
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, offloader._persist_approved_pairing, approved)
+
+    rows = await offloader.list_pool()
+
+    by_host = {row.receiver_hostname: row for row in rows}
+    assert by_host["pending.local"].status is PeerStatus.PENDING
+    assert by_host["approved.local"].status is PeerStatus.APPROVED
+
+
+@pytest.mark.asyncio
+async def test_subscribe_pool_streams_offloader_pair_status_changed_events(
+    offloader_controller_dir: Path,
+) -> None:
+    """subscribe_pool drains OFFLOADER_PAIR_STATUS_CHANGED events to the client.
+
+    Drives the bus directly via ``_fire_offloader_pair_status_changed``
+    rather than running a real listener task; this isolates the
+    stream_events drain semantics from the wire flow.
+    """
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = EventBus()
+
+    received: list[tuple[str, dict[str, object]]] = []
+    subscribed = asyncio.Event()
+    client = MagicMock()
+
+    async def _send_result(message_id: str, payload: dict[str, object]) -> None:
+        if payload == {"subscribed": True}:
+            subscribed.set()
+
+    async def _send_event(message_id: str, name: str, payload: dict[str, object]) -> None:
+        received.append((name, payload))
+
+    client.send_result = _send_result
+    client.send_event = _send_event
+
+    sub_task = asyncio.create_task(offloader.subscribe_pool(client=client, message_id="msg-1"))
+    try:
+        await asyncio.wait_for(subscribed.wait(), timeout=1.0)
+        offloader._fire_offloader_pair_status_changed("rcv.local", 6055, "approved")
+        offloader._fire_offloader_pair_status_changed("rcv.local", 6056, "removed")
+        # Yield once so the bus drain delivers both events.
+        await asyncio.sleep(0)
+    finally:
+        sub_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await sub_task
+
+    assert (
+        "offloader_pair_status_changed",
+        {
+            "receiver_hostname": "rcv.local",
+            "receiver_port": 6055,
+            "status": "approved",
+        },
+    ) in received
+    assert (
+        "offloader_pair_status_changed",
+        {
+            "receiver_hostname": "rcv.local",
+            "receiver_port": 6056,
+            "status": "removed",
+        },
+    ) in received
+
+
+# ---------------------------------------------------------------------------
+# _apply_pair_status_result branches — dict mutation + event firing without
+# running a real listener task.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_apply_pair_status_result_approved_promotes_and_fires(
+    offloader_controller_dir: Path,
+) -> None:
+    """APPROVED + matching pin → pop dict, persist, fire approved event, terminal."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pubkey = b"\xaa" * 32
+    pin = "a" * 64
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+    )
+    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    result = remote_build_peer_link_client.PollPairStatusResult(
+        status=IntentResponse.APPROVED, pin_sha256=pin
+    )
+
+    terminal = await offloader._apply_pair_status_result(pairing, result)
+
+    assert terminal is True
+    assert ("rcv.local", 6055) not in offloader._pending_pairings
+    loop = asyncio.get_running_loop()
+    saved = await loop.run_in_executor(
+        None, load_offloader_remote_build_settings, offloader_controller_dir
+    )
+    assert len(saved.pairings) == 1
+    assert saved.pairings[0].pin_sha256 == pin
+    fire = offloader._db.bus.fire
+    fire.assert_called_once()
+    _, payload = fire.call_args.args
+    assert payload["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_removed(
+    offloader_controller_dir: Path,
+) -> None:
+    """APPROVED + drifted pin → pop dict, no persist, fire removed event."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256="a" * 64,
+    )
+    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    # Receiver returned APPROVED but its pubkey hash doesn't match
+    # what we stored; treat as peer-revoked rather than silently
+    # adopting the new identity.
+    result = remote_build_peer_link_client.PollPairStatusResult(
+        status=IntentResponse.APPROVED, pin_sha256="b" * 64
+    )
+
+    terminal = await offloader._apply_pair_status_result(pairing, result)
+
+    assert terminal is True
+    assert ("rcv.local", 6055) not in offloader._pending_pairings
+    loop = asyncio.get_running_loop()
+    saved = await loop.run_in_executor(
+        None, load_offloader_remote_build_settings, offloader_controller_dir
+    )
+    assert saved.pairings == []
+    _, payload = offloader._db.bus.fire.call_args.args
+    assert payload["status"] == "removed"
+
+
+@pytest.mark.asyncio
+async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
+    offloader_controller_dir: Path,
+) -> None:
+    """REJECTED → pop dict, fire removed event, terminal."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
+    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    result = remote_build_peer_link_client.PollPairStatusResult(
+        status=IntentResponse.REJECTED, pin_sha256="a" * 64
+    )
+
+    terminal = await offloader._apply_pair_status_result(pairing, result)
+
+    assert terminal is True
+    assert ("rcv.local", 6055) not in offloader._pending_pairings
+    _, payload = offloader._db.bus.fire.call_args.args
+    assert payload["status"] == "removed"
+
+
+@pytest.mark.asyncio
+async def test_apply_pair_status_result_unexpected_status_logs_and_continues(
+    offloader_controller_dir: Path,
+) -> None:
+    """Unexpected receiver response (PENDING/OK/NO_PAIRING_WINDOW) returns False (re-loop)."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
+    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    result = remote_build_peer_link_client.PollPairStatusResult(
+        status=IntentResponse.OK, pin_sha256="a" * 64
+    )
+
+    terminal = await offloader._apply_pair_status_result(pairing, result)
+
+    # Not terminal — the listener loop reconnects after a backoff.
+    assert terminal is False
+    # Pending entry untouched.
+    assert ("rcv.local", 6055) in offloader._pending_pairings
+    offloader._db.bus.fire.assert_not_called()

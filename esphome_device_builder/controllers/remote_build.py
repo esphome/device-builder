@@ -828,11 +828,33 @@ class RemoteBuildController:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
             self._tasks.clear()
+        # Cancel + drain offloader-side pair-status listener tasks
+        # so they don't leak past controller shutdown. Each
+        # listener self-removes from ``_pair_status_listeners``
+        # via its ``finally`` clause; the dict-clear at the end
+        # is belt-and-braces in case a task crashed before
+        # reaching its finally.
+        for task in self._pair_status_listeners.values():
+            task.cancel()
+        if self._pair_status_listeners:
+            await asyncio.gather(*self._pair_status_listeners.values(), return_exceptions=True)
+            self._pair_status_listeners.clear()
         if self._pairing_window_handle is not None:
             self._pairing_window_handle.cancel()
             self._pairing_window_handle = None
         self._pairing_window_clients.clear()
-        self._pending_peers.clear()
+        # Route the receiver-side PENDING clear through the same
+        # helper the auto-close + explicit-close paths use, so
+        # any in-flight pair_status long-poll on a still-alive bus
+        # (a future "soft reload" path that tears down the
+        # controller without closing the dashboard's WS) sees
+        # the same removal events as window-close. At
+        # process-shutdown the bus has no listeners anyway, so
+        # the events are absorbed cheaply.
+        self._clear_pending_peers_on_window_close()
+        # Offloader-side pending dict has no bus-event semantic on
+        # clear (it's the offloader's local UI state, not a
+        # receiver-visible row), so silent clear is fine here.
         self._pending_pairings.clear()
         self._peers.clear()
 
@@ -1204,6 +1226,18 @@ class RemoteBuildController:
                 frontend prompts the user to ask the
                 receiver-side admin to open the Pairing
                 requests screen.
+
+        Persistence note: only APPROVED rows are written to disk.
+        PENDING rows live in the controller's in-memory
+        ``_pending_pairings`` dict for the lifetime of the
+        offloader process. If the offloader is restarted while a
+        request is still pending, the dict starts empty and the
+        user has to re-issue ``request_pair``; this matches the
+        receiver's symmetric "controller restart drops PENDING"
+        property (the receiver-side window-close that triggered
+        any in-flight pair_request would have cleared its own
+        pending dict anyway, so cross-restart pending is never
+        a coherent state on either side).
         """
         clean_host = _validate_hostname(hostname, context=_HostFieldContext.RECEIVER)
         clean_port = _validate_port(port, context=_HostFieldContext.RECEIVER)
@@ -1237,13 +1271,18 @@ class RemoteBuildController:
             msg = f"unexpected receiver intent_response={result.status.value!r}"
             raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
 
-        # APPROVED happens when this offloader paired with the same
-        # receiver previously and the receiver-side row is still
-        # APPROVED — the receiver short-circuits the inbox dance.
-        # ``paired_at`` reflects this re-pair attempt (last-touch
-        # semantic); ``_upsert_pairing`` replaces any prior row
-        # wholesale, so a stale ``paired_at`` from an earlier
-        # session is overwritten.
+        # APPROVED on the receiver's side happens when this
+        # offloader paired with the same receiver previously and
+        # the receiver-side row is still APPROVED — the receiver
+        # short-circuits the inbox dance. Build the row with a
+        # fresh ``paired_at`` (last-touch semantic) regardless of
+        # which branch we'll take below; the APPROVED branch
+        # routes through ``_upsert_pairing`` (which replaces any
+        # prior persisted row wholesale, so any earlier
+        # ``paired_at`` is overwritten), and the PENDING branch
+        # writes the row to the in-memory dict, where it stays
+        # until the listener task observes a flip + promotes /
+        # drops it.
         pairing = StoredPairing(
             receiver_hostname=clean_host,
             receiver_port=clean_port,

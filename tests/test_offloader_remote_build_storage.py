@@ -37,7 +37,6 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.models import (
     OffloaderRemoteBuildSettings,
-    PeerStatus,
     StoredPairing,
 )
 
@@ -51,7 +50,6 @@ def _valid_pairing(**overrides: object) -> StoredPairing:
         "static_x25519_pub": b"\x01" * 32,
         "label": "desktop",
         "paired_at": 1.0,
-        "status": PeerStatus.PENDING,
     }
     base.update(overrides)
     return StoredPairing(**base)  # type: ignore[arg-type]
@@ -65,7 +63,10 @@ def _valid_pairing(**overrides: object) -> StoredPairing:
 def test_stored_pairing_accepts_minimal_valid_row() -> None:
     pairing = _valid_pairing()
     assert pairing.receiver_hostname == "build.local"
-    assert pairing.status is PeerStatus.PENDING
+    # ``StoredPairing`` no longer carries a status field — disk
+    # rows are implicitly APPROVED; PENDING entries live in the
+    # offloader controller's in-memory dict.
+    assert not hasattr(pairing, "status")
 
 
 def test_stored_pairing_rejects_empty_hostname() -> None:
@@ -173,7 +174,6 @@ def test_settings_round_trip_preserves_pairing_fields(tmp_path: Path) -> None:
                 static_x25519_pub=pubkey,
                 label="desk",
                 paired_at=42.5,
-                status=PeerStatus.APPROVED,
             )
         ]
     )
@@ -188,7 +188,6 @@ def test_settings_round_trip_preserves_pairing_fields(tmp_path: Path) -> None:
     assert row.static_x25519_pub == pubkey
     assert row.label == "desk"
     assert row.paired_at == 42.5
-    assert row.status is PeerStatus.APPROVED
 
 
 def test_load_returns_defaults_when_metadata_missing(tmp_path: Path) -> None:
@@ -234,7 +233,6 @@ def test_load_returns_defaults_on_malformed_pairing_row(tmp_path: Path) -> None:
                             "static_x25519_pub": "AA==",  # base64 of 1 byte; wrong len
                             "label": "bad",
                             "paired_at": 1.0,
-                            "status": "pending",
                         }
                     ]
                 }
