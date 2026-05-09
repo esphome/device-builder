@@ -288,8 +288,8 @@ The receiver advertises the listener's port over mDNS as a TXT property:
 |---|---|---|
 | `server_version` | `"1.2.3"` | always |
 | `esphome_version` | `"2026.5.0"` | always |
-| `pin_sha256` | lowercase-hex SPKI fingerprint | when remote-build is enabled |
-| `remote_build_port` | stringified int (e.g. `"6055"`) | when remote-build is enabled |
+| `pin_sha256` | lowercase-hex SPKI fingerprint | when the remote-build receiver site is bound (the listener post-bind sets this; a misconfigured `enabled=true` that fails to bind leaves it absent) |
+| `remote_build_port` | stringified int (e.g. `"6055"`) | when the remote-build receiver site is bound (same condition as `pin_sha256`) |
 
 Same-subnet peers read `remote_build_port` from TXT so a `--remote-build-port` override is auto-discovered. Cross-subnet peers (`add_manual_host` flow) provide the port at add time.
 

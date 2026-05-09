@@ -1,11 +1,22 @@
 """
 End-to-end TLS verification of the phase-3b2 remote-build HTTPS site.
 
-Pins that the cert + key from phase 3a, the auth middleware from
-phase 3b2, and the bearer token store from phase 3b1 line up over
-the wire: a strict-TLS aiohttp client gets 401 without a valid
-bearer, 200 with one, and the cert it observes on connect matches
-the SPKI fingerprint the receiver advertises.
+Covers the auth + listener wiring for the receiver site:
+
+* A strict-TLS aiohttp client gets 401 without a valid bearer
+  and 200 with one (real handshake against the cert + key from
+  phase 3a, real auth middleware from phase 3b2 against the
+  token store from phase 3b1).
+* The lifecycle hook ``_maybe_start_remote_build_site``
+  default-skips when ``enabled=False``, binds when
+  ``enabled=True``, fails-soft on bind error, advertises the
+  OS-assigned port for ephemeral binds, and warns on
+  HA-addon mode.
+* The strip-Server-header middleware removes aiohttp's default
+  banner from on-the-wire responses.
+
+Pin-vs-observed-cert verification is the pairing flow's job
+(phase 4) and isn't exercised here.
 """
 
 from __future__ import annotations
@@ -63,8 +74,11 @@ async def _bring_up_site(
     def _lookup(token_id: str) -> StoredToken | None:
         return by_id.get(token_id)
 
-    middleware = make_remote_build_auth_middleware(_lookup)
-    app = web.Application(middlewares=[middleware])
+    auth_middleware = make_remote_build_auth_middleware(_lookup)
+    # Mirror production's middleware stack: server-header strip
+    # first (so its post-handler step runs LAST on the way out),
+    # auth gate inside.
+    app = web.Application(middlewares=[_strip_server_header_middleware, auth_middleware])
     app.router.add_get("/remote-build/v1/health", _remote_build_health)
 
     runner = web.AppRunner(app)
@@ -127,6 +141,13 @@ async def test_health_returns_200_with_valid_bearer(tmp_path: Path) -> None:
             assert resp.status == 200
             body = await resp.json()
             assert body == {"ok": True}
+            # On-the-wire check: aiohttp injects a ``Server``
+            # banner at the connection-write layer when the
+            # response doesn't carry one. The strip-Server
+            # middleware sets it to empty string so aiohttp's
+            # default banner is overridden. Empty value (not
+            # absent) is the expected wire shape.
+            assert resp.headers.get("Server", "") == ""
     finally:
         await runner.cleanup()
 
@@ -236,16 +257,22 @@ async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
 
 
 @pytest.mark.asyncio
-async def test_strip_server_header_middleware_drops_server_banner(tmp_path: Path) -> None:
-    """The Server header gets dropped from the response."""
+async def test_strip_server_header_middleware_overrides_to_empty(tmp_path: Path) -> None:
+    """
+    The Server header is overridden to empty string.
+
+    Setting to empty (not deleting) is what overrides aiohttp's
+    connection-level default banner; the live HTTPS test in this
+    file pins the on-the-wire shape end-to-end. This unit test
+    just sanity-checks the middleware's response-level behaviour.
+    """
 
     async def _handler(_: web.Request) -> web.StreamResponse:
-        # Simulate aiohttp's default server banner.
         return web.Response(status=200, headers={"Server": "Python/3.14 aiohttp/3.13"})
 
     request = make_mocked_request("GET", "/remote-build/v1/health", client_max_size=0)
     response = await _strip_server_header_middleware(request, _handler)
-    assert "Server" not in response.headers
+    assert response.headers["Server"] == ""
 
 
 @pytest.mark.asyncio

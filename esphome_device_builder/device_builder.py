@@ -158,17 +158,23 @@ async def _strip_server_header_middleware(
     handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
 ) -> web.StreamResponse:
     """
-    Drop aiohttp's default ``Server: Python/x.y aiohttp/z.w`` banner.
+    Override aiohttp's default ``Server: Python/x.y aiohttp/z.w`` banner.
 
     Defence-in-depth on the LAN-reachable surface: the banner is
     a free version-fingerprint for any scanner that touches the
     listener. The remote-build site is bearer-gated, so the
     leak is bounded, but stripping the header costs nothing and
     keeps the signal off the wire.
+
+    aiohttp injects the banner at the connection-write layer
+    when the response doesn't carry a ``Server`` header — a
+    middleware-level ``del`` only catches handlers that set the
+    header explicitly. Setting the header to an empty string
+    overrides aiohttp's default; an empty ``Server:`` value
+    lands on the wire instead of the version banner.
     """
     response = await handler(request)
-    if "Server" in response.headers:
-        del response.headers["Server"]
+    response.headers["Server"] = ""
     return response
 
 

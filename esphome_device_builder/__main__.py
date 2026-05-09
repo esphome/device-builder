@@ -150,12 +150,16 @@ def main() -> None:
     parser.add_argument(
         "--remote-build-port",
         type=int,
-        default=None,
+        # ``SUPPRESS`` keeps ``ArgumentDefaultsHelpFormatter`` from
+        # rendering a contradictory ``(default: None)`` next to the
+        # help text; the real default lives in
+        # ``DashboardSettings.parse_args`` (env-var fallback +
+        # ``DEFAULT_REMOTE_BUILD_PORT``).
+        default=argparse.SUPPRESS,
         help=(
-            "HTTPS port for the remote-build receiver site (default "
-            f"{DEFAULT_REMOTE_BUILD_PORT}; only bound when "
-            "remote-build is enabled in Settings; falls back to "
-            "$ESPHOME_REMOTE_BUILD_PORT when the flag isn't passed)"
+            f"HTTPS port for the remote-build receiver site (default "
+            f"{DEFAULT_REMOTE_BUILD_PORT} or $ESPHOME_REMOTE_BUILD_PORT; "
+            "only bound when remote-build is enabled in Settings)"
         ),
     )
     parser.add_argument(
