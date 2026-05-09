@@ -40,50 +40,6 @@ class ManualHost(DataClassORJSONMixin):
     port: int
 
 
-@dataclass
-class StoredToken(DataClassORJSONMixin):
-    """
-    A receiver-side issued bearer token, persisted by hash.
-
-    Cleartext is the wire form ``{token_id}.{secret}``; only
-    ``secret_sha256`` lands on disk. ``token_id`` is the lookup key
-    (constant-time table hit), ``secret_sha256`` is what the
-    middleware compares against the bearer's secret half via
-    ``hmac.compare_digest``.
-
-    ``bound_dashboard_id`` starts ``None`` and is filled in by the
-    phase-3b3 first-use binding the first time an authenticated
-    request arrives carrying a peer's ``X-Dashboard-ID``. After
-    that, requests presenting the same token but a different
-    dashboard_id are rejected as 403.
-    """
-
-    token_id: str
-    label: str
-    secret_sha256: str
-    created_at: float
-    bound_dashboard_id: str | None = None
-
-
-@dataclass
-class TokenSummary(DataClassORJSONMixin):
-    """
-    Public-facing token row for ``remote_build/list_tokens``.
-
-    Mirrors :class:`StoredToken` but drops ``secret_sha256``: the
-    stored hash isn't sensitive in the same way the cleartext is,
-    but exposing it would let a network attacker who's already
-    seen the on-disk metadata match candidate cleartext bearers
-    against the wire shape, so the frontend has no business
-    reading it.
-    """
-
-    token_id: str
-    label: str
-    created_at: float
-    bound_dashboard_id: str | None = None
-
-
 class PeerStatus(StrEnum):
     """
     Lifecycle state of a :class:`StoredPeer` row.
@@ -332,22 +288,18 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     Receiver-side settings for the remote-build feature (storage shape).
 
     Stored in ``.device-builder.json`` under the ``_remote_build``
-    top-level key. ``tokens`` carries :class:`StoredToken` rows
-    *with* the ``secret_sha256`` hash; this is the on-disk /
-    in-process shape only and MUST NOT be serialised over the
-    wire. Use :class:`RemoteBuildSettingsView` (or the
-    ``_summarise_token`` projection) for any response that leaves
-    the server.
-
-    ``peers`` carries phase-4a :class:`StoredPeer` rows: the
-    receiver's pinned offloaders (Noise XX over a dedicated
-    peer-link port replaces the bearer flow). ``tokens`` is on
-    a deletion path (phase 4a-r2) once the new auth has soaked.
+    top-level key. ``peers`` carries the phase-4a
+    :class:`StoredPeer` rows: the receiver's pinned offloaders
+    derived from the peer-link Noise XX handshake. The shape
+    used to also persist a ``tokens`` list (issued bearer
+    tokens, hash-only); that field was deleted in phase 4a-r2
+    along with the rest of the dormant bearer machinery, and
+    legacy entries on older ``.device-builder.json`` files are
+    silently ignored at load time.
     """
 
     enabled: bool = False
     manual_hosts: list[ManualHost] = field(default_factory=list)
-    tokens: list[StoredToken] = field(default_factory=list)
     peers: list[StoredPeer] = field(default_factory=list)
 
 
@@ -357,20 +309,15 @@ class RemoteBuildSettingsView(DataClassORJSONMixin):
     Wire view of :class:`RemoteBuildSettings`.
 
     Returned from every WS command that exposes settings to a
-    client. Identical to :class:`RemoteBuildSettings` except
-    ``tokens`` is a list of :class:`TokenSummary` (no
-    ``secret_sha256``), so issuing or removing tokens via the
-    CRUD methods can't accidentally leak the stored hash back to
-    the frontend through the response shape. ``peers`` is also
-    projected to :class:`PeerSummary` for symmetry — the storage
+    client. Mirrors :class:`RemoteBuildSettings` except
+    ``peers`` is projected to :class:`PeerSummary` (the storage
     and wire shapes happen to match today, but the projection
     seam keeps a future "store extra peer-only fields" change
-    from accidentally leaking those.
+    from accidentally leaking those).
     """
 
     enabled: bool = False
     manual_hosts: list[ManualHost] = field(default_factory=list)
-    tokens: list[TokenSummary] = field(default_factory=list)
     peers: list[PeerSummary] = field(default_factory=list)
 
 
@@ -460,7 +407,7 @@ class IdentityView(DataClassORJSONMixin):
     single WS call.
 
     ``listener_bound`` reports whether the
-    ``/remote-build/v1/*`` HTTPS receiver site is currently
+    peer-link Noise WS listener is currently
     serving traffic on this dashboard. Lets the Settings UI
     distinguish "rotation succeeded AND the listener is back
     up" from "rotation succeeded but the rebuild fail-softed"
