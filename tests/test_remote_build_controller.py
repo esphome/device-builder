@@ -1844,17 +1844,42 @@ async def test_set_pairing_window_close_while_already_closed_is_silent(tmp_path:
 
 @pytest.mark.asyncio
 async def test_set_pairing_window_extend_refreshes_deadline_and_fires(tmp_path: Path) -> None:
-    """Repeat ``open=true`` extends the deadline AND fires the event."""
+    """
+    Repeat ``open=true`` advances the client's timestamp and fires the event.
+
+    The load-bearing invariant the whole multi-tab UX rests on:
+    extending must move the per-client timestamp forward, not
+    just observe it. A regression where extend is silently
+    skipped for already-extending clients (e.g. an
+    "if client not in clients: clients[client] = now" guard
+    instead of "clients[client] = now") would still leave the
+    window technically "open" with the old deadline; the
+    TimerHandle would auto-close 5 minutes after the first
+    extend instead of 5 after the latest user activity. Pin
+    the actual timestamp advance so a guard like that fails
+    here, not in production.
+    """
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
 
     first = await controller.set_pairing_window(open=True, client="tab-1")
-    # tiny sleep so the second extend's deadline is strictly later than the first's
+    first_extend_ts = controller._pairing_window_clients["tab-1"]
+    # tiny sleep so the second extend's monotonic timestamp is
+    # strictly later than the first's (microsecond resolution
+    # makes 10ms reliably non-flaky)
     await asyncio.sleep(0.01)
     second = await controller.set_pairing_window(open=True, client="tab-1")
+    second_extend_ts = controller._pairing_window_clients["tab-1"]
 
     assert first.expires_in_seconds is not None
     assert second.expires_in_seconds is not None
+    # The actual extend invariant: the second call advanced the
+    # client's last-extend timestamp. Without this assertion,
+    # a silent extend-is-a-no-op regression would still pass
+    # the rest of the test (window is "open", events fired,
+    # both payloads carry open=True) while breaking the
+    # multi-tab UX.
+    assert second_extend_ts > first_extend_ts
     # Both fires landed (open + extend); both events have open=True.
     assert controller._db.bus.fire.call_count == 2
     for call in controller._db.bus.fire.call_args_list:
