@@ -31,7 +31,6 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 from esphome_device_builder.controllers import remote_build_peer_link_client
 from esphome_device_builder.controllers.config import (
-    load_offloader_remote_build_settings,
     remote_build_settings_transaction,
 )
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
@@ -651,6 +650,21 @@ def _make_offloader_controller(*, config_dir: Path) -> RemoteBuildController:
     return RemoteBuildController(db)
 
 
+async def _saved_pairings(offloader: RemoteBuildController) -> list[StoredPairing]:
+    """Flush any debounced save + return the on-disk pairings list.
+
+    Empty list when the file doesn't exist (no save was ever
+    scheduled, or the latest save wrote a file with no APPROVED
+    rows). Walks ``_shutdown_callbacks`` in registration order —
+    same hook ``DeviceBuilder.stop()`` walks in production — so
+    pending debounced writes hit disk before we read.
+    """
+    for cb in offloader._shutdown_callbacks:
+        await cb()
+    saved = await offloader._pairings_store.async_load()
+    return list(saved.pairings) if saved is not None else []
+
+
 @pytest.mark.asyncio
 async def test_controller_preview_pair_returns_receiver_pin(
     receiver_server: tuple[TestServer, RemoteBuildController, str],
@@ -670,10 +684,7 @@ async def test_controller_preview_pair_returns_receiver_pin(
     assert result == {"pin_sha256": expected_pin}
     # Preview is read-only on the offloader side too: no StoredPairing
     # row written until the user OOB-confirms and calls request_pair.
-    saved = await asyncio.get_running_loop().run_in_executor(
-        None, load_offloader_remote_build_settings, offloader_controller_dir
-    )
-    assert saved.pairings == []
+    assert await _saved_pairings(offloader) == []
 
 
 @pytest.mark.asyncio
@@ -721,11 +732,8 @@ async def test_controller_request_pair_persists_pending_row(
     # PENDING entries live in the offloader controller's in-memory
     # dict; the persisted file stays APPROVED-only so a malicious
     # receiver can't bloat the offloader's settings file.
-    saved = await asyncio.get_running_loop().run_in_executor(
-        None, load_offloader_remote_build_settings, offloader_controller_dir
-    )
-    assert saved.pairings == []
-    assert ("127.0.0.1", server.port) in offloader._pending_pairings
+    assert await _saved_pairings(offloader) == []
+    assert ("127.0.0.1", server.port) in offloader._pairings
 
 
 @pytest.mark.asyncio
@@ -754,10 +762,7 @@ async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
         )
     assert exc.value.code == ErrorCode.PRECONDITION_FAILED
     # Pin-mismatch bails before persisting; offloader sidecar stays empty.
-    saved = await asyncio.get_running_loop().run_in_executor(
-        None, load_offloader_remote_build_settings, offloader_controller_dir
-    )
-    assert saved.pairings == []
+    assert await _saved_pairings(offloader) == []
 
 
 @pytest.mark.asyncio
@@ -867,8 +872,14 @@ def _stub_pairing(
     paired_at: float = 1.0,
     pin_sha256: str | None = None,
     static_x25519_pub: bytes | None = None,
+    status: PeerStatus = PeerStatus.PENDING,
 ) -> StoredPairing:
-    """Build a :class:`StoredPairing` with sensible defaults for tests."""
+    """Build a :class:`StoredPairing` with sensible defaults for tests.
+
+    Defaults to PENDING — most listener / pair-status tests
+    operate on PENDING rows. Tests covering the persisted side opt
+    into ``status=PeerStatus.APPROVED`` explicitly.
+    """
     pub = static_x25519_pub if static_x25519_pub is not None else b"\x00" * 32
     pin = pin_sha256 if pin_sha256 is not None else "a" * 64
     return StoredPairing(
@@ -878,6 +889,7 @@ def _stub_pairing(
         static_x25519_pub=pub,
         label=label,
         paired_at=paired_at,
+        status=status,
     )
 
 
@@ -889,7 +901,7 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[("rcv.local", 6055)] = pairing
     # A no-op listener task standing in for the real long-poll
     # task; the test verifies cancel + cleanup, not the wire flow.
     park = asyncio.Event()
@@ -905,7 +917,7 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     result = await offloader.unpair(hostname="rcv.local", port=6055)
 
     assert result == {"removed": True}
-    assert ("rcv.local", 6055) not in offloader._pending_pairings
+    assert ("rcv.local", 6055) not in offloader._pairings
     # Listener was cancelled; let the loop run so the cancellation
     # propagates and we can drain it cleanly.
     listener = offloader._pair_status_listeners.get(("rcv.local", 6055))
@@ -918,19 +930,34 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
 async def test_unpair_drops_persisted_row(
     offloader_controller_dir: Path,
 ) -> None:
-    """Unpair on an APPROVED (persisted) row drops the disk entry."""
+    """Unpair on an APPROVED (persisted) row drops the disk entry.
+
+    The unified ``_pairings`` dict carries both PENDING and
+    APPROVED rows; ``unpair`` pops + schedules the debounced save.
+    The test awaits the registered shutdown callback to flush the
+    pending write before reading the on-disk file back — same hook
+    ``DeviceBuilder.stop()`` walks in production.
+    """
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
-    pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, offloader._persist_approved_pairing, pairing)
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local", receiver_port=6055, status=PeerStatus.APPROVED
+    )
+    # Land the row in RAM + force-flush an initial save so the
+    # unpair has something to drop on disk too.
+    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings_store.async_delay_save(offloader._serialize_pairings, delay=0.0)
+    for cb in offloader._shutdown_callbacks:
+        await cb()
 
     result = await offloader.unpair(hostname="rcv.local", port=6055)
 
     assert result == {"removed": True}
-    saved = await loop.run_in_executor(
-        None, load_offloader_remote_build_settings, offloader_controller_dir
-    )
+    # Flush the second debounced save (the unpair's removal).
+    for cb in offloader._shutdown_callbacks:
+        await cb()
+    saved = await offloader._pairings_store.async_load()
+    assert saved is not None
     assert saved.pairings == []
 
 
@@ -948,84 +975,38 @@ async def test_unpair_unknown_returns_removed_false_idempotent(
 
 
 @pytest.mark.asyncio
-async def test_pairings_snapshot_merges_pending_dict_and_persisted_rows(
+async def test_pairings_snapshot_returns_ram_dict(
     offloader_controller_dir: Path,
 ) -> None:
-    """pairings_snapshot returns PENDING entries from the dict + APPROVED from disk."""
+    """pairings_snapshot is a sync read of the in-RAM ``_pairings`` dict.
+
+    Unified dict carries both PENDING and APPROVED rows; the
+    snapshot returns each row's ``status`` straight off the
+    ``StoredPairing``. No executor hop, no disk read, no race
+    against concurrent mutation.
+    """
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pending = _stub_pairing(
-        receiver_hostname="pending.local", receiver_port=6055, label="pending-receiver"
+        receiver_hostname="pending.local",
+        receiver_port=6055,
+        label="pending-receiver",
+        status=PeerStatus.PENDING,
     )
     approved = _stub_pairing(
-        receiver_hostname="approved.local", receiver_port=6055, label="approved-receiver"
+        receiver_hostname="approved.local",
+        receiver_port=6055,
+        label="approved-receiver",
+        status=PeerStatus.APPROVED,
     )
-    offloader._pending_pairings[("pending.local", 6055)] = pending
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, offloader._persist_approved_pairing, approved)
+    offloader._pairings[("pending.local", 6055)] = pending
+    offloader._pairings[("approved.local", 6055)] = approved
 
-    rows = await offloader.pairings_snapshot()
+    rows = offloader.pairings_snapshot()
 
     by_host = {row.receiver_hostname: row for row in rows}
     assert by_host["pending.local"].status is PeerStatus.PENDING
     assert by_host["approved.local"].status is PeerStatus.APPROVED
-
-
-@pytest.mark.asyncio
-async def test_pairings_snapshot_dedupes_concurrent_listener_promote(
-    offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Snapshot dedupes when a listener promotes mid-executor-hop.
-
-    Race shape: snapshot's sync dict-capture sees ``X`` PENDING.
-    During the disk-read executor hop, a listener task pops X
-    from the dict and writes X as APPROVED to disk. Our disk read
-    returns AFTER that write, so settings.pairings has X. Without
-    dedupe the snapshot would contain X twice (PENDING from
-    captured dict + APPROVED from disk). The dedupe-by-(host,
-    port) with APPROVED-wins ensures one row, marked APPROVED.
-    Subsequent ``OFFLOADER_PAIR_STATUS_CHANGED("approved")`` event
-    delivery is then idempotent.
-    """
-    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
-    offloader._db.bus = MagicMock()
-    pubkey = b"\xee" * 32
-    pin = hashlib.sha256(pubkey).hexdigest()
-    pairing = _stub_pairing(
-        receiver_hostname="rcv.local",
-        receiver_port=6055,
-        pin_sha256=pin,
-        static_x25519_pub=pubkey,
-    )
-    offloader._pending_pairings[("rcv.local", 6055)] = pairing
-
-    # Hook into the executor read so we can race a listener-promote
-    # against it. The fake load function pops the dict + writes the
-    # APPROVED row to disk (mirroring what _apply_pair_status_result
-    # does on APPROVED) BEFORE returning the (now-newly-written)
-    # settings to the caller.
-    real_load = load_offloader_remote_build_settings
-
-    def _racy_load(_target_dir: Path) -> object:
-        # Listener-style mutation: pop dict + persist APPROVED.
-        promoted = offloader._pending_pairings.pop(("rcv.local", 6055), None)
-        if promoted is not None:
-            offloader._persist_approved_pairing(promoted)
-        # Return the disk state AFTER the listener's write.
-        return real_load(_target_dir)
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.load_offloader_remote_build_settings",
-        _racy_load,
-    )
-
-    rows = await offloader.pairings_snapshot()
-
-    # Exactly one entry for (rcv.local, 6055), marked APPROVED.
-    by_key = {(row.receiver_hostname, row.receiver_port): row for row in rows}
-    assert len(rows) == 1
-    assert ("rcv.local", 6055) in by_key
-    assert by_key[("rcv.local", 6055)].status is PeerStatus.APPROVED
 
 
 # ---------------------------------------------------------------------------
@@ -1038,7 +1019,7 @@ async def test_pairings_snapshot_dedupes_concurrent_listener_promote(
 async def test_apply_pair_status_result_approved_promotes_and_fires(
     offloader_controller_dir: Path,
 ) -> None:
-    """APPROVED + matching pin → pop dict, persist, fire approved event, terminal."""
+    """APPROVED + matching pin → flip row status to APPROVED, schedule save, fire."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pubkey = b"\xaa" * 32
@@ -1048,8 +1029,9 @@ async def test_apply_pair_status_result_approved_promotes_and_fires(
         receiver_port=6055,
         pin_sha256=pin,
         static_x25519_pub=pubkey,
+        status=PeerStatus.PENDING,
     )
-    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[("rcv.local", 6055)] = pairing
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.APPROVED, pin_sha256=pin
     )
@@ -1057,13 +1039,12 @@ async def test_apply_pair_status_result_approved_promotes_and_fires(
     terminal = await offloader._apply_pair_status_result(pairing, result)
 
     assert terminal is True
-    assert ("rcv.local", 6055) not in offloader._pending_pairings
-    loop = asyncio.get_running_loop()
-    saved = await loop.run_in_executor(
-        None, load_offloader_remote_build_settings, offloader_controller_dir
-    )
-    assert len(saved.pairings) == 1
-    assert saved.pairings[0].pin_sha256 == pin
+    # Row stays in the dict with promoted status — the unified
+    # ``_pairings`` map carries both PENDING and APPROVED.
+    assert offloader._pairings[("rcv.local", 6055)].status is PeerStatus.APPROVED
+    saved = await _saved_pairings(offloader)
+    assert len(saved) == 1
+    assert saved[0].pin_sha256 == pin
     fire = offloader._db.bus.fire
     fire.assert_called_once()
     _, payload = fire.call_args.args
@@ -1082,7 +1063,7 @@ async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_remov
         receiver_port=6055,
         pin_sha256="a" * 64,
     )
-    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[("rcv.local", 6055)] = pairing
     # Receiver returned APPROVED but its pubkey hash doesn't match
     # what we stored; treat as peer-revoked rather than silently
     # adopting the new identity.
@@ -1093,12 +1074,8 @@ async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_remov
     terminal = await offloader._apply_pair_status_result(pairing, result)
 
     assert terminal is True
-    assert ("rcv.local", 6055) not in offloader._pending_pairings
-    loop = asyncio.get_running_loop()
-    saved = await loop.run_in_executor(
-        None, load_offloader_remote_build_settings, offloader_controller_dir
-    )
-    assert saved.pairings == []
+    assert ("rcv.local", 6055) not in offloader._pairings
+    assert await _saved_pairings(offloader) == []
     _, payload = offloader._db.bus.fire.call_args.args
     assert payload["status"] == "removed"
 
@@ -1111,7 +1088,7 @@ async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[("rcv.local", 6055)] = pairing
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.REJECTED, pin_sha256="a" * 64
     )
@@ -1119,7 +1096,7 @@ async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
     terminal = await offloader._apply_pair_status_result(pairing, result)
 
     assert terminal is True
-    assert ("rcv.local", 6055) not in offloader._pending_pairings
+    assert ("rcv.local", 6055) not in offloader._pairings
     _, payload = offloader._db.bus.fire.call_args.args
     assert payload["status"] == "removed"
 
@@ -1132,7 +1109,7 @@ async def test_apply_pair_status_result_unexpected_status_logs_and_continues(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[("rcv.local", 6055)] = pairing
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.OK, pin_sha256="a" * 64
     )
@@ -1142,7 +1119,7 @@ async def test_apply_pair_status_result_unexpected_status_logs_and_continues(
     # Not terminal — the listener loop reconnects after a backoff.
     assert terminal is False
     # Pending entry untouched.
-    assert ("rcv.local", 6055) in offloader._pending_pairings
+    assert ("rcv.local", 6055) in offloader._pairings
     offloader._db.bus.fire.assert_not_called()
 
 
@@ -1165,7 +1142,7 @@ async def test_apply_pair_status_result_approved_after_unpair_does_not_resurrect
     — if the receiver response had already arrived, the listener's
     ``_apply_pair_status_result`` runs with the captured pairing
     from its closure. The APPROVED branch's
-    ``self._pending_pairings.pop(key, None)`` returns None (no
+    ``self._pairings.pop(key, None)`` returns None (no
     dict entry left), the listener bails terminal without
     persisting.
     """
@@ -1176,7 +1153,7 @@ async def test_apply_pair_status_result_approved_after_unpair_does_not_resurrect
     # Simulate the unpair path: dict entry was already popped.
     # The pairing in the listener's closure is what remains
     # (captured at spawn time).
-    assert ("rcv.local", 6055) not in offloader._pending_pairings
+    assert ("rcv.local", 6055) not in offloader._pairings
 
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.APPROVED, pin_sha256=pin
@@ -1185,10 +1162,7 @@ async def test_apply_pair_status_result_approved_after_unpair_does_not_resurrect
 
     # Terminal exit, no persist, no event fire.
     assert terminal is True
-    saved = await asyncio.get_running_loop().run_in_executor(
-        None, load_offloader_remote_build_settings, offloader_controller_dir
-    )
-    assert saved.pairings == []
+    assert await _saved_pairings(offloader) == []
     offloader._db.bus.fire.assert_not_called()
 
 
@@ -1211,7 +1185,7 @@ async def test_unpair_cancels_listener_before_disk_transaction(
 
     key = ("rcv.local", 6055)
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    offloader._pending_pairings[key] = pairing
+    offloader._pairings[key] = pairing
     listener = asyncio.create_task(_park())
     offloader._pair_status_listeners[key] = listener
     await asyncio.sleep(0)
@@ -1220,7 +1194,7 @@ async def test_unpair_cancels_listener_before_disk_transaction(
 
     with pytest.raises(asyncio.CancelledError):
         await listener
-    assert key not in offloader._pending_pairings
+    assert key not in offloader._pairings
     assert key not in offloader._pair_status_listeners
 
 
@@ -1238,7 +1212,7 @@ async def test_unpair_fires_offloader_pair_status_changed_removed(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[("rcv.local", 6055)] = pairing
 
     result = await offloader.unpair(hostname="rcv.local", port=6055)
 
@@ -1328,13 +1302,13 @@ async def test_request_pair_repair_then_unpair_clean_state(
     assert listener_v2 is not listener_v1
     with pytest.raises(asyncio.CancelledError):
         await listener_v1
-    assert offloader._pending_pairings[("rcv.local", 6055)].pin_sha256 == pin2
+    assert offloader._pairings[("rcv.local", 6055)].pin_sha256 == pin2
 
     # Unpair cancels listener_v2 + clears the dict.
     await offloader.unpair(hostname="rcv.local", port=6055)
     with pytest.raises(asyncio.CancelledError):
         await listener_v2
-    assert offloader._pending_pairings == {}
+    assert offloader._pairings == {}
     assert offloader._pair_status_listeners == {}
 
 
@@ -1381,7 +1355,7 @@ async def test_cancel_pair_status_listener_noop_when_absent(
 async def test_request_pair_repair_against_pending_cancels_old_listener(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Re-pair against a row already in ``_pending_pairings`` cancels the old listener.
+    """Re-pair against a row already in ``_pairings`` cancels the old listener.
 
     Without the cancel, the old listener task keeps running with
     a stale ``StoredPairing`` (old pubkey / pin captured in its
@@ -1400,7 +1374,7 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
     old_pairing = _stub_pairing(
         receiver_hostname="rcv.local", receiver_port=6055, pin_sha256="a" * 64
     )
-    offloader._pending_pairings[key] = old_pairing
+    offloader._pairings[key] = old_pairing
     old_listener = asyncio.create_task(_park())
     offloader._pair_status_listeners[key] = old_listener
     await asyncio.sleep(0)
@@ -1441,7 +1415,7 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
     with pytest.raises(asyncio.CancelledError):
         await new_listener
     # The dict entry now holds the new pin.
-    assert offloader._pending_pairings[key].pin_sha256 == new_pin
+    assert offloader._pairings[key].pin_sha256 == new_pin
     assert summary.pin_sha256 == new_pin
 
 
@@ -1494,13 +1468,12 @@ async def test_request_pair_already_approved_persists_to_disk(
         offloader_label="off-label",
     )
     assert summary_approved.status is PeerStatus.APPROVED
-    saved = await asyncio.get_running_loop().run_in_executor(
-        None, load_offloader_remote_build_settings, offloader_controller_dir
-    )
-    assert len(saved.pairings) == 1
-    assert saved.pairings[0].pin_sha256 == expected_pin
-    # No PENDING entry left in the dict.
-    assert ("127.0.0.1", server.port) not in offloader._pending_pairings
+    saved = await _saved_pairings(offloader)
+    assert len(saved) == 1
+    assert saved[0].pin_sha256 == expected_pin
+    # The row stays in the unified dict with APPROVED status —
+    # no separate PENDING entry, no double-counting on the wire.
+    assert offloader._pairings[("127.0.0.1", server.port)].status is PeerStatus.APPROVED
 
 
 @pytest.mark.asyncio
@@ -1705,7 +1678,7 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
         pin_sha256=pin,
         static_x25519_pub=pubkey,
     )
-    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[("rcv.local", 6055)] = pairing
 
     calls = 0
 
@@ -1736,8 +1709,9 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
 
     # Two poll attempts (transport error → backoff → success).
     assert calls == 2
-    # Terminal branch ran: dict cleared, approved event fired.
-    assert ("rcv.local", 6055) not in offloader._pending_pairings
+    # Terminal branch ran: row stays in the dict but is now
+    # APPROVED, and an approved event fired.
+    assert offloader._pairings[("rcv.local", 6055)].status is PeerStatus.APPROVED
 
 
 @pytest.mark.asyncio
@@ -1764,7 +1738,7 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
         pin_sha256=pin,
         static_x25519_pub=pubkey,
     )
-    offloader._pending_pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[("rcv.local", 6055)] = pairing
 
     calls = 0
 
@@ -1797,4 +1771,4 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
 
     # Two poll attempts (OK → backoff → REJECTED → terminal).
     assert calls == 2
-    assert ("rcv.local", 6055) not in offloader._pending_pairings
+    assert ("rcv.local", 6055) not in offloader._pairings

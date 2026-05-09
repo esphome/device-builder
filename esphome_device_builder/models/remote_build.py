@@ -421,6 +421,16 @@ _PAIRING_VALIDATOR = vol.Schema(
         # (``isinstance(True, int)`` is true) before ever reaching the
         # bool reject. Run ``not_bool`` first, then assert int-or-float.
         vol.Required("paired_at"): vol.All(not_bool, vol.Any(int, float)),
+        # ``status`` is in-memory only (the controller's serialiser
+        # filters PENDING rows out before writing to disk so the
+        # on-disk shape stays APPROVED-only), but ``__post_init__``
+        # runs the validator over ``asdict(self)`` which includes
+        # the field, so the schema must accept it. ``vol.In(PeerStatus)``
+        # matches both the enum instance (live constructor paths)
+        # and the bare string forms (``"pending"`` / ``"approved"``)
+        # that ``DataClassORJSONMixin.from_dict`` produces when
+        # round-tripping through JSON.
+        vol.Required("status"): vol.In(PeerStatus),
     }
 )
 
@@ -464,6 +474,15 @@ class StoredPairing(DataClassORJSONMixin):
     offloader's pair_request payload (the offloader-supplied
     name FOR the offloader, not for the receiver).
 
+    ``status`` is the row's lifecycle position. The controller
+    holds one in-RAM dict containing both PENDING and APPROVED
+    rows; the disk filter in ``_serialize_pairings`` strips
+    PENDING rows so the on-disk shape stays APPROVED-only.
+    ``status`` defaults to ``APPROVED`` so a row loaded from disk
+    lands in the right state without an explicit field on older
+    sidecars (mashumaro fills the default when the JSON key is
+    missing).
+
     ``__post_init__`` enforces upper bounds on the user-supplied
     string fields (hostname, label) + shape on the cryptographic
     fields so a malformed sidecar row (hand-edit, partial-write
@@ -478,6 +497,7 @@ class StoredPairing(DataClassORJSONMixin):
     static_x25519_pub: bytes
     label: str
     paired_at: float
+    status: PeerStatus = PeerStatus.APPROVED
 
     def __post_init__(self) -> None:
         """Run :data:`_PAIRING_VALIDATOR`; re-raise as ``ValueError``."""

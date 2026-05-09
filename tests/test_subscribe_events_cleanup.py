@@ -34,14 +34,16 @@ from .conftest import FakeWebSocketClient
 def _make_db() -> DeviceBuilder:
     """Build a minimally-initialised DeviceBuilder for the handler.
 
-    Only ``self.bus``, ``self.devices``, and
-    ``self.subscriber_presence`` are read by
-    ``_cmd_subscribe_events``; everything else can be a stub.
+    Only ``self.bus``, ``self.devices``,
+    ``self.subscriber_presence``, and ``self.remote_build`` are
+    read by ``_cmd_subscribe_events``; everything else can be a
+    stub.
     """
     db = DeviceBuilder.__new__(DeviceBuilder)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
-    db.devices = None  # skip the initial-snapshot branch
+    db.devices = None  # skip the device-snapshot branch
+    db.remote_build = None  # skip the pairings-snapshot branch
     return db
 
 
@@ -159,7 +161,13 @@ async def test_subscribe_events_listener_forwards_bus_events() -> None:
         if client.events:
             break
 
-    assert client.events == [("m1", "device_updated", {"device": {"x": 1}})]
+    # Filter to the bus-driven event — ``_send_initial`` always
+    # emits an ``initial_state`` event ahead of the live drain
+    # (empty dict when ``devices``/``remote_build`` are absent),
+    # which is part of the snapshot contract, not what this test
+    # is pinning.
+    bus_events = [e for e in client.events if e[1] == "device_updated"]
+    assert bus_events == [("m1", "device_updated", {"device": {"x": 1}})]
 
     # Clean up the parked task so the test finishes.
     handler_task.cancel()
@@ -188,6 +196,7 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     devices_mock.get_devices.return_value = []
     devices_mock.get_importable_devices.return_value = []
     db.devices = devices_mock
+    db.remote_build = None
 
     class YieldingClient:
         """``send_event`` / ``send_result`` actually yield the loop.

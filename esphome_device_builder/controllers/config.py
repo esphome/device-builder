@@ -34,7 +34,6 @@ from ..helpers.secrets_state import (
 from ..models import (
     ErrorCode,
     Label,
-    OffloaderRemoteBuildSettings,
     RemoteBuildSettings,
     UserPreferences,
 )
@@ -49,7 +48,6 @@ _METADATA_FILE = ".device-builder.json"
 _PREFS_KEY = "_preferences"
 _LABELS_KEY = "_labels"
 _REMOTE_BUILD_KEY = "_remote_build"
-_OFFLOADER_REMOTE_BUILD_KEY = "_offloader_remote_build"
 
 
 # ---------------------------------------------------------------------------
@@ -642,77 +640,6 @@ def remote_build_settings_transaction(
         settings = _settings_from_raw(data.get(_REMOTE_BUILD_KEY, {}))
         yield settings
         data[_REMOTE_BUILD_KEY] = settings.to_dict()
-
-
-def _offloader_settings_from_raw(raw: Any) -> OffloaderRemoteBuildSettings:
-    """
-    Decode an ``_offloader_remote_build`` blob, defaults on shape mismatch.
-
-    Mirrors :func:`_settings_from_raw` for the offloader-side
-    storage shape: a wholly malformed blob resets to defaults
-    rather than crashing dashboard startup, and unknown keys
-    on older sidecars are ignored by mashumaro's
-    ``DataClassORJSONMixin``.
-    """
-    if not isinstance(raw, dict):
-        return OffloaderRemoteBuildSettings()
-    try:
-        return OffloaderRemoteBuildSettings.from_dict(raw)
-    except Exception:
-        return OffloaderRemoteBuildSettings()
-
-
-def load_offloader_remote_build_settings(
-    config_dir: Path,
-) -> OffloaderRemoteBuildSettings:
-    """
-    Load the offloader-side remote-build settings.
-
-    Returns defaults (empty ``pairings``) when the metadata file
-    is missing or the ``_offloader_remote_build`` key isn't
-    present. A wholly malformed blob falls back to defaults
-    rather than crashing dashboard startup.
-    """
-    return _offloader_settings_from_raw(
-        _load_metadata(config_dir).get(_OFFLOADER_REMOTE_BUILD_KEY, {})
-    )
-
-
-def save_offloader_remote_build_settings(
-    config_dir: Path, settings: OffloaderRemoteBuildSettings
-) -> None:
-    """Persist the offloader-side remote-build settings."""
-    with metadata_transaction(config_dir) as data:
-        data[_OFFLOADER_REMOTE_BUILD_KEY] = settings.to_dict()
-
-
-@contextmanager
-def offloader_remote_build_settings_transaction(
-    config_dir: Path,
-) -> Iterator[OffloaderRemoteBuildSettings]:
-    """
-    Atomic read-modify-write context for the offloader-side settings.
-
-    Yields the current
-    :class:`OffloaderRemoteBuildSettings` (defaults if missing
-    or corrupt). Mutate it in place; on a clean exit the
-    changes are persisted under the same
-    :func:`metadata_transaction` lock so the whole RMW is
-    atomic against concurrent transactions on either the
-    offloader or the receiver-side ``_remote_build`` key.
-    Exceptions raised inside the block discard the pending
-    mutation.
-
-    Used whenever the offloader's pair / unpair flow needs to
-    add, remove, or refresh a :class:`StoredPairing` row. A
-    bare ``load + save`` pair would race two concurrent pair
-    operations against each other; this context manager
-    serialises them.
-    """
-    with metadata_transaction(config_dir) as data:
-        settings = _offloader_settings_from_raw(data.get(_OFFLOADER_REMOTE_BUILD_KEY, {}))
-        yield settings
-        data[_OFFLOADER_REMOTE_BUILD_KEY] = settings.to_dict()
 
 
 def _decode_labels(raw: Any) -> list[Label]:

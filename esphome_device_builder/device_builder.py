@@ -547,14 +547,14 @@ class DeviceBuilder:
                 initial["devices"] = [d.to_dict() for d in self.devices.get_devices()]
                 initial["importable"] = [d.to_dict() for d in self.devices.get_importable_devices()]
             if self.remote_build is not None:
-                # Pairings come merged (in-memory PENDING +
-                # persisted APPROVED) so the frontend's Send-builds
-                # initial paint matches what
+                # Pairings (PENDING + APPROVED) so the frontend's
+                # Send-builds initial paint matches what
                 # ``OFFLOADER_PAIR_STATUS_CHANGED`` events will
-                # mutate against. The hop through the controller's
-                # method runs in-process — no wire calls.
+                # mutate against. Sync read from the controller's
+                # in-RAM ``_pairings`` dict — no wire calls, no
+                # disk I/O.
                 initial["pairings"] = [
-                    summary.to_dict() for summary in await self.remote_build.pairings_snapshot()
+                    summary.to_dict() for summary in self.remote_build.pairings_snapshot()
                 ]
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS

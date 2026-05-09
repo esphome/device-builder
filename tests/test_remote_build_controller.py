@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import json
 import secrets as _secrets
+import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -36,7 +37,6 @@ from esphome_device_builder.controllers.remote_build import (
     _PairLabelField,
     _peer_from_manual_host,
     _peer_from_service_info,
-    _upsert_pairing,
     _validate_hostname,
     _validate_pair_label,
     _validate_pin_sha256,
@@ -51,7 +51,6 @@ from esphome_device_builder.models import (
     IdentityView,
     IntentResponse,
     ManualHost,
-    OffloaderRemoteBuildSettings,
     PairingSummary,
     PeerStatus,
     RemoteBuildPeer,
@@ -94,7 +93,18 @@ def _make_controller(*, config_dir: Any = None, real_bus: bool = False) -> Remot
     db.devices.zeroconf = None
     db._dashboard_advertiser = None
     db.settings = MagicMock()
-    db.settings.config_dir = config_dir
+    # The controller's ``__init__`` constructs a per-file
+    # ``Store`` keyed off ``config_dir / ".offloader_pairings.json"``,
+    # so a real ``Path`` is required even when the test doesn't
+    # exercise pairings flows (mDNS-only tests, validator tests).
+    # Fall back to a per-process tempdir for those — no test under
+    # this default ever writes to the store, so the dir stays
+    # empty.
+    db.settings.config_dir = (
+        config_dir
+        if config_dir is not None
+        else Path(tempfile.mkdtemp(prefix="rb_controller_test_"))
+    )
     if real_bus:
         # Long-poll tests for ``lookup_peer_for_status`` exercise the
         # bus.listening machinery for real (a MagicMock bus would
@@ -2016,12 +2026,14 @@ def _valid_stored_pairing(
     receiver_port: int = 6055,
     label: str = "desktop",
     paired_at: float = 1.0,
+    status: PeerStatus = PeerStatus.APPROVED,
 ) -> StoredPairing:
     """Build a passing :class:`StoredPairing` so tests don't repeat the boilerplate.
 
-    All ``StoredPairing`` instances are implicitly APPROVED in the
-    storage model; PENDING pairings live in the controller's
-    ``_pending_pairings`` dict.
+    Defaults to APPROVED — that's the on-disk shape. PENDING is
+    only ever in-RAM (the controller filters PENDING out at
+    serialise time), so tests that want a PENDING row in the
+    controller's dict opt in explicitly.
     """
     return StoredPairing(
         receiver_hostname=receiver_hostname,
@@ -2030,6 +2042,7 @@ def _valid_stored_pairing(
         static_x25519_pub=b"\x01" * 32,
         label=label,
         paired_at=paired_at,
+        status=status,
     )
 
 
@@ -2170,46 +2183,13 @@ def test_enforce_pin_match_raises_precondition_failed_on_drift() -> None:
     assert "got " + "b" * 64 in str(exc.value)
 
 
-# --- _upsert_pairing ---
-
-
-def test_upsert_pairing_appends_when_no_existing_row() -> None:
-    settings = OffloaderRemoteBuildSettings()
-    pairing = _valid_stored_pairing()
-    _upsert_pairing(settings, pairing)
-    assert settings.pairings == [pairing]
-
-
-def test_upsert_pairing_replaces_existing_row_for_same_host_port() -> None:
-    """Re-pair from the same offloader to the same receiver overwrites, doesn't duplicate."""
-    old = _valid_stored_pairing(label="old", paired_at=1.0)
-    new = _valid_stored_pairing(label="new", paired_at=2.0)
-    settings = OffloaderRemoteBuildSettings(pairings=[old])
-    _upsert_pairing(settings, new)
-    assert len(settings.pairings) == 1
-    assert settings.pairings[0].label == "new"
-
-
-def test_upsert_pairing_keeps_other_rows_intact() -> None:
-    """Replacement is keyed on (hostname, port) — different receivers are independent."""
-    other = _valid_stored_pairing(receiver_hostname="other.local")
-    target_old = _valid_stored_pairing(receiver_hostname="target.local", label="old")
-    target_new = _valid_stored_pairing(receiver_hostname="target.local", label="new")
-    settings = OffloaderRemoteBuildSettings(pairings=[other, target_old])
-    _upsert_pairing(settings, target_new)
-    assert {(p.receiver_hostname, p.label) for p in settings.pairings} == {
-        ("other.local", "desktop"),
-        ("target.local", "new"),
-    }
-
-
 # --- _pairing_summary ---
 
 
 def test_pairing_summary_drops_static_pubkey() -> None:
     """Wire view drops ``static_x25519_pub`` so the raw pubkey stays server-side."""
-    pairing = _valid_stored_pairing()
-    summary = _pairing_summary(pairing, status=PeerStatus.PENDING)
+    pairing = _valid_stored_pairing(status=PeerStatus.PENDING)
+    summary = _pairing_summary(pairing)
     assert isinstance(summary, PairingSummary)
     assert summary.receiver_hostname == "build.local"
     assert summary.pin_sha256 == "a" * 64
