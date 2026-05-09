@@ -165,18 +165,25 @@ VersionChangeCallback = Callable[[str, str], None]
 ConfigHashChangeCallback = Callable[[str, str], None]
 
 # Callback fired when the mDNS ``api_encryption`` TXT record reports a
-# different value than last seen. Empty string means the TXT key was
-# *present in the announcement* with an empty value — i.e. the device
-# is explicitly broadcasting plaintext API. A non-empty value (e.g.
-# ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``) confirms encryption is
-# live on the device.
+# different value than last seen.
 #
-# The "no signal" case (mDNS seen but TXT key absent in this
-# announcement, or no mDNS seen at all) never fires this callback —
-# the apply path at ``_apply_service_info`` gates on the key being
-# present in ``props`` so a quiet re-announce doesn't clobber a
-# previously-confirmed value. The device controller keeps that state
-# as ``None`` to mean "trust whatever the YAML says".
+#   * Non-empty (e.g. ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``) →
+#     encryption confirmed live on the device.
+#   * Empty string → device is explicitly broadcasting plaintext.
+#     Two wire shapes land here: TXT carrying the
+#     ``api_encryption`` key with an empty / bare value (zeroconf
+#     collapses both to ``None`` and the apply path normalises to
+#     ``""``), AND a content-bearing TXT that omits the key
+#     entirely (firmware was rebuilt without encryption — the
+#     omission inside an otherwise-populated announce is
+#     authoritative for "encryption was removed").
+#
+# The "no signal" case (no mDNS seen, or a truly empty re-announce
+# with no other TXT keys) never fires this callback — the apply
+# path at ``_apply_service_info`` only treats key-absence as
+# authoritative when the announce carried other content. The
+# device controller keeps that state as ``None`` to mean "trust
+# whatever the YAML says".
 ApiEncryptionChangeCallback = Callable[[str, str], None]
 
 # Callback fired when the mDNS ``mac`` TXT record reports a different
@@ -798,21 +805,33 @@ class DeviceStateMonitor:
         """
         Record the device's broadcast API encryption status.
 
-        Empty string means the mDNS announcement explicitly carried
-        an empty ``api_encryption`` TXT — the device is confirming
-        plaintext API. A non-empty value (e.g.
-        ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``) confirms encryption
-        is active.
+        Non-empty value (e.g. ``Noise_NNpsk0_25519_ChaChaPoly_SHA256``)
+        confirms encryption is active. Empty string is the
+        plaintext-confirmed signal, fired by ``_apply_service_info``
+        in two wire shapes:
 
-        Callers must NOT translate "TXT key absent in this
-        announcement" into ``""`` — that conflates a transient quiet
-        re-announce with a real plaintext confirmation, which clobbers
-        the last-known truthy value and trips the frontend's
-        "reinstall to apply" prompt. ``_apply_service_info`` gates on
-        the TXT key being present in ``props`` so absence skips the
-        call entirely; the device's ``api_encryption_active`` stays
-        ``None`` (or whatever was last confirmed) until a real
-        observation lands.
+        1. TXT carries the ``api_encryption`` key with an empty /
+           bare value (``api_encryption=`` or just ``api_encryption``
+           — zeroconf collapses both to ``None`` and the apply path
+           normalises to ``""``).
+
+        2. TXT carries other content (``version`` / ``mac`` /
+           ``config_hash`` / ...) but the ``api_encryption`` key is
+           absent. ESPHome firmware emits TXT atomically per
+           announce, so the omission of the key inside an
+           otherwise-populated TXT IS authoritative for "encryption
+           was removed."
+
+        Callers must NOT translate "no TXT content at all" into
+        ``""`` — that conflates a transient cache-eviction /
+        truly-empty fragment with a real plaintext confirmation,
+        which would clobber the last-known truthy value and trip
+        the frontend's "reinstall to apply" prompt.
+        ``_apply_service_info`` only fires the empty-string apply
+        when the announce carried other content; the truly-empty
+        case skips the call entirely so the device's
+        ``api_encryption_active`` stays ``None`` (or whatever was
+        last confirmed) until a real observation lands.
 
         Returns True when the value actually changed and the change
         was forwarded to the callback.
