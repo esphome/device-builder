@@ -56,6 +56,7 @@ from ...helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ...models import (
+    CancelJobFrameData,
     EventType,
     IntentResponse,
     JobOutputFrameData,
@@ -982,6 +983,32 @@ class PeerLinkClient:
             return await self._await_submit_job_ack(ack_fut, job_id=job_id)
         finally:
             self._submit_job_acks.pop(job_id, None)
+
+    async def cancel_job(self, *, job_id: str) -> bool:
+        """Send a ``cancel_job`` frame for *job_id* over the live session (5d).
+
+        Fire-and-forget — the receiver's :class:`JobFanout`
+        will fan out the resulting ``JOB_CANCELLED`` event as a
+        ``job_state_changed{status: cancelled}`` frame, which
+        the offloader's existing
+        :attr:`OFFLOADER_JOB_STATE_CHANGED` listener handles.
+        No per-call ack future, no timeout state on
+        :class:`PeerLinkClient` — the next ``job_state_changed``
+        on the inbound stream is the confirmation. A cancel-
+        of-already-terminal or unknown job is silently dropped
+        at the receiver (debug-logged); the offloader UI shows
+        the most recent ``status`` regardless.
+
+        Returns ``True`` if the frame made it onto the wire,
+        ``False`` on a same-tick channel failure (Noise encrypt
+        / WS send returned ``False``). Raises
+        :class:`SubmitJobNoSessionError` when no live session
+        exists; the WS layer maps that to
+        ``CommandError(PRECONDITION_FAILED)``.
+        """
+        channel = self._require_open_channel(label="cancel_job")
+        frame: CancelJobFrameData = {"type": "cancel_job", "job_id": job_id}
+        return await channel.send_frame(cast(dict[str, Any], frame))
 
     def _require_open_channel(self, *, label: str) -> PeerLinkChannel:
         """Return the live :class:`PeerLinkChannel` or raise :class:`SubmitJobNoSessionError`.

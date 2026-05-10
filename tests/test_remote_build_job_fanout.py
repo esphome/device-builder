@@ -440,3 +440,35 @@ def test_start_no_op_without_bus() -> None:
     fanout.start()
     # No listeners attached, ``stop`` walks an empty list cleanly.
     fanout.stop()
+
+
+# ---------------------------------------------------------------------------
+# Phase 5d: reverse-lookup for cancel_job
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_firmware_job_id_returns_match() -> None:
+    """Walks the cache and returns the receiver-local id on a match."""
+    controller = _make_controller(bus=EventBus())
+    fanout = JobFanout(controller)
+    fanout._remote_jobs["fw-1"] = ("offloader-1", "remote-a")
+    fanout._remote_jobs["fw-2"] = ("offloader-2", "remote-b")
+    assert fanout.resolve_firmware_job_id("offloader-1", "remote-a") == "fw-1"
+    assert fanout.resolve_firmware_job_id("offloader-2", "remote-b") == "fw-2"
+
+
+def test_resolve_firmware_job_id_returns_none_on_miss() -> None:
+    """A non-matching ``(remote_peer, remote_job_id)`` returns ``None``, doesn't raise."""
+    controller = _make_controller(bus=EventBus())
+    fanout = JobFanout(controller)
+    fanout._remote_jobs["fw-1"] = ("offloader-1", "remote-a")
+    assert fanout.resolve_firmware_job_id("offloader-1", "wrong-job") is None
+    assert fanout.resolve_firmware_job_id("wrong-peer", "remote-a") is None
+    assert fanout.resolve_firmware_job_id("totally", "unknown") is None
+
+
+def test_resolve_firmware_job_id_empty_cache_returns_none() -> None:
+    """An empty cache returns ``None`` for any lookup."""
+    controller = _make_controller(bus=EventBus())
+    fanout = JobFanout(controller)
+    assert fanout.resolve_firmware_job_id("offloader-1", "remote-a") is None

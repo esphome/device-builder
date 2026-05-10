@@ -878,6 +878,38 @@ class JobOutputFrameData(TypedDict):
     line: str
 
 
+class CancelJobFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.CANCEL_JOB``.
+
+    Offloader → receiver cooperative cancel for a previously-
+    submitted job (phase 5d). ``job_id`` is the
+    offloader-supplied id from the original ``submit_job``
+    header — i.e. the value the offloader generated and the
+    receiver stashed as :attr:`FirmwareJob.remote_job_id`. The
+    receiver resolves the offloader-side id back to its local
+    :class:`FirmwareJob` via the :class:`JobFanout` correlation
+    cache (keyed on ``(remote_peer=session.dashboard_id,
+    remote_job_id)``) and routes the cancel through the
+    firmware queue's existing :meth:`FirmwareController.cancel`
+    primitive.
+
+    No ack frame in the reverse direction: cancellation is
+    fire-and-forget. The receiver's next ``job_state_changed``
+    with ``status="cancelled"`` is the confirmation the
+    offloader already plumbs through
+    :attr:`EventType.OFFLOADER_JOB_STATE_CHANGED`. A
+    cancel-of-already-terminal job lands as a no-op at the
+    firmware queue layer and surfaces no extra event; a
+    cancel-of-unknown-job is debug-logged at the receiver and
+    dropped (typically a race between offloader send and
+    receiver-side terminal transition).
+    """
+
+    type: Literal["cancel_job"]
+    job_id: str
+
+
 @dataclass
 class StoredPeer(DataClassORJSONMixin):
     """

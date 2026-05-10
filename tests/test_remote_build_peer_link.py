@@ -1731,6 +1731,24 @@ async def test_receive_loop_terminates_on_non_object_json(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_receive_loop_routes_cancel_job_to_controller(tmp_path: Path) -> None:
+    """A ``cancel_job`` Noise frame routes through ``controller.handle_cancel_job``."""
+    initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+    frame = initiator.encrypt(_json.dumps({"type": "cancel_job", "job_id": "j-1"}))
+    ws._inbox.append(_binary_msg(frame))
+
+    controller = MagicMock()
+    controller.handle_cancel_job = AsyncMock()
+    await _receive_loop(session, controller)
+
+    controller.handle_cancel_job.assert_awaited_once()
+    call_session, call_frame = controller.handle_cancel_job.await_args.args
+    assert call_session is session
+    assert call_frame == {"type": "cancel_job", "job_id": "j-1"}
+
+
+@pytest.mark.asyncio
 async def test_receive_loop_pong_updates_last_pong_at(tmp_path: Path) -> None:
     """A ``pong`` frame from the peer bumps ``session.last_pong_at``."""
     initiator, responder = _noise_pair()
@@ -1970,3 +1988,110 @@ async def test_run_peer_link_heartbeat_propagates_cancellation(
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+# ---------------------------------------------------------------------------
+# Phase 5d: cancel_job receiver-side handler
+# ---------------------------------------------------------------------------
+
+
+from esphome_device_builder.controllers.remote_build.job_fanout import JobFanout  # noqa: E402
+
+
+def _make_receiver_with_fanout(tmp_path: Path) -> RemoteBuildController:
+    """Build a receiver controller with a wired-but-not-started JobFanout.
+
+    Lets tests pre-populate ``_job_fanout._remote_jobs`` to
+    simulate the state the controller would be in after a
+    real ``submit_job`` had queued a remote job.
+    """
+    from .conftest import make_remote_build_controller  # noqa: PLC0415
+
+    controller = make_remote_build_controller(config_dir=tmp_path)
+    controller._db.firmware = MagicMock()
+    controller._db.firmware.cancel = AsyncMock()
+    controller._job_fanout = JobFanout(controller)
+    return controller
+
+
+def _cancel_session(dashboard_id: str = "alpha") -> Any:
+    """Minimal :class:`PeerLinkSession` stand-in with the dashboard_id attribute."""
+    session = MagicMock()
+    session.dashboard_id = dashboard_id
+    return session
+
+
+@pytest.mark.asyncio
+async def test_handle_cancel_job_routes_to_firmware_cancel(tmp_path: Path) -> None:
+    """Happy path: resolve offloader job_id → firmware job_id → fire ``firmware.cancel``."""
+    controller = _make_receiver_with_fanout(tmp_path)
+    assert controller._job_fanout is not None
+    controller._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "remote-xyz")
+
+    await controller.handle_cancel_job(
+        _cancel_session(dashboard_id="offloader-1"),
+        {"type": "cancel_job", "job_id": "remote-xyz"},
+    )
+    controller._db.firmware.cancel.assert_awaited_once_with(job_id="fw-abc")
+
+
+@pytest.mark.asyncio
+async def test_handle_cancel_job_unknown_remote_job_drops_silently(tmp_path: Path) -> None:
+    """No matching correlation entry: drop without raising or calling firmware.cancel."""
+    controller = _make_receiver_with_fanout(tmp_path)
+    await controller.handle_cancel_job(
+        _cancel_session(dashboard_id="offloader-1"),
+        {"type": "cancel_job", "job_id": "unknown"},
+    )
+    controller._db.firmware.cancel.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_cancel_job_pin_to_wrong_session_no_cancel(tmp_path: Path) -> None:
+    """A cancel_job arriving on a different session than the submit-time peer is dropped.
+
+    Protection against a paired offloader cancelling a different
+    offloader's job — the firmware controller's existing
+    ``_remote_jobs`` cache keys on ``(remote_peer,
+    remote_job_id)`` so even a same-``remote_job_id`` collision
+    from a different peer doesn't resolve.
+    """
+    controller = _make_receiver_with_fanout(tmp_path)
+    assert controller._job_fanout is not None
+    controller._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
+    await controller.handle_cancel_job(
+        _cancel_session(dashboard_id="offloader-2"),  # different peer
+        {"type": "cancel_job", "job_id": "j-1"},
+    )
+    controller._db.firmware.cancel.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_cancel_job_malformed_frame_drops_silently(tmp_path: Path) -> None:
+    """A cancel_job frame missing ``job_id`` is dropped without raising."""
+    controller = _make_receiver_with_fanout(tmp_path)
+    await controller.handle_cancel_job(
+        _cancel_session(),
+        {"type": "cancel_job"},  # missing job_id
+    )
+    controller._db.firmware.cancel.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_cancel_job_swallows_firmware_command_error(tmp_path: Path) -> None:
+    """A ``CommandError`` from ``firmware.cancel`` (e.g. already-terminal) is swallowed."""
+    from esphome_device_builder.helpers.api import CommandError  # noqa: PLC0415
+    from esphome_device_builder.models import ErrorCode  # noqa: PLC0415
+
+    controller = _make_receiver_with_fanout(tmp_path)
+    assert controller._job_fanout is not None
+    controller._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
+    controller._db.firmware.cancel = AsyncMock(
+        side_effect=CommandError(ErrorCode.INVALID_ARGS, "Cannot cancel a completed job")
+    )
+    # Should not raise — the cancel is best-effort.
+    await controller.handle_cancel_job(
+        _cancel_session(dashboard_id="offloader-1"),
+        {"type": "cancel_job", "job_id": "j-1"},
+    )
+    controller._db.firmware.cancel.assert_awaited_once()

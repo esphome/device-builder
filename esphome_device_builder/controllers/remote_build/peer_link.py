@@ -248,6 +248,16 @@ class AppMessageType(StrEnum):
     SUBMIT_JOB_ACK = "submit_job_ack"
     JOB_STATE_CHANGED = "job_state_changed"
     JOB_OUTPUT = "job_output"
+    # 5d: offloader → receiver cooperative cancel. Carries the
+    # offloader-local ``job_id`` from the original ``submit_job``
+    # header; receiver resolves it to the matching
+    # ``FirmwareJob`` via the :class:`JobFanout` correlation
+    # cache and calls ``FirmwareController.cancel``. No ack
+    # frame in the reverse direction — cancellation is fire-
+    # and-forget; the next ``job_state_changed`` with
+    # ``status="cancelled"`` is the confirmation the offloader
+    # already has plumbing for.
+    CANCEL_JOB = "cancel_job"
 
 
 async def make_peer_link_handler(
@@ -731,6 +741,18 @@ async def _receive_loop(session: PeerLinkSession, controller: RemoteBuildControl
             await controller.get_submit_job_receiver().handle_submit_job_chunk(
                 session, cast(SubmitJobChunkFrameData, parsed)
             )
+            continue
+        if msg_type == AppMessageType.CANCEL_JOB.value:
+            # 5d cooperative cancel from the offloader. Frame
+            # carries the offloader-supplied ``job_id`` we
+            # stashed as ``FirmwareJob.remote_job_id`` at
+            # submit time; the controller's handler resolves
+            # it back through :class:`JobFanout` and routes
+            # through ``FirmwareController.cancel``. No ack
+            # frame — the resulting ``JOB_CANCELLED`` bus
+            # event fans out a ``job_state_changed{cancelled}``
+            # which the offloader already plumbs.
+            await controller.handle_cancel_job(session, parsed)
             continue
         _LOGGER.debug(
             "peer-link unknown app frame type %r from %s; ignoring",

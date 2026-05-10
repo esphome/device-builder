@@ -139,6 +139,38 @@ class JobFanout:
         self._listeners.close()
         self._remote_jobs.clear()
 
+    def resolve_firmware_job_id(self, remote_peer: str, remote_job_id: str) -> str | None:
+        """Return the receiver-local ``FirmwareJob.job_id`` for an offloader-side correlation.
+
+        Reverse lookup over the forward
+        ``firmware_job_id → (remote_peer, remote_job_id)``
+        cache. Used by the 5d ``cancel_job`` dispatch path —
+        given the ``session.dashboard_id`` and the
+        offloader-supplied ``job_id`` from the wire frame,
+        find the matching receiver-local id so
+        :meth:`FirmwareController.cancel` can route the
+        cancellation through the existing primitive.
+
+        Linear scan rather than a maintained reverse index:
+        the cache only ever holds in-flight remote-driven
+        jobs (terminal entries drop on the matching event),
+        and the firmware queue's serial execution caps the
+        live set at "one running + queue_depth" per receiver.
+        A maintained reverse index would add a second mutation
+        site on every queued / terminal transition for a
+        constant-time saving that doesn't show up on the
+        practical cardinality.
+
+        Returns ``None`` when no match exists — typically a
+        race between the offloader's cancel send and a
+        receiver-side terminal transition that already
+        evicted the entry.
+        """
+        for firmware_job_id, (peer, rjid) in self._remote_jobs.items():
+            if peer == remote_peer and rjid == remote_job_id:
+                return firmware_job_id
+        return None
+
     def _on_queued(self, event: Event[JobLifecycleData]) -> None:
         """Cache the remote-peer correlation for *job* if it has one.
 
