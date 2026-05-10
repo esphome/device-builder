@@ -307,6 +307,35 @@ class EventType(StrEnum):
     # the scheduler in phase 7 reads the same cache.
     OFFLOADER_QUEUE_STATUS_CHANGED = "offloader_queue_status_changed"
 
+    # Offloader-side: a paired receiver pushed a
+    # ``job_state_changed`` application frame for a job we
+    # submitted. Payload:
+    # ``{receiver_hostname, receiver_port, pin_sha256, job_id,
+    # status, error_message}``. ``status`` mirrors the wire
+    # frame's literal (``queued`` / ``running`` / ``completed`` /
+    # ``failed`` / ``cancelled``). The remote-build controller
+    # re-broadcasts via the global ``subscribe_events`` stream
+    # so frontend tabs see the lifecycle of a remote build live.
+    # Distinct from the local :attr:`JOB_STARTED` /
+    # :attr:`JOB_COMPLETED` family because remote-driven jobs
+    # don't have a corresponding :class:`FirmwareJob` row on
+    # the offloader — the receiver owns the queue state and we
+    # only see the wire reflection. Phase 5c-3 wiring.
+    OFFLOADER_JOB_STATE_CHANGED = "offloader_job_state_changed"
+
+    # Offloader-side: a paired receiver pushed a ``job_output``
+    # application frame for a job we submitted. Payload:
+    # ``{receiver_hostname, receiver_port, pin_sha256, job_id,
+    # stream, line}`` — ``stream`` is ``stdout`` / ``stderr``,
+    # ``line`` preserves its trailing terminator (carriage-return
+    # vs newline carries semantic info; the same contract the
+    # local :class:`JobOutputData` event holds). Frames flow at
+    # high rate during an active build (one per line of compiler
+    # / linker output); subscribers should debounce / batch
+    # downstream rendering rather than re-rendering per event.
+    # Phase 5c-3 wiring.
+    OFFLOADER_JOB_OUTPUT = "offloader_job_output"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.

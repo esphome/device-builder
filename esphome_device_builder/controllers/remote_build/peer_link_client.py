@@ -34,13 +34,20 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import aiohttp
 from yarl import URL
 
 from ...helpers import json as _json
+from ...helpers.peer_link_bundle import (
+    chunk_bundle,
+    compute_bundle_sha256,
+    encode_chunk,
+)
+from ...helpers.peer_link_frames import validate_frame_shape
 from ...helpers.peer_link_noise import (
     NOISE_ERRORS,
     HandshakeNotCompleteError,
@@ -50,11 +57,18 @@ from ...helpers.peer_link_noise import (
 from ...models import (
     EventType,
     IntentResponse,
+    JobOutputFrameData,
+    JobStateChangedFrameData,
+    OffloaderJobOutputData,
+    OffloaderJobStateChangedData,
     OffloaderPairPinMismatchData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
     OffloaderQueueStatusChangedData,
     PeerLinkIntent,
+    SubmitJobAckFrameData,
+    SubmitJobChunkFrameData,
+    SubmitJobFrameData,
 )
 from .peer_link import (
     APP_FRAME_MAX_BYTES,
@@ -618,6 +632,101 @@ _LOCAL_CLOSE_AUTH_REJECTED = "auth_rejected"
 _LOCAL_CLOSE_PIN_MISMATCH = "pin_mismatch"
 
 
+# How long :meth:`PeerLinkClient.submit_job` waits for the
+# receiver's ``submit_job_ack`` after the last chunk goes out.
+# Sized for the receiver's worst-case
+# bundle-finalise + extract + queue-acquire path: SHA-256 over
+# 4 MiB (capped at :data:`BUNDLE_MAX_TOTAL_BYTES`) is sub-100ms
+# even on a Raspberry Pi class SoC, ``prepare_bundle_for_compile``
+# walks the tar entries (a few hundred files, low-MiB), and the
+# firmware queue's lock contention is bounded by the size of an
+# individual ``_enqueue`` call. 60s gives generous headroom for
+# a busy receiver under disk-IO contention without letting a
+# silently-dead session pin the offloader's submit handler
+# forever. Mismatch with no ack arriving inside the window
+# raises :class:`SubmitJobTimeoutError` and the WS command
+# surfaces a structured error to the caller.
+_SUBMIT_JOB_ACK_TIMEOUT_SECONDS = 60.0
+
+
+# Required-field shape contracts for the three peer-supplied
+# wire frames the offloader receive loop dispatches into bus
+# events / ack futures. Same idiom as
+# :data:`controllers.remote_build.submit_job._SUBMIT_JOB_HEADER_FIELDS`
+# on the receiver side; the validator
+# (:func:`helpers.peer_link_frames.validate_frame_shape`) lives
+# in ``helpers/`` so both directions share it. Optional fields
+# (``SubmitJobAckFrameData.reason``) live outside this gate —
+# the dispatch reads ``frame.get("reason")`` post-required-pass.
+_SUBMIT_JOB_ACK_FIELDS: dict[str, type] = {
+    "job_id": str,
+    "accepted": bool,
+}
+
+_JOB_STATE_CHANGED_FIELDS: dict[str, type] = {
+    "job_id": str,
+    "status": str,
+    "error_message": str,
+}
+
+_JOB_OUTPUT_FIELDS: dict[str, type] = {
+    "job_id": str,
+    "stream": str,
+    "line": str,
+}
+
+# Allowed ``status`` values on inbound ``job_state_changed``
+# frames, mirroring :class:`JobStateChangedFrameData`'s
+# ``Literal``. Membership check after the str-shape gate so a
+# misbehaving receiver sending ``status="unknown"`` is dropped
+# at the wire layer instead of fanning out a malformed bus
+# event for downstream consumers.
+_JOB_STATE_CHANGED_VALID_STATUS: frozenset[str] = frozenset(
+    {"queued", "running", "completed", "failed", "cancelled"}
+)
+
+# Allowed ``stream`` values on inbound ``job_output`` frames,
+# mirroring :class:`JobOutputFrameData`'s ``Literal``.
+_JOB_OUTPUT_VALID_STREAM: frozenset[str] = frozenset({"stdout", "stderr"})
+
+
+class SubmitJobNoSessionError(RuntimeError):
+    """Raised by :meth:`PeerLinkClient.submit_job` when no live session exists.
+
+    The peer-link session must be open (post-handshake, dispatch
+    loop parked) before any ``submit_job`` flow can fire. The WS
+    command on the controller side maps this to a typed
+    ``CommandError`` so the frontend can branch on
+    "peer is paired but currently disconnected" vs. "submit
+    rejected by the receiver."
+    """
+
+
+class SubmitJobTimeoutError(RuntimeError):
+    """Raised by :meth:`PeerLinkClient.submit_job` when the ack didn't land in time.
+
+    The session may still be alive on the wire — the receiver
+    just hasn't acked. Surfaces a structured error to the WS
+    caller; the offloader does **not** retry mid-session
+    because the receiver may have already accepted and queued
+    the job (a duplicate send would land a second
+    :class:`FirmwareJob` on the receiver's queue under a fresh
+    ``job_id``). Operator-initiated retry on a fresh session
+    is the correct recovery.
+    """
+
+
+class SubmitJobSessionLostError(RuntimeError):
+    """Raised when the session closes during a :meth:`PeerLinkClient.submit_job` flow.
+
+    Set on every pending ack future from the receive loop's
+    ``finally`` so an in-flight :meth:`submit_job` doesn't hang
+    until the timeout — the session ended, no ack will ever
+    arrive on this connection. Same no-retry contract as
+    :class:`SubmitJobTimeoutError`.
+    """
+
+
 @dataclass
 class _SessionLoopState:
     """Mutable state shared between the session's receive loop and heartbeat task.
@@ -723,6 +832,30 @@ class PeerLinkClient:
         # auth rejected) the backoff advances exponentially so a
         # broken receiver doesn't get hammered.
         self._session_was_opened = False
+        # Live :class:`PeerLinkChannel` for the currently-open
+        # session, or ``None`` when between sessions. Set inside
+        # :meth:`_run_session_loops` before the receive loop
+        # parks, cleared in the same method's ``finally`` after
+        # the loop exits. :meth:`submit_job` reads this to know
+        # whether a session is live (raising
+        # :class:`SubmitJobNoSessionError` if not) and to drive
+        # the chunk send through the same channel the receive
+        # loop is parked on. Only one writer (the run task) and
+        # one reader (the controller's WS submit handler), both
+        # on the same event loop, so no lock is needed.
+        self._active_channel: PeerLinkChannel | None = None
+        # Per-job ack futures, keyed on the ``job_id`` we put on
+        # the ``submit_job`` header. Populated by
+        # :meth:`submit_job` before the header goes out, drained
+        # by the receive loop on the matching ``submit_job_ack``
+        # frame, and force-completed in
+        # :meth:`_run_session_loops`'s ``finally`` if the session
+        # closes mid-flow (so ``submit_job`` doesn't hang on the
+        # ack timeout when the wire is already gone). Future's
+        # ``set_result`` value is the validated ack frame; on
+        # session-loss the future gets
+        # :class:`SubmitJobSessionLostError`.
+        self._submit_job_acks: dict[str, asyncio.Future[SubmitJobAckFrameData]] = {}
 
     @property
     def receiver_hostname(self) -> str:
@@ -731,6 +864,24 @@ class PeerLinkClient:
     @property
     def receiver_port(self) -> int:
         return self._port
+
+    @property
+    def pin_sha256(self) -> str:
+        """OOB-verified pin (sha256 of the receiver's pubkey).
+
+        Stable identifier for this client — matches the key in
+        :attr:`RemoteBuildController._peer_link_clients` and the
+        ``pin_sha256`` field on every event this client fires.
+        Surfaced as a property so the controller's WS handler
+        can confirm it matches the request before driving a
+        :meth:`submit_job`.
+        """
+        return self._pin_sha256
+
+    @property
+    def is_session_open(self) -> bool:
+        """True if a peer-link session is currently live (post-handshake, dispatch parked)."""
+        return self._active_channel is not None
 
     @property
     def is_orphaned(self) -> bool:
@@ -755,6 +906,182 @@ class PeerLinkClient:
         clears the flag.
         """
         return self._orphaned
+
+    async def submit_job(
+        self,
+        *,
+        job_id: str,
+        configuration_filename: str,
+        target: Literal["compile", "upload"],
+        bundle_bytes: bytes,
+    ) -> SubmitJobAckFrameData:
+        """Send a ``submit_job`` header + chunked bundle and await the receiver's ack.
+
+        Drives the offloader-side counterpart of the receiver's
+        :class:`SubmitJobReceiver` accept path
+        (:mod:`controllers.remote_build.submit_job`):
+
+        1. Validate a session is live; raise
+           :class:`SubmitJobNoSessionError` if not.
+        2. Compute the bundle's SHA-256 + chunk count.
+        3. Register a per-``job_id`` ack future on
+           :attr:`_submit_job_acks` BEFORE the header goes out
+           so a same-tick ack can't lose to the future
+           registration (the receive loop runs on the same
+           event loop; pre-registering avoids the race
+           regardless).
+        4. Send the header and stream every chunk through
+           :meth:`PeerLinkChannel.send_frame`. A send failure
+           (transport gone away mid-flow, JSON encode failure,
+           Noise encrypt failure) raises
+           :class:`SubmitJobSessionLostError` immediately
+           rather than waiting for the timeout.
+        5. Await the ack future with
+           :data:`_SUBMIT_JOB_ACK_TIMEOUT_SECONDS`. Timeout
+           raises :class:`SubmitJobTimeoutError`. Session loss
+           during the wait raises
+           :class:`SubmitJobSessionLostError` (the receive
+           loop's ``finally`` propagates it via
+           ``set_exception``).
+
+        Concurrency: the WS dispatch is single-flight per
+        connection, so the controller's WS handler invokes this
+        sequentially per session. Multiple WS connections can
+        invoke concurrently — distinct *job_id* values keep the
+        ack futures separate, and :class:`PeerLinkChannel` holds
+        the send lock that serialises wire encrypts. Same-
+        ``job_id`` re-entry inside one session is rejected as
+        :class:`SubmitJobNoSessionError` (a leftover ack future
+        signals the previous flow hasn't completed); the WS
+        layer should generate a fresh ``job_id`` per submit.
+
+        No mid-session retry on timeout / session-loss: the
+        receiver may have already accepted and queued the job,
+        and a duplicate send under a fresh ``job_id`` would land
+        a second :class:`FirmwareJob` on the receiver's queue.
+        Operator-initiated retry on a fresh peer-link session
+        is the correct recovery.
+        """
+        channel = self._require_open_channel(label="submit_job")
+        ack_fut = self._register_submit_job_ack_future(job_id)
+        try:
+            await self._send_submit_job_frames(
+                channel,
+                job_id=job_id,
+                configuration_filename=configuration_filename,
+                target=target,
+                bundle_bytes=bundle_bytes,
+            )
+            return await self._await_submit_job_ack(ack_fut, job_id=job_id)
+        finally:
+            self._submit_job_acks.pop(job_id, None)
+
+    def _require_open_channel(self, *, label: str) -> PeerLinkChannel:
+        """Return the live :class:`PeerLinkChannel` or raise :class:`SubmitJobNoSessionError`.
+
+        ``label`` is folded into the exception message so the
+        caller (today: ``submit_job``) names itself in the
+        no-session log line. Lifted out of :meth:`submit_job`
+        so future application-message senders that need the
+        same "session live or fail fast" check share one
+        implementation.
+        """
+        channel = self._active_channel
+        if channel is None:
+            msg = f"{label}: no live peer-link session to {self._hostname}:{self._port}"
+            raise SubmitJobNoSessionError(msg)
+        return channel
+
+    def _register_submit_job_ack_future(self, job_id: str) -> asyncio.Future[SubmitJobAckFrameData]:
+        """Allocate + register the per-``job_id`` ack future, refusing duplicates.
+
+        The future is registered on :attr:`_submit_job_acks`
+        BEFORE the header goes out so a same-tick ack can't
+        lose to the future registration (the receive loop runs
+        on the same event loop; pre-registering avoids the
+        race regardless). A second call for the same *job_id*
+        while the first is still pending raises
+        :class:`SubmitJobNoSessionError` — same exception class
+        the WS layer maps to "refuse the submit, ask the caller
+        to retry under a fresh id."
+        """
+        if job_id in self._submit_job_acks:
+            msg = (
+                f"submit_job: ack future already registered for job_id={job_id!r} "
+                f"(duplicate submit on the same session)"
+            )
+            raise SubmitJobNoSessionError(msg)
+        ack_fut: asyncio.Future[SubmitJobAckFrameData] = asyncio.get_running_loop().create_future()
+        self._submit_job_acks[job_id] = ack_fut
+        return ack_fut
+
+    async def _send_submit_job_frames(
+        self,
+        channel: PeerLinkChannel,
+        *,
+        job_id: str,
+        configuration_filename: str,
+        target: Literal["compile", "upload"],
+        bundle_bytes: bytes,
+    ) -> None:
+        """Send the ``submit_job`` header and every chunk frame, in order.
+
+        Raises :class:`SubmitJobSessionLostError` immediately if
+        any send returns ``False`` (transport gone away
+        mid-flow, JSON encode failure, Noise encrypt failure)
+        rather than ploughing on through the chunk loop and
+        relying on the ack-await timeout to surface the failure.
+        """
+        chunks = list(chunk_bundle(bundle_bytes))
+        header: SubmitJobFrameData = {
+            "type": "submit_job",
+            "job_id": job_id,
+            "configuration_filename": configuration_filename,
+            "target": target,
+            "total_bundle_bytes": len(bundle_bytes),
+            "num_chunks": len(chunks),
+            "bundle_sha256": compute_bundle_sha256(bundle_bytes),
+        }
+        if not await channel.send_frame(cast(dict[str, Any], header)):
+            raise SubmitJobSessionLostError(
+                f"submit_job: header send failed mid-flow to {self._hostname}:{self._port}"
+            )
+        for chunk_index, raw, is_last in chunks:
+            chunk_frame: SubmitJobChunkFrameData = {
+                "type": "submit_job_chunk",
+                "job_id": job_id,
+                "chunk_index": chunk_index,
+                "data_b64": encode_chunk(raw),
+                "is_last": is_last,
+            }
+            if not await channel.send_frame(cast(dict[str, Any], chunk_frame)):
+                raise SubmitJobSessionLostError(
+                    f"submit_job: chunk {chunk_index} send failed mid-flow to "
+                    f"{self._hostname}:{self._port}"
+                )
+
+    async def _await_submit_job_ack(
+        self,
+        ack_fut: asyncio.Future[SubmitJobAckFrameData],
+        *,
+        job_id: str,
+    ) -> SubmitJobAckFrameData:
+        """Park on *ack_fut* with a bounded timeout; raise structured errors.
+
+        Timeout maps to :class:`SubmitJobTimeoutError`; session
+        loss while parked surfaces as
+        :class:`SubmitJobSessionLostError` (the receive loop's
+        ``finally`` propagates it via ``set_exception``, which
+        :meth:`asyncio.wait_for` re-raises).
+        """
+        try:
+            return await asyncio.wait_for(ack_fut, timeout=_SUBMIT_JOB_ACK_TIMEOUT_SECONDS)
+        except TimeoutError as exc:
+            raise SubmitJobTimeoutError(
+                f"submit_job: no ack from {self._hostname}:{self._port} "
+                f"after {_SUBMIT_JOB_ACK_TIMEOUT_SECONDS:.0f}s "
+                f"(job_id={job_id!r})"
+            ) from exc
 
     async def run(self) -> None:
         """Run the connect-loop forever. Cancellable.
@@ -993,6 +1320,21 @@ class PeerLinkClient:
             ),
             name=f"peer-link-client-heartbeat[{self._hostname}:{self._port}]",
         )
+        # Expose the channel to :meth:`submit_job` for the
+        # duration of the receive loop. Cleared in ``finally``
+        # so a post-session :meth:`submit_job` raises
+        # :class:`SubmitJobNoSessionError` instead of writing
+        # into a stale channel.
+        self._active_channel = channel
+        # Bound the synchronous-dispatch lookup table once per
+        # session — sync handlers fan an inbound frame into the
+        # bus / ack futures with no need for the channel itself.
+        # PING / PONG / TERMINATE / malformed each touch the
+        # session loop's mutable state (close_reason,
+        # last_pong_at) or the channel (PONG response), so they
+        # stay branched in the loop body rather than fitting
+        # the table's ``(self, parsed) -> None`` shape.
+        sync_dispatch = self._build_sync_frame_dispatch()
         try:
             async for msg in channel.ws:
                 parsed = channel.parse_frame(msg)
@@ -1017,35 +1359,9 @@ class PeerLinkClient:
                         reason if isinstance(reason, str) else _LOCAL_CLOSE_PEER_HUNG_UP
                     )
                     break
-                if msg_type == AppMessageType.QUEUE_STATUS.value:
-                    # Receiver pushed a fresh firmware-queue
-                    # snapshot. Validate the three fields are
-                    # the expected primitive shapes before
-                    # firing — a malformed frame from a buggy
-                    # peer shouldn't land an ``OffloaderQueueStatusChangedData``
-                    # with a ``None`` ``queue_depth`` on the bus
-                    # for downstream consumers (the cache, the
-                    # ``subscribe_events`` re-broadcast). Drop
-                    # silently on shape mismatch — the receiver
-                    # will broadcast another snapshot on the
-                    # next queue transition.
-                    idle = parsed.get("idle")
-                    running = parsed.get("running")
-                    queue_depth = parsed.get("queue_depth")
-                    if (
-                        not isinstance(idle, bool)
-                        or not isinstance(running, bool)
-                        or not isinstance(queue_depth, int)
-                        or isinstance(queue_depth, bool)
-                    ):
-                        _LOGGER.debug(
-                            "peer-link client malformed queue_status frame from %s:%d: %r",
-                            self._hostname,
-                            self._port,
-                            parsed,
-                        )
-                        continue
-                    self._fire_queue_status(idle, running, queue_depth)
+                handler = sync_dispatch.get(msg_type) if isinstance(msg_type, str) else None
+                if handler is not None:
+                    handler(parsed)
                     continue
                 _LOGGER.debug(
                     "peer-link client unknown app frame type %r from %s:%d; ignoring",
@@ -1055,9 +1371,225 @@ class PeerLinkClient:
                 )
             return state.close_reason
         finally:
+            self._active_channel = None
+            # Drain any in-flight :meth:`submit_job` callers so
+            # they raise :class:`SubmitJobSessionLostError`
+            # immediately instead of waiting on the per-flow
+            # timeout. The session ended before the ack came
+            # back; no point keeping the awaiter parked. Snapshot
+            # the dict before iterating because
+            # :meth:`submit_job`'s ``finally`` pops the entry as
+            # soon as the future fires.
+            for pending_job_id, pending_fut in list(self._submit_job_acks.items()):
+                if not pending_fut.done():
+                    pending_fut.set_exception(
+                        SubmitJobSessionLostError(
+                            f"submit_job: peer-link session to "
+                            f"{self._hostname}:{self._port} ended before ack "
+                            f"for job_id={pending_job_id!r}"
+                        )
+                    )
             heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
+
+    def _build_sync_frame_dispatch(
+        self,
+    ) -> dict[str, Callable[[dict[str, Any]], None]]:
+        """Return the inbound-frame → sync handler map for one session.
+
+        Built once per session (in :meth:`_run_session_loops`)
+        rather than per inbound frame to keep the receive-loop
+        hot path's per-frame work down to one dict lookup. The
+        bound-method values capture ``self`` so adding a new
+        sync frame type is a one-line table entry plus the
+        handler implementation, no loop-body branch.
+
+        Excluded from the table on purpose:
+        ``PING`` / ``PONG`` / ``TERMINATE`` mutate the
+        session-local :class:`_SessionLoopState` or close the
+        loop, neither of which fits the ``(parsed)`` shape.
+        Malformed frames (``parse_frame`` returned ``None``) are
+        a separate branch upstream of this lookup.
+        """
+        return {
+            AppMessageType.QUEUE_STATUS.value: self._dispatch_queue_status,
+            AppMessageType.SUBMIT_JOB_ACK.value: self._dispatch_submit_job_ack,
+            AppMessageType.JOB_STATE_CHANGED.value: self._dispatch_job_state_changed,
+            AppMessageType.JOB_OUTPUT.value: self._dispatch_job_output,
+        }
+
+    def _dispatch_queue_status(self, parsed: dict[str, Any]) -> None:
+        """Validate a ``queue_status`` frame and fire the offloader-side bus event.
+
+        Validate the three fields are the expected primitive
+        shapes before firing — a malformed frame from a buggy
+        peer shouldn't land an
+        :class:`OffloaderQueueStatusChangedData` with a ``None``
+        ``queue_depth`` on the bus for downstream consumers (the
+        cache, the ``subscribe_events`` re-broadcast). Drop
+        silently on shape mismatch — the receiver will broadcast
+        another snapshot on the next queue transition.
+
+        Inlined ``isinstance`` chain rather than a
+        :func:`validate_frame_shape` call because the
+        ``queue_depth`` field needs the
+        ``int but not bool`` check that the helper handles via
+        the ``required`` map: factoring through the map adds a
+        line at the call site for one extra entry. Unified with
+        the helper if a third int-typed field lands here.
+        """
+        idle = parsed.get("idle")
+        running = parsed.get("running")
+        queue_depth = parsed.get("queue_depth")
+        if (
+            not isinstance(idle, bool)
+            or not isinstance(running, bool)
+            or not isinstance(queue_depth, int)
+            or isinstance(queue_depth, bool)
+        ):
+            _LOGGER.debug(
+                "peer-link client malformed queue_status frame from %s:%d: %r",
+                self._hostname,
+                self._port,
+                parsed,
+            )
+            return
+        self._fire_queue_status(idle, running, queue_depth)
+
+    def _dispatch_submit_job_ack(self, parsed: dict[str, Any]) -> None:
+        """Resolve the matching ack future for an inbound ``submit_job_ack`` frame.
+
+        Validates the required-field shape via
+        :func:`validate_frame_shape`; an ack with a missing /
+        wrong-typed ``accepted`` or ``job_id`` is silently
+        dropped (the awaiter times out cleanly rather than
+        seeing a malformed frame as a successful accept). The
+        optional ``reason`` field is read post-validate and
+        copied through to the resolved frame so the WS layer
+        can surface it on rejection.
+
+        Late acks (no future for the carried *job_id* —
+        typically because the awaiter already raised
+        :class:`SubmitJobTimeoutError` and popped its entry
+        from :attr:`_submit_job_acks`) are dropped at debug.
+        Same for double acks under one *job_id*: the first wins
+        and the second's ``set_result`` would raise
+        ``InvalidStateError``, so the future-already-done check
+        gates it.
+        """
+        if not validate_frame_shape(parsed, _SUBMIT_JOB_ACK_FIELDS):
+            _LOGGER.debug(
+                "peer-link client malformed submit_job_ack frame from %s:%d: %r",
+                self._hostname,
+                self._port,
+                parsed,
+            )
+            return
+        job_id = cast(str, parsed["job_id"])
+        accepted = cast(bool, parsed["accepted"])
+        ack: SubmitJobAckFrameData = {
+            "type": "submit_job_ack",
+            "job_id": job_id,
+            "accepted": accepted,
+        }
+        reason = parsed.get("reason")
+        if isinstance(reason, str):
+            ack["reason"] = reason
+        ack_fut = self._submit_job_acks.get(job_id)
+        if ack_fut is None:
+            _LOGGER.debug(
+                "peer-link client received submit_job_ack with no pending future "
+                "from %s:%d (job_id=%r)",
+                self._hostname,
+                self._port,
+                job_id,
+            )
+            return
+        if ack_fut.done():
+            _LOGGER.debug(
+                "peer-link client received duplicate submit_job_ack from %s:%d "
+                "(job_id=%r); dropping",
+                self._hostname,
+                self._port,
+                job_id,
+            )
+            return
+        ack_fut.set_result(ack)
+
+    def _dispatch_job_state_changed(self, parsed: dict[str, Any]) -> None:
+        """Validate + fan an inbound ``job_state_changed`` frame onto the bus.
+
+        Same pattern as :meth:`_dispatch_queue_status`: validate
+        first, drop silently on shape mismatch (a future
+        retransmit will land cleanly), enrich with this
+        client's receiver coordinates so subscribers can
+        disambiguate transitions across multiple paired
+        receivers.
+        """
+        if not validate_frame_shape(parsed, _JOB_STATE_CHANGED_FIELDS):
+            _LOGGER.debug(
+                "peer-link client malformed job_state_changed frame from %s:%d: %r",
+                self._hostname,
+                self._port,
+                parsed,
+            )
+            return
+        status = cast(str, parsed["status"])
+        if status not in _JOB_STATE_CHANGED_VALID_STATUS:
+            _LOGGER.debug(
+                "peer-link client invalid status %r on job_state_changed from %s:%d",
+                status,
+                self._hostname,
+                self._port,
+            )
+            return
+        wire = cast(JobStateChangedFrameData, parsed)
+        payload: OffloaderJobStateChangedData = {
+            "receiver_hostname": self._hostname,
+            "receiver_port": self._port,
+            "pin_sha256": self._pin_sha256,
+            "job_id": wire["job_id"],
+            "status": wire["status"],
+            "error_message": wire["error_message"],
+        }
+        self._bus.fire(EventType.OFFLOADER_JOB_STATE_CHANGED, payload)
+
+    def _dispatch_job_output(self, parsed: dict[str, Any]) -> None:
+        """Validate + fan an inbound ``job_output`` frame onto the bus.
+
+        High-rate path during an active build (one frame per
+        line of compiler / linker output). Validate cheaply and
+        drop on shape mismatch; subscribers see ``stream`` /
+        ``line`` typed by :class:`OffloaderJobOutputData`.
+        """
+        if not validate_frame_shape(parsed, _JOB_OUTPUT_FIELDS):
+            _LOGGER.debug(
+                "peer-link client malformed job_output frame from %s:%d: %r",
+                self._hostname,
+                self._port,
+                parsed,
+            )
+            return
+        stream = cast(str, parsed["stream"])
+        if stream not in _JOB_OUTPUT_VALID_STREAM:
+            _LOGGER.debug(
+                "peer-link client invalid stream %r on job_output from %s:%d",
+                stream,
+                self._hostname,
+                self._port,
+            )
+            return
+        wire = cast(JobOutputFrameData, parsed)
+        payload: OffloaderJobOutputData = {
+            "receiver_hostname": self._hostname,
+            "receiver_port": self._port,
+            "pin_sha256": self._pin_sha256,
+            "job_id": wire["job_id"],
+            "stream": wire["stream"],
+            "line": wire["line"],
+        }
+        self._bus.fire(EventType.OFFLOADER_JOB_OUTPUT, payload)
 
     def _fire_opened(self) -> None:
         payload: OffloaderPeerLinkOpenedData = {

@@ -67,6 +67,7 @@ from ...helpers.peer_link_bundle import (
     BundleAssemblerErrorCode,
     decode_chunk,
 )
+from ...helpers.peer_link_frames import validate_frame_shape
 from ...models import (
     JobType,
     SubmitJobAckFrameData,
@@ -104,7 +105,7 @@ _REASON_QUEUE_REJECTED = "queue_rejected"
 # values. Indexing those frames directly (``frame["job_id"]``,
 # etc.) would raise ``KeyError`` / ``TypeError`` and unwind out
 # of the receive loop without sending an ack — a remote-
-# triggered crash shape. The :func:`_validate_frame_shape`
+# triggered crash shape. The :func:`validate_frame_shape`
 # gate below walks each contract and rejects the frame as
 # ``invalid_header`` / ``invalid_chunk`` with a
 # ``terminate{malformed_frame}`` close (the offloader has
@@ -175,32 +176,6 @@ _RECOVERABLE_ASSEMBLER_ERRORS: frozenset[BundleAssemblerErrorCode] = frozenset(
 # defence-in-depth gate that catches anything an exotic filename
 # would slip past this.
 _FORBIDDEN_FILENAME_CHARS: frozenset[str] = frozenset({"/", "\\", "\x00"})
-
-
-def _validate_frame_shape(frame: dict[str, Any], required: dict[str, type]) -> bool:
-    """Return ``True`` iff *frame* has all *required* fields with matching types.
-
-    Defensive runtime check on a peer-controlled dict —
-    :func:`parse_app_frame` confirms the JSON parses to a dict,
-    but doesn't validate the inner shape. Indexing missing /
-    wrong-typed fields would otherwise raise inside
-    :meth:`SubmitJobReceiver.handle_submit_job` /
-    :meth:`SubmitJobReceiver.handle_submit_job_chunk` and
-    bubble out of the receive loop without an ack.
-
-    ``bool`` is special-cased because it's a subclass of
-    ``int`` in Python — a frame announcing
-    ``total_bundle_bytes=True`` would otherwise pass the
-    ``int`` check. We accept ``bool`` only when the contract
-    explicitly asks for ``bool``.
-    """
-    for field_name, expected in required.items():
-        value = frame.get(field_name)
-        if not isinstance(value, expected):
-            return False
-        if expected is int and isinstance(value, bool):
-            return False
-    return True
 
 
 def _validate_configuration_filename(filename: str) -> str | None:
@@ -337,7 +312,7 @@ class SubmitJobReceiver:
         # ``SubmitJobFrameData`` view is what the rest of the
         # method operates on after the gate.
         raw = cast(dict[str, Any], frame)
-        if not _validate_frame_shape(raw, _SUBMIT_JOB_HEADER_FIELDS):
+        if not validate_frame_shape(raw, _SUBMIT_JOB_HEADER_FIELDS):
             job_id = raw.get("job_id") if isinstance(raw.get("job_id"), str) else ""
             await self._reject(
                 session,
@@ -398,7 +373,7 @@ class SubmitJobReceiver:
         # and the in-flight stream can't be recovered; drop it
         # and terminate.
         chunk_dict = cast(dict[str, Any], frame)
-        if not _validate_frame_shape(chunk_dict, _SUBMIT_JOB_CHUNK_FIELDS):
+        if not validate_frame_shape(chunk_dict, _SUBMIT_JOB_CHUNK_FIELDS):
             job_id = chunk_dict.get("job_id") if isinstance(chunk_dict.get("job_id"), str) else ""
             await self._reject(
                 session,

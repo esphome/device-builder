@@ -604,6 +604,63 @@ class OffloaderQueueStatusChangedData(TypedDict):
     queue_depth: int
 
 
+class OffloaderJobStateChangedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_JOB_STATE_CHANGED``.
+
+    Fired on the offloader's local bus whenever the
+    :class:`PeerLinkClient` receive loop processes an inbound
+    ``job_state_changed`` application frame from the receiver
+    we submitted *job_id* to. Mirrors
+    :class:`JobStateChangedFrameData` plus the source-receiver
+    coordinates so downstream subscribers (the controller's
+    ``subscribe_events`` re-broadcast, future scheduler hooks)
+    can disambiguate transitions across multiple paired
+    receivers without parsing the session's identity out of
+    a separate cache.
+
+    ``status`` mirrors the wire literal exactly so the
+    re-broadcast is byte-for-byte the receiver's frame plus
+    the addressing fields. ``error_message`` is empty on
+    non-terminal states and on ``completed``; populated on
+    ``failed`` / ``cancelled`` with a short human-readable
+    string the offloader-side UI can surface.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    pin_sha256: str
+    job_id: str
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    error_message: str
+
+
+class OffloaderJobOutputData(TypedDict):
+    r"""
+    Payload for ``EventType.OFFLOADER_JOB_OUTPUT``.
+
+    Fired on the offloader's local bus per inbound
+    ``job_output`` frame. Mirrors :class:`JobOutputFrameData`
+    plus the receiver's coordinates so subscribers can route
+    the line to the right peer's output buffer / UI panel.
+
+    ``line`` carries its trailing terminator unchanged
+    (``\n`` / ``\r`` / ``\r\n``) — same semantic as the
+    receiver-side :class:`JobOutputData` and the wire
+    :class:`JobOutputFrameData`; carriage-return-only chunks
+    are esptool / PlatformIO progress overwrites, and stripping
+    here would lose the signal the renderer leans on to
+    decide append-vs-overwrite.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    pin_sha256: str
+    job_id: str
+    stream: Literal["stdout", "stderr"]
+    line: str
+
+
 class PeerQueueStatusSnapshotEntry(TypedDict):
     """
     Snapshot row in the offloader-side per-peer queue-status cache.
