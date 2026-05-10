@@ -923,7 +923,8 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     async def _park() -> None:
         await park.wait()
 
-    offloader._pair_status_listeners["a" * 64] = asyncio.create_task(_park())
+    listener = asyncio.create_task(_park())
+    offloader._pair_status_listeners["a" * 64] = listener
     # Settle one event-loop tick so the create_task is actually
     # scheduled before unpair tries to cancel it.
     await asyncio.sleep(0)
@@ -932,12 +933,14 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
 
     assert result == {"removed": True}
     assert "a" * 64 not in offloader._pairings
-    # Listener was cancelled; let the loop run so the cancellation
-    # propagates and we can drain it cleanly.
-    listener = offloader._pair_status_listeners.get(("rcv.local", 6055))
-    if listener is not None:
-        with pytest.raises(asyncio.CancelledError):
-            await listener
+    # ``unpair`` popped the listener entry from the registry —
+    # the row is gone from the pin-keyed dict (4a-o part 6).
+    assert "a" * 64 not in offloader._pair_status_listeners
+    # The captured task reference was cancelled by ``unpair``'s
+    # ``_cancel_pair_status_listener``; awaiting it surfaces the
+    # ``CancelledError`` from the cancel call.
+    with pytest.raises(asyncio.CancelledError):
+        await listener
 
 
 @pytest.mark.asyncio
