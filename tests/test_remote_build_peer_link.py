@@ -1383,6 +1383,30 @@ async def test_peer_link_session_terminate_idempotent(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_app_frame_short_circuits_after_terminate(tmp_path: Path) -> None:
+    """A late ``send_app_frame`` after ``terminate`` returns False without a wire frame.
+
+    Pins the no-race contract: the heartbeat task or a future
+    application sender that wakes from ``asyncio.sleep`` after
+    the controller flipped ``_closing`` mustn't push a final
+    ``ping`` onto the wire after the ``terminate`` frame has
+    already gone out. The frame count after ``terminate`` is
+    exactly 1 (the terminate frame itself).
+    """
+    _initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+
+    await session.terminate(TerminateReason.SUPERSEDED)
+    assert len(ws.sends) == 1  # the terminate frame
+
+    sent = await session.send_app_frame({"type": "ping", "nonce": 99})
+    assert sent is False
+    # Still just the one frame from terminate; the late ping
+    # didn't sneak through.
+    assert len(ws.sends) == 1
+
+
+@pytest.mark.asyncio
 async def test_register_peer_link_session_kicks_existing(tmp_path: Path) -> None:
     """Registering a new session for the same dashboard_id terminates the existing one."""
     controller = _make_controller(config_dir=tmp_path)

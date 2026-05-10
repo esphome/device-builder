@@ -767,7 +767,7 @@ class RemoteBuildController:
         # cleared on session exit (peer close / heartbeat
         # timeout / shutdown). One entry per dashboard_id —
         # a duplicate connect kicks the older session via
-        # ``_TerminateReason.SUPERSEDED`` so a restarted
+        # ``TerminateReason.SUPERSEDED`` so a restarted
         # offloader takes over its previous slot rather than
         # doubling. Drained in :meth:`stop`.
         self._peer_link_sessions: dict[str, PeerLinkSession] = {}

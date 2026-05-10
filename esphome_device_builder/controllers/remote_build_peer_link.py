@@ -453,6 +453,26 @@ class PeerLinkSession:
         so the Noise nonce advances in one direction only — the
         Noise cipher state is not safe to share across concurrent
         encrypts.
+
+        Short-circuits to ``False`` once :meth:`terminate` has set
+        :attr:`_closing` so a heartbeat / app sender that wakes
+        from ``asyncio.sleep`` after the controller-driven close
+        decision can't race a final ``ping`` onto the wire after
+        the ``terminate`` frame has already gone out. The
+        ``terminate`` frame itself bypasses this gate via
+        :meth:`_send_app_frame_unchecked`.
+        """
+        if self._closing:
+            return False
+        return await self._send_app_frame_unchecked(payload)
+
+    async def _send_app_frame_unchecked(self, payload: dict[str, Any]) -> bool:
+        """Encrypt + send without the ``_closing`` short-circuit.
+
+        Internal helper for :meth:`terminate` so the structured
+        close frame still goes out even after ``_closing`` is
+        set. Public application sends route through
+        :meth:`send_app_frame`.
         """
         try:
             plaintext = _json.dumps(payload)
@@ -483,12 +503,25 @@ class PeerLinkSession:
         shutdown). Best-effort — a peer that has already gone
         away won't receive the frame, and the close itself
         swallows transport errors.
+
+        Sets :attr:`_closing` *before* sending the terminate
+        frame so any racing :meth:`send_app_frame` call
+        short-circuits cleanly; the terminate-frame send itself
+        bypasses the gate via :meth:`_send_app_frame_unchecked`.
         """
         if self._closing:
             return
         self._closing = True
-        await self.send_app_frame({"type": _AppMessageType.TERMINATE.value, "reason": reason.value})
-        with contextlib.suppress(Exception):
+        await self._send_app_frame_unchecked(
+            {"type": _AppMessageType.TERMINATE.value, "reason": reason.value}
+        )
+        # Narrow suppress to transport-level errors. Python 3.8+
+        # made ``CancelledError`` inherit from ``BaseException``
+        # so ``Exception`` already wouldn't catch it, but being
+        # explicit about which classes we expect on a
+        # closing-an-already-dead-WS path keeps the intent
+        # legible.
+        with contextlib.suppress(OSError, RuntimeError):
             await self.ws.close()
 
 
