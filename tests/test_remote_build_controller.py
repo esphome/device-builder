@@ -1150,6 +1150,50 @@ def test_peers_snapshot_carries_peer_ip(tmp_path: Path) -> None:
     assert rows["approved"].peer_ip == "10.0.0.7"
 
 
+def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -> None:
+    """``StoredPeer.refresh_from_pair_request`` updates exactly the fields its docstring claims.
+
+    The helper documents the "what changes on re-pair" contract:
+    pin / pubkey / label / paired_at / peer_ip refresh in place
+    against an existing row, while ``dashboard_id`` (the row's
+    primary key) and persisted ``status`` are left alone. Pin
+    that contract here so a future refactor can't silently drop
+    or add a field without the docstring keeping up — the helper
+    is the seam future re-pair callers will reach for, and a
+    silent shape drift would land as a security-relevant bug
+    (e.g. failing to refresh ``peer_ip`` on a DHCP-renewed
+    offloader leaves the inbox showing a stale source IP).
+    """
+    peer = StoredPeer(
+        dashboard_id="alpha",
+        pin_sha256="oldpin",
+        static_x25519_pub=b"\x11" * 32,
+        label="old",
+        paired_at=1.0,
+        peer_ip="192.168.1.10",
+    )
+
+    new_pubkey = b"\x22" * 32
+    peer.refresh_from_pair_request(
+        pin_sha256="newpin",
+        static_x25519_pub=new_pubkey,
+        label="renamed",
+        paired_at=2.0,
+        peer_ip="10.0.0.7",
+    )
+
+    # All documented fields refreshed.
+    assert peer.pin_sha256 == "newpin"
+    assert peer.static_x25519_pub == new_pubkey
+    assert peer.label == "renamed"
+    assert peer.paired_at == 2.0
+    assert peer.peer_ip == "10.0.0.7"
+    # ``dashboard_id`` is the primary key — intentionally left
+    # alone; mutating it would orphan the dict entry under the
+    # caller.
+    assert peer.dashboard_id == "alpha"
+
+
 @pytest.mark.asyncio
 async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None:
     """``start()`` loads APPROVED peers off disk into ``_approved_peers``.
