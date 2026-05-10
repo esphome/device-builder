@@ -16,7 +16,8 @@ import pytest
 
 from esphome_device_builder.models import EventType
 
-from .conftest import PairedInstances, capture_events
+from ..conftest import capture_events
+from .conftest import PairedInstances
 
 
 @pytest.mark.asyncio

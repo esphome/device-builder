@@ -20,20 +20,20 @@ per-side wire shapes; the harness's value is catching mismatches
 between the two (event payload contracts, dashboard_id collisions,
 terminate flow with both sides observing).
 
-The pair flow itself is short-circuited to keep the harness
-focused: the ``paired_instances`` fixture seeds an APPROVED
-``StoredPeer`` on the receiver and an APPROVED
-``StoredPairing`` on the offloader before either controller
-starts, mimicking the in-memory state the request → approve
-flow would have left. The flow itself is covered by the
-single-side tests; the harness picks up at "both sides know
-about each other, now what."
+The harness drives the real pair flow end-to-end (no
+dict-mocking shortcuts): receiver opens its pairing window,
+offloader runs ``preview_pair`` + ``request_pair`` over real
+Noise XX handshakes, receiver calls ``approve_peer``, then
+the offloader's pair-status listener observes the flip and
+spawns the long-lived peer-link client. Tests built on top of
+``paired_instances`` start from "both sides have an APPROVED
+row, the long-lived peer-link session is open, ready for
+application messages."
 """
 
 from __future__ import annotations
 
 import asyncio
-import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,18 +48,8 @@ from esphome_device_builder.controllers.remote_build_peer_link import (
     PEER_LINK_PATH,
     make_peer_link_handler,
 )
-from esphome_device_builder.helpers.dashboard_identity import get_or_create_identity
 from esphome_device_builder.helpers.event_bus import EventBus
-from esphome_device_builder.helpers.peer_link_identity import (
-    get_or_create_peer_link_identity,
-)
-from esphome_device_builder.helpers.peer_link_noise import pin_sha256_for_pubkey
-from esphome_device_builder.models import (
-    EventType,
-    PeerStatus,
-    StoredPairing,
-    StoredPeer,
-)
+from esphome_device_builder.models import PeerStatus
 
 
 def _make_controller(*, config_dir: Path, bus: EventBus) -> RemoteBuildController:
@@ -142,21 +132,39 @@ class PairedInstances:
 async def paired_instances(
     tmp_path: Path,
 ) -> AsyncGenerator[PairedInstances, None]:
-    """Yield two :class:`RemoteBuildController` instances pre-paired and connected.
+    """Yield two :class:`RemoteBuildController` instances paired via the real flow.
 
-    The receiver runs its peer-link Noise WS handler bound to a
-    :class:`aiohttp.test_utils.TestServer` on a real ephemeral
-    TCP port; the offloader runs a real
-    :class:`PeerLinkClient` against it. Both sides have the
-    other's APPROVED row pre-seeded in RAM so the offloader's
-    ``start()`` immediately spawns the long-lived session
-    without going through the full request → approve handshake
-    (covered by the single-side tests).
+    Drives the production pair sequence end-to-end against two
+    in-process controllers — no dict-mocking shortcuts:
+
+    1. Both controllers ``start()`` (loads identities,
+       installs the long-poll listener slot for any future
+       PENDING rows, etc.).
+    2. Receiver opens its pairing window
+       (``set_pairing_window(open=True)``).
+    3. Offloader runs ``preview_pair`` over a real Noise XX WS
+       to capture the receiver's pubkey + pin from the
+       handshake transcript.
+    4. Offloader runs ``request_pair`` (also a real Noise WS)
+       carrying the offloader's ``dashboard_id``; receiver's
+       handler creates a PENDING :class:`StoredPeer` row and
+       fires ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED``.
+    5. Receiver runs ``approve_peer`` to flip PENDING →
+       APPROVED; fires ``REMOTE_BUILD_PAIR_STATUS_CHANGED``.
+    6. Offloader's pair-status listener (spawned in step 4)
+       observes the flip via its long-poll WS, updates the
+       local :class:`StoredPairing` to APPROVED, and spawns
+       the long-lived :class:`PeerLinkClient` (5a-2).
 
     Per-side event buses are real, so production-shape event
-    fan-out runs end-to-end. Teardown drains both controllers
-    in dependency order: offloader first (its client task sends
-    a ``terminate{client_stopped}`` to the receiver, the
+    fan-out runs end-to-end. The handshake reads pin + dashboard_id
+    from the live Noise transcript, so any wire-shape regression
+    on either side surfaces here rather than being hidden behind
+    a pre-seeded RAM dict.
+
+    Teardown drains both controllers in dependency order:
+    offloader first (its client task sends a
+    ``terminate{client_stopped}`` to the receiver, the
     receiver's session loop unwinds), then the receiver (closing
     any remaining server-side state), then the TestServer.
     """
@@ -170,20 +178,6 @@ async def paired_instances(
     receiver = _make_controller(config_dir=receiver_dir, bus=receiver_bus)
     offloader = _make_controller(config_dir=offloader_dir, bus=offloader_bus)
 
-    # Pre-create both identities on disk so we can wire the
-    # cross-references (receiver-side ``StoredPeer`` carrying
-    # the offloader's pubkey, offloader-side ``StoredPairing``
-    # carrying the receiver's pubkey) before either ``start()``
-    # runs and lazily generates them.
-    loop = asyncio.get_running_loop()
-    receiver_identity = await loop.run_in_executor(
-        None, get_or_create_peer_link_identity, receiver_dir
-    )
-    offloader_identity = await loop.run_in_executor(
-        None, get_or_create_peer_link_identity, offloader_dir
-    )
-    offloader_dashboard = await loop.run_in_executor(None, get_or_create_identity, offloader_dir)
-
     # Stand up the receiver's peer-link WS endpoint on a real
     # TCP port. ``TestServer`` picks an ephemeral port; the
     # offloader dials ``("127.0.0.1", server.port)``.
@@ -194,30 +188,54 @@ async def paired_instances(
     await server.start_server()
     assert server.port is not None  # TestServer always binds; narrow for type-checkers.
 
-    paired_at = time.time()
-    receiver._approved_peers[offloader_dashboard.dashboard_id] = StoredPeer(
-        dashboard_id=offloader_dashboard.dashboard_id,
-        pin_sha256=pin_sha256_for_pubkey(offloader_identity.public_bytes),
-        static_x25519_pub=offloader_identity.public_bytes,
-        label=offloader_dashboard.dashboard_id,
-        paired_at=paired_at,
-    )
-    offloader._pairings[("127.0.0.1", server.port)] = StoredPairing(
-        receiver_hostname="127.0.0.1",
-        receiver_port=server.port,
-        pin_sha256=pin_sha256_for_pubkey(receiver_identity.public_bytes),
-        static_x25519_pub=receiver_identity.public_bytes,
-        label="receiver",
-        paired_at=paired_at,
-        status=PeerStatus.APPROVED,
-    )
-
-    # ``start()``'s on-disk load is a no-op for a fresh tmp dir,
-    # so the pre-seeded RAM dicts above survive. The offloader's
-    # ``start()`` spawns the long-lived peer-link client for
-    # every APPROVED ``StoredPairing`` (just the one we seeded).
+    # Both controllers start before any pair-flow calls — the
+    # offloader needs its pair-status listener slot wired so
+    # ``request_pair`` can register the per-row long-poll task,
+    # and the receiver needs its identity + handler factory ready
+    # so the offloader's WS dials succeed.
     await receiver.start()
     await offloader.start()
+
+    # 1. Receiver opens the pairing window so its handler will
+    #    accept ``intent="pair_request"`` frames.
+    await receiver.set_pairing_window(open=True, client="receiver-tab")
+
+    # 2. Offloader runs preview to capture the receiver's pin
+    #    over a live Noise XX handshake.
+    preview = await offloader.preview_pair(hostname="127.0.0.1", port=server.port)
+    pin_sha256 = preview["pin_sha256"]
+
+    # 3. Offloader requests pairing. Receiver lands a PENDING
+    #    ``StoredPeer`` and fires REMOTE_BUILD_PAIR_REQUEST_RECEIVED;
+    #    the offloader spawns its pair-status long-poll listener
+    #    against this row.
+    await offloader.request_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        pin_sha256=pin_sha256,
+        receiver_label="receiver",
+        offloader_label="offloader",
+    )
+
+    # 4. Receiver-side admin clicks Accept. The PENDING peer's
+    #    ``dashboard_id`` is the offloader's stable identity —
+    #    pull it off the row the receiver just landed.
+    [pending_dashboard_id] = list(receiver._pending_peers.keys())
+    await receiver.approve_peer(dashboard_id=pending_dashboard_id)
+
+    # 5. Wait for the offloader's pair-status listener to observe
+    #    the flip + spawn the long-lived peer-link client. The
+    #    listener's long-poll WS unblocks on the receiver's bus
+    #    event, then ``_apply_pair_status_result`` flips the
+    #    local row to APPROVED and ``_spawn_peer_link_client``
+    #    creates the client task.
+    key = ("127.0.0.1", server.port)
+    await _wait_until(
+        lambda: (
+            key in offloader._pairings and offloader._pairings[key].status is PeerStatus.APPROVED
+        )
+    )
+    offloader_dashboard_id = pending_dashboard_id
 
     instances = PairedInstances(
         receiver=receiver,
@@ -225,7 +243,7 @@ async def paired_instances(
         receiver_server=server,
         receiver_bus=receiver_bus,
         offloader_bus=offloader_bus,
-        offloader_dashboard_id=offloader_dashboard.dashboard_id,
+        offloader_dashboard_id=offloader_dashboard_id,
     )
     try:
         yield instances
@@ -239,31 +257,3 @@ async def paired_instances(
         await offloader.stop()
         await receiver.stop()
         await server.close()
-
-
-def capture_events(bus: EventBus, event_type: EventType) -> _CapturedEvents:
-    """Subscribe to *event_type* on *bus* and return a list captured-as-they-fire.
-
-    Mirror of the helper in
-    ``test_remote_build_peer_link_client.py``; copied here so the
-    harness module is self-contained. Returned list is a thin
-    subclass that exposes a ``received`` :class:`asyncio.Event`
-    set on each append, so tests block via
-    ``await asyncio.wait_for(captured.received.wait(), timeout=...)``
-    rather than polling.
-    """
-    captured = _CapturedEvents()
-    bus.add_listener(event_type, lambda event: captured.append(dict(event.data)))
-    return captured
-
-
-class _CapturedEvents(list[dict]):
-    """A list of captured event payloads with an :class:`asyncio.Event` set on each append."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.received = asyncio.Event()
-
-    def append(self, item: dict) -> None:
-        super().append(item)
-        self.received.set()

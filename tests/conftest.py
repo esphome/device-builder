@@ -140,6 +140,68 @@ class _CatalogContainer:
     components: ComponentCatalog | None = None
 
 
+# ---------------------------------------------------------------------------
+# Async helpers shared across the suite
+#
+# ``capture_events`` + ``cancel_and_drain`` lived in
+# ``test_remote_build_peer_link_client.py`` and the e2e conftest
+# before being hoisted here — every test that drives a live
+# :class:`EventBus` or a cancellable background task has the same
+# two boilerplate shapes, and copying them per file made review
+# noisy. Hoisting also lets the e2e ``paired_instances`` fixture
+# import them with a plain ``from ..conftest import ...``.
+# ---------------------------------------------------------------------------
+
+
+class _CapturedEvents(list[dict]):
+    """A list of captured event payloads with an :class:`asyncio.Event` set on each append.
+
+    Subclassing ``list`` keeps the natural ``captured[0]["reason"]``
+    / ``len(captured)`` access shape that callers expect; the
+    extra :attr:`received` event lets a test ``await
+    asyncio.wait_for(captured.received.wait(), timeout=...)``
+    instead of polling on a ``for _ in range(N): sleep(0.01)``
+    loop.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.received = asyncio.Event()
+
+    def append(self, item: dict) -> None:
+        super().append(item)
+        self.received.set()
+
+
+def capture_events(bus: EventBus, event_type: EventType) -> _CapturedEvents:
+    """Subscribe to *event_type* on *bus* and return a list captured-as-they-fire.
+
+    Each fired event's ``data`` payload is materialised into a
+    plain dict and appended. The returned object exposes a
+    ``received`` :class:`asyncio.Event` that's set on every
+    append — callers ``await asyncio.wait_for(captured.received.wait(),
+    timeout=...)`` to block until the first event lands rather
+    than spinning on a polling loop.
+    """
+    captured = _CapturedEvents()
+    bus.add_listener(event_type, lambda event: captured.append(dict(event.data)))
+    return captured
+
+
+async def cancel_and_drain(task: asyncio.Task[Any]) -> None:
+    """Cancel *task* and await its termination, swallowing the resulting CancelledError.
+
+    Equivalent to ``task.cancel(); contextlib.suppress(...) +
+    await``, but written with :func:`asyncio.gather` so the
+    exception is captured by the gather aggregation rather than
+    propagating into the test body. Use at end-of-test cleanup
+    where the cancellation was the test's intended teardown
+    signal — not where the test asserts on the cancellation.
+    """
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
 @pytest.fixture(scope="session")
 def session_board_catalog() -> BoardCatalog:
     """Real ``BoardCatalog`` loaded once per xdist worker."""
