@@ -95,18 +95,17 @@ async def build_yaml_bundle(yaml_path: Path) -> bytes:
     (including ``CancelledError`` from the WS handler being
     cancelled mid-build).
     """
-    loop = asyncio.get_running_loop()
     # Every filesystem syscall here (``is_file`` → ``os.stat``,
+    # ``_find_esphome_cmd`` → ``Path.exists`` → ``os.stat``,
     # ``NamedTemporaryFile`` → ``os.open``, ``read_bytes`` →
     # ``os.read``, ``unlink`` → ``os.unlink``) is blocking;
     # blockbuster catches them when run on the event loop in CI.
-    # Stage them through ``run_in_executor`` so the dashboard's
-    # other tasks keep moving on slow disks.
-    if not await loop.run_in_executor(None, yaml_path.is_file):
-        msg = f"YAML not found: {yaml_path}"
-        raise FileNotFoundError(msg)
-    cmd = _find_esphome_cmd()
-    output_path = await loop.run_in_executor(None, _allocate_temp_bundle_path)
+    # Batch the upfront syscalls into one executor hop, then
+    # stage the post-subprocess read + unlink through their own
+    # hops so the dashboard's other tasks keep moving on slow
+    # disks.
+    loop = asyncio.get_running_loop()
+    cmd, output_path = await loop.run_in_executor(None, _prepare_build_bundle, yaml_path)
     try:
         result = await run_subprocess_capture(
             *cmd,
@@ -127,6 +126,19 @@ async def build_yaml_bundle(yaml_path: Path) -> bytes:
         return await loop.run_in_executor(None, output_path.read_bytes)
     finally:
         await loop.run_in_executor(None, _unlink_quietly, output_path)
+
+
+def _prepare_build_bundle(yaml_path: Path) -> tuple[list[str], Path]:
+    """Sync prep step: validate YAML exists, resolve esphome cmd, reserve temp path.
+
+    Bundles every upfront blocking syscall into one executor
+    hop. Raises :class:`FileNotFoundError` if *yaml_path*
+    doesn't exist; the WS layer maps that to NOT_FOUND.
+    """
+    if not yaml_path.is_file():
+        msg = f"YAML not found: {yaml_path}"
+        raise FileNotFoundError(msg)
+    return _find_esphome_cmd(), _allocate_temp_bundle_path()
 
 
 def _allocate_temp_bundle_path() -> Path:

@@ -1407,8 +1407,12 @@ class PeerLinkClient:
                         )
                     )
             heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
+            # Drain via ``gather(return_exceptions=True)`` rather
+            # than ``suppress(CancelledError) + await`` — suppressing
+            # CancelledError swallows any outer cancellation that
+            # arrives during the drain and breaks the propagation
+            # contract (see ``feedback_no_suppress_cancelled_error``).
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
 
     def _build_sync_frame_dispatch(
         self,

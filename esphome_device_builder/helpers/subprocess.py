@@ -102,6 +102,17 @@ async def run_subprocess_capture(
 
     No retry, no streaming — callers that need either pattern
     use :func:`create_subprocess_exec` directly.
+
+    Cancellation-safe: if the awaiting task is cancelled while
+    ``proc.communicate()`` is in flight, ``kill_quietly`` fires
+    SIGKILL and the :class:`CancelledError` re-raises
+    immediately. The dead subprocess is reaped by asyncio's
+    child watcher in the background — we deliberately don't
+    ``await proc.wait()`` here because that would either swallow
+    the second cancellation (violating
+    ``feedback_no_suppress_cancelled_error``) or stall the
+    propagation. SIGKILL'd processes exit within microseconds
+    and the watcher cleans up regardless.
     """
     proc = await create_subprocess_exec(
         *args,
@@ -114,6 +125,9 @@ async def run_subprocess_capture(
         kill_quietly(proc)
         await proc.wait()
         return CapturedSubprocess(returncode=proc.returncode, stdout=b"", timed_out=True)
+    except asyncio.CancelledError:
+        kill_quietly(proc)
+        raise
     return CapturedSubprocess(returncode=proc.returncode, stdout=stdout, timed_out=False)
 
 

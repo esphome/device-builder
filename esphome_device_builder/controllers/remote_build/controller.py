@@ -2278,11 +2278,12 @@ class RemoteBuildController:
         :class:`SubmitJobReceiver` accept path. Validates the
         request, packs the config + every referenced file
         (includes, secrets, fonts, images, …) into a gzipped
-        tarball via :class:`esphome.bundle.ConfigBundleCreator`,
-        and streams the bytes over the existing peer-link
-        session. Returns the receiver's ``submit_job_ack`` shape
-        so the frontend can render success / rejection inline;
-        live job lifecycle + output are pushed asynchronously
+        tarball via the ``esphome bundle`` CLI subprocess
+        (:func:`helpers.config_bundle.build_yaml_bundle`), and
+        streams the bytes over the existing peer-link session.
+        Returns the receiver's ``submit_job_ack`` shape so the
+        frontend can render success / rejection inline; live
+        job lifecycle + output are pushed asynchronously
         through ``OFFLOADER_JOB_STATE_CHANGED`` /
         ``OFFLOADER_JOB_OUTPUT`` events on the
         ``subscribe_events`` stream.
@@ -2298,16 +2299,19 @@ class RemoteBuildController:
         5. Peer-link client exists and a session is currently
            live.
 
-        After validation, build the bundle (``read_config`` +
-        :class:`ConfigBundleCreator` in an executor — both
-        block on disk + global ``CORE`` mutation, serialised by
-        :func:`helpers.config_bundle.build_yaml_bundle`'s
-        process-wide lock), generate a fresh ``job_id``, and
-        hand off to :meth:`PeerLinkClient.submit_job`. The
-        bundle is rebuilt every call: a stale cache would
-        ship the wrong source after the user edits a YAML, and
-        the cost of rebuilding is dominated by tar packing
-        (sub-100ms typical), not enough to amortise.
+        After validation, build the bundle by spawning
+        ``esphome bundle <yaml> -o <tmp.tar.gz>`` with a 60s
+        timeout (see
+        :func:`helpers.config_bundle.build_yaml_bundle`).
+        Subprocess instead of in-process because the CLI is the
+        stable upstream contract (the in-process
+        ``read_config`` + ``ConfigBundleCreator`` would couple
+        us to ``CORE.config_path`` + the validation pipeline,
+        both of which shift across ESPHome releases). Generate
+        a fresh ``job_id`` and hand off to
+        :meth:`PeerLinkClient.submit_job`. The bundle is
+        rebuilt every call: a stale cache would ship the wrong
+        source after the user edits a YAML.
 
         Returns:
             ``{"job_id": <our id>, "accepted": <bool>,
@@ -2317,7 +2321,11 @@ class RemoteBuildController:
 
         Raises:
             :class:`CommandError(INVALID_ARGS)` for bad inputs
-                (pin / target / configuration shape).
+                (pin / target / configuration shape) or a
+                ``esphome bundle`` non-zero exit (schema-
+                invalid YAML, missing include, malformed
+                secret — the CLI's stdout is inlined into
+                the message).
             :class:`CommandError(NOT_FOUND)` if no pairing
                 exists for *pin_sha256* or the YAML is missing
                 from ``config_dir``.
@@ -2331,8 +2339,8 @@ class RemoteBuildController:
                 and the send; the receiver may have been
                 slow under load).
             :class:`CommandError(INTERNAL_ERROR)` for
-                unexpected failures inside ``read_config`` /
-                bundle creation.
+                unexpected failures inside the bundle
+                subprocess (e.g. ``esphome`` not on PATH).
         """
         clean_pin = _validate_pin_sha256(pin_sha256)
         clean_target = _validate_submit_job_target(target)
