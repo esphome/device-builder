@@ -97,7 +97,6 @@ from ..models import (
     PeerStatus,
     PeerSummary,
     ReceiverPeers,
-    RemoteBuildHostAddedData,
     RemoteBuildHostRemovedData,
     RemoteBuildIdentityRotatedData,
     RemoteBuildPairingWindowChangedData,
@@ -985,20 +984,18 @@ class RemoteBuildController:
 
         Called from both the cache-hit and resolve-success paths;
         centralises the dict-mutation + event-fire so a future
-        TXT-only refresh doesn't accidentally skip the event.
+        TXT-only refresh doesn't accidentally skip the event. The
+        event payload is the same :meth:`RemoteBuildPeer.to_dict`
+        projection :meth:`hosts_snapshot` delivers in the
+        ``subscribe_events`` initial-state push, so a snapshot-
+        loaded row and a live-event row carry identical fields by
+        construction; adding a field to :class:`RemoteBuildPeer`
+        flows through both surfaces in lockstep without a manual
+        bookkeeping update here.
         """
         peer = _peer_from_service_info(name, info)
         self._peers[name] = peer
-        payload: RemoteBuildHostAddedData = {
-            "name": peer.name,
-            "hostname": peer.hostname,
-            "port": peer.port,
-            "source": peer.source.value,
-            "addresses": list(peer.addresses),
-            "server_version": peer.server_version,
-            "esphome_version": peer.esphome_version,
-        }
-        self._db.bus.fire(EventType.REMOTE_BUILD_HOST_ADDED, payload)
+        self._db.bus.fire(EventType.REMOTE_BUILD_HOST_ADDED, peer.to_dict())
 
     def _fire_host_removed(self, name: str) -> None:
         """Fire ``REMOTE_BUILD_HOST_REMOVED`` for *name*."""

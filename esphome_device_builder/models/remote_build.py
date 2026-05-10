@@ -14,7 +14,13 @@ from ..helpers.voluptuous_validators import lowercase_hex, not_bool
 
 class RemoteBuildPeerSource(StrEnum):
     """
-    How a peer dashboard ended up in :meth:`list_hosts`.
+    How a peer dashboard ended up in the discovered-hosts surface.
+
+    The discovered-hosts surface is
+    :meth:`RemoteBuildController.hosts_snapshot` (sync read used
+    by ``subscribe_events.initial_state.hosts``) plus the
+    matching ``REMOTE_BUILD_HOST_ADDED`` /
+    ``REMOTE_BUILD_HOST_REMOVED`` events.
 
     Today the only source is ``mdns`` — discovered via the
     ``_esphomebuilder._tcp.local.`` browse. The enum stays as a
