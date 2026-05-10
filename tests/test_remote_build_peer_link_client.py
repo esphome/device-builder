@@ -937,10 +937,12 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     # the row is gone from the pin-keyed dict (4a-o part 6).
     assert "a" * 64 not in offloader._pair_status_listeners
     # The captured task reference was cancelled by ``unpair``'s
-    # ``_cancel_pair_status_listener``; awaiting it surfaces the
-    # ``CancelledError`` from the cancel call.
-    with pytest.raises(asyncio.CancelledError):
-        await listener
+    # ``_cancel_pair_status_listener``; drain via ``gather`` so
+    # the cancellation propagates without surfacing as a test
+    # failure (same shape ``RemoteBuildController.stop()`` uses
+    # for its own cancel-and-drain).
+    await asyncio.gather(listener, return_exceptions=True)
+    assert listener.cancelled()
 
 
 @pytest.mark.asyncio
@@ -1644,8 +1646,11 @@ async def test_request_pair_repair_then_unpair_clean_state(
     )
     listener_v2 = offloader._pair_status_listeners[pin2]
     assert listener_v2 is not listener_v1
-    with pytest.raises(asyncio.CancelledError):
-        await listener_v1
+    # Drain the cancelled v1 task — same cancel-and-gather
+    # shape ``RemoteBuildController.stop()`` uses for its
+    # task-set drain.
+    await asyncio.gather(listener_v1, return_exceptions=True)
+    assert listener_v1.cancelled()
     # Re-pair under a new pin landed a new entry under pin2;
     # the sweep dropped the old entry under pin1.
     assert offloader._pairings[pin2].pin_sha256 == pin2
@@ -1653,8 +1658,8 @@ async def test_request_pair_repair_then_unpair_clean_state(
 
     # Unpair cancels listener_v2 + clears the dict.
     await offloader.unpair(pin_sha256=pin2)
-    with pytest.raises(asyncio.CancelledError):
-        await listener_v2
+    await asyncio.gather(listener_v2, return_exceptions=True)
+    assert listener_v2.cancelled()
     assert offloader._pairings == {}
     assert offloader._pair_status_listeners == {}
 
@@ -1751,16 +1756,18 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
         offloader_label="off-label",
     )
 
-    # Old listener got cancelled (cleared pin-drift exposure).
-    with pytest.raises(asyncio.CancelledError):
-        await old_listener
+    # Old listener got cancelled (cleared pin-drift exposure);
+    # drain via gather, same shape as production's
+    # ``RemoteBuildController.stop()``.
+    await asyncio.gather(old_listener, return_exceptions=True)
+    assert old_listener.cancelled()
     # New listener spawned with the fresh pairing under the new pin key.
     new_listener = offloader._pair_status_listeners.get(new_pin)
     assert new_listener is not None
     assert new_listener is not old_listener
     new_listener.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await new_listener
+    await asyncio.gather(new_listener, return_exceptions=True)
+    assert new_listener.cancelled()
     # The dict entry now holds the new pin.
     assert offloader._pairings[new_pin].pin_sha256 == new_pin
     assert summary.pin_sha256 == new_pin
