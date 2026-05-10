@@ -554,9 +554,15 @@ class SubmitJobReceiver:
         # the way out). The extracted YAML lives under
         # ``.esphome/.remote_builds/<dashboard_id>/<device_name>/``
         # inside the same config_dir, so ``relative_to`` always
-        # succeeds here.
+        # succeeds here. ``as_posix`` keeps the wire-side
+        # ``configuration`` string stable across receiver
+        # platforms — ``str(rel_yaml)`` would emit
+        # ``\\``-separated paths on Windows, drifting the
+        # ``FirmwareJob.configuration`` field's shape between a
+        # dashboard running on Linux vs Windows even though the
+        # filesystem-level join works either way.
         rel_yaml = extracted_yaml.relative_to(self._config_dir)
-        configuration = str(rel_yaml)
+        configuration = rel_yaml.as_posix()
 
         try:
             job = self._firmware._create_job(
