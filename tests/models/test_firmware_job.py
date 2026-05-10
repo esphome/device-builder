@@ -15,7 +15,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from esphome_device_builder.models.firmware import FirmwareJob, JobStatus, JobType
+import pytest
+
+from esphome_device_builder.models.firmware import (
+    FirmwareJob,
+    JobSource,
+    JobStatus,
+    JobType,
+)
 
 
 def _make_job(**overrides: Any) -> FirmwareJob:
@@ -118,3 +125,124 @@ def test_reset_preserves_job_identity() -> None:
     assert job.new_name == "livingroom"
     assert job.port == "/dev/ttyUSB0"
     assert job.created_at == "2025-12-31T23:59:59+00:00"
+
+
+def test_reset_preserves_dispatch_origin_fields() -> None:
+    """
+    All dispatch-origin fields survive ``reset()``.
+
+    A crash-and-rebuild that lost ``source`` / ``source_label``
+    would re-render the rebuild as a LOCAL job; losing
+    ``source_pin_sha256`` would strand the runner from its
+    receiver (no way back to ``download_artifacts`` /
+    ``cancel_job``); losing receiver-side ``remote_peer`` /
+    ``remote_job_id`` would strand the receiver's rebuild from
+    the offloader's correlation cache. All silent — the build
+    still completes, just attributed to the wrong dashboard.
+    """
+    job = _make_job(
+        status=JobStatus.RUNNING,
+        source=JobSource.REMOTE,
+        source_pin_sha256="a" * 64,
+        source_label="desktop",
+        remote_peer="alpha-dashboard-id",
+        remote_job_id="offloader-job-7",
+    )
+
+    job.reset()
+
+    assert job.source is JobSource.REMOTE
+    assert job.source_pin_sha256 == "a" * 64
+    assert job.source_label == "desktop"
+    assert job.remote_peer == "alpha-dashboard-id"
+    assert job.remote_job_id == "offloader-job-7"
+
+
+# ---------------------------------------------------------------------------
+# JobSource / source / source_label
+# ---------------------------------------------------------------------------
+
+
+def test_source_defaults_to_local() -> None:
+    """
+    A freshly-constructed :class:`FirmwareJob` is ``LOCAL`` with no label.
+
+    The default matches every job-row written before this
+    field existed — older sidecars deserialise as "this
+    dashboard's CPU compiled it", which is what they actually
+    represent.
+    """
+    job = _make_job()
+    assert job.source is JobSource.LOCAL
+    assert job.source_label == ""
+
+
+def test_remote_source_round_trips_through_serialisation() -> None:
+    """
+    A REMOTE-source job survives a mashumaro serialise / deserialise cycle.
+
+    Pins the persistence contract: a dashboard restart can't
+    reattribute a REMOTE job to local or lose the receiver
+    handle the runner needs to route
+    ``download_artifacts`` / ``cancel_job`` against on the
+    rebuild.
+    """
+    job = _make_job(
+        source=JobSource.REMOTE,
+        source_pin_sha256="a" * 64,
+        source_label="desktop",
+    )
+
+    raw = job.to_json()
+    restored = FirmwareJob.from_json(raw)
+
+    assert restored.source is JobSource.REMOTE
+    assert restored.source_pin_sha256 == "a" * 64
+    assert restored.source_label == "desktop"
+
+
+def test_older_sidecar_without_source_field_loads_as_local() -> None:
+    """
+    A job-row serialised without the new fields deserialises to LOCAL defaults.
+
+    A field-missing crash on the persistence-load path would
+    strand every prior job from the firmware-tasks list on the
+    next dashboard start.
+    """
+    # Hand-crafted minimal job shape with no source /
+    # source_pin_sha256 / source_label keys — mirrors what an
+    # older firmware-jobs sidecar would have on disk.
+    raw = (
+        '{"job_id": "old-job-1", '
+        '"configuration": "kitchen.yaml", '
+        '"job_type": "compile", '
+        '"status": "completed", '
+        '"created_at": "2025-12-31T23:59:59+00:00"}'
+    )
+
+    restored = FirmwareJob.from_json(raw)
+
+    assert restored.job_id == "old-job-1"
+    assert restored.source is JobSource.LOCAL
+    assert restored.source_pin_sha256 == ""
+    assert restored.source_label == ""
+
+
+def test_malformed_source_value_rejected_on_load() -> None:
+    """
+    A sidecar carrying an unknown ``source`` string fails to deserialise.
+
+    Surfaces a corrupt-write / version-skew at the
+    persistence-load boundary rather than letting an unknown
+    value ride through into code that branches on
+    ``is JobSource.REMOTE``.
+    """
+    raw = (
+        '{"job_id": "j-1", '
+        '"configuration": "kitchen.yaml", '
+        '"job_type": "compile", '
+        '"source": "intergalactic"}'
+    )
+
+    with pytest.raises(ValueError):
+        FirmwareJob.from_json(raw)

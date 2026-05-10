@@ -40,6 +40,21 @@ class JobType(StrEnum):
     RENAME = "rename"
 
 
+class JobSource(StrEnum):
+    """
+    Where a :class:`FirmwareJob`'s bytes come from.
+
+    ``LOCAL`` is a build this dashboard's CPU ran. ``REMOTE``
+    is a build a paired receiver ran and this dashboard
+    fetched the artifacts from. Distinct from
+    :class:`JobType` ("what operation: compile / upload /
+    install"); ``source`` answers "who did the compile."
+    """
+
+    LOCAL = "local"
+    REMOTE = "remote"
+
+
 # Terminal job states — a job in any of these isn't running and
 # isn't waiting to run.
 TERMINAL_JOB_STATUSES: frozenset[JobStatus] = frozenset(
@@ -99,6 +114,37 @@ class FirmwareJob(DataClassORJSONMixin):
     # offloader matches against its own submit-tagged id, not
     # the receiver's local one.
     remote_job_id: str = ""
+    # Where the build's bytes come from. The offloader-side
+    # firmware-queue runner branches on this to choose its
+    # pipeline (local subprocess vs peer-link dispatch).
+    # Defaults to LOCAL so on-disk jobs from before this field
+    # existed deserialise correctly. Distinct from
+    # ``remote_peer`` / ``remote_job_id`` — those are
+    # receiver-side, set when a receiver picks up an
+    # offloader's ``submit_job``; ``source`` / ``source_pin_sha256``
+    # / ``source_label`` are the offloader-side fields for the
+    # same delegation seen from the dispatching dashboard.
+    source: JobSource = JobSource.LOCAL
+    # Machine-readable handle on the receiver that compiled
+    # this job, when ``source == REMOTE``. Matches
+    # :attr:`StoredPairing.pin_sha256` — the stable
+    # cryptographic identity, NOT the user-mutable display
+    # label. Load-bearing for restart recovery: the runner
+    # picks up an in-progress REMOTE job after a dashboard
+    # restart and needs to know which receiver to query /
+    # cancel / download from, and
+    # ``RemoteBuildController._open_peer_links`` is RAM-only
+    # so the mapping can't be reconstructed otherwise.
+    source_pin_sha256: str = ""
+    # Display label for the paired receiver that compiled this
+    # job, when ``source == REMOTE``. Empty for ``LOCAL`` jobs.
+    # Snapshot of :attr:`StoredPairing.label` at job-creation
+    # time — doesn't track later renames of the pairing label
+    # (the timeline the user saw when they clicked Install is
+    # what they expect to see in the log). Lookups go through
+    # ``source_pin_sha256``; ``source_label`` is purely for
+    # rendering.
+    source_label: str = ""
 
     def reset(self) -> None:
         """
@@ -128,8 +174,10 @@ class FirmwareJob(DataClassORJSONMixin):
           target).
         - **Preserves identity** — ``configuration`` /
           ``job_type`` / ``port`` / ``new_name`` / ``created_at``
-          / ``job_id`` describe the job rather than the run, so
-          they stay intact.
+          / ``job_id`` / ``source`` / ``source_pin_sha256`` /
+          ``source_label`` / ``remote_peer`` / ``remote_job_id``
+          describe the job rather than the run, so they stay
+          intact.
         """
         self.output = [*self.output, _RECOVERY_NOTICE]
         self.progress = None
