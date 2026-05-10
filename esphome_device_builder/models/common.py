@@ -153,6 +153,27 @@ class EventType(StrEnum):
     # do NOT fire the event.
     REMOTE_BUILD_PAIRING_WINDOW_CHANGED = "remote_build_pairing_window_changed"
 
+    # An mDNS-discovered peer dashboard appeared (or its TXT /
+    # SRV info was refreshed). Payload: a full
+    # :class:`RemoteBuildPeer` dict. The receiver-side controller
+    # holds the discovered set in RAM (``self._peers``) and fires
+    # this event from ``_on_service_state_change`` /
+    # ``_resolve_and_apply`` whenever the row is upserted; the
+    # frontend's pair-dialog "discovered dashboards" list mutates
+    # against this stream rather than re-polling. The
+    # ``subscribe_events`` initial-state push carries the full
+    # current set under ``hosts`` so a fresh tab paints without a
+    # round-trip.
+    REMOTE_BUILD_HOST_ADDED = "remote_build_host_added"
+
+    # An mDNS-discovered peer dashboard left the LAN (zeroconf
+    # ``Removed`` callback — TTL expiry without renewal, or an
+    # explicit goodbye). Payload: ``{name: str}`` matching the
+    # service-instance name carried on the corresponding
+    # ``REMOTE_BUILD_HOST_ADDED`` event. The frontend drops the
+    # row from its discovered set on this event.
+    REMOTE_BUILD_HOST_REMOVED = "remote_build_host_removed"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.

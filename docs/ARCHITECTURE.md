@@ -68,7 +68,7 @@ esphome_device_builder/
 | Automations | Context-aware triggers + actions |
 | Config | Version, serial ports, preferences, secrets |
 | Onboarding | First-run setup state (welcome flow, default secrets, sample device) |
-| RemoteBuild | mDNS browse + manual host entry + token store + first-use binding for the remote-build offload feature (issue #106) |
+| RemoteBuild | mDNS browse + Noise XX peer-link pair / unpair / pair-status flows for the remote-build offload feature (issue #106) |
 | Built-in | ping, subscribe_events |
 
 ## Event bus
@@ -160,7 +160,7 @@ The shape *not* to use on new code: `list_X` WS command read once on mount, re-f
 - **Cross-tab desync.** A second tab mutating state never reaches the first tab unless the first tab re-polls; subscribers on the same dashboard see different worlds.
 - **Round-trip overhead.** Every mutation pays a follow-up list-fetch the events were already going to deliver. On a cold tab the first paint is gated on the round-trip.
 
-Carve-outs that are *not* state-surfaces and stay RPC: `remote_build/list_hosts` (transient mDNS browse output, no per-row events make sense) and `devices/list_archived` (cold archive directory listing, dedicated screen, read-once). `labels/list` is the middle-ground holdover — snapshot-fetch-then-events rather than full subscribe-driven; new code should land through `initial_state` rather than copy that shape.
+Carve-outs that are *not* state-surfaces and stay RPC: `devices/list_archived` (cold archive directory listing, dedicated screen, read-once). `labels/list` is the middle-ground holdover — snapshot-fetch-then-events rather than full subscribe-driven; new code should land through `initial_state` rather than copy that shape.
 
 ## Firmware Job Queue
 
@@ -268,7 +268,7 @@ Two mDNS surfaces ride the same `AsyncEsphomeZeroconf` instance the device state
 
 **Devices** (`_esphomelib._tcp.local.`) — passive browse. ESPHome devices broadcast on this service type; `DeviceStateMonitor`'s browser callback turns `Added` / `Updated` / `Removed` events into ONLINE / OFFLINE state transitions and TXT-driven config-hash / version / api-encryption updates. See "Two mDNS paths with different OFFLINE semantics" in [CLAUDE.md](../CLAUDE.md) for the asymmetric trust rules between the browser callback and the one-off active-resolve path.
 
-**Dashboards** (`_esphomebuilder._tcp.local.`) — bidirectional. The dashboard advertises its own service instance on startup (skipped in HA-addon mode by default; the addon container's docker IP isn't LAN-routable). TXT carries `server_version` + `esphome_version` always; `pin_sha256` + `remote_build_port` are added when the remote-build receiver site is bound. Browse runs in `RemoteBuildController`, populates `remote_build/list_hosts`, and merges with manually-added `(hostname, port)` rows from `_remote_build.manual_hosts`.
+**Dashboards** (`_esphomebuilder._tcp.local.`) — bidirectional. The dashboard advertises its own service instance on startup (skipped in HA-addon mode by default; the addon container's docker IP isn't LAN-routable). TXT carries `server_version` + `esphome_version` always; `pin_sha256` + `remote_build_port` are added when the remote-build receiver site is bound. Browse runs in `RemoteBuildController` and populates `self._peers`; a sync `hosts_snapshot()` seeds the `subscribe_events` initial-state push under `hosts` and the browser's `_on_service_state_change` / `_resolve_and_apply` callbacks fire `remote_build_host_added` / `remote_build_host_removed` events as dashboards come and go. Cross-subnet peers (the LAN's mDNS doesn't reach them) bypass discovery entirely — the pair dialog accepts a typed `hostname` / `port` and `request_pair` either succeeds or fails.
 
 The 15-character RFC 6335 §5.1 cap on service-type labels is why the new type is `_esphomebuilder` (14 chars) rather than `_esphomedashboard` (16, would be truncated). Keeps the `_esphome*` prefix consistent with the existing device service type.
 
@@ -378,8 +378,9 @@ The dashboard writes a small set of files into `<config_dir>` and treats them as
 
 | File | Sensitivity | Mode |
 |---|---|---|
-| `.device-builder.json` | Mostly identifier-only (`dashboard_id`, `_remote_build.enabled`, `manual_hosts`, `peers[]`). The `peers[]` rows carry the offloader's `pin_sha256` (X25519 pubkey hash) and `static_x25519_pub` — neither is secret on its own, but a reader of the sidecar can enumerate which `dashboard_id`s have paired. | umask default |
-| `.offloader_pairings.json` | Offloader-side pinned receivers (`StoredPairing` rows: `(receiver_hostname, receiver_port, pin_sha256, static_x25519_pub, label, paired_at, status)`). Owned by `helpers.storage.Store` with debounced writes; only APPROVED rows ever reach disk (PENDING is filtered out at serialise time). Same secret-equivalent shape as the receiver's `peers[]`: a reader can enumerate which receivers this offloader has paired with, but neither pin nor pubkey is secret on its own. | 0o600 enforced at write time (default for `Store`) |
+| `.device-builder.json` | Mostly identifier-only (`dashboard_id`, `_remote_build.enabled`). | umask default |
+| `.receiver_peers.json` | Receiver-side pinned offloaders (`StoredPeer` rows: `(dashboard_id, pin_sha256, static_x25519_pub, label, paired_at)`). Owned by `helpers.storage.Store` with debounced writes; only APPROVED rows ever reach disk (PENDING lives in `_pending_peers` and is bounded by the pairing window). A reader can enumerate which `dashboard_id`s have paired with this receiver, but neither pin nor pubkey is secret on its own. | 0o600 enforced at write time (default for `Store`) |
+| `.offloader_pairings.json` | Offloader-side pinned receivers (`StoredPairing` rows: `(receiver_hostname, receiver_port, pin_sha256, static_x25519_pub, label, paired_at, status)`). Owned by `helpers.storage.Store` with debounced writes; only APPROVED rows ever reach disk (PENDING is filtered out at serialise time). Same secret-equivalent shape as the receiver's `.receiver_peers.json`: a reader can enumerate which receivers this offloader has paired with, but neither pin nor pubkey is secret on its own. | 0o600 enforced at write time (default for `Store`) |
 | `.device-builder-cert.pem` | Public TLS cert (self-signed at first start). Dormant for transport post-pivot — the listener uses Noise XX (X25519) for transport security; the cert is now read only for `get_identity`'s `pin_sha256` field, which still reports the cert SPKI fingerprint until phase 4b+ swaps it for the X25519 peer-link pin. Not sensitive. | mkstemp default (0o600) |
 | `.device-builder-key.pem` | **Private TLS key for the self-signed dashboard cert. Sensitive.** Currently dormant for transport (Noise XX uses X25519 instead), but a reader of this file could impersonate the dashboard to any consumer that started using the cert again. The cert + key get rotated as a unit by `rotate_certificate`, which also tears down + rebuilds the listener (a side-effect that reloads the X25519 peer-link identity from disk). | 0o600 enforced at write time |
 | `.device-builder-peer-link-key.bin` | **Private X25519 peer-link key. Sensitive.** A reader of this file can impersonate the dashboard to any paired peer over the Noise XX handshake — this is the load-bearing transport-security key post-pivot. | 0o600 enforced at write time |

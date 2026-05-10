@@ -244,6 +244,63 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     await asyncio.gather(handler_task, return_exceptions=True)
 
 
+async def test_subscribe_events_includes_hosts_snapshot_in_initial_state() -> None:
+    """``_send_initial`` includes the mDNS-discovered hosts snapshot.
+
+    Receiver-side mDNS discovery is RAM-only and never persisted;
+    the frontend's pair-dialog "discovered dashboards" list seeds
+    from this snapshot and mutates against
+    ``REMOTE_BUILD_HOST_ADDED`` / ``REMOTE_BUILD_HOST_REMOVED``
+    events instead of the deleted ``remote_build/list_hosts``
+    command.
+    """
+    db = DeviceBuilder.__new__(DeviceBuilder)
+    db.bus = EventBus()
+    db.subscriber_presence = SubscriberPresence()
+    db.devices = None
+    host = MagicMock()
+    host.to_dict = lambda: {
+        "name": "build.local",
+        "hostname": "build.local",
+        "port": 6055,
+        "source": "mdns",
+        "addresses": ["192.168.1.10"],
+        "server_version": "1.0",
+        "esphome_version": "2026.5.0",
+    }
+    remote_build = MagicMock()
+    remote_build.pairings_snapshot = MagicMock(return_value=[])
+    remote_build.peers_snapshot = MagicMock(return_value=[])
+    remote_build.hosts_snapshot = MagicMock(return_value=[host])
+    db.remote_build = remote_build
+
+    client = FakeWebSocketClient()
+    handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if client.events:
+            break
+
+    initial_events = [e for e in client.events if e[1] == "initial_state"]
+    assert len(initial_events) == 1
+    _, _, payload = initial_events[0]
+    assert payload["hosts"] == [
+        {
+            "name": "build.local",
+            "hostname": "build.local",
+            "port": 6055,
+            "source": "mdns",
+            "addresses": ["192.168.1.10"],
+            "server_version": "1.0",
+            "esphome_version": "2026.5.0",
+        }
+    ]
+    remote_build.hosts_snapshot.assert_called_once()
+
+    handler_task.cancel()
+    await asyncio.gather(handler_task, return_exceptions=True)
+
+
 async def test_subscribe_events_listener_forwards_bus_events() -> None:
     """While parked, fired bus events reach the client as send_event calls.
 

@@ -90,7 +90,6 @@ from ..models import (
     EventType,
     IdentityView,
     IntentResponse,
-    ManualHost,
     OffloaderPairStatusChangedData,
     OffloaderRemoteBuildSettings,
     PairingSummary,
@@ -98,6 +97,8 @@ from ..models import (
     PeerStatus,
     PeerSummary,
     ReceiverPeers,
+    RemoteBuildHostAddedData,
+    RemoteBuildHostRemovedData,
     RemoteBuildIdentityRotatedData,
     RemoteBuildPairingWindowChangedData,
     RemoteBuildPairRequestReceivedData,
@@ -238,43 +239,18 @@ def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPee
     )
 
 
-def _peer_from_manual_host(entry: ManualHost) -> RemoteBuildPeer:
-    """
-    Build a :class:`RemoteBuildPeer` from a stored :class:`ManualHost`.
-
-    Manual hosts skip resolution; phase 2b just surfaces the
-    user-entered ``(hostname, port)`` so the frontend can render
-    the row alongside mDNS-discovered ones. Phase 4 attempts the
-    actual connection and fills the version fields.
-
-    ``name`` is the hostname verbatim (rather than the leftmost
-    label) so an IP-only entry still reads sensibly in the UI;
-    the frontend can render a "Manual" badge to distinguish it
-    from an mDNS-discovered row.
-    """
-    return RemoteBuildPeer(
-        name=entry.hostname,
-        hostname=entry.hostname,
-        port=entry.port,
-        source=RemoteBuildPeerSource.MANUAL,
-    )
-
-
 _HOSTNAME_MAX_CHARS = 255  # RFC 1035 §2.3.4 caps a FQDN at 253; round up to 255.
 
 
 class _HostFieldContext(StrEnum):
     """Error-message prefix for the shared host / port validators.
 
-    The same ``_validate_hostname`` / ``_validate_port`` pair gates
-    both the receiver-side ``add_manual_host`` surface and the
-    offloader-side ``preview_pair`` / ``request_pair`` flow.
-    Hardcoding ``"manual host:"`` in the error messages would leak
-    misleading diagnostics into the WS layer when a frontend bug
-    sends a bad ``hostname`` to ``request_pair`` ("manual host:
-    'hostname' must not be empty" — but the user wasn't editing
-    a manual host). Pick the right prefix at the call site
-    instead.
+    The same ``_validate_hostname`` / ``_validate_port`` pair
+    gates the offloader-side ``preview_pair`` / ``request_pair``
+    flow and any future receiver-side host-input surface.
+    Hardcoding a single prefix in the error messages would leak
+    misleading diagnostics into the WS layer; pick the right
+    prefix at the call site instead.
 
     StrEnum values are the message prefix verbatim; new call sites
     that want a distinct user-facing string add a new enum member
@@ -282,7 +258,6 @@ class _HostFieldContext(StrEnum):
     grep-able and don't drift).
     """
 
-    MANUAL_HOST = "manual host"
     RECEIVER = "receiver"
 
 
@@ -303,7 +278,7 @@ class _PairLabelField(StrEnum):
 
 
 def _validate_hostname(
-    raw: object, *, context: _HostFieldContext = _HostFieldContext.MANUAL_HOST
+    raw: object, *, context: _HostFieldContext = _HostFieldContext.RECEIVER
 ) -> str:
     """
     Normalise a user-entered hostname to its canonical lowercase form.
@@ -574,9 +549,7 @@ def _validate_dashboard_id(raw: object) -> str:
     return cleaned
 
 
-def _validate_port(
-    raw: object, *, context: _HostFieldContext = _HostFieldContext.MANUAL_HOST
-) -> int:
+def _validate_port(raw: object, *, context: _HostFieldContext = _HostFieldContext.RECEIVER) -> int:
     """
     Validate a user-entered port number.
 
@@ -966,20 +939,31 @@ class RemoteBuildController:
         """
         Browser callback; resolve the service info and update the peer map.
 
-        Filters our own service-instance name so the advertise we
-        publish doesn't show up in ``list_hosts``. ``Removed`` events
-        delete the peer immediately; ``Added`` / ``Updated`` resolve
-        either from the zeroconf cache (sync) or via a fire-and-forget
-        task (async).
+        Filters our own service-instance name so we don't surface
+        our own advertise as a discovered host. ``Removed`` events
+        delete the peer immediately and fire
+        :attr:`EventType.REMOTE_BUILD_HOST_REMOVED`; ``Added`` /
+        ``Updated`` resolve either from the zeroconf cache (sync,
+        fires :attr:`EventType.REMOTE_BUILD_HOST_ADDED` inline) or
+        via a fire-and-forget task (async, fires from
+        :meth:`_resolve_and_apply` once the SRV / TXT round-trip
+        completes).
         """
         if name == self._own_instance_name:
             return
         if state_change == ServiceStateChange.Removed:
-            self._peers.pop(name, None)
+            popped = self._peers.pop(name, None)
+            if popped is not None:
+                # Event keys on the wire-friendly ``peer.name``
+                # (leftmost label) so frontend dicts keyed on the
+                # ``RemoteBuildPeer.name`` field upsert/delete
+                # consistently. The FQDN ``name`` is the
+                # ``self._peers`` dict key only.
+                self._fire_host_removed(popped.name)
             return
         info = AsyncServiceInfo(service_type, name)
         if info.load_from_cache(zeroconf):
-            self._peers[name] = _peer_from_service_info(name, info)
+            self._upsert_host(name, info)
             return
         task = asyncio.create_task(self._resolve_and_apply(zeroconf, info, name))
         self._tasks.add(task)
@@ -994,40 +978,50 @@ class RemoteBuildController:
             return
         if not resolved:
             return
-        self._peers[name] = _peer_from_service_info(name, info)
+        self._upsert_host(name, info)
+
+    def _upsert_host(self, name: str, info: AsyncServiceInfo) -> None:
+        """Replace the row keyed on *name* and fire ``REMOTE_BUILD_HOST_ADDED``.
+
+        Called from both the cache-hit and resolve-success paths;
+        centralises the dict-mutation + event-fire so a future
+        TXT-only refresh doesn't accidentally skip the event.
+        """
+        peer = _peer_from_service_info(name, info)
+        self._peers[name] = peer
+        payload: RemoteBuildHostAddedData = {
+            "name": peer.name,
+            "hostname": peer.hostname,
+            "port": peer.port,
+            "source": peer.source.value,
+            "addresses": list(peer.addresses),
+            "server_version": peer.server_version,
+            "esphome_version": peer.esphome_version,
+        }
+        self._db.bus.fire(EventType.REMOTE_BUILD_HOST_ADDED, payload)
+
+    def _fire_host_removed(self, name: str) -> None:
+        """Fire ``REMOTE_BUILD_HOST_REMOVED`` for *name*."""
+        payload: RemoteBuildHostRemovedData = {"name": name}
+        self._db.bus.fire(EventType.REMOTE_BUILD_HOST_REMOVED, payload)
+
+    def hosts_snapshot(self) -> list[RemoteBuildPeer]:
+        """Return the current mDNS-discovered hosts.
+
+        Pure synchronous read of ``self._peers`` — no executor
+        hop, no disk read. Mirrors ``pairings_snapshot`` /
+        ``peers_snapshot``: the snapshot seeds the
+        ``subscribe_events`` initial-state push so a fresh tab
+        paints without a round-trip; live updates flow from
+        :attr:`EventType.REMOTE_BUILD_HOST_ADDED` /
+        :attr:`EventType.REMOTE_BUILD_HOST_REMOVED` events fired
+        by the mDNS callbacks above.
+        """
+        return list(self._peers.values())
 
     # ------------------------------------------------------------------
     # API surface
     # ------------------------------------------------------------------
-
-    @api_command("remote_build/list_hosts")
-    async def list_hosts(self, **kwargs: Any) -> list[RemoteBuildPeer]:
-        """
-        Return every peer dashboard known to this receiver.
-
-        Merges two sources into a single snapshot:
-
-        * mDNS-discovered peers from the browser (``source=MDNS``,
-          full version + address info).
-        * Manually-added peers from
-          ``_remote_build.manual_hosts`` (``source=MANUAL``, blank
-          version fields until phase 4 fills them in).
-
-        Manual hosts are placed AFTER mDNS hits so the UI's
-        primary content is the auto-discovered list. A
-        manually-added entry that's also reachable via mDNS shows
-        up twice for now (once per source); phase 4's pairing
-        flow will introduce the deduplication logic alongside the
-        actual connection attempt.
-        """
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
-        )
-        return [
-            *self._peers.values(),
-            *(_peer_from_manual_host(entry) for entry in settings.manual_hosts),
-        ]
 
     @api_command("remote_build/get_settings")
     async def get_settings(self, **kwargs: Any) -> RemoteBuildSettingsView:
@@ -1044,15 +1038,12 @@ class RemoteBuildController:
         The peer list is RAM-canonical: PENDING entries live in
         ``self._pending_peers`` for the active pairing window's
         lifetime (never hit disk) and APPROVED entries live in
-        ``self._approved_peers``, mirrored from the metadata
-        sidecar at :meth:`start` and kept in lockstep with the
-        sidecar by :meth:`approve_peer` / :meth:`remove_peer`.
-        ``settings`` is still consulted for ``enabled`` and
-        ``manual_hosts``.
+        ``self._approved_peers`` / its per-file ``Store``.
+        ``settings`` is consulted for the master ``enabled``
+        toggle.
         """
         return RemoteBuildSettingsView(
             enabled=settings.enabled,
-            manual_hosts=list(settings.manual_hosts),
             peers=self._peer_summaries(),
         )
 
@@ -1154,71 +1145,6 @@ class RemoteBuildController:
         view = await self._modify_settings(_set)
         await self._db.apply_remote_build_enabled()
         return view
-
-    # ------------------------------------------------------------------
-    # Manual hosts (phase 2b)
-    # ------------------------------------------------------------------
-
-    @api_command("remote_build/add_manual_host")
-    async def add_manual_host(
-        self, *, hostname: str, port: int, **kwargs: Any
-    ) -> RemoteBuildSettingsView:
-        """
-        Add a manually-entered peer for cross-subnet / non-mDNS LANs.
-
-        Validates ``hostname`` (non-empty string, normalised to
-        lowercase per RFC 1035 §2.3.3) and ``port`` (integer,
-        1-65535). Rejects duplicates by ``(hostname, port)``:
-        adding the same pair twice raises ``ALREADY_EXISTS`` so
-        the frontend can render a "this dashboard is already in
-        your list" message without string-matching the details
-        field.
-
-        Returns the post-write settings so the caller can re-render
-        the manual-hosts list without a separate ``get_settings``
-        round-trip.
-        """
-        host = _validate_hostname(hostname)
-        port_num = _validate_port(port)
-
-        def _add(settings: RemoteBuildSettings) -> None:
-            for entry in settings.manual_hosts:
-                if entry.hostname == host and entry.port == port_num:
-                    msg = f"manual host {host}:{port_num} is already registered"
-                    raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
-            settings.manual_hosts.append(ManualHost(hostname=host, port=port_num))
-
-        return await self._modify_settings(_add)
-
-    @api_command("remote_build/remove_manual_host")
-    async def remove_manual_host(
-        self, *, hostname: str, port: int, **kwargs: Any
-    ) -> RemoteBuildSettingsView:
-        """
-        Remove a previously-added manual peer.
-
-        Hostname normalisation matches :meth:`add_manual_host` so a
-        case-different removal request finds the entry. A
-        non-existent ``(hostname, port)`` pair raises
-        ``NOT_FOUND`` so the caller knows the operation was a no-op
-        rather than silently succeeding (matters for the
-        Settings UI: "Removed Foo" toast vs no feedback).
-        """
-        host = _validate_hostname(hostname)
-        port_num = _validate_port(port)
-
-        def _remove(settings: RemoteBuildSettings) -> None:
-            kept = [
-                entry
-                for entry in settings.manual_hosts
-                if not (entry.hostname == host and entry.port == port_num)
-            ]
-            if len(kept) == len(settings.manual_hosts):
-                msg = f"manual host {host}:{port_num} is not registered"
-                raise CommandError(ErrorCode.NOT_FOUND, msg)
-            settings.manual_hosts = kept
-
-        return await self._modify_settings(_remove)
 
     # ------------------------------------------------------------------
     # Offloader-side pair flow (phase 4a-o) — initiator commands that

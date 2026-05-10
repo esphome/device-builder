@@ -16,31 +16,15 @@ class RemoteBuildPeerSource(StrEnum):
     """
     How a peer dashboard ended up in :meth:`list_hosts`.
 
-    ``mdns``: discovered via the ``_esphomebuilder._tcp.local.``
-    browse. ``manual``: added by the user via
-    ``remote_build/add_manual_host`` for cross-subnet or
-    non-multicast LANs where mDNS doesn't reach but L3 unicast
-    does.
+    Today the only source is ``mdns`` — discovered via the
+    ``_esphomebuilder._tcp.local.`` browse. The enum stays as a
+    discriminator on :class:`RemoteBuildPeer` for cross-subnet
+    pair flows that bypass mDNS by typing the hostname / port
+    directly into ``request_pair`` (no intermediate "save this
+    host" step needed; the pair either succeeds or doesn't).
     """
 
     MDNS = "mdns"
-    MANUAL = "manual"
-
-
-@dataclass
-class ManualHost(DataClassORJSONMixin):
-    """
-    A user-supplied peer entry stored in the metadata sidecar.
-
-    Persisted under ``_remote_build.manual_hosts``; merged into
-    :meth:`list_hosts` output as a :class:`RemoteBuildPeer` row
-    with ``source=MANUAL`` and empty version fields. Phase 2b does
-    no version / fingerprint resolution; phase 4 attempts the
-    connection and fills the version fields in.
-    """
-
-    hostname: str
-    port: int
 
 
 class PeerStatus(StrEnum):
@@ -265,6 +249,42 @@ class RemoteBuildPairingWindowChangedData(TypedDict):
 
     open: bool
     expires_in_seconds: float | None
+
+
+class RemoteBuildHostAddedData(TypedDict):
+    """
+    Payload for ``EventType.REMOTE_BUILD_HOST_ADDED``.
+
+    Carries the full :class:`RemoteBuildPeer` projection of an
+    mDNS-discovered (or refreshed) peer dashboard. Fires from
+    :meth:`RemoteBuildController._on_service_state_change`'s
+    cache-hit branch and the asynchronous
+    :meth:`_resolve_and_apply` resolve-success branch. Upsert
+    semantics — the frontend keys the discovered-hosts list on
+    ``name`` (the mDNS service-instance name) and replaces an
+    existing row with the same key when this event fires.
+    """
+
+    name: str
+    hostname: str
+    port: int
+    source: str
+    addresses: list[str]
+    server_version: str
+    esphome_version: str
+
+
+class RemoteBuildHostRemovedData(TypedDict):
+    """
+    Payload for ``EventType.REMOTE_BUILD_HOST_REMOVED``.
+
+    Fires when zeroconf delivers a ``Removed`` event (TTL expiry
+    without renewal, or an explicit goodbye). ``name`` matches
+    the ``name`` field of the corresponding
+    :class:`RemoteBuildHostAddedData`.
+    """
+
+    name: str
 
 
 @dataclass
@@ -578,23 +598,21 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     Receiver-side settings for the remote-build feature (storage shape).
 
     Stored in ``.device-builder.json`` under the ``_remote_build``
-    top-level key. Carries the master ``enabled`` toggle and the
-    ``manual_hosts`` list (cross-subnet / non-mDNS peers the user
-    typed in by hand). APPROVED :class:`StoredPeer` rows used to
-    live here under a ``peers`` field; that moved to its own
+    top-level key. Carries only the master ``enabled`` toggle
+    today. APPROVED :class:`StoredPeer` rows live in their own
     per-file :class:`~helpers.storage.Store` at
     ``<config_dir>/.receiver_peers.json`` (mirrors the offloader-
     side :class:`OffloaderRemoteBuildSettings` shape) so reads
     short-circuit through RAM and don't race a write in flight.
-    Legacy ``peers`` entries on older sidecars are silently
-    ignored at load time. The shape used to also persist a
-    ``tokens`` list (issued bearer tokens, hash-only); that field
-    was deleted in phase 4a-r2 along with the rest of the dormant
-    bearer machinery.
+    Legacy ``peers`` and ``manual_hosts`` entries on older
+    sidecars are silently ignored at load time — the
+    ``manual_hosts`` flow was removed once the pair dialog
+    started typing hostnames straight into ``request_pair``, and
+    the ``tokens`` list (hash-only bearer tokens) went with the
+    dormant bearer machinery in phase 4a-r2.
     """
 
     enabled: bool = False
-    manual_hosts: list[ManualHost] = field(default_factory=list)
 
 
 @dataclass
@@ -615,7 +633,6 @@ class RemoteBuildSettingsView(DataClassORJSONMixin):
     """
 
     enabled: bool = False
-    manual_hosts: list[ManualHost] = field(default_factory=list)
     peers: list[PeerSummary] = field(default_factory=list)
 
 

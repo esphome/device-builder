@@ -178,11 +178,10 @@ def test_dashboard_id_survives_other_remote_build_mutations(tmp_path: Path) -> N
     """
     identity = get_or_create_identity(tmp_path)
 
-    # Simulate phase 2 / 2b writing other fields under the same key.
+    # Simulate another phase writing other fields under the same key.
     metadata_path = tmp_path / ".device-builder.json"
     data = json.loads(metadata_path.read_bytes())
     data["_remote_build"]["enabled"] = True
-    data["_remote_build"]["manual_hosts"] = [{"hostname": "10.0.0.5", "port": 6052}]
     metadata_path.write_bytes(json.dumps(data).encode())
 
     # Re-read the identity; dashboard_id still there.
@@ -200,13 +199,12 @@ def test_rotation_after_id_only_mutation(tmp_path: Path) -> None:
     must merge into that rather than replacing the whole key.
     """
     metadata_path = tmp_path / ".device-builder.json"
-    metadata_path.write_bytes(b'{"_remote_build": {"enabled": true, "manual_hosts": []}}')
+    metadata_path.write_bytes(b'{"_remote_build": {"enabled": true}}')
 
     identity = get_or_create_identity(tmp_path)
     metadata = _read_metadata(tmp_path)
     assert metadata["_remote_build"]["dashboard_id"] == identity.dashboard_id
     assert metadata["_remote_build"]["enabled"] is True
-    assert metadata["_remote_build"]["manual_hosts"] == []
 
 
 def test_corrupt_metadata_does_not_block_generation(tmp_path: Path) -> None:

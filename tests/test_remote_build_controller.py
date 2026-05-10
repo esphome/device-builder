@@ -32,7 +32,6 @@ from esphome_device_builder.controllers.remote_build import (
     _intent_response_to_command_error,
     _pairing_summary,
     _PairLabelField,
-    _peer_from_manual_host,
     _peer_from_service_info,
     _validate_hostname,
     _validate_pair_label,
@@ -47,7 +46,6 @@ from esphome_device_builder.models import (
     EventType,
     IdentityView,
     IntentResponse,
-    ManualHost,
     OffloaderRemoteBuildSettings,
     PairingSummary,
     PeerStatus,
@@ -221,8 +219,9 @@ def test_on_service_state_change_filters_own_advertise(tmp_path: Path) -> None:
 def test_on_service_state_change_removed_drops_peer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A ``Removed`` event clears the peer entry immediately."""
+    """A ``Removed`` event clears the peer entry and fires ``REMOTE_BUILD_HOST_REMOVED``."""
     controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
     controller._peers[f"desktop.{SERVICE_TYPE}"] = RemoteBuildPeer(
         name="desktop",
         hostname="desktop.local.",
@@ -233,14 +232,38 @@ def test_on_service_state_change_removed_drops_peer(
         MagicMock(), SERVICE_TYPE, f"desktop.{SERVICE_TYPE}", ServiceStateChange.Removed
     )
     assert controller._peers == {}
+    # Event keys on the wire-friendly label (matches
+    # ``RemoteBuildPeer.name``), not the FQDN dict key.
+    controller._db.bus.fire.assert_called_once_with(
+        EventType.REMOTE_BUILD_HOST_REMOVED,
+        {"name": "desktop"},
+    )
+
+
+def test_on_service_state_change_removed_unknown_does_not_fire(tmp_path: Path) -> None:
+    """A ``Removed`` for a peer we never indexed is a silent no-op.
+
+    Pin the predicate that the dict-mutation gates the event fire
+    — without it, a benign zeroconf storm could spam
+    ``REMOTE_BUILD_HOST_REMOVED`` for names the frontend never
+    saw, and the frontend would have to defensively no-op the
+    delete.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    controller._on_service_state_change(
+        MagicMock(), SERVICE_TYPE, f"ghost.{SERVICE_TYPE}", ServiceStateChange.Removed
+    )
+    controller._db.bus.fire.assert_not_called()
 
 
 def test_on_service_state_change_uses_cache_when_available(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A cache-hit resolves the peer synchronously without spawning a task."""
+    """A cache-hit upserts the peer synchronously and fires ``REMOTE_BUILD_HOST_ADDED``."""
     controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
     fake_info = _fake_service_info(name="desktop")
     fake_info.load_from_cache = MagicMock(return_value=True)
     monkeypatch.setattr(
@@ -255,6 +278,15 @@ def test_on_service_state_change_uses_cache_when_available(
     assert controller._peers[f"desktop.{SERVICE_TYPE}"].name == "desktop"
     # No async resolve task was spawned.
     assert controller._tasks == set()
+    # Event fired with the full peer projection so the frontend
+    # can render the row from the event alone.
+    controller._db.bus.fire.assert_called_once()
+    event_type, payload = controller._db.bus.fire.call_args.args
+    assert event_type is EventType.REMOTE_BUILD_HOST_ADDED
+    assert payload["name"] == "desktop"
+    assert payload["hostname"]
+    assert payload["port"] == 6052
+    assert payload["source"] == "mdns"
 
 
 # ---------------------------------------------------------------------------
@@ -262,8 +294,8 @@ def test_on_service_state_change_uses_cache_when_available(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_list_hosts_returns_snapshot_of_peers(tmp_path: Path) -> None:
+def test_hosts_snapshot_returns_mdns_peers(tmp_path: Path) -> None:
+    """``hosts_snapshot`` is a sync read of the in-RAM ``_peers`` dict."""
     controller = _make_controller(config_dir=tmp_path)
     controller._peers[f"desktop.{SERVICE_TYPE}"] = RemoteBuildPeer(
         name="desktop",
@@ -277,15 +309,15 @@ async def test_list_hosts_returns_snapshot_of_peers(tmp_path: Path) -> None:
         port=6052,
         source=RemoteBuildPeerSource.MDNS,
     )
-    result = await controller.list_hosts()
+    result = controller.hosts_snapshot()
     assert {peer.name for peer in result} == {"desktop", "laptop"}
     assert all(peer.source == RemoteBuildPeerSource.MDNS for peer in result)
 
 
-@pytest.mark.asyncio
-async def test_list_hosts_empty_when_no_peers(tmp_path: Path) -> None:
+def test_hosts_snapshot_empty_when_no_peers(tmp_path: Path) -> None:
+    """Empty ``_peers`` dict snapshots to an empty list, not an error."""
     controller = _make_controller(config_dir=tmp_path)
-    assert await controller.list_hosts() == []
+    assert controller.hosts_snapshot() == []
 
 
 @pytest.mark.asyncio
@@ -469,8 +501,9 @@ async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A cache-miss queues the async resolve task and tracks it in ``_tasks``."""
+    """A cache-miss queues the async resolve task; success fires ``REMOTE_BUILD_HOST_ADDED``."""
     controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
     fake_info = _fake_service_info(name="desktop")
     fake_info.load_from_cache = MagicMock(return_value=False)
     fake_info.async_request = AsyncMock(return_value=True)
@@ -488,6 +521,10 @@ async def test_on_service_state_change_spawns_resolve_task_on_cache_miss(
     await asyncio.gather(*pending)
     assert f"desktop.{SERVICE_TYPE}" in controller._peers
     assert controller._tasks == set()
+    # Event fired after the async resolve succeeded.
+    controller._db.bus.fire.assert_called_once()
+    event_type, _ = controller._db.bus.fire.call_args.args
+    assert event_type is EventType.REMOTE_BUILD_HOST_ADDED
 
 
 @pytest.mark.asyncio
@@ -629,163 +666,6 @@ def test_validate_port_rejects_bool() -> None:
 def test_validate_port_rejects_out_of_range(port: int) -> None:
     with pytest.raises(CommandError) as exc:
         _validate_port(port)
-    assert exc.value.code == ErrorCode.INVALID_ARGS
-
-
-def test_peer_from_manual_host_uses_manual_source() -> None:
-    """A manual entry's ``RemoteBuildPeer`` row reports ``source=MANUAL``."""
-    peer = _peer_from_manual_host(ManualHost(hostname="192.168.1.10", port=6052))
-    assert peer.source == RemoteBuildPeerSource.MANUAL
-    assert peer.name == "192.168.1.10"
-    assert peer.hostname == "192.168.1.10"
-    assert peer.port == 6052
-    # Version fields stay blank; phase 4 fills them in via the
-    # actual connection attempt.
-    assert peer.server_version == ""
-    assert peer.esphome_version == ""
-    assert peer.addresses == []
-
-
-@pytest.mark.asyncio
-async def test_add_manual_host_persists_and_returns_settings(tmp_path: Path) -> None:
-    """Happy path: a unique entry is appended and the settings round-trip."""
-    controller = _make_controller(config_dir=tmp_path)
-    settings = await controller.add_manual_host(hostname="desktop.local", port=6052)
-    assert settings.manual_hosts == [ManualHost(hostname="desktop.local", port=6052)]
-    # Round-trip: get_settings reflects the persisted state.
-    reread = await controller.get_settings()
-    assert reread.manual_hosts == settings.manual_hosts
-
-
-@pytest.mark.asyncio
-async def test_add_manual_host_rejects_duplicate(tmp_path: Path) -> None:
-    """
-    A second add of the same ``(hostname, port)`` raises ``ALREADY_EXISTS``.
-
-    Distinct from ``INVALID_ARGS`` so the frontend can show a
-    "this dashboard is already in your list" message without
-    string-matching the details field. The user gets feedback
-    that the entry already existed rather than a silent no-op.
-    """
-    controller = _make_controller(config_dir=tmp_path)
-    await controller.add_manual_host(hostname="desktop.local", port=6052)
-    with pytest.raises(CommandError) as exc:
-        await controller.add_manual_host(hostname="desktop.local", port=6052)
-    assert exc.value.code == ErrorCode.ALREADY_EXISTS
-
-
-@pytest.mark.asyncio
-async def test_add_manual_host_normalises_case_for_dedup(tmp_path: Path) -> None:
-    """``Desktop.Local`` and ``desktop.local`` are the same entry."""
-    controller = _make_controller(config_dir=tmp_path)
-    await controller.add_manual_host(hostname="desktop.local", port=6052)
-    with pytest.raises(CommandError):
-        await controller.add_manual_host(hostname="Desktop.Local", port=6052)
-
-
-@pytest.mark.asyncio
-async def test_add_manual_host_keeps_enabled_intact(tmp_path: Path) -> None:
-    """
-    Adding a manual host doesn't reset ``enabled``.
-
-    Pin the read-modify-write semantics. Without it,
-    ``set_settings(enabled=True)`` followed by
-    ``add_manual_host(...)`` would silently flip ``enabled`` back
-    to ``False``.
-    """
-    controller = _make_controller(config_dir=tmp_path)
-    await controller.set_settings(enabled=True)
-    settings = await controller.add_manual_host(hostname="desktop.local", port=6052)
-    assert settings.enabled is True
-
-
-@pytest.mark.asyncio
-async def test_remove_manual_host_drops_entry(tmp_path: Path) -> None:
-    """Happy path: a registered entry is removed."""
-    controller = _make_controller(config_dir=tmp_path)
-    await controller.add_manual_host(hostname="desktop.local", port=6052)
-    await controller.add_manual_host(hostname="laptop.local", port=6052)
-    settings = await controller.remove_manual_host(hostname="desktop.local", port=6052)
-    assert settings.manual_hosts == [ManualHost(hostname="laptop.local", port=6052)]
-
-
-@pytest.mark.asyncio
-async def test_remove_manual_host_rejects_unknown(tmp_path: Path) -> None:
-    """``NOT_FOUND`` for a host that was never registered."""
-    controller = _make_controller(config_dir=tmp_path)
-    with pytest.raises(CommandError) as exc:
-        await controller.remove_manual_host(hostname="ghost.local", port=6052)
-    assert exc.value.code == ErrorCode.NOT_FOUND
-
-
-@pytest.mark.asyncio
-async def test_remove_manual_host_normalises_case(tmp_path: Path) -> None:
-    """``Desktop.Local`` removes a stored ``desktop.local`` entry."""
-    controller = _make_controller(config_dir=tmp_path)
-    await controller.add_manual_host(hostname="desktop.local", port=6052)
-    settings = await controller.remove_manual_host(hostname="Desktop.Local", port=6052)
-    assert settings.manual_hosts == []
-
-
-@pytest.mark.asyncio
-async def test_set_settings_preserves_manual_hosts(tmp_path: Path) -> None:
-    """
-    ``set_settings(enabled=...)`` doesn't wipe ``manual_hosts``.
-
-    The previous ``set_settings`` shape full-replaced the
-    serialised blob, which would have reset every field a client
-    didn't pass to its default. Pin the read-modify-write so a
-    toggle of ``enabled`` doesn't silently drop the user's
-    manual-host list.
-    """
-    controller = _make_controller(config_dir=tmp_path)
-    await controller.add_manual_host(hostname="desktop.local", port=6052)
-    settings = await controller.set_settings(enabled=True)
-    assert settings.enabled is True
-    assert settings.manual_hosts == [ManualHost(hostname="desktop.local", port=6052)]
-
-
-@pytest.mark.asyncio
-async def test_list_hosts_merges_mdns_and_manual(tmp_path: Path) -> None:
-    """
-    ``list_hosts`` returns mDNS-discovered peers followed by manual hosts.
-
-    Each row carries its origin in ``source``; mDNS rows are
-    placed first so the auto-discovered list is the primary
-    content.
-    """
-    controller = _make_controller(config_dir=tmp_path)
-    controller._peers[f"desktop.{SERVICE_TYPE}"] = RemoteBuildPeer(
-        name="desktop",
-        hostname="desktop.local.",
-        port=6052,
-        source=RemoteBuildPeerSource.MDNS,
-    )
-    await controller.add_manual_host(hostname="10.0.0.5", port=6052)
-
-    result = await controller.list_hosts()
-    assert len(result) == 2
-    assert result[0].source == RemoteBuildPeerSource.MDNS
-    assert result[0].name == "desktop"
-    assert result[1].source == RemoteBuildPeerSource.MANUAL
-    assert result[1].name == "10.0.0.5"
-
-
-@pytest.mark.asyncio
-async def test_add_manual_host_rejects_invalid_port(tmp_path: Path) -> None:
-    """Out-of-range port doesn't slip through."""
-    controller = _make_controller(config_dir=tmp_path)
-    with pytest.raises(CommandError) as exc:
-        await controller.add_manual_host(hostname="desktop.local", port=0)
-    assert exc.value.code == ErrorCode.INVALID_ARGS
-
-
-@pytest.mark.asyncio
-async def test_add_manual_host_rejects_blank_hostname(tmp_path: Path) -> None:
-    """Empty / whitespace hostname doesn't slip through."""
-    controller = _make_controller(config_dir=tmp_path)
-    with pytest.raises(CommandError) as exc:
-        await controller.add_manual_host(hostname="   ", port=6052)
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 

@@ -580,6 +580,13 @@ class DeviceBuilder:
                 initial["peers"] = [
                     summary.to_dict() for summary in self.remote_build.peers_snapshot()
                 ]
+                # mDNS-discovered peer dashboards (RAM-only,
+                # never persisted). Live updates flow from
+                # ``REMOTE_BUILD_HOST_ADDED`` /
+                # ``REMOTE_BUILD_HOST_REMOVED`` events fired by
+                # the receiver controller's mDNS browser
+                # callbacks.
+                initial["hosts"] = [peer.to_dict() for peer in self.remote_build.hosts_snapshot()]
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.

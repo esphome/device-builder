@@ -577,13 +577,17 @@ def _settings_from_raw(raw: Any) -> RemoteBuildSettings:
     """
     Decode a ``_remote_build`` blob, falling back to defaults on shape mismatch.
 
-    A wholly malformed blob (corrupt ``manual_hosts`` /
-    ``enabled``) resets to defaults loudly so a schema break is
-    visible at startup rather than silently producing wrong
-    state. Legacy ``tokens`` entries on older
-    ``.device-builder.json`` files (deleted in phase 4a-r2) are
+    A wholly malformed blob resets to defaults loudly so a
+    schema break is visible at startup rather than silently
+    producing wrong state. Legacy ``tokens`` / ``manual_hosts`` /
+    ``peers`` entries on older ``.device-builder.json`` files are
     silently dropped — mashumaro's ``DataClassORJSONMixin``
-    ignores unknown keys by default.
+    ignores unknown keys by default. The ``tokens`` field went
+    with the dormant bearer machinery (phase 4a-r2);
+    ``manual_hosts`` was removed once the pair dialog started
+    typing hostnames straight into ``request_pair``; ``peers``
+    moved to its own per-file ``Store`` at
+    ``.receiver_peers.json``.
     """
     if not isinstance(raw, dict):
         return RemoteBuildSettings()
