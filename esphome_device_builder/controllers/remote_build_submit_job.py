@@ -428,38 +428,27 @@ class SubmitJobReceiver:
         # only for filenames that already passed the gate.
         device_name = _validate_configuration_filename(pending.configuration_filename)
         assert device_name is not None  # narrowed by the upstream reject
-        peer_root = self._config_dir / _REMOTE_BUILDS_SUBDIR / session.dashboard_id
-        target_dir = peer_root / device_name
+        remote_builds_root = self._config_dir / _REMOTE_BUILDS_SUBDIR
+        target_dir = remote_builds_root / session.dashboard_id / device_name
         bundle_path = target_dir / _BUNDLE_FILENAME
 
-        # Belt-and-braces: the upstream filename validator catches
-        # path-separator / ``..`` / unexpected-extension shapes,
-        # but ``dashboard_id`` flows through unvalidated from the
-        # Noise handshake / receiver-side registration, and an
-        # unforeseen path-component shape would otherwise let the
-        # tarball write escape ``<config>/.esphome/.remote_builds/``.
-        # ``Path.resolve`` normalises the join; ``relative_to``
-        # raises ``ValueError`` when the result climbs outside the
-        # remote-builds root.
+        loop = asyncio.get_running_loop()
         try:
-            target_dir.resolve().relative_to((self._config_dir / _REMOTE_BUILDS_SUBDIR).resolve())
-        except ValueError as exc:
+            extracted_yaml: Path = await loop.run_in_executor(
+                None,
+                _validate_write_extract_bundle,
+                bundle_path,
+                bundle_bytes,
+                target_dir,
+                remote_builds_root,
+            )
+        except _PathEscapeError as exc:
             _LOGGER.warning(
                 "submit_job from %s: target_dir %s escaped remote-builds root; rejecting",
                 session.dashboard_id,
                 target_dir,
             )
             raise _SubmitJobRejectionError(_REASON_INVALID_HEADER) from exc
-
-        loop = asyncio.get_running_loop()
-        try:
-            extracted_yaml: Path = await loop.run_in_executor(
-                None,
-                _write_and_extract_bundle,
-                bundle_path,
-                bundle_bytes,
-                target_dir,
-            )
         except (EsphomeError, OSError) as exc:
             _LOGGER.warning(
                 "submit_job from %s: extract failed for job %s (%s): %s",
@@ -568,17 +557,61 @@ class _SubmitJobRejectionError(Exception):
         self.reason = reason
 
 
-def _write_and_extract_bundle(bundle_path: Path, bundle_bytes: bytes, target_dir: Path) -> Path:
-    """Sync helper run in the executor: write the tarball + extract it.
+class _PathEscapeError(Exception):
+    """*target_dir* resolved outside the remote-builds root.
 
-    Bundled together so the
-    :meth:`SubmitJobReceiver._extract_and_queue` callsite hops
-    to the executor exactly once for both phases.
-    ``prepare_bundle_for_compile`` is the entry point because it
-    preserves the build-cache subdirectories (``.esphome`` /
-    ``.pioenvs``) that incremental compiles need to skip the
-    cold-rebuild hit.
+    Surfaced from :func:`_validate_write_extract_bundle` so the
+    caller can map to a typed
+    :class:`SubmitJobAckFrameData.reason` of ``invalid_header``.
+    Distinct from the ``EsphomeError`` / ``OSError`` paths
+    (which surface as ``extract_failed``) because this is a
+    wire-shape problem — the offloader's ``configuration_filename``
+    or its captured ``dashboard_id`` carries a path-traversal
+    shape — not a receiver-side I/O failure.
     """
+
+
+def _validate_write_extract_bundle(
+    bundle_path: Path,
+    bundle_bytes: bytes,
+    target_dir: Path,
+    remote_builds_root: Path,
+) -> Path:
+    """Sync helper: validate path is under root, write tarball, extract.
+
+    All three steps run in the executor so the receiver's WS
+    dispatch coroutine stays non-blocking through both the
+    ``Path.resolve`` walk (which calls ``os.path.realpath``,
+    which calls the blocking ``os.path.abspath`` syscall) and
+    the multi-MB tarball write. ``Path.resolve`` is a stat-y
+    syscall; it has to run in a thread.
+
+    Validation order: (1) resolve-and-stay-under-root check
+    *before* writing anything to disk so a malicious
+    ``configuration_filename`` or ``dashboard_id`` can't
+    materialise even an empty tarball outside the remote-builds
+    subtree. (2) Write the tarball. (3) Extract via
+    ``prepare_bundle_for_compile`` (preserves ``.esphome`` /
+    ``.pioenvs`` for incremental compiles).
+
+    Raises :class:`_PathEscapeError` on the path-escape branch
+    so the caller can distinguish "bad input shape" from
+    "extract failed". Raises
+    :class:`esphome.bundle.EsphomeError` / :class:`OSError`
+    untouched for the extract / write paths.
+    """
+    # Resolve-and-stay-under-root. ``Path.resolve()`` normalises
+    # ``..`` / symlinks; ``relative_to`` raises ``ValueError``
+    # when the result climbs outside the remote-builds root.
+    # The upstream filename validator catches separator / ``..``
+    # in ``configuration_filename`` upfront, but ``dashboard_id``
+    # flows through unvalidated from the Noise handshake /
+    # receiver-side registration; this gate catches anything an
+    # exotic ``dashboard_id`` shape would slip past.
+    try:
+        target_dir.resolve().relative_to(remote_builds_root.resolve())
+    except ValueError as exc:
+        raise _PathEscapeError(str(target_dir)) from exc
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
     bundle_path.write_bytes(bundle_bytes)
     extracted: Path = prepare_bundle_for_compile(bundle_path, target_dir)
