@@ -2206,62 +2206,46 @@ class RemoteBuildController:
     def _lookup_open_peer_link_client(self, pin_sha256: str) -> PeerLinkClient:
         """Return the live :class:`PeerLinkClient` for *pin_sha256*, raising on miss.
 
-        Walks :attr:`_pairings` first (raising NOT_FOUND if no
-        such pairing exists) and :attr:`_peer_link_clients`
-        second (raising PRECONDITION_FAILED on PENDING / no
-        spawned client / no live session). The two-step shape
-        keeps the user-facing error specific: a typo in
-        ``pin_sha256`` lands as NOT_FOUND, a not-yet-approved
-        pairing lands as PRECONDITION_FAILED with a different
-        message.
+        Two error codes the frontend branches on: ``NOT_FOUND``
+        for a missing pairing (typo / row removed concurrently),
+        ``PRECONDITION_FAILED`` for any of the
+        not-ready-for-traffic states (PENDING, client not
+        spawned, orphaned, mid-reconnect). The latter four are
+        folded into one raise — the user's recovery is the
+        same (wait + retry); the distinguishing detail is for
+        the operator's log line, not a UI branch.
         """
         pairing = self._pairings.get(pin_sha256)
         if pairing is None:
             msg = f"submit_job: no pairing for pin_sha256={pin_sha256!r}"
             raise CommandError(ErrorCode.NOT_FOUND, msg)
         if pairing.status is not PeerStatus.APPROVED:
-            msg = (
-                f"submit_job: pairing for {pairing.label!r} is "
-                f"{pairing.status.value!r}, not APPROVED"
-            )
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-        handle = self._peer_link_clients.get(pin_sha256)
-        if handle is None:
-            msg = (
-                f"submit_job: peer-link client for {pairing.label!r} not yet spawned "
-                f"(controller may still be starting up)"
-            )
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-        if handle.task.done():
-            msg = (
-                f"submit_job: peer-link client for {pairing.label!r} has stopped "
-                f"(orphaned by pin mismatch / superseded by another instance)"
-            )
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-        if not handle.client.is_session_open:
-            msg = (
-                f"submit_job: peer-link session to {pairing.label!r} is not "
-                f"currently connected (waiting for receiver to come back online)"
-            )
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-        return handle.client
+            reason = f"status is {pairing.status.value!r}, not APPROVED"
+        elif (handle := self._peer_link_clients.get(pin_sha256)) is None:
+            reason = "client not yet spawned"
+        elif handle.task.done():
+            reason = "client orphaned (pin mismatch / superseded)"
+        elif not handle.client.is_session_open:
+            reason = "session not connected (mid-reconnect / receiver offline)"
+        else:
+            return handle.client
+        msg = f"submit_job: peer-link to {pairing.label!r} not ready ({reason})"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
     async def _build_submit_job_bundle(self, configuration: str) -> bytes:
         """Resolve *configuration* to a YAML path and build the bundle bytes.
 
-        Wraps :func:`helpers.config_bundle.build_yaml_bundle`'s
-        error surface into the WS layer's typed exceptions:
-        missing YAML → NOT_FOUND, schema-invalid YAML →
-        INVALID_ARGS with the validator's message preserved,
-        anything else → INTERNAL_ERROR with the message
-        included so server logs + user-facing text stay
-        in sync.
+        Maps the two structured failure modes
+        (:class:`FileNotFoundError`, :class:`EsphomeError`) to
+        typed :class:`CommandError`. Anything else propagates
+        — the WS dispatcher's outer ``except Exception``
+        already surfaces unhandled exceptions as
+        ``INTERNAL_ERROR``.
+
+        ``EsphomeError`` is imported inside the method so the
+        cost of pulling in esphome's validation module is paid
+        on first submit, not at controller-module import time.
         """
-        # ``EsphomeError`` covers the read_config / schema-
-        # validation failure surface. Imported inside the method
-        # so the import cost (esphome's heavy validation
-        # module) is paid only on first submit, not at import
-        # time of the controller module.
         from esphome.core import EsphomeError  # noqa: PLC0415
 
         loop = asyncio.get_running_loop()
@@ -2269,14 +2253,13 @@ class RemoteBuildController:
         try:
             return await build_yaml_bundle(yaml_path)
         except FileNotFoundError as exc:
-            msg = f"submit_job: YAML not found: {configuration}"
-            raise CommandError(ErrorCode.NOT_FOUND, msg) from exc
+            raise CommandError(
+                ErrorCode.NOT_FOUND, f"submit_job: YAML not found: {configuration}"
+            ) from exc
         except EsphomeError as exc:
-            msg = f"submit_job: invalid YAML {configuration}: {exc}"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
-        except Exception as exc:
-            msg = f"submit_job: unexpected bundle-build failure: {exc}"
-            raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from exc
+            raise CommandError(
+                ErrorCode.INVALID_ARGS, f"submit_job: invalid YAML {configuration}: {exc}"
+            ) from exc
 
     @api_command("remote_build/submit_job")
     async def submit_job(

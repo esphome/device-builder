@@ -99,6 +99,30 @@ async def test_build_yaml_bundle_restores_core_state_on_success(
 
 
 @pytest.mark.asyncio
+async def test_build_yaml_bundle_raises_when_read_config_returns_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``read_config`` returning ``None`` (its sentinel for failure) raises RuntimeError.
+
+    Upstream returns ``None`` instead of raising on certain
+    validation failures (the legacy CLI's ``return 2`` exit
+    code path); the helper translates that to a structured
+    raise so the caller doesn't have to know about the
+    sentinel.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    def _fake_read_config(_subs: Any) -> Any:
+        return None
+
+    monkeypatch.setattr(config_bundle, "read_config", _fake_read_config)
+
+    with pytest.raises(RuntimeError, match="returned None"):
+        await build_yaml_bundle(yaml_path)
+
+
+@pytest.mark.asyncio
 async def test_build_yaml_bundle_restores_core_state_on_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

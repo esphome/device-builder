@@ -675,6 +675,12 @@ _JOB_OUTPUT_FIELDS: dict[str, type] = {
     "line": str,
 }
 
+_QUEUE_STATUS_FIELDS: dict[str, type] = {
+    "idle": bool,
+    "running": bool,
+    "queue_depth": int,
+}
+
 # Allowed ``status`` values on inbound ``job_state_changed``
 # frames, mirroring :class:`JobStateChangedFrameData`'s
 # ``Literal``. Membership check after the str-shape gate so a
@@ -1422,100 +1428,77 @@ class PeerLinkClient:
     def _dispatch_queue_status(self, parsed: dict[str, Any]) -> None:
         """Validate a ``queue_status`` frame and fire the offloader-side bus event.
 
-        Validate the three fields are the expected primitive
-        shapes before firing — a malformed frame from a buggy
-        peer shouldn't land an
-        :class:`OffloaderQueueStatusChangedData` with a ``None``
-        ``queue_depth`` on the bus for downstream consumers (the
-        cache, the ``subscribe_events`` re-broadcast). Drop
-        silently on shape mismatch — the receiver will broadcast
-        another snapshot on the next queue transition.
-
-        Inlined ``isinstance`` chain rather than a
-        :func:`validate_frame_shape` call because the
-        ``queue_depth`` field needs the
-        ``int but not bool`` check that the helper handles via
-        the ``required`` map: factoring through the map adds a
-        line at the call site for one extra entry. Unified with
-        the helper if a third int-typed field lands here.
+        Drop silently on shape mismatch — the receiver will
+        broadcast another snapshot on the next queue
+        transition. The frame's ``queue_depth`` is ``int``;
+        :func:`validate_frame_shape` rejects ``bool`` for an
+        ``int`` field (``bool`` is a subclass of ``int``) so
+        ``queue_depth=True`` doesn't slip through.
         """
-        idle = parsed.get("idle")
-        running = parsed.get("running")
-        queue_depth = parsed.get("queue_depth")
-        if (
-            not isinstance(idle, bool)
-            or not isinstance(running, bool)
-            or not isinstance(queue_depth, int)
-            or isinstance(queue_depth, bool)
-        ):
-            _LOGGER.debug(
-                "peer-link client malformed queue_status frame from %s:%d: %r",
-                self._hostname,
-                self._port,
-                parsed,
-            )
+        if not validate_frame_shape(parsed, _QUEUE_STATUS_FIELDS):
+            self._log_malformed("queue_status", parsed)
             return
-        self._fire_queue_status(idle, running, queue_depth)
+        self._fire_queue_status(parsed["idle"], parsed["running"], parsed["queue_depth"])
 
     def _dispatch_submit_job_ack(self, parsed: dict[str, Any]) -> None:
         """Resolve the matching ack future for an inbound ``submit_job_ack`` frame.
 
-        Validates the required-field shape via
-        :func:`validate_frame_shape`; an ack with a missing /
-        wrong-typed ``accepted`` or ``job_id`` is silently
-        dropped (the awaiter times out cleanly rather than
-        seeing a malformed frame as a successful accept). The
-        optional ``reason`` field is read post-validate and
-        copied through to the resolved frame so the WS layer
-        can surface it on rejection.
+        Drops silently on:
 
-        Late acks (no future for the carried *job_id* —
-        typically because the awaiter already raised
-        :class:`SubmitJobTimeoutError` and popped its entry
-        from :attr:`_submit_job_acks`) are dropped at debug.
-        Same for double acks under one *job_id*: the first wins
-        and the second's ``set_result`` would raise
-        ``InvalidStateError``, so the future-already-done check
-        gates it.
+        * Shape mismatch (missing / wrong-typed required fields)
+          — the awaiter times out cleanly rather than seeing a
+          malformed frame as a successful accept.
+        * No matching future under *job_id* — the awaiter
+          already raised :class:`SubmitJobTimeoutError` and
+          popped its entry, or the receiver acked a job we
+          didn't submit.
+        * Future already done — duplicate ack under one
+          *job_id*; the first wins and the second's
+          ``set_result`` would raise ``InvalidStateError``.
+
+        Optional ``reason`` (only present on rejection) is read
+        post-validate and copied through.
         """
         if not validate_frame_shape(parsed, _SUBMIT_JOB_ACK_FIELDS):
-            _LOGGER.debug(
-                "peer-link client malformed submit_job_ack frame from %s:%d: %r",
-                self._hostname,
-                self._port,
-                parsed,
-            )
+            self._log_malformed("submit_job_ack", parsed)
             return
         job_id = cast(str, parsed["job_id"])
-        accepted = cast(bool, parsed["accepted"])
+        ack_fut = self._submit_job_acks.get(job_id)
+        if ack_fut is None or ack_fut.done():
+            _LOGGER.debug(
+                "peer-link client dropping submit_job_ack from %s:%d "
+                "(job_id=%r, has_future=%s, done=%s)",
+                self._hostname,
+                self._port,
+                job_id,
+                ack_fut is not None,
+                ack_fut.done() if ack_fut is not None else False,
+            )
+            return
         ack: SubmitJobAckFrameData = {
             "type": "submit_job_ack",
             "job_id": job_id,
-            "accepted": accepted,
+            "accepted": cast(bool, parsed["accepted"]),
         }
         reason = parsed.get("reason")
         if isinstance(reason, str):
             ack["reason"] = reason
-        ack_fut = self._submit_job_acks.get(job_id)
-        if ack_fut is None:
-            _LOGGER.debug(
-                "peer-link client received submit_job_ack with no pending future "
-                "from %s:%d (job_id=%r)",
-                self._hostname,
-                self._port,
-                job_id,
-            )
-            return
-        if ack_fut.done():
-            _LOGGER.debug(
-                "peer-link client received duplicate submit_job_ack from %s:%d "
-                "(job_id=%r); dropping",
-                self._hostname,
-                self._port,
-                job_id,
-            )
-            return
         ack_fut.set_result(ack)
+
+    def _log_malformed(self, frame_type: str, parsed: dict[str, Any]) -> None:
+        """Debug-log a frame that failed shape validation.
+
+        Single call site for the per-dispatcher
+        "malformed X frame from Y:Z" line so the format string
+        doesn't drift across the four dispatchers.
+        """
+        _LOGGER.debug(
+            "peer-link client malformed %s frame from %s:%d: %r",
+            frame_type,
+            self._hostname,
+            self._port,
+            parsed,
+        )
 
     def _dispatch_job_state_changed(self, parsed: dict[str, Any]) -> None:
         """Validate + fan an inbound ``job_state_changed`` frame onto the bus.
@@ -1528,21 +1511,10 @@ class PeerLinkClient:
         receivers.
         """
         if not validate_frame_shape(parsed, _JOB_STATE_CHANGED_FIELDS):
-            _LOGGER.debug(
-                "peer-link client malformed job_state_changed frame from %s:%d: %r",
-                self._hostname,
-                self._port,
-                parsed,
-            )
+            self._log_malformed("job_state_changed", parsed)
             return
-        status = cast(str, parsed["status"])
-        if status not in _JOB_STATE_CHANGED_VALID_STATUS:
-            _LOGGER.debug(
-                "peer-link client invalid status %r on job_state_changed from %s:%d",
-                status,
-                self._hostname,
-                self._port,
-            )
+        if cast(str, parsed["status"]) not in _JOB_STATE_CHANGED_VALID_STATUS:
+            self._log_malformed("job_state_changed", parsed)
             return
         wire = cast(JobStateChangedFrameData, parsed)
         payload: OffloaderJobStateChangedData = {
@@ -1564,21 +1536,10 @@ class PeerLinkClient:
         ``line`` typed by :class:`OffloaderJobOutputData`.
         """
         if not validate_frame_shape(parsed, _JOB_OUTPUT_FIELDS):
-            _LOGGER.debug(
-                "peer-link client malformed job_output frame from %s:%d: %r",
-                self._hostname,
-                self._port,
-                parsed,
-            )
+            self._log_malformed("job_output", parsed)
             return
-        stream = cast(str, parsed["stream"])
-        if stream not in _JOB_OUTPUT_VALID_STREAM:
-            _LOGGER.debug(
-                "peer-link client invalid stream %r on job_output from %s:%d",
-                stream,
-                self._hostname,
-                self._port,
-            )
+        if cast(str, parsed["stream"]) not in _JOB_OUTPUT_VALID_STREAM:
+            self._log_malformed("job_output", parsed)
             return
         wire = cast(JobOutputFrameData, parsed)
         payload: OffloaderJobOutputData = {
