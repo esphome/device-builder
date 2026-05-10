@@ -191,6 +191,35 @@ class InitiatorRoundTrip:
     response: dict[str, Any]
 
 
+def _extract_receiver_esphome_version(response: dict[str, Any]) -> str:
+    """Lift ``esphome_version`` off the post-handshake response.
+
+    The receiver populates the field on every ``intent_response``
+    payload (see :func:`controllers.remote_build.peer_link._send_response`)
+    so the offloader can land it on
+    :attr:`StoredPairing.esphome_version` and pick_build_path's
+    deferred version-compat gate (7a-2) can read it without an
+    extra round-trip.
+
+    Returns:
+        The receiver's ``esphome.const.__version__`` as a string,
+        or ``""`` when the field is missing (older receiver
+        predating this wire change) or not a string (malformed
+        response — defense-in-depth gate so a non-string value
+        from a buggy peer doesn't propagate as a type error into
+        :class:`StoredPairing`'s validator).
+
+    Empty flows through as "unknown" — pick_build_path's gate
+    treats unknown as compatible (silent-fallback semantic; the
+    operator opted in to remote builds, refusing on the unknown
+    case would be more surprising than the alternative).
+    """
+    value = response.get("esphome_version", "")
+    if not isinstance(value, str):
+        return ""
+    return value
+
+
 def _build_ws_url(hostname: str, port: int) -> URL:
     """Build the peer-link WS URL for *hostname* / *port*.
 
@@ -1494,16 +1523,8 @@ class PeerLinkClient:
                     self._last_connect_error = "auth rejected"
                     return _LOCAL_CLOSE_AUTH_REJECTED
                 # Lift the receiver's ``esphome_version`` off the
-                # response so OPENED carries it onto the bus. The
-                # receiver always populates the field (see
-                # :func:`_send_response`); the ``isinstance``
-                # guard keeps a malformed / older-receiver
-                # response from raising here — empty string flows
-                # through as "unknown" and pick_build_path's
-                # version-compat gate accepts it as compatible.
-                receiver_version = response.get("esphome_version", "")
-                if not isinstance(receiver_version, str):
-                    receiver_version = ""
+                # response so OPENED carries it onto the bus.
+                receiver_version = _extract_receiver_esphome_version(response)
                 # Session is live — build the shared channel
                 # over (noise, ws), fire OPENED, park on the
                 # receive loop with a heartbeat task running

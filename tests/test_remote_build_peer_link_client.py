@@ -57,6 +57,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     SubmitJobTimeoutError,
     _build_ws_url,
     _DownloadArtifactsState,
+    _extract_receiver_esphome_version,
     drive_initiator_round_trip,
     preview_pair,
     request_pair,
@@ -1134,6 +1135,33 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
     # listener is ready.
     offloader._on_offloader_peer_link_closed(MagicMock(data=closed))
     assert pin not in offloader._open_peer_links
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ({"esphome_version": "2026.5.0"}, "2026.5.0"),
+        # Older receiver predating the wire change.
+        ({}, ""),
+        # Malformed: non-string value. Defense-in-depth gate
+        # returns empty rather than letting a type error propagate
+        # into StoredPairing's validator.
+        ({"esphome_version": 12345}, ""),
+        ({"esphome_version": None}, ""),
+        ({"esphome_version": {"nested": "shape"}}, ""),
+    ],
+)
+def test_extract_receiver_esphome_version_branches(response: dict[str, Any], expected: str) -> None:
+    """Helper handles missing / non-string / valid response shapes.
+
+    Pins the post-handshake response → ``StoredPairing.esphome_version``
+    seam: a valid string flows through unchanged; missing field
+    (older receiver) and malformed shapes (non-string from a
+    buggy peer) both fall back to empty so pick_build_path's
+    compat gate sees "unknown" rather than a type error from
+    deep inside the validator chain.
+    """
+    assert _extract_receiver_esphome_version(response) == expected
 
 
 @pytest.mark.asyncio
