@@ -286,19 +286,23 @@ class OffloaderPairAlertDismissedData(TypedDict):
     Payload for ``EventType.OFFLOADER_PAIR_ALERT_DISMISSED``.
 
     Fired when an entry leaves the controller's RAM-only
-    ``_offloader_alerts`` dict — the operator clicked Dismiss,
-    a fresh ``request_pair`` against the same
-    ``(hostname, port)`` succeeded (auto-resolve), or
-    ``unpair`` removed the row outright. Lets other tabs /
-    clients on the global ``subscribe_events`` stream sync
-    their local alerts list without re-fetching the snapshot.
+    ``_offloader_alerts`` dict via one of the two resolution
+    paths that fix the underlying broken state: a successful
+    ``request_pair`` against the same ``(hostname, port)``
+    (re-pair auto-resolved the alert), or ``unpair`` removing
+    the row outright. There is no operator-driven dismiss
+    surface; clicking "OK got it" without acting would just
+    hide a broken pairing the next peer-link session would
+    still fail against, so re-pair and unpair are the only
+    ways the alert clears. The event lets other tabs / clients
+    on the global ``subscribe_events`` stream sync their local
+    alerts list without re-fetching the snapshot.
 
     The shape carries only the receiver coordinates the alert
     was keyed on; subscribers find the row in their local
     alerts map by ``${hostname}:${port}``. No discriminator on
-    *why* the dismiss happened — the user-facing outcome (the
-    alert disappears) is the same whichever path got us
-    here.
+    *which* resolution path got us here — the user-facing
+    outcome (the alert disappears) is the same either way.
     """
 
     receiver_hostname: str
@@ -316,8 +320,12 @@ class OffloaderPinMismatchAlert(TypedDict):
     pick the alert copy + CTA.
 
     ``fired_at`` is the wall-clock unix timestamp the alert
-    was added to the dict (most-recent-first ordering on the
-    snapshot).
+    was added to the dict. The snapshot's order is dict
+    insertion order: a brand-new row appends at the tail; an
+    upsert on an existing key keeps that key's slot in place
+    (Python dict semantics) so a re-fire on the same row
+    doesn't reshuffle the snapshot. Frontends that want
+    "newest first" sort on ``fired_at`` themselves.
     """
 
     kind: Literal["pin_mismatch"]

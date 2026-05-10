@@ -792,15 +792,20 @@ class RemoteBuildController:
         # Populated by ``_apply_pair_status_result`` when a
         # pair-status round-trip detects a pin drift
         # (pin_mismatch) or a receiver-side rejection
-        # (peer_revoked); cleared by ``request_pair`` (auto-
-        # resolve on re-pair), ``unpair`` (user removed the row),
-        # and ``dismiss_offloader_alert`` (operator clicked
-        # Dismiss). Never persisted: the alert describes a
-        # transient detection, and a process restart with the
-        # row still gone leaves nothing for the listener to
-        # re-detect against; phase 5+ peer-link sessions
-        # re-trigger the underlying condition the next time the
-        # row is *used*. ``subscribe_events.initial_state.offloader_alerts``
+        # (peer_revoked); cleared only by the two resolution
+        # paths that fix the underlying broken state:
+        # ``request_pair`` succeeding for the same
+        # ``(hostname, port)`` (auto-resolve on re-pair) and
+        # ``unpair`` (user removed the row outright). There is
+        # no operator-driven dismiss surface — clicking "OK got
+        # it" without acting would just hide a broken pairing
+        # the next peer-link session would still fail against.
+        # Never persisted: the alert describes a transient
+        # detection, and a process restart with the row still
+        # gone leaves nothing for the listener to re-detect
+        # against; phase 5+ peer-link sessions re-trigger the
+        # underlying condition the next time the row is *used*.
+        # ``subscribe_events.initial_state.offloader_alerts``
         # carries the snapshot so a tab subscribing AFTER the
         # event fired still sees the alert it would have missed
         # on the live stream.

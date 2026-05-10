@@ -207,15 +207,22 @@ class EventType(StrEnum):
     # needs receiver-side admin coordination).
     OFFLOADER_PAIR_PEER_REVOKED = "offloader_pair_peer_revoked"
 
-    # An offloader-side pair alert was dismissed (user clicked
-    # Dismiss, the row was successfully re-paired, or the user
-    # ran ``unpair``). Payload: ``{receiver_hostname,
-    # receiver_port}``. RAM-only state on the controller's
-    # ``_offloader_alerts`` dict; the dismissed event keeps
-    # other tabs / clients on the global ``subscribe_events``
-    # stream in sync without re-fetching the alerts snapshot.
-    # Late-subscribing clients pick up the canonical state
-    # via ``subscribe_events.initial_state.offloader_alerts``.
+    # An offloader-side pair alert was cleared by one of the
+    # two resolution paths that fix the underlying broken
+    # state: a successful ``request_pair`` against the same
+    # ``(hostname, port)`` (re-pair auto-resolved the alert),
+    # or ``unpair`` removing the row outright. There is no
+    # operator-driven dismiss — clicking "OK got it" without
+    # acting would just hide a broken pairing the next peer-
+    # link session would still fail against, so re-pair and
+    # unpair are the only ways the alert clears. Payload:
+    # ``{receiver_hostname, receiver_port}``. RAM-only state
+    # on the controller's ``_offloader_alerts`` dict; the
+    # event keeps other tabs / clients on the global
+    # ``subscribe_events`` stream in sync without re-fetching
+    # the alerts snapshot. Late-subscribing clients pick up
+    # the canonical state via
+    # ``subscribe_events.initial_state.offloader_alerts``.
     OFFLOADER_PAIR_ALERT_DISMISSED = "offloader_pair_alert_dismissed"
 
 
