@@ -229,16 +229,16 @@ class OffloaderPairStatusChangedData(TypedDict):
     ``subscribe_events`` stream — no separate subscription
     channel.
 
-    The two events have the same wire shape but live on
-    different buses (receiver vs offloader) and key on
-    different identifiers — the offloader's
-    :class:`StoredPairing` never stores the receiver's
-    ``dashboard_id``, so the receiver coordinates are the
-    ``(hostname, port)`` the user originally dialled.
+    Carries ``pin_sha256`` as the canonical identifier (4a-o
+    part 6 re-keyed offloader-side state on pin instead of
+    ``(hostname, port)``); receiver coords stay on the payload
+    as display fields the frontend can show without a
+    follow-up lookup.
     """
 
     receiver_hostname: str
     receiver_port: int
+    pin_sha256: str
     status: Literal["approved", "removed"]
 
 
@@ -272,11 +272,18 @@ class OffloaderPairPinMismatchData(TypedDict):
     its own pin drift, and the symmetric "offloader rotated"
     case lands as a fresh PENDING row on the receiver's inbox
     via :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED`.
+
+    ``pin_sha256`` is the **stored** pin the row was keyed on
+    (same value as ``expected_pin``); duplicated as a separate
+    field so the controller's listener has a direct primary
+    key for ``_offloader_alerts`` lookup without parsing
+    ``expected_pin``.
     """
 
     receiver_hostname: str
     receiver_port: int
     receiver_label: str
+    pin_sha256: str
     expected_pin: str
     observed_pin: str
 
@@ -298,15 +305,17 @@ class OffloaderPairAlertDismissedData(TypedDict):
     on the global ``subscribe_events`` stream sync their local
     alerts list without re-fetching the snapshot.
 
-    The shape carries only the receiver coordinates the alert
-    was keyed on; subscribers find the row in their local
-    alerts map by ``${hostname}:${port}``. No discriminator on
-    *which* resolution path got us here — the user-facing
-    outcome (the alert disappears) is the same either way.
+    Carries ``pin_sha256`` as the canonical row identifier (4a-o
+    part 6 re-keyed `_offloader_alerts` on pin); receiver
+    coordinates stay on the payload as display fields. No
+    discriminator on *which* resolution path got us here — the
+    user-facing outcome (the alert disappears) is the same
+    either way.
     """
 
     receiver_hostname: str
     receiver_port: int
+    pin_sha256: str
 
 
 class OffloaderPinMismatchAlert(TypedDict):
@@ -331,6 +340,7 @@ class OffloaderPinMismatchAlert(TypedDict):
     kind: Literal["pin_mismatch"]
     receiver_hostname: str
     receiver_port: int
+    pin_sha256: str
     receiver_label: str
     expected_pin: str
     observed_pin: str
@@ -349,6 +359,7 @@ class OffloaderPeerRevokedAlert(TypedDict):
     kind: Literal["peer_revoked"]
     receiver_hostname: str
     receiver_port: int
+    pin_sha256: str
     receiver_label: str
     fired_at: float
 
@@ -384,16 +395,19 @@ class OffloaderPairPeerRevokedData(TypedDict):
     operator action differs.
 
     The ``receiver_label`` is carried so the alert can name the
-    row even after the pairings list has dropped it. No extra
-    diagnostic detail; the receiver doesn't tell us *why*
-    REJECTED, and the offloader can't distinguish
-    admin-Reject from window-close from row-never-existed at
-    this layer.
+    row even after the pairings list has dropped it.
+    ``pin_sha256`` carries the row's primary key (4a-o part 6
+    re-keyed offloader-side state on pin) so the controller's
+    listener has a direct lookup. No extra diagnostic detail;
+    the receiver doesn't tell us *why* REJECTED, and the
+    offloader can't distinguish admin-Reject from window-close
+    from row-never-existed at this layer.
     """
 
     receiver_hostname: str
     receiver_port: int
     receiver_label: str
+    pin_sha256: str
 
 
 class RemoteBuildPairingWindowChangedData(TypedDict):
@@ -458,13 +472,15 @@ class OffloaderPeerLinkOpenedData(TypedDict):
     offloader's frontend Settings UI) update the
     per-receiver "connected" indicator on this event.
 
-    Keys on the receiver's ``(hostname, port)`` because the
-    offloader's :class:`StoredPairing` keys on the same — the
-    receiver's ``dashboard_id`` isn't tracked offloader-side.
+    ``pin_sha256`` is the canonical offloader-side row key
+    (4a-o part 6 re-keyed offloader state on pin); receiver
+    coords stay on the payload as display fields the frontend
+    can render without a follow-up lookup.
     """
 
     receiver_hostname: str
     receiver_port: int
+    pin_sha256: str
 
 
 class OffloaderPeerLinkClosedData(TypedDict):
@@ -487,10 +503,15 @@ class OffloaderPeerLinkClosedData(TypedDict):
     means a newer offloader instance with the same
     ``dashboard_id`` already took our slot, so reconnecting
     would just collide; the client orphans rather than retrying.
+
+    ``pin_sha256`` is the canonical offloader-side row key
+    (4a-o part 6 re-keyed offloader state on pin); receiver
+    coords stay on the payload as display fields.
     """
 
     receiver_hostname: str
     receiver_port: int
+    pin_sha256: str
     reason: str
 
 
@@ -566,17 +587,18 @@ class OffloaderQueueStatusChangedData(TypedDict):
     ``queue_status`` application frame from a paired receiver.
     The remote-build controller listens, updates its
     RAM-only ``_peer_queue_status`` cache (keyed on
-    ``(receiver_hostname, receiver_port)``), and re-broadcasts
-    via the global ``subscribe_events`` stream so frontend
-    clients can render per-peer queue depth without polling.
-    Phase-5b is the first real application message exercising
-    the 5a peer-link foundation end-to-end; the scheduler in
-    phase 7 reads the same cache to pick the least-busy peer
-    on each new offload.
+    ``pin_sha256`` since 4a-o part 6), and re-broadcasts via
+    the global ``subscribe_events`` stream so frontend clients
+    can render per-peer queue depth without polling. Phase-5b
+    is the first real application message exercising the 5a
+    peer-link foundation end-to-end; the scheduler in phase 7
+    reads the same cache to pick the least-busy peer on each
+    new offload.
     """
 
     receiver_hostname: str
     receiver_port: int
+    pin_sha256: str
     idle: bool
     running: bool
     queue_depth: int
@@ -596,6 +618,7 @@ class PeerQueueStatusSnapshotEntry(TypedDict):
 
     receiver_hostname: str
     receiver_port: int
+    pin_sha256: str
     idle: bool
     running: bool
     queue_depth: int

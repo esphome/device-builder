@@ -681,6 +681,7 @@ class PeerLinkClient:
         identity_priv: bytes,
         dashboard_id: str,
         pinned_static_x25519_pub: bytes,
+        pin_sha256: str,
         receiver_label: str,
         bus: EventBus,
     ) -> None:
@@ -694,10 +695,15 @@ class PeerLinkClient:
         # against ``session.remote_static_pub`` post-handshake on
         # every connect so an attacker with their own X25519
         # keypair can't complete Noise XX against this client and
-        # reach the application channel. ``receiver_label`` is
-        # carried so the pin-mismatch alert can name the row at
-        # firing time.
+        # reach the application channel. ``pin_sha256`` is the
+        # SHA-256 of the same pubkey, carried on every event the
+        # client fires so the controller's listener can key into
+        # ``_open_peer_links`` / ``_offloader_alerts`` /
+        # ``_peer_queue_status`` (4a-o part 6 — pin-keyed
+        # offloader state). ``receiver_label`` is carried so
+        # the pin-mismatch alert can name the row at firing time.
         self._pinned_static_x25519_pub = pinned_static_x25519_pub
+        self._pin_sha256 = pin_sha256
         self._receiver_label = receiver_label
         self._bus = bus
         # Set to True when we observe a receiver-side
@@ -1057,6 +1063,7 @@ class PeerLinkClient:
         payload: OffloaderPeerLinkOpenedData = {
             "receiver_hostname": self._hostname,
             "receiver_port": self._port,
+            "pin_sha256": self._pin_sha256,
         }
         self._bus.fire(EventType.OFFLOADER_PEER_LINK_OPENED, payload)
 
@@ -1064,6 +1071,7 @@ class PeerLinkClient:
         payload: OffloaderPeerLinkClosedData = {
             "receiver_hostname": self._hostname,
             "receiver_port": self._port,
+            "pin_sha256": self._pin_sha256,
             "reason": reason,
         }
         self._bus.fire(EventType.OFFLOADER_PEER_LINK_CLOSED, payload)
@@ -1088,6 +1096,7 @@ class PeerLinkClient:
             "receiver_hostname": self._hostname,
             "receiver_port": self._port,
             "receiver_label": self._receiver_label,
+            "pin_sha256": self._pin_sha256,
             "expected_pin": pin_sha256_for_pubkey(self._pinned_static_x25519_pub),
             "observed_pin": pin_sha256_for_pubkey(observed),
         }
@@ -1106,6 +1115,7 @@ class PeerLinkClient:
         payload: OffloaderQueueStatusChangedData = {
             "receiver_hostname": self._hostname,
             "receiver_port": self._port,
+            "pin_sha256": self._pin_sha256,
             "idle": idle,
             "running": running,
             "queue_depth": queue_depth,

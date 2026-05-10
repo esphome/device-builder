@@ -747,7 +747,7 @@ async def test_controller_request_pair_persists_pending_row(
     # dict; the persisted file stays APPROVED-only so a malicious
     # receiver can't bloat the offloader's settings file.
     assert await _saved_pairings(offloader) == []
-    assert ("127.0.0.1", server.port) in offloader._pairings
+    assert expected_pin in offloader._pairings
 
 
 @pytest.mark.asyncio
@@ -915,7 +915,7 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings["a" * 64] = pairing
     # A no-op listener task standing in for the real long-poll
     # task; the test verifies cancel + cleanup, not the wire flow.
     park = asyncio.Event()
@@ -923,15 +923,15 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     async def _park() -> None:
         await park.wait()
 
-    offloader._pair_status_listeners[("rcv.local", 6055)] = asyncio.create_task(_park())
+    offloader._pair_status_listeners["a" * 64] = asyncio.create_task(_park())
     # Settle one event-loop tick so the create_task is actually
     # scheduled before unpair tries to cancel it.
     await asyncio.sleep(0)
 
-    result = await offloader.unpair(hostname="rcv.local", port=6055)
+    result = await offloader.unpair(pin_sha256="a" * 64)
 
     assert result == {"removed": True}
-    assert ("rcv.local", 6055) not in offloader._pairings
+    assert "a" * 64 not in offloader._pairings
     # Listener was cancelled; let the loop run so the cancellation
     # propagates and we can drain it cleanly.
     listener = offloader._pair_status_listeners.get(("rcv.local", 6055))
@@ -959,12 +959,12 @@ async def test_unpair_drops_persisted_row(
     )
     # Land the row in RAM + force-flush an initial save so the
     # unpair has something to drop on disk too.
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings["a" * 64] = pairing
     offloader._pairings_store.async_delay_save(offloader._serialize_pairings, delay=0.0)
     for cb in offloader._shutdown_callbacks:
         await cb()
 
-    result = await offloader.unpair(hostname="rcv.local", port=6055)
+    result = await offloader.unpair(pin_sha256="a" * 64)
 
     assert result == {"removed": True}
     # Flush the second debounced save (the unpair's removal).
@@ -983,7 +983,7 @@ async def test_unpair_unknown_returns_removed_false_idempotent(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
 
-    result = await offloader.unpair(hostname="ghost.local", port=6055)
+    result = await offloader.unpair(pin_sha256="a" * 64)
 
     assert result == {"removed": False}
 
@@ -1004,17 +1004,19 @@ async def test_pairings_snapshot_returns_ram_dict(
     pending = _stub_pairing(
         receiver_hostname="pending.local",
         receiver_port=6055,
+        pin_sha256="a" * 64,
         label="pending-receiver",
         status=PeerStatus.PENDING,
     )
     approved = _stub_pairing(
         receiver_hostname="approved.local",
         receiver_port=6055,
+        pin_sha256="b" * 64,
         label="approved-receiver",
         status=PeerStatus.APPROVED,
     )
-    offloader._pairings[("pending.local", 6055)] = pending
-    offloader._pairings[("approved.local", 6055)] = approved
+    offloader._pairings["a" * 64] = pending
+    offloader._pairings["b" * 64] = approved
 
     rows = offloader.pairings_snapshot()
 
@@ -1047,7 +1049,7 @@ async def test_start_seeds_pairings_dict_from_disk(
         static_x25519_pub=pubkey,
         status=PeerStatus.APPROVED,
     )
-    seeder._pairings[("seeded.local", 6055)] = seeded
+    seeder._pairings[pin] = seeded
     seeder._pairings_store.async_delay_save(seeder._serialize_pairings, delay=0.0)
     for cb in seeder._shutdown_callbacks:
         await cb()
@@ -1063,8 +1065,8 @@ async def test_start_seeds_pairings_dict_from_disk(
     fresh._db.devices = None  # short-circuit the post-load branches.
     await fresh.start()
 
-    assert ("seeded.local", 6055) in fresh._pairings
-    loaded = fresh._pairings[("seeded.local", 6055)]
+    assert pin in fresh._pairings
+    loaded = fresh._pairings[pin]
     assert loaded.pin_sha256 == pin
     assert loaded.static_x25519_pub == pubkey
     assert loaded.status is PeerStatus.APPROVED
@@ -1092,7 +1094,7 @@ async def test_apply_pair_status_result_approved_promotes_and_fires(
         static_x25519_pub=pubkey,
         status=PeerStatus.PENDING,
     )
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings["a" * 64] = pairing
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.APPROVED, pin_sha256=pin
     )
@@ -1102,7 +1104,7 @@ async def test_apply_pair_status_result_approved_promotes_and_fires(
     assert terminal is True
     # Row stays in the dict with promoted status — the unified
     # ``_pairings`` map carries both PENDING and APPROVED.
-    assert offloader._pairings[("rcv.local", 6055)].status is PeerStatus.APPROVED
+    assert offloader._pairings["a" * 64].status is PeerStatus.APPROVED
     saved = await _saved_pairings(offloader)
     assert len(saved) == 1
     assert saved[0].pin_sha256 == pin
@@ -1125,7 +1127,7 @@ async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_remov
         pin_sha256="a" * 64,
         label="lab-pc",
     )
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings["a" * 64] = pairing
     # Receiver returned APPROVED but its pubkey hash doesn't match
     # what we stored; treat as peer-revoked rather than silently
     # adopting the new identity.
@@ -1136,7 +1138,7 @@ async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_remov
     terminal = await offloader._apply_pair_status_result(pairing, result)
 
     assert terminal is True
-    assert ("rcv.local", 6055) not in offloader._pairings
+    assert "a" * 64 not in offloader._pairings
     assert await _saved_pairings(offloader) == []
     # Two events should have fired in order: the discriminator
     # (PIN_MISMATCH) carrying the diagnostic detail + label,
@@ -1152,6 +1154,7 @@ async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_remov
         "receiver_hostname": "rcv.local",
         "receiver_port": 6055,
         "receiver_label": "lab-pc",
+        "pin_sha256": "a" * 64,
         "expected_pin": "a" * 64,
         "observed_pin": "b" * 64,
     }
@@ -1172,7 +1175,7 @@ async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
         receiver_port=6055,
         label="lab-pc",
     )
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings["a" * 64] = pairing
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.REJECTED, pin_sha256="a" * 64
     )
@@ -1180,7 +1183,7 @@ async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
     terminal = await offloader._apply_pair_status_result(pairing, result)
 
     assert terminal is True
-    assert ("rcv.local", 6055) not in offloader._pairings
+    assert "a" * 64 not in offloader._pairings
     # Same fire-discriminator-first ordering as the pin-drift
     # branch: PEER_REVOKED carrying the row label, then
     # STATUS_CHANGED("removed") that drops the row.
@@ -1192,6 +1195,7 @@ async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
         "receiver_hostname": "rcv.local",
         "receiver_port": 6055,
         "receiver_label": "lab-pc",
+        "pin_sha256": "a" * 64,
     }
     second_event_type, second_payload = fire_calls[1].args
     assert second_event_type is EventType.OFFLOADER_PAIR_STATUS_CHANGED
@@ -1219,7 +1223,7 @@ async def test_apply_pair_status_result_pin_drift_seeds_offloader_alert(
         pin_sha256="a" * 64,
         label="lab-pc",
     )
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings["a" * 64] = pairing
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.APPROVED, pin_sha256="b" * 64
     )
@@ -1256,7 +1260,7 @@ async def test_apply_pair_status_result_rejected_seeds_offloader_alert(
         receiver_port=6055,
         label="lab-pc",
     )
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings["a" * 64] = pairing
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.REJECTED, pin_sha256="a" * 64
     )
@@ -1281,8 +1285,8 @@ async def test_unpair_clears_offloader_alert_and_fires_dismissed(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    offloader._pairings[("rcv.local", 6055)] = pairing
-    offloader._offloader_alerts[("rcv.local", 6055)] = {
+    offloader._pairings["a" * 64] = pairing
+    offloader._offloader_alerts["a" * 64] = {
         "kind": "peer_revoked",
         "receiver_hostname": "rcv.local",
         "receiver_port": 6055,
@@ -1290,7 +1294,7 @@ async def test_unpair_clears_offloader_alert_and_fires_dismissed(
         "fired_at": 1.0,
     }
 
-    result = await offloader.unpair(hostname="rcv.local", port=6055)
+    result = await offloader.unpair(pin_sha256="a" * 64)
 
     assert result == {"removed": True}
     assert offloader.offloader_alerts_snapshot() == []
@@ -1310,7 +1314,7 @@ async def test_apply_pair_status_result_unexpected_status_logs_and_continues(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings["a" * 64] = pairing
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.OK, pin_sha256="a" * 64
     )
@@ -1320,7 +1324,7 @@ async def test_apply_pair_status_result_unexpected_status_logs_and_continues(
     # Not terminal — the listener loop reconnects after a backoff.
     assert terminal is False
     # Pending entry untouched.
-    assert ("rcv.local", 6055) in offloader._pairings
+    assert "a" * 64 in offloader._pairings
     offloader._db.bus.fire.assert_not_called()
 
 
@@ -1354,7 +1358,7 @@ async def test_apply_pair_status_result_approved_after_unpair_does_not_resurrect
     # Simulate the unpair path: dict entry was already popped.
     # The pairing in the listener's closure is what remains
     # (captured at spawn time).
-    assert ("rcv.local", 6055) not in offloader._pairings
+    assert "a" * 64 not in offloader._pairings
 
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.APPROVED, pin_sha256=pin
@@ -1384,14 +1388,14 @@ async def test_unpair_cancels_listener_before_disk_transaction(
     async def _park() -> None:
         await park.wait()
 
-    key = ("rcv.local", 6055)
+    key = "a" * 64
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
     offloader._pairings[key] = pairing
     listener = asyncio.create_task(_park())
     offloader._pair_status_listeners[key] = listener
     await asyncio.sleep(0)
 
-    await offloader.unpair(hostname="rcv.local", port=6055)
+    await offloader.unpair(pin_sha256="a" * 64)
 
     with pytest.raises(asyncio.CancelledError):
         await listener
@@ -1413,9 +1417,9 @@ async def test_unpair_fires_offloader_pair_status_changed_removed(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings["a" * 64] = pairing
 
-    result = await offloader.unpair(hostname="rcv.local", port=6055)
+    result = await offloader.unpair(pin_sha256="a" * 64)
 
     assert result == {"removed": True}
     fire = offloader._db.bus.fire
@@ -1425,6 +1429,7 @@ async def test_unpair_fires_offloader_pair_status_changed_removed(
     assert payload == {
         "receiver_hostname": "rcv.local",
         "receiver_port": 6055,
+        "pin_sha256": "a" * 64,
         "status": "removed",
     }
 
@@ -1482,10 +1487,11 @@ async def test_request_pair_clears_offloader_alert_for_same_receiver(
 
     # Pre-seed an alert as if a prior pair-status detection had
     # registered one against this receiver.
-    offloader._offloader_alerts[("rcv.local", 6055)] = {
+    offloader._offloader_alerts["a" * 64] = {
         "kind": "pin_mismatch",
         "receiver_hostname": "rcv.local",
         "receiver_port": 6055,
+        "pin_sha256": "a" * 64,
         "receiver_label": "lab-pc",
         "expected_pin": "a" * 64,
         "observed_pin": "b" * 64,
@@ -1508,7 +1514,7 @@ async def test_request_pair_clears_offloader_alert_for_same_receiver(
     assert EventType.OFFLOADER_PAIR_ALERT_DISMISSED in fire_event_types
 
     # Cleanup: cancel the listener so the test exits clean.
-    listener = offloader._pair_status_listeners.get(("rcv.local", 6055))
+    listener = offloader._pair_status_listeners.get(pin)
     if listener is not None:
         listener.cancel()
         await asyncio.gather(listener, return_exceptions=True)
@@ -1525,7 +1531,7 @@ async def test_unpair_does_not_fire_event_when_nothing_to_remove(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
 
-    result = await offloader.unpair(hostname="ghost.local", port=6055)
+    result = await offloader.unpair(pin_sha256="a" * 64)
 
     assert result == {"removed": False}
     offloader._db.bus.fire.assert_not_called()
@@ -1609,7 +1615,7 @@ async def test_request_pair_repair_then_unpair_clean_state(
         receiver_label="rcv-1",
         offloader_label="off",
     )
-    listener_v1 = offloader._pair_status_listeners[("rcv.local", 6055)]
+    listener_v1 = offloader._pair_status_listeners[pin1]
 
     # Wait until ``listener_v1`` has actually reached its
     # ``await peer_link_await_pair_status`` parked state.
@@ -1633,14 +1639,17 @@ async def test_request_pair_repair_then_unpair_clean_state(
         receiver_label="rcv-2",
         offloader_label="off",
     )
-    listener_v2 = offloader._pair_status_listeners[("rcv.local", 6055)]
+    listener_v2 = offloader._pair_status_listeners[pin2]
     assert listener_v2 is not listener_v1
     with pytest.raises(asyncio.CancelledError):
         await listener_v1
-    assert offloader._pairings[("rcv.local", 6055)].pin_sha256 == pin2
+    # Re-pair under a new pin landed a new entry under pin2;
+    # the sweep dropped the old entry under pin1.
+    assert offloader._pairings[pin2].pin_sha256 == pin2
+    assert pin1 not in offloader._pairings
 
     # Unpair cancels listener_v2 + clears the dict.
-    await offloader.unpair(hostname="rcv.local", port=6055)
+    await offloader.unpair(pin_sha256=pin2)
     with pytest.raises(asyncio.CancelledError):
         await listener_v2
     assert offloader._pairings == {}
@@ -1659,7 +1668,7 @@ async def test_spawn_pair_status_listener_is_idempotent_on_running_task(
     async def _park() -> None:
         await park.wait()
 
-    key = ("rcv.local", 6055)
+    key = "a" * 64
     existing = asyncio.create_task(_park())
     offloader._pair_status_listeners[key] = existing
     await asyncio.sleep(0)  # schedule the task
@@ -1683,7 +1692,7 @@ async def test_cancel_pair_status_listener_noop_when_absent(
     offloader._db.bus = MagicMock()
 
     # No-op; doesn't raise.
-    offloader._cancel_pair_status_listener("ghost.local", 6055)
+    offloader._cancel_pair_status_listener("a" * 64)
 
 
 @pytest.mark.asyncio
@@ -1705,13 +1714,13 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
     async def _park() -> None:
         await park.wait()
 
-    key = ("rcv.local", 6055)
+    key_old = "a" * 64
     old_pairing = _stub_pairing(
         receiver_hostname="rcv.local", receiver_port=6055, pin_sha256="a" * 64
     )
-    offloader._pairings[key] = old_pairing
+    offloader._pairings[key_old] = old_pairing
     old_listener = asyncio.create_task(_park())
-    offloader._pair_status_listeners[key] = old_listener
+    offloader._pair_status_listeners[key_old] = old_listener
     await asyncio.sleep(0)
 
     # Stub the wire round-trip so request_pair completes without
@@ -1742,16 +1751,19 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
     # Old listener got cancelled (cleared pin-drift exposure).
     with pytest.raises(asyncio.CancelledError):
         await old_listener
-    # New listener spawned with the fresh pairing.
-    new_listener = offloader._pair_status_listeners.get(key)
+    # New listener spawned with the fresh pairing under the new pin key.
+    new_listener = offloader._pair_status_listeners.get(new_pin)
     assert new_listener is not None
     assert new_listener is not old_listener
     new_listener.cancel()
     with pytest.raises(asyncio.CancelledError):
         await new_listener
     # The dict entry now holds the new pin.
-    assert offloader._pairings[key].pin_sha256 == new_pin
+    assert offloader._pairings[new_pin].pin_sha256 == new_pin
     assert summary.pin_sha256 == new_pin
+    # Old (pin-keyed) entry is gone — re-pair under a new pin
+    # creates a fresh row, doesn't shadow the old one.
+    assert key_old not in offloader._pairings
 
 
 @pytest.mark.asyncio
@@ -1785,7 +1797,7 @@ async def test_request_pair_already_approved_persists_to_disk(
     # Cancel the offloader's listener so the second request_pair
     # below doesn't race with it; we're only testing the
     # already-approved → persist path.
-    offloader._cancel_pair_status_listener("127.0.0.1", server.port)
+    offloader._cancel_pair_status_listener(expected_pin)
 
     # Promote the receiver-side row to APPROVED so the next
     # request_pair gets the short-circuit path.
@@ -1808,7 +1820,7 @@ async def test_request_pair_already_approved_persists_to_disk(
     assert saved[0].pin_sha256 == expected_pin
     # The row stays in the unified dict with APPROVED status —
     # no separate PENDING entry, no double-counting on the wire.
-    assert offloader._pairings[("127.0.0.1", server.port)].status is PeerStatus.APPROVED
+    assert offloader._pairings[expected_pin].status is PeerStatus.APPROVED
 
 
 @pytest.mark.asyncio
@@ -2009,7 +2021,7 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
         pin_sha256=pin,
         static_x25519_pub=pubkey,
     )
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[pin] = pairing
 
     calls = 0
 
@@ -2042,7 +2054,7 @@ async def test_pair_status_listener_loop_backs_off_on_transport_error(
     assert calls == 2
     # Terminal branch ran: row stays in the dict but is now
     # APPROVED, and an approved event fired.
-    assert offloader._pairings[("rcv.local", 6055)].status is PeerStatus.APPROVED
+    assert offloader._pairings[pin].status is PeerStatus.APPROVED
 
 
 @pytest.mark.asyncio
@@ -2069,7 +2081,7 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
         pin_sha256=pin,
         static_x25519_pub=pubkey,
     )
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[pin] = pairing
 
     calls = 0
 
@@ -2102,7 +2114,7 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
 
     # Two poll attempts (OK → backoff → REJECTED → terminal).
     assert calls == 2
-    assert ("rcv.local", 6055) not in offloader._pairings
+    assert pin not in offloader._pairings
 
 
 # ---------------------------------------------------------------------------
@@ -2188,6 +2200,7 @@ async def test_peer_link_client_fires_opened_after_handshake(
         identity_priv=initiator_priv,
         dashboard_id="alpha",
         pinned_static_x25519_pub=receiver_pub,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -2223,6 +2236,7 @@ async def test_peer_link_client_fires_closed_on_cancel(
         identity_priv=initiator_priv,
         dashboard_id="alpha",
         pinned_static_x25519_pub=receiver_pub,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -2276,6 +2290,7 @@ async def test_peer_link_client_orphans_on_superseded(
         identity_priv=initiator_priv,
         dashboard_id="alpha",
         pinned_static_x25519_pub=receiver_pub,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -2288,6 +2303,7 @@ async def test_peer_link_client_orphans_on_superseded(
         identity_priv=initiator_priv,
         dashboard_id="alpha",
         pinned_static_x25519_pub=receiver_pub,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -2355,6 +2371,7 @@ async def test_peer_link_client_reconnects_on_transport_error(
         identity_priv=initiator_priv,
         dashboard_id="alpha",
         pinned_static_x25519_pub=receiver_pub,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -2407,6 +2424,7 @@ async def test_run_session_loops_send_ping_routes_through_channel(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=EventBus(),
     )
@@ -2458,6 +2476,7 @@ async def test_run_session_loops_returns_heartbeat_timeout_when_dead(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=EventBus(),
     )
@@ -2509,6 +2528,7 @@ async def test_peer_link_client_backoff_advances_when_session_never_opens(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -2552,6 +2572,7 @@ def test_peer_link_client_exposes_receiver_coordinates() -> None:
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=EventBus(),
     )
@@ -2594,6 +2615,7 @@ async def test_peer_link_client_returns_transport_error_on_type_error(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -2638,6 +2660,7 @@ async def test_peer_link_client_returns_transport_error_on_noise_failure(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -2671,6 +2694,7 @@ async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="never-paired",
         pinned_static_x25519_pub=receiver_pub,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -2731,6 +2755,7 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
         identity_priv=initiator_priv,
         dashboard_id="alpha",
         pinned_static_x25519_pub=wrong_pub,
+        pin_sha256="a" * 64,
         receiver_label="my-laptop",
         bus=bus,
     )
@@ -2804,6 +2829,7 @@ async def test_run_session_loops_responds_to_peer_ping(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=EventBus(),
     )
@@ -2865,6 +2891,7 @@ async def test_run_session_loops_bumps_last_pong_on_pong(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=EventBus(),
     )
@@ -2918,6 +2945,7 @@ async def test_run_session_loops_returns_transport_error_on_malformed_frame(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=EventBus(),
     )
@@ -2960,6 +2988,7 @@ async def test_run_session_loops_ignores_unknown_msg_type(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=EventBus(),
     )
@@ -3021,6 +3050,7 @@ async def test_run_session_loops_on_dead_swallows_aiohttp_close_error(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=EventBus(),
     )
@@ -3078,13 +3108,13 @@ async def test_await_pair_status_flip_self_removes_listener_on_terminal_exit(
         static_x25519_pub=pubkey,
         status=PeerStatus.PENDING,
     )
-    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._pairings[pin] = pairing
     offloader._spawn_pair_status_listener(pairing)
-    listener = offloader._pair_status_listeners[("rcv.local", 6055)]
+    listener = offloader._pair_status_listeners[pin]
 
     await listener
 
-    assert ("rcv.local", 6055) not in offloader._pair_status_listeners
+    assert pin not in offloader._pair_status_listeners
 
 
 @pytest.mark.asyncio
@@ -3115,12 +3145,12 @@ async def test_spawn_peer_link_client_idempotent_when_task_running(
 
     offloader._spawn_peer_link_client(pairing)
     await asyncio.sleep(0)
-    first_task = offloader._peer_link_clients[("rcv.local", 6055)]
+    first_task = offloader._peer_link_clients["a" * 64]
 
     offloader._spawn_peer_link_client(pairing)
     await asyncio.sleep(0)
 
-    assert offloader._peer_link_clients[("rcv.local", 6055)] is first_task
+    assert offloader._peer_link_clients["a" * 64] is first_task
     park.set()
     await cancel_and_drain(first_task)
 
@@ -3152,11 +3182,11 @@ async def test_cancel_peer_link_client_cancels_running_task(
     )
     offloader._spawn_peer_link_client(pairing)
     await asyncio.sleep(0)
-    task = offloader._peer_link_clients[("rcv.local", 6055)]
+    task = offloader._peer_link_clients["a" * 64]
 
-    offloader._cancel_peer_link_client("rcv.local", 6055)
+    offloader._cancel_peer_link_client("a" * 64)
 
-    assert ("rcv.local", 6055) not in offloader._peer_link_clients
+    assert "a" * 64 not in offloader._peer_link_clients
     with pytest.raises(asyncio.CancelledError):
         await task
 
@@ -3182,9 +3212,17 @@ async def test_stop_drains_peer_link_clients(
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     _prime_offloader_identity_for_spawn(offloader)
-    for host, port in (("a.local", 6055), ("b.local", 6055)):
+    for host, port, pin in (
+        ("a.local", 6055, "a" * 64),
+        ("b.local", 6055, "b" * 64),
+    ):
         offloader._spawn_peer_link_client(
-            _stub_pairing(receiver_hostname=host, receiver_port=port, status=PeerStatus.APPROVED)
+            _stub_pairing(
+                receiver_hostname=host,
+                receiver_port=port,
+                pin_sha256=pin,
+                status=PeerStatus.APPROVED,
+            )
         )
     await asyncio.sleep(0)
     tasks = list(offloader._peer_link_clients.values())
@@ -3253,6 +3291,7 @@ async def test_run_session_loops_fires_queue_status_event_on_inbound_frame(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )
@@ -3268,6 +3307,7 @@ async def test_run_session_loops_fires_queue_status_event_on_inbound_frame(
     assert payload == {
         "receiver_hostname": "receiver.local",
         "receiver_port": 6055,
+        "pin_sha256": "a" * 64,
         "idle": False,
         "running": True,
         "queue_depth": 3,
@@ -3333,6 +3373,7 @@ async def test_run_session_loops_drops_malformed_queue_status(
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
         pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
         receiver_label="test-receiver",
         bus=bus,
     )

@@ -753,9 +753,12 @@ class RemoteBuildController:
         # ``subscribe_events`` stream — no separate
         # ``subscribe_pairings`` channel needed.
         #
-        # Keyed on ``(receiver_hostname, receiver_port)`` to match
-        # the unified ``_pairings`` dict.
-        self._pair_status_listeners: dict[tuple[str, int], asyncio.Task[None]] = {}
+        # Keyed on ``pin_sha256`` to match the unified
+        # ``_pairings`` dict (4a-o part 6 — re-keyed offloader
+        # state from ``(host, port)`` to pin so a receiver
+        # rename is a one-line value mutation rather than a
+        # multi-dict atomic remap).
+        self._pair_status_listeners: dict[str, asyncio.Task[None]] = {}
         # PENDING StoredPeer rows live here, keyed on dashboard_id.
         # Never persisted — the per-file ``_peers_store``
         # (``.receiver_peers.json``) only stores APPROVED rows.
@@ -800,8 +803,8 @@ class RemoteBuildController:
         # doubling. Drained in :meth:`stop`.
         self._peer_link_sessions: dict[str, PeerLinkSession] = {}
         # Offloader-side long-lived peer-link client tasks, one
-        # per APPROVED ``StoredPairing``, keyed on the receiver's
-        # ``(hostname, port)``. Spawned by
+        # per APPROVED ``StoredPairing``, keyed on the
+        # receiver's ``pin_sha256``. Spawned by
         # :meth:`_spawn_peer_link_client` from :meth:`start`'s
         # cold-start path and from
         # :meth:`_apply_pair_status_result` flipping a row to
@@ -809,7 +812,7 @@ class RemoteBuildController:
         # on ``unpair``; drained in :meth:`stop`. Each task runs
         # the connect-handshake-park-reconnect loop in
         # :meth:`PeerLinkClient.run`.
-        self._peer_link_clients: dict[tuple[str, int], asyncio.Task[None]] = {}
+        self._peer_link_clients: dict[str, asyncio.Task[None]] = {}
         # Identities cached once at :meth:`start` so each
         # peer-link client can pick them up without an executor
         # hop on every spawn. ``_offloader_dashboard_id`` is the
@@ -822,27 +825,34 @@ class RemoteBuildController:
         self._offloader_peer_link_priv: bytes | None = None
         # Single offloader-side ``StoredPairing`` map: contains both
         # PENDING and APPROVED rows, keyed on
-        # ``(receiver_hostname, receiver_port)``. Source of truth at
-        # runtime; the disk filter at serialise time strips PENDING
-        # rows so the on-disk shape stays APPROVED-only. Loaded once
-        # at :meth:`start` and mutated in-place on every
+        # :attr:`StoredPairing.pin_sha256`. The pin is the
+        # stable cryptographic identity (hash of the receiver's
+        # static X25519 pubkey, OOB-confirmed during preview);
+        # ``(receiver_hostname, receiver_port)`` are routing
+        # hints stored as fields on the value rather than the
+        # primary key, so a receiver rename is a one-line
+        # value mutation rather than a multi-dict atomic
+        # remap. Source of truth at runtime; the disk filter at
+        # serialise time strips PENDING rows so the on-disk
+        # shape stays APPROVED-only. Loaded once at
+        # :meth:`start` and mutated in-place on every
         # ``request_pair`` / ``unpair`` /
-        # ``_apply_pair_status_result`` — saves debounce through
-        # :attr:`_pairings_store`.
-        self._pairings: dict[tuple[str, int], StoredPairing] = {}
-        # RAM-only offloader-side pair alerts. Keyed on the same
-        # ``(hostname, port)`` shape ``_pairings`` uses.
+        # ``_apply_pair_status_result`` — saves debounce
+        # through :attr:`_pairings_store`.
+        self._pairings: dict[str, StoredPairing] = {}
+        # RAM-only offloader-side pair alerts. Keyed on
+        # ``pin_sha256`` to match ``_pairings`` (4a-o part 6).
         # Populated by ``_apply_pair_status_result`` when a
         # pair-status round-trip detects a pin drift
         # (pin_mismatch) or a receiver-side rejection
         # (peer_revoked); cleared only by the two resolution
         # paths that fix the underlying broken state:
-        # ``request_pair`` succeeding for the same
-        # ``(hostname, port)`` (auto-resolve on re-pair) and
-        # ``unpair`` (user removed the row outright). There is
-        # no operator-driven dismiss surface — clicking "OK got
-        # it" without acting would just hide a broken pairing
-        # the next peer-link session would still fail against.
+        # ``request_pair`` succeeding for the same pin
+        # (auto-resolve on re-pair) and ``unpair`` (user
+        # removed the row outright). There is no operator-
+        # driven dismiss surface — clicking "OK got it"
+        # without acting would just hide a broken pairing the
+        # next peer-link session would still fail against.
         # Never persisted: the alert describes a transient
         # detection, and a process restart with the row still
         # gone leaves nothing for the listener to re-detect
@@ -852,12 +862,12 @@ class RemoteBuildController:
         # carries the snapshot so a tab subscribing AFTER the
         # event fired still sees the alert it would have missed
         # on the live stream.
-        self._offloader_alerts: dict[tuple[str, int], OffloaderAlertSnapshotEntry] = {}
+        self._offloader_alerts: dict[str, OffloaderAlertSnapshotEntry] = {}
         # RAM-only offloader-side cache of the most recent
         # ``queue_status`` snapshot received from each paired
-        # receiver, keyed on ``(receiver_hostname,
-        # receiver_port)``. Updated on every inbound
-        # ``OFFLOADER_QUEUE_STATUS_CHANGED`` (the
+        # receiver, keyed on ``pin_sha256`` (4a-o part 6 —
+        # mirrors ``_pairings`` keying). Updated on every
+        # inbound ``OFFLOADER_QUEUE_STATUS_CHANGED`` (the
         # :class:`PeerLinkClient` receive loop fires the event
         # after parsing a wire frame). Surfaced through
         # ``subscribe_events.initial_state.peer_queue_status`` so
@@ -870,7 +880,7 @@ class RemoteBuildController:
         # :meth:`unpair` for the matching key so the snapshot
         # doesn't surface stale data for a pairing the user
         # removed.
-        self._peer_queue_status: dict[tuple[str, int], PeerQueueStatusSnapshotEntry] = {}
+        self._peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] = {}
         # ``Store`` registers itself with this list at construction
         # (via ``shutdown_register=...append``); the controller's
         # :meth:`stop` walks the list to flush any debounced save
@@ -939,7 +949,7 @@ class RemoteBuildController:
         # dict stays empty.
         if (settings := await self._pairings_store.async_load()) is not None:
             for pairing in settings.pairings:
-                self._pairings[(pairing.receiver_hostname, pairing.receiver_port)] = pairing
+                self._pairings[pairing.pin_sha256] = pairing
         # Seed the RAM-canonical APPROVED peer dict from the
         # per-file peers store. Mirrors the offloader-side
         # ``_pairings_store`` load above; RAM is canonical from
@@ -1068,7 +1078,6 @@ class RemoteBuildController:
         fields so the snapshot row survives the event drop.
         """
         data = event.data
-        key = (data["receiver_hostname"], data["receiver_port"])
         # Build the typed alert explicitly rather than as a bare
         # dict literal: ``_offloader_alerts`` is typed
         # ``dict[..., OffloaderAlertSnapshotEntry]`` (a union of
@@ -1080,12 +1089,13 @@ class RemoteBuildController:
             "kind": "pin_mismatch",
             "receiver_hostname": data["receiver_hostname"],
             "receiver_port": data["receiver_port"],
+            "pin_sha256": data["pin_sha256"],
             "receiver_label": data["receiver_label"],
             "expected_pin": data["expected_pin"],
             "observed_pin": data["observed_pin"],
             "fired_at": time.time(),
         }
-        self._offloader_alerts[key] = alert
+        self._offloader_alerts[data["pin_sha256"]] = alert
 
     def _on_offloader_queue_status_changed(
         self, event: Event[OffloaderQueueStatusChangedData]
@@ -1101,10 +1111,10 @@ class RemoteBuildController:
         on-the-wire :class:`QueueStatusFrameData`.
         """
         data = event.data
-        key = (data["receiver_hostname"], data["receiver_port"])
-        self._peer_queue_status[key] = PeerQueueStatusSnapshotEntry(
+        self._peer_queue_status[data["pin_sha256"]] = PeerQueueStatusSnapshotEntry(
             receiver_hostname=data["receiver_hostname"],
             receiver_port=data["receiver_port"],
+            pin_sha256=data["pin_sha256"],
             idle=data["idle"],
             running=data["running"],
             queue_depth=data["queue_depth"],
@@ -1771,24 +1781,35 @@ class RemoteBuildController:
             paired_at=time.time(),
             status=target_status,
         )
-        key = (clean_host, clean_port)
-        # Re-pair against an existing entry (same ``(host, port)``
-        # but possibly a different pin / pubkey because the
-        # receiver rotated its peer-link key between pair attempts)
-        # replaces the dict entry; the *existing* listener task
-        # captured the old pairing in its closure and would compare
-        # incoming pin_sha256 against the stale value, so cancel it
-        # explicitly here before deciding whether to spawn a fresh
-        # listener. The cancelled task self-removes from
+        key = result.pin_sha256
+        # Sweep any stale entry at the same ``(host, port)`` but
+        # under a different pin (rotation, or the user moved a
+        # different receiver to this hostname): drop the row,
+        # cancel its listener + peer-link client, drop its
+        # alert. Without this, a re-pair under a fresh pin
+        # would leave the old pin's row + listener orphaned.
+        # The pin-keyed lookup of the *new* row happens after,
+        # so the freshly-keyed entry isn't accidentally evicted
+        # if the new pin happens to equal the swept one (in
+        # which case the loop's ``key != ...`` guard skips it).
+        self._sweep_stale_pairings_at_endpoint(clean_host, clean_port, keep_pin_sha256=key)
+        # Re-pair against an existing entry under the SAME pin
+        # (the receiver hasn't rotated; user just re-confirmed
+        # the same identity) means we update the row in place;
+        # the *existing* listener task captured the old pairing
+        # in its closure and would compare incoming pin_sha256
+        # against the stale value, so cancel it explicitly here
+        # before deciding whether to spawn a fresh listener.
+        # The cancelled task self-removes from
         # ``_pair_status_listeners`` via its ``finally`` clause.
         self._pairings[key] = pairing
-        self._cancel_pair_status_listener(clean_host, clean_port)
+        self._cancel_pair_status_listener(key)
         # Auto-resolve any prior pin_mismatch / peer_revoked
         # alert for this receiver: the user just successfully
         # re-paired (the new row is in ``_pairings`` above), so
         # the alert is stale. Fires
         # ``OFFLOADER_PAIR_ALERT_DISMISSED`` for cross-tab sync.
-        self._dismiss_offloader_alert(clean_host, clean_port)
+        self._dismiss_offloader_alert(key, clean_host, clean_port)
         if target_status is PeerStatus.APPROVED:
             # Persisted trust anchor that survives restart. Schedule
             # the debounced disk write; the controller's ``stop()``
@@ -1815,16 +1836,23 @@ class RemoteBuildController:
     async def unpair(
         self,
         *,
-        hostname: str,
-        port: int,
+        pin_sha256: str,
         **kwargs: Any,
     ) -> dict[str, bool]:
-        """Drop the local :class:`StoredPairing` row for ``(hostname, port)``.
+        """Drop the local :class:`StoredPairing` row keyed on *pin_sha256*.
 
         Idempotent: returns ``{"removed": False}`` when no row matches
         rather than raising — the frontend's "Unpair" button should
         always succeed visually even when the row was already gone
         (race with a concurrent listener-driven flip-to-removed).
+
+        4a-o part 6 changed the WS arg from ``(hostname, port)`` to
+        ``pin_sha256`` so the receiver-side identity (not the
+        routing coordinates) is the lookup key — this keeps unpair
+        consistent across a hostname change. The frontend already
+        carries ``pin_sha256`` on every :class:`PairingSummary`,
+        so the user-clicks-Unpair path threads that value
+        directly.
 
         Receiver-side state is *not* notified. The receiver's
         :class:`StoredPeer` row stays until the receiver's admin
@@ -1841,9 +1869,7 @@ class RemoteBuildController:
         promptly so the offloader's open Noise WS to the receiver
         closes cleanly rather than waiting on a now-irrelevant flip.
         """
-        clean_host = _validate_hostname(hostname, context=_HostFieldContext.RECEIVER)
-        clean_port = _validate_port(port, context=_HostFieldContext.RECEIVER)
-        key = (clean_host, clean_port)
+        key = _validate_pin_sha256(pin_sha256)
 
         # Cancel BEFORE mutating the dict: the listener task holds
         # an open Noise WS to the receiver, and we want it closed
@@ -1856,11 +1882,11 @@ class RemoteBuildController:
         # its ``self._pairings.pop(key, None)`` returns None (we
         # just popped) and the listener exits terminal without
         # promoting — no row resurrection.
-        self._cancel_pair_status_listener(clean_host, clean_port)
+        self._cancel_pair_status_listener(key)
         # Cancel the long-lived peer-link client too — same
         # rationale (the client holds an open Noise WS that
         # should close promptly on user-clicks-Unpair).
-        self._cancel_peer_link_client(clean_host, clean_port)
+        self._cancel_peer_link_client(key)
         # Single in-RAM dict carries both PENDING and APPROVED.
         previous = self._pairings.pop(key, None)
         if previous is None:
@@ -1877,12 +1903,14 @@ class RemoteBuildController:
         # ``subscribe_events`` stream see the removal without
         # re-fetching the pairings snapshot. Mirrors the
         # receiver-side ``remove_peer`` firing the same shape.
-        self._fire_offloader_pair_status_changed(clean_host, clean_port, "removed")
+        self._fire_offloader_pair_status_changed(
+            previous.receiver_hostname, previous.receiver_port, key, "removed"
+        )
         # Drop any pending pin_mismatch / peer_revoked alert
         # for this receiver — the user explicitly removed the
         # row, so the alert about it is moot. Fires
         # ``OFFLOADER_PAIR_ALERT_DISMISSED`` for cross-tab sync.
-        self._dismiss_offloader_alert(clean_host, clean_port)
+        self._dismiss_offloader_alert(key, previous.receiver_hostname, previous.receiver_port)
         # Drop any cached queue-status snapshot for this
         # receiver. Without this, ``subscribe_events`` would
         # keep surfacing a stale snapshot of a pairing the user
@@ -1942,8 +1970,8 @@ class RemoteBuildController:
         """
         return list(self._offloader_alerts.values())
 
-    def _dismiss_offloader_alert(self, hostname: str, port: int) -> bool:
-        """Drop the alert for ``(hostname, port)`` and fire DISMISSED.
+    def _dismiss_offloader_alert(self, pin_sha256: str, hostname: str, port: int) -> bool:
+        """Drop the alert for *pin_sha256* and fire DISMISSED.
 
         Called only by the two resolution paths that fix the
         underlying broken state: :meth:`request_pair` (the user
@@ -1955,18 +1983,24 @@ class RemoteBuildController:
         fail against, so the only ways out are re-pair or
         unpair.
 
+        ``hostname`` / ``port`` are passed alongside the pin
+        because the dismissed event still carries them as
+        display fields (the frontend's alert list keys on
+        ``${hostname}:${port}`` until it migrates to pin-keying
+        in the follow-up frontend PR).
+
         Returns ``True`` when an alert was actually dropped so
         callers can avoid firing the bus event when there's no
         row to flip. The event fire keeps other subscribed tabs
         in sync with the auto-clear without re-fetching the
         snapshot.
         """
-        key = (hostname, port)
-        if self._offloader_alerts.pop(key, None) is None:
+        if self._offloader_alerts.pop(pin_sha256, None) is None:
             return False
         payload: OffloaderPairAlertDismissedData = {
             "receiver_hostname": hostname,
             "receiver_port": port,
+            "pin_sha256": pin_sha256,
         }
         self._db.bus.fire(EventType.OFFLOADER_PAIR_ALERT_DISMISSED, payload)
         return True
@@ -2003,22 +2037,22 @@ class RemoteBuildController:
         method on a re-pair after the prior listener was
         cancelled to avoid stale-pin closure capture). Idempotent
         on already-running listeners — returns early if a
-        listener for ``(host, port)`` already exists and isn't
-        done. Cold start has no PENDING entries to spawn against,
-        so this isn't called from :meth:`start`.
+        listener for the row's ``pin_sha256`` already exists and
+        isn't done. Cold start has no PENDING entries to spawn
+        against, so this isn't called from :meth:`start`.
         """
-        key = (pairing.receiver_hostname, pairing.receiver_port)
+        key = pairing.pin_sha256
         existing = self._pair_status_listeners.get(key)
         if existing is not None and not existing.done():
             return
         self._pair_status_listeners[key] = asyncio.create_task(
             self._await_pair_status_flip(pairing),
-            name=f"pair-status-{key[0]}:{key[1]}",
+            name=f"pair-status-{pairing.receiver_hostname}:{pairing.receiver_port}",
         )
 
-    def _cancel_pair_status_listener(self, hostname: str, port: int) -> None:
-        """Cancel the listener at ``(host, port)``. No-op if none running."""
-        task = self._pair_status_listeners.pop((hostname, port), None)
+    def _cancel_pair_status_listener(self, pin_sha256: str) -> None:
+        """Cancel the listener for *pin_sha256*. No-op if none running."""
+        task = self._pair_status_listeners.pop(pin_sha256, None)
         if task is not None and not task.done():
             task.cancel()
 
@@ -2026,10 +2060,11 @@ class RemoteBuildController:
         """Spawn the long-lived peer-link client for *pairing*.
 
         Idempotent on already-running clients — returns early if
-        a client for ``(host, port)`` is still alive. Skips if
-        the offloader-side identities haven't been loaded yet
-        (start order: identities load before any spawn). Skips
-        if the bus isn't wired (e.g. a unit test path).
+        a client for the row's ``pin_sha256`` is still alive.
+        Skips if the offloader-side identities haven't been
+        loaded yet (start order: identities load before any
+        spawn). Skips if the bus isn't wired (e.g. a unit test
+        path).
         """
         if (
             self._offloader_dashboard_id is None
@@ -2037,7 +2072,7 @@ class RemoteBuildController:
             or self._db.bus is None
         ):
             return
-        key = (pairing.receiver_hostname, pairing.receiver_port)
+        key = pairing.pin_sha256
         existing = self._peer_link_clients.get(key)
         if existing is not None and not existing.done():
             return
@@ -2052,19 +2087,68 @@ class RemoteBuildController:
             # admitting an attacker with their own keypair to
             # the application channel.
             pinned_static_x25519_pub=pairing.static_x25519_pub,
+            pin_sha256=pairing.pin_sha256,
             receiver_label=pairing.label,
             bus=self._db.bus,
         )
         self._peer_link_clients[key] = asyncio.create_task(
             client.run(),
-            name=f"peer-link-client-{key[0]}:{key[1]}",
+            name=f"peer-link-client-{pairing.receiver_hostname}:{pairing.receiver_port}",
         )
 
-    def _cancel_peer_link_client(self, hostname: str, port: int) -> None:
-        """Cancel the peer-link client at ``(host, port)``. No-op if none running."""
-        task = self._peer_link_clients.pop((hostname, port), None)
+    def _cancel_peer_link_client(self, pin_sha256: str) -> None:
+        """Cancel the peer-link client for *pin_sha256*. No-op if none running."""
+        task = self._peer_link_clients.pop(pin_sha256, None)
         if task is not None and not task.done():
             task.cancel()
+
+    def _sweep_stale_pairings_at_endpoint(
+        self, hostname: str, port: int, *, keep_pin_sha256: str
+    ) -> None:
+        """Drop any pairing or alert at ``(hostname, port)`` whose pin isn't *keep_pin_sha256*.
+
+        Called from :meth:`request_pair` to clean up stale rows
+        when the user re-pairs against the same network
+        coordinates under a fresh pin (receiver rotated
+        identity, or a different receiver moved to that
+        hostname). Without this sweep, the old row + its
+        listener task + alert would leak under pin-keying — the
+        new entry lands at the new pin, and the old pin's slot
+        keeps pointing at a stale row nobody references.
+
+        ``keep_pin_sha256`` is the pin of the row the caller is
+        about to install; rows under that pin are skipped (the
+        caller's own write is the source of truth).
+
+        Walks both ``_pairings`` and ``_offloader_alerts``: an
+        alert can outlive its pairing in some race paths (e.g.
+        ``_apply_pair_status_result``'s pin-drift branch
+        registered the alert and dropped the pairing under the
+        old pin), so dropping by pin alone wouldn't cover the
+        re-pair-clears-old-alert contract. Snapshots the dicts
+        to lists before iterating so the in-loop pop doesn't
+        mutate-during-iteration.
+        """
+        for stale_pin, pairing in list(self._pairings.items()):
+            if stale_pin == keep_pin_sha256:
+                continue
+            if pairing.receiver_hostname != hostname or pairing.receiver_port != port:
+                continue
+            self._pairings.pop(stale_pin, None)
+            self._cancel_pair_status_listener(stale_pin)
+            self._cancel_peer_link_client(stale_pin)
+            self._peer_queue_status.pop(stale_pin, None)
+        # Alerts can outlive pairings — sweep them in a second
+        # pass keyed on the alert's stored ``receiver_hostname``
+        # / ``receiver_port`` (also walks the pin-keyed dict so
+        # an alert under the keep_pin_sha256 stays put if the
+        # user is re-confirming the same identity).
+        for stale_pin, alert in list(self._offloader_alerts.items()):
+            if stale_pin == keep_pin_sha256:
+                continue
+            if alert["receiver_hostname"] != hostname or alert["receiver_port"] != port:
+                continue
+            self._dismiss_offloader_alert(stale_pin, hostname, port)
 
     async def _await_pair_status_flip(self, pairing: StoredPairing) -> None:
         """Hold a Noise WS to the receiver until the row flips status.
@@ -2120,7 +2204,7 @@ class RemoteBuildController:
             # ``pop()``-ing here would evict the replacement and
             # orphan it (no entry left for ``unpair`` to cancel,
             # the new listener parks forever).
-            key = (pairing.receiver_hostname, pairing.receiver_port)
+            key = pairing.pin_sha256
             if self._pair_status_listeners.get(key) is asyncio.current_task():
                 del self._pair_status_listeners[key]
 
@@ -2171,7 +2255,7 @@ class RemoteBuildController:
         # offloader-side label after the row's been popped.
         label = pairing.label
         stored_pin = pairing.pin_sha256
-        key = (host, port)
+        key = pairing.pin_sha256
         if result.status is IntentResponse.APPROVED:
             if result.pin_sha256 != pairing.pin_sha256:
                 _LOGGER.warning(
@@ -2196,6 +2280,7 @@ class RemoteBuildController:
                         "kind": "pin_mismatch",
                         "receiver_hostname": host,
                         "receiver_port": port,
+                        "pin_sha256": stored_pin,
                         "receiver_label": label,
                         "expected_pin": stored_pin,
                         "observed_pin": result.pin_sha256,
@@ -2209,9 +2294,9 @@ class RemoteBuildController:
                     # events ride the same global subscribe stream
                     # so order is preserved end-to-end.
                     self._fire_offloader_pair_pin_mismatch(
-                        host, port, label, stored_pin, result.pin_sha256
+                        host, port, key, label, stored_pin, result.pin_sha256
                     )
-                    self._fire_offloader_pair_status_changed(host, port, "removed")
+                    self._fire_offloader_pair_status_changed(host, port, key, "removed")
                 return True
             # Promote PENDING → APPROVED in place. ``unpair``
             # between our ``await await_pair_status(...)`` and this
@@ -2229,7 +2314,7 @@ class RemoteBuildController:
             self._pairings_store.async_delay_save(
                 self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
             )
-            self._fire_offloader_pair_status_changed(host, port, "approved")
+            self._fire_offloader_pair_status_changed(host, port, key, "approved")
             # Spawn the long-lived peer-link client now that the
             # receiver has approved us. The client's
             # connect-handshake-park-reconnect loop owns the
@@ -2248,6 +2333,7 @@ class RemoteBuildController:
                     "kind": "peer_revoked",
                     "receiver_hostname": host,
                     "receiver_port": port,
+                    "pin_sha256": stored_pin,
                     "receiver_label": label,
                     "fired_at": time.time(),
                 }
@@ -2256,8 +2342,8 @@ class RemoteBuildController:
                 # pin-mismatch branch above: subscribers see the
                 # peer-revoked diagnostic before the
                 # ``status_changed("removed")`` drops the row.
-                self._fire_offloader_pair_peer_revoked(host, port, label)
-                self._fire_offloader_pair_status_changed(host, port, "removed")
+                self._fire_offloader_pair_peer_revoked(host, port, key, label)
+                self._fire_offloader_pair_status_changed(host, port, key, "removed")
             return True
         _LOGGER.warning(
             "pair-status returned unexpected status %r for %s:%s",
@@ -2271,6 +2357,7 @@ class RemoteBuildController:
         self,
         receiver_hostname: str,
         receiver_port: int,
+        pin_sha256: str,
         status: Literal["approved", "removed"],
     ) -> None:
         """Fire ``OFFLOADER_PAIR_STATUS_CHANGED`` for a pairing flip.
@@ -2278,10 +2365,14 @@ class RemoteBuildController:
         Mirrors :meth:`_fire_pair_status_changed` (receiver-side)
         for shape; both methods are the named-intent boundary
         between controller logic and the bus payload format.
+        ``pin_sha256`` is the canonical row identifier (4a-o
+        part 6 — re-keyed offloader state on pin); receiver
+        coords stay on the payload as display fields.
         """
         payload: OffloaderPairStatusChangedData = {
             "receiver_hostname": receiver_hostname,
             "receiver_port": receiver_port,
+            "pin_sha256": pin_sha256,
             "status": status,
         }
         self._db.bus.fire(EventType.OFFLOADER_PAIR_STATUS_CHANGED, payload)
@@ -2290,6 +2381,7 @@ class RemoteBuildController:
         self,
         receiver_hostname: str,
         receiver_port: int,
+        pin_sha256: str,
         receiver_label: str,
         expected_pin: str,
         observed_pin: str,
@@ -2303,12 +2395,16 @@ class RemoteBuildController:
         event carries the diagnostic detail the frontend's
         4b-4 alert plumbing reshape uses to surface a "re-pair
         to confirm the new identity" CTA distinct from the
-        peer-revocation path.
+        peer-revocation path. ``pin_sha256`` is the row's
+        primary key (= ``expected_pin``); duplicated as a
+        separate field so the controller's listener has a
+        direct lookup without parsing ``expected_pin``.
         """
         payload: OffloaderPairPinMismatchData = {
             "receiver_hostname": receiver_hostname,
             "receiver_port": receiver_port,
             "receiver_label": receiver_label,
+            "pin_sha256": pin_sha256,
             "expected_pin": expected_pin,
             "observed_pin": observed_pin,
         }
@@ -2318,6 +2414,7 @@ class RemoteBuildController:
         self,
         receiver_hostname: str,
         receiver_port: int,
+        pin_sha256: str,
         receiver_label: str,
     ) -> None:
         """Fire ``OFFLOADER_PAIR_PEER_REVOKED`` for a REJECTED pair_status.
@@ -2328,12 +2425,15 @@ class RemoteBuildController:
         close, identity rotation, row never existed) collapse
         to "the receiver isn't going to talk to us"; the alert
         copy stays generic. Fires alongside
-        ``status="removed"``.
+        ``status="removed"``. ``pin_sha256`` is the canonical
+        row identifier (4a-o part 6); receiver coords stay on
+        the payload as display fields.
         """
         payload: OffloaderPairPeerRevokedData = {
             "receiver_hostname": receiver_hostname,
             "receiver_port": receiver_port,
             "receiver_label": receiver_label,
+            "pin_sha256": pin_sha256,
         }
         self._db.bus.fire(EventType.OFFLOADER_PAIR_PEER_REVOKED, payload)
 

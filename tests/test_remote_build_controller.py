@@ -2522,15 +2522,17 @@ def test_on_offloader_pair_pin_mismatch_caches_alert(tmp_path: Path) -> None:
         "receiver_hostname": "host.local",
         "receiver_port": 6055,
         "receiver_label": "my-laptop",
+        "pin_sha256": "a" * 64,
         "expected_pin": "a" * 64,
         "observed_pin": "b" * 64,
     }
     controller._on_offloader_pair_pin_mismatch(MagicMock(data=payload))
 
-    cached = controller._offloader_alerts[("host.local", 6055)]
+    cached = controller._offloader_alerts["a" * 64]
     assert cached["kind"] == "pin_mismatch"
     assert cached["receiver_hostname"] == "host.local"
     assert cached["receiver_port"] == 6055
+    assert cached["pin_sha256"] == "a" * 64
     assert cached["receiver_label"] == "my-laptop"
     assert cached["expected_pin"] == "a" * 64
     assert cached["observed_pin"] == "b" * 64
@@ -2543,15 +2545,17 @@ def test_on_offloader_queue_status_changed_caches_snapshot(tmp_path: Path) -> No
     payload = {
         "receiver_hostname": "192.168.1.10",
         "receiver_port": 6055,
+        "pin_sha256": "a" * 64,
         "idle": False,
         "running": True,
         "queue_depth": 3,
     }
     controller._on_offloader_queue_status_changed(MagicMock(data=payload))
 
-    cached = controller._peer_queue_status[("192.168.1.10", 6055)]
+    cached = controller._peer_queue_status["a" * 64]
     assert cached["receiver_hostname"] == "192.168.1.10"
     assert cached["receiver_port"] == 6055
+    assert cached["pin_sha256"] == "a" * 64
     assert cached["idle"] is False
     assert cached["running"] is True
     assert cached["queue_depth"] == 3
@@ -2560,9 +2564,11 @@ def test_on_offloader_queue_status_changed_caches_snapshot(tmp_path: Path) -> No
 def test_on_offloader_queue_status_changed_overwrites_prior(tmp_path: Path) -> None:
     """A second event for the same key replaces the prior snapshot."""
     controller = _make_controller(config_dir=tmp_path)
+    pin = "a" * 64
     first = {
         "receiver_hostname": "host",
         "receiver_port": 6055,
+        "pin_sha256": pin,
         "idle": True,
         "running": False,
         "queue_depth": 0,
@@ -2570,6 +2576,7 @@ def test_on_offloader_queue_status_changed_overwrites_prior(tmp_path: Path) -> N
     second = {
         "receiver_hostname": "host",
         "receiver_port": 6055,
+        "pin_sha256": pin,
         "idle": False,
         "running": True,
         "queue_depth": 5,
@@ -2577,7 +2584,7 @@ def test_on_offloader_queue_status_changed_overwrites_prior(tmp_path: Path) -> N
     controller._on_offloader_queue_status_changed(MagicMock(data=first))
     controller._on_offloader_queue_status_changed(MagicMock(data=second))
 
-    cached = controller._peer_queue_status[("host", 6055)]
+    cached = controller._peer_queue_status[pin]
     assert cached["queue_depth"] == 5
     assert cached["running"] is True
     assert len(controller._peer_queue_status) == 1
@@ -2586,16 +2593,18 @@ def test_on_offloader_queue_status_changed_overwrites_prior(tmp_path: Path) -> N
 def test_peer_queue_status_snapshot_returns_list(tmp_path: Path) -> None:
     """``peer_queue_status_snapshot`` returns a list of cached entries."""
     controller = _make_controller(config_dir=tmp_path)
-    controller._peer_queue_status[("a", 6055)] = {
+    controller._peer_queue_status["a" * 64] = {
         "receiver_hostname": "a",
         "receiver_port": 6055,
+        "pin_sha256": "a" * 64,
         "idle": True,
         "running": False,
         "queue_depth": 0,
     }
-    controller._peer_queue_status[("b", 6055)] = {
+    controller._peer_queue_status["b" * 64] = {
         "receiver_hostname": "b",
         "receiver_port": 6055,
+        "pin_sha256": "b" * 64,
         "idle": False,
         "running": True,
         "queue_depth": 2,
