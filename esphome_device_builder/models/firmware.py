@@ -84,6 +84,12 @@ class FirmwareJob(DataClassORJSONMixin):
     # yet -- most compile output is opaque, but the heavy phases (PIO
     # build, esptool flash) do emit percentages we can latch onto.
     progress: int | None = None
+    # Offloader's ``dashboard_id`` when this job came in via the
+    # peer-link ``submit_job`` flow (issue #106 phase 5c). Empty
+    # for locally-submitted jobs. Surfaced in the firmware-tasks
+    # UI as a "from <peer>" badge so the receiver-side admin can
+    # tell their own work apart from delegated builds.
+    remote_peer: str = ""
 
     def reset(self) -> None:
         """

@@ -1565,7 +1565,7 @@ async def test_receive_loop_terminates_on_text_frame(tmp_path: Path) -> None:
     session, ws = _make_unit_session(responder)
     ws._inbox.append(_text_msg("hello"))
 
-    await _receive_loop(session)
+    await _receive_loop(session, MagicMock())
 
     # One terminate frame sent + WS closed; decode confirms the
     # reason field carries the expected ``malformed_frame``.
@@ -1585,7 +1585,7 @@ async def test_receive_loop_terminates_on_undecryptable_frame(tmp_path: Path) ->
     # frame against ``responder``'s current cipher state.
     ws._inbox.append(_binary_msg(b"\xde\xad\xbe\xef" * 16))
 
-    await _receive_loop(session)
+    await _receive_loop(session, MagicMock())
 
     assert ws.closes == 1
     # The terminate frame itself was sent before close — exact
@@ -1603,7 +1603,7 @@ async def test_receive_loop_terminates_on_non_object_json(tmp_path: Path) -> Non
     bad_payload = initiator.encrypt(_json.dumps([1, 2, 3]))
     ws._inbox.append(_binary_msg(bad_payload))
 
-    await _receive_loop(session)
+    await _receive_loop(session, MagicMock())
 
     assert ws.closes == 1
     assert len(ws.sends) == 1
@@ -1618,7 +1618,7 @@ async def test_receive_loop_pong_updates_last_pong_at(tmp_path: Path) -> None:
     pong = initiator.encrypt(_json.dumps({"type": "pong", "nonce": 7}))
     ws._inbox.append(_binary_msg(pong))
 
-    await _receive_loop(session)
+    await _receive_loop(session, MagicMock())
 
     assert session.last_pong_at > 0.0
     # No outbound frame fired (pong is one-way from peer to us).
@@ -1633,7 +1633,7 @@ async def test_receive_loop_peer_terminate_exits_cleanly(tmp_path: Path) -> None
     bye = initiator.encrypt(_json.dumps({"type": "terminate", "reason": "client_quit"}))
     ws._inbox.append(_binary_msg(bye))
 
-    await _receive_loop(session)
+    await _receive_loop(session, MagicMock())
 
     # No echo terminate, no close from our side — caller (the
     # session-loop driver) closes the WS in its outer finally.
@@ -1658,7 +1658,7 @@ async def test_receive_loop_unknown_app_frame_type_logged_and_ignored(tmp_path: 
     # iterator is empty (no further frames). Add an explicit close
     # message? Async-iter exit on StopAsyncIteration is enough.
 
-    await _receive_loop(session)
+    await _receive_loop(session, MagicMock())
 
     # Nothing sent, no terminate, no close from our side.
     assert ws.sends == []

@@ -60,7 +60,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import aiohttp
 from aiohttp import WSMsgType, web
@@ -74,7 +74,12 @@ from ..helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from ..models import IntentResponse, PeerLinkIntent
+from ..models import (
+    IntentResponse,
+    PeerLinkIntent,
+    SubmitJobChunkFrameData,
+    SubmitJobFrameData,
+)
 
 
 class _HandshakeStep(StrEnum):
@@ -664,7 +669,7 @@ async def _run_peer_link_session(
         name=f"peer-link-heartbeat[{dashboard_id}]",
     )
     try:
-        await _receive_loop(peer_link_session)
+        await _receive_loop(peer_link_session, controller)
     finally:
         heartbeat_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -672,7 +677,7 @@ async def _run_peer_link_session(
         controller.unregister_peer_link_session(peer_link_session)
 
 
-async def _receive_loop(session: PeerLinkSession) -> None:
+async def _receive_loop(session: PeerLinkSession, controller: RemoteBuildController) -> None:
     """
     Read frames off the WS, decrypt, parse, and dispatch.
 
@@ -685,10 +690,10 @@ async def _receive_loop(session: PeerLinkSession) -> None:
     structured ``terminate``), or controller-driven session close
     (the registry's :meth:`PeerLinkSession.terminate` flips
     ``_closing`` so a CLOSE frame doesn't trigger a redundant
-    terminate). 5a-1 dispatches only ``ping`` / ``pong`` /
-    ``terminate`` — every other type logs at debug and is
-    ignored. Application message types land against this same
-    seam in 5b-5d.
+    terminate). 5a-1 dispatched only ``ping`` / ``pong`` /
+    ``terminate``; 5c-2 adds ``submit_job`` / ``submit_job_chunk``
+    against the controller's :class:`SubmitJobReceiver`. Other
+    types log at debug and are ignored.
     """
     async for msg in session.ws:
         parsed = session._channel.parse_frame(msg)
@@ -712,6 +717,21 @@ async def _receive_loop(session: PeerLinkSession) -> None:
             # the WS will drain via the next ``CLOSE`` frame.
             session._closing = True
             return
+        if msg_type == AppMessageType.SUBMIT_JOB.value:
+            # Header validation lives inside the receiver. The
+            # `cast` here is the dispatch boundary's "the wire
+            # parse said this is a submit_job; treat it as the
+            # matching TypedDict" hand-off — runtime field
+            # validation is the receiver's job.
+            await controller.get_submit_job_receiver().handle_submit_job(
+                session, cast("SubmitJobFrameData", parsed)
+            )
+            continue
+        if msg_type == AppMessageType.SUBMIT_JOB_CHUNK.value:
+            await controller.get_submit_job_receiver().handle_submit_job_chunk(
+                session, cast("SubmitJobChunkFrameData", parsed)
+            )
+            continue
         _LOGGER.debug(
             "peer-link unknown app frame type %r from %s; ignoring",
             msg_type,

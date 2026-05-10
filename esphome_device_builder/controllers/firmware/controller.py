@@ -1376,6 +1376,7 @@ class FirmwareController:
         job_type: JobType,
         port: str = "",
         new_name: str = "",
+        remote_peer: str = "",
     ) -> FirmwareJob:
         """Create a new job and add it to the in-memory map.
 
@@ -1383,6 +1384,10 @@ class FirmwareController:
         first via ``_validate_configuration_boundary`` — keeping it
         async-only lets the validation run in an executor without
         making this helper async too.
+
+        ``remote_peer`` is the offloader's ``dashboard_id`` when
+        this job came in via the peer-link ``submit_job`` flow
+        (issue #106 phase 5c), empty otherwise.
         """
         job = FirmwareJob(
             job_id=uuid4().hex[:12],
@@ -1391,6 +1396,7 @@ class FirmwareController:
             created_at=datetime.now(UTC).isoformat(),
             port=port,
             new_name=new_name,
+            remote_peer=remote_peer,
         )
         self._jobs[job.job_id] = job
         return job

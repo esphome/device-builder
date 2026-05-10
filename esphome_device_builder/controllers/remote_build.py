@@ -140,6 +140,7 @@ from .remote_build_peer_link_client import (
 from .remote_build_peer_link_client import (
     request_pair as peer_link_request_pair,
 )
+from .remote_build_submit_job import SubmitJobReceiver
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -784,6 +785,19 @@ class RemoteBuildController:
         # offloader takes over its previous slot rather than
         # doubling. Drained in :meth:`stop`.
         self._peer_link_sessions: dict[str, PeerLinkSession] = {}
+        # Receiver-side ``submit_job`` flow handler (5c-2).
+        # Holds per-session in-flight bundle reception state and
+        # drives the receiver's accept path
+        # (assemble → write tarball → extract → queue
+        # ``FirmwareJob`` with ``remote_peer`` → ack).
+        # Constructed in :meth:`start` once
+        # :attr:`DeviceBuilder.firmware` is available; the
+        # :attr:`submit_job_receiver` property raises if accessed
+        # before that — every wire-side caller is gated behind
+        # the peer-link listener bind, which itself only happens
+        # after ``start``, so the not-yet-installed window is
+        # never reachable on a healthy code path.
+        self._submit_job_receiver: SubmitJobReceiver | None = None
         # Offloader-side long-lived peer-link client tasks, one
         # per APPROVED ``StoredPairing``, keyed on the receiver's
         # ``(hostname, port)``. Spawned by
@@ -914,6 +928,19 @@ class RemoteBuildController:
         fail-soft; same contract as
         :class:`DashboardAdvertiser`.
         """
+        # Stand up the receiver-side ``submit_job`` handler (5c-2)
+        # before the peer-link listener can possibly fire its
+        # first SUBMIT_JOB dispatch. The handler has no work to
+        # do on cold start beyond holding its empty in-flight
+        # dict; the wire dispatch in
+        # :func:`controllers.remote_build_peer_link._receive_loop`
+        # reaches it via the ``submit_job_receiver`` property,
+        # which raises if accessed before this point.
+        if self._db.firmware is not None:
+            self._submit_job_receiver = SubmitJobReceiver(
+                config_dir=self._db.settings.config_dir,
+                firmware_controller=self._db.firmware,
+            )
         # Load APPROVED pairings into RAM. ``StoredPairing.status``
         # defaults to ``APPROVED`` so older sidecars without the
         # field round-trip cleanly; freshly-saved files carry the
@@ -1168,6 +1195,15 @@ class RemoteBuildController:
         """
         if self._peer_link_sessions.get(session.dashboard_id) is session:
             del self._peer_link_sessions[session.dashboard_id]
+            # Drop any in-flight ``submit_job`` upload state so a
+            # bundle reception that was mid-stream when the
+            # session ended doesn't outlive the session that owns
+            # it. ``_submit_job_receiver`` is set in :meth:`start`;
+            # this branch only runs for sessions registered after
+            # ``start`` (live wire), so the attribute is always
+            # populated by the time we get here.
+            if self._submit_job_receiver is not None:
+                self._submit_job_receiver.discard_session(session.dashboard_id)
             # Fire only when we actually dropped the slot — the
             # no-op path (a SUPERSEDED-evicted session running its
             # finally-block after the new session has taken its
@@ -1178,6 +1214,32 @@ class RemoteBuildController:
                     EventType.RECEIVER_PEER_LINK_SESSION_CLOSED,
                     ReceiverPeerLinkSessionClosedData(dashboard_id=session.dashboard_id),
                 )
+
+    def get_submit_job_receiver(self) -> SubmitJobReceiver:
+        """Receiver-side ``submit_job`` flow handler (5c-2).
+
+        Accessor used by
+        :func:`controllers.remote_build_peer_link._receive_loop`
+        to dispatch :attr:`AppMessageType.SUBMIT_JOB` and
+        :attr:`AppMessageType.SUBMIT_JOB_CHUNK` frames. Raises
+        :class:`RuntimeError` if accessed before :meth:`start`
+        has installed the receiver — practically unreachable
+        on the live wire (the peer-link listener only binds
+        after ``start``), but the explicit failure beats a
+        nullable-and-skipped silent drop if a future code path
+        violates the bring-up ordering.
+
+        Plain method rather than ``@property`` because
+        :func:`helpers.api.collect_api_commands` walks every
+        public attribute on each controller during
+        :class:`DeviceBuilder` start; a property would fire its
+        getter under that walk and raise before
+        :meth:`start` has run.
+        """
+        if self._submit_job_receiver is None:
+            msg = "submit_job_receiver accessed before RemoteBuildController.start()"
+            raise RuntimeError(msg)
+        return self._submit_job_receiver
 
     async def stop(self) -> None:
         """Cancel the browser and drain in-flight resolve tasks."""
