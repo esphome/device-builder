@@ -2418,16 +2418,18 @@ def test_on_firmware_queue_transition_skips_when_firmware_missing(
 @pytest.mark.asyncio
 async def test_broadcast_queue_status_continues_past_failed_session(
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A session whose ``send_app_frame`` raises doesn't block sibling sessions.
 
     Phase-5b's broadcast is best-effort per session: a closed
-    session (race with concurrent terminate) or a transport
-    error on one session must not cancel the broadcast for the
-    others. The session's ``send_app_frame`` already returns
-    ``False`` on internal failure rather than raising, but
-    cover the awaitable-raises shape too in case a future
-    refactor flips the contract.
+    session (race with concurrent terminate), a transport
+    error, or any other unexpected raise on one session must
+    not cancel the broadcast for the others. The per-session
+    ``try/except`` in :meth:`_broadcast_queue_status` swallows
+    the raise (logged) and moves on. Without this contract a
+    single flaky peer would starve every paired offloader of
+    queue-status updates.
     """
     controller = _make_controller(config_dir=tmp_path)
 
@@ -2437,16 +2439,19 @@ async def test_broadcast_queue_status_continues_past_failed_session(
     controller._peer_link_sessions["alpha"] = alpha
     controller._peer_link_sessions["beta"] = beta
 
-    with pytest.raises(RuntimeError):
+    with caplog.at_level("ERROR"):
         await controller._broadcast_queue_status(idle=False, running=True, queue_depth=1)
-    # The first session raised before the second could be
-    # reached. The broadcast does NOT swallow the per-session
-    # exception today — it lets the background task runner log
-    # and discard. Pin that contract: a future change that adds
-    # a try/except around the inner await needs to update this
-    # assertion together with the production behaviour.
     alpha.send_app_frame.assert_awaited_once()
-    beta.send_app_frame.assert_not_called()
+    # Sibling session received the snapshot despite alpha raising.
+    beta.send_app_frame.assert_awaited_once_with(
+        {"type": "queue_status", "idle": False, "running": True, "queue_depth": 1}
+    )
+    # Per-session failure landed in the log so a flaky peer is
+    # visible in production rather than silently dropped.
+    assert any(
+        "queue_status broadcast to session alpha raised" in record.message
+        for record in caplog.records
+    )
 
 
 def test_on_offloader_queue_status_changed_caches_snapshot(tmp_path: Path) -> None:

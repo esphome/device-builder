@@ -883,15 +883,21 @@ class RemoteBuildController:
             shutdown_register=self._shutdown_callbacks.append,
             name="receiver_peers",
         )
-        # Receiver-side bus-listener unsubscribers for the
-        # firmware-queue lifecycle events that drive the
-        # ``queue_status`` peer-link broadcast. Populated in
-        # :meth:`start` and walked in :meth:`stop` so the
-        # listeners don't outlive the controller. Empty at
-        # cold-start; the per-instance attribute exists so
-        # ``stop`` can run unconditionally without an
-        # ``hasattr`` dance.
-        self._unsub_job_events: list[Callable[[], None]] = []
+        # Bus-listener unsubscribers held for the lifetime of the
+        # controller. Populated in :meth:`start` and walked in
+        # :meth:`stop` so the listeners don't outlive the
+        # controller. Currently covers the receiver-side
+        # firmware-queue lifecycle listeners (``JOB_QUEUED`` /
+        # ``JOB_STARTED`` / terminal events) that drive the
+        # ``queue_status`` peer-link broadcast and the
+        # offloader-side ``OFFLOADER_QUEUE_STATUS_CHANGED``
+        # listener that updates ``_peer_queue_status``. New
+        # controller-scoped bus subscriptions should append their
+        # closer here so :meth:`stop` doesn't need a parallel
+        # collection. Empty at cold-start; the per-instance
+        # attribute exists so ``stop`` can run unconditionally
+        # without an ``hasattr`` dance.
+        self._unsub_bus_listeners: list[Callable[[], None]] = []
 
     async def start(self) -> None:
         """
@@ -992,7 +998,7 @@ class RemoteBuildController:
         # trigger a broadcast — they're per-line streaming events
         # that fire at high rates during a build, and the
         # ``queue_status`` shape doesn't change across them.
-        self._unsub_job_events = [
+        self._unsub_bus_listeners = [
             self._db.bus.add_listener(event_type, self._on_firmware_queue_transition)
             for event_type in (
                 EventType.JOB_QUEUED,
@@ -1009,7 +1015,7 @@ class RemoteBuildController:
         # state. Same teardown shape as the JOB_* listeners
         # above — append the unsub closer to the same list so
         # :meth:`stop` walks one collection.
-        self._unsub_job_events.append(
+        self._unsub_bus_listeners.append(
             self._db.bus.add_listener(
                 EventType.OFFLOADER_QUEUE_STATUS_CHANGED,
                 self._on_offloader_queue_status_changed,
@@ -1092,7 +1098,22 @@ class RemoteBuildController:
             queue_depth=queue_depth,
         )
         for session in sessions:
-            await session.send_app_frame(dict(payload))
+            # Per-session try/except so one flaky peer can't starve
+            # broadcasts to its siblings. ``send_app_frame`` already
+            # swallows the common transport / encrypt / serialise
+            # failures and returns ``False``; the bare ``except``
+            # here is the catch-all for an unexpected raise (e.g. a
+            # mock contract drift in tests, or a future code path
+            # that raises before the inner gate). Logged for
+            # visibility, then we move on — the next queue
+            # transition fires another snapshot.
+            try:
+                await session.send_app_frame(dict(payload))
+            except Exception:
+                _LOGGER.exception(
+                    "queue_status broadcast to session %s raised; continuing with siblings",
+                    session.dashboard_id,
+                )
 
     async def register_peer_link_session(self, session: PeerLinkSession) -> None:
         """
@@ -1140,16 +1161,17 @@ class RemoteBuildController:
             except Exception:
                 _LOGGER.debug("remote-build browser cancel failed", exc_info=True)
             self._browser = None
-        # Detach the firmware-queue lifecycle listeners installed
-        # in :meth:`start`. Each closer is the unsubscribe handle
-        # returned by ``EventBus.add_listener``; calling it
-        # removes the listener from the bus's per-event set so
-        # later ``JOB_*`` fires don't re-enter
-        # :meth:`_on_firmware_queue_transition` after the
-        # controller is gone.
-        for unsub in self._unsub_job_events:
+        # Detach every bus listener registered in :meth:`start`.
+        # Each closer is the unsubscribe handle returned by
+        # ``EventBus.add_listener``; calling it removes the
+        # listener from the bus's per-event set so later fires
+        # don't re-enter the controller's callbacks after it's
+        # gone. Covers both the receiver-side firmware-queue
+        # lifecycle listeners and the offloader-side
+        # ``OFFLOADER_QUEUE_STATUS_CHANGED`` listener.
+        for unsub in self._unsub_bus_listeners:
             unsub()
-        self._unsub_job_events.clear()
+        self._unsub_bus_listeners.clear()
         for task in self._tasks:
             task.cancel()
         if self._tasks:
