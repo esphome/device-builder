@@ -569,6 +569,7 @@ class SubmitJobReceiver:
                 configuration=configuration,
                 job_type=_TARGET_TO_JOB_TYPE[pending.target],
                 remote_peer=session.dashboard_id,
+                remote_job_id=pending.job_id,
             )
             await self._firmware._enqueue(job)
         except Exception as exc:

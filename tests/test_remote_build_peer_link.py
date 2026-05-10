@@ -1297,11 +1297,18 @@ def _install_stub_submit_job_receiver(
     queued_jobs: list[Any] = []
     firmware_stub = MagicMock()
 
-    def _create_job(*, configuration: str, job_type: Any, remote_peer: str = "") -> Any:
+    def _create_job(
+        *,
+        configuration: str,
+        job_type: Any,
+        remote_peer: str = "",
+        remote_job_id: str = "",
+    ) -> Any:
         job = MagicMock()
         job.job_id = f"local-{len(queued_jobs)}"
         job.configuration = configuration
         job.remote_peer = remote_peer
+        job.remote_job_id = remote_job_id
         return job
 
     async def _enqueue(job: Any) -> Any:

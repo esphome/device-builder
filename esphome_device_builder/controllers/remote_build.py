@@ -125,6 +125,7 @@ from .config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
 )
+from .remote_build_job_fanout import JobFanout
 from .remote_build_peer_link import PeerLinkSession, TerminateReason
 from .remote_build_peer_link_client import (
     PairStatusResult,
@@ -816,6 +817,15 @@ class RemoteBuildController:
         # after ``start``, so the not-yet-installed window is
         # never reachable on a healthy code path.
         self._submit_job_receiver: SubmitJobReceiver | None = None
+        # Receiver-side fan-out from firmware ``JOB_*`` events to
+        # ``job_state_changed`` / ``job_output`` peer-link frames
+        # (5c-2b). Subscribes in :meth:`start`, detaches in
+        # :meth:`stop`. Filters firmware events by
+        # ``FirmwareJob.remote_peer`` so only remote-peer jobs
+        # (queued by 5c-2a's submit path) fan out — local
+        # operator-driven compiles never reach a peer-link
+        # session.
+        self._job_fanout: JobFanout | None = None
         # Offloader-side long-lived peer-link client tasks, one
         # per APPROVED ``StoredPairing``, keyed on the
         # receiver's ``pin_sha256``. Spawned by
@@ -966,6 +976,14 @@ class RemoteBuildController:
                 config_dir=self._db.settings.config_dir,
                 firmware_controller=self._db.firmware,
             )
+            # 5c-2b: subscribe to firmware ``JOB_*`` events so
+            # remote-peer jobs (those carrying
+            # ``FirmwareJob.remote_peer``) fan out
+            # ``job_state_changed`` / ``job_output`` frames over
+            # the submitting peer-link session. Lifecycle is
+            # controller-bound: detached in :meth:`stop`.
+            self._job_fanout = JobFanout(self)
+            self._job_fanout.start()
         # Load APPROVED pairings into RAM. ``StoredPairing.status``
         # defaults to ``APPROVED`` so older sidecars without the
         # field round-trip cleanly; freshly-saved files carry the
@@ -1314,7 +1332,7 @@ class RemoteBuildController:
             raise RuntimeError(msg)
         return self._submit_job_receiver
 
-    async def stop(self) -> None:
+    async def stop(self) -> None:  # noqa: PLR0912 — drains many resources
         """Cancel the browser and drain in-flight resolve tasks."""
         if self._browser is not None:
             try:
@@ -1333,6 +1351,13 @@ class RemoteBuildController:
         for unsub in self._unsub_bus_listeners:
             unsub()
         self._unsub_bus_listeners.clear()
+        # 5c-2b job fan-out maintains its own listener set
+        # (firmware-controller's bus, scoped to ``JOB_*`` event
+        # types). Detach via the helper so the controller's
+        # listener-bookkeeping doesn't fan into one shared list.
+        if self._job_fanout is not None:
+            self._job_fanout.stop()
+            self._job_fanout = None
         for task in self._tasks:
             task.cancel()
         if self._tasks:

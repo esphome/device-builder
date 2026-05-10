@@ -90,6 +90,15 @@ class FirmwareJob(DataClassORJSONMixin):
     # UI as a "from <peer>" badge so the receiver-side admin can
     # tell their own work apart from delegated builds.
     remote_peer: str = ""
+    # Offloader's job_id from the ``submit_job`` header. Empty for
+    # locally-submitted jobs. The receiver-side ``job_id`` above
+    # is generated independently (uuid4 hex) so the two id-spaces
+    # don't collide; this field carries the offloader's tag so
+    # 5c-2b's fan-out path can echo it back on
+    # ``job_state_changed`` / ``job_output`` frames — the
+    # offloader matches against its own submit-tagged id, not
+    # the receiver's local one.
+    remote_job_id: str = ""
 
     def reset(self) -> None:
         """

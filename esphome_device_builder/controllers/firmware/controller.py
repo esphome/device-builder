@@ -1377,6 +1377,7 @@ class FirmwareController:
         port: str = "",
         new_name: str = "",
         remote_peer: str = "",
+        remote_job_id: str = "",
     ) -> FirmwareJob:
         """Create a new job and add it to the in-memory map.
 
@@ -1387,7 +1388,11 @@ class FirmwareController:
 
         ``remote_peer`` is the offloader's ``dashboard_id`` when
         this job came in via the peer-link ``submit_job`` flow
-        (issue #106 phase 5c), empty otherwise.
+        (issue #106 phase 5c), empty otherwise. ``remote_job_id``
+        is the offloader's submit-tagged ``job_id`` from the
+        same flow; the receiver-side ``job_id`` above is
+        generated independently so the two id-spaces don't
+        collide.
         """
         job = FirmwareJob(
             job_id=uuid4().hex[:12],
@@ -1397,6 +1402,7 @@ class FirmwareController:
             port=port,
             new_name=new_name,
             remote_peer=remote_peer,
+            remote_job_id=remote_job_id,
         )
         self._jobs[job.job_id] = job
         return job
