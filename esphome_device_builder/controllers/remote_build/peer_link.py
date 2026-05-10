@@ -64,6 +64,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import aiohttp
 from aiohttp import WSMsgType, web
+from esphome.const import __version__ as esphome_version
 
 from ...helpers import json as _json
 from ...helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
@@ -982,8 +983,22 @@ async def _send_response(
     ws: web.WebSocketResponse,
     response: IntentResponse,
 ) -> None:
-    """Send the post-handshake intent_response as a single ChaCha20-Poly1305 frame."""
-    body = _json.dumps({"intent_response": response.value})
+    """Send the post-handshake intent_response as a single ChaCha20-Poly1305 frame.
+
+    The payload carries the response discriminator
+    (``intent_response``) plus the receiver's
+    :data:`esphome.const.__version__` (``esphome_version``).
+    Both halves run the same shared field on every intent so a
+    caller that opens any flow — preview / pair_request /
+    pair_status / peer_link — gets the receiver's version
+    alongside the discriminator. Offloader-side consumption
+    centres on the long-lived ``peer_link`` session, where the
+    captured value lands on :attr:`StoredPairing.esphome_version`
+    and refreshes on every reconnect so a receiver upgrade
+    surfaces in pick_build_path's version-compat gate on the
+    next session-open without operator action.
+    """
+    body = _json.dumps({"intent_response": response.value, "esphome_version": esphome_version})
     try:
         encrypted = session.encrypt(body)
     except NOISE_ERRORS:

@@ -1114,6 +1114,7 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
         "receiver_hostname": "host.local",
         "receiver_port": 6055,
         "pin_sha256": pin,
+        "esphome_version": "",
     }
     offloader._on_offloader_peer_link_opened(MagicMock(data=opened))
     assert pin in offloader._open_peer_links
@@ -1133,6 +1134,105 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
     # listener is ready.
     offloader._on_offloader_peer_link_closed(MagicMock(data=closed))
     assert pin not in offloader._open_peer_links
+
+
+@pytest.mark.asyncio
+async def test_peer_link_opened_refreshes_stored_pairing_version(
+    offloader_controller_dir: Path,
+) -> None:
+    """``OFFLOADER_PEER_LINK_OPENED`` payload's ``esphome_version`` lands on the pairing.
+
+    Pins the unblocker for pick_build_path's deferred
+    version-compat gate: the receiver advertises its
+    :data:`esphome.const.__version__` on the post-handshake
+    ``intent_response`` body, the offloader's
+    :class:`PeerLinkClient` lifts it onto the OPENED event,
+    and the controller's listener updates
+    :attr:`StoredPairing.esphome_version` for the matching
+    pin. A subsequent OPENED with a different version
+    (receiver upgraded between reconnects) overwrites; an
+    OPENED carrying empty ``esphome_version`` (older receiver
+    predating this wire change) leaves the stored value alone
+    so a mixed-version rollout doesn't lose the captured
+    version on a reconnect from the older half.
+    """
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pin = "a" * 64
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        status=PeerStatus.APPROVED,
+    )
+    offloader._pairings[pin] = pairing
+    offloader._pairings_save_scheduled = False
+
+    # Mock the save scheduler so the test doesn't have to
+    # stand up the Store; we just want to see it was called
+    # when a real update happens, and NOT called on a no-op.
+    save_calls: list[None] = []
+    offloader._schedule_pairings_save = lambda: save_calls.append(None)  # type: ignore[method-assign]
+
+    def _opened(version: str) -> Any:
+        payload: OffloaderPeerLinkOpenedData = {
+            "receiver_hostname": "rcv.local",
+            "receiver_port": 6055,
+            "pin_sha256": pin,
+            "esphome_version": version,
+        }
+        return MagicMock(data=payload)
+
+    # First OPENED: captures the receiver's version + schedules a save.
+    offloader._on_offloader_peer_link_opened(_opened("2026.5.0"))
+    assert pairing.esphome_version == "2026.5.0"
+    assert len(save_calls) == 1
+
+    # Same-version reconnect: cache-hit, no redundant save.
+    offloader._on_offloader_peer_link_opened(_opened("2026.5.0"))
+    assert pairing.esphome_version == "2026.5.0"
+    assert len(save_calls) == 1
+
+    # Receiver upgrade: new version overwrites + schedules save.
+    offloader._on_offloader_peer_link_opened(_opened("2026.6.0"))
+    assert pairing.esphome_version == "2026.6.0"
+    assert len(save_calls) == 2
+
+    # Older receiver (or malformed response) reconnect with
+    # empty version: leave the stored value alone so a mixed-
+    # version rollout doesn't lose the captured version.
+    offloader._on_offloader_peer_link_opened(_opened(""))
+    assert pairing.esphome_version == "2026.6.0"
+    assert len(save_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
+    offloader_controller_dir: Path,
+) -> None:
+    """An OPENED event for a pin not in ``_pairings`` doesn't raise or schedule a save.
+
+    Defense-in-depth: an OPENED firing after the matching
+    pairing was just removed (operator unpair concurrent with
+    a session-open the WS layer hadn't torn down yet) would
+    otherwise blow up on the ``_pairings.get(pin)`` lookup
+    returning ``None``. The listener's ``is None`` gate
+    short-circuits silently — same shape the CLOSED handler
+    uses ``set.discard`` for.
+    """
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    save_calls: list[None] = []
+    offloader._schedule_pairings_save = lambda: save_calls.append(None)  # type: ignore[method-assign]
+
+    payload: OffloaderPeerLinkOpenedData = {
+        "receiver_hostname": "rcv.local",
+        "receiver_port": 6055,
+        "pin_sha256": "a" * 64,
+        "esphome_version": "2026.5.0",
+    }
+    offloader._on_offloader_peer_link_opened(MagicMock(data=payload))
+    assert len(save_calls) == 0
 
 
 @pytest.mark.asyncio

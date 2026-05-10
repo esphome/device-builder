@@ -11,6 +11,7 @@ assertions on top.
 from __future__ import annotations
 
 import pytest
+from esphome.const import __version__ as receiver_version
 
 from .conftest import PairedInstances
 
@@ -126,3 +127,37 @@ async def test_paired_instances_snapshot_reflects_connected_state(
     assert summary.connected is True
     assert summary.connecting is False
     assert summary.last_connect_error == ""
+
+
+@pytest.mark.asyncio
+async def test_paired_instances_snapshot_carries_receiver_esphome_version(
+    paired_instances: PairedInstances,
+) -> None:
+    """``pairings_snapshot`` surfaces the receiver's esphome_version after session-open.
+
+    Pins the wire-and-capture round-trip that unblocks
+    pick_build_path's deferred version-compat gate:
+
+    1. Receiver's ``_send_response`` ships its bundled
+       :data:`esphome.const.__version__` on every
+       ``intent_response`` payload.
+    2. Offloader's :meth:`PeerLinkClient._run_one_session`
+       lifts the field off the decoded response.
+    3. ``_fire_opened`` rides it onto
+       ``OFFLOADER_PEER_LINK_OPENED``.
+    4. The controller's listener writes it onto the matching
+       :class:`StoredPairing`.
+    5. :meth:`pairings_snapshot` projects it onto
+       :attr:`PairingSummary.esphome_version`.
+
+    Both halves run the same ``esphome`` package (single
+    process), so the value the offloader observes on its
+    snapshot equals the version the receiver imported — pin
+    that here so a regression on the wire-shape, the lift,
+    the listener wiring, or the projection trips this test
+    rather than producing a silent empty value on
+    pick_build_path's gate input.
+    """
+    await paired_instances.wait_until_session_opened()
+    [summary] = paired_instances.offloader.pairings_snapshot()
+    assert summary.esphome_version == receiver_version

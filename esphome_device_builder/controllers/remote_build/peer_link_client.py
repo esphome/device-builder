@@ -1493,6 +1493,17 @@ class PeerLinkClient:
                     )
                     self._last_connect_error = "auth rejected"
                     return _LOCAL_CLOSE_AUTH_REJECTED
+                # Lift the receiver's ``esphome_version`` off the
+                # response so OPENED carries it onto the bus. The
+                # receiver always populates the field (see
+                # :func:`_send_response`); the ``isinstance``
+                # guard keeps a malformed / older-receiver
+                # response from raising here — empty string flows
+                # through as "unknown" and pick_build_path's
+                # version-compat gate accepts it as compatible.
+                receiver_version = response.get("esphome_version", "")
+                if not isinstance(receiver_version, str):
+                    receiver_version = ""
                 # Session is live — build the shared channel
                 # over (noise, ws), fire OPENED, park on the
                 # receive loop with a heartbeat task running
@@ -1511,7 +1522,7 @@ class PeerLinkClient:
                 )
                 self._session_was_opened = True
                 self._last_connect_error = ""
-                self._fire_opened()
+                self._fire_opened(esphome_version=receiver_version)
                 try:
                     return await self._run_session_loops(channel)
                 except asyncio.CancelledError:
@@ -1969,11 +1980,12 @@ class PeerLinkClient:
             DownloadArtifactsResult(tarball=tarball, firmware_offset=state.firmware_offset)
         )
 
-    def _fire_opened(self) -> None:
+    def _fire_opened(self, *, esphome_version: str = "") -> None:
         payload: OffloaderPeerLinkOpenedData = {
             "receiver_hostname": self._hostname,
             "receiver_port": self._port,
             "pin_sha256": self._pin_sha256,
+            "esphome_version": esphome_version,
         }
         self._bus.fire(EventType.OFFLOADER_PEER_LINK_OPENED, payload)
 

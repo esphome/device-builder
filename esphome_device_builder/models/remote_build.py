@@ -502,11 +502,22 @@ class OffloaderPeerLinkOpenedData(TypedDict):
     (4a-o part 6 re-keyed offloader state on pin); receiver
     coords stay on the payload as display fields the frontend
     can render without a follow-up lookup.
+
+    ``esphome_version`` is the receiver's
+    :data:`esphome.const.__version__` lifted off the
+    ``intent_response`` payload. Empty when the receiver's
+    response didn't carry the field (older receiver predating
+    this wire change, or any future intent that doesn't include
+    it). The controller subscribes to this event to refresh
+    :attr:`StoredPairing.esphome_version` so pick_build_path's
+    version-compat gate sees the up-to-date value on the next
+    decision.
     """
 
     receiver_hostname: str
     receiver_port: int
     pin_sha256: str
+    esphome_version: str
 
 
 class OffloaderPeerLinkClosedData(TypedDict):
@@ -1298,6 +1309,17 @@ _PAIRING_VALIDATOR = vol.Schema(
         # that ``DataClassORJSONMixin.from_dict`` produces when
         # round-tripping through JSON.
         vol.Required("status"): vol.In(PeerStatus),
+        # Receiver's ``esphome.const.__version__`` captured at
+        # peer-link session-open time. In-RAM only at session
+        # close; persisted across restarts so a disconnected row
+        # still carries its last-seen version for the UI's
+        # "last known: X.Y.Z" display. Capped to keep a corrupt
+        # / hand-edited sidecar from landing a megabyte string.
+        # Empty when no peer-link session has opened yet (fresh
+        # PENDING row, or an old sidecar from before this field
+        # existed); pick_build_path's version-compat gate
+        # accepts empty as "unknown, fall through to compat".
+        vol.Required("esphome_version"): vol.All(str, vol.Length(max=64)),
     }
 )
 
@@ -1380,6 +1402,18 @@ class StoredPairing(DataClassORJSONMixin):
     label: str
     paired_at: float
     status: PeerStatus = PeerStatus.APPROVED
+    # Receiver-advertised ``esphome.const.__version__``, captured
+    # on every peer-link session-open from the ``intent_response``
+    # post-handshake payload. Empty on a fresh PENDING row + on
+    # APPROVED rows loaded from an older sidecar that predates
+    # this field (``DataClassORJSONMixin.from_dict`` tolerates
+    # missing fields with non-empty defaults). The version
+    # refreshes on every reconnect — pick_build_path consumes
+    # the in-RAM value so a receiver upgrade picks up on the
+    # next session-open without operator action; the persisted
+    # copy is the cross-restart fallback for "last known
+    # version" UI display.
+    esphome_version: str = ""
 
     def __post_init__(self) -> None:
         """Run :data:`_PAIRING_VALIDATOR`; re-raise as ``ValueError``."""
@@ -1447,6 +1481,14 @@ class PairingSummary(DataClassORJSONMixin):
     connected: bool = False
     connecting: bool = False
     last_connect_error: str = ""
+    # Receiver-advertised ``esphome.const.__version__``, mirroring
+    # :attr:`StoredPairing.esphome_version`. Refreshed on every
+    # peer-link session-open; empty on a never-connected row /
+    # an older sidecar. Surfaced in the offloader's paired-
+    # receivers UI as a "last known: X.Y.Z" line so the operator
+    # can spot a version skew before the version-compat gate in
+    # pick_build_path silent-fallbacks them to LOCAL.
+    esphome_version: str = ""
 
 
 @dataclass

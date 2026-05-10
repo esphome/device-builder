@@ -610,6 +610,7 @@ def _pairing_summary(
         connected=connected,
         connecting=connecting,
         last_connect_error=last_connect_error,
+        esphome_version=pairing.esphome_version,
     )
 
 
@@ -1777,8 +1778,36 @@ class RemoteBuildController:
         self._offloader_alerts[data["pin_sha256"]] = alert
 
     def _on_offloader_peer_link_opened(self, event: Event[OffloaderPeerLinkOpenedData]) -> None:
-        """Add ``pin_sha256`` to ``_open_peer_links`` on session open."""
-        self._open_peer_links.add(event.data["pin_sha256"])
+        """Add ``pin_sha256`` to ``_open_peer_links`` and refresh the receiver version.
+
+        The receiver advertises its
+        :data:`esphome.const.__version__` on every
+        ``intent_response`` payload; the offloader-side
+        :class:`PeerLinkClient` lifts it onto this event so the
+        controller can land the up-to-date value on the matching
+        :class:`StoredPairing` without reaching into the per-pin
+        client task. pick_build_path's deferred version-compat
+        gate reads this field; the value refreshes on every
+        reconnect so a receiver upgrade picks up on the next
+        session-open without operator action.
+
+        Empty ``esphome_version`` (older receiver predating this
+        wire change, or a malformed response) leaves the stored
+        value alone — clobbering with empty would lose the
+        previously-captured version after a reconnect from an
+        older receiver mid-rollout.
+        """
+        data = event.data
+        pin_sha256 = data["pin_sha256"]
+        self._open_peer_links.add(pin_sha256)
+        version = data["esphome_version"]
+        if not version:
+            return
+        pairing = self._pairings.get(pin_sha256)
+        if pairing is None or pairing.esphome_version == version:
+            return
+        pairing.esphome_version = version
+        self._schedule_pairings_save()
 
     def _on_offloader_peer_link_closed(self, event: Event[OffloaderPeerLinkClosedData]) -> None:
         """Discard ``pin_sha256`` from ``_open_peer_links`` on session close.

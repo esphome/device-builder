@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import secrets
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ import pytest
 from aiohttp import WSMessage, WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from esphome.const import __version__ as esphome_version
 from noise.exceptions import NoiseInvalidMessage
 from noise.exceptions import NoiseInvalidMessage as _NoiseInvalidMessage
 
@@ -456,6 +458,38 @@ async def test_send_response_encrypt_error_skips_send() -> None:
 
     await _send_response(session, ws, IntentResponse.OK)
     ws.send_bytes.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_response_advertises_esphome_version() -> None:
+    """The ``intent_response`` body carries the receiver's esphome version.
+
+    Pins the wire contract that unblocks pick_build_path's
+    version-compat gate: the receiver's response carries
+    ``intent_response`` (the discriminator the offloader already
+    branches on) AND ``esphome_version`` (the version the
+    offloader stores on :class:`StoredPairing` and the
+    version-compat gate eventually compares against the
+    offloader's own bundled :mod:`esphome` version). The body
+    is JSON-encoded before encrypt; this test reads back the
+    plaintext bytes :func:`session.encrypt` was called with so
+    a regression that drops the field or changes its name trips
+    here instead of producing a silent empty value on the
+    offloader.
+    """
+    ws = _make_ws_stub()
+    session = MagicMock(spec=PeerLinkNoiseSession)
+    session.encrypt.return_value = b"ciphertext-stub"
+
+    await _send_response(session, ws, IntentResponse.OK)
+
+    session.encrypt.assert_called_once()
+    body = session.encrypt.call_args.args[0]
+    parsed = json.loads(body)
+    assert parsed == {
+        "intent_response": IntentResponse.OK.value,
+        "esphome_version": esphome_version,
+    }
 
 
 @pytest.mark.asyncio
