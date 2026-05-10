@@ -154,16 +154,26 @@ HEARTBEAT_INTERVAL_SECONDS = 30.0
 HEARTBEAT_MISS_THRESHOLD = 3
 HEARTBEAT_DEAD_AFTER_SECONDS = HEARTBEAT_INTERVAL_SECONDS * HEARTBEAT_MISS_THRESHOLD
 
-# Cap inbound application-frame size at 32 KiB. Heartbeat frames
-# are tiny (~30 bytes); the offloader has no legitimate reason to
-# send larger frames in 5a-1 (no application messages defined yet),
-# and the cap keeps a misbehaving / hostile peer from pinning
-# memory before the dispatch loop sees the frame. Bundle upload in
-# 5c gets its own larger streaming cap on a per-message-type
-# basis. The hard ceiling from the Noise framework spec is
-# 65535 bytes per frame; staying well under that leaves headroom
-# for the protocol overhead and a future relax-the-cap change.
-APP_FRAME_MAX_BYTES = 32 * 1024
+# Cap inbound application-frame size at 60 KiB. The cap is
+# applied to the WS BINARY frame's bytes (``msg.data``) before
+# Noise decrypt, so it bounds ciphertext + AEAD tag, not
+# plaintext. The Noise framework spec's hard ceiling is 65535
+# bytes per encrypted frame; 60 KiB leaves ~4 KiB headroom for
+# the AEAD tag (16 bytes) plus any future protocol overhead.
+#
+# 5c bundle chunks are the actual sizing driver: a 32 KiB raw
+# slice base64-inflates to ~43 KiB inside a JSON envelope
+# around 43.5 KiB, fitting under 60 KiB with ~16 KiB further
+# headroom for unusually long ``job_id`` / header fields.
+# Smaller messages (heartbeat, queue_status, pair frames) are
+# tiny (~30-200 bytes) and unaffected.
+#
+# The cap keeps a misbehaving / hostile peer from pinning
+# memory before the dispatch loop sees the frame; raised from
+# the original 32 KiB now that 5c has actual sizing
+# requirements (the original comment anticipated this bump).
+# Forward-compatible: smaller frames are always accepted.
+APP_FRAME_MAX_BYTES = 60 * 1024
 
 
 class TerminateReason(StrEnum):

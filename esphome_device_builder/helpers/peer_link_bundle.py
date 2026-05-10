@@ -47,12 +47,15 @@ from enum import StrEnum
 
 # Raw bytes per chunk before b64 encoding. Sized so the
 # resulting JSON frame fits comfortably under
-# :data:`APP_FRAME_MAX_BYTES` (32 KiB):
-# 16 KiB raw → ~21.3 KiB base64 → ~21.5 KiB JSON envelope
+# :data:`APP_FRAME_MAX_BYTES` (60 KiB after 5c-1's bump):
+# 32 KiB raw -> ~43 KiB base64 -> ~43.5 KiB JSON envelope
 # (incl. ``type``, ``job_id``, ``chunk_index``, ``is_last``
-# field overhead). Leaves ~10 KiB headroom for unusually
-# long ``job_id`` strings and future header fields.
-BUNDLE_CHUNK_SIZE_BYTES = 16 * 1024
+# field overhead). Leaves ~16 KiB headroom for unusually
+# long ``job_id`` strings and future header fields. Halving
+# the chunk count vs. the original 16 KiB sizing cuts the
+# fixed per-frame overhead (Noise AEAD tag + JSON envelope)
+# in half on a typical ESPHome bundle.
+BUNDLE_CHUNK_SIZE_BYTES = 32 * 1024
 
 # Hard cap on the assembled bundle. ESPHome bundles in the
 # wild are 5-50 KiB compressed; an exotic image-heavy include
