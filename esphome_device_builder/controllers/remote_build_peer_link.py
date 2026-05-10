@@ -604,8 +604,22 @@ async def _run_peer_link_session(
     # inside :meth:`register_peer_link_session` so the
     # registration is observed atomically.
     await controller.register_peer_link_session(peer_link_session)
+    peer_link_session.last_pong_at = _monotonic()
+
+    async def _send_ping(nonce: int) -> bool:
+        return await peer_link_session.send_app_frame(
+            {"type": AppMessageType.PING.value, "nonce": nonce}
+        )
+
+    async def _on_dead() -> None:
+        await peer_link_session.terminate(TerminateReason.HEARTBEAT_TIMEOUT)
+
     heartbeat_task = asyncio.create_task(
-        _heartbeat_loop(peer_link_session),
+        run_peer_link_heartbeat(
+            send_ping=_send_ping,
+            last_pong_at=lambda: peer_link_session.last_pong_at,
+            on_dead=_on_dead,
+        ),
         name=f"peer-link-heartbeat[{dashboard_id}]",
     )
     try:
@@ -721,38 +735,49 @@ def parse_app_frame(
     return parsed
 
 
-async def _heartbeat_loop(session: PeerLinkSession) -> None:
+async def run_peer_link_heartbeat(
+    *,
+    send_ping: Callable[[int], Awaitable[bool]],
+    last_pong_at: Callable[[], float],
+    on_dead: Callable[[], Awaitable[None]],
+) -> None:
     """
-    Receiver-driven heartbeat: ping every interval, close on missed-pong threshold.
+    Run a heartbeat loop driving either end of a peer-link session.
 
-    Uses an integer ``nonce`` that bumps per ping so a future
-    debug surface can correlate ping → pong (5a-1 doesn't read
-    it, but echoing it is part of the contract). The pong landing
-    sets :attr:`PeerLinkSession.last_pong_at`; if the gap from
-    "now" exceeds :data:`HEARTBEAT_DEAD_AFTER_SECONDS` after a
-    ping, terminate with :attr:`TerminateReason.HEARTBEAT_TIMEOUT`.
+    Sleeps :data:`HEARTBEAT_INTERVAL_SECONDS`, then either bails
+    out via *on_dead* (if no pong has landed within
+    :data:`HEARTBEAT_DEAD_AFTER_SECONDS`) or sends a ping via
+    *send_ping*. ``send_ping`` returns whether the wire write
+    succeeded; a ``False`` return triggers *on_dead* too (the WS
+    is presumed dead so the session shouldn't keep trying).
+
+    Lets :class:`asyncio.CancelledError` propagate out of
+    ``asyncio.sleep`` — callers spawn this as a task and cancel
+    it under ``contextlib.suppress(CancelledError)``; catching
+    here would swallow the signal at the wrong layer.
+
+    Each side's *on_dead* is what differs: the receiver sends a
+    structured ``terminate{heartbeat_timeout}`` via the session
+    registry's close path, the offloader just calls
+    ``ws.close()`` (the receive loop sees the close and unwinds
+    naturally). Each side's *send_ping* is what gates the send —
+    the receiver routes through :meth:`PeerLinkSession.send_app_frame`
+    so the ``_closing`` short-circuit holds; the offloader routes
+    through :meth:`PeerLinkChannel.send_frame` directly because
+    its lifecycle has no equivalent gate.
     """
-    session.last_pong_at = _monotonic()
     nonce = 0
     while True:
-        # CancelledError from sleep() propagates out — the
-        # parent coroutine in :func:`_run_peer_link_session`
-        # cancels this task in its ``finally`` and awaits it
-        # under ``contextlib.suppress(CancelledError)``.
-        # Catching here would swallow the cancellation signal
-        # at the wrong layer.
         await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
         # Liveness check first — if we haven't heard a pong in
         # the threshold window, bail before sending another ping.
-        if _monotonic() - session.last_pong_at > HEARTBEAT_DEAD_AFTER_SECONDS:
-            await session.terminate(TerminateReason.HEARTBEAT_TIMEOUT)
+        if _monotonic() - last_pong_at() > HEARTBEAT_DEAD_AFTER_SECONDS:
+            await on_dead()
             return
         nonce += 1
-        sent = await session.send_app_frame({"type": AppMessageType.PING.value, "nonce": nonce})
-        if not sent:
-            # send_app_frame already logs; the WS is presumed
-            # dead so close the session.
-            await session.terminate(TerminateReason.HEARTBEAT_TIMEOUT)
+        if not await send_ping(nonce):
+            # send_ping already logged; the WS is presumed dead.
+            await on_dead()
             return
 
 

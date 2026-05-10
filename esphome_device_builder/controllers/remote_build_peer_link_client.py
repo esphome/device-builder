@@ -56,12 +56,11 @@ from ..models import (
 )
 from .remote_build_peer_link import (
     APP_FRAME_MAX_BYTES,
-    HEARTBEAT_DEAD_AFTER_SECONDS,
-    HEARTBEAT_INTERVAL_SECONDS,
     PEER_LINK_PATH,
     AppMessageType,
     PeerLinkChannel,
     TerminateReason,
+    run_peer_link_heartbeat,
 )
 
 if TYPE_CHECKING:
@@ -795,8 +794,25 @@ class PeerLinkClient:
         propagate to the outer ``_run_one_session``.
         """
         last_pong_at = asyncio.get_running_loop().time()
+
+        async def _send_ping(nonce: int) -> bool:
+            return await channel.send_frame({"type": AppMessageType.PING.value, "nonce": nonce})
+
+        async def _on_dead() -> None:
+            _LOGGER.info(
+                "peer-link client to %s:%d heartbeat timeout; closing",
+                self._hostname,
+                self._port,
+            )
+            with contextlib.suppress(OSError, RuntimeError):
+                await channel.ws.close()
+
         heartbeat_task = asyncio.create_task(
-            self._heartbeat_loop(channel, lambda: last_pong_at),
+            run_peer_link_heartbeat(
+                send_ping=_send_ping,
+                last_pong_at=lambda: last_pong_at,
+                on_dead=_on_dead,
+            ),
             name=f"peer-link-client-heartbeat[{self._hostname}:{self._port}]",
         )
         try:
@@ -833,50 +849,6 @@ class PeerLinkClient:
             heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
-
-    async def _heartbeat_loop(
-        self,
-        channel: PeerLinkChannel,
-        last_pong_at: Any,
-    ) -> None:
-        """Offloader-side heartbeat — symmetric to receiver-side.
-
-        Sends an encrypted ``ping`` every
-        :data:`HEARTBEAT_INTERVAL_SECONDS` and closes the WS if
-        no pong has landed within
-        :data:`HEARTBEAT_DEAD_AFTER_SECONDS`. Closing the WS
-        wakes the parallel receive loop's ``async for`` so it
-        observes the close and the run loop maps the result to
-        ``heartbeat_timeout``.
-
-        ``last_pong_at`` is a callable returning the most-recent
-        pong's monotonic timestamp; the receive loop owns the
-        actual variable so the closure is kept simple.
-
-        Lets ``CancelledError`` from ``asyncio.sleep`` propagate —
-        the parent in ``_run_session_loops``'s ``finally``
-        cancels this task and awaits it under
-        ``contextlib.suppress(CancelledError)``; catching it here
-        would swallow the signal at the wrong layer.
-        """
-        nonce = 0
-        while True:
-            await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
-            if asyncio.get_running_loop().time() - last_pong_at() > HEARTBEAT_DEAD_AFTER_SECONDS:
-                _LOGGER.info(
-                    "peer-link client to %s:%d heartbeat timeout; closing",
-                    self._hostname,
-                    self._port,
-                )
-                with contextlib.suppress(OSError, RuntimeError):
-                    await channel.ws.close()
-                return
-            nonce += 1
-            sent = await channel.send_frame({"type": AppMessageType.PING.value, "nonce": nonce})
-            if not sent:
-                with contextlib.suppress(OSError, RuntimeError):
-                    await channel.ws.close()
-                return
 
     def _fire_opened(self) -> None:
         payload: OffloaderPeerLinkOpenedData = {

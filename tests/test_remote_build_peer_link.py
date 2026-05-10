@@ -1627,62 +1627,70 @@ async def test_receive_loop_unknown_app_frame_type_logged_and_ignored(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_loop_terminates_on_pong_timeout(
+async def test_run_peer_link_heartbeat_terminates_on_pong_timeout(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The heartbeat loop closes the session when no pong lands in the threshold window.
+    """The shared heartbeat helper invokes ``on_dead`` when no pong lands in time.
 
-    Shrinks the heartbeat interval to a few ms so the test
-    finishes quickly (real ``asyncio.sleep``, no stubbing — that
-    avoids recursion loops if a future ``_heartbeat_loop`` body
-    calls ``asyncio.sleep`` from anywhere else). Drives the
-    clock past the miss threshold on the second
-    :func:`_monotonic` read so the very first iteration trips
-    the timeout branch.
+    Shrinks the heartbeat interval so the test finishes quickly
+    (real ``asyncio.sleep``, no stubbing). Drives the clock past
+    the miss threshold on the next ``_monotonic`` read so the
+    very first iteration trips the timeout branch.
     """
-    _initiator, responder = _noise_pair()
-    session, ws = _make_unit_session(responder)
-
     monkeypatch.setattr(_peer_link_module, "HEARTBEAT_INTERVAL_SECONDS", 0.001)
     monkeypatch.setattr(_peer_link_module, "HEARTBEAT_DEAD_AFTER_SECONDS", 0.0)
-    # First call seeds last_pong_at = 0; second call returns a
-    # large value so the gap exceeds the (zero-sized) threshold.
-    ticks = iter([0.0, 1000.0])
-    monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: next(ticks))
+    monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 1000.0)
 
-    await _peer_link_module._heartbeat_loop(session)
+    pings: list[int] = []
+    deaths: list[bool] = []
 
-    assert len(ws.sends) == 1
-    assert ws.closes == 1
+    async def _send_ping(nonce: int) -> bool:
+        pings.append(nonce)
+        return True
+
+    async def _on_dead() -> None:
+        deaths.append(True)
+
+    await _peer_link_module.run_peer_link_heartbeat(
+        send_ping=_send_ping,
+        last_pong_at=lambda: 0.0,
+        on_dead=_on_dead,
+    )
+
+    # Timeout branch fires before the first ping — last_pong_at
+    # is at 0, _monotonic() is at 1000, the gap exceeds the
+    # zero threshold.
+    assert pings == []
+    assert deaths == [True]
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_loop_terminates_on_send_failure(
+async def test_run_peer_link_heartbeat_terminates_on_send_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """If ``send_app_frame`` reports failure (WS dead), heartbeat terminates the session."""
-    _initiator, responder = _noise_pair()
-    session, ws = _make_unit_session(responder)
-
+    """If ``send_ping`` reports failure (WS dead), the heartbeat invokes ``on_dead``."""
     monkeypatch.setattr(_peer_link_module, "HEARTBEAT_INTERVAL_SECONDS", 0.001)
-    # Clock stays inside the threshold so the timeout branch
-    # doesn't fire; only the send-failure path does.
     monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 0.0)
 
-    async def _fail_send(_payload: dict[str, Any]) -> bool:
+    deaths: list[bool] = []
+
+    async def _send_ping_fail(_nonce: int) -> bool:
         return False
 
-    monkeypatch.setattr(session, "send_app_frame", _fail_send)
+    async def _on_dead() -> None:
+        deaths.append(True)
 
-    await _peer_link_module._heartbeat_loop(session)
+    await _peer_link_module.run_peer_link_heartbeat(
+        send_ping=_send_ping_fail,
+        last_pong_at=lambda: 0.0,
+        on_dead=_on_dead,
+    )
 
-    # ``terminate`` calls ``send_app_frame`` (which our stub
-    # makes False) but always closes the WS regardless.
-    assert ws.closes == 1
+    assert deaths == [True]
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_loop_propagates_cancellation(
+async def test_run_peer_link_heartbeat_propagates_cancellation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Cancelling the heartbeat task surfaces as ``CancelledError``, not a silent return.
@@ -1692,15 +1700,24 @@ async def test_heartbeat_loop_propagates_cancellation(
     parent coroutine. The parent's ``contextlib.suppress(CancelledError)``
     is the right layer to absorb it.
     """
-    _initiator, responder = _noise_pair()
-    session, _ws = _make_unit_session(responder)
-
     # Use a long interval so the task is reliably parked in
     # ``asyncio.sleep`` when we cancel.
     monkeypatch.setattr(_peer_link_module, "HEARTBEAT_INTERVAL_SECONDS", 10.0)
     monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 0.0)
 
-    task = asyncio.create_task(_peer_link_module._heartbeat_loop(session))
+    async def _noop_send(_nonce: int) -> bool:
+        return True
+
+    async def _noop_dead() -> None:
+        pass
+
+    task = asyncio.create_task(
+        _peer_link_module.run_peer_link_heartbeat(
+            send_ping=_noop_send,
+            last_pong_at=lambda: 0.0,
+            on_dead=_noop_dead,
+        )
+    )
     # Yield once so the task enters its sleep; then cancel.
     await asyncio.sleep(0)
     task.cancel()
