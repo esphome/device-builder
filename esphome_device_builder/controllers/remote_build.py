@@ -90,7 +90,13 @@ from ..models import (
     EventType,
     IdentityView,
     IntentResponse,
+    OffloaderAlertSnapshotEntry,
+    OffloaderPairAlertDismissedData,
+    OffloaderPairPeerRevokedData,
+    OffloaderPairPinMismatchData,
     OffloaderPairStatusChangedData,
+    OffloaderPeerRevokedAlert,
+    OffloaderPinMismatchAlert,
     OffloaderRemoteBuildSettings,
     PairingSummary,
     PairingWindowState,
@@ -781,6 +787,24 @@ class RemoteBuildController:
         # ``_apply_pair_status_result`` — saves debounce through
         # :attr:`_pairings_store`.
         self._pairings: dict[tuple[str, int], StoredPairing] = {}
+        # RAM-only offloader-side pair alerts. Keyed on the same
+        # ``(hostname, port)`` shape ``_pairings`` uses.
+        # Populated by ``_apply_pair_status_result`` when a
+        # pair-status round-trip detects a pin drift
+        # (pin_mismatch) or a receiver-side rejection
+        # (peer_revoked); cleared by ``request_pair`` (auto-
+        # resolve on re-pair), ``unpair`` (user removed the row),
+        # and ``dismiss_offloader_alert`` (operator clicked
+        # Dismiss). Never persisted: the alert describes a
+        # transient detection, and a process restart with the
+        # row still gone leaves nothing for the listener to
+        # re-detect against; phase 5+ peer-link sessions
+        # re-trigger the underlying condition the next time the
+        # row is *used*. ``subscribe_events.initial_state.offloader_alerts``
+        # carries the snapshot so a tab subscribing AFTER the
+        # event fired still sees the alert it would have missed
+        # on the live stream.
+        self._offloader_alerts: dict[tuple[str, int], OffloaderAlertSnapshotEntry] = {}
         # ``Store`` registers itself with this list at construction
         # (via ``shutdown_register=...append``); the controller's
         # :meth:`stop` walks the list to flush any debounced save
@@ -1417,6 +1441,12 @@ class RemoteBuildController:
         # ``_pair_status_listeners`` via its ``finally`` clause.
         self._pairings[key] = pairing
         self._cancel_pair_status_listener(clean_host, clean_port)
+        # Auto-resolve any prior pin_mismatch / peer_revoked
+        # alert for this receiver: the user just successfully
+        # re-paired (the new row is in ``_pairings`` above), so
+        # the alert is stale. Fires
+        # ``OFFLOADER_PAIR_ALERT_DISMISSED`` for cross-tab sync.
+        self._dismiss_offloader_alert(clean_host, clean_port)
         if target_status is PeerStatus.APPROVED:
             # Persisted trust anchor that survives restart. Schedule
             # the debounced disk write; the controller's ``stop()``
@@ -1497,6 +1527,11 @@ class RemoteBuildController:
         # re-fetching the pairings snapshot. Mirrors the
         # receiver-side ``remove_peer`` firing the same shape.
         self._fire_offloader_pair_status_changed(clean_host, clean_port, "removed")
+        # Drop any pending pin_mismatch / peer_revoked alert
+        # for this receiver — the user explicitly removed the
+        # row, so the alert about it is moot. Fires
+        # ``OFFLOADER_PAIR_ALERT_DISMISSED`` for cross-tab sync.
+        self._dismiss_offloader_alert(clean_host, clean_port)
         return {"removed": True}
 
     def pairings_snapshot(self) -> list[PairingSummary]:
@@ -1522,6 +1557,58 @@ class RemoteBuildController:
         a redundant round-trip.
         """
         return [_pairing_summary(p) for p in self._pairings.values()]
+
+    def offloader_alerts_snapshot(self) -> list[OffloaderAlertSnapshotEntry]:
+        """Return the in-memory offloader pair alerts snapshot.
+
+        Pure sync read of ``_offloader_alerts`` — same shape
+        rationale as :meth:`pairings_snapshot`. The snapshot is
+        ordered by insertion (Python ``dict`` insertion order
+        contract); the most-recent alert lands at the end of
+        the list. Frontends that want "newest first" reverse
+        client-side. RAM-only state — backend restart drops
+        the dict, the snapshot empties, and the frontend's
+        next subscribe sees no alerts (matches the design:
+        alerts describe transient detections).
+
+        Used by
+        :meth:`device_builder.DeviceBuilder._cmd_subscribe_events`
+        to seed the offloader UI's alerts list. Live updates flow
+        from ``OFFLOADER_PAIR_PIN_MISMATCH`` /
+        ``OFFLOADER_PAIR_PEER_REVOKED`` /
+        ``OFFLOADER_PAIR_ALERT_DISMISSED`` events through the
+        same ``subscribe_events`` stream.
+        """
+        return list(self._offloader_alerts.values())
+
+    def _dismiss_offloader_alert(self, hostname: str, port: int) -> bool:
+        """Drop the alert for ``(hostname, port)`` and fire DISMISSED.
+
+        Called only by the two resolution paths that fix the
+        underlying broken state: :meth:`request_pair` (the user
+        successfully re-paired, the alert is stale) and
+        :meth:`unpair` (the user removed the row, the alert is
+        moot). There is **no** operator-driven dismiss surface;
+        clicking "OK got it" without acting would just hide a
+        broken pairing the next peer-link session would still
+        fail against, so the only ways out are re-pair or
+        unpair.
+
+        Returns ``True`` when an alert was actually dropped so
+        callers can avoid firing the bus event when there's no
+        row to flip. The event fire keeps other subscribed tabs
+        in sync with the auto-clear without re-fetching the
+        snapshot.
+        """
+        key = (hostname, port)
+        if self._offloader_alerts.pop(key, None) is None:
+            return False
+        payload: OffloaderPairAlertDismissedData = {
+            "receiver_hostname": hostname,
+            "receiver_port": port,
+        }
+        self._db.bus.fire(EventType.OFFLOADER_PAIR_ALERT_DISMISSED, payload)
+        return True
 
     def _serialize_pairings(self) -> OffloaderRemoteBuildSettings:
         """Build the on-disk shape from the in-RAM ``_pairings`` dict.
@@ -1673,6 +1760,12 @@ class RemoteBuildController:
         """
         host = pairing.receiver_hostname
         port = pairing.receiver_port
+        # Capture diagnostic snapshot before the dict mutates
+        # below — the pin_mismatch / peer_revoked events fire
+        # alongside ``status="removed"`` and need the
+        # offloader-side label after the row's been popped.
+        label = pairing.label
+        stored_pin = pairing.pin_sha256
         key = (host, port)
         if result.status is IntentResponse.APPROVED:
             if result.pin_sha256 != pairing.pin_sha256:
@@ -1690,6 +1783,28 @@ class RemoteBuildController:
                     # evicts it from disk — keep the path uniform.
                     self._pairings_store.async_delay_save(
                         self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
+                    )
+                    # Capture the alert in RAM before firing so a
+                    # late-subscribing client picks it up via the
+                    # ``initial_state.offloader_alerts`` snapshot.
+                    pin_alert: OffloaderPinMismatchAlert = {
+                        "kind": "pin_mismatch",
+                        "receiver_hostname": host,
+                        "receiver_port": port,
+                        "receiver_label": label,
+                        "expected_pin": stored_pin,
+                        "observed_pin": result.pin_sha256,
+                        "fired_at": time.time(),
+                    }
+                    self._offloader_alerts[key] = pin_alert
+                    # Fire the discriminator first so frontend
+                    # subscribers get the full diagnostic payload
+                    # before the row drops via the
+                    # ``status_changed("removed")`` mutation. Both
+                    # events ride the same global subscribe stream
+                    # so order is preserved end-to-end.
+                    self._fire_offloader_pair_pin_mismatch(
+                        host, port, label, stored_pin, result.pin_sha256
                     )
                     self._fire_offloader_pair_status_changed(host, port, "removed")
                 return True
@@ -1716,6 +1831,22 @@ class RemoteBuildController:
                 self._pairings_store.async_delay_save(
                     self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
                 )
+                # Capture the alert in RAM before firing so a
+                # late-subscribing client picks it up via the
+                # ``initial_state.offloader_alerts`` snapshot.
+                revoked_alert: OffloaderPeerRevokedAlert = {
+                    "kind": "peer_revoked",
+                    "receiver_hostname": host,
+                    "receiver_port": port,
+                    "receiver_label": label,
+                    "fired_at": time.time(),
+                }
+                self._offloader_alerts[key] = revoked_alert
+                # Same fire-discriminator-first ordering as the
+                # pin-mismatch branch above: subscribers see the
+                # peer-revoked diagnostic before the
+                # ``status_changed("removed")`` drops the row.
+                self._fire_offloader_pair_peer_revoked(host, port, label)
                 self._fire_offloader_pair_status_changed(host, port, "removed")
             return True
         _LOGGER.warning(
@@ -1744,6 +1875,57 @@ class RemoteBuildController:
             "status": status,
         }
         self._db.bus.fire(EventType.OFFLOADER_PAIR_STATUS_CHANGED, payload)
+
+    def _fire_offloader_pair_pin_mismatch(
+        self,
+        receiver_hostname: str,
+        receiver_port: int,
+        receiver_label: str,
+        expected_pin: str,
+        observed_pin: str,
+    ) -> None:
+        """Fire ``OFFLOADER_PAIR_PIN_MISMATCH`` for a drifted-pin pair_status.
+
+        Receiver's static X25519 pubkey hash observed during the
+        handshake doesn't match what the offloader stored at
+        pair time on :class:`StoredPairing.pin_sha256`. Fires
+        alongside ``status="removed"`` (the row drops); this
+        event carries the diagnostic detail the frontend's
+        4b-4 alert plumbing reshape uses to surface a "re-pair
+        to confirm the new identity" CTA distinct from the
+        peer-revocation path.
+        """
+        payload: OffloaderPairPinMismatchData = {
+            "receiver_hostname": receiver_hostname,
+            "receiver_port": receiver_port,
+            "receiver_label": receiver_label,
+            "expected_pin": expected_pin,
+            "observed_pin": observed_pin,
+        }
+        self._db.bus.fire(EventType.OFFLOADER_PAIR_PIN_MISMATCH, payload)
+
+    def _fire_offloader_pair_peer_revoked(
+        self,
+        receiver_hostname: str,
+        receiver_port: int,
+        receiver_label: str,
+    ) -> None:
+        """Fire ``OFFLOADER_PAIR_PEER_REVOKED`` for a REJECTED pair_status.
+
+        Receiver returned ``IntentResponse.REJECTED`` on a row
+        the offloader had as PENDING / APPROVED. From the
+        offloader's POV all four causes (admin Reject, window
+        close, identity rotation, row never existed) collapse
+        to "the receiver isn't going to talk to us"; the alert
+        copy stays generic. Fires alongside
+        ``status="removed"``.
+        """
+        payload: OffloaderPairPeerRevokedData = {
+            "receiver_hostname": receiver_hostname,
+            "receiver_port": receiver_port,
+            "receiver_label": receiver_label,
+        }
+        self._db.bus.fire(EventType.OFFLOADER_PAIR_PEER_REVOKED, payload)
 
     # ------------------------------------------------------------------
     # Identity (phase 3c1) — surface the receiver's own dashboard_id +

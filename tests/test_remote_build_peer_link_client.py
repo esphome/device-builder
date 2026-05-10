@@ -1099,13 +1099,14 @@ async def test_apply_pair_status_result_approved_promotes_and_fires(
 async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_removed(
     offloader_controller_dir: Path,
 ) -> None:
-    """APPROVED + drifted pin → pop dict, no persist, fire removed event."""
+    """APPROVED + drifted pin → pop dict, fire pin_mismatch + removed events."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pairing = _stub_pairing(
         receiver_hostname="rcv.local",
         receiver_port=6055,
         pin_sha256="a" * 64,
+        label="lab-pc",
     )
     offloader._pairings[("rcv.local", 6055)] = pairing
     # Receiver returned APPROVED but its pubkey hash doesn't match
@@ -1120,18 +1121,40 @@ async def test_apply_pair_status_result_approved_pin_drift_drops_and_fires_remov
     assert terminal is True
     assert ("rcv.local", 6055) not in offloader._pairings
     assert await _saved_pairings(offloader) == []
-    _, payload = offloader._db.bus.fire.call_args.args
-    assert payload["status"] == "removed"
+    # Two events should have fired in order: the discriminator
+    # (PIN_MISMATCH) carrying the diagnostic detail + label,
+    # then the existing STATUS_CHANGED("removed") that subscribers
+    # use to drop the row from their pairings list. Pin order
+    # (mismatch first) so subscribers see the diagnostic before
+    # the row drop.
+    fire_calls = offloader._db.bus.fire.call_args_list
+    assert len(fire_calls) == 2
+    first_event_type, first_payload = fire_calls[0].args
+    assert first_event_type is EventType.OFFLOADER_PAIR_PIN_MISMATCH
+    assert first_payload == {
+        "receiver_hostname": "rcv.local",
+        "receiver_port": 6055,
+        "receiver_label": "lab-pc",
+        "expected_pin": "a" * 64,
+        "observed_pin": "b" * 64,
+    }
+    second_event_type, second_payload = fire_calls[1].args
+    assert second_event_type is EventType.OFFLOADER_PAIR_STATUS_CHANGED
+    assert second_payload["status"] == "removed"
 
 
 @pytest.mark.asyncio
 async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
     offloader_controller_dir: Path,
 ) -> None:
-    """REJECTED → pop dict, fire removed event, terminal."""
+    """REJECTED → pop dict, fire peer_revoked + removed events, terminal."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
-    pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        label="lab-pc",
+    )
     offloader._pairings[("rcv.local", 6055)] = pairing
     result = remote_build_peer_link_client.PairStatusResult(
         status=IntentResponse.REJECTED, pin_sha256="a" * 64
@@ -1141,8 +1164,125 @@ async def test_apply_pair_status_result_rejected_drops_and_fires_removed(
 
     assert terminal is True
     assert ("rcv.local", 6055) not in offloader._pairings
-    _, payload = offloader._db.bus.fire.call_args.args
-    assert payload["status"] == "removed"
+    # Same fire-discriminator-first ordering as the pin-drift
+    # branch: PEER_REVOKED carrying the row label, then
+    # STATUS_CHANGED("removed") that drops the row.
+    fire_calls = offloader._db.bus.fire.call_args_list
+    assert len(fire_calls) == 2
+    first_event_type, first_payload = fire_calls[0].args
+    assert first_event_type is EventType.OFFLOADER_PAIR_PEER_REVOKED
+    assert first_payload == {
+        "receiver_hostname": "rcv.local",
+        "receiver_port": 6055,
+        "receiver_label": "lab-pc",
+    }
+    second_event_type, second_payload = fire_calls[1].args
+    assert second_event_type is EventType.OFFLOADER_PAIR_STATUS_CHANGED
+    assert second_payload["status"] == "removed"
+
+
+@pytest.mark.asyncio
+async def test_apply_pair_status_result_pin_drift_seeds_offloader_alert(
+    offloader_controller_dir: Path,
+) -> None:
+    """Pin drift on APPROVED → ``_offloader_alerts`` gets a ``pin_mismatch`` row.
+
+    The alert sits in RAM keyed on ``(hostname, port)`` so a
+    late-subscriber picks it up via the
+    ``initial_state.offloader_alerts`` snapshot push. Captures
+    every field the wire shape carries — drift here would mean
+    the snapshot's frontend rendering can't tell which row the
+    alert is about.
+    """
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256="a" * 64,
+        label="lab-pc",
+    )
+    offloader._pairings[("rcv.local", 6055)] = pairing
+    result = remote_build_peer_link_client.PairStatusResult(
+        status=IntentResponse.APPROVED, pin_sha256="b" * 64
+    )
+
+    await offloader._apply_pair_status_result(pairing, result)
+
+    snapshot = offloader.offloader_alerts_snapshot()
+    assert len(snapshot) == 1
+    alert = snapshot[0]
+    assert alert["kind"] == "pin_mismatch"
+    assert alert["receiver_hostname"] == "rcv.local"
+    assert alert["receiver_port"] == 6055
+    assert alert["receiver_label"] == "lab-pc"
+    assert alert["expected_pin"] == "a" * 64
+    assert alert["observed_pin"] == "b" * 64
+    assert alert["fired_at"] > 0
+
+
+@pytest.mark.asyncio
+async def test_apply_pair_status_result_rejected_seeds_offloader_alert(
+    offloader_controller_dir: Path,
+) -> None:
+    """REJECTED → ``_offloader_alerts`` gets a ``peer_revoked`` row.
+
+    Same RAM-snapshot pattern as the pin_mismatch path; the row
+    carries the operator-facing label (the receiver coordinates
+    aren't enough on their own — the pairings list has dropped
+    the row by the time the frontend renders the alert).
+    """
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        label="lab-pc",
+    )
+    offloader._pairings[("rcv.local", 6055)] = pairing
+    result = remote_build_peer_link_client.PairStatusResult(
+        status=IntentResponse.REJECTED, pin_sha256="a" * 64
+    )
+
+    await offloader._apply_pair_status_result(pairing, result)
+
+    snapshot = offloader.offloader_alerts_snapshot()
+    assert len(snapshot) == 1
+    alert = snapshot[0]
+    assert alert["kind"] == "peer_revoked"
+    assert alert["receiver_hostname"] == "rcv.local"
+    assert alert["receiver_port"] == 6055
+    assert alert["receiver_label"] == "lab-pc"
+    assert alert["fired_at"] > 0
+
+
+@pytest.mark.asyncio
+async def test_unpair_clears_offloader_alert_and_fires_dismissed(
+    offloader_controller_dir: Path,
+) -> None:
+    """``unpair`` drops the pairing AND auto-clears any pending alert."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", receiver_port=6055)
+    offloader._pairings[("rcv.local", 6055)] = pairing
+    offloader._offloader_alerts[("rcv.local", 6055)] = {
+        "kind": "peer_revoked",
+        "receiver_hostname": "rcv.local",
+        "receiver_port": 6055,
+        "receiver_label": "lab-pc",
+        "fired_at": 1.0,
+    }
+
+    result = await offloader.unpair(hostname="rcv.local", port=6055)
+
+    assert result == {"removed": True}
+    assert offloader.offloader_alerts_snapshot() == []
+    fire_event_types = [call.args[0] for call in offloader._db.bus.fire.call_args_list]
+    # ``unpair`` fires status_changed(removed) for the pairing
+    # row and alert_dismissed for the alert; both are needed for
+    # cross-tab sync of the two distinct lists.
+    assert EventType.OFFLOADER_PAIR_STATUS_CHANGED in fire_event_types
+    assert EventType.OFFLOADER_PAIR_ALERT_DISMISSED in fire_event_types
 
 
 @pytest.mark.asyncio
@@ -1270,6 +1410,91 @@ async def test_unpair_fires_offloader_pair_status_changed_removed(
         "receiver_port": 6055,
         "status": "removed",
     }
+
+
+@pytest.mark.asyncio
+async def test_request_pair_clears_offloader_alert_for_same_receiver(
+    offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A successful re-pair against the same ``(host, port)`` clears any pending alert.
+
+    Pin mismatch / peer revoked alerts are RAM-only signals
+    about a transient detection. Once the user successfully
+    re-pairs, the alert is stale; auto-resolving it on the
+    re-pair path keeps the operator from having to dismiss
+    twice (once on the request, once on the alert UI).
+    """
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pubkey = b"\x33" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+
+    async def _fake_request_pair(**_: object) -> RequestPairResult:
+        return RequestPairResult(
+            status=IntentResponse.PENDING,
+            pin_sha256=pin,
+            remote_static_pub=pubkey,
+        )
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.peer_link_request_pair",
+        _fake_request_pair,
+    )
+    fake_identity = MagicMock()
+    fake_identity.private_bytes = b"\x00" * 32
+    fake_dashboard = MagicMock()
+    fake_dashboard.dashboard_id = "dashboard-stub"
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build._load_offloader_identities",
+        lambda _config_dir: (fake_identity, fake_dashboard),
+    )
+    # Park the spawned listener on an unfulfilled wait so the
+    # test exits cleanly.
+    park = asyncio.Event()
+
+    async def _fake_await_pair_status(
+        **_: object,
+    ) -> remote_build_peer_link_client.PairStatusResult:
+        await park.wait()
+        raise AssertionError("park event should never be set in this test")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.peer_link_await_pair_status",
+        _fake_await_pair_status,
+    )
+
+    # Pre-seed an alert as if a prior pair-status detection had
+    # registered one against this receiver.
+    offloader._offloader_alerts[("rcv.local", 6055)] = {
+        "kind": "pin_mismatch",
+        "receiver_hostname": "rcv.local",
+        "receiver_port": 6055,
+        "receiver_label": "lab-pc",
+        "expected_pin": "a" * 64,
+        "observed_pin": "b" * 64,
+        "fired_at": 1.0,
+    }
+
+    await offloader.request_pair(
+        hostname="rcv.local",
+        port=6055,
+        pin_sha256=pin,
+        receiver_label="lab-pc",
+        offloader_label="off",
+    )
+
+    # Auto-resolve fired the dismissed event so cross-tab clients
+    # drop the row from their alerts list, and the snapshot is
+    # empty for fresh subscribers.
+    assert offloader.offloader_alerts_snapshot() == []
+    fire_event_types = [call.args[0] for call in offloader._db.bus.fire.call_args_list]
+    assert EventType.OFFLOADER_PAIR_ALERT_DISMISSED in fire_event_types
+
+    # Cleanup: cancel the listener so the test exits clean.
+    listener = offloader._pair_status_listeners.get(("rcv.local", 6055))
+    if listener is not None:
+        listener.cancel()
+        await asyncio.gather(listener, return_exceptions=True)
 
 
 @pytest.mark.asyncio
