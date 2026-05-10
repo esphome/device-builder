@@ -729,16 +729,25 @@ class JobStateChangedFrameData(TypedDict):
 
 
 class JobOutputFrameData(TypedDict):
-    """
+    r"""
     Application-frame payload for ``AppMessageType.JOB_OUTPUT``.
 
     Receiver-pushed line of build output. ``stream`` is
     ``stdout`` for the normal compile / upload trace and
     ``stderr`` for warnings / errors; the offloader can
     style them differently when surfacing to the UI without
-    re-parsing. ``line`` carries one logical line, with the
-    trailing newline stripped (the wire stays byte-light, the
-    consumer adds whitespace at render time).
+    re-parsing.
+
+    ``line`` is the raw stdout/stderr text *with its trailing
+    terminator preserved* — ``\n``, ``\r``, or ``\r\n``. The
+    terminator carries semantic info: carriage-return-only
+    chunks are esptool / PlatformIO progress overwrites
+    (the offloader's ansi-log renderer leans on the
+    distinction to decide whether to append a new line or
+    overwrite the last one). Stripping at this layer would
+    lose that signal — the receiver-side
+    :class:`JobOutputData` bus event preserves terminators
+    for the same reason; the wire frame echoes that contract.
 
     Frames flow at high rate during an active build (one per
     line of compiler / linker output, easily 100+ frames per

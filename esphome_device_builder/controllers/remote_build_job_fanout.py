@@ -173,16 +173,25 @@ class JobFanout:
         live forever.
         """
         job = event.data["job"]
-        # Resolve BEFORE popping the cache so the terminal
-        # event itself still fans out — the offloader needs the
-        # ``completed`` / ``failed`` / ``cancelled`` frame, then
-        # the cache entry can go.
-        target = self._resolve_target(job.job_id)
+        # Snapshot the cache entry BEFORE popping on terminal
+        # events so the terminal frame itself still fans out —
+        # the offloader needs the ``completed`` / ``failed`` /
+        # ``cancelled`` frame, then the cache entry can go.
+        entry = self._remote_jobs.get(job.job_id)
         if event.event_type in TERMINAL_JOB_EVENTS:
             self._remote_jobs.pop(job.job_id, None)
-        if target is None:
+        if entry is None:
             return
-        session, remote_job_id = target
+        remote_peer, remote_job_id = entry
+        session = self._controller._peer_link_sessions.get(remote_peer)
+        if session is None:
+            _LOGGER.debug(
+                "%s for remote peer %s (job %s): no active session; dropping fan-out",
+                event.event_type.value,
+                remote_peer,
+                job.job_id,
+            )
+            return
         status = _LIFECYCLE_EVENT_TO_STATUS[event.event_type]
         # ``error_message`` is the empty string on non-terminal
         # paths; populate from ``FirmwareJob.error`` on
@@ -207,10 +216,18 @@ class JobFanout:
         :attr:`_remote_jobs` populated on JOB_QUEUED; no
         cross-controller reach.
         """
-        target = self._resolve_target(event.data["job_id"])
-        if target is None:
+        # Cache miss → local job, or remote-peer job that
+        # finished before the listeners attached. Session miss →
+        # offloader unregistered mid-build. Both are silent
+        # drops; the lifecycle path logs for the latter (output
+        # fires per-line and would flood the log).
+        entry = self._remote_jobs.get(event.data["job_id"])
+        if entry is None:
             return
-        session, remote_job_id = target
+        remote_peer, remote_job_id = entry
+        session = self._controller._peer_link_sessions.get(remote_peer)
+        if session is None:
+            return
         # The firmware controller's ``JOB_OUTPUT`` doesn't
         # carry a ``stream`` discriminator today — every line
         # arrives as one merged stdout-shaped feed. Ship as
@@ -226,29 +243,6 @@ class JobFanout:
                 line=event.data["line"],
             ),
         )
-
-    def _resolve_target(self, firmware_job_id: str) -> tuple[PeerLinkSession, str] | None:
-        """Return ``(session, remote_job_id)`` if *firmware_job_id* is fan-outable.
-
-        The two-step resolve — cache lookup, then session
-        lookup — is the same shape both event handlers run, so
-        it lives here. Returns ``None`` for any of:
-
-        * ``firmware_job_id`` not in :attr:`_remote_jobs` —
-          local job, or remote-peer job that finished before
-          the listeners attached.
-        * The cached ``remote_peer`` no longer has an active
-          peer-link session — the offloader unregistered (e.g.
-          mid-build disconnect).
-        """
-        entry = self._remote_jobs.get(firmware_job_id)
-        if entry is None:
-            return None
-        remote_peer, remote_job_id = entry
-        session = self._controller._peer_link_sessions.get(remote_peer)
-        if session is None:
-            return None
-        return session, remote_job_id
 
     def _dispatch(
         self,
