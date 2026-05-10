@@ -405,14 +405,16 @@ class _RebindProbeResult:
     error surface can name which identity answered at the
     candidate endpoint); *transport_error* is populated only
     on :attr:`_RebindProbeOutcome.UNREACHABLE` (the
-    :class:`PeerLinkClientError` message for the auto path's
-    debug log and the user path's :class:`CommandError`
-    detail).
+    :class:`PeerLinkClientError` instance, kept as the
+    exception itself so the auto-rebind path's debug log can
+    pass it as ``exc_info=`` to preserve the traceback while
+    the user-driven path can ``str()`` it for the
+    :class:`CommandError` message).
     """
 
     outcome: _RebindProbeOutcome
     observed_pin: str = ""
-    transport_error: str = ""
+    transport_error: PeerLinkClientError | None = None
 
 
 def _validate_hostname(
@@ -2060,17 +2062,19 @@ class RemoteBuildController:
 
         * **Reachability check** — TCP connect + Noise handshake
           completing means the new endpoint is up. Any connect /
-          timeout / decode error returns :attr:`UNREACHABLE`.
+          timeout / decode error returns
+          :attr:`_RebindProbeOutcome.UNREACHABLE`.
         * **Identity verification** — Noise XX binds the
           responder's static X25519 pubkey into the handshake
           transcript. A mismatch against the stored pin returns
-          :attr:`PIN_MISMATCH`.
+          :attr:`_RebindProbeOutcome.PIN_MISMATCH`.
         * **Race-safe re-check** — the dict entry may have
           been replaced by a concurrent ``unpair`` / ``request_pair``
           while the probe was in flight. Identity-equality check
           on the captured ``pairing`` reference returns
-          :attr:`PAIRING_REPLACED` if the dict no longer points
-          at the same object, or :attr:`STATUS_CHANGED` if the
+          :attr:`_RebindProbeOutcome.PAIRING_REPLACED` if the
+          dict no longer points at the same object, or
+          :attr:`_RebindProbeOutcome.STATUS_CHANGED` if the
           row's ``status`` flipped away from APPROVED.
 
         Callers pre-check ``self._offloader_peer_link_priv is
@@ -2085,7 +2089,7 @@ class RemoteBuildController:
                 identity_priv=self._offloader_peer_link_priv,
             )
         except PeerLinkClientError as exc:
-            return _RebindProbeResult(_RebindProbeOutcome.UNREACHABLE, transport_error=str(exc))
+            return _RebindProbeResult(_RebindProbeOutcome.UNREACHABLE, transport_error=exc)
         if observed_pin != pairing.pin_sha256:
             return _RebindProbeResult(_RebindProbeOutcome.PIN_MISMATCH, observed_pin=observed_pin)
         current = self._pairings.get(pairing.pin_sha256)
@@ -2226,12 +2230,18 @@ class RemoteBuildController:
                 pairing=pairing, new_hostname=new_hostname, new_port=new_port
             )
             if result.outcome is _RebindProbeOutcome.UNREACHABLE:
+                # Pass the captured ``PeerLinkClientError`` as
+                # ``exc_info=`` so the debug log carries the
+                # full traceback for diagnosing handshake /
+                # connect failures in the field — same shape
+                # the inline ``except`` block had before this
+                # path was factored into ``_probe_pairing_endpoint``.
                 _LOGGER.debug(
-                    "rebind probe %s -> %s:%d failed (unreachable / handshake error: %s)",
+                    "rebind probe %s -> %s:%d failed (unreachable / handshake error)",
                     pin,
                     new_hostname,
                     new_port,
-                    result.transport_error,
+                    exc_info=result.transport_error,
                 )
                 return
             if result.outcome is _RebindProbeOutcome.PIN_MISMATCH:
@@ -2832,10 +2842,18 @@ class RemoteBuildController:
                 key (not the routing coordinates, which are what
                 we're updating).
             hostname: New routing host (validated as for manual
-                hosts: non-empty, ≤255 chars, lowercase-normalised
-                via :func:`normalize_hostname` to keep
-                trailing-dot / case differences from masking
-                a no-op edit).
+                hosts via :func:`_validate_hostname`: non-empty,
+                ≤255 chars, trimmed + ``str.lower``-normalised
+                so the stored value's case is consistent. The
+                trailing-dot / FQDN-form folding the
+                no-op-edit guard cares about happens inside
+                :func:`_endpoints_equal`'s
+                :func:`normalize_hostname` call at compare time
+                only; the value persisted on
+                :class:`StoredPairing.receiver_hostname` keeps
+                the trim + lowercase shape the validator
+                returned, matching what :meth:`request_pair`
+                writes.
             port: New peer-link port (1-65535, non-bool).
 
         Returns:
