@@ -60,7 +60,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Hashable, Iterator
+from collections.abc import Callable, Coroutine, Hashable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass as _dataclass
 from enum import StrEnum
@@ -224,6 +224,23 @@ def _decode_txt_value(raw: bytes | None) -> str:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
         return ""
+
+
+def _endpoints_equal(host_a: str, port_a: int, host_b: str, port_b: int) -> bool:
+    """Case- and trailing-dot-insensitive equality on ``(host, port)`` pairs.
+
+    Two paths in this controller compare an mDNS-resolved
+    endpoint against another stored endpoint (the dashboard's
+    own advertise via :meth:`_is_self_endpoint`, and a stored
+    pairing's coordinates via :meth:`_maybe_schedule_rebind_probe`).
+    Both want hostname comparison through
+    :func:`normalize_hostname` so trailing-dot / case
+    differences between the SRV target form and the stored form
+    don't show up as spurious mismatches; this helper centralises
+    the shape so the two call sites stay in lockstep on the
+    normalisation rules.
+    """
+    return port_a == port_b and normalize_hostname(host_a) == normalize_hostname(host_b)
 
 
 def _decode_txt_port(raw: bytes | None) -> int:
@@ -1610,9 +1627,7 @@ class RemoteBuildController:
         if info.load_from_cache(zeroconf):
             self._upsert_host(name, info)
             return
-        task = asyncio.create_task(self._resolve_and_apply(zeroconf, info, name))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._track_task(self._resolve_and_apply(zeroconf, info, name))
 
     async def _resolve_and_apply(self, zeroconf: Any, info: AsyncServiceInfo, name: str) -> None:
         """Async resolve path for cache misses."""
@@ -1687,12 +1702,53 @@ class RemoteBuildController:
         if endpoint is None:
             return False
         own_host, own_port = endpoint
-        return port == own_port and normalize_hostname(hostname) == own_host
+        return _endpoints_equal(hostname, port, own_host, own_port)
 
     def _fire_host_removed(self, name: str) -> None:
         """Fire ``REMOTE_BUILD_HOST_REMOVED`` for *name*."""
         payload: RemoteBuildHostRemovedData = {"name": name}
         self._db.bus.fire(EventType.REMOTE_BUILD_HOST_REMOVED, payload)
+
+    def _track_task(
+        self, coro: Coroutine[Any, Any, None], *, name: str | None = None
+    ) -> asyncio.Task[None]:
+        """Schedule *coro* and hold a strong ref in :attr:`_tasks`.
+
+        Wraps the create / track / auto-discard dance fire-and-forget
+        background tasks owned by this controller need: the
+        garbage collector would otherwise reap a task whose only
+        reference is the local in the spawning frame. The
+        :meth:`set.discard` done-callback unwires the ref the
+        moment the task settles so :attr:`_tasks` doesn't grow
+        unbounded.
+
+        Distinct from :meth:`DeviceBuilder.create_background_task`
+        because the controller's :meth:`stop` gathers
+        :attr:`_tasks` separately (4a-o subsystem teardown
+        ordering); mixing the two sets would change shutdown
+        semantics.
+        """
+        task = asyncio.create_task(coro, name=name)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
+    def _schedule_pairings_save(self) -> None:
+        """Debounce-write the offloader pairings store.
+
+        Three sites flow through here: ``request_pair`` /
+        ``unpair`` / ``_apply_pair_status_result`` /
+        ``_probe_and_rebind_endpoint``. The
+        :data:`_PAIRINGS_SAVE_DELAY_SECONDS` window collapses
+        bursts (multi-step flows that mutate the dict more than
+        once before yielding) into a single disk write, and the
+        ``Store``'s atomic-tempfile semantics ensure the on-disk
+        shape is always either the pre-burst or the post-burst
+        snapshot, never a partial.
+        """
+        self._pairings_store.async_delay_save(
+            self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
+        )
 
     # ------------------------------------------------------------------
     # mDNS auto-rebind (4a-o part 7)
@@ -1719,9 +1775,8 @@ class RemoteBuildController:
         if pairing is None or pairing.status is not PeerStatus.APPROVED:
             return
         new_hostname = normalize_hostname(peer.hostname)
-        if (
-            normalize_hostname(pairing.receiver_hostname) == new_hostname
-            and pairing.receiver_port == new_port
+        if _endpoints_equal(
+            pairing.receiver_hostname, pairing.receiver_port, new_hostname, new_port
         ):
             return
         if self._offloader_peer_link_priv is None:
@@ -1730,14 +1785,12 @@ class RemoteBuildController:
         if self._rebind_probe_until.get(pin, 0.0) > now:
             return
         self._rebind_probe_until[pin] = now + _REBIND_PROBE_COOLDOWN_SECONDS
-        task = asyncio.create_task(
+        self._track_task(
             self._probe_and_rebind_endpoint(
                 pairing=pairing, new_hostname=new_hostname, new_port=new_port
             ),
             name=f"rebind-probe-{pin[:8]}",
         )
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
 
     async def _probe_and_rebind_endpoint(
         self, *, pairing: StoredPairing, new_hostname: str, new_port: int
@@ -1813,9 +1866,7 @@ class RemoteBuildController:
                 return
             current.receiver_hostname = new_hostname
             current.receiver_port = new_port
-            self._pairings_store.async_delay_save(
-                self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
-            )
+            self._schedule_pairings_save()
             # Cancel-then-spawn so the old task (parked on
             # ``aiohttp.ws_connect`` against the dead endpoint)
             # doesn't idle there until heartbeat-timeout.
@@ -2251,9 +2302,7 @@ class RemoteBuildController:
             # the debounced disk write; the controller's ``stop()``
             # flushes any still-pending save through the registered
             # shutdown callback.
-            self._pairings_store.async_delay_save(
-                self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
-            )
+            self._schedule_pairings_save()
             # APPROVED row → spawn the long-lived peer-link
             # client (5a-2). Receiver already authenticated us
             # via the pair_request; the client just opens a
@@ -2339,9 +2388,7 @@ class RemoteBuildController:
         # scheduling a save on every removal keeps the code path
         # uniform — the eventual write rebuilds the pairings list
         # from RAM regardless of what the dropped row's status was.
-        self._pairings_store.async_delay_save(
-            self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
-        )
+        self._schedule_pairings_save()
         # Fire the local bus event so other clients on the global
         # ``subscribe_events`` stream see the removal without
         # re-fetching the pairings snapshot. Mirrors the
@@ -2725,9 +2772,7 @@ class RemoteBuildController:
                     # previously-APPROVED row drifted-pin lands here
                     # in some future flow, the schedule_save still
                     # evicts it from disk — keep the path uniform.
-                    self._pairings_store.async_delay_save(
-                        self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
-                    )
+                    self._schedule_pairings_save()
                     # Capture the alert in RAM before firing so a
                     # late-subscribing client picks it up via the
                     # ``initial_state.offloader_alerts`` snapshot.
@@ -2766,9 +2811,7 @@ class RemoteBuildController:
             if existing is None:
                 return True
             existing.status = PeerStatus.APPROVED
-            self._pairings_store.async_delay_save(
-                self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
-            )
+            self._schedule_pairings_save()
             self._fire_offloader_pair_status_changed(host, port, key, "approved")
             # Spawn the long-lived peer-link client now that the
             # receiver has approved us. The client's
@@ -2778,9 +2821,7 @@ class RemoteBuildController:
             return True
         if result.status is IntentResponse.REJECTED:
             if self._pairings.pop(key, None) is not None:
-                self._pairings_store.async_delay_save(
-                    self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
-                )
+                self._schedule_pairings_save()
                 # Capture the alert in RAM before firing so a
                 # late-subscribing client picks it up via the
                 # ``initial_state.offloader_alerts`` snapshot.
