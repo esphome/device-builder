@@ -41,7 +41,7 @@ problem to surface (or 5d's cancel path to mop up).
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from contextlib import ExitStack
 from typing import TYPE_CHECKING, Literal
 
 from ...helpers.event_bus import Event
@@ -95,10 +95,12 @@ class JobFanout:
 
     def __init__(self, controller: RemoteBuildController) -> None:
         self._controller = controller
-        # Captured ``EventBus.add_listener`` returns; each is a
-        # callable that drops the listener when invoked.
-        # Populated by :meth:`start`, walked by :meth:`stop`.
-        self._unsubscribers: list[Callable[[], None]] = []
+        # Lifecycle bag of bus-listener unsubs. Each
+        # ``EventBus.add_listener`` return is a sync callable
+        # that drops the listener; ``ExitStack.callback`` is
+        # the stdlib pattern for accumulating those across
+        # ``start`` and walking them on ``stop``.
+        self._listeners = ExitStack()
         # Receiver-side ``FirmwareJob.job_id`` →
         # ``(remote_peer, remote_job_id)`` for every in-flight
         # remote-peer job. Populated on JOB_QUEUED (the first
@@ -127,16 +129,14 @@ class JobFanout:
         # module docstring on the deliberate skip — the
         # ``submit_job_ack`` already signals queued, and a frame
         # firing here would race the ack).
-        self._unsubscribers.append(bus.add_listener(EventType.JOB_QUEUED, self._on_queued))
+        self._listeners.callback(bus.add_listener(EventType.JOB_QUEUED, self._on_queued))
         for event_type in _LIFECYCLE_EVENT_TO_STATUS:
-            self._unsubscribers.append(bus.add_listener(event_type, self._on_lifecycle))
-        self._unsubscribers.append(bus.add_listener(EventType.JOB_OUTPUT, self._on_output))
+            self._listeners.callback(bus.add_listener(event_type, self._on_lifecycle))
+        self._listeners.callback(bus.add_listener(EventType.JOB_OUTPUT, self._on_output))
 
     def stop(self) -> None:
         """Drop every listener registered by :meth:`start` and clear the cache."""
-        for unsub in self._unsubscribers:
-            unsub()
-        self._unsubscribers.clear()
+        self._listeners.close()
         self._remote_jobs.clear()
 
     def _on_queued(self, event: Event[JobLifecycleData]) -> None:
