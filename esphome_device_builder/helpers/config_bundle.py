@@ -50,7 +50,7 @@ import tempfile
 from pathlib import Path
 
 from ..controllers.firmware.helpers import _find_esphome_cmd
-from .subprocess import create_subprocess_exec
+from .subprocess import run_subprocess_capture
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,44 +95,56 @@ async def build_yaml_bundle(yaml_path: Path) -> bytes:
     (including ``CancelledError`` from the WS handler being
     cancelled mid-build).
     """
-    if not yaml_path.is_file():
+    loop = asyncio.get_running_loop()
+    # Every filesystem syscall here (``is_file`` → ``os.stat``,
+    # ``NamedTemporaryFile`` → ``os.open``, ``read_bytes`` →
+    # ``os.read``, ``unlink`` → ``os.unlink``) is blocking;
+    # blockbuster catches them when run on the event loop in CI.
+    # Stage them through ``run_in_executor`` so the dashboard's
+    # other tasks keep moving on slow disks.
+    if not await loop.run_in_executor(None, yaml_path.is_file):
         msg = f"YAML not found: {yaml_path}"
         raise FileNotFoundError(msg)
     cmd = _find_esphome_cmd()
-    # ``delete=False`` because we close the FD immediately
-    # (the subprocess writes to the path), then unlink in the
-    # ``finally``. ``NamedTemporaryFile`` itself is just for
-    # the unique name + correct ``tempfile`` semantics
-    # (TMPDIR-aware on every platform).
-    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-        output_path = Path(tmp.name)
+    output_path = await loop.run_in_executor(None, _allocate_temp_bundle_path)
     try:
-        proc = await create_subprocess_exec(
+        result = await run_subprocess_capture(
             *cmd,
             "bundle",
             str(yaml_path),
             "-o",
             str(output_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            timeout=_BUNDLE_BUILD_TIMEOUT_SECONDS,
         )
-        try:
-            stdout_bytes, _ = await asyncio.wait_for(
-                proc.communicate(), timeout=_BUNDLE_BUILD_TIMEOUT_SECONDS
-            )
-        except TimeoutError:
-            proc.kill()
-            await proc.wait()
+        if result.timed_out:
             raise BundleBuildError(
                 f"esphome bundle timed out after {_BUNDLE_BUILD_TIMEOUT_SECONDS:.0f}s",
                 output="",
-            ) from None
-        if proc.returncode != 0:
-            output = stdout_bytes.decode("utf-8", errors="replace").strip()
-            raise BundleBuildError(f"esphome bundle exited {proc.returncode}", output=output)
-        return output_path.read_bytes()
+            )
+        if result.returncode != 0:
+            output = result.stdout.decode("utf-8", errors="replace").strip()
+            raise BundleBuildError(f"esphome bundle exited {result.returncode}", output=output)
+        return await loop.run_in_executor(None, output_path.read_bytes)
     finally:
-        try:
-            output_path.unlink()
-        except OSError:
-            _LOGGER.debug("failed to unlink temp bundle %s", output_path, exc_info=True)
+        await loop.run_in_executor(None, _unlink_quietly, output_path)
+
+
+def _allocate_temp_bundle_path() -> Path:
+    """Reserve a unique ``.tar.gz`` path under the platform tmp dir.
+
+    ``delete=False`` because we close the FD immediately — the
+    subprocess writes to the path, and the caller unlinks in
+    its ``finally``. :class:`tempfile.NamedTemporaryFile` is
+    just the name-reservation primitive (TMPDIR-aware on every
+    platform); no FD is held open across the subprocess.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+        return Path(tmp.name)
+
+
+def _unlink_quietly(path: Path) -> None:
+    """Best-effort ``unlink`` that swallows ``OSError``."""
+    try:
+        path.unlink()
+    except OSError:
+        _LOGGER.debug("failed to unlink temp bundle %s", path, exc_info=True)

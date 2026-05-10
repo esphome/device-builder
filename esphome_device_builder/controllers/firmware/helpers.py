@@ -9,7 +9,6 @@ under ``tests/controllers/firmware/test_helpers.py``.
 
 from __future__ import annotations
 
-import asyncio
 import ipaddress
 import logging
 import os
@@ -19,8 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ...helpers.api import CommandError
-from ...helpers.process import kill_quietly
-from ...helpers.subprocess import create_subprocess_exec
+from ...helpers.subprocess import run_subprocess_capture
 from ...models import (
     TERMINAL_JOB_STATUSES,
     ErrorCode,
@@ -276,30 +274,17 @@ async def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
     sanity check without it would let a broken pairing slip through to
     the user's first compile.
 
-    Async + ``create_subprocess_exec`` so the spawn inherits the
-    ``close_fds=False`` choice every other dashboard subprocess uses
-    (see ``helpers/subprocess.py`` — ``close_fds=True`` walks
-    ``/proc/self/fd`` per spawn and is wasted work on memory-pressured
-    systems). ``subprocess.run`` would have spawned with the stdlib
-    default and skipped the optimisation.
+    Subprocess plumbing (timeout + kill_quietly + stdout decode)
+    lives in :func:`helpers.subprocess.run_subprocess_capture`;
+    shared with :func:`helpers.config_bundle.build_yaml_bundle`.
     """
     try:
-        proc = await create_subprocess_exec(
-            *cmd,
-            "--dashboard",
-            "--version",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        result = await run_subprocess_capture(*cmd, "--dashboard", "--version", timeout=15)
     except OSError as exc:
         return False, f"{type(exc).__name__}: {exc}"
-    try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
-    except TimeoutError:
-        kill_quietly(proc)
-        await proc.wait()
+    if result.timed_out:
         return False, "TimeoutExpired: 15s probe didn't return"
-    output = stdout.decode("utf-8", errors="replace").strip()
-    if proc.returncode != 0 or "No module named" in output or "ModuleNotFoundError" in output:
-        return False, output or f"exit {proc.returncode}"
+    output = result.stdout.decode("utf-8", errors="replace").strip()
+    if result.returncode != 0 or "No module named" in output or "ModuleNotFoundError" in output:
+        return False, output or f"exit {result.returncode}"
     return True, output

@@ -2,18 +2,16 @@
 Unit tests for :mod:`helpers.config_bundle`.
 
 The bundle helper spawns ``esphome bundle <yaml> -o <tarball>``
-as a subprocess (mirror of how the firmware controller spawns
-``esphome compile`` / ``esphome upload``). Tests fake the
-subprocess via :func:`monkeypatch.setattr` on
-:mod:`helpers.subprocess.create_subprocess_exec` so the
-helper's plumbing (temp-file lifecycle, error mapping, timeout
-guard, missing-yaml pre-check) is exercised without invoking
-real ESPHome.
+through :func:`helpers.subprocess.run_subprocess_capture`. Tests
+monkeypatch :func:`run_subprocess_capture` on the
+:mod:`config_bundle` namespace with a fake that materialises the
+expected bundle bytes at the output path, so the helper's
+plumbing (temp-file lifecycle, error mapping, missing-yaml
+pre-check) is exercised without invoking real ESPHome.
 """
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -24,42 +22,7 @@ from esphome_device_builder.helpers.config_bundle import (
     BundleBuildError,
     build_yaml_bundle,
 )
-
-
-class _FakeProc:
-    """Stand-in for :class:`asyncio.subprocess.Process` driven by tests."""
-
-    def __init__(
-        self,
-        *,
-        returncode: int = 0,
-        stdout: bytes = b"",
-        output_bytes: bytes | None = None,
-        output_path: Path | None = None,
-        hang: bool = False,
-    ) -> None:
-        self.returncode = returncode
-        self._stdout = stdout
-        self._output_bytes = output_bytes
-        self._output_path = output_path
-        self._hang = hang
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        if self._hang:
-            await asyncio.sleep(3600)
-            raise AssertionError("unreachable")
-        # On success, materialise the bundle bytes at the
-        # output path the caller supplied to the subprocess —
-        # the real esphome CLI writes here.
-        if self._output_path is not None and self._output_bytes is not None:
-            self._output_path.write_bytes(self._output_bytes)
-        return self._stdout, b""
-
-    def kill(self) -> None:
-        pass
-
-    async def wait(self) -> int:
-        return self.returncode
+from esphome_device_builder.helpers.subprocess import CapturedSubprocess
 
 
 def _install_fake_subprocess(
@@ -68,29 +31,28 @@ def _install_fake_subprocess(
     returncode: int = 0,
     stdout: bytes = b"",
     output_bytes: bytes | None = None,
-    hang: bool = False,
+    timed_out: bool = False,
 ) -> list[tuple[Any, ...]]:
-    """Patch ``create_subprocess_exec`` with a fake; return captured arg tuples."""
+    """Patch ``run_subprocess_capture`` with a fake; return captured arg tuples.
+
+    On a non-timed-out success-path call, the fake materialises
+    *output_bytes* at the output path the helper passed via
+    ``-o`` so the read-back step finds real bytes.
+    """
     captured: list[tuple[Any, ...]] = []
 
-    async def _fake(*args: Any, **_kwargs: Any) -> _FakeProc:
+    async def _fake(*args: Any, **_kwargs: Any) -> CapturedSubprocess:
         captured.append(args)
-        # The CLI signature is ``<esphome_cmd...> bundle <yaml>
-        # -o <out>``; pull the ``-o`` arg out so the fake can
-        # write to the same path the real subprocess would.
-        try:
-            output_path = Path(args[args.index("-o") + 1])
-        except (ValueError, IndexError):
-            output_path = None
-        return _FakeProc(
-            returncode=returncode,
-            stdout=stdout,
-            output_bytes=output_bytes,
-            output_path=output_path,
-            hang=hang,
-        )
+        if not timed_out and output_bytes is not None and "-o" in args:
+            try:
+                output_path = Path(args[args.index("-o") + 1])
+            except IndexError:  # pragma: no cover — defensive
+                output_path = None
+            else:
+                output_path.write_bytes(output_bytes)
+        return CapturedSubprocess(returncode=returncode, stdout=stdout, timed_out=timed_out)
 
-    monkeypatch.setattr(config_bundle, "create_subprocess_exec", _fake)
+    monkeypatch.setattr(config_bundle, "run_subprocess_capture", _fake)
     return captured
 
 
@@ -174,11 +136,10 @@ async def test_build_yaml_bundle_cleans_temp_file_on_success(
 async def test_build_yaml_bundle_timeout_raises_bundle_build_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A hung subprocess past the timeout raises :class:`BundleBuildError`."""
+    """A timed-out subprocess raises :class:`BundleBuildError` with 'timed out'."""
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    _install_fake_subprocess(monkeypatch, hang=True)
-    monkeypatch.setattr(config_bundle, "_BUNDLE_BUILD_TIMEOUT_SECONDS", 0.05)
+    _install_fake_subprocess(monkeypatch, timed_out=True)
 
     with pytest.raises(BundleBuildError, match="timed out"):
         await build_yaml_bundle(yaml_path)

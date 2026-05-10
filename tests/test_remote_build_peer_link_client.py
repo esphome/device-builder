@@ -20,7 +20,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -2264,6 +2265,108 @@ class _ParkingWs:
         raise StopAsyncIteration
 
 
+class _DeliverFramesWs(_ParkingWs):
+    """Deliver each entry in *frames* on consecutive ``__anext__`` calls, then park.
+
+    Every dispatcher test on the offloader-side receive loop
+    needs the same shape: encrypt one (or a few) frame dicts
+    with the receiver-side ``PeerLinkNoiseSession``, deliver
+    them through an async WS iterator, then park until the
+    test signals the close. Inlining a dedicated ``_XxxWs``
+    subclass per test was ~12 lines x 6 tests of duplicate
+    boilerplate; this helper takes a list of plaintext frame
+    dicts and a ``responder`` session to encrypt them with.
+    """
+
+    def __init__(
+        self,
+        closed_event: asyncio.Event,
+        responder: PeerLinkNoiseSession,
+        frames: list[dict[str, Any]],
+    ) -> None:
+        super().__init__(closed_event)
+        self._responder = responder
+        self._frames = list(frames)
+        self._index = 0
+
+    async def __anext__(self) -> Any:
+        if self._index < len(self._frames):
+            frame = self._responder.encrypt(_json.dumps(self._frames[self._index]))
+            self._index += 1
+            return WSMessage(type=WSMsgType.BINARY, data=frame, extra="")
+        await self._closed_event.wait()
+        raise StopAsyncIteration
+
+
+def _make_offloader_client(
+    bus: EventBus | Any,
+    *,
+    receiver_hostname: str = "receiver.local",
+    receiver_port: int = 6055,
+    pinned_static_x25519_pub: bytes = b"\x00" * 32,
+    pin_sha256: str = "a" * 64,
+    receiver_label: str = "test-receiver",
+    dashboard_id: str = "alpha",
+) -> PeerLinkClient:
+    """Build a :class:`PeerLinkClient` with the defaults every offloader test uses.
+
+    Every constructor-arg has a default; tests that need a
+    non-default ``receiver_hostname`` / ``pin_sha256`` /
+    ``pinned_static_x25519_pub`` pass overrides. The 8-line
+    construction was repeated ~30 times across the file before
+    this helper.
+    """
+    return PeerLinkClient(
+        receiver_hostname=receiver_hostname,
+        receiver_port=receiver_port,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id=dashboard_id,
+        pinned_static_x25519_pub=pinned_static_x25519_pub,
+        pin_sha256=pin_sha256,
+        receiver_label=receiver_label,
+        bus=bus,
+    )
+
+
+@asynccontextmanager
+async def _drive_session_with_frames(
+    client: PeerLinkClient,
+    monkeypatch: pytest.MonkeyPatch,
+    frames: list[dict[str, Any]],
+) -> AsyncIterator[None]:
+    """Park ``client._run_session_loops`` against synthetic *frames* for the with-block.
+
+    Folds the receive-loop scaffolding every offloader-side
+    dispatcher test repeats: Noise handshake pair, single-shot
+    deliver-then-park WS, stubbed heartbeat, kicked-off
+    :meth:`PeerLinkClient._run_session_loops` task. On context
+    exit the close event fires and the drive task is awaited
+    so test teardown deterministically unwinds.
+
+    The client is constructed by the caller (via
+    :func:`_make_offloader_client`) so test code can mutate it
+    before the session opens — e.g., pre-register an entry on
+    :attr:`PeerLinkClient._submit_job_acks` so an inbound
+    ``submit_job_ack`` frame finds the matching future.
+    """
+    initiator, responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+    ws = _DeliverFramesWs(closed_event, responder, frames)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    async def _idle_heartbeat(**_kwargs: Any) -> None:
+        await closed_event.wait()
+
+    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+
+    drive_task = asyncio.create_task(client._run_session_loops(channel))
+    try:
+        yield
+    finally:
+        closed_event.set()
+        await drive_task
+
+
 async def _seed_approved_peer_for_initiator(
     receiver_controller: RemoteBuildController,
     *,
@@ -3502,56 +3605,17 @@ async def test_run_session_loops_fires_offloader_job_state_changed_on_inbound_fr
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A ``job_state_changed`` frame fires ``OFFLOADER_JOB_STATE_CHANGED`` with peer coords."""
-    initiator, responder = _build_handshake_pair()
-    closed_event = asyncio.Event()
-
-    class _StateWs(_ParkingWs):
-        def __init__(self, evt: asyncio.Event) -> None:
-            super().__init__(evt)
-            self._delivered = False
-
-        async def __anext__(self) -> Any:
-            if not self._delivered:
-                self._delivered = True
-                frame = responder.encrypt(
-                    _json.dumps(
-                        {
-                            "type": "job_state_changed",
-                            "job_id": "j-001",
-                            "status": "running",
-                            "error_message": "",
-                        }
-                    )
-                )
-                return WSMessage(type=WSMsgType.BINARY, data=frame, extra="")
-            await self._closed_event.wait()
-            raise StopAsyncIteration
-
-    ws = _StateWs(closed_event)
-    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
-
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
-        await closed_event.wait()
-
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
-
     bus = EventBus()
     captured = capture_events(bus, EventType.OFFLOADER_JOB_STATE_CHANGED)
-
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
-    drive_task = asyncio.create_task(client._run_session_loops(channel))
-    await asyncio.wait_for(captured.received.wait(), timeout=2.0)
-    closed_event.set()
-    await drive_task
+    client = _make_offloader_client(bus)
+    frame = {
+        "type": "job_state_changed",
+        "job_id": "j-001",
+        "status": "running",
+        "error_message": "",
+    }
+    async with _drive_session_with_frames(client, monkeypatch, [frame]):
+        await asyncio.wait_for(captured.received.wait(), timeout=2.0)
 
     assert len(captured) == 1
     assert captured[0] == {
@@ -3592,48 +3656,14 @@ async def test_run_session_loops_drops_malformed_job_state_changed(
     frame_body: dict[str, Any],
 ) -> None:
     """Malformed ``job_state_changed`` frames are dropped without firing the event."""
-    initiator, responder = _build_handshake_pair()
-    closed_event = asyncio.Event()
-
-    class _BadWs(_ParkingWs):
-        def __init__(self, evt: asyncio.Event) -> None:
-            super().__init__(evt)
-            self._delivered = False
-
-        async def __anext__(self) -> Any:
-            if not self._delivered:
-                self._delivered = True
-                frame = responder.encrypt(_json.dumps(frame_body))
-                return WSMessage(type=WSMsgType.BINARY, data=frame, extra="")
-            await self._closed_event.wait()
-            raise StopAsyncIteration
-
-    ws = _BadWs(closed_event)
-    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
-
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
-        await closed_event.wait()
-
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
-
     bus = EventBus()
     captured = capture_events(bus, EventType.OFFLOADER_JOB_STATE_CHANGED)
-
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
-    drive_task = asyncio.create_task(client._run_session_loops(channel))
-    for _ in range(10):
-        await asyncio.sleep(0)
-    closed_event.set()
-    await drive_task
+    client = _make_offloader_client(bus)
+    async with _drive_session_with_frames(client, monkeypatch, [frame_body]):
+        # Yield long enough for the malformed-frame branch to run
+        # and drop the frame; the context manager handles close.
+        for _ in range(10):
+            await asyncio.sleep(0)
     assert len(captured) == 0
 
 
@@ -3642,56 +3672,17 @@ async def test_run_session_loops_fires_offloader_job_output_on_inbound_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A ``job_output`` frame fires ``OFFLOADER_JOB_OUTPUT`` and preserves the terminator."""
-    initiator, responder = _build_handshake_pair()
-    closed_event = asyncio.Event()
-
-    class _OutputWs(_ParkingWs):
-        def __init__(self, evt: asyncio.Event) -> None:
-            super().__init__(evt)
-            self._delivered = False
-
-        async def __anext__(self) -> Any:
-            if not self._delivered:
-                self._delivered = True
-                frame = responder.encrypt(
-                    _json.dumps(
-                        {
-                            "type": "job_output",
-                            "job_id": "j-002",
-                            "stream": "stdout",
-                            "line": "Compiling kitchen.cpp\n",
-                        }
-                    )
-                )
-                return WSMessage(type=WSMsgType.BINARY, data=frame, extra="")
-            await self._closed_event.wait()
-            raise StopAsyncIteration
-
-    ws = _OutputWs(closed_event)
-    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
-
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
-        await closed_event.wait()
-
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
-
     bus = EventBus()
     captured = capture_events(bus, EventType.OFFLOADER_JOB_OUTPUT)
-
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
-    drive_task = asyncio.create_task(client._run_session_loops(channel))
-    await asyncio.wait_for(captured.received.wait(), timeout=2.0)
-    closed_event.set()
-    await drive_task
+    client = _make_offloader_client(bus)
+    frame = {
+        "type": "job_output",
+        "job_id": "j-002",
+        "stream": "stdout",
+        "line": "Compiling kitchen.cpp\n",
+    }
+    async with _drive_session_with_frames(client, monkeypatch, [frame]):
+        await asyncio.wait_for(captured.received.wait(), timeout=2.0)
 
     assert len(captured) == 1
     assert captured[0] == {
@@ -3709,67 +3700,24 @@ async def test_run_session_loops_resolves_submit_job_ack_future(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A ``submit_job_ack`` frame fires the matching ack future with the parsed payload."""
-    initiator, responder = _build_handshake_pair()
-    closed_event = asyncio.Event()
-
-    class _AckWs(_ParkingWs):
-        def __init__(self, evt: asyncio.Event) -> None:
-            super().__init__(evt)
-            self._delivered = False
-
-        async def __anext__(self) -> Any:
-            if not self._delivered:
-                self._delivered = True
-                frame = responder.encrypt(
-                    _json.dumps(
-                        {
-                            "type": "submit_job_ack",
-                            "job_id": "j-acked",
-                            "accepted": False,
-                            "reason": "queue_rejected",
-                        }
-                    )
-                )
-                return WSMessage(type=WSMsgType.BINARY, data=frame, extra="")
-            await self._closed_event.wait()
-            raise StopAsyncIteration
-
-    ws = _AckWs(closed_event)
-    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
-
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
-        await closed_event.wait()
-
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
-
     bus = EventBus()
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
+    client = _make_offloader_client(bus)
     # Pre-register the ack future under the same job_id the
     # synthetic frame carries — mirrors what
     # :meth:`PeerLinkClient.submit_job` does just before sending.
     ack_fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
     client._submit_job_acks["j-acked"] = ack_fut
 
-    drive_task = asyncio.create_task(client._run_session_loops(channel))
-    ack = await asyncio.wait_for(ack_fut, timeout=2.0)
-    closed_event.set()
-    await drive_task
-
-    assert ack == {
+    frame = {
         "type": "submit_job_ack",
         "job_id": "j-acked",
         "accepted": False,
         "reason": "queue_rejected",
     }
+    async with _drive_session_with_frames(client, monkeypatch, [frame]):
+        ack = await asyncio.wait_for(ack_fut, timeout=2.0)
+
+    assert ack == frame
 
 
 @pytest.mark.asyncio
@@ -3777,37 +3725,16 @@ async def test_run_session_loops_finally_drains_pending_submit_acks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Pending ack futures are completed with :class:`SubmitJobSessionLostError` on session end."""
-    initiator, _responder = _build_handshake_pair()
-    closed_event = asyncio.Event()
-    ws = _ParkingWs(closed_event)
-    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
-
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
-        await closed_event.wait()
-
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
-
     bus = EventBus()
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
+    client = _make_offloader_client(bus)
     pending: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
     client._submit_job_acks["abandoned"] = pending
 
-    drive_task = asyncio.create_task(client._run_session_loops(channel))
-    # Let the receive loop park and set ``_active_channel``,
-    # then close the iterator so the loop exits and the
-    # ``finally`` drains the pending future.
-    await asyncio.sleep(0)
-    closed_event.set()
-    await drive_task
+    async with _drive_session_with_frames(client, monkeypatch, []):
+        # Let the receive loop park and set ``_active_channel``;
+        # context exit closes the iterator so the ``finally``
+        # drains the pending future.
+        await asyncio.sleep(0)
 
     with pytest.raises(SubmitJobSessionLostError):
         await pending
@@ -3816,17 +3743,7 @@ async def test_run_session_loops_finally_drains_pending_submit_acks(
 @pytest.mark.asyncio
 async def test_submit_job_raises_no_session_error_when_session_closed() -> None:
     """:meth:`submit_job` without a live session raises :class:`SubmitJobNoSessionError`."""
-    bus = EventBus()
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
+    client = _make_offloader_client(EventBus())
     assert not client.is_session_open
     with pytest.raises(SubmitJobNoSessionError):
         await client.submit_job(
@@ -3884,16 +3801,7 @@ async def test_submit_job_sends_header_chunks_and_returns_ack(
     monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
 
     bus = EventBus()
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
+    client = _make_offloader_client(bus)
     drive_task = asyncio.create_task(client._run_session_loops(channel))
     # Wait for the receive loop to park (sets ``_active_channel``).
     while not client.is_session_open:
@@ -3936,66 +3844,34 @@ async def test_submit_job_times_out_when_no_ack_arrives(
     The timeout constant is monkeypatched down so the test
     finishes quickly; production keeps the 60s wall.
     """
-    initiator, _responder = _build_handshake_pair()
-    closed_event = asyncio.Event()
-
-    class _SilentWs(_ParkingWs):
-        async def send_bytes(self, _data: bytes) -> None:
-            pass
-
-    ws = _SilentWs(closed_event)
-    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
-
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
-        await closed_event.wait()
-
-    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
     monkeypatch.setattr(remote_build_peer_link_client, "_SUBMIT_JOB_ACK_TIMEOUT_SECONDS", 0.05)
-
     bus = EventBus()
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
-    drive_task = asyncio.create_task(client._run_session_loops(channel))
-    while not client.is_session_open:
-        await asyncio.sleep(0)
-    with pytest.raises(SubmitJobTimeoutError):
-        await client.submit_job(
-            job_id="j-timeout",
-            configuration_filename="kitchen.yaml",
-            target="compile",
-            bundle_bytes=b"data",
-        )
-    closed_event.set()
-    await drive_task
+    client = _make_offloader_client(bus)
+    # No frames delivered — the receive loop parks immediately,
+    # the chunk sends land on the no-op send_bytes, and
+    # ``submit_job`` waits for an ack that never arrives.
+    async with _drive_session_with_frames(client, monkeypatch, []):
+        while not client.is_session_open:
+            await asyncio.sleep(0)
+        with pytest.raises(SubmitJobTimeoutError):
+            await client.submit_job(
+                job_id="j-timeout",
+                configuration_filename="kitchen.yaml",
+                target="compile",
+                bundle_bytes=b"data",
+            )
 
 
 @pytest.mark.asyncio
 async def test_submit_job_rejects_duplicate_job_id() -> None:
     """A second :meth:`submit_job` with an in-flight ``job_id`` raises immediately."""
-    bus = EventBus()
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
+    client = _make_offloader_client(EventBus())
     # Spoof an open session so the no-session branch is skipped.
     initiator, _responder = _build_handshake_pair()
     closed_event = asyncio.Event()
-    ws = _ParkingWs(closed_event)
-    client._active_channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+    client._active_channel = PeerLinkChannel(
+        noise=initiator, ws=_ParkingWs(closed_event), log_label="127.0.0.1:6055"
+    )
     # Pre-register a future under the id we'll re-submit against.
     client._submit_job_acks["j-dup"] = asyncio.get_running_loop().create_future()
     with pytest.raises(SubmitJobNoSessionError):
@@ -4023,16 +3899,13 @@ def _seed_open_peer_link_client(
     ``_lookup_open_peer_link_client`` finds it. Returns the
     client object so the caller can monkeypatch ``submit_job``.
     """
-    bus = MagicMock()
-    client = PeerLinkClient(
+    client = _make_offloader_client(
+        MagicMock(),
         receiver_hostname=pairing.receiver_hostname,
         receiver_port=pairing.receiver_port,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
         pinned_static_x25519_pub=pairing.static_x25519_pub,
         pin_sha256=pairing.pin_sha256,
         receiver_label=pairing.label,
-        bus=bus,
     )
     # Spoof a live session — passes ``is_session_open``.
     initiator, _responder = _build_handshake_pair()
@@ -4365,16 +4238,7 @@ async def test_dispatch_submit_job_ack_drops_malformed(
 ) -> None:
     """Malformed ``submit_job_ack`` is dropped without firing a future."""
     bus = EventBus()
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
+    client = _make_offloader_client(bus)
     fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
     client._submit_job_acks["j-1"] = fut
     client._dispatch_submit_job_ack(frame_body)
@@ -4385,16 +4249,7 @@ async def test_dispatch_submit_job_ack_drops_malformed(
 async def test_dispatch_submit_job_ack_drops_with_no_pending_future() -> None:
     """An ack frame with no matching future is dropped silently."""
     bus = EventBus()
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
+    client = _make_offloader_client(bus)
     client._dispatch_submit_job_ack(
         {"type": "submit_job_ack", "job_id": "unknown", "accepted": True}
     )
@@ -4406,16 +4261,7 @@ async def test_dispatch_submit_job_ack_drops_with_no_pending_future() -> None:
 async def test_dispatch_submit_job_ack_drops_already_done_future() -> None:
     """An ack frame for an already-resolved future is dropped silently."""
     bus = EventBus()
-    client = PeerLinkClient(
-        receiver_hostname="receiver.local",
-        receiver_port=6055,
-        identity_priv=secrets.token_bytes(32),
-        dashboard_id="alpha",
-        pinned_static_x25519_pub=b"\x00" * 32,
-        pin_sha256="a" * 64,
-        receiver_label="test-receiver",
-        bus=bus,
-    )
+    client = _make_offloader_client(bus)
     fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
     fut.set_result({"type": "submit_job_ack", "job_id": "j-1", "accepted": True})
     client._submit_job_acks["j-1"] = fut

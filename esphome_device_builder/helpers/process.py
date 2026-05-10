@@ -46,9 +46,13 @@ import logging
 import os
 import signal
 import sys
-from contextlib import suppress
 
-from .subprocess import create_subprocess_exec
+from .subprocess import create_subprocess_exec, kill_quietly
+
+__all__ = [
+    "kill_quietly",
+    "terminate_subtree_with_grace",
+]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,21 +62,6 @@ _LOGGER = logging.getLogger(__name__)
 # esptool to release the serial port and platformio to flush its log,
 # and short enough that a hung compiler doesn't make the user wait.
 _TERMINATE_GRACE_SECONDS = 3.0
-
-
-def kill_quietly(proc: asyncio.subprocess.Process) -> None:
-    """
-    Best-effort ``proc.kill()`` that swallows ``ProcessLookupError``.
-
-    There's a TOCTOU race in every kill site: between a
-    ``proc.returncode is None`` check and ``proc.kill()`` firing,
-    the child can exit on its own — and ``Process.kill()`` then
-    raises ``ProcessLookupError`` because the pid's already
-    reaped. Wrap the kill with this helper instead of repeating
-    the suppress block at every call site.
-    """
-    with suppress(ProcessLookupError):
-        proc.kill()
 
 
 def _signal_process_group(pid: int, sig: int) -> bool:

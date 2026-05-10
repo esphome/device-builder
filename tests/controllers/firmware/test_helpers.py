@@ -230,30 +230,28 @@ async def test_verify_esphome_importable_returns_false_on_oserror() -> None:
 async def test_verify_esphome_importable_returns_false_on_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A probe that doesn't return within 15s gets killed and reports the timeout.
+    """A timed-out probe surfaces a clear message rather than blocking startup.
 
     Real-world trigger: a wrapper script that hangs on a network
-    call before importing ``esphome``. The probe has to put the
-    spawn down (``proc.kill`` + ``await proc.wait()``) and surface
-    a clear message rather than letting the dashboard startup
-    block indefinitely.
+    call before importing ``esphome``. The dashboard mustn't
+    block indefinitely on a broken probe.
 
-    Patches ``asyncio.wait_for`` in the helper's namespace to
-    raise immediately so the test doesn't have to actually wait
-    15 seconds. The ``with suppress(ProcessLookupError)`` guard
-    around ``proc.kill()`` covers the race where the child
-    exited on its own between the timeout and our kill — the
-    Python one-liner here is fast-exiting, so we exercise that
-    suppress branch incidentally.
+    Subprocess plumbing (kill + wait) lives in
+    :func:`helpers.subprocess.run_subprocess_capture`; this test
+    monkeypatches that helper to return ``timed_out=True``
+    directly so the probe's mapping branch fires without an
+    actual wall-clock wait.
     """
+    from esphome_device_builder.helpers.subprocess import (  # noqa: PLC0415
+        CapturedSubprocess,
+    )
 
-    async def _raise_timeout(*_args: Any, **_kwargs: Any) -> None:
-        raise TimeoutError
+    async def _fake_timed_out(*_args: Any, **_kwargs: Any) -> CapturedSubprocess:
+        return CapturedSubprocess(returncode=None, stdout=b"", timed_out=True)
 
-    monkeypatch.setattr(_helpers.asyncio, "wait_for", _raise_timeout)
+    monkeypatch.setattr(_helpers, "run_subprocess_capture", _fake_timed_out)
 
-    cmd = [sys.executable, "-c", "pass"]
-    ok, detail = await _verify_esphome_importable(cmd)
+    ok, detail = await _verify_esphome_importable(["whatever"])
 
     assert not ok
     assert detail == "TimeoutExpired: 15s probe didn't return"
