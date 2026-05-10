@@ -2717,9 +2717,12 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
     closed = capture_events(bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
     pin_mismatch = capture_events(bus, EventType.OFFLOADER_PAIR_PIN_MISMATCH)
 
-    # Wrong pinned pubkey; must differ from the receiver's
-    # actual ``identity.public_bytes``.
-    wrong_pub = bytes(reversed(receiver_pub))
+    # Wrong pinned pubkey: flip one bit of the receiver's actual
+    # pubkey so the result is guaranteed-different. Reversing the
+    # bytes would have a vanishingly small but non-zero chance of
+    # producing the same value on a self-palindromic key; the
+    # XOR-with-0x01 form has none.
+    wrong_pub = bytes([receiver_pub[0] ^ 0x01]) + receiver_pub[1:]
     assert wrong_pub != receiver_pub
 
     client = PeerLinkClient(

@@ -1069,7 +1069,14 @@ class RemoteBuildController:
         """
         data = event.data
         key = (data["receiver_hostname"], data["receiver_port"])
-        self._offloader_alerts[key] = {
+        # Build the typed alert explicitly rather than as a bare
+        # dict literal: ``_offloader_alerts`` is typed
+        # ``dict[..., OffloaderAlertSnapshotEntry]`` (a union of
+        # ``OffloaderPinMismatchAlert`` / ``OffloaderPeerRevokedAlert``
+        # discriminated by ``kind``), and a bare literal under
+        # strict mypy can fall back to ``dict[str, object]``
+        # rather than narrowing into the right TypedDict variant.
+        alert: OffloaderPinMismatchAlert = {
             "kind": "pin_mismatch",
             "receiver_hostname": data["receiver_hostname"],
             "receiver_port": data["receiver_port"],
@@ -1078,6 +1085,7 @@ class RemoteBuildController:
             "observed_pin": data["observed_pin"],
             "fired_at": time.time(),
         }
+        self._offloader_alerts[key] = alert
 
     def _on_offloader_queue_status_changed(
         self, event: Event[OffloaderQueueStatusChangedData]

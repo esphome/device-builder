@@ -728,11 +728,25 @@ class PeerLinkClient:
 
     @property
     def is_orphaned(self) -> bool:
-        """True if a ``superseded`` close has poisoned this client.
+        """True if the run loop has been poisoned and won't reconnect.
 
-        See the class docstring for the rationale; the
-        controller's restart path (a fresh :meth:`run`) clears
-        the flag.
+        Set in two cases, both of which mean reconnecting would
+        just hammer the wrong endpoint:
+
+        * Receiver-side ``terminate{reason: superseded}`` close
+          — a newer offloader instance with the same
+          ``dashboard_id`` has taken our slot. Reconnecting
+          would collide with that instance.
+        * Pin-mismatch on the post-handshake pin-check (4a-o
+          part 5) — ``session.remote_static_pub`` didn't match
+          the OOB-confirmed pubkey, so we're talking to a
+          rotated-but-legitimate receiver or to an attacker.
+          Either way the operator's resolution (re-pair to
+          confirm the new identity, or unpair) is the only
+          path forward.
+
+        The controller's restart path (a fresh :meth:`run`)
+        clears the flag.
         """
         return self._orphaned
 
