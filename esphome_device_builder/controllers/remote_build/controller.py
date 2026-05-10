@@ -58,7 +58,10 @@ own browsers (``_esphomelib._tcp.local.`` for devices,
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
+import tarfile
 import time
 from collections.abc import Callable, Coroutine, Hashable, Iterator
 from contextlib import ExitStack, contextmanager
@@ -86,7 +89,7 @@ from ...helpers.event_bus import Event
 from ...helpers.hostname import normalize_hostname
 from ...helpers.json import dumps as json_dumps
 from ...helpers.json import loads as json_loads
-from ...helpers.peer_link_frames import validate_frame_shape
+from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
 from ...helpers.storage import ShutdownCallback, Store
 from ...models import (
@@ -138,6 +141,8 @@ from .artifacts_download import ArtifactsDownloadSender
 from .job_fanout import JobFanout
 from .peer_link import PeerLinkSession, TerminateReason
 from .peer_link_client import (
+    DownloadArtifactsError,
+    DownloadArtifactsResult,
     PairStatusResult,
     PeerLinkClient,
     PeerLinkClientError,
@@ -612,6 +617,252 @@ _PIN_SHA256_LEN = 64  # 32-byte SHA-256 → 64 lowercase-hex chars
 _PAIR_LABEL_MAX_CHARS = 128  # mirrors :data:`_PEER_LABEL_MAX_CHARS` on the receiver
 
 
+# Mapping from receiver-reported reject reasons (carried on
+# ``artifacts_end{accepted: false}``) to the
+# :class:`ErrorCode` the WS layer surfaces. Receiver-side
+# constants live in :mod:`controllers.remote_build.artifacts_download`;
+# the wire string is the canonical seam, not a shared
+# enum, because it crosses the trust boundary as user-
+# controlled JSON. Unknown reasons fall through to
+# ``UNAVAILABLE`` (better safe than asserting on a
+# stranger's wire format).
+_DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE: dict[str, ErrorCode] = {
+    "unknown_job": ErrorCode.NOT_FOUND,
+    "build_dir_missing": ErrorCode.NOT_FOUND,
+    "job_not_completed": ErrorCode.PRECONDITION_FAILED,
+    "duplicate_download": ErrorCode.PRECONDITION_FAILED,
+    "pack_failed": ErrorCode.UNAVAILABLE,
+    "invalid_request": ErrorCode.INVALID_ARGS,
+}
+
+
+class _UnpackArtifactsError(RuntimeError):
+    """Raised by :func:`_unpack_artifacts_response` on a malformed tarball.
+
+    The receiver-side packer
+    (:func:`controllers.remote_build.artifacts_download._pack_build_artifacts`)
+    is the only thing that should be writing this stream, so a
+    structural failure here means an in-flight bug or a
+    misbehaving peer — surfaced as ``INVALID_ARGS`` rather than
+    ``INTERNAL_ERROR`` so the user sees a clear "the receiver
+    sent a tarball we can't parse" message rather than a
+    generic backend-stack-trace toast.
+    """
+
+
+def _download_artifacts_error_to_command_error(exc: DownloadArtifactsError) -> CommandError:
+    """Map the receiver's structured reject reason to a typed :class:`CommandError`.
+
+    Used by the ``remote_build/download_artifacts`` WS command
+    after :meth:`PeerLinkClient.download_artifacts` raises. The
+    error's ``reason`` attribute carries the receiver's
+    ``artifacts_end{accepted: false, reason}`` value verbatim;
+    this helper translates it into the matching
+    :class:`ErrorCode` and forwards the human-readable message.
+    Unknown reasons map to ``UNAVAILABLE`` — same shape as a
+    transient transport failure, since "the receiver sent a
+    reason we don't recognise" is most likely a version-skew
+    issue we want to surface as retry-eligible rather than a
+    permanent precondition failure.
+    """
+    code = _DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE.get(exc.reason, ErrorCode.UNAVAILABLE)
+    return CommandError(code, str(exc))
+
+
+def _unpack_artifacts_response(packed: DownloadArtifactsResult, job_id: str) -> dict[str, Any]:
+    """Unpack the receiver's artifact tarball into the WS response shape.
+
+    Synchronous; meant to run in an executor (``tarfile.open``
+    + per-image ``read()`` are blocking syscalls). Mirrors the
+    layout the receiver-side packer
+    (:func:`controllers.remote_build.artifacts_download._pack_build_artifacts`)
+    writes:
+
+    .. code-block:: text
+
+        idedata.json
+        firmware.bin
+        bootloader.bin       (ESP32 / native IDF only)
+        partitions.bin       (ESP32 / native IDF only)
+        ota_data_initial.bin (ESP32 / native IDF only)
+
+    Reads ``idedata.json`` to recover the upstream-canonical
+    flash-image manifest, then walks the tarball's remaining
+    members to build the ``images`` list. The
+    ``firmware.bin`` partition's offset comes from
+    *packed*'s ``firmware_offset`` field — the receiver
+    populated it from ``StorageJSON.target_platform`` via
+    :func:`helpers.build_artifacts._firmware_offset_for_platform`.
+    The remaining offsets ride inside
+    ``idedata.extra.flash_images``. Rewrites every
+    ``extra.flash_images[].path`` from the receiver's absolute
+    build-dir paths to bare basenames (the only thing the
+    offloader's install path can resolve against the
+    in-tarball entries).
+
+    Raises :class:`_UnpackArtifactsError` on:
+
+    * Missing ``idedata.json``.
+    * ``idedata.json`` not parseable as JSON, or not a dict.
+    * A flash image declared in ``idedata.extra.flash_images``
+      whose tarball member is missing.
+    * Missing ``firmware.bin`` in the tarball.
+    * A directory entry in the tarball (the receiver-side
+      packer is flat by design; a directory means the wire
+      format drifted).
+    """
+    idedata, image_bytes_by_name = _read_artifacts_tarball(packed.tarball)
+    images = _build_images_response(packed.firmware_offset, idedata, image_bytes_by_name)
+    rewritten_idedata = _rewrite_idedata_paths(idedata)
+    total_bytes = sum(int(image["size"]) for image in images)
+    return {
+        "job_id": job_id,
+        "idedata": rewritten_idedata,
+        "images": images,
+        "total_bytes": total_bytes,
+    }
+
+
+def _read_artifacts_tarball(tarball: bytes) -> tuple[dict[str, Any], dict[str, bytes]]:
+    """Read every member of *tarball* into ``(idedata, files-by-basename)``.
+
+    ``idedata`` is the parsed ``idedata.json`` object;
+    ``files-by-basename`` excludes ``idedata.json``. Raises
+    :class:`_UnpackArtifactsError` on any structural problem
+    in the tarball.
+    """
+    idedata: dict[str, Any] | None = None
+    image_bytes_by_name: dict[str, bytes] = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
+            for member in tar:
+                payload = _read_tarball_member(tar, member)
+                if member.name == "idedata.json":
+                    idedata = _parse_idedata(payload)
+                else:
+                    image_bytes_by_name[member.name] = payload
+    except tarfile.TarError as exc:
+        msg = f"artifacts tarball is malformed: {exc}"
+        raise _UnpackArtifactsError(msg) from exc
+    if idedata is None:
+        msg = "artifacts tarball missing idedata.json"
+        raise _UnpackArtifactsError(msg)
+    return idedata, image_bytes_by_name
+
+
+def _read_tarball_member(tar: tarfile.TarFile, member: tarfile.TarInfo) -> bytes:
+    """Read *member*'s bytes.
+
+    Raises :class:`_UnpackArtifactsError` on directory or
+    unreadable entries.
+    """
+    if not member.isfile():
+        msg = f"unexpected non-file tarball entry: {member.name!r}"
+        raise _UnpackArtifactsError(msg)
+    extracted = tar.extractfile(member)
+    if extracted is None:
+        msg = f"tarball member {member.name!r} not extractable"
+        raise _UnpackArtifactsError(msg)
+    return extracted.read()
+
+
+def _parse_idedata(payload: bytes) -> dict[str, Any]:
+    """Parse *payload* as ``idedata.json``; raise on non-dict / invalid JSON."""
+    try:
+        parsed = json_loads(payload)
+    except ValueError as exc:
+        msg = f"idedata.json is not valid JSON: {exc}"
+        raise _UnpackArtifactsError(msg) from exc
+    if not isinstance(parsed, dict):
+        msg = "idedata.json is not a JSON object"
+        raise _UnpackArtifactsError(msg)
+    return parsed
+
+
+def _build_images_response(
+    firmware_offset: str,
+    idedata: dict[str, Any],
+    image_bytes_by_name: dict[str, bytes],
+) -> list[dict[str, Any]]:
+    """Pop bytes from *image_bytes_by_name* in the canonical order, base64-encoding as we go.
+
+    Order is ``firmware.bin`` first, then every entry from
+    ``idedata.extra.flash_images`` in their declared order
+    (matches :attr:`BuildArtifacts.flash_images` on the
+    receiver side). Mutates *image_bytes_by_name*: every
+    image referenced by the manifest is popped; on return
+    the dict should be empty, and any leftover entry means
+    the tarball carried a file the manifest didn't account
+    for.
+    """
+    images: list[dict[str, Any]] = []
+    firmware_bytes = image_bytes_by_name.pop("firmware.bin", None)
+    if firmware_bytes is None:
+        msg = "artifacts tarball missing firmware.bin"
+        raise _UnpackArtifactsError(msg)
+    images.append(_image_entry("firmware.bin", firmware_offset, firmware_bytes))
+    for entry in idedata.get("extra", {}).get("flash_images") or []:
+        basename, offset = _flash_image_basename_offset(entry)
+        image_bytes = image_bytes_by_name.pop(basename, None)
+        if image_bytes is None:
+            msg = f"artifacts tarball missing flash image {basename!r}"
+            raise _UnpackArtifactsError(msg)
+        images.append(_image_entry(basename, offset, image_bytes))
+    if image_bytes_by_name:
+        msg = (
+            f"artifacts tarball contains unexpected files not referenced by idedata: "
+            f"{sorted(image_bytes_by_name)}"
+        )
+        raise _UnpackArtifactsError(msg)
+    return images
+
+
+def _image_entry(name: str, offset: str, payload: bytes) -> dict[str, Any]:
+    """Build one ``images`` list entry: ``{name, offset, size, data_b64}``."""
+    return {
+        "name": name,
+        "offset": offset,
+        "size": len(payload),
+        "data_b64": base64.b64encode(payload).decode("ascii"),
+    }
+
+
+def _flash_image_basename_offset(entry: object) -> tuple[str, str]:
+    """Validate one ``idedata.extra.flash_images`` entry and return ``(basename, offset)``."""
+    if not isinstance(entry, dict):
+        msg = "idedata.extra.flash_images entry is not an object"
+        raise _UnpackArtifactsError(msg)
+    path_str = entry.get("path")
+    offset = entry.get("offset")
+    if not isinstance(path_str, str) or not isinstance(offset, str):
+        msg = "idedata.extra.flash_images entry missing path/offset"
+        raise _UnpackArtifactsError(msg)
+    return Path(path_str).name, offset
+
+
+def _rewrite_idedata_paths(idedata: dict[str, Any]) -> dict[str, Any]:
+    """Return *idedata* with ``extra.flash_images[].path`` replaced by basenames.
+
+    The receiver writes absolute build-dir paths into
+    ``idedata.json`` at compile time; those paths are
+    meaningless on the offloader. The offloader-side
+    consumers look up bytes by basename in the unpacked
+    ``images`` list, so the wire-rendered idedata mirrors
+    that with basenames in the same field. Returns a
+    shallow-copied dict; the caller's input isn't mutated.
+    """
+    extra = idedata.get("extra")
+    if not isinstance(extra, dict):
+        return idedata
+    flash_images = extra.get("flash_images") or []
+    rewritten = [
+        {**entry, "path": Path(entry["path"]).name}
+        for entry in flash_images
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    ]
+    return {**idedata, "extra": {**extra, "flash_images": rewritten}}
+
+
 def _validate_pin_sha256(raw: object) -> str:
     """Validate a wire ``pin_sha256`` value as 64 lowercase-hex chars.
 
@@ -703,7 +954,7 @@ _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
 # validates this shape before reaching into the
 # :class:`JobFanout` correlation cache. Same defensive idiom
 # the 5c-2 / 5c-3 dispatchers use.
-_CANCEL_JOB_FIELDS: dict[str, type] = {"job_id": str}
+_CANCEL_JOB_SCHEMA = frame_schema({"job_id": str})
 
 
 def _validate_submit_job_target(raw: object) -> Literal["compile", "upload"]:
@@ -1770,7 +2021,7 @@ class RemoteBuildController:
           intent on click and the next observed state is
           authoritative.
         """
-        if not validate_frame_shape(frame, _CANCEL_JOB_FIELDS):
+        if not is_valid_frame(_CANCEL_JOB_SCHEMA, frame):
             _LOGGER.debug(
                 "peer-link cancel_job from %s: malformed frame; dropping: %r",
                 session.dashboard_id,
@@ -3213,6 +3464,97 @@ class RemoteBuildController:
         if "reason" in ack:
             result["reason"] = ack["reason"]
         return result
+
+    @api_command("remote_build/download_artifacts")
+    async def download_artifacts(
+        self,
+        *,
+        pin_sha256: str,
+        job_id: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Fetch the build's flash-artifact set for *job_id* from the paired receiver (6a).
+
+        Sends ``download_artifacts{job_id}`` over the open
+        peer-link to *pin_sha256*, parks on the assembled-bytes
+        future the receive-loop fills as
+        ``artifacts_start`` / ``artifacts_chunk`` /
+        ``artifacts_end`` frames land, then unpacks the
+        SHA-256-verified gzipped tarball into a structured
+        response the offloader's frontend (6b) can hand
+        directly to its install paths (Web Serial / network
+        OTA / download-to-disk).
+
+        Validation gates (cheapest first, so user-input errors
+        short-circuit before any wire work):
+
+        1. ``pin_sha256`` shape (lowercase 64-hex).
+        2. ``job_id`` shape (non-empty string).
+        3. Pairing exists, status is APPROVED, peer-link
+           session live.
+
+        After validation, hand off to
+        :meth:`PeerLinkClient.download_artifacts` for the
+        round-trip; on success, unpack the tarball off the
+        event loop (executor) and rewrite
+        ``idedata.extra.flash_images[].path`` from the
+        receiver's absolute build-dir paths to the bare
+        basenames the offloader's install path looks up in
+        the returned ``images`` list.
+
+        Returns:
+            ``{job_id, idedata, images, total_bytes}`` —
+            ``idedata`` is the parsed manifest (with rewritten
+            paths), ``images`` is a list of
+            ``{name, offset, size, data_b64}`` entries
+            (``firmware.bin`` first, then
+            ``idedata.extra.flash_images`` in their declared
+            order), and ``total_bytes`` is the sum of every
+            image's ``size`` for the frontend's progress UI.
+
+        Raises:
+            :class:`CommandError(INVALID_ARGS)` for bad
+                inputs (pin / empty job_id) or a malformed
+                tarball from the receiver.
+            :class:`CommandError(NOT_FOUND)` if no pairing
+                exists for *pin_sha256*, or the receiver
+                reported ``unknown_job`` /
+                ``build_dir_missing`` (the job doesn't exist
+                on the receiver, or its build dir was wiped
+                by the cleanup sweep before download).
+            :class:`CommandError(PRECONDITION_FAILED)` if the
+                pairing isn't APPROVED, the peer-link
+                session isn't live, or the receiver reported
+                ``job_not_completed`` /
+                ``duplicate_download`` (job still running, or
+                another download is already streaming for
+                this session).
+            :class:`CommandError(UNAVAILABLE)` if the wire
+                send fails mid-flow, the session ends mid-
+                download, or the receiver reported
+                ``pack_failed`` (build artifacts couldn't be
+                read on the receiver — disk error, race with
+                cleanup).
+        """
+        clean_pin = _validate_pin_sha256(pin_sha256)
+        if not isinstance(job_id, str) or not job_id:
+            msg = "job_id must be a non-empty string"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        client = self._lookup_open_peer_link_client(clean_pin, label="download_artifacts")
+        try:
+            packed = await client.download_artifacts(job_id=job_id)
+        except PeerLinkNoSessionError as exc:
+            raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
+        except SubmitJobSessionLostError as exc:
+            raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
+        except DownloadArtifactsError as exc:
+            raise _download_artifacts_error_to_command_error(exc) from exc
+        try:
+            return await asyncio.get_running_loop().run_in_executor(
+                None, _unpack_artifacts_response, packed, job_id
+            )
+        except _UnpackArtifactsError as exc:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
 
     @api_command("remote_build/cancel_job")
     async def cancel_job(

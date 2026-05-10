@@ -44,11 +44,15 @@ from yarl import URL
 from ...helpers import json as _json
 from ...helpers.peer_link_bundle import (
     BUNDLE_CHUNK_SIZE_BYTES,
+    FIRMWARE_MAX_TOTAL_BYTES,
+    BundleAssembler,
+    BundleAssemblerError,
     chunk_bundle,
     compute_bundle_sha256,
+    decode_chunk,
     encode_chunk,
 )
-from ...helpers.peer_link_frames import validate_frame_shape
+from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.peer_link_noise import (
     NOISE_ERRORS,
     HandshakeNotCompleteError,
@@ -56,7 +60,11 @@ from ...helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ...models import (
+    ArtifactsChunkFrameData,
+    ArtifactsEndFrameData,
+    ArtifactsStartFrameData,
     CancelJobFrameData,
+    DownloadArtifactsFrameData,
     EventType,
     IntentResponse,
     JobOutputFrameData,
@@ -651,37 +659,45 @@ _LOCAL_CLOSE_PIN_MISMATCH = "pin_mismatch"
 _SUBMIT_JOB_ACK_TIMEOUT_SECONDS = 60.0
 
 
-# Required-field shape contracts for the three peer-supplied
-# wire frames the offloader receive loop dispatches into bus
-# events / ack futures. Same idiom as
-# :data:`controllers.remote_build.submit_job._SUBMIT_JOB_HEADER_FIELDS`
-# on the receiver side; the validator
-# (:func:`helpers.peer_link_frames.validate_frame_shape`) lives
-# in ``helpers/`` so both directions share it. Optional fields
-# (``SubmitJobAckFrameData.reason``) live outside this gate —
-# the dispatch reads ``frame.get("reason")`` post-required-pass.
-_SUBMIT_JOB_ACK_FIELDS: dict[str, type] = {
-    "job_id": str,
-    "accepted": bool,
-}
+# Voluptuous schemas for the peer-supplied inbound wire frames
+# the offloader receive loop dispatches into bus events / ack
+# futures / download assemblers. Built via
+# :func:`helpers.peer_link_frames.frame_schema` so the
+# ``bool``-vs-``int`` special case (Python's
+# ``isinstance(True, int) is True``) is handled the same way
+# every shared frame schema in the project does. Optional
+# fields (``SubmitJobAckFrameData.reason`` /
+# ``ArtifactsEndFrameData.reason``) live outside the schema —
+# the dispatch reads ``frame.get("reason")`` post-validate.
+_SUBMIT_JOB_ACK_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
-_JOB_STATE_CHANGED_FIELDS: dict[str, type] = {
-    "job_id": str,
-    "status": str,
-    "error_message": str,
-}
+_JOB_STATE_CHANGED_SCHEMA = frame_schema({"job_id": str, "status": str, "error_message": str})
 
-_JOB_OUTPUT_FIELDS: dict[str, type] = {
-    "job_id": str,
-    "stream": str,
-    "line": str,
-}
+_JOB_OUTPUT_SCHEMA = frame_schema({"job_id": str, "stream": str, "line": str})
 
-_QUEUE_STATUS_FIELDS: dict[str, type] = {
-    "idle": bool,
-    "running": bool,
-    "queue_depth": int,
-}
+_QUEUE_STATUS_SCHEMA = frame_schema({"idle": bool, "running": bool, "queue_depth": int})
+
+# Schemas for the 6a artifact-download stream frames.
+_ARTIFACTS_START_SCHEMA = frame_schema(
+    {
+        "job_id": str,
+        "total_bytes": int,
+        "num_chunks": int,
+        "artifacts_sha256": str,
+        "firmware_offset": str,
+    }
+)
+
+_ARTIFACTS_CHUNK_SCHEMA = frame_schema(
+    {
+        "job_id": str,
+        "chunk_index": int,
+        "data_b64": str,
+        "is_last": bool,
+    }
+)
+
+_ARTIFACTS_END_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
 # Allowed ``status`` values on inbound ``job_state_changed``
 # frames, mirroring :class:`JobStateChangedFrameData`'s
@@ -742,6 +758,66 @@ class SubmitJobSessionLostError(RuntimeError):
     arrive on this connection. Same no-retry contract as
     :class:`SubmitJobTimeoutError`.
     """
+
+
+class DownloadArtifactsError(RuntimeError):
+    """Raised by :meth:`PeerLinkClient.download_artifacts` on failure.
+
+    Carries the structured ``reason`` the receiver included in
+    its ``artifacts_end{accepted: false}`` ack
+    (``unknown_job`` / ``job_not_completed`` /
+    ``build_dir_missing`` / ``pack_failed`` /
+    ``duplicate_download``) so the WS layer can surface it to
+    the user verbatim. Also raised for offloader-side
+    assembly failures: hash mismatch on the final tarball,
+    chunk-count drift, post-completion frames.
+
+    Same no-retry contract as :class:`SubmitJobTimeoutError` —
+    the receiver may have streamed the bytes already; a
+    duplicate request would just refetch them. Operator
+    initiates retry on a fresh download.
+    """
+
+    def __init__(self, message: str, *, reason: str = "") -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+# Per-download state on :attr:`PeerLinkClient._artifacts_downloads`.
+# Holds the in-flight :class:`BundleAssembler` (configured
+# with :data:`FIRMWARE_MAX_TOTAL_BYTES`) plus the result
+# future :meth:`download_artifacts` is parked on. The
+# assembler is None until the receiver's ``artifacts_start``
+# header lands; the future is created upfront so the
+# ``download_artifacts`` flow can register before sending
+# the request.
+@dataclass(frozen=True)
+class DownloadArtifactsResult:
+    """Successful return from :meth:`PeerLinkClient.download_artifacts`.
+
+    ``tarball`` is the SHA-256-verified gzipped-tar bytes the
+    receiver streamed back; ``firmware_offset`` is the
+    receiver-resolved flash-partition offset for
+    ``firmware.bin`` (taken verbatim from the
+    :attr:`ArtifactsStartFrameData.firmware_offset` header).
+    The WS layer's unpack
+    (:func:`controllers.remote_build.controller._unpack_artifacts_response`)
+    needs both pieces — the tarball doesn't carry the
+    firmware partition's offset, only the ``extra``
+    flash-image entries do.
+    """
+
+    tarball: bytes
+    firmware_offset: str
+
+
+@dataclass
+class _DownloadArtifactsState:
+    """In-flight artifacts download state (per-``job_id`` on this session)."""
+
+    future: asyncio.Future[DownloadArtifactsResult]
+    assembler: BundleAssembler | None = None
+    firmware_offset: str = ""
 
 
 @dataclass
@@ -885,6 +961,16 @@ class PeerLinkClient:
         # successful reconnect. Empty on a never-connected pairing
         # where the client task hasn't completed its first attempt.
         self._last_connect_error: str = ""
+        # Per-job download state for ``download_artifacts`` (6a).
+        # Populated by :meth:`download_artifacts` before the
+        # request goes out, drained by the receive loop's
+        # ``artifacts_start`` / ``artifacts_chunk`` /
+        # ``artifacts_end`` dispatch, and force-completed in
+        # :meth:`_run_session_loops`'s ``finally`` on session
+        # loss (same shape as ``_submit_job_acks``).
+        # ``DownloadArtifactsState`` holds the in-flight
+        # :class:`BundleAssembler` plus the result future.
+        self._artifacts_downloads: dict[str, _DownloadArtifactsState] = {}
 
     @property
     def receiver_hostname(self) -> str:
@@ -1073,6 +1159,65 @@ class PeerLinkClient:
         channel = self._require_open_channel(label="cancel_job")
         frame: CancelJobFrameData = {"type": "cancel_job", "job_id": job_id}
         return await channel.send_frame(cast(dict[str, Any], frame))
+
+    async def download_artifacts(self, *, job_id: str) -> DownloadArtifactsResult:
+        """Fetch the build-artifact tarball for *job_id* from the paired receiver (6a).
+
+        Sends ``download_artifacts{job_id}``, parks on a per-
+        job future the receive-loop dispatch fills as
+        ``artifacts_start`` / ``artifacts_chunk`` /
+        ``artifacts_end`` frames land. Returns a
+        :class:`DownloadArtifactsResult` carrying the
+        SHA-256-verified gzipped-tar bytes plus the
+        receiver-resolved ``firmware.bin`` flash offset (taken
+        from the ``artifacts_start`` header — the tarball
+        itself doesn't carry the firmware partition's offset,
+        only the ``extra`` flash-image entries do).
+
+        Raises :class:`PeerLinkNoSessionError` if no live
+        session exists; the WS layer maps that to
+        ``CommandError(PRECONDITION_FAILED)``. Raises
+        :class:`DownloadArtifactsError` (with structured
+        ``reason``) on receiver-reported failure or
+        offloader-side assembly mismatch. Raises
+        :class:`SubmitJobSessionLostError` if the session
+        ends mid-download (same drain shape as
+        :meth:`submit_job`).
+
+        No timeout — artifact tarballs are 1-2 MiB typical
+        (max :data:`FIRMWARE_MAX_TOTAL_BYTES` = 16 MiB);
+        chunk stream completes within seconds on a LAN. If a
+        bound becomes necessary it slots in as
+        ``asyncio.wait_for`` around the future.
+
+        Same-``job_id`` re-entry inside one session raises
+        :class:`PeerLinkNoSessionError` (a leftover future
+        signals the previous download hasn't completed); the
+        WS layer should serialise downloads or generate a
+        fresh request per page-load.
+        """
+        channel = self._require_open_channel(label="download_artifacts")
+        if job_id in self._artifacts_downloads:
+            msg = (
+                f"download_artifacts: future already registered for job_id={job_id!r} "
+                f"(duplicate download on the same session)"
+            )
+            raise PeerLinkNoSessionError(msg)
+        result: asyncio.Future[DownloadArtifactsResult] = asyncio.get_running_loop().create_future()
+        self._artifacts_downloads[job_id] = _DownloadArtifactsState(future=result)
+        try:
+            frame: DownloadArtifactsFrameData = {
+                "type": "download_artifacts",
+                "job_id": job_id,
+            }
+            if not await channel.send_frame(cast(dict[str, Any], frame)):
+                raise SubmitJobSessionLostError(
+                    f"download_artifacts: request send failed mid-flow to "
+                    f"{self._hostname}:{self._port}"
+                )
+            return await result
+        finally:
+            self._artifacts_downloads.pop(job_id, None)
 
     def _require_open_channel(self, *, label: str) -> PeerLinkChannel:
         """Return the live :class:`PeerLinkChannel` or raise :class:`PeerLinkNoSessionError`.
@@ -1518,6 +1663,19 @@ class PeerLinkClient:
                             f"for job_id={pending_job_id!r}"
                         )
                     )
+            # Same drain shape for 6a in-flight artifact downloads —
+            # the receiver won't be sending any more chunks now
+            # that the session's gone; resolve every pending
+            # future so :meth:`download_artifacts` unwinds.
+            for pending_job_id, dl_state in list(self._artifacts_downloads.items()):
+                if not dl_state.future.done():
+                    dl_state.future.set_exception(
+                        SubmitJobSessionLostError(
+                            f"download_artifacts: peer-link session to "
+                            f"{self._hostname}:{self._port} ended before "
+                            f"artifacts_end for job_id={pending_job_id!r}"
+                        )
+                    )
             heartbeat_task.cancel()
             # Drain via ``gather(return_exceptions=True)`` rather
             # than ``suppress(CancelledError) + await`` — suppressing
@@ -1550,6 +1708,9 @@ class PeerLinkClient:
             AppMessageType.SUBMIT_JOB_ACK.value: self._dispatch_submit_job_ack,
             AppMessageType.JOB_STATE_CHANGED.value: self._dispatch_job_state_changed,
             AppMessageType.JOB_OUTPUT.value: self._dispatch_job_output,
+            AppMessageType.ARTIFACTS_START.value: self._dispatch_artifacts_start,
+            AppMessageType.ARTIFACTS_CHUNK.value: self._dispatch_artifacts_chunk,
+            AppMessageType.ARTIFACTS_END.value: self._dispatch_artifacts_end,
         }
 
     def _dispatch_queue_status(self, parsed: dict[str, Any]) -> None:
@@ -1558,11 +1719,11 @@ class PeerLinkClient:
         Drop silently on shape mismatch — the receiver will
         broadcast another snapshot on the next queue
         transition. The frame's ``queue_depth`` is ``int``;
-        :func:`validate_frame_shape` rejects ``bool`` for an
-        ``int`` field (``bool`` is a subclass of ``int``) so
-        ``queue_depth=True`` doesn't slip through.
+        :func:`frame_schema` wraps every ``int`` field with
+        :func:`not_bool` so a ``bool`` (which subclasses
+        ``int``) doesn't slip through as a valid integer.
         """
-        if not validate_frame_shape(parsed, _QUEUE_STATUS_FIELDS):
+        if not is_valid_frame(_QUEUE_STATUS_SCHEMA, parsed):
             self._log_malformed("queue_status", parsed)
             return
         self._fire_queue_status(parsed["idle"], parsed["running"], parsed["queue_depth"])
@@ -1586,7 +1747,7 @@ class PeerLinkClient:
         Optional ``reason`` (only present on rejection) is read
         post-validate and copied through.
         """
-        if not validate_frame_shape(parsed, _SUBMIT_JOB_ACK_FIELDS):
+        if not is_valid_frame(_SUBMIT_JOB_ACK_SCHEMA, parsed):
             self._log_malformed("submit_job_ack", parsed)
             return
         job_id = cast(str, parsed["job_id"])
@@ -1653,7 +1814,7 @@ class PeerLinkClient:
         disambiguate transitions across multiple paired
         receivers.
         """
-        if not validate_frame_shape(parsed, _JOB_STATE_CHANGED_FIELDS):
+        if not is_valid_frame(_JOB_STATE_CHANGED_SCHEMA, parsed):
             self._log_malformed("job_state_changed", parsed)
             return
         if cast(str, parsed["status"]) not in _JOB_STATE_CHANGED_VALID_STATUS:
@@ -1678,7 +1839,7 @@ class PeerLinkClient:
         drop on shape mismatch; subscribers see ``stream`` /
         ``line`` typed by :class:`OffloaderJobOutputData`.
         """
-        if not validate_frame_shape(parsed, _JOB_OUTPUT_FIELDS):
+        if not is_valid_frame(_JOB_OUTPUT_SCHEMA, parsed):
             self._log_malformed("job_output", parsed)
             return
         if cast(str, parsed["stream"]) not in _JOB_OUTPUT_VALID_STREAM:
@@ -1694,6 +1855,119 @@ class PeerLinkClient:
             "line": wire["line"],
         }
         self._bus.fire(EventType.OFFLOADER_JOB_OUTPUT, payload)
+
+    def _dispatch_artifacts_start(self, parsed: dict[str, Any]) -> None:
+        """Validate ``artifacts_start`` + install the assembler for the in-flight download.
+
+        Drops silently on shape mismatch / unknown job_id —
+        the receive loop is hot and a malformed frame from a
+        buggy peer shouldn't crash anyone. A stray
+        ``artifacts_start`` for a job we never asked for
+        means the awaiter already raised + popped its state
+        (or it was a different session entirely); the safe
+        thing is to ignore.
+        """
+        if not is_valid_frame(_ARTIFACTS_START_SCHEMA, parsed):
+            self._log_malformed("artifacts_start", parsed)
+            return
+        wire = cast(ArtifactsStartFrameData, parsed)
+        state = self._artifacts_downloads.get(wire["job_id"])
+        if state is None:
+            self._log_malformed("artifacts_start", parsed)
+            return
+        try:
+            state.assembler = BundleAssembler(
+                total_bytes=wire["total_bytes"],
+                num_chunks=wire["num_chunks"],
+                sha256_hex=wire["artifacts_sha256"],
+                max_total_bytes=FIRMWARE_MAX_TOTAL_BYTES,
+            )
+        except BundleAssemblerError as exc:
+            if not state.future.done():
+                state.future.set_exception(
+                    DownloadArtifactsError(
+                        f"download_artifacts: invalid start header: {exc}",
+                        reason="invalid_start_header",
+                    )
+                )
+            return
+        state.firmware_offset = wire["firmware_offset"]
+
+    def _dispatch_artifacts_chunk(self, parsed: dict[str, Any]) -> None:
+        """Validate ``artifacts_chunk`` + feed the assembler.
+
+        Out-of-order / oversized / decode-failure chunks
+        from a buggy receiver resolve the future with
+        :class:`DownloadArtifactsError`; the awaiter unwinds
+        and the WS layer surfaces the structured reason.
+        """
+        if not is_valid_frame(_ARTIFACTS_CHUNK_SCHEMA, parsed):
+            self._log_malformed("artifacts_chunk", parsed)
+            return
+        wire = cast(ArtifactsChunkFrameData, parsed)
+        state = self._artifacts_downloads.get(wire["job_id"])
+        if state is None or state.assembler is None:
+            self._log_malformed("artifacts_chunk", parsed)
+            return
+        try:
+            raw = decode_chunk(wire["data_b64"])
+            state.assembler.feed(wire["chunk_index"], raw, is_last=wire["is_last"])
+        except BundleAssemblerError as exc:
+            if not state.future.done():
+                state.future.set_exception(
+                    DownloadArtifactsError(
+                        f"download_artifacts: chunk failed: {exc}",
+                        reason=exc.code.value,
+                    )
+                )
+
+    def _dispatch_artifacts_end(self, parsed: dict[str, Any]) -> None:
+        """Validate ``artifacts_end`` + resolve the download future.
+
+        Success path (``accepted=true``): finalise the
+        assembler (validates count + SHA-256), set the
+        future to the bytes. Failure path
+        (``accepted=false``): pop ``reason`` and set the
+        future to a :class:`DownloadArtifactsError` carrying
+        it.
+        """
+        if not is_valid_frame(_ARTIFACTS_END_SCHEMA, parsed):
+            self._log_malformed("artifacts_end", parsed)
+            return
+        wire = cast(ArtifactsEndFrameData, parsed)
+        state = self._artifacts_downloads.get(wire["job_id"])
+        if state is None or state.future.done():
+            return
+        if not wire["accepted"]:
+            reason = parsed.get("reason", "unknown")
+            state.future.set_exception(
+                DownloadArtifactsError(
+                    f"download_artifacts: receiver rejected ({reason})",
+                    reason=str(reason),
+                )
+            )
+            return
+        if state.assembler is None:
+            state.future.set_exception(
+                DownloadArtifactsError(
+                    "download_artifacts: receiver acked success without sending artifacts_start",
+                    reason="missing_start",
+                )
+            )
+            return
+        try:
+            tarball = state.assembler.finalise()
+        except BundleAssemblerError as exc:
+            state.future.set_exception(
+                DownloadArtifactsError(
+                    f"download_artifacts: finalise failed: {exc}",
+                    reason=exc.code.value,
+                )
+            )
+            return
+        state.future.set_result(
+            DownloadArtifactsResult(tarball=tarball, firmware_offset=state.firmware_offset)
+        )
 
     def _fire_opened(self) -> None:
         payload: OffloaderPeerLinkOpenedData = {

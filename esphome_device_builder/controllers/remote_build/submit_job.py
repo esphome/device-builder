@@ -67,7 +67,7 @@ from ...helpers.peer_link_bundle import (
     BundleAssemblerErrorCode,
     decode_chunk,
 )
-from ...helpers.peer_link_frames import validate_frame_shape
+from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...models import (
     JobType,
     SubmitJobAckFrameData,
@@ -105,26 +105,30 @@ _REASON_QUEUE_REJECTED = "queue_rejected"
 # values. Indexing those frames directly (``frame["job_id"]``,
 # etc.) would raise ``KeyError`` / ``TypeError`` and unwind out
 # of the receive loop without sending an ack — a remote-
-# triggered crash shape. The :func:`validate_frame_shape`
-# gate below walks each contract and rejects the frame as
+# triggered crash shape. The :func:`is_valid_frame` gate below
+# walks each schema and rejects the frame as
 # ``invalid_header`` / ``invalid_chunk`` with a
 # ``terminate{malformed_frame}`` close (the offloader has
 # wandered off the wire format).
-_SUBMIT_JOB_HEADER_FIELDS: dict[str, type] = {
-    "job_id": str,
-    "configuration_filename": str,
-    "target": str,
-    "total_bundle_bytes": int,
-    "num_chunks": int,
-    "bundle_sha256": str,
-}
+_SUBMIT_JOB_HEADER_SCHEMA = frame_schema(
+    {
+        "job_id": str,
+        "configuration_filename": str,
+        "target": str,
+        "total_bundle_bytes": int,
+        "num_chunks": int,
+        "bundle_sha256": str,
+    }
+)
 
-_SUBMIT_JOB_CHUNK_FIELDS: dict[str, type] = {
-    "job_id": str,
-    "chunk_index": int,
-    "data_b64": str,
-    "is_last": bool,
-}
+_SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
+    {
+        "job_id": str,
+        "chunk_index": int,
+        "data_b64": str,
+        "is_last": bool,
+    }
+)
 
 # Subdirectory under ``<config_dir>/.esphome/`` where remote-peer
 # bundles land. Hidden by the leading dot so a casual ``ls`` of
@@ -312,7 +316,7 @@ class SubmitJobReceiver:
         # ``SubmitJobFrameData`` view is what the rest of the
         # method operates on after the gate.
         raw = cast(dict[str, Any], frame)
-        if not validate_frame_shape(raw, _SUBMIT_JOB_HEADER_FIELDS):
+        if not is_valid_frame(_SUBMIT_JOB_HEADER_SCHEMA, raw):
             job_id = raw.get("job_id") if isinstance(raw.get("job_id"), str) else ""
             await self._reject(
                 session,
@@ -373,7 +377,7 @@ class SubmitJobReceiver:
         # and the in-flight stream can't be recovered; drop it
         # and terminate.
         chunk_dict = cast(dict[str, Any], frame)
-        if not validate_frame_shape(chunk_dict, _SUBMIT_JOB_CHUNK_FIELDS):
+        if not is_valid_frame(_SUBMIT_JOB_CHUNK_SCHEMA, chunk_dict):
             job_id = chunk_dict.get("job_id") if isinstance(chunk_dict.get("job_id"), str) else ""
             await self._reject(
                 session,

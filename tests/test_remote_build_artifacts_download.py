@@ -1,0 +1,458 @@
+"""
+Tests for the receiver-side ``download_artifacts`` flow (issue #106 phase 6a).
+
+Two layers, mirroring :mod:`tests.test_remote_build_submit_job`'s
+shape so the seam between this module's unit tests and the e2e
+harness stays visible:
+
+* Receiver-side :class:`ArtifactsDownloadSender` — pin the
+  per-branch reject reasons (malformed frame / unknown job /
+  job not completed / duplicate / build-dir-missing /
+  pack-failed) and the happy-path stream
+  (``artifacts_start`` → chunks →
+  ``artifacts_end{accepted: true}``).
+* Tarball pack/unpack contract — the receiver's
+  ``_pack_build_artifacts`` and the offloader's
+  ``_unpack_artifacts_response`` are wire-format mirrors;
+  pin the round-trip + the basename rewrite of
+  ``idedata.extra.flash_images[].path``.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import tarfile
+from pathlib import Path
+from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from esphome_device_builder.controllers.remote_build.artifacts_download import (
+    ArtifactsDownloadSender,
+    _pack_build_artifacts,
+    _PackedArtifacts,
+)
+from esphome_device_builder.controllers.remote_build.controller import (
+    _unpack_artifacts_response,
+    _UnpackArtifactsError,
+)
+from esphome_device_builder.controllers.remote_build.peer_link_client import (
+    DownloadArtifactsResult,
+)
+from esphome_device_builder.helpers.build_artifacts import (
+    BuildArtifacts,
+    FlashArtifact,
+)
+from esphome_device_builder.models import (
+    DownloadArtifactsFrameData,
+    JobStatus,
+)
+
+# ---------------------------------------------------------------------------
+# Fixture helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_session(*, dashboard_id: str = "alpha") -> Any:
+    """Stub ``PeerLinkSession`` capturing send_app_frame + terminate calls."""
+    session = MagicMock()
+    session.dashboard_id = dashboard_id
+    session.send_app_frame = AsyncMock(return_value=True)
+    session.terminate = AsyncMock()
+    return session
+
+
+def _make_firmware_with_job(
+    *,
+    remote_peer: str = "alpha",
+    remote_job_id: str = "remote-1",
+    status: JobStatus = JobStatus.COMPLETED,
+    configuration: str = "kitchen.yaml",
+) -> Any:
+    """Stub ``FirmwareController`` with a single matching FirmwareJob in ``_jobs``."""
+    job = MagicMock()
+    job.remote_peer = remote_peer
+    job.remote_job_id = remote_job_id
+    job.status = status
+    job.configuration = configuration
+
+    firmware = MagicMock()
+    firmware._jobs = {"local-1": job}
+    return firmware
+
+
+def _make_sender(firmware: Any | None = None) -> ArtifactsDownloadSender:
+    return ArtifactsDownloadSender(firmware_controller=firmware or _make_firmware_with_job())
+
+
+def _last_app_frame(session: Any) -> dict[str, Any]:
+    """Return the most recent ``send_app_frame`` payload."""
+    return cast(dict[str, Any], session.send_app_frame.await_args.args[0])
+
+
+def _all_app_frames(session: Any) -> list[dict[str, Any]]:
+    """Every ``send_app_frame`` payload, in order."""
+    return [cast(dict[str, Any], call.args[0]) for call in session.send_app_frame.await_args_list]
+
+
+# ---------------------------------------------------------------------------
+# handle_download_artifacts — frame validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "broken_frame",
+    [
+        # Missing required ``job_id``.
+        {"type": "download_artifacts"},
+        # Wrong type on ``job_id``.
+        {"type": "download_artifacts", "job_id": 12345},
+    ],
+)
+@pytest.mark.asyncio
+async def test_download_artifacts_malformed_terminates(broken_frame: dict[str, Any]) -> None:
+    """A malformed ``download_artifacts`` frame terminates the session, no end frame."""
+    sender = _make_sender()
+    session = _make_session()
+
+    await sender.handle_download_artifacts(session, broken_frame)
+
+    session.terminate.assert_awaited_once()
+    session.send_app_frame.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_unknown_job_rejected() -> None:
+    """An unknown job_id rejects ``unknown_job`` (no terminate)."""
+    firmware = _make_firmware_with_job(remote_job_id="another")
+    sender = _make_sender(firmware)
+    session = _make_session()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "missing"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    session.terminate.assert_not_awaited()
+    payload = _last_app_frame(session)
+    assert payload["type"] == "artifacts_end"
+    assert payload["accepted"] is False
+    assert payload["reason"] == "unknown_job"
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_job_not_completed_rejected() -> None:
+    """A job in ``RUNNING`` status rejects ``job_not_completed``."""
+    firmware = _make_firmware_with_job(status=JobStatus.RUNNING)
+    sender = _make_sender(firmware)
+    session = _make_session()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    payload = _last_app_frame(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "job_not_completed"
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_duplicate_rejected_without_terminate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second concurrent download on the same session rejects ``duplicate_download``."""
+    sender = _make_sender()
+    session = _make_session()
+    sender._inflight[session.dashboard_id] = MagicMock()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    session.terminate.assert_not_awaited()
+    payload = _last_app_frame(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "duplicate_download"
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_build_dir_missing_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``FileNotFoundError`` from the packer rejects ``build_dir_missing``."""
+
+    def _raise_missing(_configuration: str) -> Any:
+        raise FileNotFoundError("build dir gone")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download._pack_build_artifacts",
+        _raise_missing,
+    )
+    sender = _make_sender()
+    session = _make_session()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    payload = _last_app_frame(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "build_dir_missing"
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_pack_failed_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected exception from the packer rejects ``pack_failed``."""
+
+    def _raise(_configuration: str) -> Any:
+        raise RuntimeError("size cap")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download._pack_build_artifacts",
+        _raise,
+    )
+    sender = _make_sender()
+    session = _make_session()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    payload = _last_app_frame(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "pack_failed"
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_happy_path_streams_start_chunk_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Happy path sends ``artifacts_start`` → chunk(s) → ``artifacts_end{accepted: true}``."""
+    tarball = b"x" * 200
+
+    def _fake_pack(_configuration: str) -> _PackedArtifacts:
+        return _PackedArtifacts(tarball=tarball, firmware_offset="0x10000")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download._pack_build_artifacts",
+        _fake_pack,
+    )
+    sender = _make_sender()
+    session = _make_session()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    frames = _all_app_frames(session)
+    assert frames[0]["type"] == "artifacts_start"
+    assert frames[0]["total_bytes"] == 200
+    assert frames[0]["num_chunks"] == 1
+    assert frames[0]["firmware_offset"] == "0x10000"
+    assert len(frames[0]["artifacts_sha256"]) == 64
+    assert frames[1]["type"] == "artifacts_chunk"
+    assert frames[1]["chunk_index"] == 0
+    assert frames[1]["is_last"] is True
+    assert frames[-1]["type"] == "artifacts_end"
+    assert frames[-1]["accepted"] is True
+    # Inflight slot freed for the next download.
+    assert session.dashboard_id not in sender._inflight
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_clears_inflight_on_reject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pack failure releases the inflight slot so the next request isn't a duplicate."""
+
+    def _raise(_configuration: str) -> Any:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download._pack_build_artifacts",
+        _raise,
+    )
+    sender = _make_sender()
+    session = _make_session()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    assert session.dashboard_id not in sender._inflight
+
+
+# ---------------------------------------------------------------------------
+# Pack / unpack round-trip
+# ---------------------------------------------------------------------------
+
+
+def _make_build_artifacts(
+    tmp_path: Path,
+    *,
+    extra_offsets: list[tuple[str, str]] | None = None,
+) -> BuildArtifacts:
+    """Build a synthetic :class:`BuildArtifacts` on disk for round-trip tests.
+
+    *extra_offsets* is a list of ``(basename, offset_hex)`` for
+    additional flash images (bootloader / partitions /
+    ota_data_initial). The matching idedata.json carries these
+    under ``extra.flash_images`` with absolute receiver-side
+    paths so the unpack can prove the basename rewrite.
+    """
+    extras = extra_offsets or []
+    firmware_path = tmp_path / "firmware.bin"
+    firmware_path.write_bytes(b"FIRMWARE")
+    flash_images = [FlashArtifact(path=firmware_path, offset="0x10000")]
+    extra_entries: list[dict[str, str]] = []
+    for name, offset in extras:
+        path = tmp_path / name
+        path.write_bytes(name.encode("ascii"))
+        flash_images.append(FlashArtifact(path=path, offset=offset))
+        extra_entries.append({"path": str(path), "offset": offset})
+    idedata_payload = {"extra": {"flash_images": extra_entries}}
+    idedata_bytes = json.dumps(idedata_payload).encode("utf-8")
+    return BuildArtifacts(flash_images=flash_images, idedata_bytes=idedata_bytes)
+
+
+def test_pack_build_artifacts_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tarball contains ``idedata.json`` first, then every flash image, flat."""
+    artifacts = _make_build_artifacts(
+        tmp_path,
+        extra_offsets=[("bootloader.bin", "0x1000"), ("partitions.bin", "0x8000")],
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        lambda _config: artifacts,
+    )
+
+    packed = _pack_build_artifacts("kitchen.yaml")
+
+    assert packed.firmware_offset == "0x10000"
+    with tarfile.open(fileobj=io.BytesIO(packed.tarball), mode="r:gz") as tar:
+        names = tar.getnames()
+    assert names == ["idedata.json", "firmware.bin", "bootloader.bin", "partitions.bin"]
+
+
+def test_pack_build_artifacts_rejects_duplicate_basename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two extras with the same basename trigger a ``RuntimeError``."""
+    firmware_path = tmp_path / "firmware.bin"
+    firmware_path.write_bytes(b"FW")
+    extra_a = tmp_path / "a" / "img.bin"
+    extra_a.parent.mkdir()
+    extra_a.write_bytes(b"A")
+    extra_b = tmp_path / "b" / "img.bin"
+    extra_b.parent.mkdir()
+    extra_b.write_bytes(b"B")
+    artifacts = BuildArtifacts(
+        flash_images=[
+            FlashArtifact(path=firmware_path, offset="0x10000"),
+            FlashArtifact(path=extra_a, offset="0x1000"),
+            FlashArtifact(path=extra_b, offset="0x8000"),
+        ],
+        idedata_bytes=b"{}",
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        lambda _config: artifacts,
+    )
+
+    with pytest.raises(RuntimeError, match="duplicate flash image basename"):
+        _pack_build_artifacts("kitchen.yaml")
+
+
+def test_unpack_artifacts_response_round_trip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pack → unpack returns the same flash bytes + rewrites idedata paths to basenames."""
+    artifacts = _make_build_artifacts(
+        tmp_path,
+        extra_offsets=[("bootloader.bin", "0x1000"), ("ota_data_initial.bin", "0xe000")],
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        lambda _config: artifacts,
+    )
+
+    packed = _pack_build_artifacts("kitchen.yaml")
+    response = _unpack_artifacts_response(
+        DownloadArtifactsResult(tarball=packed.tarball, firmware_offset="0x10000"),
+        job_id="remote-1",
+    )
+
+    assert response["job_id"] == "remote-1"
+    image_names = [image["name"] for image in response["images"]]
+    assert image_names == ["firmware.bin", "bootloader.bin", "ota_data_initial.bin"]
+    # Firmware offset comes from the start frame (packed result), not idedata.
+    assert response["images"][0]["offset"] == "0x10000"
+    assert response["images"][1]["offset"] == "0x1000"
+    # idedata.extra.flash_images[].path rewritten to basenames.
+    rewritten_paths = [entry["path"] for entry in response["idedata"]["extra"]["flash_images"]]
+    assert rewritten_paths == ["bootloader.bin", "ota_data_initial.bin"]
+    assert response["total_bytes"] == sum(image["size"] for image in response["images"])
+
+
+def test_unpack_artifacts_response_missing_idedata_raises() -> None:
+    """A tarball without ``idedata.json`` raises :class:`_UnpackArtifactsError`."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name="firmware.bin")
+        info.size = 4
+        tar.addfile(info, io.BytesIO(b"FIRM"))
+
+    with pytest.raises(_UnpackArtifactsError, match=r"missing idedata\.json"):
+        _unpack_artifacts_response(
+            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
+            job_id="j",
+        )
+
+
+def test_unpack_artifacts_response_missing_firmware_raises() -> None:
+    """A tarball without ``firmware.bin`` raises :class:`_UnpackArtifactsError`."""
+    idedata_bytes = json.dumps({"extra": {"flash_images": []}}).encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name="idedata.json")
+        info.size = len(idedata_bytes)
+        tar.addfile(info, io.BytesIO(idedata_bytes))
+
+    with pytest.raises(_UnpackArtifactsError, match=r"missing firmware\.bin"):
+        _unpack_artifacts_response(
+            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
+            job_id="j",
+        )
+
+
+def test_unpack_artifacts_response_unreferenced_file_raises() -> None:
+    """An extra file in the tarball not referenced by idedata raises."""
+    idedata_bytes = json.dumps({"extra": {"flash_images": []}}).encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        idedata_info = tarfile.TarInfo(name="idedata.json")
+        idedata_info.size = len(idedata_bytes)
+        tar.addfile(idedata_info, io.BytesIO(idedata_bytes))
+        firmware_info = tarfile.TarInfo(name="firmware.bin")
+        firmware_info.size = 4
+        tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
+        stray_info = tarfile.TarInfo(name="stray.bin")
+        stray_info.size = 1
+        tar.addfile(stray_info, io.BytesIO(b"X"))
+
+    with pytest.raises(_UnpackArtifactsError, match="unexpected files not referenced"):
+        _unpack_artifacts_response(
+            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
+            job_id="j",
+        )
+
+
+def test_unpack_artifacts_response_invalid_idedata_json_raises() -> None:
+    """Malformed JSON in idedata.json raises :class:`_UnpackArtifactsError`."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name="idedata.json")
+        info.size = 4
+        tar.addfile(info, io.BytesIO(b"{bad"))
+
+    with pytest.raises(_UnpackArtifactsError, match="not valid JSON"):
+        _unpack_artifacts_response(
+            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
+            job_id="j",
+        )

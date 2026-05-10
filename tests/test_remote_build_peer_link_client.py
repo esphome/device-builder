@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import secrets
+import tarfile
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -44,6 +46,8 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
     make_peer_link_handler,
 )
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
+    DownloadArtifactsError,
+    DownloadArtifactsResult,
     PairStatusResult,
     PeerLinkClient,
     PeerLinkClientError,
@@ -52,6 +56,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     SubmitJobSessionLostError,
     SubmitJobTimeoutError,
     _build_ws_url,
+    _DownloadArtifactsState,
     drive_initiator_round_trip,
     preview_pair,
     request_pair,
@@ -4806,3 +4811,344 @@ async def test_controller_cancel_job_no_session_raises_precondition_failed(
             return_exceptions=True,
         )
     assert exc_info.value.code == ErrorCode.PRECONDITION_FAILED
+
+
+# ---------------------------------------------------------------------------
+# PeerLinkClient.download_artifacts — flow tests (issue #106 phase 6a)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_raises_no_session_error_when_session_closed() -> None:
+    """:meth:`download_artifacts` without a live session raises :class:`PeerLinkNoSessionError`."""
+    client = _make_offloader_client(EventBus())
+    assert not client.is_session_open
+    with pytest.raises(PeerLinkNoSessionError):
+        await client.download_artifacts(job_id="j-1")
+
+
+@pytest.mark.asyncio
+async def test_download_artifacts_rejects_duplicate_job_id_on_same_session() -> None:
+    """A second concurrent download on the same job_id raises :class:`PeerLinkNoSessionError`."""
+    client = _make_offloader_client(EventBus())
+    parked: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._artifacts_downloads["already-running"] = _DownloadArtifactsState(future=parked)
+    # Spoof an open channel so the no-session check passes.
+    client._active_channel = MagicMock()
+    with pytest.raises(PeerLinkNoSessionError, match="duplicate download"):
+        await client.download_artifacts(job_id="already-running")
+
+
+@pytest.mark.asyncio
+async def test_dispatch_artifacts_resolves_future_with_tarball_and_offset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Start → chunk → end{accepted: true} resolves the future with bytes + offset."""
+    from esphome_device_builder.helpers.peer_link_bundle import (  # noqa: PLC0415
+        chunk_bundle,
+        compute_bundle_sha256,
+        encode_chunk,
+    )
+
+    bus = EventBus()
+    client = _make_offloader_client(bus)
+    tarball = b"TAR" * 50
+    job_id = "dl-1"
+
+    fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._artifacts_downloads[job_id] = _DownloadArtifactsState(future=fut)
+
+    chunks_iter = list(chunk_bundle(tarball))
+    frames: list[dict[str, Any]] = [
+        {
+            "type": "artifacts_start",
+            "job_id": job_id,
+            "total_bytes": len(tarball),
+            "num_chunks": len(chunks_iter),
+            "artifacts_sha256": compute_bundle_sha256(tarball),
+            "firmware_offset": "0x10000",
+        },
+        *(
+            {
+                "type": "artifacts_chunk",
+                "job_id": job_id,
+                "chunk_index": idx,
+                "data_b64": encode_chunk(raw),
+                "is_last": is_last,
+            }
+            for idx, raw, is_last in chunks_iter
+        ),
+        {"type": "artifacts_end", "job_id": job_id, "accepted": True},
+    ]
+
+    async with _drive_session_with_frames(client, monkeypatch, frames):
+        result = await asyncio.wait_for(fut, timeout=2.0)
+
+    assert isinstance(result, DownloadArtifactsResult)
+    assert result.tarball == tarball
+    assert result.firmware_offset == "0x10000"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_artifacts_end_rejected_resolves_future_with_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ``artifacts_end{accepted: false, reason}`` resolves the future with that reason."""
+    bus = EventBus()
+    client = _make_offloader_client(bus)
+    job_id = "dl-rejected"
+    fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._artifacts_downloads[job_id] = _DownloadArtifactsState(future=fut)
+    frame = {
+        "type": "artifacts_end",
+        "job_id": job_id,
+        "accepted": False,
+        "reason": "build_dir_missing",
+    }
+    async with _drive_session_with_frames(client, monkeypatch, [frame]):
+        with pytest.raises(DownloadArtifactsError) as exc_info:
+            await asyncio.wait_for(fut, timeout=2.0)
+
+    assert exc_info.value.reason == "build_dir_missing"
+
+
+@pytest.mark.asyncio
+async def test_run_session_loops_drains_pending_artifacts_downloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pending download futures complete with ``SubmitJobSessionLostError`` on session end."""
+    bus = EventBus()
+    client = _make_offloader_client(bus)
+    pending: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._artifacts_downloads["abandoned"] = _DownloadArtifactsState(future=pending)
+
+    async with _drive_session_with_frames(client, monkeypatch, []):
+        await asyncio.sleep(0)
+
+    with pytest.raises(SubmitJobSessionLostError):
+        await pending
+
+
+# ---------------------------------------------------------------------------
+# remote_build/download_artifacts WS command (issue #106 phase 6a)
+# ---------------------------------------------------------------------------
+
+
+def _make_test_tarball(*, idedata_extras: list[dict[str, str]] | None = None) -> bytes:
+    """Build a minimal artifacts tarball matching the receiver-side packer's layout."""
+    idedata_payload = {"extra": {"flash_images": idedata_extras or []}}
+    idedata_bytes = _json.dumps(idedata_payload)
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name="idedata.json")
+        info.size = len(idedata_bytes)
+        tar.addfile(info, io.BytesIO(idedata_bytes))
+        firmware = b"FIRMWARE-BYTES"
+        info = tarfile.TarInfo(name="firmware.bin")
+        info.size = len(firmware)
+        tar.addfile(info, io.BytesIO(firmware))
+        for entry in idedata_extras or []:
+            name = Path(entry["path"]).name
+            payload = name.encode("ascii")
+            info = tarfile.TarInfo(name=name)
+            info.size = len(payload)
+            tar.addfile(info, io.BytesIO(payload))
+    return buf.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_controller_download_artifacts_returns_unpacked_response(
+    offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Happy path: drives round-trip, unpacks tar.gz, returns the structured response."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        status=PeerStatus.APPROVED,
+    )
+    offloader._pairings[pairing.pin_sha256] = pairing
+    client = _seed_open_peer_link_client(offloader, pairing)
+
+    extras = [{"path": "/build/.pioenvs/x/bootloader.bin", "offset": "0x1000"}]
+    tarball = _make_test_tarball(idedata_extras=extras)
+    captured: dict[str, Any] = {}
+
+    async def _stub_download(*, job_id: str) -> DownloadArtifactsResult:
+        captured["job_id"] = job_id
+        return DownloadArtifactsResult(tarball=tarball, firmware_offset="0x10000")
+
+    monkeypatch.setattr(client, "download_artifacts", _stub_download)
+
+    try:
+        result = await offloader.download_artifacts(
+            pin_sha256=pairing.pin_sha256,
+            job_id="job-42",
+        )
+    finally:
+        offloader._peer_link_clients[pairing.pin_sha256].task.cancel()
+        await asyncio.gather(
+            offloader._peer_link_clients[pairing.pin_sha256].task,
+            return_exceptions=True,
+        )
+
+    assert captured == {"job_id": "job-42"}
+    assert result["job_id"] == "job-42"
+    image_names = [image["name"] for image in result["images"]]
+    assert image_names == ["firmware.bin", "bootloader.bin"]
+    assert result["images"][0]["offset"] == "0x10000"
+    assert result["images"][1]["offset"] == "0x1000"
+    # idedata path got rewritten from receiver-absolute to basename.
+    assert result["idedata"]["extra"]["flash_images"][0]["path"] == "bootloader.bin"
+
+
+@pytest.mark.asyncio
+async def test_controller_download_artifacts_empty_job_id_raises_invalid_args(
+    offloader_controller_dir: Path,
+) -> None:
+    """An empty ``job_id`` arg short-circuits with ``INVALID_ARGS``."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    with pytest.raises(CommandError) as exc_info:
+        await offloader.download_artifacts(pin_sha256="a" * 64, job_id="")
+    assert exc_info.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+async def test_controller_download_artifacts_unknown_pairing_raises_not_found(
+    offloader_controller_dir: Path,
+) -> None:
+    """No pairing under the given pin → ``NOT_FOUND``."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    with pytest.raises(CommandError) as exc_info:
+        await offloader.download_artifacts(pin_sha256="b" * 64, job_id="j-1")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_controller_download_artifacts_no_session_raises_precondition_failed(
+    offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``PeerLinkNoSessionError`` from the client → ``PRECONDITION_FAILED``."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", status=PeerStatus.APPROVED)
+    offloader._pairings[pairing.pin_sha256] = pairing
+    client = _seed_open_peer_link_client(offloader, pairing)
+
+    async def _stub_download(**_kwargs: Any) -> DownloadArtifactsResult:
+        raise PeerLinkNoSessionError("session vanished")
+
+    monkeypatch.setattr(client, "download_artifacts", _stub_download)
+
+    try:
+        with pytest.raises(CommandError) as exc_info:
+            await offloader.download_artifacts(pin_sha256=pairing.pin_sha256, job_id="j-1")
+    finally:
+        offloader._peer_link_clients[pairing.pin_sha256].task.cancel()
+        await asyncio.gather(
+            offloader._peer_link_clients[pairing.pin_sha256].task,
+            return_exceptions=True,
+        )
+    assert exc_info.value.code == ErrorCode.PRECONDITION_FAILED
+
+
+@pytest.mark.asyncio
+async def test_controller_download_artifacts_session_lost_maps_to_unavailable(
+    offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``SubmitJobSessionLostError`` mid-download → ``UNAVAILABLE``."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", status=PeerStatus.APPROVED)
+    offloader._pairings[pairing.pin_sha256] = pairing
+    client = _seed_open_peer_link_client(offloader, pairing)
+
+    async def _stub_download(**_kwargs: Any) -> DownloadArtifactsResult:
+        raise SubmitJobSessionLostError("session ended mid-download")
+
+    monkeypatch.setattr(client, "download_artifacts", _stub_download)
+
+    try:
+        with pytest.raises(CommandError) as exc_info:
+            await offloader.download_artifacts(pin_sha256=pairing.pin_sha256, job_id="j-1")
+    finally:
+        offloader._peer_link_clients[pairing.pin_sha256].task.cancel()
+        await asyncio.gather(
+            offloader._peer_link_clients[pairing.pin_sha256].task,
+            return_exceptions=True,
+        )
+    assert exc_info.value.code == ErrorCode.UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    "reason,expected_code",
+    [
+        ("unknown_job", ErrorCode.NOT_FOUND),
+        ("build_dir_missing", ErrorCode.NOT_FOUND),
+        ("job_not_completed", ErrorCode.PRECONDITION_FAILED),
+        ("duplicate_download", ErrorCode.PRECONDITION_FAILED),
+        ("pack_failed", ErrorCode.UNAVAILABLE),
+        ("invalid_request", ErrorCode.INVALID_ARGS),
+        ("entirely_unknown_reason", ErrorCode.UNAVAILABLE),
+    ],
+)
+@pytest.mark.asyncio
+async def test_controller_download_artifacts_maps_receiver_reasons(
+    reason: str,
+    expected_code: ErrorCode,
+    offloader_controller_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Receiver-reported ``reason`` strings map to the matching ``CommandError`` code."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", status=PeerStatus.APPROVED)
+    offloader._pairings[pairing.pin_sha256] = pairing
+    client = _seed_open_peer_link_client(offloader, pairing)
+
+    async def _stub_download(**_kwargs: Any) -> DownloadArtifactsResult:
+        raise DownloadArtifactsError(f"receiver rejected ({reason})", reason=reason)
+
+    monkeypatch.setattr(client, "download_artifacts", _stub_download)
+
+    try:
+        with pytest.raises(CommandError) as exc_info:
+            await offloader.download_artifacts(pin_sha256=pairing.pin_sha256, job_id="j-1")
+    finally:
+        offloader._peer_link_clients[pairing.pin_sha256].task.cancel()
+        await asyncio.gather(
+            offloader._peer_link_clients[pairing.pin_sha256].task,
+            return_exceptions=True,
+        )
+    assert exc_info.value.code == expected_code
+
+
+@pytest.mark.asyncio
+async def test_controller_download_artifacts_malformed_tarball_maps_to_invalid_args(
+    offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tarball without ``idedata.json`` surfaces as ``INVALID_ARGS`` from the unpacker."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", status=PeerStatus.APPROVED)
+    offloader._pairings[pairing.pin_sha256] = pairing
+    client = _seed_open_peer_link_client(offloader, pairing)
+
+    async def _stub_download(**_kwargs: Any) -> DownloadArtifactsResult:
+        return DownloadArtifactsResult(tarball=b"not a tarball at all", firmware_offset="0x0")
+
+    monkeypatch.setattr(client, "download_artifacts", _stub_download)
+
+    try:
+        with pytest.raises(CommandError) as exc_info:
+            await offloader.download_artifacts(pin_sha256=pairing.pin_sha256, job_id="j-1")
+    finally:
+        offloader._peer_link_clients[pairing.pin_sha256].task.cancel()
+        await asyncio.gather(
+            offloader._peer_link_clients[pairing.pin_sha256].task,
+            return_exceptions=True,
+        )
+    assert exc_info.value.code == ErrorCode.INVALID_ARGS

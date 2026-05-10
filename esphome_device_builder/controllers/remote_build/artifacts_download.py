@@ -74,7 +74,7 @@ from ...helpers.peer_link_bundle import (
     compute_bundle_sha256,
     encode_chunk,
 )
-from ...helpers.peer_link_frames import validate_frame_shape
+from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...models import (
     ArtifactsChunkFrameData,
     ArtifactsEndFrameData,
@@ -106,7 +106,7 @@ _REASON_PACK_FAILED = "pack_failed"
 # Required-field shape on the peer-controlled inbound frame.
 # ``parse_app_frame`` confirms the JSON parses to a dict, but
 # the inner shape is unchecked until this gate fires.
-_DOWNLOAD_ARTIFACTS_FIELDS: dict[str, type] = {"job_id": str}
+_DOWNLOAD_ARTIFACTS_SCHEMA = frame_schema({"job_id": str})
 
 
 @dataclass
@@ -182,7 +182,7 @@ class ArtifactsDownloadSender:
         soft reject the offloader can rerender as a clean
         user-facing message.
         """
-        if not validate_frame_shape(frame, _DOWNLOAD_ARTIFACTS_FIELDS):
+        if not is_valid_frame(_DOWNLOAD_ARTIFACTS_SCHEMA, frame):
             _LOGGER.debug(
                 "download_artifacts from %s: malformed frame; terminating: %r",
                 session.dashboard_id,
@@ -212,7 +212,7 @@ class ArtifactsDownloadSender:
         try:
             loop = asyncio.get_running_loop()
             try:
-                tarball = await loop.run_in_executor(
+                packed = await loop.run_in_executor(
                     None, _pack_build_artifacts, firmware_job.configuration
                 )
             except FileNotFoundError:
@@ -232,7 +232,7 @@ class ArtifactsDownloadSender:
                 )
                 await self._send_reject(session, job_id, _REASON_PACK_FAILED)
                 return
-            await self._send_stream(session, job_id, tarball)
+            await self._send_stream(session, job_id, packed)
         finally:
             self._inflight.pop(session.dashboard_id, None)
 
@@ -263,15 +263,23 @@ class ArtifactsDownloadSender:
         }
         await session.send_app_frame(cast(dict[str, Any], end))
 
-    async def _send_stream(self, session: PeerLinkSession, job_id: str, tarball: bytes) -> None:
-        """Stream *tarball* as start → chunks → end{accepted: true}.
+    async def _send_stream(
+        self, session: PeerLinkSession, job_id: str, packed: _PackedArtifacts
+    ) -> None:
+        """Stream *packed*'s tarball as start → chunks → end{accepted: true}.
 
         Header carries ``total_bytes`` / ``num_chunks`` /
-        ``artifacts_sha256``; the offloader-side assembler
-        validates each chunk against these and the resulting
-        digest against the header hash before resolving the
-        per-job download future.
+        ``artifacts_sha256`` / ``firmware_offset``; the
+        offloader-side assembler validates each chunk against
+        these and the resulting digest against the header
+        hash before resolving the per-job download future.
+        ``firmware_offset`` is the receiver-resolved
+        flash-partition offset for ``firmware.bin`` — see
+        :class:`models.remote_build.ArtifactsStartFrameData`
+        for why the wire ships this rather than re-deriving
+        on the offloader.
         """
+        tarball = packed.tarball
         total_bytes = len(tarball)
         num_chunks = (total_bytes + BUNDLE_CHUNK_SIZE_BYTES - 1) // BUNDLE_CHUNK_SIZE_BYTES
         start: ArtifactsStartFrameData = {
@@ -280,6 +288,7 @@ class ArtifactsDownloadSender:
             "total_bytes": total_bytes,
             "num_chunks": num_chunks,
             "artifacts_sha256": compute_bundle_sha256(tarball),
+            "firmware_offset": packed.firmware_offset,
         }
         await session.send_app_frame(cast(dict[str, Any], start))
         for chunk_index, raw, is_last in chunk_bundle(tarball):
@@ -299,7 +308,24 @@ class ArtifactsDownloadSender:
         await session.send_app_frame(cast(dict[str, Any], end))
 
 
-def _pack_build_artifacts(configuration: str) -> bytes:
+@dataclass(frozen=True)
+class _PackedArtifacts:
+    """Output of :func:`_pack_build_artifacts` — tarball bytes + start-frame fields.
+
+    ``firmware_offset`` rides alongside the tarball so the
+    sender can populate :attr:`ArtifactsStartFrameData.firmware_offset`
+    without re-running
+    :func:`helpers.build_artifacts.load_build_artifacts`.
+    Same string form ``idedata.extra.flash_images`` uses
+    (lowercase hex, ``0x`` prefix) — keeps the wire shape
+    uniform across the firmware partition and the extras.
+    """
+
+    tarball: bytes
+    firmware_offset: str
+
+
+def _pack_build_artifacts(configuration: str) -> _PackedArtifacts:
     """Pack the build's flash artifacts for *configuration* into a gzipped tarball.
 
     Synchronous; meant to run inside an executor. Calls
@@ -373,4 +399,10 @@ def _pack_build_artifacts(configuration: str) -> bytes:
             info.size = len(image_bytes)
             tar.addfile(info, io.BytesIO(image_bytes))
 
-    return buf.getvalue()
+    # ``flash_images[0]`` is firmware.bin (load_build_artifacts
+    # invariant) — its offset is the value the offloader needs
+    # for the start frame, since idedata.json's manifest
+    # doesn't include the firmware partition itself.
+    return _PackedArtifacts(
+        tarball=buf.getvalue(), firmware_offset=artifacts.flash_images[0].offset
+    )

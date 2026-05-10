@@ -48,13 +48,14 @@ canonical "firmware image" path which is the same value
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON, ext_storage_path
+
+from .json import loads as json_loads
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -162,7 +163,7 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
         msg = f"idedata.json missing for {configuration}: {idedata_path}"
         raise FileNotFoundError(msg)
     idedata_bytes = idedata_path.read_bytes()
-    idedata = json.loads(idedata_bytes)
+    idedata = json_loads(idedata_bytes)
 
     # ``firmware.bin`` is the only image consistently
     # reported by ``StorageJSON.firmware_bin_path`` upstream.

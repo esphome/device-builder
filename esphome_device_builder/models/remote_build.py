@@ -946,6 +946,20 @@ class ArtifactsStartFrameData(TypedDict):
     Noise AEAD already covers wire confidentiality +
     authentication, so the hash isn't a security check).
 
+    ``firmware_offset`` is the lowercase-hex flash offset for
+    the ``firmware.bin`` partition (e.g. ``"0x10000"`` on
+    ESP32, ``"0x0"`` on ESP8266 / libretiny / RP2040). The
+    receiver resolves this once via
+    :func:`helpers.build_artifacts._firmware_offset_for_platform`
+    against ``StorageJSON.target_platform`` — the offloader
+    doesn't have access to that field over the wire and would
+    otherwise need to duplicate the platform-detection logic
+    upstream esphome already encapsulates. The remaining
+    flash-image offsets (bootloader, partitions,
+    ota_data_initial) ride inside ``idedata.json`` in the
+    tarball, which is the upstream-canonical manifest for
+    those entries.
+
     Fires only on the success path. A failed download sends
     ``artifacts_end`` with ``accepted=false`` and skips
     ``artifacts_start`` entirely.
@@ -956,6 +970,7 @@ class ArtifactsStartFrameData(TypedDict):
     total_bytes: int
     num_chunks: int
     artifacts_sha256: str
+    firmware_offset: str
 
 
 class ArtifactsChunkFrameData(TypedDict):
