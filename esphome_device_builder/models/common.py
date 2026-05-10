@@ -174,6 +174,36 @@ class EventType(StrEnum):
     # row from its discovered set on this event.
     REMOTE_BUILD_HOST_REMOVED = "remote_build_host_removed"
 
+    # An offloader-side ``PeerLinkClient`` (5a-2) successfully
+    # established a long-lived peer-link Noise WS session against
+    # an APPROVED receiver — handshake completed, post-handshake
+    # ``intent_response: ok`` landed, the dispatch loop is
+    # parked waiting for application frames. Payload:
+    # ``{receiver_hostname, receiver_port}``. Receiver
+    # coordinates rather than ``dashboard_id`` because the
+    # offloader's :class:`StoredPairing` keys on
+    # ``(hostname, port)`` (the user dialled those) and the
+    # offloader-side frontend Settings UI shows one row per
+    # paired receiver. Subscribers update their per-receiver
+    # ``connected`` indicator on this event.
+    OFFLOADER_PEER_LINK_OPENED = "offloader_peer_link_opened"
+
+    # Counterpart to :attr:`OFFLOADER_PEER_LINK_OPENED`. Fires
+    # on every clean exit of a peer-link session: WS close,
+    # heartbeat timeout, receiver-side ``terminate`` frame,
+    # transport error during the receive loop. Payload:
+    # ``{receiver_hostname, receiver_port, reason}`` where
+    # ``reason`` is one of the receiver-side
+    # :class:`TerminateReason` wire values (e.g.
+    # ``"superseded"`` / ``"server_shutting_down"``) when the
+    # close came from a structured ``terminate`` frame, or one
+    # of the offloader-side reasons (``"transport_error"`` /
+    # ``"heartbeat_timeout"`` / ``"client_stopped"``) when our
+    # side initiated. The reconnect logic in
+    # :class:`PeerLinkClient` branches on this so a
+    # ``superseded`` close doesn't trigger a reconnect storm.
+    OFFLOADER_PEER_LINK_CLOSED = "offloader_peer_link_closed"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.

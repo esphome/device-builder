@@ -116,6 +116,7 @@ from .config import (
 from .remote_build_peer_link import PeerLinkSession, TerminateReason
 from .remote_build_peer_link_client import (
     PairStatusResult,
+    PeerLinkClient,
     PeerLinkClientError,
 )
 from .remote_build_peer_link_client import (
@@ -771,6 +772,27 @@ class RemoteBuildController:
         # offloader takes over its previous slot rather than
         # doubling. Drained in :meth:`stop`.
         self._peer_link_sessions: dict[str, PeerLinkSession] = {}
+        # Offloader-side long-lived peer-link client tasks, one
+        # per APPROVED ``StoredPairing``, keyed on the receiver's
+        # ``(hostname, port)``. Spawned by
+        # :meth:`_spawn_peer_link_client` from :meth:`start`'s
+        # cold-start path and from
+        # :meth:`_apply_pair_status_result` flipping a row to
+        # APPROVED. Cancelled by :meth:`_cancel_peer_link_client`
+        # on ``unpair``; drained in :meth:`stop`. Each task runs
+        # the connect-handshake-park-reconnect loop in
+        # :meth:`PeerLinkClient.run`.
+        self._peer_link_clients: dict[tuple[str, int], asyncio.Task[None]] = {}
+        # Identities cached once at :meth:`start` so each
+        # peer-link client can pick them up without an executor
+        # hop on every spawn. ``_offloader_dashboard_id`` is the
+        # offloader's stable phase-3a identity sent in every
+        # peer_link msg3; ``_offloader_peer_link_priv`` is the
+        # X25519 keypair used for the Noise XX handshake. Both
+        # are loaded by the existing ``_load_offloader_identities``
+        # helper.
+        self._offloader_dashboard_id: str | None = None
+        self._offloader_peer_link_priv: bytes | None = None
         # Single offloader-side ``StoredPairing`` map: contains both
         # PENDING and APPROVED rows, keyed on
         # ``(receiver_hostname, receiver_port)``. Source of truth at
@@ -844,6 +866,25 @@ class RemoteBuildController:
         if (peers_state := await self._peers_store.async_load()) is not None:
             for peer in peers_state.peers:
                 self._approved_peers[peer.dashboard_id] = peer
+        # Load offloader-side identities once (X25519 peer-link
+        # priv + the dashboard's stable phase-3a id) so each
+        # peer-link client task can pick them up without a
+        # per-spawn executor hop. Cold-start spawn for every
+        # APPROVED pairing follows below.
+        loop = asyncio.get_running_loop()
+        peer_link_identity, dashboard_identity = await loop.run_in_executor(
+            None, _load_offloader_identities, self._db.settings.config_dir
+        )
+        self._offloader_peer_link_priv = peer_link_identity.private_bytes
+        self._offloader_dashboard_id = dashboard_identity.dashboard_id
+        # Spawn one peer-link client task per APPROVED pairing
+        # already in the dict. Each task drives the connect →
+        # handshake → receive loop with auto-reconnect; the
+        # task lives until ``unpair`` cancels it or
+        # :meth:`stop` drains it.
+        for pairing in self._pairings.values():
+            if pairing.status is PeerStatus.APPROVED:
+                self._spawn_peer_link_client(pairing)
         if self._db.devices is None:
             _LOGGER.debug("RemoteBuildController.start called before devices controller")
             return
@@ -937,6 +978,17 @@ class RemoteBuildController:
         if self._pair_status_listeners:
             await asyncio.gather(*self._pair_status_listeners.values(), return_exceptions=True)
             self._pair_status_listeners.clear()
+        # Cancel + drain offloader-side peer-link client tasks
+        # (5a-2). Each task's run loop sends a structured
+        # ``terminate{reason: client_stopped}`` to the receiver
+        # in its ``CancelledError`` handler before unwinding, so
+        # the receiver's session loop exits cleanly without
+        # waiting for its heartbeat to time out.
+        for task in self._peer_link_clients.values():
+            task.cancel()
+        if self._peer_link_clients:
+            await asyncio.gather(*self._peer_link_clients.values(), return_exceptions=True)
+            self._peer_link_clients.clear()
         if self._pairing_window_handle is not None:
             self._pairing_window_handle.cancel()
             self._pairing_window_handle = None
@@ -1425,6 +1477,11 @@ class RemoteBuildController:
             self._pairings_store.async_delay_save(
                 self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
             )
+            # APPROVED row → spawn the long-lived peer-link
+            # client (5a-2). Receiver already authenticated us
+            # via the pair_request; the client just opens a
+            # peer_link session against the same coordinates.
+            self._spawn_peer_link_client(pairing)
             return _pairing_summary(pairing)
         # PENDING: in-memory only, bounded by the receiver-side
         # pairing window. The listener observes the eventual flip
@@ -1480,6 +1537,10 @@ class RemoteBuildController:
         # just popped) and the listener exits terminal without
         # promoting — no row resurrection.
         self._cancel_pair_status_listener(clean_host, clean_port)
+        # Cancel the long-lived peer-link client too — same
+        # rationale (the client holds an open Noise WS that
+        # should close promptly on user-clicks-Unpair).
+        self._cancel_peer_link_client(clean_host, clean_port)
         # Single in-RAM dict carries both PENDING and APPROVED.
         previous = self._pairings.pop(key, None)
         if previous is None:
@@ -1571,6 +1632,43 @@ class RemoteBuildController:
     def _cancel_pair_status_listener(self, hostname: str, port: int) -> None:
         """Cancel the listener at ``(host, port)``. No-op if none running."""
         task = self._pair_status_listeners.pop((hostname, port), None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _spawn_peer_link_client(self, pairing: StoredPairing) -> None:
+        """Spawn the long-lived peer-link client for *pairing*.
+
+        Idempotent on already-running clients — returns early if
+        a client for ``(host, port)`` is still alive. Skips if
+        the offloader-side identities haven't been loaded yet
+        (start order: identities load before any spawn). Skips
+        if the bus isn't wired (e.g. a unit test path).
+        """
+        if (
+            self._offloader_dashboard_id is None
+            or self._offloader_peer_link_priv is None
+            or self._db.bus is None
+        ):
+            return
+        key = (pairing.receiver_hostname, pairing.receiver_port)
+        existing = self._peer_link_clients.get(key)
+        if existing is not None and not existing.done():
+            return
+        client = PeerLinkClient(
+            receiver_hostname=pairing.receiver_hostname,
+            receiver_port=pairing.receiver_port,
+            identity_priv=self._offloader_peer_link_priv,
+            dashboard_id=self._offloader_dashboard_id,
+            bus=self._db.bus,
+        )
+        self._peer_link_clients[key] = asyncio.create_task(
+            client.run(),
+            name=f"peer-link-client-{key[0]}:{key[1]}",
+        )
+
+    def _cancel_peer_link_client(self, hostname: str, port: int) -> None:
+        """Cancel the peer-link client at ``(host, port)``. No-op if none running."""
+        task = self._peer_link_clients.pop((hostname, port), None)
         if task is not None and not task.done():
             task.cancel()
 
@@ -1710,6 +1808,11 @@ class RemoteBuildController:
                 self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
             )
             self._fire_offloader_pair_status_changed(host, port, "approved")
+            # Spawn the long-lived peer-link client now that the
+            # receiver has approved us. The client's
+            # connect-handshake-park-reconnect loop owns the
+            # session lifecycle until ``unpair`` cancels it.
+            self._spawn_peer_link_client(existing)
             return True
         if result.status is IntentResponse.REJECTED:
             if self._pairings.pop(key, None) is not None:

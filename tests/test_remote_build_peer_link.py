@@ -38,8 +38,8 @@ from esphome_device_builder.controllers import (
 )
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build_peer_link import (
-    _APP_FRAME_MAX_BYTES,
     _PEER_LABEL_MAX_CHARS,
+    APP_FRAME_MAX_BYTES,
     PEER_LINK_PATH,
     PeerLinkSession,
     TerminateReason,
@@ -1242,7 +1242,7 @@ async def test_e2e_peer_link_session_drained_on_controller_stop(
 async def test_e2e_peer_link_session_oversize_frame_terminates(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
 ) -> None:
-    """A frame past ``_APP_FRAME_MAX_BYTES`` triggers ``terminate{malformed_frame}``.
+    """A frame past ``APP_FRAME_MAX_BYTES`` triggers ``terminate{malformed_frame}``.
 
     Closes a misbehaving / hostile peer at the dispatch seam
     rather than letting an unbounded ciphertext pin memory.
@@ -1263,7 +1263,7 @@ async def test_e2e_peer_link_session_oversize_frame_terminates(
     try:
         # Encrypt a payload larger than the cap. ChaCha20 adds a
         # 16-byte auth tag; the encrypted size is plaintext + 16.
-        oversize = session.encrypt(b"x" * (_APP_FRAME_MAX_BYTES + 1))
+        oversize = session.encrypt(b"x" * (APP_FRAME_MAX_BYTES + 1))
         await ws.send_bytes(oversize)
         terminate_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=2.0)
         terminate = _decode_app_frame(session, terminate_encrypted)
@@ -1643,8 +1643,8 @@ async def test_heartbeat_loop_terminates_on_pong_timeout(
     _initiator, responder = _noise_pair()
     session, ws = _make_unit_session(responder)
 
-    monkeypatch.setattr(_peer_link_module, "_HEARTBEAT_INTERVAL_SECONDS", 0.001)
-    monkeypatch.setattr(_peer_link_module, "_HEARTBEAT_DEAD_AFTER_SECONDS", 0.0)
+    monkeypatch.setattr(_peer_link_module, "HEARTBEAT_INTERVAL_SECONDS", 0.001)
+    monkeypatch.setattr(_peer_link_module, "HEARTBEAT_DEAD_AFTER_SECONDS", 0.0)
     # First call seeds last_pong_at = 0; second call returns a
     # large value so the gap exceeds the (zero-sized) threshold.
     ticks = iter([0.0, 1000.0])
@@ -1664,7 +1664,7 @@ async def test_heartbeat_loop_terminates_on_send_failure(
     _initiator, responder = _noise_pair()
     session, ws = _make_unit_session(responder)
 
-    monkeypatch.setattr(_peer_link_module, "_HEARTBEAT_INTERVAL_SECONDS", 0.001)
+    monkeypatch.setattr(_peer_link_module, "HEARTBEAT_INTERVAL_SECONDS", 0.001)
     # Clock stays inside the threshold so the timeout branch
     # doesn't fire; only the send-failure path does.
     monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 0.0)
@@ -1697,7 +1697,7 @@ async def test_heartbeat_loop_propagates_cancellation(
 
     # Use a long interval so the task is reliably parked in
     # ``asyncio.sleep`` when we cancel.
-    monkeypatch.setattr(_peer_link_module, "_HEARTBEAT_INTERVAL_SECONDS", 10.0)
+    monkeypatch.setattr(_peer_link_module, "HEARTBEAT_INTERVAL_SECONDS", 10.0)
     monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 0.0)
 
     task = asyncio.create_task(_peer_link_module._heartbeat_loop(session))

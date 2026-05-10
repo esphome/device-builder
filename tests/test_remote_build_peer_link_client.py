@@ -18,10 +18,12 @@ Two layers:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import secrets
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -36,6 +38,7 @@ from esphome_device_builder.controllers.remote_build_peer_link import (
     make_peer_link_handler,
 )
 from esphome_device_builder.controllers.remote_build_peer_link_client import (
+    PeerLinkClient,
     PeerLinkClientError,
     RequestPairResult,
     _build_ws_url,
@@ -44,6 +47,7 @@ from esphome_device_builder.controllers.remote_build_peer_link_client import (
     request_pair,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import (
     get_or_create_peer_link_identity,
 )
@@ -1861,3 +1865,242 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
     # Two poll attempts (OK → backoff → REJECTED → terminal).
     assert calls == 2
     assert ("rcv.local", 6055) not in offloader._pairings
+
+
+# ---------------------------------------------------------------------------
+# Phase 5a-2 — PeerLinkClient long-lived offloader-side session.
+# ---------------------------------------------------------------------------
+
+
+async def _seed_approved_peer_for_initiator(
+    receiver_controller: RemoteBuildController,
+    *,
+    dashboard_id: str,
+    initiator_priv: bytes,
+) -> None:
+    """Seed an APPROVED ``StoredPeer`` on the receiver matching *initiator_priv*."""
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    receiver_controller._approved_peers[dashboard_id] = StoredPeer(
+        dashboard_id=dashboard_id,
+        pin_sha256=hashlib.sha256(initiator_pub).hexdigest(),
+        static_x25519_pub=initiator_pub,
+        label=dashboard_id,
+        paired_at=1.0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_peer_link_client_fires_opened_after_handshake(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+) -> None:
+    """A real PeerLinkClient against a real receiver fires OFFLOADER_PEER_LINK_OPENED."""
+    server, receiver, _ = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+    await _seed_approved_peer_for_initiator(
+        receiver, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+
+    bus = EventBus()
+    fired: list[tuple[EventType, dict]] = []
+    bus.add_listener(
+        EventType.OFFLOADER_PEER_LINK_OPENED, lambda e: fired.append((e.event_type, e.data))
+    )
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=initiator_priv,
+        dashboard_id="alpha",
+        bus=bus,
+    )
+    task = asyncio.create_task(client.run())
+    # Wait briefly for the handshake to complete and the OPENED
+    # event to fire. The receiver-side handshake is sub-ms; a
+    # generous timeout still finishes promptly on the happy path.
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        if fired:
+            break
+    try:
+        assert len(fired) == 1
+        event_type, data = fired[0]
+        assert event_type is EventType.OFFLOADER_PEER_LINK_OPENED
+        assert data["receiver_hostname"] == "127.0.0.1"
+        assert data["receiver_port"] == server.port
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_peer_link_client_fires_closed_on_cancel(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+) -> None:
+    """Cancelling the client task fires OFFLOADER_PEER_LINK_CLOSED with client_stopped."""
+    server, receiver, _ = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+    await _seed_approved_peer_for_initiator(
+        receiver, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+
+    bus = EventBus()
+    closed: list[dict] = []
+    bus.add_listener(EventType.OFFLOADER_PEER_LINK_CLOSED, lambda e: closed.append(dict(e.data)))
+    opened = asyncio.Event()
+    bus.add_listener(EventType.OFFLOADER_PEER_LINK_OPENED, lambda e: opened.set())
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=initiator_priv,
+        dashboard_id="alpha",
+        bus=bus,
+    )
+    task = asyncio.create_task(client.run())
+    await asyncio.wait_for(opened.wait(), timeout=2.0)
+
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    # CancelledError handler in run() fires CLOSED before
+    # propagating. Reason is "client_stopped" because the
+    # offloader-side initiated.
+    assert len(closed) >= 1
+    assert closed[-1]["reason"] == "client_stopped"
+
+
+@pytest.mark.asyncio
+async def test_peer_link_client_orphans_on_superseded(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+) -> None:
+    """A receiver-side ``terminate{reason: superseded}`` orphans the client.
+
+    Reconnecting after a superseded close would just collide
+    with the offloader instance that took our slot. Drive this
+    by running two clients with the same dashboard_id /
+    initiator_priv against one receiver — the second connect
+    kicks the first via ``terminate{reason: superseded}``, the
+    first's run loop sees that and orphans rather than retrying.
+    """
+    server, receiver, _ = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+    await _seed_approved_peer_for_initiator(
+        receiver, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+
+    bus = EventBus()
+    closed: list[dict] = []
+    bus.add_listener(EventType.OFFLOADER_PEER_LINK_CLOSED, lambda e: closed.append(dict(e.data)))
+    opened1 = asyncio.Event()
+    opened2 = asyncio.Event()
+
+    def _on_open(e: Any) -> None:
+        if not opened1.is_set():
+            opened1.set()
+        else:
+            opened2.set()
+
+    bus.add_listener(EventType.OFFLOADER_PEER_LINK_OPENED, _on_open)
+
+    client1 = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=initiator_priv,
+        dashboard_id="alpha",
+        bus=bus,
+    )
+    task1 = asyncio.create_task(client1.run())
+    await asyncio.wait_for(opened1.wait(), timeout=2.0)
+
+    client2 = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=initiator_priv,
+        dashboard_id="alpha",
+        bus=bus,
+    )
+    task2 = asyncio.create_task(client2.run())
+    try:
+        await asyncio.wait_for(opened2.wait(), timeout=2.0)
+        # Wait for client1 to observe the superseded close.
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if task1.done():
+                break
+        assert task1.done()
+        assert client1.is_orphaned
+        # The first close event should carry the superseded reason.
+        superseded_events = [c for c in closed if c["reason"] == "superseded"]
+        assert len(superseded_events) >= 1
+    finally:
+        task2.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task2
+        if not task1.done():
+            task1.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task1
+
+
+@pytest.mark.asyncio
+async def test_peer_link_client_reconnects_on_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+) -> None:
+    """A failed connect retries with backoff; succeed on second attempt.
+
+    Drives one client against an initially-unreachable port,
+    flips it to the live receiver after one failure, and asserts
+    the client opens a session against the second target. Pins
+    the auto-reconnect contract without waiting the full
+    1-second backoff (monkey-patches the initial backoff to
+    near-zero so the test finishes promptly).
+    """
+    monkeypatch.setattr(remote_build_peer_link_client, "_RECONNECT_INITIAL_BACKOFF_SECONDS", 0.01)
+
+    server, receiver, _ = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+    await _seed_approved_peer_for_initiator(
+        receiver, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+
+    bus = EventBus()
+    opened = asyncio.Event()
+    closed: list[dict] = []
+    bus.add_listener(EventType.OFFLOADER_PEER_LINK_OPENED, lambda e: opened.set())
+    bus.add_listener(EventType.OFFLOADER_PEER_LINK_CLOSED, lambda e: closed.append(dict(e.data)))
+
+    # Start with a (mostly) unreachable port — connect to a
+    # closed local port returns ECONNREFUSED quickly. Use the
+    # client's own state to flip the target to the live port
+    # after one failure lands.
+    failed = asyncio.Event()
+
+    class _RetargetingClient(PeerLinkClient):
+        async def _run_one_session(self) -> str:  # type: ignore[override]
+            reason = await super()._run_one_session()
+            if reason == "transport_error" and not failed.is_set():
+                self._port = server.port
+                failed.set()
+            return reason
+
+    client = _RetargetingClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=1,  # privileged + closed; ECONNREFUSED
+        identity_priv=initiator_priv,
+        dashboard_id="alpha",
+        bus=bus,
+    )
+    task = asyncio.create_task(client.run())
+    try:
+        await asyncio.wait_for(opened.wait(), timeout=5.0)
+        # First close was the transport error against port 1.
+        assert any(c["reason"] == "transport_error" for c in closed)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task

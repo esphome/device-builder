@@ -293,6 +293,52 @@ class RemoteBuildHostRemovedData(TypedDict):
     name: str
 
 
+class OffloaderPeerLinkOpenedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_PEER_LINK_OPENED``.
+
+    Fired by an offloader-side :class:`PeerLinkClient` once its
+    long-lived peer-link session reaches the post-handshake
+    ``intent_response: ok`` state and the dispatch loop is
+    parked waiting for application frames. Subscribers (the
+    offloader's frontend Settings UI) update the
+    per-receiver "connected" indicator on this event.
+
+    Keys on the receiver's ``(hostname, port)`` because the
+    offloader's :class:`StoredPairing` keys on the same — the
+    receiver's ``dashboard_id`` isn't tracked offloader-side.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+
+
+class OffloaderPeerLinkClosedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_PEER_LINK_CLOSED``.
+
+    Fires whenever a peer-link client's session ends — clean
+    receiver-driven ``terminate``, heartbeat timeout,
+    transport error, or the controller cancelling the task on
+    ``unpair`` / shutdown. ``reason`` carries the wire value
+    from the receiver-side :class:`TerminateReason` enum when
+    the close came from a structured ``terminate`` frame
+    (``"superseded"`` / ``"server_shutting_down"`` /
+    ``"heartbeat_timeout"`` / ``"malformed_frame"``), or an
+    offloader-side reason when our side initiated:
+    ``"transport_error"`` / ``"heartbeat_timeout"`` /
+    ``"client_stopped"``. The :class:`PeerLinkClient`'s
+    reconnect logic branches on this — a ``"superseded"`` close
+    means a newer offloader instance with the same
+    ``dashboard_id`` already took our slot, so reconnecting
+    would just collide; the client orphans rather than retrying.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    reason: str
+
+
 @dataclass
 class StoredPeer(DataClassORJSONMixin):
     """

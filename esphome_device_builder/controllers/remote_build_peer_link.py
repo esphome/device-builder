@@ -149,9 +149,9 @@ _PEER_LABEL_MAX_CHARS = 128
 # slot indefinitely. Picked to match the receiver-pinged 30s /
 # 90s-miss pattern called out in the issue's "Connection
 # lifecycle" section.
-_HEARTBEAT_INTERVAL_SECONDS = 30.0
-_HEARTBEAT_MISS_THRESHOLD = 3
-_HEARTBEAT_DEAD_AFTER_SECONDS = _HEARTBEAT_INTERVAL_SECONDS * _HEARTBEAT_MISS_THRESHOLD
+HEARTBEAT_INTERVAL_SECONDS = 30.0
+HEARTBEAT_MISS_THRESHOLD = 3
+HEARTBEAT_DEAD_AFTER_SECONDS = HEARTBEAT_INTERVAL_SECONDS * HEARTBEAT_MISS_THRESHOLD
 
 # Cap inbound application-frame size at 32 KiB. Heartbeat frames
 # are tiny (~30 bytes); the offloader has no legitimate reason to
@@ -162,14 +162,14 @@ _HEARTBEAT_DEAD_AFTER_SECONDS = _HEARTBEAT_INTERVAL_SECONDS * _HEARTBEAT_MISS_TH
 # basis. The hard ceiling from the Noise framework spec is
 # 65535 bytes per frame; staying well under that leaves headroom
 # for the protocol overhead and a future relax-the-cap change.
-_APP_FRAME_MAX_BYTES = 32 * 1024
+APP_FRAME_MAX_BYTES = 32 * 1024
 
 
 class TerminateReason(StrEnum):
     """
     Wire ``reason`` value on a structured ``terminate`` close frame.
 
-    Sent inside an :attr:`_AppMessageType.TERMINATE` application
+    Sent inside an :attr:`AppMessageType.TERMINATE` application
     frame so the offloader's reconnect logic (5a-2) can branch
     on the reason rather than guessing from the WS close code.
 
@@ -195,7 +195,7 @@ class TerminateReason(StrEnum):
     MALFORMED_FRAME = "malformed_frame"
 
 
-class _AppMessageType(StrEnum):
+class AppMessageType(StrEnum):
     """
     Wire ``type`` discriminator on post-handshake application frames.
 
@@ -513,7 +513,7 @@ class PeerLinkSession:
             return
         self._closing = True
         await self._send_app_frame_unchecked(
-            {"type": _AppMessageType.TERMINATE.value, "reason": reason.value}
+            {"type": AppMessageType.TERMINATE.value, "reason": reason.value}
         )
         # Narrow suppress to transport-level errors. Python 3.8+
         # made ``CancelledError`` inherit from ``BaseException``
@@ -543,9 +543,9 @@ async def _run_peer_link_session(
 
     Heartbeat is receiver-driven (per the issue's "Connection
     lifecycle" spec): the receiver pings every
-    :data:`_HEARTBEAT_INTERVAL_SECONDS`, the offloader replies
+    :data:`HEARTBEAT_INTERVAL_SECONDS`, the offloader replies
     with a ``pong`` carrying the same ``nonce``, three consecutive
-    misses (:data:`_HEARTBEAT_DEAD_AFTER_SECONDS` of silence) close
+    misses (:data:`HEARTBEAT_DEAD_AFTER_SECONDS` of silence) close
     the session.
     """
     peer_link_session = PeerLinkSession(
@@ -597,18 +597,18 @@ async def _receive_loop(session: PeerLinkSession) -> None:
             await session.terminate(TerminateReason.MALFORMED_FRAME)
             return
         msg_type = parsed.get("type")
-        if msg_type == _AppMessageType.PONG.value:
+        if msg_type == AppMessageType.PONG.value:
             session.last_pong_at = _monotonic()
             continue
-        if msg_type == _AppMessageType.PING.value:
+        if msg_type == AppMessageType.PING.value:
             # Mirror the offloader's ping nonce so a peer that
             # also runs heartbeat from its end (5a-2) gets pong
             # parity without us defining a separate keepalive
             # protocol per direction.
             nonce = parsed.get("nonce")
-            await session.send_app_frame({"type": _AppMessageType.PONG.value, "nonce": nonce})
+            await session.send_app_frame({"type": AppMessageType.PONG.value, "nonce": nonce})
             continue
-        if msg_type == _AppMessageType.TERMINATE.value:
+        if msg_type == AppMessageType.TERMINATE.value:
             # Peer-initiated close. Don't echo a terminate back;
             # the WS will drain via the next ``CLOSE`` frame.
             session._closing = True
@@ -639,7 +639,7 @@ def _parse_app_frame(session: PeerLinkSession, msg: Any) -> dict[str, Any] | Non
             msg.type,
         )
         return None
-    if len(msg.data) > _APP_FRAME_MAX_BYTES:
+    if len(msg.data) > APP_FRAME_MAX_BYTES:
         _LOGGER.warning(
             "peer-link oversize frame from %s (%d bytes); closing",
             session.dashboard_id,
@@ -673,7 +673,7 @@ async def _heartbeat_loop(session: PeerLinkSession) -> None:
     debug surface can correlate ping → pong (5a-1 doesn't read
     it, but echoing it is part of the contract). The pong landing
     sets :attr:`PeerLinkSession.last_pong_at`; if the gap from
-    "now" exceeds :data:`_HEARTBEAT_DEAD_AFTER_SECONDS` after a
+    "now" exceeds :data:`HEARTBEAT_DEAD_AFTER_SECONDS` after a
     ping, terminate with :attr:`TerminateReason.HEARTBEAT_TIMEOUT`.
     """
     session.last_pong_at = _monotonic()
@@ -685,14 +685,14 @@ async def _heartbeat_loop(session: PeerLinkSession) -> None:
         # under ``contextlib.suppress(CancelledError)``.
         # Catching here would swallow the cancellation signal
         # at the wrong layer.
-        await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
         # Liveness check first — if we haven't heard a pong in
         # the threshold window, bail before sending another ping.
-        if _monotonic() - session.last_pong_at > _HEARTBEAT_DEAD_AFTER_SECONDS:
+        if _monotonic() - session.last_pong_at > HEARTBEAT_DEAD_AFTER_SECONDS:
             await session.terminate(TerminateReason.HEARTBEAT_TIMEOUT)
             return
         nonce += 1
-        sent = await session.send_app_frame({"type": _AppMessageType.PING.value, "nonce": nonce})
+        sent = await session.send_app_frame({"type": AppMessageType.PING.value, "nonce": nonce})
         if not sent:
             # send_app_frame already logs; the WS is presumed
             # dead so close the session.

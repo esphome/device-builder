@@ -31,11 +31,14 @@ provides the intent + msg3 payload + accepted-response set.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
+from aiohttp import WSMsgType
 from yarl import URL
 
 from ..helpers import json as _json
@@ -45,8 +48,24 @@ from ..helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from ..models import IntentResponse, PeerLinkIntent
-from .remote_build_peer_link import PEER_LINK_PATH
+from ..models import (
+    EventType,
+    IntentResponse,
+    OffloaderPeerLinkClosedData,
+    OffloaderPeerLinkOpenedData,
+    PeerLinkIntent,
+)
+from .remote_build_peer_link import (
+    APP_FRAME_MAX_BYTES,
+    HEARTBEAT_DEAD_AFTER_SECONDS,
+    HEARTBEAT_INTERVAL_SECONDS,
+    PEER_LINK_PATH,
+    AppMessageType,
+    TerminateReason,
+)
+
+if TYPE_CHECKING:
+    from ..helpers.event_bus import EventBus
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -518,3 +537,468 @@ async def await_pair_status(
         status=status,
         pin_sha256=pin_sha256_for_pubkey(rt.remote_static_pub),
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5a-2 — Long-lived offloader-side peer-link session.
+# ---------------------------------------------------------------------------
+
+
+# Auto-reconnect cadence after a session ends. Initial 1-second
+# wait keeps a transient drop (LAN flap, brief receiver restart)
+# from looking like a hang to the user; the 30s cap keeps an
+# extended outage from spamming the receiver's accept queue.
+# Reset to the initial value on every successful connect so a
+# flaky path doesn't permanently degrade to the cap.
+_RECONNECT_INITIAL_BACKOFF_SECONDS = 1.0
+_RECONNECT_MAX_BACKOFF_SECONDS = 30.0
+
+
+# Offloader-side close reasons that aren't on the wire (the
+# wire-level reasons live in :class:`TerminateReason` — those
+# come *from* the receiver). These describe close paths that
+# originate on our side: transport error, our own heartbeat
+# timeout, controller-initiated stop. Surfaced verbatim in the
+# ``OFFLOADER_PEER_LINK_CLOSED`` event payload's ``reason``
+# field so subscribers can distinguish "we lost the connection"
+# from "the receiver kicked us."
+_LOCAL_CLOSE_TRANSPORT_ERROR = "transport_error"
+_LOCAL_CLOSE_HEARTBEAT_TIMEOUT = "heartbeat_timeout"
+_LOCAL_CLOSE_CLIENT_STOPPED = "client_stopped"
+_LOCAL_CLOSE_PEER_HUNG_UP = "peer_hung_up"
+_LOCAL_CLOSE_AUTH_REJECTED = "auth_rejected"
+
+
+class PeerLinkClient:
+    """
+    Long-lived offloader-side peer-link Noise WS session.
+
+    One instance per APPROVED :class:`StoredPairing`, owned by
+    :class:`RemoteBuildController` (5a-2 wiring). Drive via
+    :meth:`run` (cancellable asyncio task) — connects to the
+    receiver's peer-link port, runs the Noise XX handshake with
+    ``intent="peer_link"``, parks on a receive loop, drives an
+    encrypted heartbeat, and reconnects on any close other than
+    a receiver-side ``superseded`` (which would loop forever
+    against whatever instance now holds our slot).
+
+    Bus events fire on every transition: ``OFFLOADER_PEER_LINK_OPENED``
+    once the post-handshake ``intent_response: ok`` lands and
+    the dispatch loop is parked, and ``OFFLOADER_PEER_LINK_CLOSED``
+    on every clean exit (carries a ``reason`` so the offloader-
+    side frontend Settings UI can branch on close cause).
+
+    Cancelling the :meth:`run` task is the controller-side
+    teardown path — the run loop's ``finally`` chain sends a
+    ``terminate{reason: client_stopped}`` to the receiver before
+    the WS closes so the receiver-side session loop unwinds
+    cleanly without waiting for its heartbeat to time out.
+    """
+
+    def __init__(
+        self,
+        *,
+        receiver_hostname: str,
+        receiver_port: int,
+        identity_priv: bytes,
+        dashboard_id: str,
+        bus: EventBus,
+    ) -> None:
+        self._hostname = receiver_hostname
+        self._port = receiver_port
+        self._identity_priv = identity_priv
+        self._dashboard_id = dashboard_id
+        self._bus = bus
+        # Set to True when we observe a receiver-side
+        # ``terminate{reason: superseded}`` close — means a
+        # newer offloader instance with the same dashboard_id
+        # has taken our slot. Reconnecting would just collide
+        # with that instance and trigger an endless flap, so
+        # we orphan the run loop instead. The controller can
+        # explicitly :meth:`run` again (e.g. after a config
+        # reload) to reset.
+        self._orphaned = False
+        # The Noise session for the active connection (None
+        # between connects). Held on ``self`` so the run loop's
+        # ``finally`` can send a structured ``terminate`` if
+        # cancellation lands while the WS is still up.
+        self._session: PeerLinkNoiseSession | None = None
+        self._ws: aiohttp.ClientWebSocketResponse | None = None
+        # Lock around send_app_frame's encrypt + send pair —
+        # heartbeat task and any future application sender both
+        # await this so the Noise nonce advances in one
+        # direction only.
+        self._send_lock = asyncio.Lock()
+        self._closing = False
+        # Set when the receiver answered our handshake with
+        # something other than ``intent_response: ok`` — e.g.
+        # ``rejected`` (the admin removed us) or ``pending``
+        # (we re-paired). Reconnect with backoff but log the
+        # reason so the user-visible UI can render it.
+        self._last_close_reason: str | None = None
+
+    @property
+    def receiver_hostname(self) -> str:
+        return self._hostname
+
+    @property
+    def receiver_port(self) -> int:
+        return self._port
+
+    @property
+    def is_orphaned(self) -> bool:
+        """True if a ``superseded`` close has poisoned this client.
+
+        See the class docstring for the rationale; the
+        controller's restart path (a fresh :meth:`run`) clears
+        the flag.
+        """
+        return self._orphaned
+
+    async def run(self) -> None:
+        """Run the connect-loop forever. Cancellable.
+
+        Each iteration:
+
+        1. Open WS, drive Noise XX with ``intent="peer_link"``.
+        2. On ``intent_response: ok``, fire
+           ``OFFLOADER_PEER_LINK_OPENED``, park on the receive
+           loop with a heartbeat task running alongside.
+        3. On any session end (receiver-side ``terminate``,
+           heartbeat miss, transport error, peer-hung-up),
+           fire ``OFFLOADER_PEER_LINK_CLOSED`` with the
+           appropriate reason.
+        4. If the close reason is ``superseded``, mark the
+           client orphaned and exit. Otherwise sleep
+           exponential-backoff (interrupted on cancellation)
+           and loop.
+
+        Cancellation at any point sends a structured
+        ``terminate{reason: client_stopped}`` if a session is
+        active, then propagates the ``CancelledError`` to the
+        controller so the task drops cleanly.
+        """
+        backoff = _RECONNECT_INITIAL_BACKOFF_SECONDS
+        try:
+            while not self._orphaned:
+                close_reason = await self._run_one_session()
+                self._fire_closed(close_reason)
+                if close_reason == TerminateReason.SUPERSEDED.value:
+                    _LOGGER.info(
+                        "peer-link client to %s:%d superseded by another instance "
+                        "with the same dashboard_id; orphaning",
+                        self._hostname,
+                        self._port,
+                    )
+                    self._orphaned = True
+                    return
+                # Reset backoff on a clean OK-and-then-closed
+                # session so a flaky path doesn't permanently
+                # degrade to the cap. ``_last_close_reason`` is
+                # set during the active session for the
+                # never-got-OK paths.
+                if self._last_close_reason is None:
+                    backoff = _RECONNECT_INITIAL_BACKOFF_SECONDS
+                else:
+                    backoff = min(backoff * 2, _RECONNECT_MAX_BACKOFF_SECONDS)
+                await asyncio.sleep(backoff)
+        except asyncio.CancelledError:
+            # ``_run_one_session`` already sent the structured
+            # ``terminate`` frame in its own CancelledError
+            # handler (where the WS and Noise session are still
+            # live as locals). All we need to do here is fire
+            # the bus event so subscribers see the transition.
+            # Even a cancellation before the first session
+            # opened benefits from firing this — the controller
+            # subscribed to ``OFFLOADER_PEER_LINK_CLOSED`` would
+            # otherwise have to track "did this client ever
+            # open" itself; the no-OPENED-then-CLOSED sequence
+            # is a no-op for any subscriber that keys off
+            # OPENED first.
+            self._fire_closed(_LOCAL_CLOSE_CLIENT_STOPPED)
+            raise
+
+    async def _run_one_session(self) -> str:
+        """Run one connect → handshake → receive loop iteration.
+
+        Returns the close reason to propagate into
+        ``OFFLOADER_PEER_LINK_CLOSED``. Always returns —
+        exceptions are caught and mapped onto a local close
+        reason. ``CancelledError`` is the one exception that
+        propagates (the run loop's outer handler sends the
+        terminate frame).
+        """
+        self._last_close_reason = None
+        url = URL.build(scheme="ws", host=self._hostname, port=self._port, path=PEER_LINK_PATH)
+        timeout = aiohttp.ClientTimeout(total=_DEFAULT_TIMEOUT_SECONDS)
+        try:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as http,
+                http.ws_connect(url, max_msg_size=APP_FRAME_MAX_BYTES) as ws,
+            ):
+                self._ws = ws
+                session = PeerLinkNoiseSession.initiator(self._identity_priv)
+                self._session = session
+                # --- Noise XX msg1/msg2/msg3 ---
+                msg1 = _json.dumps({"intent": PeerLinkIntent.PEER_LINK.value})
+                await ws.send_bytes(session.write_handshake_message(msg1))
+                session.read_handshake_message(await ws.receive_bytes())
+                msg3 = _json.dumps({"dashboard_id": self._dashboard_id})
+                await ws.send_bytes(session.write_handshake_message(msg3))
+                # --- Post-handshake intent_response ---
+                response_ct = await ws.receive_bytes()
+                response = _json.loads(session.decrypt(response_ct))
+                if (
+                    not isinstance(response, dict)
+                    or response.get("intent_response") != IntentResponse.OK.value
+                ):
+                    self._last_close_reason = _LOCAL_CLOSE_AUTH_REJECTED
+                    _LOGGER.warning(
+                        "peer-link client to %s:%d rejected at handshake: %r",
+                        self._hostname,
+                        self._port,
+                        response,
+                    )
+                    return _LOCAL_CLOSE_AUTH_REJECTED
+                # Session is live — fire OPENED + park on the
+                # receive loop with a heartbeat task running
+                # alongside.
+                self._fire_opened()
+                try:
+                    close_reason = await self._run_session_loops(ws, session)
+                except asyncio.CancelledError:
+                    # Best-effort structured close before the
+                    # WS goes away under us. ``_send_app_frame``
+                    # is gated on ``_closing``; bypass via the
+                    # internal helper since this terminate is
+                    # the close itself.
+                    await self._send_terminate_inline(ws, session)
+                    raise
+                self._closing = True
+                return close_reason
+        except (TimeoutError, aiohttp.ClientError, OSError, ValueError) as exc:
+            _LOGGER.debug(
+                "peer-link client to %s:%d transport error: %s",
+                self._hostname,
+                self._port,
+                exc,
+                exc_info=True,
+            )
+            return _LOCAL_CLOSE_TRANSPORT_ERROR
+        except NOISE_ERRORS as exc:
+            _LOGGER.warning(
+                "peer-link client to %s:%d Noise failure: %s",
+                self._hostname,
+                self._port,
+                exc,
+                exc_info=True,
+            )
+            return _LOCAL_CLOSE_TRANSPORT_ERROR
+        finally:
+            self._session = None
+            self._ws = None
+            self._closing = False
+
+    async def _run_session_loops(
+        self, ws: aiohttp.ClientWebSocketResponse, session: PeerLinkNoiseSession
+    ) -> str:
+        """Run the receive loop with a heartbeat task in parallel.
+
+        Returns the close reason. The two tasks race; whichever
+        finishes first cancels the other. Heartbeat-timeout and
+        receiver-side terminate land here; transport errors
+        propagate to the outer ``_run_one_session`` and surface
+        as ``transport_error``.
+        """
+        last_pong_at = asyncio.get_running_loop().time()
+        heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop(ws, session, lambda: last_pong_at),
+            name=f"peer-link-client-heartbeat[{self._hostname}:{self._port}]",
+        )
+        try:
+            close_reason = _LOCAL_CLOSE_PEER_HUNG_UP
+            async for msg in ws:
+                if msg.type != WSMsgType.BINARY:
+                    _LOGGER.debug(
+                        "peer-link client got non-binary frame from %s:%d (%s)",
+                        self._hostname,
+                        self._port,
+                        msg.type,
+                    )
+                    close_reason = _LOCAL_CLOSE_TRANSPORT_ERROR
+                    break
+                try:
+                    plaintext = session.decrypt(msg.data)
+                except NOISE_ERRORS:
+                    _LOGGER.warning(
+                        "peer-link client decrypt failure from %s:%d",
+                        self._hostname,
+                        self._port,
+                        exc_info=True,
+                    )
+                    close_reason = _LOCAL_CLOSE_TRANSPORT_ERROR
+                    break
+                try:
+                    parsed = _json.loads(plaintext)
+                except _json.JSONDecodeError:
+                    _LOGGER.debug(
+                        "peer-link client got non-JSON frame from %s:%d",
+                        self._hostname,
+                        self._port,
+                    )
+                    close_reason = _LOCAL_CLOSE_TRANSPORT_ERROR
+                    break
+                if not isinstance(parsed, dict):
+                    close_reason = _LOCAL_CLOSE_TRANSPORT_ERROR
+                    break
+                msg_type = parsed.get("type")
+                if msg_type == AppMessageType.PING.value:
+                    nonce = parsed.get("nonce")
+                    await self._send_app_frame(
+                        ws, session, {"type": AppMessageType.PONG.value, "nonce": nonce}
+                    )
+                    continue
+                if msg_type == AppMessageType.PONG.value:
+                    last_pong_at = asyncio.get_running_loop().time()
+                    continue
+                if msg_type == AppMessageType.TERMINATE.value:
+                    reason = parsed.get("reason")
+                    close_reason = reason if isinstance(reason, str) else _LOCAL_CLOSE_PEER_HUNG_UP
+                    break
+                _LOGGER.debug(
+                    "peer-link client unknown app frame type %r from %s:%d; ignoring",
+                    msg_type,
+                    self._hostname,
+                    self._port,
+                )
+            return close_reason
+        finally:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
+
+    async def _heartbeat_loop(
+        self,
+        ws: aiohttp.ClientWebSocketResponse,
+        session: PeerLinkNoiseSession,
+        last_pong_at: Any,
+    ) -> None:
+        """Offloader-side heartbeat — symmetric to receiver-side.
+
+        Sends an encrypted ``ping`` every
+        :data:`HEARTBEAT_INTERVAL_SECONDS` and closes the WS if
+        no pong has landed within
+        :data:`HEARTBEAT_DEAD_AFTER_SECONDS`. Closing the WS
+        wakes the parallel receive loop's ``async for`` so it
+        observes the close and the run loop maps the result to
+        ``heartbeat_timeout``.
+
+        ``last_pong_at`` is a callable returning the most-recent
+        pong's monotonic timestamp; the receive loop owns the
+        actual variable so the closure is kept simple.
+        """
+        nonce = 0
+        while True:
+            await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+            if asyncio.get_running_loop().time() - last_pong_at() > HEARTBEAT_DEAD_AFTER_SECONDS:
+                _LOGGER.info(
+                    "peer-link client to %s:%d heartbeat timeout; closing",
+                    self._hostname,
+                    self._port,
+                )
+                with contextlib.suppress(OSError, RuntimeError):
+                    await ws.close()
+                return
+            nonce += 1
+            sent = await self._send_app_frame(
+                ws, session, {"type": AppMessageType.PING.value, "nonce": nonce}
+            )
+            if not sent:
+                with contextlib.suppress(OSError, RuntimeError):
+                    await ws.close()
+                return
+
+    async def _send_app_frame(
+        self,
+        ws: aiohttp.ClientWebSocketResponse,
+        session: PeerLinkNoiseSession,
+        payload: dict[str, Any],
+    ) -> bool:
+        """Encrypt + send under the send lock.
+
+        Returns ``False`` on any encrypt / WS-side failure;
+        callers branch on this rather than raising. The lock
+        serialises concurrent senders (heartbeat + future
+        application messages) so the Noise nonce advances in
+        one direction only.
+        """
+        if self._closing:
+            return False
+        try:
+            plaintext = _json.dumps(payload)
+        except (TypeError, ValueError):
+            _LOGGER.warning("peer-link client app frame failed JSON encode", exc_info=True)
+            return False
+        async with self._send_lock:
+            try:
+                ciphertext = session.encrypt(plaintext)
+            except NOISE_ERRORS:
+                _LOGGER.warning("peer-link client app frame failed Noise encrypt", exc_info=True)
+                return False
+            try:
+                await ws.send_bytes(ciphertext)
+            except (OSError, RuntimeError):
+                _LOGGER.debug("peer-link client app frame send failed", exc_info=True)
+                return False
+            return True
+
+    async def _send_terminate_inline(
+        self,
+        ws: aiohttp.ClientWebSocketResponse,
+        session: PeerLinkNoiseSession,
+    ) -> None:
+        """Send a structured terminate frame during cancellation, best-effort.
+
+        Called from :meth:`_run_one_session`'s
+        ``CancelledError`` handler — at this point the WS and
+        Noise session are still live (they're locals captured
+        in the running coroutine, not yet cleared by the outer
+        ``finally``), so the frame can actually go out before
+        the close. Bypasses the ``_closing`` short-circuit on
+        :meth:`send_app_frame` because this terminate IS the
+        close.
+        """
+        if ws.closed:
+            return
+        try:
+            plaintext = _json.dumps(
+                {
+                    "type": AppMessageType.TERMINATE.value,
+                    "reason": _LOCAL_CLOSE_CLIENT_STOPPED,
+                }
+            )
+        except (TypeError, ValueError):
+            return
+        try:
+            ciphertext = session.encrypt(plaintext)
+        except NOISE_ERRORS:
+            return
+        with contextlib.suppress(OSError, RuntimeError):
+            await ws.send_bytes(ciphertext)
+        with contextlib.suppress(OSError, RuntimeError):
+            await ws.close()
+
+    def _fire_opened(self) -> None:
+        payload: OffloaderPeerLinkOpenedData = {
+            "receiver_hostname": self._hostname,
+            "receiver_port": self._port,
+        }
+        self._bus.fire(EventType.OFFLOADER_PEER_LINK_OPENED, payload)
+
+    def _fire_closed(self, reason: str) -> None:
+        payload: OffloaderPeerLinkClosedData = {
+            "receiver_hostname": self._hostname,
+            "receiver_port": self._port,
+            "reason": reason,
+        }
+        self._bus.fire(EventType.OFFLOADER_PEER_LINK_CLOSED, payload)
