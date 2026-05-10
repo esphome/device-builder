@@ -1545,7 +1545,21 @@ async def test_explicit_close_cancels_handle_no_duplicate_event(
     every set_pairing_window call cancel-and-reschedule, so the
     explicit-close path leaves no stale handle behind.
     """
-    monkeypatch.setattr(rb, "_PAIRING_WINDOW_DURATION_SECONDS", 0.1)
+    # Duration deliberately well above CI scheduling jitter — pre-fix
+    # this was 0.1s, which was small enough that the wall-clock gap
+    # between the two awaited ``set_pairing_window`` calls could
+    # exceed the prune cutoff on a loaded runner. The
+    # second call's ``is_pairing_window_open()`` would then prune
+    # the ``tab-1`` entry, ``was_open`` would come back False, and
+    # the close transition would silently not fire (count=1
+    # instead of 2). Holding the duration at 1.0s leaves ~10x
+    # margin against jitter; the wait below is shortened
+    # accordingly so we still verify the cancelled handle never
+    # fires (no real-time wait past the original deadline is
+    # required — the explicit-close path schedules no replacement
+    # handle, so checking ``_pairing_window_handle is None`` after
+    # a tick is sufficient).
+    monkeypatch.setattr(rb, "_PAIRING_WINDOW_DURATION_SECONDS", 1.0)
 
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
@@ -1559,9 +1573,16 @@ async def test_explicit_close_cancels_handle_no_duplicate_event(
     initial_fire_count = controller._db.bus.fire.call_count
     assert initial_fire_count == 2  # open + explicit close
 
-    # Wait past the original (now-cancelled) deadline. If the handle
-    # was leaked, it would fire a second close event here.
-    await asyncio.sleep(0.3)
+    # One scheduler tick to let any leaked-handle callback run if
+    # the cancel didn't take. The handle was scheduled via
+    # ``loop.call_later(remaining, ...)`` so it can only fire when
+    # the loop wakes the timer queue; a single ``sleep(0)``
+    # processes pending callbacks. Combined with the
+    # ``_pairing_window_handle is None`` invariant (which proves
+    # ``_reschedule_pairing_window_close`` cleared the slot on the
+    # explicit close), this catches the regression without
+    # depending on real wall-clock advance.
+    await asyncio.sleep(0)
 
     assert controller._db.bus.fire.call_count == initial_fire_count
     assert controller._pairing_window_handle is None
