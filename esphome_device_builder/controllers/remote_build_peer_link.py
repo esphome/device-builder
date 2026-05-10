@@ -724,12 +724,12 @@ async def _receive_loop(session: PeerLinkSession, controller: RemoteBuildControl
             # matching TypedDict" hand-off — runtime field
             # validation is the receiver's job.
             await controller.get_submit_job_receiver().handle_submit_job(
-                session, cast("SubmitJobFrameData", parsed)
+                session, cast(SubmitJobFrameData, parsed)
             )
             continue
         if msg_type == AppMessageType.SUBMIT_JOB_CHUNK.value:
             await controller.get_submit_job_receiver().handle_submit_job_chunk(
-                session, cast("SubmitJobChunkFrameData", parsed)
+                session, cast(SubmitJobChunkFrameData, parsed)
             )
             continue
         _LOGGER.debug(

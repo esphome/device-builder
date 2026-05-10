@@ -29,7 +29,7 @@ from esphome.bundle import EsphomeError
 
 from esphome_device_builder.controllers.remote_build_submit_job import (
     SubmitJobReceiver,
-    _device_name_from_filename,
+    _validate_configuration_filename,
 )
 from esphome_device_builder.helpers.peer_link_bundle import (
     BUNDLE_CHUNK_SIZE_BYTES,
@@ -158,12 +158,33 @@ def _frame_chunks(job_id: str, bundle: bytes) -> list[SubmitJobChunkFrameData]:
         ("kitchen.yaml", "kitchen"),
         ("kitchen.yml", "kitchen"),
         ("KITCHEN.YAML", "KITCHEN"),
-        ("no-extension", "no-extension"),
         ("multi.dot.yaml", "multi.dot"),
     ],
 )
-def test_device_name_from_filename_strips_known_extensions(filename: str, expected: str) -> None:
-    assert _device_name_from_filename(filename) == expected
+def test_validate_configuration_filename_accepts_clean_yaml_leaves(
+    filename: str, expected: str
+) -> None:
+    assert _validate_configuration_filename(filename) == expected
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "",  # empty
+        "no-extension",  # no .yaml / .yml
+        "kitchen.txt",  # wrong extension
+        ".yaml",  # extension only — empty stem
+        "..yaml",  # leading-dot escape attempt
+        "../etc/passwd.yaml",  # path traversal via ..
+        "../../escape.yaml",  # nested path traversal
+        "sub/kitchen.yaml",  # forward slash separator
+        "sub\\kitchen.yaml",  # Windows-style separator
+        "kitchen\x00.yaml",  # NUL byte
+        "/abs/kitchen.yaml",  # absolute path
+    ],
+)
+def test_validate_configuration_filename_rejects_malicious_inputs(filename: str) -> None:
+    assert _validate_configuration_filename(filename) is None
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +216,19 @@ async def test_submit_job_invalid_target_rejected(tmp_path: Path) -> None:
     session = _make_session()
 
     await receiver.handle_submit_job(session, _header(target="install"))
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "invalid_header"
+
+
+@pytest.mark.asyncio
+async def test_submit_job_path_traversal_filename_rejected(tmp_path: Path) -> None:
+    """A ``configuration_filename`` with path traversal rejects ``invalid_header``."""
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+
+    await receiver.handle_submit_job(session, _header(configuration_filename="../etc/passwd.yaml"))
 
     payload = _ack_payload(session)
     assert payload["accepted"] is False
@@ -308,9 +342,7 @@ async def test_submit_job_chunk_out_of_order_terminates_session(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_submit_job_chunk_hash_mismatch_recoverable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_submit_job_chunk_hash_mismatch_recoverable(tmp_path: Path) -> None:
     """A bundle whose assembled hash mismatches rejects ``hash_mismatch`` *without* terminating."""
     receiver = _make_receiver(tmp_path)
     session = _make_session()
@@ -397,6 +429,92 @@ async def test_submit_job_happy_path_extracts_and_queues(
     assert job.job_type is JobType.COMPILE
     assert job.configuration == str(expected_yaml.relative_to(tmp_path))
     firmware._enqueue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_submit_job_intermediate_chunk_no_ack(tmp_path: Path) -> None:
+    """A non-final chunk feeds the assembler silently; no ack until ``is_last``.
+
+    Pins the streaming contract: while chunks are arriving the
+    receiver stays quiet — the offloader's submit caller waits
+    on the single ack frame at end-of-stream rather than
+    counting per-chunk responses.
+    """
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+    bundle = b"x" * (BUNDLE_CHUNK_SIZE_BYTES * 2 + 100)  # three chunks
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    chunks = _frame_chunks("job-1", bundle)
+    assert len(chunks) >= 2
+    session.send_app_frame.reset_mock()
+
+    # Feed only the non-final chunks; no ack should fire.
+    for chunk in chunks[:-1]:
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    session.send_app_frame.assert_not_called()
+    session.terminate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malicious ``dashboard_id`` shape escapes the filename validator but is caught at extract.
+
+    Pins the defence-in-depth resolve-and-stay-under-root check
+    inside ``_extract_and_queue``. The filename validator
+    catches separators / ``..`` in ``configuration_filename``,
+    but ``dashboard_id`` flows through unvalidated from the
+    Noise handshake / receiver-side registration. A future
+    regression there would hit this gate.
+    """
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    # Climbing dashboard_id; the resolve-and-relative-to defense
+    # rejects because the resulting target_dir resolves outside
+    # ``<config>/.esphome/.remote_builds/``.
+    session = _make_session(dashboard_id="../../escape")
+    bundle = b"hello"
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build_submit_job.prepare_bundle_for_compile",
+        lambda _bundle, _target: tmp_path / "kitchen.yaml",
+    )
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "invalid_header"
+    firmware._enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_submit_job_enqueue_failure_rejects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure inside ``_enqueue`` rejects ``queue_rejected``; session stays."""
+    firmware = _make_firmware_controller()
+    firmware._enqueue = AsyncMock(side_effect=RuntimeError("queue full"))
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build_submit_job.prepare_bundle_for_compile",
+        lambda _bundle, target: target / "kitchen.yaml",
+    )
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "queue_rejected"
+    session.terminate.assert_not_called()
 
 
 @pytest.mark.asyncio

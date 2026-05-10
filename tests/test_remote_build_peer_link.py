@@ -20,8 +20,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
+import tarfile
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -59,7 +61,19 @@ from esphome_device_builder.controllers.remote_build_peer_link import (
     _send_response,
     make_peer_link_handler,
 )
+from esphome_device_builder.controllers.remote_build_submit_job import (
+    SubmitJobReceiver,
+)
 from esphome_device_builder.helpers import json as _json
+from esphome_device_builder.helpers.peer_link_bundle import (
+    chunk_bundle as _chunk_bundle,
+)
+from esphome_device_builder.helpers.peer_link_bundle import (
+    compute_bundle_sha256 as _compute_bundle_sha256,
+)
+from esphome_device_builder.helpers.peer_link_bundle import (
+    encode_chunk as _encode_chunk,
+)
 from esphome_device_builder.helpers.peer_link_identity import (
     get_or_create_peer_link_identity,
 )
@@ -1273,6 +1287,151 @@ async def test_e2e_peer_link_session_oversize_frame_terminates(
         assert terminate["reason"] == TerminateReason.MALFORMED_FRAME.value
     finally:
         await ws.close()
+
+
+def _install_stub_submit_job_receiver(
+    controller: RemoteBuildController,
+) -> tuple[Any, list[Any]]:
+    """Wire a stub firmware controller into a fresh :class:`SubmitJobReceiver`.
+
+    The ``peer_link_app`` fixture doesn't drive
+    ``RemoteBuildController.start()``, so
+    ``_submit_job_receiver`` would be ``None`` at dispatch
+    time. Tests that exercise the wire-side ``submit_job`` flow
+    install a fresh receiver here. Returns the firmware stub +
+    a list that captures every queued :class:`FirmwareJob`.
+    """
+    queued_jobs: list[Any] = []
+    firmware_stub = MagicMock()
+
+    def _create_job(*, configuration: str, job_type: Any, remote_peer: str = "") -> Any:
+        job = MagicMock()
+        job.job_id = f"local-{len(queued_jobs)}"
+        job.configuration = configuration
+        job.remote_peer = remote_peer
+        return job
+
+    async def _enqueue(job: Any) -> Any:
+        queued_jobs.append(job)
+        return job
+
+    firmware_stub._create_job = MagicMock(side_effect=_create_job)
+    firmware_stub._enqueue = AsyncMock(side_effect=_enqueue)
+    controller._submit_job_receiver = SubmitJobReceiver(
+        config_dir=controller._db.settings.config_dir,
+        firmware_controller=firmware_stub,
+    )
+    return firmware_stub, queued_jobs
+
+
+def _build_submit_job_frames(
+    *, job_id: str, configuration_filename: str, bundle: bytes
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Build the wire-shape ``submit_job`` header + chunk frames for *bundle*."""
+    chunks = [
+        {
+            "type": "submit_job_chunk",
+            "job_id": job_id,
+            "chunk_index": index,
+            "data_b64": _encode_chunk(raw),
+            "is_last": is_last,
+        }
+        for index, raw, is_last in _chunk_bundle(bundle)
+    ]
+    header = {
+        "type": "submit_job",
+        "job_id": job_id,
+        "configuration_filename": configuration_filename,
+        "target": "compile",
+        "total_bundle_bytes": len(bundle),
+        "num_chunks": len(chunks),
+        "bundle_sha256": _compute_bundle_sha256(bundle),
+    }
+    return header, chunks
+
+
+def _build_minimal_bundle(yaml_filename: str, yaml_body: bytes) -> bytes:
+    """Build a minimal gzipped-tar bundle.
+
+    Pure-shape; the extraction tests at
+    :mod:`tests.test_remote_build_submit_job` cover the
+    receiver-side handler against this same shape.
+    """
+    buf = BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name=yaml_filename)
+        info.size = len(yaml_body)
+        tar.addfile(info, BytesIO(yaml_body))
+    return buf.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_e2e_submit_job_dispatches_to_receiver(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``submit_job`` header + chunks over the wire dispatches to the receiver.
+
+    Drives the receive-loop branches in
+    :func:`controllers.remote_build_peer_link._receive_loop`
+    that route ``SUBMIT_JOB`` / ``SUBMIT_JOB_CHUNK`` to the
+    :class:`SubmitJobReceiver`. Stubs
+    :func:`prepare_bundle_for_compile` because the real
+    extractor expects an esphome-shaped manifest; the contract
+    being pinned is the wire dispatch + bundle write + queue
+    plumbing, not the extraction itself (which has its own
+    tests in :mod:`esphome`).
+    """
+    client, controller, _ = peer_link_app
+    initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    await _seed_approved_offloader(controller, dashboard_id="alpha", pubkey=initiator_pub)
+    _firmware_stub, queued_jobs = _install_stub_submit_job_receiver(controller)
+    extracted_path = (
+        controller._db.settings.config_dir
+        / ".esphome"
+        / ".remote_builds"
+        / "alpha"
+        / "kitchen"
+        / "kitchen.yaml"
+    )
+
+    def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        extracted_path.parent.mkdir(parents=True, exist_ok=True)
+        extracted_path.write_bytes(b"esphome:\n  name: kitchen\n")
+        return extracted_path
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build_submit_job.prepare_bundle_for_compile",
+        _stub_prepare,
+    )
+    bundle = _build_minimal_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+    header, chunks = _build_submit_job_frames(
+        job_id="wire-job", configuration_filename="kitchen.yaml", bundle=bundle
+    )
+
+    session, ws, _ = await _drive_peer_link_session_open(
+        client, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+    try:
+        await ws.send_bytes(session.encrypt(_json.dumps(header)))
+        for chunk in chunks:
+            await ws.send_bytes(session.encrypt(_json.dumps(chunk)))
+        ack_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=2.0)
+    finally:
+        await ws.close()
+
+    ack = _decode_app_frame(session, ack_encrypted)
+    assert ack["type"] == "submit_job_ack"
+    assert ack["job_id"] == "wire-job"
+    assert ack["accepted"] is True
+    assert "reason" not in ack
+
+    assert len(queued_jobs) == 1
+    assert queued_jobs[0].remote_peer == "alpha"
 
 
 # ---------------------------------------------------------------------------

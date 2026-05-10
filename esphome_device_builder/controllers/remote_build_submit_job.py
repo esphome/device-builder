@@ -138,27 +138,60 @@ _RECOVERABLE_ASSEMBLER_ERRORS: frozenset[BundleAssemblerErrorCode] = frozenset(
 )
 
 
-def _device_name_from_filename(configuration_filename: str) -> str:
-    """Extract the device-name segment from *configuration_filename*.
+# Characters that must NOT appear in a peer-supplied
+# ``configuration_filename``. Path separators (both flavours so
+# the rule holds across receiver platforms) and the NUL byte.
+# The rule's job is to catch obviously-malicious shapes early;
+# the resolve-and-stay-under-root check at extract time is the
+# defence-in-depth gate that catches anything an exotic filename
+# would slip past this.
+_FORBIDDEN_FILENAME_CHARS: frozenset[str] = frozenset({"/", "\\", "\x00"})
 
-    ``"kitchen.yaml"`` → ``"kitchen"``. Strips ``.yaml`` /
-    ``.yml`` (case-insensitive); anything else (no extension,
-    unexpected extension) returns the input unchanged so the
-    rest of the validation chain catches the wire-shape problem
-    rather than this helper silently producing a degenerate
-    name.
 
-    Used as the second path segment under
-    ``.esphome/.remote_builds/<dashboard_id>/<device_name>/``;
-    the segment is validated by :meth:`DashboardSettings.rel_path`
-    downstream so a malformed entry can't escape the subtree.
+def _validate_configuration_filename(filename: str) -> str | None:
+    r"""Return the device-name segment if *filename* is a safe leaf YAML, else ``None``.
+
+    Peer-supplied input. The receiver uses the device-name
+    segment (``filename`` minus its ``.yaml`` / ``.yml``
+    extension) as the second path component under
+    ``<config>/.esphome/.remote_builds/<dashboard_id>/<device>/``;
+    a malicious offloader sending ``../foo.yaml`` could escape
+    that subtree without this gate. Returning ``None`` signals
+    the caller should reject with ``invalid_header``.
+
+    Rejects:
+
+    * Empty / non-string input.
+    * Path separators (``/`` or ``\\``) or NUL bytes.
+    * Reserved names ``"."`` / ``".."`` (with or without
+      extension — ``..yaml`` is still a leading-dot escape
+      attempt).
+    * Anything that doesn't end in ``.yaml`` / ``.yml``
+      (case-insensitive). The bundle the receiver extracts is
+      an ESPHome YAML config; non-YAML extensions don't have a
+      legitimate use here and let a misbehaving offloader
+      write arbitrary suffixes into the per-peer subtree.
+
+    Returns the bare device name (``"kitchen.yaml"`` →
+    ``"kitchen"``) on success.
     """
-    lower = configuration_filename.lower()
+    if not filename:
+        return None
+    if any(ch in filename for ch in _FORBIDDEN_FILENAME_CHARS):
+        return None
+    lower = filename.lower()
     if lower.endswith(".yaml"):
-        return configuration_filename[:-5]
-    if lower.endswith(".yml"):
-        return configuration_filename[:-4]
-    return configuration_filename
+        device_name = filename[:-5]
+    elif lower.endswith(".yml"):
+        device_name = filename[:-4]
+    else:
+        return None
+    # Reject a leaf whose pre-extension stem reduces to ``.`` /
+    # ``..`` — both would resolve to the parent dir under
+    # ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/``.
+    if device_name in ("", ".", ".."):
+        return None
+    return device_name
 
 
 @dataclass
@@ -244,6 +277,15 @@ class SubmitJobReceiver:
             return
         target = frame["target"]
         if target not in _TARGET_TO_JOB_TYPE:
+            await self._reject(session, job_id=frame["job_id"], reason=_REASON_INVALID_HEADER)
+            return
+        # Validate the peer-supplied filename — it becomes the
+        # second path segment under
+        # ``.esphome/.remote_builds/<dashboard_id>/<device_name>/``.
+        # An unvalidated separator / ``..`` here would let a
+        # malicious offloader write the assembled tarball
+        # outside the intended subtree.
+        if _validate_configuration_filename(frame["configuration_filename"]) is None:
             await self._reject(session, job_id=frame["job_id"], reason=_REASON_INVALID_HEADER)
             return
         try:
@@ -380,9 +422,34 @@ class SubmitJobReceiver:
         ``run_in_executor`` keeps the receiver's WS dispatch
         coroutine non-blocking through a multi-MB write.
         """
-        device_name = _device_name_from_filename(pending.configuration_filename)
-        target_dir = self._config_dir / _REMOTE_BUILDS_SUBDIR / session.dashboard_id / device_name
+        # ``device_name`` is guaranteed non-None here:
+        # :meth:`handle_submit_job` rejected the header upfront
+        # if validation failed, so a ``_PendingSubmit`` exists
+        # only for filenames that already passed the gate.
+        device_name = _validate_configuration_filename(pending.configuration_filename)
+        assert device_name is not None  # narrowed by the upstream reject
+        peer_root = self._config_dir / _REMOTE_BUILDS_SUBDIR / session.dashboard_id
+        target_dir = peer_root / device_name
         bundle_path = target_dir / _BUNDLE_FILENAME
+
+        # Belt-and-braces: the upstream filename validator catches
+        # path-separator / ``..`` / unexpected-extension shapes,
+        # but ``dashboard_id`` flows through unvalidated from the
+        # Noise handshake / receiver-side registration, and an
+        # unforeseen path-component shape would otherwise let the
+        # tarball write escape ``<config>/.esphome/.remote_builds/``.
+        # ``Path.resolve`` normalises the join; ``relative_to``
+        # raises ``ValueError`` when the result climbs outside the
+        # remote-builds root.
+        try:
+            target_dir.resolve().relative_to((self._config_dir / _REMOTE_BUILDS_SUBDIR).resolve())
+        except ValueError as exc:
+            _LOGGER.warning(
+                "submit_job from %s: target_dir %s escaped remote-builds root; rejecting",
+                session.dashboard_id,
+                target_dir,
+            )
+            raise _SubmitJobRejectionError(_REASON_INVALID_HEADER) from exc
 
         loop = asyncio.get_running_loop()
         try:
