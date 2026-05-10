@@ -312,6 +312,47 @@ def _make_paired_offloader_controller(
     return controller
 
 
+def _patch_probe_internals(
+    monkeypatch: pytest.MonkeyPatch,
+    controller: RemoteBuildController,
+    *,
+    preview_return: str | None = None,
+    preview_side_effect: BaseException | None = None,
+    seed_cooldown_for: str | None = None,
+    cooldown_until: float = 9999.0,
+) -> tuple[MagicMock, MagicMock]:
+    """Stub the probe's three external calls and seed an optional cooldown.
+
+    Every probe test mocks the same three surfaces:
+    ``_cancel_peer_link_client`` (assert called or not),
+    ``_spawn_peer_link_client`` (same), and
+    ``peer_link_preview_pair`` (return the observed pin or
+    raise). Tests that pin "the cooldown is preserved on
+    failure" also seed ``_rebind_probe_until[pin]`` before
+    driving the probe; *seed_cooldown_for* / *cooldown_until*
+    handle that seed in the same call.
+
+    Returns ``(cancel_mock, spawn_mock)`` so the caller can do
+    ``cancel.assert_called_once_with(pin)`` on the success
+    path or ``cancel.assert_not_called()`` on every failure
+    path. Pass exactly one of *preview_return* /
+    *preview_side_effect*.
+    """
+    cancel = MagicMock()
+    spawn = MagicMock()
+    monkeypatch.setattr(controller, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller, "_spawn_peer_link_client", spawn)
+    if preview_side_effect is not None:
+        monkeypatch.setattr(
+            rb, "peer_link_preview_pair", AsyncMock(side_effect=preview_side_effect)
+        )
+    elif preview_return is not None:
+        monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value=preview_return))
+    if seed_cooldown_for is not None:
+        controller._rebind_probe_until[seed_cooldown_for] = cooldown_until
+    return cancel, spawn
+
+
 @pytest.mark.asyncio
 async def test_rebind_probe_match_mutates_pairing_and_fires_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -328,11 +369,7 @@ async def test_rebind_probe_match_mutates_pairing_and_fires_event(
     pin = "a" * 64
     pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
-    cancel_calls: list[str] = []
-    spawn_calls: list[StoredPairing] = []
-    monkeypatch.setattr(controller, "_cancel_peer_link_client", cancel_calls.append)
-    monkeypatch.setattr(controller, "_spawn_peer_link_client", spawn_calls.append)
-    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value=pin))
+    cancel, spawn = _patch_probe_internals(monkeypatch, controller, preview_return=pin)
 
     await controller._probe_and_rebind_endpoint(
         pairing=pairing, new_hostname="new.local", new_port=7000
@@ -340,8 +377,8 @@ async def test_rebind_probe_match_mutates_pairing_and_fires_event(
 
     assert pairing.receiver_hostname == "new.local"
     assert pairing.receiver_port == 7000
-    assert cancel_calls == [pin]
-    assert spawn_calls == [pairing]
+    cancel.assert_called_once_with(pin)
+    spawn.assert_called_once_with(pairing)
     controller._db.bus.fire.assert_any_call(
         EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND,
         {"pin_sha256": pin, "receiver_hostname": "new.local", "receiver_port": 7000},
@@ -365,11 +402,12 @@ async def test_rebind_probe_pin_mismatch_does_not_mutate(
     pin = "a" * 64
     pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
-    monkeypatch.setattr(controller, "_cancel_peer_link_client", MagicMock())
-    monkeypatch.setattr(controller, "_spawn_peer_link_client", MagicMock())
-    # Prime the cooldown to assert it's preserved on mismatch.
-    controller._rebind_probe_until[pin] = 9999.0
-    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value="b" * 64))
+    cancel, spawn = _patch_probe_internals(
+        monkeypatch,
+        controller,
+        preview_return="b" * 64,
+        seed_cooldown_for=pin,
+    )
 
     await controller._probe_and_rebind_endpoint(
         pairing=pairing, new_hostname="spoofed.local", new_port=7000
@@ -377,8 +415,8 @@ async def test_rebind_probe_pin_mismatch_does_not_mutate(
 
     assert pairing.receiver_hostname == "old.local"
     assert pairing.receiver_port == 6058
-    controller._cancel_peer_link_client.assert_not_called()
-    controller._spawn_peer_link_client.assert_not_called()
+    cancel.assert_not_called()
+    spawn.assert_not_called()
     # No rebind event for a mismatch. Walk the full call list
     # because positional args alone don't make a stable equality
     # match against an arbitrary payload dict.
@@ -407,11 +445,11 @@ async def test_rebind_probe_unreachable_does_not_mutate(
     pin = "a" * 64
     pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
-    controller._rebind_probe_until[pin] = 9999.0
-    monkeypatch.setattr(
-        rb,
-        "peer_link_preview_pair",
-        AsyncMock(side_effect=rb.PeerLinkClientError("connect refused")),
+    _patch_probe_internals(
+        monkeypatch,
+        controller,
+        preview_side_effect=rb.PeerLinkClientError("connect refused"),
+        seed_cooldown_for=pin,
     )
 
     await controller._probe_and_rebind_endpoint(
@@ -420,7 +458,7 @@ async def test_rebind_probe_unreachable_does_not_mutate(
 
     assert pairing.receiver_hostname == "old.local"
     assert pairing.receiver_port == 6058
-    # Cooldown preserved — gates retry on next mDNS event.
+    # Cooldown preserved: gates retry on next mDNS event.
     assert controller._rebind_probe_until[pin] == 9999.0
 
 
@@ -443,9 +481,7 @@ async def test_rebind_probe_skips_when_pairing_replaced_mid_probe(
     # with a fresh object before the probe applies its result.
     fresh = _valid_stored_pairing(receiver_hostname="user-typed.local", receiver_port=6060)
     controller._pairings[pin] = fresh
-    monkeypatch.setattr(controller, "_cancel_peer_link_client", MagicMock())
-    monkeypatch.setattr(controller, "_spawn_peer_link_client", MagicMock())
-    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value=pin))
+    cancel, spawn = _patch_probe_internals(monkeypatch, controller, preview_return=pin)
 
     await controller._probe_and_rebind_endpoint(
         pairing=old, new_hostname="rebind-target.local", new_port=7000
@@ -455,8 +491,8 @@ async def test_rebind_probe_skips_when_pairing_replaced_mid_probe(
     # entry refuses to mutate a different object.
     assert fresh.receiver_hostname == "user-typed.local"
     assert fresh.receiver_port == 6060
-    controller._cancel_peer_link_client.assert_not_called()
-    controller._spawn_peer_link_client.assert_not_called()
+    cancel.assert_not_called()
+    spawn.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -475,8 +511,6 @@ async def test_rebind_probe_skips_when_pairing_status_flips_mid_probe(
     pin = "a" * 64
     pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
-    monkeypatch.setattr(controller, "_cancel_peer_link_client", MagicMock())
-    monkeypatch.setattr(controller, "_spawn_peer_link_client", MagicMock())
 
     async def _flip_status_then_match(**_: Any) -> str:
         # Same identity, but the row's status flipped between
@@ -484,7 +518,9 @@ async def test_rebind_probe_skips_when_pairing_status_flips_mid_probe(
         pairing.status = PeerStatus.PENDING
         return pin
 
-    monkeypatch.setattr(rb, "peer_link_preview_pair", _flip_status_then_match)
+    cancel, spawn = _patch_probe_internals(
+        monkeypatch, controller, preview_side_effect=_flip_status_then_match
+    )
 
     await controller._probe_and_rebind_endpoint(
         pairing=pairing, new_hostname="new.local", new_port=7000
@@ -492,8 +528,8 @@ async def test_rebind_probe_skips_when_pairing_status_flips_mid_probe(
 
     assert pairing.receiver_hostname == "old.local"
     assert pairing.receiver_port == 6058
-    controller._cancel_peer_link_client.assert_not_called()
-    controller._spawn_peer_link_client.assert_not_called()
+    cancel.assert_not_called()
+    spawn.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -510,8 +546,12 @@ async def test_rebind_probe_unexpected_exception_clears_cooldown(
     pin = "a" * 64
     pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
-    controller._rebind_probe_until[pin] = 9999.0
-    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(side_effect=RuntimeError("boom")))
+    _patch_probe_internals(
+        monkeypatch,
+        controller,
+        preview_side_effect=RuntimeError("boom"),
+        seed_cooldown_for=pin,
+    )
 
     with pytest.raises(RuntimeError, match="boom"):
         await controller._probe_and_rebind_endpoint(
@@ -532,17 +572,15 @@ async def test_rebind_probe_skips_when_pairing_unpaired_mid_probe(
     # Simulate the in-flight unpair: drop the dict entry
     # before the probe's mutate step.
     controller._pairings.pop(pin)
-    monkeypatch.setattr(controller, "_cancel_peer_link_client", MagicMock())
-    monkeypatch.setattr(controller, "_spawn_peer_link_client", MagicMock())
-    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value=pin))
+    cancel, spawn = _patch_probe_internals(monkeypatch, controller, preview_return=pin)
 
     await controller._probe_and_rebind_endpoint(
         pairing=pairing, new_hostname="new.local", new_port=7000
     )
 
     assert pin not in controller._pairings
-    controller._cancel_peer_link_client.assert_not_called()
-    controller._spawn_peer_link_client.assert_not_called()
+    cancel.assert_not_called()
+    spawn.assert_not_called()
 
 
 def test_maybe_schedule_rebind_probe_skips_when_endpoint_matches(
