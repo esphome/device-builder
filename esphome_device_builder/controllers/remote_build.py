@@ -755,8 +755,8 @@ class RemoteBuildController:
         # the unified ``_pairings`` dict.
         self._pair_status_listeners: dict[tuple[str, int], asyncio.Task[None]] = {}
         # PENDING StoredPeer rows live here, keyed on dashboard_id.
-        # Never persisted — the receiver's settings file
-        # (.device-builder.json) only stores APPROVED peers.
+        # Never persisted — the per-file ``_peers_store``
+        # (``.receiver_peers.json``) only stores APPROVED rows.
         # Bounded lifetime: rows land via ``record_pair_request``
         # while the pairing window is open, and the dict is
         # cleared on window auto-close so a malicious LAN scanner
@@ -773,15 +773,18 @@ class RemoteBuildController:
         self._pending_peers: dict[str, StoredPeer] = {}
         # RAM-canonical APPROVED peers, keyed on
         # ``dashboard_id``. Loaded once at :meth:`start` from the
-        # ``_remote_build.peers`` block in the metadata sidecar
-        # and mutated in lockstep with ``approve_peer`` /
-        # ``remove_peer`` after the disk write succeeds. Reads
+        # per-file ``_peers_store`` (sibling-of-sidecar
+        # ``.receiver_peers.json``) and mutated immediately by
+        # ``approve_peer`` / ``remove_peer`` — disk persistence
+        # rides a debounced ``async_delay_save``, so the in-RAM
+        # update doesn't block on the write and a save failure
+        # doesn't roll back the user-visible mutation. Reads
         # (snapshot, ``_to_view``, ``_lookup_peer_response``)
         # short-circuit through this dict so no read path hits
-        # disk while a write is in flight — the
-        # disk-read-vs-write race a fresh ``load_remote_build_settings``
-        # on every read would expose is closed structurally.
-        # Cleared in :meth:`stop` for shutdown ordering.
+        # disk while a write is in flight — the disk-read-vs-write
+        # race a fresh ``load_remote_build_settings`` on every read
+        # would expose is closed structurally. Cleared in
+        # :meth:`stop` for shutdown ordering.
         self._approved_peers: dict[str, StoredPeer] = {}
         # Single offloader-side ``StoredPairing`` map: contains both
         # PENDING and APPROVED rows, keyed on
