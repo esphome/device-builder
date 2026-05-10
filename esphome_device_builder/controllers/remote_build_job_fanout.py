@@ -102,11 +102,11 @@ class JobFanout:
     def start(self) -> None:
         """Attach listeners on the firmware controller's bus.
 
-        Idempotent — calling twice would double-subscribe each
-        listener, so :meth:`RemoteBuildController.start` is the
-        single caller. Listener lifetime is bounded by the
-        controller's start / stop cycle; :meth:`stop` detaches
-        every captured handle.
+        Not idempotent — calling twice would double-subscribe
+        each listener and double-fire every fan-out frame. Single
+        caller is :meth:`RemoteBuildController.start`. Listener
+        lifetime is bounded by the controller's start / stop
+        cycle; :meth:`stop` detaches every captured handle.
         """
         bus = self._controller._db.bus
         if bus is None:
@@ -170,6 +170,14 @@ class JobFanout:
         firmware = self._controller._db.firmware
         if firmware is None:
             return
+        # ``firmware._jobs`` is the canonical in-memory job map;
+        # the public ``firmware.get_job`` is async (``@api_command``-
+        # shaped) and overkill for a sync dict lookup that fires
+        # 100+ times/sec on a hot compile. Reaching through the
+        # underscore here is deliberate, matches the cross-
+        # controller access pattern elsewhere in this package
+        # (the peer-link receive loop reaches into
+        # ``session._channel``).
         job = firmware._jobs.get(job_id)
         if job is None or not job.remote_peer or not job.remote_job_id:
             return
