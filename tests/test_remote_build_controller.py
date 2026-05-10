@@ -2319,3 +2319,205 @@ def test_decode_pairings_recovers_to_empty_on_schema_drift(
         result = _decode_pairings(b'["unexpected", "list", "shape"]')
     assert result == OffloaderRemoteBuildSettings()
     assert any("Corrupt offloader pairings file" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b: queue_status receiver-side broadcast + offloader-side cache
+# ---------------------------------------------------------------------------
+
+
+def _make_session_stub(dashboard_id: str) -> AsyncMock:
+    """Build a ``PeerLinkSession`` stand-in with an ``AsyncMock`` send.
+
+    Tests of the broadcast path care about (a) which sessions
+    received the frame and (b) what payload landed there. A
+    full session would require a Noise transcript; here a stub
+    that records ``send_app_frame`` calls is enough.
+    """
+    session = MagicMock()
+    session.dashboard_id = dashboard_id
+    session.send_app_frame = AsyncMock(return_value=True)
+    return session
+
+
+@pytest.mark.asyncio
+async def test_on_firmware_queue_transition_broadcasts_to_every_session(
+    tmp_path: Path,
+) -> None:
+    """A ``JOB_STARTED`` tick broadcasts a fresh snapshot to all paired offloaders."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.firmware = MagicMock()
+    controller._db.firmware.queue_status_snapshot.return_value = (False, True, 2)
+    # ``create_background_task`` on the real ``DeviceBuilder``
+    # schedules onto the running loop; the MagicMock-backed
+    # parent here doesn't have a loop, so route through the
+    # actual event loop directly.
+    controller._db.create_background_task = asyncio.create_task
+
+    alpha = _make_session_stub("alpha")
+    beta = _make_session_stub("beta")
+    controller._peer_link_sessions["alpha"] = alpha
+    controller._peer_link_sessions["beta"] = beta
+
+    controller._on_firmware_queue_transition(
+        MagicMock(event_type=EventType.JOB_STARTED, data={"job_id": "j1"})
+    )
+    # Background task scheduled; yield until both sessions saw the send.
+    for _ in range(50):
+        if alpha.send_app_frame.await_count and beta.send_app_frame.await_count:
+            break
+        await asyncio.sleep(0)
+
+    expected_payload = {
+        "type": "queue_status",
+        "idle": False,
+        "running": True,
+        "queue_depth": 2,
+    }
+    alpha.send_app_frame.assert_awaited_once_with(expected_payload)
+    beta.send_app_frame.assert_awaited_once_with(expected_payload)
+
+
+def test_on_firmware_queue_transition_skips_when_no_sessions(tmp_path: Path) -> None:
+    """No paired offloaders → no background task scheduled."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.firmware = MagicMock()
+    controller._db.firmware.queue_status_snapshot.return_value = (True, False, 0)
+    controller._db.create_background_task = MagicMock()
+
+    controller._on_firmware_queue_transition(
+        MagicMock(event_type=EventType.JOB_COMPLETED, data={"job_id": "j1"})
+    )
+
+    controller._db.create_background_task.assert_not_called()
+
+
+def test_on_firmware_queue_transition_skips_when_firmware_missing(
+    tmp_path: Path,
+) -> None:
+    """Bus tick when ``DeviceBuilder.firmware`` is ``None`` short-circuits.
+
+    ``RemoteBuildController.start`` registers the listener
+    before :class:`DeviceBuilder` finishes wiring all
+    controllers, but the ``firmware`` attribute is set first
+    in startup; still, a partial-startup race where the bus
+    fires before ``firmware`` lands shouldn't crash. Confirm
+    the early-exit path doesn't hit the snapshot helper.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.firmware = None
+    controller._db.create_background_task = MagicMock()
+
+    controller._on_firmware_queue_transition(
+        MagicMock(event_type=EventType.JOB_QUEUED, data={"job_id": "j1"})
+    )
+
+    controller._db.create_background_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_broadcast_queue_status_continues_past_failed_session(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A session whose ``send_app_frame`` raises doesn't block sibling sessions.
+
+    Phase-5b's broadcast is best-effort per session: a closed
+    session (race with concurrent terminate), a transport
+    error, or any other unexpected raise on one session must
+    not cancel the broadcast for the others. The per-session
+    ``try/except`` in :meth:`_broadcast_queue_status` swallows
+    the raise (logged) and moves on. Without this contract a
+    single flaky peer would starve every paired offloader of
+    queue-status updates.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+
+    alpha = _make_session_stub("alpha")
+    alpha.send_app_frame = AsyncMock(side_effect=RuntimeError("boom"))
+    beta = _make_session_stub("beta")
+    controller._peer_link_sessions["alpha"] = alpha
+    controller._peer_link_sessions["beta"] = beta
+
+    with caplog.at_level("ERROR"):
+        await controller._broadcast_queue_status(idle=False, running=True, queue_depth=1)
+    alpha.send_app_frame.assert_awaited_once()
+    # Sibling session received the snapshot despite alpha raising.
+    beta.send_app_frame.assert_awaited_once_with(
+        {"type": "queue_status", "idle": False, "running": True, "queue_depth": 1}
+    )
+    # Per-session failure landed in the log so a flaky peer is
+    # visible in production rather than silently dropped.
+    assert any(
+        "queue_status broadcast to session alpha raised" in record.message
+        for record in caplog.records
+    )
+
+
+def test_on_offloader_queue_status_changed_caches_snapshot(tmp_path: Path) -> None:
+    """Inbound bus event lands a per-peer snapshot in the cache."""
+    controller = _make_controller(config_dir=tmp_path)
+    payload = {
+        "receiver_hostname": "192.168.1.10",
+        "receiver_port": 6055,
+        "idle": False,
+        "running": True,
+        "queue_depth": 3,
+    }
+    controller._on_offloader_queue_status_changed(MagicMock(data=payload))
+
+    cached = controller._peer_queue_status[("192.168.1.10", 6055)]
+    assert cached["receiver_hostname"] == "192.168.1.10"
+    assert cached["receiver_port"] == 6055
+    assert cached["idle"] is False
+    assert cached["running"] is True
+    assert cached["queue_depth"] == 3
+
+
+def test_on_offloader_queue_status_changed_overwrites_prior(tmp_path: Path) -> None:
+    """A second event for the same key replaces the prior snapshot."""
+    controller = _make_controller(config_dir=tmp_path)
+    first = {
+        "receiver_hostname": "host",
+        "receiver_port": 6055,
+        "idle": True,
+        "running": False,
+        "queue_depth": 0,
+    }
+    second = {
+        "receiver_hostname": "host",
+        "receiver_port": 6055,
+        "idle": False,
+        "running": True,
+        "queue_depth": 5,
+    }
+    controller._on_offloader_queue_status_changed(MagicMock(data=first))
+    controller._on_offloader_queue_status_changed(MagicMock(data=second))
+
+    cached = controller._peer_queue_status[("host", 6055)]
+    assert cached["queue_depth"] == 5
+    assert cached["running"] is True
+    assert len(controller._peer_queue_status) == 1
+
+
+def test_peer_queue_status_snapshot_returns_list(tmp_path: Path) -> None:
+    """``peer_queue_status_snapshot`` returns a list of cached entries."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._peer_queue_status[("a", 6055)] = {
+        "receiver_hostname": "a",
+        "receiver_port": 6055,
+        "idle": True,
+        "running": False,
+        "queue_depth": 0,
+    }
+    controller._peer_queue_status[("b", 6055)] = {
+        "receiver_hostname": "b",
+        "receiver_port": 6055,
+        "idle": False,
+        "running": True,
+        "queue_depth": 2,
+    }
+    snapshot = controller.peer_queue_status_snapshot()
+    assert len(snapshot) == 2
+    hostnames = {entry["receiver_hostname"] for entry in snapshot}
+    assert hostnames == {"a", "b"}

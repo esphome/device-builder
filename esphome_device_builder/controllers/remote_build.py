@@ -86,6 +86,7 @@ from ..helpers.json import loads as json_loads
 from ..helpers.peer_link_identity import get_or_create_peer_link_identity
 from ..helpers.storage import ShutdownCallback, Store
 from ..models import (
+    TERMINAL_JOB_EVENTS,
     ErrorCode,
     EventType,
     IdentityView,
@@ -97,11 +98,14 @@ from ..models import (
     OffloaderPairStatusChangedData,
     OffloaderPeerRevokedAlert,
     OffloaderPinMismatchAlert,
+    OffloaderQueueStatusChangedData,
     OffloaderRemoteBuildSettings,
     PairingSummary,
     PairingWindowState,
+    PeerQueueStatusSnapshotEntry,
     PeerStatus,
     PeerSummary,
+    QueueStatusFrameData,
     ReceiverPeerLinkSessionClosedData,
     ReceiverPeerLinkSessionOpenedData,
     ReceiverPeers,
@@ -834,6 +838,24 @@ class RemoteBuildController:
         # event fired still sees the alert it would have missed
         # on the live stream.
         self._offloader_alerts: dict[tuple[str, int], OffloaderAlertSnapshotEntry] = {}
+        # RAM-only offloader-side cache of the most recent
+        # ``queue_status`` snapshot received from each paired
+        # receiver, keyed on ``(receiver_hostname,
+        # receiver_port)``. Updated on every inbound
+        # ``OFFLOADER_QUEUE_STATUS_CHANGED`` (the
+        # :class:`PeerLinkClient` receive loop fires the event
+        # after parsing a wire frame). Surfaced through
+        # ``subscribe_events.initial_state.peer_queue_status`` so
+        # a tab subscribing AFTER the most recent push still
+        # sees the latest value the offloader has observed for
+        # each peer. Never persisted — the next peer-link
+        # session triggers a fresh push on its first queue
+        # transition (or on session-open via the receiver-side
+        # initial broadcast in a follow-up phase). Cleared on
+        # :meth:`unpair` for the matching key so the snapshot
+        # doesn't surface stale data for a pairing the user
+        # removed.
+        self._peer_queue_status: dict[tuple[str, int], PeerQueueStatusSnapshotEntry] = {}
         # ``Store`` registers itself with this list at construction
         # (via ``shutdown_register=...append``); the controller's
         # :meth:`stop` walks the list to flush any debounced save
@@ -863,6 +885,21 @@ class RemoteBuildController:
             shutdown_register=self._shutdown_callbacks.append,
             name="receiver_peers",
         )
+        # Bus-listener unsubscribers held for the lifetime of the
+        # controller. Populated in :meth:`start` and walked in
+        # :meth:`stop` so the listeners don't outlive the
+        # controller. Currently covers the receiver-side
+        # firmware-queue lifecycle listeners (``JOB_QUEUED`` /
+        # ``JOB_STARTED`` / terminal events) that drive the
+        # ``queue_status`` peer-link broadcast and the
+        # offloader-side ``OFFLOADER_QUEUE_STATUS_CHANGED``
+        # listener that updates ``_peer_queue_status``. New
+        # controller-scoped bus subscriptions should append their
+        # closer here so :meth:`stop` doesn't need a parallel
+        # collection. Empty at cold-start; the per-instance
+        # attribute exists so ``stop`` can run unconditionally
+        # without an ``hasattr`` dance.
+        self._unsub_bus_listeners: list[Callable[[], None]] = []
 
     async def start(self) -> None:
         """
@@ -946,6 +983,139 @@ class RemoteBuildController:
         except Exception:
             _LOGGER.exception("Could not start remote-build browser; peer discovery disabled")
             self._browser = None
+        # Subscribe to firmware-queue lifecycle events so every
+        # transition broadcasts a fresh ``queue_status`` snapshot
+        # to all paired offloaders. The transitions of interest
+        # are:
+        # * ``JOB_QUEUED``: a job entered the queue (queue_depth
+        #   bumped; running might already be true if the runner
+        #   is busy)
+        # * ``JOB_STARTED``: the runner picked up the next job
+        #   (queue_depth dropped, running flipped to true)
+        # * Terminal events (``JOB_COMPLETED`` / ``JOB_FAILED`` /
+        #   ``JOB_CANCELLED``): the runner slot is now free
+        #   (running flipped to false; queue_depth may still be
+        #   non-zero if more jobs were queued meanwhile)
+        # ``JOB_OUTPUT`` / ``JOB_PROGRESS`` deliberately don't
+        # trigger a broadcast — they're per-line streaming events
+        # that fire at high rates during a build, and the
+        # ``queue_status`` shape doesn't change across them.
+        self._unsub_bus_listeners = [
+            self._db.bus.add_listener(event_type, self._on_firmware_queue_transition)
+            for event_type in (
+                EventType.JOB_QUEUED,
+                EventType.JOB_STARTED,
+                *TERMINAL_JOB_EVENTS,
+            )
+        ]
+        # Offloader-side: subscribe to the inbound queue-status
+        # bus event the :class:`PeerLinkClient` receive loop
+        # fires after parsing a ``queue_status`` frame. The
+        # listener mirrors the wire-shape primitives into
+        # ``_peer_queue_status`` so a late ``subscribe_events``
+        # snapshot reflects every paired peer's most recent
+        # state. Same teardown shape as the JOB_* listeners
+        # above — append the unsub closer to the same list so
+        # :meth:`stop` walks one collection.
+        self._unsub_bus_listeners.append(
+            self._db.bus.add_listener(
+                EventType.OFFLOADER_QUEUE_STATUS_CHANGED,
+                self._on_offloader_queue_status_changed,
+            )
+        )
+
+    def _on_offloader_queue_status_changed(
+        self, event: Event[OffloaderQueueStatusChangedData]
+    ) -> None:
+        """Update the offloader-side ``_peer_queue_status`` cache.
+
+        The :class:`PeerLinkClient` receive loop validated the
+        wire shape before firing the bus event, so the payload's
+        primitive fields land in the snapshot dict without
+        re-checking. The cached entry strips the receiver-side
+        ``type`` framing — it's a snapshot of the data
+        :class:`PeerQueueStatusSnapshotEntry` describes, not the
+        on-the-wire :class:`QueueStatusFrameData`.
+        """
+        data = event.data
+        key = (data["receiver_hostname"], data["receiver_port"])
+        self._peer_queue_status[key] = PeerQueueStatusSnapshotEntry(
+            receiver_hostname=data["receiver_hostname"],
+            receiver_port=data["receiver_port"],
+            idle=data["idle"],
+            running=data["running"],
+            queue_depth=data["queue_depth"],
+        )
+
+    def peer_queue_status_snapshot(self) -> list[PeerQueueStatusSnapshotEntry]:
+        """Return the offloader-side per-peer queue-status snapshot.
+
+        Pure sync read of the in-memory cache. Used by
+        :meth:`device_builder.DeviceBuilder._cmd_subscribe_events`
+        to seed the offloader UI's per-peer queue display so a
+        tab subscribing AFTER the most recent push still sees
+        the latest value the offloader has observed for each
+        paired receiver.
+        """
+        return list(self._peer_queue_status.values())
+
+    def _on_firmware_queue_transition(self, event: Event[Any]) -> None:
+        """Bus listener: broadcast ``queue_status`` to paired offloaders.
+
+        Called on every ``JOB_QUEUED`` / ``JOB_STARTED`` /
+        terminal event. Builds a snapshot from the firmware
+        controller's RAM state (sync read, no awaitables in the
+        bus listener) and schedules a per-session broadcast as a
+        background task. The broadcast itself runs async because
+        it sends across N peer-link sessions and we don't want a
+        slow socket on one session to block other listeners
+        observing the same event.
+        """
+        if self._db.firmware is None:
+            return
+        idle, running, queue_depth = self._db.firmware.queue_status_snapshot()
+        if not self._peer_link_sessions:
+            return
+        self._db.create_background_task(self._broadcast_queue_status(idle, running, queue_depth))
+
+    async def _broadcast_queue_status(self, idle: bool, running: bool, queue_depth: int) -> None:
+        """Send a ``queue_status`` frame to every active peer-link session.
+
+        Snapshot the registry to a list before iterating so a
+        concurrent register / unregister mid-walk doesn't mutate
+        the dict under us. Each ``send_app_frame`` is gated on
+        the session's ``_closing`` flag, so a ``terminate``-in-
+        progress session no-ops cleanly here without raising.
+        Per-session failures (``send_app_frame`` returns
+        ``False``) are logged at the channel layer; we don't
+        retry — a session that can't accept the latest snapshot
+        will pick up the next transition's broadcast on its
+        next successful frame.
+        """
+        sessions = list(self._peer_link_sessions.values())
+        payload = QueueStatusFrameData(
+            type="queue_status",
+            idle=idle,
+            running=running,
+            queue_depth=queue_depth,
+        )
+        for session in sessions:
+            # Per-session try/except so one flaky peer can't starve
+            # broadcasts to its siblings. ``send_app_frame`` already
+            # swallows the common transport / encrypt / serialise
+            # failures and returns ``False``; the bare ``except``
+            # here is the catch-all for an unexpected raise (e.g. a
+            # mock contract drift in tests, or a future code path
+            # that raises before the inner gate). Logged for
+            # visibility, then we move on — the next queue
+            # transition fires another snapshot.
+            try:
+                await session.send_app_frame(dict(payload))
+            except Exception:
+                _LOGGER.exception(
+                    "queue_status broadcast to session %s raised; continuing with siblings",
+                    session.dashboard_id,
+                )
 
     async def register_peer_link_session(self, session: PeerLinkSession) -> None:
         """
@@ -971,10 +1141,13 @@ class RemoteBuildController:
             await existing.terminate(TerminateReason.SUPERSEDED)
         # Fire AFTER the dict insert so any subscriber lookup of
         # ``_peer_link_sessions[dashboard_id]`` from inside the
-        # listener observes the just-registered session. Phase 5b
-        # uses this hook to send the initial ``queue_status``
-        # snapshot to a freshly-connected offloader without a
-        # lookup-then-push race window.
+        # listener observes the just-registered session. The
+        # 5b ``queue_status`` broadcast path can layer onto this
+        # hook to send the initial snapshot to a freshly-
+        # connected offloader without a lookup-then-push race
+        # window (today 5b only pushes on firmware queue
+        # transitions; a follow-up subscribing to this event
+        # closes the cold-connect gap).
         if self._db.bus is not None:
             self._db.bus.fire(
                 EventType.RECEIVER_PEER_LINK_SESSION_OPENED,
@@ -1014,6 +1187,17 @@ class RemoteBuildController:
             except Exception:
                 _LOGGER.debug("remote-build browser cancel failed", exc_info=True)
             self._browser = None
+        # Detach every bus listener registered in :meth:`start`.
+        # Each closer is the unsubscribe handle returned by
+        # ``EventBus.add_listener``; calling it removes the
+        # listener from the bus's per-event set so later fires
+        # don't re-enter the controller's callbacks after it's
+        # gone. Covers both the receiver-side firmware-queue
+        # lifecycle listeners and the offloader-side
+        # ``OFFLOADER_QUEUE_STATUS_CHANGED`` listener.
+        for unsub in self._unsub_bus_listeners:
+            unsub()
+        self._unsub_bus_listeners.clear()
         for task in self._tasks:
             task.cancel()
         if self._tasks:
@@ -1078,6 +1262,7 @@ class RemoteBuildController:
         # clear (it's the offloader's local UI state, not a
         # receiver-visible row), so silent clear is fine here.
         self._pairings.clear()
+        self._peer_queue_status.clear()
         self._peers.clear()
         # Receiver-side APPROVED peers clear silently too —
         # unlike :meth:`_clear_pending_peers_on_window_close`
@@ -1621,6 +1806,16 @@ class RemoteBuildController:
         # row, so the alert about it is moot. Fires
         # ``OFFLOADER_PAIR_ALERT_DISMISSED`` for cross-tab sync.
         self._dismiss_offloader_alert(clean_host, clean_port)
+        # Drop any cached queue-status snapshot for this
+        # receiver. Without this, ``subscribe_events`` would
+        # keep surfacing a stale snapshot of a pairing the user
+        # just removed; the offloader has no live peer-link
+        # session left to refresh it from. No bus event needs
+        # firing — the ``removed`` ``OFFLOADER_PAIR_STATUS_CHANGED``
+        # already tells subscribers the row is gone, and the
+        # frontend is expected to drop derived per-peer state
+        # in step.
+        self._peer_queue_status.pop(key, None)
         return {"removed": True}
 
     def pairings_snapshot(self) -> list[PairingSummary]:

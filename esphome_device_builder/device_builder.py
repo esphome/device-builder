@@ -597,6 +597,14 @@ class DeviceBuilder:
                 # ``OFFLOADER_PAIR_ALERT_DISMISSED`` events drive
                 # subsequent mutations.
                 initial["offloader_alerts"] = list(self.remote_build.offloader_alerts_snapshot())
+                # Offloader-side per-peer queue-status snapshot
+                # (phase 5b). RAM-only on the controller;
+                # populated by inbound ``queue_status`` frames
+                # from each paired receiver. Late-subscribers
+                # pick up the most recent value the offloader
+                # has observed for each peer without waiting on
+                # the next live ``OFFLOADER_QUEUE_STATUS_CHANGED``.
+                initial["peer_queue_status"] = list(self.remote_build.peer_queue_status_snapshot())
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.
