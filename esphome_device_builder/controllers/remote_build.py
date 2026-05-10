@@ -368,11 +368,15 @@ def _peer_summary(peer: StoredPeer, *, status: PeerStatus, connected: bool) -> P
     carry one — pending peers live in the controller's in-memory
     dict and persisted peers are implicitly approved.
 
-    ``connected`` is the snapshot-time read of
-    ``dashboard_id in self._peer_link_sessions`` (the
+    ``connected`` is the snapshot-time read the caller passes
+    in. The intended source is
+    ``dashboard_id in controller._peer_link_sessions`` (the
     RAM-canonical receiver-side session registry the 5a-2
-    handshake populates). PENDING callers always pass
-    ``False``; the structural invariant is enforced by the
+    handshake populates); the helper is module-level rather
+    than a controller method, so the caller dereferences the
+    registry and threads the bool through. PENDING callers
+    always pass ``False``; the structural invariant is
+    enforced by the
     :meth:`RemoteBuildController.lookup_peer_for_session`
     gate, but the parameter is explicit so a future code path
     that legitimately tracks connection state on a non-APPROVED
