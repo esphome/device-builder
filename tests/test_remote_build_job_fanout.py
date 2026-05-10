@@ -238,7 +238,7 @@ async def test_job_queued_caches_correlation_but_does_not_fan_out() -> None:
 
 @pytest.mark.asyncio
 async def test_queued_with_missing_remote_job_id_logs_and_skips_cache(
-    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A remote-peer job missing ``remote_job_id`` logs at debug and isn't cached.
 
@@ -249,6 +249,13 @@ async def test_queued_with_missing_remote_job_id_logs_and_skips_cache(
     ``remote_job_id`` empty. Without the diagnostic log here
     the silent cache miss would mask the missing correlation
     on every subsequent lifecycle / output event for the job.
+
+    Captures log calls via a monkey-patched ``_LOGGER.debug``
+    rather than ``caplog.at_level("DEBUG")`` because the latter
+    is flaky on the pytest-asyncio + Python 3.14 combo (the
+    capture handler is set up around the test body but not
+    always around the bus listener fire that runs synchronously
+    inside ``bus.fire``).
     """
     bus = EventBus()
     session = _make_session()
@@ -256,12 +263,16 @@ async def test_queued_with_missing_remote_job_id_logs_and_skips_cache(
     fanout = JobFanout(controller)
     fanout.start()
     job = _make_remote_job(remote_job_id="")
+    debug_calls: list[str] = []
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build_job_fanout._LOGGER.debug",
+        lambda fmt, *args, **kwargs: debug_calls.append(fmt % args if args else fmt),
+    )
 
-    with caplog.at_level("DEBUG"):
-        bus.fire(EventType.JOB_QUEUED, {"job": job})
+    bus.fire(EventType.JOB_QUEUED, {"job": job})
 
     assert job.job_id not in fanout._remote_jobs
-    assert any("missing remote_job_id" in record.message for record in caplog.records)
+    assert any("missing remote_job_id" in msg for msg in debug_calls)
 
 
 @pytest.mark.asyncio
