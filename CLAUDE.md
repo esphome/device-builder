@@ -161,16 +161,18 @@ in case anything has resurfaced.
      disk read, no race window. RAM is loaded from the Store at
      `controller.start()`; disk is just persistence.
   2. Seed the **first paint** through `subscribe_events`'s
-     `initial_state` push (`DeviceBuilder._cmd_subscribe_events.
-     _send_initial`). Add a sync `*_snapshot()` method on the
-     controller that returns the projection (e.g.
+     `initial_state` push. The seed point is the `_send_initial`
+     inner async helper inside `DeviceBuilder._cmd_subscribe_events`
+     — passed as the `send_initial=` callback to
+     `helpers.event_bus.stream_events`. Add a sync `*_snapshot()`
+     method on the controller that returns the projection (e.g.
      `pairings_snapshot()`, `peers_snapshot()`) and stitch its
      output into `initial["<key>"] = [s.to_dict() for s in
-     controller.<key>_snapshot()]`. The snapshot reads must be
-     sync — the subscribe handler runs in the WS dispatch hot
-     path and an executor hop on every connect is the kind of
-     thing that slows down dashboard cold-load on large
-     fleets.
+     controller.<key>_snapshot()]` inside that helper. The
+     snapshot reads must be sync — the subscribe handler runs in
+     the WS dispatch hot path and an executor hop on every
+     connect is the kind of thing that slows down dashboard
+     cold-load on large fleets.
   3. Fire **per-mutation bus events** with TypedDict payloads
      carrying every field a subscriber needs to construct the
      row from the event alone — no follow-up snapshot read
