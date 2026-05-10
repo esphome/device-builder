@@ -36,6 +36,8 @@ already covered by ``test_firmware_controller.py``.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -50,9 +52,52 @@ from .conftest import PairedInstances
 from .test_submit_job_fanout import _make_and_seed_remote_peer_job
 
 
+@dataclass(frozen=True)
+class _FirmwareCancelStub:
+    """AsyncMock-wired ``db.firmware.cancel`` plus an :class:`asyncio.Event`.
+
+    The ``called`` event is set inside the mock's ``side_effect`` the
+    moment ``cancel`` is awaited on the receiver, so test bodies sync
+    on the wire round-trip via ``asyncio.wait_for(stub.called.wait(),
+    ...)`` rather than polling :attr:`AsyncMock.await_count` on a
+    sleep loop. Mirrors the ``capture_events`` /
+    ``_CapturedEvents.received`` pattern used elsewhere in the
+    harness.
+    """
+
+    mock: AsyncMock
+    called: asyncio.Event
+
+
+@pytest.fixture
+def receiver_firmware_cancel(paired_instances: PairedInstances) -> _FirmwareCancelStub:
+    """Stub ``db.firmware.cancel`` on the receiver and surface a wait primitive.
+
+    Every cancel test in this module stubs the same surface
+    (receiver-side firmware controller's ``cancel`` method) so
+    the wire round-trip's terminal step can be asserted without
+    standing up a real firmware queue. The fixture wires the
+    mock's ``side_effect`` to set an :class:`asyncio.Event` so
+    test bodies can ``await asyncio.wait_for(stub.called.wait(),
+    timeout=...)`` for deterministic synchronisation, then call
+    ``stub.mock.assert_awaited_once_with(...)`` /
+    ``stub.mock.assert_not_awaited()``.
+    """
+    called = asyncio.Event()
+
+    def _record_call(**kwargs: Any) -> None:
+        called.set()
+
+    cancel = AsyncMock(side_effect=_record_call)
+    paired_instances.receiver._db.firmware = MagicMock()
+    paired_instances.receiver._db.firmware.cancel = cancel
+    return _FirmwareCancelStub(mock=cancel, called=called)
+
+
 @pytest.mark.asyncio
 async def test_offloader_cancel_job_routes_to_receiver_firmware_cancel(
     paired_instances: PairedInstances,
+    receiver_firmware_cancel: _FirmwareCancelStub,
 ) -> None:
     """``cancel_job`` over the wire lands at ``firmware.cancel`` on the receiver.
 
@@ -74,9 +119,6 @@ async def test_offloader_cancel_job_routes_to_receiver_firmware_cancel(
     queue.
     """
     await paired_instances.wait_until_session_opened()
-    cancel_mock = AsyncMock()
-    paired_instances.receiver._db.firmware = MagicMock()
-    paired_instances.receiver._db.firmware.cancel = cancel_mock
     job = await _make_and_seed_remote_peer_job(paired_instances)
 
     result = await paired_instances.offloader.cancel_job(
@@ -85,21 +127,14 @@ async def test_offloader_cancel_job_routes_to_receiver_firmware_cancel(
     )
 
     assert result == {"sent": True}
-    # Wait for the wire round-trip; the cancel frame is sent
-    # fire-and-forget on the offloader side, decrypt + dispatch
-    # happens on the receiver's receive loop on its own task.
-    # Poll the mock's call list rather than a bus event because
-    # the receiver-side ``firmware.cancel`` is the assertion
-    # surface for this test, not a derived event.
-    deadline = asyncio.get_running_loop().time() + 2.0
-    while not cancel_mock.await_count and asyncio.get_running_loop().time() < deadline:
-        await asyncio.sleep(0.01)
-    cancel_mock.assert_awaited_once_with(job_id=job.job_id)
+    await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=2.0)
+    receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=job.job_id)
 
 
 @pytest.mark.asyncio
 async def test_offloader_cancel_job_full_round_trip_to_state_changed(
     paired_instances: PairedInstances,
+    receiver_firmware_cancel: _FirmwareCancelStub,
 ) -> None:
     """Cancel → simulated ``JOB_CANCELLED`` → ``OFFLOADER_JOB_STATE_CHANGED{cancelled}``.
 
@@ -121,9 +156,6 @@ async def test_offloader_cancel_job_full_round_trip_to_state_changed(
     terminal transition (no special cancel-only event type).
     """
     await paired_instances.wait_until_session_opened()
-    cancel_mock = AsyncMock()
-    paired_instances.receiver._db.firmware = MagicMock()
-    paired_instances.receiver._db.firmware.cancel = cancel_mock
     job = await _make_and_seed_remote_peer_job(paired_instances)
     state_changes = capture_events(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
@@ -134,10 +166,8 @@ async def test_offloader_cancel_job_full_round_trip_to_state_changed(
         job_id=job.remote_job_id,
     )
 
-    deadline = asyncio.get_running_loop().time() + 2.0
-    while not cancel_mock.await_count and asyncio.get_running_loop().time() < deadline:
-        await asyncio.sleep(0.01)
-    cancel_mock.assert_awaited_once_with(job_id=job.job_id)
+    await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=2.0)
+    receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=job.job_id)
 
     # Simulate the firmware queue's JOB_CANCELLED that the
     # stub didn't fire on its own.
@@ -153,6 +183,7 @@ async def test_offloader_cancel_job_full_round_trip_to_state_changed(
 @pytest.mark.asyncio
 async def test_offloader_cancel_job_unknown_correlation_drops_silently(
     paired_instances: PairedInstances,
+    receiver_firmware_cancel: _FirmwareCancelStub,
 ) -> None:
     """A cancel for an unknown ``job_id`` is silently dropped on the receiver.
 
@@ -172,9 +203,6 @@ async def test_offloader_cancel_job_unknown_correlation_drops_silently(
     the actual state.
     """
     await paired_instances.wait_until_session_opened()
-    cancel_mock = AsyncMock()
-    paired_instances.receiver._db.firmware = MagicMock()
-    paired_instances.receiver._db.firmware.cancel = cancel_mock
     # Deliberately skip the JOB_QUEUED seed so JobFanout's cache
     # has no correlation for the offloader's job_id below.
 
@@ -184,11 +212,13 @@ async def test_offloader_cancel_job_unknown_correlation_drops_silently(
     )
 
     assert result == {"sent": True}
-    # Yield the loop a few times to let any incorrectly-routed
-    # cancel land before asserting it didn't.
-    for _ in range(10):
-        await asyncio.sleep(0.01)
-    cancel_mock.assert_not_awaited()
+    # The receiver's handler logs-and-skips on the unknown
+    # correlation; no Event will ever fire. Wait briefly with
+    # ``asyncio.wait_for`` for the negative path — a timeout here
+    # is the success signal.
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=0.2)
+    receiver_firmware_cancel.mock.assert_not_awaited()
 
 
 # WS-layer error-mapping (CommandError(NOT_FOUND) /
