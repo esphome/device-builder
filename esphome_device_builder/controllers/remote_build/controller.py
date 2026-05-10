@@ -2234,23 +2234,18 @@ class RemoteBuildController:
     async def _build_submit_job_bundle(self, configuration: str) -> bytes:
         """Resolve *configuration* to a YAML path and build the bundle bytes.
 
-        Maps the two structured failure modes
-        (:class:`FileNotFoundError`, :class:`EsphomeError`) to
-        typed :class:`CommandError`. Anything else propagates
-        — the WS dispatcher's outer ``except Exception``
-        already surfaces unhandled exceptions as
-        ``INTERNAL_ERROR``.
-
-        Both ``EsphomeError`` and ``build_yaml_bundle`` are
-        imported inside the method so the cost of pulling in
-        esphome's heavy validation + bundle modules is paid on
-        first submit, not at controller-module import time.
-        Dashboards that never offload a build never pay for the
-        import.
+        Wraps :func:`helpers.config_bundle.build_yaml_bundle`
+        (which spawns the ``esphome bundle`` CLI). Maps the
+        two structured failure modes
+        (:class:`FileNotFoundError`, :class:`BundleBuildError`)
+        to typed :class:`CommandError`; anything else
+        propagates and lands as ``INTERNAL_ERROR`` via the WS
+        dispatcher's outer ``except Exception``.
         """
-        from esphome.core import EsphomeError  # noqa: PLC0415
-
-        from ...helpers.config_bundle import build_yaml_bundle  # noqa: PLC0415
+        from ...helpers.config_bundle import (  # noqa: PLC0415
+            BundleBuildError,
+            build_yaml_bundle,
+        )
 
         loop = asyncio.get_running_loop()
         yaml_path = await loop.run_in_executor(None, self._db.settings.rel_path, configuration)
@@ -2260,9 +2255,10 @@ class RemoteBuildController:
             raise CommandError(
                 ErrorCode.NOT_FOUND, f"submit_job: YAML not found: {configuration}"
             ) from exc
-        except EsphomeError as exc:
+        except BundleBuildError as exc:
             raise CommandError(
-                ErrorCode.INVALID_ARGS, f"submit_job: invalid YAML {configuration}: {exc}"
+                ErrorCode.INVALID_ARGS,
+                f"submit_job: bundle build failed for {configuration}: {exc.output or exc}",
             ) from exc
 
     @api_command("remote_build/submit_job")

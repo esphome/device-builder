@@ -1,106 +1,138 @@
 """
 Build a self-contained ESPHome bundle from a YAML on disk.
 
-Wraps :class:`esphome.bundle.ConfigBundleCreator` for the
-offloader-side ``submit_job`` flow (issue #106 phase 5c-3): the
-WS handler hands a YAML filename, this module returns the
-bundle bytes ready for chunking onto the peer-link.
+Wraps the ``esphome bundle <yaml> -o <tarball>`` CLI for the
+offloader-side ``submit_job`` flow (issue #106 phase 5c-3):
+the WS handler hands a YAML path, this module returns the
+gzipped-tar bytes ready for chunking onto the peer-link.
 
-ConfigBundleCreator + the upstream ``read_config`` it depends on
-both lean on global :data:`esphome.core.CORE` — ``CORE.config_path``,
-``CORE.config_dir``, ``CORE.config``. The dashboard sets
-``CORE.config_path`` to a sentinel YAML at startup
-(:mod:`controllers.config`); building a real bundle needs a
-temporary swap to the actual YAML path, so concurrent calls
-would race the global. :func:`build_yaml_bundle` serialises every
-call through a module-level :class:`asyncio.Lock` and runs the
-blocking work in an executor — same pattern the legacy dashboard
-used for its in-process compile-related helpers.
+Subprocess rather than in-process
+:class:`esphome.bundle.ConfigBundleCreator` so the bundle
+build:
 
-CORE state is restored in a ``finally`` so a downstream caller
-that depends on the dashboard sentinel (``ext_storage_path``,
-``CORE.data_dir``) sees the dashboard layout again as soon as
-the bundle call returns.
+* Doesn't depend on ESPHome's in-process API surface (which
+  evolves between releases — calling :func:`esphome.config.read_config`
+  + ``ConfigBundleCreator`` directly couples us to the
+  ``CORE`` global and the validation pipeline). The CLI's
+  ``bundle`` subcommand is part of the user-facing contract
+  and shifts much less.
+* Doesn't race the dashboard's own ``CORE.config_path`` —
+  every other controller path leans on ``CORE.config_path``
+  being set to the dashboard sentinel; mutating it in-process
+  would force a lock + save / restore dance and still leave
+  a window where a concurrent ``ext_storage_path`` reader
+  sees the wrong layout.
+* Matches the existing pattern the firmware controller uses
+  for every compile / upload (subprocess, same
+  :func:`_find_esphome_cmd` resolver), so a future ESPHome
+  bump only has to be validated against one integration
+  surface.
 
 Errors:
 
-* :class:`FileNotFoundError` from missing YAML — propagated; the
-  WS layer maps to ``CommandError(NOT_FOUND)``.
-* :class:`esphome.core.EsphomeError` (raised by ``read_config``
-  on schema-invalid YAML / missing includes / bad secrets) —
-  propagated; the WS layer maps to ``CommandError(INVALID_ARGS)``
-  with the message preserved for the user.
-* Any other exception from inside ``create_bundle`` is
-  propagated; the WS layer maps to ``CommandError(INTERNAL_ERROR)``.
+* :class:`FileNotFoundError` from missing YAML — propagated;
+  the WS layer maps to ``CommandError(NOT_FOUND)``.
+* :class:`BundleBuildError` — esphome bundle exited non-zero
+  (typically schema-invalid YAML, missing include, malformed
+  secret); the message carries stdout/stderr verbatim. The
+  WS layer maps to ``CommandError(INVALID_ARGS)`` so the
+  user sees the validator's diagnostic.
+* :class:`OSError` from the spawn itself (e.g. ``esphome``
+  not on PATH) propagates; the WS dispatcher's outer
+  ``except Exception`` surfaces it as ``INTERNAL_ERROR``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
 from pathlib import Path
 
-from esphome.bundle import ConfigBundleCreator
-from esphome.config import read_config
-from esphome.core import CORE
+from ..controllers.firmware.helpers import _find_esphome_cmd
+from .subprocess import create_subprocess_exec
 
 _LOGGER = logging.getLogger(__name__)
 
-# Process-wide guard around ``CORE`` mutation. Every consumer
-# of this module sees its bundle build serialised behind every
-# other consumer's, but bundle creation is dominated by tar
-# packing (sub-100ms on typical configs, seconds on big trees);
-# the lock contention vs. CPU work ratio is low. Module-level
-# rather than controller-level because :data:`CORE` is itself a
-# module-level singleton — no value in scoping the lock more
-# narrowly than the thing it's protecting.
-_CORE_LOCK = asyncio.Lock()
+# Bound for the ``esphome bundle`` subprocess. Bundle build
+# is dominated by ``read_config`` (parses every include,
+# resolves every component schema) + tar packing; a typical
+# ~50-file config completes in <2s, an exotic image-heavy
+# include tree can hit ~10s. 60s gives generous headroom for
+# a slow disk / contended CPU without letting a wedged
+# subprocess pin the offloader's submit handler forever.
+# Mismatch with the receiver-side
+# :data:`_SUBMIT_JOB_ACK_TIMEOUT_SECONDS` (also 60s) is
+# coincidental — these bound different stages of the flow.
+_BUNDLE_BUILD_TIMEOUT_SECONDS = 60.0
+
+
+class BundleBuildError(RuntimeError):
+    """``esphome bundle`` subprocess exited non-zero.
+
+    Carries the captured stdout/stderr in :attr:`output` so
+    the WS layer can surface the validator's diagnostic
+    verbatim to the user.
+    """
+
+    def __init__(self, message: str, *, output: str) -> None:
+        super().__init__(message)
+        self.output = output
 
 
 async def build_yaml_bundle(yaml_path: Path) -> bytes:
     """Build a gzipped-tar bundle for *yaml_path* and return its raw bytes.
 
-    Resolves *yaml_path*, validates the YAML through ESPHome's
-    own ``read_config`` (catches schema errors, missing
-    includes, malformed secrets), and packs the result + every
-    referenced file into a single tarball via
-    :class:`esphome.bundle.ConfigBundleCreator`.
+    Spawns ``esphome bundle <yaml_path> -o <tmp.tar.gz>``,
+    awaits completion, reads the resulting bytes back, and
+    deletes the temp file. The temp file lives in the
+    platform's default tmp dir (typically ``/tmp/`` or
+    ``$TMPDIR``); the dashboard never writes user-visible
+    files outside ``config_dir``.
 
-    Serialised on a module-level lock — concurrent callers
-    queue rather than race :data:`esphome.core.CORE` mutation.
-    The blocking work (read_config + tar packing) runs in the
-    default executor so the event loop stays responsive.
-    """
-    async with _CORE_LOCK:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _build_yaml_bundle_sync, yaml_path)
-
-
-def _build_yaml_bundle_sync(yaml_path: Path) -> bytes:
-    """Build the bundle synchronously; caller holds :data:`_CORE_LOCK`.
-
-    Saves the dashboard's previous ``CORE.config_path`` /
-    ``CORE.config`` and restores them in ``finally`` so a
-    follow-up :func:`helpers.config_hash.read_build_info_hash`
-    or any other CORE-dependent helper sees the same layout it
-    saw before the bundle call.
+    Cancellation-safe: the temp file is unlinked in a
+    ``finally`` regardless of how the function exits
+    (including ``CancelledError`` from the WS handler being
+    cancelled mid-build).
     """
     if not yaml_path.is_file():
         msg = f"YAML not found: {yaml_path}"
         raise FileNotFoundError(msg)
-    saved_config_path = CORE.config_path
-    saved_config = CORE.config
+    cmd = _find_esphome_cmd()
+    # ``delete=False`` because we close the FD immediately
+    # (the subprocess writes to the path), then unlink in the
+    # ``finally``. ``NamedTemporaryFile`` itself is just for
+    # the unique name + correct ``tempfile`` semantics
+    # (TMPDIR-aware on every platform).
+    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+        output_path = Path(tmp.name)
     try:
-        CORE.config_path = yaml_path
-        config = read_config({})
-        if config is None:
-            msg = f"read_config returned None for {yaml_path} (validation failed)"
-            raise RuntimeError(msg)
-        CORE.config = config
-        result = ConfigBundleCreator(config).create_bundle()
-        # ``BundleResult.data`` is ``bytes`` — cast through the
-        # method's untyped return so mypy sees the full chain.
-        return bytes(result.data)
+        proc = await create_subprocess_exec(
+            *cmd,
+            "bundle",
+            str(yaml_path),
+            "-o",
+            str(output_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            stdout_bytes, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=_BUNDLE_BUILD_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise BundleBuildError(
+                f"esphome bundle timed out after {_BUNDLE_BUILD_TIMEOUT_SECONDS:.0f}s",
+                output="",
+            ) from None
+        if proc.returncode != 0:
+            output = stdout_bytes.decode("utf-8", errors="replace").strip()
+            raise BundleBuildError(f"esphome bundle exited {proc.returncode}", output=output)
+        return output_path.read_bytes()
     finally:
-        CORE.config_path = saved_config_path
-        CORE.config = saved_config
+        try:
+            output_path.unlink()
+        except OSError:
+            _LOGGER.debug("failed to unlink temp bundle %s", output_path, exc_info=True)

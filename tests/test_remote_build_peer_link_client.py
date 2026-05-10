@@ -4471,8 +4471,10 @@ async def test_dispatch_job_output_drops_invalid_stream_literal() -> None:
 async def test_controller_submit_job_yaml_invalid_maps_to_invalid_args(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``EsphomeError`` from ``build_yaml_bundle`` lands as INVALID_ARGS."""
-    from esphome.core import EsphomeError  # noqa: PLC0415
+    """``BundleBuildError`` from ``build_yaml_bundle`` lands as INVALID_ARGS."""
+    from esphome_device_builder.helpers.config_bundle import (  # noqa: PLC0415
+        BundleBuildError,
+    )
 
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
@@ -4484,7 +4486,7 @@ async def test_controller_submit_job_yaml_invalid_maps_to_invalid_args(
     _seed_open_peer_link_client(offloader, pairing)
 
     async def _stub_build_bundle(_path: Path) -> bytes:
-        raise EsphomeError("schema validation failed")
+        raise BundleBuildError("subprocess exited 1", output="schema validation failed")
 
     monkeypatch.setattr(
         "esphome_device_builder.helpers.config_bundle.build_yaml_bundle",
