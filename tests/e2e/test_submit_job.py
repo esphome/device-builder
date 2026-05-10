@@ -6,12 +6,12 @@ Closes the gap that let the "Bundle file not found" regression
 :func:`esphome.bundle.prepare_bundle_for_compile`'s wipe step)
 ship despite the unit suite passing. The unit tests in
 ``tests/test_remote_build_submit_job.py`` stub
-:func:`prepare_bundle_for_compile` with a trivial pass-through,
-so the upstream wipe-then-extract semantics never ran against
-the production bundle layout; the e2e harness here drives the
-real upstream function against a real bundle written by the
-real receive loop, so a regression in that seam surfaces on the
-ack instead of in production.
+:func:`esphome.bundle.prepare_bundle_for_compile` with a
+trivial pass-through, so the upstream wipe-then-extract
+semantics never ran against the production bundle layout; the
+e2e harness here drives the real upstream function against a
+real bundle written by the real receive loop, so a regression
+in that seam surfaces on the ack instead of in production.
 
 The chain:
 
@@ -199,7 +199,10 @@ async def test_submit_job_round_trip_extracts_real_bundle_and_queues_job(
     assert job.remote_peer == paired_instances.offloader_dashboard_id
     assert job.remote_job_id == "off-job-1"
     assert job.job_type is JobType.COMPILE
-    paired_instances.receiver._db.firmware._enqueue.assert_awaited_once()
+    # Pin that the awaited _enqueue saw the same FirmwareJob
+    # _create_job built — assert_awaited_once() alone would
+    # accept a second enqueue of any object.
+    paired_instances.receiver._db.firmware._enqueue.assert_awaited_once_with(job)
 
     receiver_config_dir = paired_instances.receiver._db.settings.config_dir
     extracted_yaml = (
@@ -272,7 +275,14 @@ async def test_submit_job_round_trip_then_fanout_to_offloader_bus(
     # JobFanout's correlation cache; JOB_STARTED triggers the
     # fan-out frame.
     paired_instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=job))
-    await asyncio.sleep(0)
+    # JobFanout._on_queued is a sync bus listener — it runs
+    # inline inside fire() and populates the correlation cache
+    # before fire() returns. Pin that observable invariant here
+    # so a regression that makes _on_queued async (or schedules
+    # the cache update via a background task) trips this
+    # assertion instead of producing flaky CI behaviour at the
+    # JOB_STARTED fan-out check below.
+    assert job.job_id in paired_instances.receiver._job_fanout._remote_jobs
     paired_instances.receiver_bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=job))
 
     await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
