@@ -565,6 +565,134 @@ class PeerQueueStatusSnapshotEntry(TypedDict):
     queue_depth: int
 
 
+# 5c-1: submit_job + bundle chunking + job lifecycle frames.
+# These describe the on-the-wire shape; controller wiring lands
+# in 5c-2 (receiver) and 5c-3 (offloader).
+class SubmitJobFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.SUBMIT_JOB``.
+
+    Header sent by the offloader to announce a build before
+    streaming the bundle bytes. Carries the job's identity, the
+    target configuration filename (relative to the bundle's
+    extracted root, e.g. ``kitchen.yaml``), the build action
+    (compile / upload), and the total bundle size + chunk
+    count so the receiver can pre-size its assembler and reject
+    a mismatched stream cleanly without unbounded buffering.
+
+    ``bundle_sha256`` is the lowercase hex digest of the full
+    bundle bytes; the receiver verifies the assembled stream
+    against it before accepting the job. Cheap end-to-end
+    integrity check on top of the per-frame Noise AEAD;
+    catches a chunk-reassembly bug (e.g. a missed
+    ``is_last``) that AEAD wouldn't surface.
+    """
+
+    type: Literal["submit_job"]
+    job_id: str
+    configuration_filename: str
+    target: Literal["compile", "upload"]
+    total_bundle_bytes: int
+    num_chunks: int
+    bundle_sha256: str
+
+
+class SubmitJobChunkFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.SUBMIT_JOB_CHUNK``.
+
+    One slice of the bundle's gzipped tarball, carrying its
+    ordinal index (``chunk_index``) and a flag marking the last
+    chunk. Bytes are base64-encoded so the JSON envelope stays
+    valid; the receiver decodes back to raw bytes before
+    feeding the assembler. Chunks must arrive in monotonic
+    order; the assembler rejects out-of-order, duplicate, or
+    post-completion frames with a structured error so a
+    misbehaving offloader can be ``terminate``'d cleanly
+    instead of corrupting the on-disk extract.
+    """
+
+    type: Literal["submit_job_chunk"]
+    job_id: str
+    chunk_index: int
+    data_b64: str
+    is_last: bool
+
+
+class SubmitJobAckFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.SUBMIT_JOB_ACK``.
+
+    Receiver's response after the bundle stream completes (last
+    chunk seen + ``bundle_sha256`` matches). ``accepted`` is
+    ``False`` when the job can't be queued — bundle hash
+    mismatch, manifest version unsupported, queue full, etc.
+    ``reason`` carries the structured error code on rejection
+    and is omitted on accept. The offloader treats a missing
+    ack inside :data:`_SUBMIT_JOB_ACK_TIMEOUT_SECONDS` as a
+    transport failure and tears the session down; it does
+    **not** retry mid-session.
+    """
+
+    type: Literal["submit_job_ack"]
+    job_id: str
+    accepted: bool
+    reason: str  # NotRequired-on-accept; empty string when ``accepted=True``
+
+
+class JobStateChangedFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.JOB_STATE_CHANGED``.
+
+    Receiver-pushed lifecycle transitions for a remote-driven
+    job: ``queued`` (post-ack, before the runner picks it up),
+    ``running`` (the runner has the slot), ``completed`` /
+    ``failed`` / ``cancelled`` (terminal). One frame per
+    transition; the firmware controller's existing JOB_*
+    events drive the fan-out at the receiver-side wire layer
+    in 5c-2.
+
+    ``error_message`` is empty on non-terminal states and on
+    ``completed``; populated on ``failed`` / ``cancelled``
+    with a short human-readable string the offloader can
+    surface to the user. Detailed output (compile errors,
+    PlatformIO traces) flows separately through ``job_output``
+    so the offloader's UI can render the streaming view
+    without parsing the terminal frame.
+    """
+
+    type: Literal["job_state_changed"]
+    job_id: str
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    error_message: str
+
+
+class JobOutputFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.JOB_OUTPUT``.
+
+    Receiver-pushed line of build output. ``stream`` is
+    ``stdout`` for the normal compile / upload trace and
+    ``stderr`` for warnings / errors; the offloader can
+    style them differently when surfacing to the UI without
+    re-parsing. ``line`` carries one logical line, with the
+    trailing newline stripped (the wire stays byte-light, the
+    consumer adds whitespace at render time).
+
+    Frames flow at high rate during an active build (one per
+    line of compiler / linker output, easily 100+ frames per
+    second on a cold compile); the channel's per-frame Noise
+    AEAD overhead is the dominant cost. A future optimisation
+    can batch consecutive lines into one frame, but 5c-1 keeps
+    the wire shape one-line-per-frame for simplicity.
+    """
+
+    type: Literal["job_output"]
+    job_id: str
+    stream: Literal["stdout", "stderr"]
+    line: str
+
+
 @dataclass
 class StoredPeer(DataClassORJSONMixin):
     """

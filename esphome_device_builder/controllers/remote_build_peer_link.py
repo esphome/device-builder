@@ -204,16 +204,35 @@ class AppMessageType(StrEnum):
     transport frame via the established Noise session (one frame
     per WS message) before going on the wire.
 
-    5a-1 lands only the heartbeat + close types; 5b-5d add
-    ``queue_status`` / ``submit_job`` / ``job_state_changed`` /
-    ``job_output`` / ``cancel_job`` against the same dispatch
-    seam.
+    Bundle bytes ride inside JSON frames as base64-encoded
+    chunks (``submit_job_chunk``) rather than a parallel
+    binary-only path. The 33 % b64 overhead doesn't matter on
+    typical 5-50 KiB ESPHome bundles, and keeping every frame
+    JSON-shaped lets the dispatch seam stay uniform (one parse
+    branch, easier to trace). Profiling can motivate a binary
+    variant later if multi-MB bundles become common.
     """
 
     PING = "ping"
     PONG = "pong"
     TERMINATE = "terminate"
     QUEUE_STATUS = "queue_status"
+    # 5c-1: bundle upload + job lifecycle. ``submit_job`` is the
+    # offloader-initiated header (job_id + configuration +
+    # bundle metadata); the bundle bytes follow as one or more
+    # ``submit_job_chunk`` frames in monotonic order, the last
+    # carrying ``is_last=True``. The receiver replies with a
+    # single ``submit_job_ack`` (``accepted: bool`` plus an
+    # optional ``reason``) once the full bundle has reassembled.
+    # Mid-build, the receiver pushes ``job_state_changed``
+    # (lifecycle transitions) and ``job_output`` (per-line
+    # stdout/stderr) back to the offloader. Wired into the
+    # firmware queue + controller seams in 5c-2 / 5c-3.
+    SUBMIT_JOB = "submit_job"
+    SUBMIT_JOB_CHUNK = "submit_job_chunk"
+    SUBMIT_JOB_ACK = "submit_job_ack"
+    JOB_STATE_CHANGED = "job_state_changed"
+    JOB_OUTPUT = "job_output"
 
 
 async def make_peer_link_handler(
