@@ -1241,22 +1241,19 @@ class RemoteBuildController:
         for pairing in self._pairings.values():
             if pairing.status is PeerStatus.APPROVED:
                 self._spawn_peer_link_client(pairing)
-        # Bus-listener registration runs unconditionally — the
-        # zeroconf / device-controller gates below skip
-        # discovery-side work (the mDNS browser, advertiser
-        # name capture) when those subsystems aren't up, but
-        # the lifecycle listeners maintained here only need
-        # ``self._db.bus`` (always present) and feed
+        # Bus-listener registration runs unconditionally; the
+        # discovery-side bring-up (mDNS browser, advertiser name
+        # capture) is split into ``_start_discovery`` below and
+        # runs *last* so its zeroconf-availability gate can't
+        # shadow the listener registration. The listeners only
+        # need ``self._db.bus`` (always present) and feed
         # ``_open_peer_links`` / ``_offloader_alerts`` /
-        # ``_peer_queue_status`` / ``_offloader_remote_jobs``
-        # — none of which are zeroconf-driven. The earlier
-        # arrangement put listener registration after the
-        # zeroconf early-return; in test harnesses (and
-        # production paths where zeroconf failed to start) the
-        # listeners never wired and ``pairings_snapshot()``
-        # silently reported every paired session as
-        # ``connected=False`` because OFFLOADER_PEER_LINK_OPENED
-        # had nowhere to land.
+        # ``_peer_queue_status`` / ``_offloader_remote_jobs`` —
+        # none of which are zeroconf-driven, so this ordering
+        # invariant is what keeps ``pairings_snapshot()``'s
+        # ``connected`` projection working in test harnesses
+        # (and any production path where zeroconf failed to
+        # start).
         #
         # Subscribe to firmware-queue lifecycle events so every
         # transition broadcasts a fresh ``queue_status`` snapshot
@@ -1348,12 +1345,27 @@ class RemoteBuildController:
                 self._on_offloader_peer_link_closed,
             )
         )
+        self._start_discovery()
+
+    def _start_discovery(self) -> None:
+        """
+        Bring up the mDNS service browser for peer discovery.
+
+        Captures the dashboard's own service-instance name (so
+        our own advertise doesn't show up in ``list_hosts``) and
+        constructs the :class:`AsyncServiceBrowser` against the
+        shared zeroconf. Skips silently if either the devices
+        controller or its zeroconf isn't available (peer
+        discovery is opt-in fail-soft); on browser-construction
+        failure logs the exception and leaves :attr:`_browser`
+        as ``None``.
+        """
         if self._db.devices is None:
-            _LOGGER.debug("RemoteBuildController.start called before devices controller")
+            _LOGGER.debug("remote-build discovery skipped: devices controller unavailable")
             return
         zeroconf = self._db.devices.zeroconf
         if zeroconf is None:
-            _LOGGER.debug("zeroconf unavailable; remote-build discovery disabled")
+            _LOGGER.debug("remote-build discovery skipped: zeroconf unavailable")
             return
         # Capture own service-instance name so our own advertise
         # doesn't show up in ``list_hosts``. Reads through the
@@ -1364,11 +1376,10 @@ class RemoteBuildController:
         advertiser = self._db._dashboard_advertiser
         if advertiser is not None:
             self._own_instance_name = advertiser.service_instance_name
-        # Wrap browser construction so a zeroconf-side failure (e.g.
-        # the underlying socket got torn down between
-        # ``DeviceStateMonitor.start`` and now, or the cache is in an
-        # unexpected state) doesn't abort dashboard startup. Peer
-        # discovery is fail-soft; same contract as the advertise.
+        # Wrap browser construction so a zeroconf-side failure
+        # (e.g. the underlying socket got torn down between
+        # ``DeviceStateMonitor.start`` and now, or the cache is in
+        # an unexpected state) doesn't abort dashboard startup.
         try:
             self._browser = AsyncServiceBrowser(
                 zeroconf.zeroconf,
