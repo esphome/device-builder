@@ -409,8 +409,13 @@ async def test_rebind_probe_pin_mismatch_does_not_mutate(
     controller._cancel_peer_link_client.assert_not_called()
     controller._spawn_peer_link_client.assert_not_called()
     # No rebind event for a mismatch.
-    fire_calls = [c.args for c in controller._db.bus.fire.call_args_list]
-    assert (EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND, ...) not in fire_calls
+    # No rebind event for a mismatch — iterate the full call list
+    # because positional args alone don't make a stable equality
+    # match against an arbitrary payload dict.
+    assert not any(
+        call.args[0] is EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND
+        for call in controller._db.bus.fire.call_args_list
+    )
     # Cooldown stays in place: a permanent spoof source mustn't
     # trigger one probe per mDNS Updated burst.
     assert controller._rebind_probe_until[pin] == 9999.0

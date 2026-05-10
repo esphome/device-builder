@@ -1550,6 +1550,7 @@ class RemoteBuildController:
         self._pairings.clear()
         self._peer_queue_status.clear()
         self._open_peer_links.clear()
+        self._rebind_probe_until.clear()
         self._peers.clear()
         # Receiver-side APPROVED peers clear silently too —
         # unlike :meth:`_clear_pending_peers_on_window_close`
