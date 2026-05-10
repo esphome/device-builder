@@ -709,6 +709,234 @@ def test_maybe_schedule_rebind_probe_skips_without_priv(tmp_path: Path) -> None:
     assert pin not in controller._rebind_probe_until
 
 
+# ---------------------------------------------------------------------------
+# edit_pairing_endpoint WS command (8b: user-driven manual rebind)
+# ---------------------------------------------------------------------------
+#
+# Same probe + commit primitives the auto-rebind path uses
+# (``_probe_pairing_endpoint`` + ``_commit_endpoint_rebind``);
+# the validation-and-error-mapping prologue is what's distinct
+# per caller. Tests cover the ``CommandError`` mapping for each
+# failure mode the probe can return.
+
+
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_match_mutates_pairing_and_fires_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A successful probe rebinds the StoredPairing and returns the updated PairingSummary.
+
+    Mirrors :func:`test_rebind_probe_match_mutates_pairing_and_fires_event`
+    for the WS-driven path: same probe + commit epilogue,
+    different prologue. The user's typed coords land at the
+    same identity, the pairing's hostname/port mutate in
+    place, and the rebind event fires with the new coords.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    cancel, spawn = _patch_probe_internals(monkeypatch, controller, preview_return=pin)
+
+    summary = await controller.edit_pairing_endpoint(
+        pin_sha256=pin, hostname="new.local", port=7000
+    )
+
+    assert pairing.receiver_hostname == "new.local"
+    assert pairing.receiver_port == 7000
+    cancel.assert_called_once_with(pin)
+    spawn.assert_called_once_with(pairing)
+    controller._db.bus.fire.assert_any_call(
+        EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND,
+        {"pin_sha256": pin, "receiver_hostname": "new.local", "receiver_port": 7000},
+    )
+    # The returned summary projects the updated row.
+    assert summary.receiver_hostname == "new.local"
+    assert summary.receiver_port == 7000
+    assert summary.pin_sha256 == pin
+
+
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_pin_mismatch_raises_precondition_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe whose observed pin differs raises PRECONDITION_FAILED and leaves state alone.
+
+    User-driven analog of the auto-rebind's silent skip on pin
+    mismatch — we don't substitute a fresh pubkey under the
+    user's existing trust. The dialog renders the inline error;
+    the user can re-pair through 8a if they actually want the
+    new identity.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    cancel, spawn = _patch_probe_internals(monkeypatch, controller, preview_return="b" * 64)
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.edit_pairing_endpoint(pin_sha256=pin, hostname="spoofed.local", port=7000)
+
+    assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
+    # Diagnostic carries both observed and expected pins so the
+    # frontend can render a concrete "this endpoint answers
+    # with a different identity" message.
+    assert "b" * 64 in str(exc_info.value)
+    assert pin in str(exc_info.value)
+    assert pairing.receiver_hostname == "old.local"
+    assert pairing.receiver_port == 6058
+    cancel.assert_not_called()
+    spawn.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_unreachable_raises_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe that raises PeerLinkClientError raises UNAVAILABLE and leaves state alone."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    cancel, spawn = _patch_probe_internals(
+        monkeypatch,
+        controller,
+        preview_side_effect=rb.PeerLinkClientError("connect refused"),
+    )
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.edit_pairing_endpoint(
+            pin_sha256=pin, hostname="unreachable.local", port=7000
+        )
+
+    assert exc_info.value.code is ErrorCode.UNAVAILABLE
+    assert "connect refused" in str(exc_info.value)
+    assert pairing.receiver_hostname == "old.local"
+    assert pairing.receiver_port == 6058
+    cancel.assert_not_called()
+    spawn.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_unknown_pin_raises_not_found(tmp_path: Path) -> None:
+    """A pin with no stored pairing raises NOT_FOUND before the probe runs."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    controller._offloader_peer_link_priv = b"\x42" * 32
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.edit_pairing_endpoint(pin_sha256="a" * 64, hostname="any.local", port=7000)
+
+    assert exc_info.value.code is ErrorCode.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_pending_pairing_raises_precondition_failed(
+    tmp_path: Path,
+) -> None:
+    """A PENDING pairing raises PRECONDITION_FAILED before the probe runs.
+
+    Endpoint editing only makes sense for APPROVED pairings —
+    a PENDING row hasn't been blessed by the receiver-side
+    admin yet, so there's no live peer-link client to respawn
+    against new coords.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(
+        receiver_hostname="old.local", receiver_port=6058, status=PeerStatus.PENDING
+    )
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.edit_pairing_endpoint(pin_sha256=pin, hostname="new.local", port=7000)
+
+    assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "PENDING" in str(exc_info.value).upper() or "pending" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_same_endpoint_raises_precondition_failed(
+    tmp_path: Path,
+) -> None:
+    """No-op edit (new coords equal current) raises PRECONDITION_FAILED before the probe.
+
+    Catches a UI bug where the dialog Save fires with the
+    pre-filled values unchanged. The early raise avoids a
+    pointless network round-trip + a confusing "rebound to
+    the same coords" event on the bus.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.edit_pairing_endpoint(pin_sha256=pin, hostname="old.local", port=6058)
+
+    assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
+
+
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_skips_when_pairing_replaced_mid_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A re-pair under the same pin while the probe is in flight raises NOT_FOUND.
+
+    Race: ``unpair`` + ``request_pair`` for the same pin
+    replaces the dict entry with a fresh ``StoredPairing``.
+    The in-flight probe captured the OLD reference; on
+    completion the user-driven path raises NOT_FOUND so the
+    dialog re-renders against the new state on retry rather
+    than silently mutating the fresh entry.
+    """
+    pin = "a" * 64
+    old = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=old)
+    fresh = _valid_stored_pairing(receiver_hostname="user-typed.local", receiver_port=6060)
+
+    async def _replace_during_preview(**_kwargs: object) -> str:
+        # Simulate the in-flight re-pair: replace the dict entry
+        # with a fresh object before the probe applies its
+        # result.
+        controller._pairings[pin] = fresh
+        return pin
+
+    monkeypatch.setattr(rb, "peer_link_preview_pair", _replace_during_preview)
+    cancel = MagicMock()
+    spawn = MagicMock()
+    monkeypatch.setattr(controller, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller, "_spawn_peer_link_client", spawn)
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.edit_pairing_endpoint(pin_sha256=pin, hostname="new.local", port=7000)
+
+    assert exc_info.value.code is ErrorCode.NOT_FOUND
+    # Fresh pairing untouched.
+    assert fresh.receiver_hostname == "user-typed.local"
+    assert fresh.receiver_port == 6060
+    cancel.assert_not_called()
+    spawn.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_without_priv_raises_precondition_failed(
+    tmp_path: Path,
+) -> None:
+    """No offloader peer-link identity loaded raises PRECONDITION_FAILED.
+
+    Mirrors the auto-rebind's start-order guard: the probe
+    needs the offloader's static X25519 priv to drive the Noise
+    XX handshake. The auto path silently skips; the user path
+    surfaces a typed error so the frontend can render an
+    actionable message instead of leaving the dialog spinning.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    controller._offloader_peer_link_priv = None
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.edit_pairing_endpoint(pin_sha256=pin, hostname="new.local", port=7000)
+
+    assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
+
+
 def test_peer_from_service_info_parses_pin_and_remote_build_port() -> None:
     """TXT ``pin_sha256`` and ``remote_build_port`` flow through to ``RemoteBuildPeer``."""
     info = MagicMock()
