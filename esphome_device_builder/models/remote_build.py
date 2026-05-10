@@ -1259,6 +1259,18 @@ class PeerSummary(DataClassORJSONMixin):
 #    cost of a second source of truth alongside the
 #    dataclass annotations.
 #
+# Cap on :attr:`StoredPairing.esphome_version`. The validator
+# below rejects rows whose stored version exceeds this length;
+# the wire-extract path on the offloader side
+# (:func:`controllers.remote_build.peer_link_client._extract_receiver_esphome_version`)
+# applies the same cap before writing the field so a malicious
+# / buggy receiver can't poison the sidecar with a multi-MB
+# string that then fails to load on the next start. 64 chars is
+# generous for any real ``esphome.const.__version__``
+# (``"2026.5.0-dev"`` is 13 chars) — the cap is the "this isn't
+# a version string anymore" boundary, not a tight fit.
+PAIRING_VERSION_MAX_LEN = 64
+
 # :class:`StoredPairing` carries a schema because its
 # offloader-side write path is broader (user-controlled
 # ``request_pair`` args reach the controller through fewer
@@ -1319,7 +1331,7 @@ _PAIRING_VALIDATOR = vol.Schema(
         # PENDING row, or an old sidecar from before this field
         # existed); pick_build_path's version-compat gate
         # accepts empty as "unknown, fall through to compat".
-        vol.Required("esphome_version"): vol.All(str, vol.Length(max=64)),
+        vol.Required("esphome_version"): vol.All(str, vol.Length(max=PAIRING_VERSION_MAX_LEN)),
     }
 )
 
@@ -1407,7 +1419,8 @@ class StoredPairing(DataClassORJSONMixin):
     # post-handshake payload. Empty on a fresh PENDING row + on
     # APPROVED rows loaded from an older sidecar that predates
     # this field (``DataClassORJSONMixin.from_dict`` tolerates
-    # missing fields with non-empty defaults). The version
+    # missing fields with declared dataclass defaults; the empty
+    # string default below is what fills in). The version
     # refreshes on every reconnect — pick_build_path consumes
     # the in-RAM value so a receiver upgrade picks up on the
     # next session-open without operator action; the persisted

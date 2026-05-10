@@ -93,6 +93,7 @@ from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
 from ...helpers.storage import ShutdownCallback, Store
 from ...models import (
+    PAIRING_VERSION_MAX_LEN,
     TERMINAL_JOB_EVENTS,
     ErrorCode,
     EventType,
@@ -1795,13 +1796,22 @@ class RemoteBuildController:
         wire change, or a malformed response) leaves the stored
         value alone — clobbering with empty would lose the
         previously-captured version after a reconnect from an
-        older receiver mid-rollout.
+        older receiver mid-rollout. Values exceeding
+        :data:`PAIRING_VERSION_MAX_LEN` are also rejected: the
+        :class:`StoredPairing` validator caps at the same length
+        on disk-load, so persisting an oversize value through
+        the in-memory mutation path would survive until the next
+        sidecar load and then poison it. The wire-extract path
+        on the :class:`PeerLinkClient` side already caps before
+        firing this event; the listener-side guard is defense-
+        in-depth for any other future fire site of the same
+        event.
         """
         data = event.data
         pin_sha256 = data["pin_sha256"]
         self._open_peer_links.add(pin_sha256)
         version = data["esphome_version"]
-        if not version:
+        if not version or len(version) > PAIRING_VERSION_MAX_LEN:
             return
         pairing = self._pairings.get(pin_sha256)
         if pairing is None or pairing.esphome_version == version:

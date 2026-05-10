@@ -79,6 +79,7 @@ from esphome_device_builder.helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from esphome_device_builder.models import (
+    PAIRING_VERSION_MAX_LEN,
     ErrorCode,
     EventType,
     IntentResponse,
@@ -1149,17 +1150,29 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
         ({"esphome_version": 12345}, ""),
         ({"esphome_version": None}, ""),
         ({"esphome_version": {"nested": "shape"}}, ""),
+        # At the cap: 64-char version exactly matches the
+        # validator's max; flows through unchanged.
+        ({"esphome_version": "x" * PAIRING_VERSION_MAX_LEN}, "x" * PAIRING_VERSION_MAX_LEN),
+        # One past the cap: a buggy / malicious receiver trying
+        # to poison the sidecar. The wire seam returns empty
+        # rather than firing OPENED with an oversize value that
+        # would survive the in-memory mutation path and then
+        # fail the next StoredPairing.from_dict on a real disk
+        # load.
+        ({"esphome_version": "x" * (PAIRING_VERSION_MAX_LEN + 1)}, ""),
     ],
 )
 def test_extract_receiver_esphome_version_branches(response: dict[str, Any], expected: str) -> None:
-    """Helper handles missing / non-string / valid response shapes.
+    """Helper handles missing / non-string / oversize / valid response shapes.
 
     Pins the post-handshake response → ``StoredPairing.esphome_version``
     seam: a valid string flows through unchanged; missing field
-    (older receiver) and malformed shapes (non-string from a
-    buggy peer) both fall back to empty so pick_build_path's
-    compat gate sees "unknown" rather than a type error from
-    deep inside the validator chain.
+    (older receiver), malformed shapes (non-string from a buggy
+    peer), and oversize strings (peer-controlled wire data that
+    exceeds the validator's cap) all fall back to empty so
+    pick_build_path's compat gate sees "unknown" rather than
+    propagating into the next StoredPairing load and poisoning
+    the sidecar.
     """
     assert _extract_receiver_esphome_version(response) == expected
 
@@ -1230,6 +1243,18 @@ async def test_peer_link_opened_refreshes_stored_pairing_version(
     # empty version: leave the stored value alone so a mixed-
     # version rollout doesn't lose the captured version.
     offloader._on_offloader_peer_link_opened(_opened(""))
+    assert pairing.esphome_version == "2026.6.0"
+    assert len(save_calls) == 2
+
+    # Oversize version (peer-controlled wire data exceeding the
+    # StoredPairing validator's cap): the listener-side guard
+    # rejects so the in-memory mutation path can't persist a
+    # value that the disk-load validator would reject on the
+    # next start. Wire seam already filters in
+    # _extract_receiver_esphome_version; the listener gate is
+    # defense-in-depth for any other future fire site of the
+    # same event.
+    offloader._on_offloader_peer_link_opened(_opened("x" * (PAIRING_VERSION_MAX_LEN + 1)))
     assert pairing.esphome_version == "2026.6.0"
     assert len(save_calls) == 2
 

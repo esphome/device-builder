@@ -60,6 +60,7 @@ from ...helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ...models import (
+    PAIRING_VERSION_MAX_LEN,
     ArtifactsChunkFrameData,
     ArtifactsEndFrameData,
     ArtifactsStartFrameData,
@@ -204,10 +205,15 @@ def _extract_receiver_esphome_version(response: dict[str, Any]) -> str:
     Returns:
         The receiver's ``esphome.const.__version__`` as a string,
         or ``""`` when the field is missing (older receiver
-        predating this wire change) or not a string (malformed
-        response — defense-in-depth gate so a non-string value
-        from a buggy peer doesn't propagate as a type error into
-        :class:`StoredPairing`'s validator).
+        predating this wire change), not a string (malformed
+        response from a buggy peer), or exceeds
+        :data:`PAIRING_VERSION_MAX_LEN` (a malicious / buggy
+        peer trying to poison the sidecar — the
+        :class:`StoredPairing` validator caps at the same length
+        on disk-load, so a longer value would persist through
+        the in-memory mutation path and then fail the next load
+        of the persisted sidecar). The cap mirrors the validator
+        so the wire seam and the disk seam can't drift apart.
 
     Empty flows through as "unknown" — pick_build_path's gate
     treats unknown as compatible (silent-fallback semantic; the
@@ -216,6 +222,8 @@ def _extract_receiver_esphome_version(response: dict[str, Any]) -> str:
     """
     value = response.get("esphome_version", "")
     if not isinstance(value, str):
+        return ""
+    if len(value) > PAIRING_VERSION_MAX_LEN:
         return ""
     return value
 
