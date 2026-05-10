@@ -1022,12 +1022,13 @@ class PeerLinkClient:
     def _require_open_channel(self, *, label: str) -> PeerLinkChannel:
         """Return the live :class:`PeerLinkChannel` or raise :class:`PeerLinkNoSessionError`.
 
-        ``label`` is folded into the exception message so the
-        caller (today: ``submit_job``) names itself in the
-        no-session log line. Lifted out of :meth:`submit_job`
-        so future application-message senders that need the
-        same "session live or fail fast" check share one
-        implementation.
+        ``label`` is folded into the exception message so each
+        caller (``submit_job`` from 5c-3, ``cancel_job`` from
+        5d) names itself in the no-session log line. Every
+        application-message sender that needs a live session
+        flows through this single check; a future sender
+        inherits the same exception class + WS-layer mapping
+        without duplicating the channel-presence test.
         """
         channel = self._active_channel
         if channel is None:

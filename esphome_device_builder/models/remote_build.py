@@ -899,11 +899,16 @@ class CancelJobFrameData(TypedDict):
     with ``status="cancelled"`` is the confirmation the
     offloader already plumbs through
     :attr:`EventType.OFFLOADER_JOB_STATE_CHANGED`. A
-    cancel-of-already-terminal job lands as a no-op at the
-    firmware queue layer and surfaces no extra event; a
-    cancel-of-unknown-job is debug-logged at the receiver and
-    dropped (typically a race between offloader send and
-    receiver-side terminal transition).
+    cancel-of-already-terminal job raises
+    :class:`CommandError(INVALID_ARGS)` inside
+    :meth:`FirmwareController.cancel` which the handler
+    swallows + debug-logs — the receiver was about to (or
+    already has) emitted the natural terminal event and no
+    further wire activity is needed. A cancel-of-unknown-job
+    is debug-logged at the receiver and dropped (typically a
+    race between offloader send and receiver-side terminal
+    transition that already evicted the
+    :class:`JobFanout` correlation entry).
     """
 
     type: Literal["cancel_job"]

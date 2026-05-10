@@ -38,6 +38,7 @@ from esphome_device_builder.controllers.remote_build import RemoteBuildControlle
 from esphome_device_builder.controllers.remote_build import (
     peer_link as _peer_link_module,
 )
+from esphome_device_builder.controllers.remote_build.job_fanout import JobFanout
 from esphome_device_builder.controllers.remote_build.peer_link import (
     _PEER_LABEL_MAX_CHARS,
     APP_FRAME_MAX_BYTES,
@@ -63,6 +64,7 @@ from esphome_device_builder.controllers.remote_build.submit_job import (
     SubmitJobReceiver,
 )
 from esphome_device_builder.helpers import json as _json
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.peer_link_identity import (
     get_or_create_peer_link_identity,
 )
@@ -72,6 +74,7 @@ from esphome_device_builder.helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from esphome_device_builder.models import (
+    ErrorCode,
     IntentResponse,
     PeerLinkIntent,
     StoredPeer,
@@ -1995,9 +1998,6 @@ async def test_run_peer_link_heartbeat_propagates_cancellation(
 # ---------------------------------------------------------------------------
 
 
-from esphome_device_builder.controllers.remote_build.job_fanout import JobFanout  # noqa: E402
-
-
 def _make_receiver_with_fanout(tmp_path: Path) -> RemoteBuildController:
     """Build a receiver controller with a wired-but-not-started JobFanout.
 
@@ -2005,8 +2005,6 @@ def _make_receiver_with_fanout(tmp_path: Path) -> RemoteBuildController:
     simulate the state the controller would be in after a
     real ``submit_job`` had queued a remote job.
     """
-    from .conftest import make_remote_build_controller  # noqa: PLC0415
-
     controller = make_remote_build_controller(config_dir=tmp_path)
     controller._db.firmware = MagicMock()
     controller._db.firmware.cancel = AsyncMock()
@@ -2080,9 +2078,6 @@ async def test_handle_cancel_job_malformed_frame_drops_silently(tmp_path: Path) 
 @pytest.mark.asyncio
 async def test_handle_cancel_job_swallows_firmware_command_error(tmp_path: Path) -> None:
     """A ``CommandError`` from ``firmware.cancel`` (e.g. already-terminal) is swallowed."""
-    from esphome_device_builder.helpers.api import CommandError  # noqa: PLC0415
-    from esphome_device_builder.models import ErrorCode  # noqa: PLC0415
-
     controller = _make_receiver_with_fanout(tmp_path)
     assert controller._job_fanout is not None
     controller._job_fanout._remote_jobs["fw-abc"] = ("offloader-1", "j-1")
