@@ -417,6 +417,43 @@ class _RebindProbeResult:
     transport_error: PeerLinkClientError | None = None
 
 
+# Dispatch table mapping a non-OK probe outcome to the typed
+# :class:`CommandError` shape :meth:`edit_pairing_endpoint`
+# raises for it. Each entry is ``(error_code, message_template)``;
+# the template uses ``str.format`` with the keyword args
+# ``host`` / ``port`` / ``pin`` / ``observed`` / ``error`` (all
+# pre-formatted at call time so the templates stay declarative).
+# Keeps the four probe-failure raise sites in
+# :meth:`edit_pairing_endpoint` collapsed to one ``raise`` instead
+# of four near-identical ``if … raise`` blocks.
+_EDIT_PAIRING_PROBE_ERRORS: dict[_RebindProbeOutcome, tuple[ErrorCode, str]] = {
+    _RebindProbeOutcome.UNREACHABLE: (
+        ErrorCode.UNAVAILABLE,
+        "edit_pairing_endpoint: {host}:{port} unreachable: {error}",
+    ),
+    _RebindProbeOutcome.PIN_MISMATCH: (
+        # Different identity at the new coords. Leaves the
+        # stored pairing untouched — the user's existing trust
+        # is keyed on the original pin; substituting a fresh
+        # pubkey under that trust is the case 8a's re-auth
+        # wizard exists specifically to gate. The message
+        # carries both observed and stored pin so the dialog
+        # can render the "different identity at this endpoint"
+        # copy and route the user to re-pair.
+        ErrorCode.PRECONDITION_FAILED,
+        "edit_pairing_endpoint: {host}:{port} answers with pin {observed!r}, not stored {pin!r}",
+    ),
+    _RebindProbeOutcome.PAIRING_REPLACED: (
+        ErrorCode.NOT_FOUND,
+        "edit_pairing_endpoint: pairing for pin_sha256={pin!r} changed during probe; please retry",
+    ),
+    _RebindProbeOutcome.STATUS_CHANGED: (
+        ErrorCode.PRECONDITION_FAILED,
+        "edit_pairing_endpoint: pairing status changed during probe",
+    ),
+}
+
+
 def _validate_hostname(
     raw: object, *, context: _HostFieldContext = _HostFieldContext.RECEIVER
 ) -> str:
@@ -2913,35 +2950,25 @@ class RemoteBuildController:
         result = await self._probe_pairing_endpoint(
             pairing=pairing, new_hostname=clean_host, new_port=clean_port
         )
-        if result.outcome is _RebindProbeOutcome.UNREACHABLE:
-            msg = (
-                f"edit_pairing_endpoint: {clean_host}:{clean_port} unreachable: "
-                f"{result.transport_error}"
+        if result.outcome is not _RebindProbeOutcome.OK:
+            # Table-driven dispatch: every non-OK probe outcome
+            # maps to a typed :class:`CommandError` via
+            # :data:`_EDIT_PAIRING_PROBE_ERRORS`. Templates take
+            # all five format keys; unused ones are ignored by
+            # :meth:`str.format`. Keeps the rationale for each
+            # failure mode at the table site instead of buried
+            # in a four-branch chain.
+            code, template = _EDIT_PAIRING_PROBE_ERRORS[result.outcome]
+            raise CommandError(
+                code,
+                template.format(
+                    host=clean_host,
+                    port=clean_port,
+                    pin=pin,
+                    observed=result.observed_pin,
+                    error=result.transport_error,
+                ),
             )
-            raise CommandError(ErrorCode.UNAVAILABLE, msg)
-        if result.outcome is _RebindProbeOutcome.PIN_MISMATCH:
-            # Different identity at the new coords. Leave the
-            # stored pairing untouched — the user's existing
-            # trust is keyed on the original pin; substituting
-            # a fresh pubkey under that trust is the case 8a's
-            # re-auth wizard exists specifically to gate. Surface
-            # the diagnostic so the dialog can render the
-            # "different identity at this endpoint" copy and
-            # route the user to re-pair.
-            msg = (
-                f"edit_pairing_endpoint: {clean_host}:{clean_port} answers with pin "
-                f"{result.observed_pin!r}, not stored {pin!r}"
-            )
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-        if result.outcome is _RebindProbeOutcome.PAIRING_REPLACED:
-            msg = (
-                f"edit_pairing_endpoint: pairing for pin_sha256={pin!r} changed "
-                f"during probe; please retry"
-            )
-            raise CommandError(ErrorCode.NOT_FOUND, msg)
-        if result.outcome is _RebindProbeOutcome.STATUS_CHANGED:
-            msg = "edit_pairing_endpoint: pairing status changed during probe"
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
         self._commit_endpoint_rebind(pairing, hostname=clean_host, port=clean_port)
         return self._pairing_summary_for(pairing)
 
