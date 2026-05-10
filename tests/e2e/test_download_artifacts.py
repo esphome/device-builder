@@ -24,23 +24,27 @@ The chain (happy path):
                        →  ``ArtifactsDownloadSender.handle_download_artifacts``
                           resolves ``(remote_peer, remote_job_id)``
                           via linear scan over ``firmware._jobs``,
-                          packs the artifacts, streams
-                          ``artifacts_start`` → ``artifacts_chunk``
-                          → ``artifacts_end{accepted: true}``
+                          calls real :func:`_pack_build_artifacts`
+                          (StorageJSON sidecar + ``idedata.json``
+                          + per-image bytes read off the autouse
+                          fixture's ``tmp_path / .esphome / ...``
+                          tree), streams ``artifacts_start`` →
+                          ``artifacts_chunk`` →
+                          ``artifacts_end{accepted: true}``
                        →  offloader-side dispatchers (one per
                           frame type) fill the per-job future
                           the awaiter is parked on
                        →  WS command unpacks the tarball into
                           ``{job_id, idedata, images, total_bytes}``
 
-The receiver-side :func:`_pack_build_artifacts` is stubbed with
-a synthetic tarball: building a real one would require a
-StorageJSON sidecar + cached ``idedata.json`` + a real
-firmware binary on disk, none of which the e2e harness needs to
-stand up. The tarball still carries the canonical layout the
-production packer emits (idedata.json first, firmware.bin,
-then every ``extra.flash_images[].path`` basename) so the
-offloader-side unpack runs against the real wire bytes.
+The happy-path test runs the real packer (no monkeypatch) by
+writing a real :class:`StorageJSON` sidecar +
+``idedata/<name>.json`` + per-image binaries under
+``tmp_path / .esphome / ...`` (the layout the autouse
+``_core_config_path_in_tmp`` fixture in ``tests/conftest.py``
+pins ``CORE.data_dir`` to). Soft-reject tests don't need the
+packer to run; they short-circuit on the receiver's
+``_find_remote_job`` / status gate.
 
 The receiver's ``db.firmware._jobs`` map is seeded with a
 synthetic :class:`FirmwareJob` whose
@@ -54,16 +58,11 @@ the linear scan is the same shape as production.
 from __future__ import annotations
 
 import base64
-import io
 import json
-import tarfile
-from typing import Any
+from pathlib import Path
 
 import pytest
 
-from esphome_device_builder.controllers.remote_build.artifacts_download import (
-    _PackedArtifacts,
-)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     ErrorCode,
@@ -72,6 +71,7 @@ from esphome_device_builder.models import (
     JobType,
 )
 
+from .._storage_fixtures import write_storage_json
 from .conftest import PairedInstances
 
 
@@ -107,78 +107,111 @@ def _seed_firmware_job(
     return job
 
 
-def _build_artifacts_tarball() -> bytes:
-    """Build the canonical artifacts-tarball layout for stubbing the packer.
+def _write_build_artifacts_on_disk(tmp_path: Path) -> dict[str, bytes]:
+    """Lay down a real StorageJSON sidecar + idedata.json + per-image binaries.
 
-    Mirrors :func:`_pack_build_artifacts`'s production layout:
-    ``idedata.json`` first (so the offloader-side unpack can
-    parse the manifest before walking the binaries), then
-    ``firmware.bin``, then every ``extra.flash_images[].path``
-    basename. Receiver-side paths in ``idedata`` are absolute
-    (matching what upstream esphome writes) so the offloader-
-    side basename rewrite is exercised end-to-end.
+    The autouse ``_core_config_path_in_tmp`` fixture pins
+    ``CORE.config_path = tmp_path / ___DASHBOARD_SENTINEL___.yaml``
+    so ``CORE.data_dir`` resolves to ``tmp_path / .esphome``;
+    this helper writes:
+
+    * ``tmp_path/.esphome/storage/kitchen.yaml.json`` — the
+      :class:`StorageJSON` sidecar
+      :func:`StorageJSON.load` reads on the receiver-side
+      packer's first move. ``target_platform=esp32`` so
+      :func:`_firmware_offset_for_platform` lands on
+      ``0x10000``; ``firmware_bin_path`` points at the real
+      file written below.
+    * ``tmp_path/.esphome/idedata/kitchen.json`` — the
+      :class:`IDEData`-shaped manifest, with
+      ``extra.flash_images`` carrying absolute paths to the
+      bootloader / partitions binaries.
+    * The per-image binaries themselves
+      (``firmware.bin`` / ``bootloader.bin`` /
+      ``partitions.bin``) under ``tmp_path / build /``.
+
+    Returns ``{basename: bytes}`` so the test can assert the
+    real-disk bytes round-tripped through the wire envelope
+    verbatim.
     """
-    idedata: dict[str, Any] = {
+    build_dir = tmp_path / "build"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    images: dict[str, bytes] = {
+        "firmware.bin": b"firmware-bin-bytes",
+        "bootloader.bin": b"bootloader-bytes",
+        "partitions.bin": b"partitions-bytes",
+    }
+    image_paths: dict[str, Path] = {}
+    for name, payload in images.items():
+        path = build_dir / name
+        path.write_bytes(payload)
+        image_paths[name] = path
+
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=image_paths["firmware.bin"],
+        # Sidecar's ``target_platform`` drives
+        # ``_firmware_offset_for_platform``; force esp32 so the
+        # asserted ``firmware_offset == "0x10000"`` is the
+        # receiver-resolved value rather than the ESP8266 / RP2040
+        # fallback.
+        overrides={"target_platform": "esp32"},
+    )
+
+    idedata_dir = tmp_path / ".esphome" / "idedata"
+    idedata_dir.mkdir(parents=True, exist_ok=True)
+    idedata = {
         "extra": {
             "flash_images": [
-                {"path": "/r/build/bootloader.bin", "offset": "0x1000"},
-                {"path": "/r/build/partitions.bin", "offset": "0x8000"},
+                {"path": str(image_paths["bootloader.bin"]), "offset": "0x1000"},
+                {"path": str(image_paths["partitions.bin"]), "offset": "0x8000"},
             ]
         }
     }
-    idedata_bytes = json.dumps(idedata).encode("utf-8")
-    members: list[tuple[str, bytes]] = [
-        ("idedata.json", idedata_bytes),
-        ("firmware.bin", b"firmware-bin-bytes"),
-        ("bootloader.bin", b"bootloader-bytes"),
-        ("partitions.bin", b"partitions-bytes"),
-    ]
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for name, data in members:
-            info = tarfile.TarInfo(name=name)
-            info.size = len(data)
-            tar.addfile(info, io.BytesIO(data))
-    return buf.getvalue()
+    # Idedata filename uses ``StorageJSON.name`` (stem), not the
+    # full configuration filename. ``write_storage_json`` defaults
+    # ``name`` to ``Path(configuration).stem`` so we mirror that
+    # here.
+    (idedata_dir / "kitchen.json").write_text(json.dumps(idedata), encoding="utf-8")
+    return images
 
 
 @pytest.mark.asyncio
 async def test_download_artifacts_round_trip_returns_unpacked_images(
     paired_instances: PairedInstances,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """``download_artifacts`` → real wire stream → unpacked ``{idedata, images, …}``.
 
-    Pins the happy-path round-trip. The receiver packs the
-    artifacts (stubbed packer, but the result rides through
-    every other production step — Noise AEAD encrypt, frame
-    chunking via :func:`chunk_bundle`, post-assembly SHA-256
-    verification on the offloader, basename rewrite of
-    ``extra.flash_images[].path``). Assertions cover the wire-
-    shape contract end-to-end:
+    Pins the happy-path round-trip. Every production step runs:
+    receiver-side :func:`_pack_build_artifacts` reads the real
+    StorageJSON sidecar + ``idedata.json`` + per-image bytes
+    off ``tmp_path / .esphome / ...`` (laid down by
+    :func:`_write_build_artifacts_on_disk`), packs them into a
+    real gzipped tarball, the receiver chunks + streams it
+    via real Noise AEAD frames, the offloader's
+    :class:`BundleAssembler` reassembles + SHA-256 verifies,
+    the WS command unpacks the tarball into the structured
+    response with ``extra.flash_images[].path`` rewritten from
+    receiver-absolute to bare basenames.
+
+    Assertions cover the wire-shape contract end-to-end:
 
     * ``idedata.extra.flash_images[].path`` rewritten from
       receiver-absolute to bare basenames the in-tarball
       entries match.
     * ``images`` is ``firmware.bin`` first (with the
-      ``firmware_offset`` the receiver placed on the start
-      frame), then every extra in declared order.
+      receiver-resolved ``firmware_offset`` from
+      :func:`_firmware_offset_for_platform`), then every
+      extra in declared order.
     * Per-image bytes round-trip verbatim through the base64
       wire envelope.
     * ``total_bytes`` is the sum of every image's ``size``.
     """
     await paired_instances.wait_until_session_opened()
     job = _seed_firmware_job(paired_instances)
-
-    tarball = _build_artifacts_tarball()
-
-    def _fake_pack(_configuration: str) -> _PackedArtifacts:
-        return _PackedArtifacts(tarball=tarball, firmware_offset="0x10000")
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download._pack_build_artifacts",
-        _fake_pack,
-    )
+    images = _write_build_artifacts_on_disk(tmp_path)
 
     result = await paired_instances.offloader.download_artifacts(
         pin_sha256=paired_instances.pin_sha256,
@@ -194,19 +227,18 @@ async def test_download_artifacts_round_trip_returns_unpacked_images(
             ]
         }
     }
-    images = result["images"]
-    assert [img["name"] for img in images] == [
+    response_images = result["images"]
+    assert [img["name"] for img in response_images] == [
         "firmware.bin",
         "bootloader.bin",
         "partitions.bin",
     ]
-    assert images[0]["offset"] == "0x10000"
-    assert images[1]["offset"] == "0x1000"
-    assert images[2]["offset"] == "0x8000"
-    assert base64.b64decode(images[0]["data_b64"]) == b"firmware-bin-bytes"
-    assert base64.b64decode(images[1]["data_b64"]) == b"bootloader-bytes"
-    assert base64.b64decode(images[2]["data_b64"]) == b"partitions-bytes"
-    assert result["total_bytes"] == sum(int(img["size"]) for img in images)
+    assert response_images[0]["offset"] == "0x10000"
+    assert response_images[1]["offset"] == "0x1000"
+    assert response_images[2]["offset"] == "0x8000"
+    for img in response_images:
+        assert base64.b64decode(img["data_b64"]) == images[img["name"]]
+    assert result["total_bytes"] == sum(int(img["size"]) for img in response_images)
 
 
 @pytest.mark.asyncio
