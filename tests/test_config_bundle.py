@@ -12,6 +12,7 @@ pre-check) is exercised without invoking real ESPHome.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +50,14 @@ def _install_fake_subprocess(
             except IndexError:  # pragma: no cover — defensive
                 output_path = None
             else:
-                output_path.write_bytes(output_bytes)
+                # ``write_bytes`` is a blocking syscall; the
+                # production helper materialises bytes via the
+                # real esphome subprocess (no event-loop block),
+                # so the fake has to mirror that by deferring
+                # the write to a worker thread. blockbuster on
+                # Linux CI catches direct ``write_bytes`` on the
+                # loop.
+                await asyncio.to_thread(output_path.write_bytes, output_bytes)
         return CapturedSubprocess(returncode=returncode, stdout=stdout, timed_out=timed_out)
 
     monkeypatch.setattr(config_bundle, "run_subprocess_capture", _fake)
