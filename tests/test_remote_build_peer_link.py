@@ -2076,6 +2076,29 @@ async def test_handle_cancel_job_malformed_frame_drops_silently(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_handle_cancel_job_before_controller_started_drops_silently(
+    tmp_path: Path,
+) -> None:
+    """A cancel_job arriving before :meth:`start` ran is dropped silently.
+
+    Defensive branch — covers the cold-start race where the
+    peer-link listener could (in theory) accept a session
+    before the controller's ``start`` has wired up
+    ``_job_fanout`` and the firmware controller reference.
+    In production the listener doesn't bind until ``start``
+    completes, but the guard surfaces the dependency
+    explicitly.
+    """
+    controller = _make_receiver_with_fanout(tmp_path)
+    controller._job_fanout = None  # simulate pre-start
+    await controller.handle_cancel_job(
+        _cancel_session(dashboard_id="offloader-1"),
+        {"type": "cancel_job", "job_id": "j-1"},
+    )
+    controller._db.firmware.cancel.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_handle_cancel_job_swallows_firmware_command_error(tmp_path: Path) -> None:
     """A ``CommandError`` from ``firmware.cancel`` (e.g. already-terminal) is swallowed."""
     controller = _make_receiver_with_fanout(tmp_path)
