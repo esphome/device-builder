@@ -1690,6 +1690,89 @@ async def test_run_peer_link_heartbeat_terminates_on_send_failure(
 
 
 @pytest.mark.asyncio
+async def test_run_peer_link_session_heartbeat_closures_route_to_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The closures wired into ``run_peer_link_heartbeat`` route to the live session.
+
+    Covers the receiver-side ``_send_ping`` and ``_on_dead``
+    closure bodies inside :func:`_run_peer_link_session` (the
+    short two-line wrappers that translate the heartbeat helper's
+    callback contract onto the session's
+    :meth:`PeerLinkSession.send_app_frame` and
+    :meth:`PeerLinkSession.terminate`). The other heartbeat tests
+    drive :func:`run_peer_link_heartbeat` directly with stubbed
+    callbacks and so don't touch these wrappers.
+
+    Captures both callbacks via a stub heartbeat, fires them, and
+    asserts the wire effects: a ``ping`` frame on the WS for
+    ``send_ping``, and a ``terminate{heartbeat_timeout}`` frame
+    plus a CLOSE for ``on_dead``.
+    """
+    initiator, responder = _noise_pair()
+    parked = asyncio.Event()
+
+    class _ParkingWs(_FakeWs):
+        async def __anext__(self) -> WSMessage:
+            # Block ``_receive_loop`` so the heartbeat task gets a
+            # turn to capture the callbacks before the session's
+            # lifecycle ends. Cancellation of the run task wakes
+            # the wait via :class:`CancelledError`.
+            await parked.wait()
+            raise StopAsyncIteration
+
+    ws = _ParkingWs()
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    captured: dict[str, Any] = {}
+
+    async def _capturing_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+        captured["send_ping"] = send_ping
+        captured["on_dead"] = on_dead
+        # Park until the test signals via cancellation.
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(_peer_link_module, "run_peer_link_heartbeat", _capturing_heartbeat)
+
+    run_task = asyncio.create_task(
+        _peer_link_module._run_peer_link_session(
+            controller=controller,
+            ws=ws,  # type: ignore[arg-type]
+            session=responder,
+            dashboard_id="alpha",
+            peer_ip="127.0.0.1",
+        )
+    )
+    # Wait for ``_run_peer_link_session`` to register, kick off the
+    # heartbeat, and park on ``_receive_loop``. A few ticks is
+    # enough — there's no I/O on this path.
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if "send_ping" in captured:
+            break
+    assert "send_ping" in captured, "heartbeat helper was never invoked"
+
+    # Exercise ``_send_ping`` — the closure encrypts and sends a
+    # ping frame through ``send_app_frame``.
+    ok = await captured["send_ping"](7)
+    assert ok is True
+    decrypted = _json.loads(initiator.decrypt(ws.sends[-1]))
+    assert decrypted == {"type": "ping", "nonce": 7}
+
+    # Exercise ``_on_dead`` — the closure calls
+    # ``session.terminate(HEARTBEAT_TIMEOUT)`` which encrypts a
+    # ``terminate`` frame, sends it, then closes the WS.
+    await captured["on_dead"]()
+    final = _json.loads(initiator.decrypt(ws.sends[-1]))
+    assert final == {"type": "terminate", "reason": "heartbeat_timeout"}
+    assert ws.closed
+
+    run_task.cancel()
+    await asyncio.gather(run_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_run_peer_link_heartbeat_propagates_cancellation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
