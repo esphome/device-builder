@@ -94,6 +94,7 @@ from ...models import (
     IdentityView,
     IntentResponse,
     OffloaderAlertSnapshotEntry,
+    OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
     OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
@@ -104,6 +105,7 @@ from ...models import (
     OffloaderPinMismatchAlert,
     OffloaderQueueStatusChangedData,
     OffloaderRemoteBuildSettings,
+    OffloaderRemoteJobSnapshotEntry,
     PairingSummary,
     PairingWindowState,
     PeerQueueStatusSnapshotEntry,
@@ -529,6 +531,17 @@ def _validate_pair_label(raw: object, *, field: _PairLabelField) -> str:
 # ``submit_job_ack{accepted: false, reason: "invalid_header"}``
 # only after the bundle's been built and shipped.
 _SUBMIT_JOB_VALID_TARGETS: frozenset[str] = frozenset({"compile", "upload"})
+
+
+# Terminal ``status`` values on
+# :class:`OffloaderJobStateChangedData` — drives the
+# offloader-side remote-job cache's drop-on-terminal logic so
+# the snapshot only carries actively-running rows. Same literal
+# set the wire-frame ``Literal`` enumerates; pinned as a
+# ``frozenset`` for O(1) membership.
+_OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
+    {"completed", "failed", "cancelled"}
+)
 
 
 def _validate_submit_job_target(raw: object) -> Literal["compile", "upload"]:
@@ -984,6 +997,20 @@ class RemoteBuildController:
         # doesn't surface stale data for a pairing the user
         # removed.
         self._peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] = {}
+        # Offloader-side cache of remote-driven jobs we submitted
+        # that haven't reached a terminal state. Keyed on the
+        # offloader-local ``job_id`` (the one we generated for
+        # the ``submit_job`` header). Populated by the listener
+        # on ``OFFLOADER_JOB_STATE_CHANGED`` and cleared on the
+        # matching terminal transition. Surfaced via
+        # ``subscribe_events.initial_state.remote_jobs`` so a
+        # late-subscribing tab sees in-flight jobs without
+        # waiting for the next event — same pattern
+        # ``_peer_queue_status`` uses for queue depth. RAM-only;
+        # terminal jobs drop here so a page reload after a
+        # build completes shows no entry (the frontend keeps
+        # its own history if it wants one).
+        self._offloader_remote_jobs: dict[str, OffloaderRemoteJobSnapshotEntry] = {}
         # ``Store`` registers itself with this list at construction
         # (via ``shutdown_register=...append``); the controller's
         # :meth:`stop` walks the list to flush any debounced save
@@ -1176,6 +1203,18 @@ class RemoteBuildController:
                 self._on_offloader_queue_status_changed,
             )
         )
+        # Offloader-side: mirror inbound ``job_state_changed``
+        # frames into ``_offloader_remote_jobs`` so a late
+        # ``subscribe_events`` snapshot carries every in-flight
+        # remote-driven job. The cache shape matches the wire
+        # frame; terminal transitions drop the entry so the
+        # snapshot only ever surfaces actively-running rows.
+        self._listeners.callback(
+            self._db.bus.add_listener(
+                EventType.OFFLOADER_JOB_STATE_CHANGED,
+                self._on_offloader_job_state_changed,
+            )
+        )
         # Mirror :class:`PeerLinkClient`-fired pin-mismatch
         # events into the RAM-only ``_offloader_alerts`` dict so
         # the snapshot path
@@ -1291,6 +1330,40 @@ class RemoteBuildController:
         paired receiver.
         """
         return list(self._peer_queue_status.values())
+
+    def _on_offloader_job_state_changed(self, event: Event[OffloaderJobStateChangedData]) -> None:
+        """Maintain the offloader-side in-flight remote-job cache.
+
+        Upserts the entry on ``queued`` / ``running``; drops on
+        terminal (``completed`` / ``failed`` / ``cancelled``)
+        so the snapshot only ever carries actively-running
+        rows. The :class:`PeerLinkClient` receive loop already
+        validated the wire shape before firing this event.
+        """
+        data = event.data
+        if data["status"] in _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES:
+            self._offloader_remote_jobs.pop(data["job_id"], None)
+            return
+        self._offloader_remote_jobs[data["job_id"]] = OffloaderRemoteJobSnapshotEntry(
+            receiver_hostname=data["receiver_hostname"],
+            receiver_port=data["receiver_port"],
+            pin_sha256=data["pin_sha256"],
+            job_id=data["job_id"],
+            status=data["status"],
+            error_message=data["error_message"],
+        )
+
+    def offloader_remote_jobs_snapshot(self) -> list[OffloaderRemoteJobSnapshotEntry]:
+        """Return the offloader-side in-flight remote-job snapshot.
+
+        Pure sync read of the in-memory cache. Seeded into
+        ``subscribe_events.initial_state.remote_jobs`` so a
+        tab subscribing AFTER a job transitioned to ``running``
+        still renders it without waiting for the next event.
+        Terminal jobs are dropped on the matching event, so the
+        snapshot never includes completed builds.
+        """
+        return list(self._offloader_remote_jobs.values())
 
     def _on_firmware_queue_transition(self, event: Event[Any]) -> None:
         """Bus listener: broadcast ``queue_status`` to paired offloaders.
@@ -1541,6 +1614,7 @@ class RemoteBuildController:
         # receiver-visible row), so silent clear is fine here.
         self._pairings.clear()
         self._peer_queue_status.clear()
+        self._offloader_remote_jobs.clear()
         self._open_peer_links.clear()
         self._peers.clear()
         # Receiver-side APPROVED peers clear silently too —
@@ -2171,6 +2245,14 @@ class RemoteBuildController:
         # frontend is expected to drop derived per-peer state
         # in step.
         self._peer_queue_status.pop(key, None)
+        # Drop any in-flight remote-job snapshot entries for the
+        # unpaired peer — the peer-link client is being torn
+        # down, so no more lifecycle events will arrive for
+        # these jobs and the snapshot must not surface them as
+        # "still running" forever.
+        for job_id, entry in list(self._offloader_remote_jobs.items()):
+            if entry["pin_sha256"] == key:
+                self._offloader_remote_jobs.pop(job_id, None)
         # Same rationale for ``_open_peer_links`` — the row is
         # gone, so any stale "true" carried over the removal
         # would land a phantom indicator on a re-pair before

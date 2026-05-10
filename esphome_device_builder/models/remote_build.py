@@ -661,6 +661,38 @@ class OffloaderJobOutputData(TypedDict):
     line: str
 
 
+class OffloaderRemoteJobSnapshotEntry(TypedDict):
+    """
+    Snapshot row in the offloader-side in-flight remote-job cache.
+
+    Mirror of :class:`OffloaderJobStateChangedData` minus the
+    event-only framing — the receiver's coordinates plus the
+    most recent ``status`` / ``error_message`` for an offloader-
+    submitted job that hasn't yet reached a terminal state.
+    Cached on :attr:`RemoteBuildController._offloader_remote_jobs`
+    and surfaced via
+    ``subscribe_events.initial_state.remote_jobs`` so a tab
+    subscribing AFTER a ``running`` transition still sees the
+    job alive without waiting for the next event — same shape
+    :class:`PeerQueueStatusSnapshotEntry` uses for queue depth.
+
+    Terminal entries (``completed`` / ``failed`` / ``cancelled``)
+    are dropped from the cache on the matching event so the
+    snapshot only ever carries in-flight rows. A page reload
+    after a build completes shows no entry; the live
+    ``OFFLOADER_JOB_STATE_CHANGED`` event the completed
+    transition fired is the only signal the frontend got, and
+    the frontend keeps its own history if needed.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    pin_sha256: str
+    job_id: str
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    error_message: str
+
+
 class PeerQueueStatusSnapshotEntry(TypedDict):
     """
     Snapshot row in the offloader-side per-peer queue-status cache.

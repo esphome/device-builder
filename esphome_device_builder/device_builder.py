@@ -605,6 +605,18 @@ class DeviceBuilder:
                 # has observed for each peer without waiting on
                 # the next live ``OFFLOADER_QUEUE_STATUS_CHANGED``.
                 initial["peer_queue_status"] = list(self.remote_build.peer_queue_status_snapshot())
+                # Offloader-side in-flight remote-job snapshot
+                # (phase 5c-3). RAM-only on the controller;
+                # populated by inbound ``job_state_changed``
+                # frames the offloader received for jobs we
+                # submitted. Terminal entries are dropped on
+                # transition so the snapshot only carries
+                # actively-running rows. A tab subscribing
+                # AFTER ``running`` lands sees the job alive
+                # without waiting for the next event.
+                initial["remote_jobs"] = [
+                    dict(entry) for entry in self.remote_build.offloader_remote_jobs_snapshot()
+                ]
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.

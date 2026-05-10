@@ -23,7 +23,7 @@ import secrets
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import aiohttp
@@ -71,6 +71,7 @@ from esphome_device_builder.models import (
     ErrorCode,
     EventType,
     IntentResponse,
+    OffloaderJobStateChangedData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
     PeerLinkIntent,
@@ -4538,3 +4539,88 @@ async def test_controller_submit_job_no_session_during_send_maps_to_precondition
             return_exceptions=True,
         )
     assert exc_info.value.code == ErrorCode.PRECONDITION_FAILED
+
+
+# ---------------------------------------------------------------------------
+# Phase 5c-3: offloader-side in-flight remote-job cache
+# ---------------------------------------------------------------------------
+
+
+def _fire_offloader_job_state(
+    offloader: RemoteBuildController,
+    *,
+    pin_sha256: str = "a" * 64,
+    receiver_hostname: str = "rcv.local",
+    receiver_port: int = 6055,
+    job_id: str,
+    status: str,
+    error_message: str = "",
+) -> None:
+    """Invoke the cache listener directly with a synthetic event payload.
+
+    The listener is wired on the real bus in :meth:`start`,
+    but startup also depends on zeroconf availability. Calling
+    the sync listener directly is the established pattern in
+    this file (see
+    ``test_offloader_peer_link_event_listeners_update_open_set``)
+    — keeps the test focused on the cache contract without
+    standing up the full controller.
+    """
+    data: OffloaderJobStateChangedData = {
+        "receiver_hostname": receiver_hostname,
+        "receiver_port": receiver_port,
+        "pin_sha256": pin_sha256,
+        "job_id": job_id,
+        "status": cast(Any, status),
+        "error_message": error_message,
+    }
+    offloader._on_offloader_job_state_changed(MagicMock(data=data))
+
+
+@pytest.mark.asyncio
+async def test_offloader_remote_jobs_cache_seeded_on_running_event(
+    offloader_controller_dir: Path,
+) -> None:
+    """A ``running`` event populates the cache so late tabs see the in-flight job."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    _fire_offloader_job_state(offloader, job_id="j-1", status="running")
+    snapshot = offloader.offloader_remote_jobs_snapshot()
+    assert len(snapshot) == 1
+    assert snapshot[0]["job_id"] == "j-1"
+    assert snapshot[0]["status"] == "running"
+
+
+@pytest.mark.parametrize("status", ["completed", "failed", "cancelled"])
+@pytest.mark.asyncio
+async def test_offloader_remote_jobs_cache_drops_on_terminal_event(
+    offloader_controller_dir: Path,
+    status: str,
+) -> None:
+    """A terminal ``status`` drops the cache entry."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    _fire_offloader_job_state(offloader, job_id="j-1", status="running")
+    assert len(offloader.offloader_remote_jobs_snapshot()) == 1
+    _fire_offloader_job_state(offloader, job_id="j-1", status=status)
+    assert offloader.offloader_remote_jobs_snapshot() == []
+
+
+@pytest.mark.asyncio
+async def test_offloader_remote_jobs_cache_cleared_on_unpair(
+    offloader_controller_dir: Path,
+) -> None:
+    """Unpairing a peer drops in-flight job entries for that pin."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", status=PeerStatus.APPROVED)
+    offloader._pairings[pairing.pin_sha256] = pairing
+    _fire_offloader_job_state(
+        offloader, pin_sha256=pairing.pin_sha256, job_id="j-pin-a", status="running"
+    )
+    # And a job under a different pin — should NOT be dropped.
+    _fire_offloader_job_state(offloader, pin_sha256="b" * 64, job_id="j-pin-b", status="running")
+    assert len(offloader.offloader_remote_jobs_snapshot()) == 2
+
+    await offloader.unpair(pin_sha256=pairing.pin_sha256)
+    remaining = offloader.offloader_remote_jobs_snapshot()
+    assert len(remaining) == 1
+    assert remaining[0]["job_id"] == "j-pin-b"
