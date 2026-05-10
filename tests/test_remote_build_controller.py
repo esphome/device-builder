@@ -3494,3 +3494,15 @@ def test_get_submit_job_receiver_raises_before_start(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(RuntimeError, match=r"before RemoteBuildController\.start"):
         controller.get_submit_job_receiver()
+
+
+def test_get_artifacts_download_sender_raises_before_start(tmp_path: Path) -> None:
+    """Accessing ``get_artifacts_download_sender`` before ``start()`` raises ``RuntimeError``.
+
+    Same bring-up ordering contract as
+    :func:`test_get_submit_job_receiver_raises_before_start`,
+    for the 6a artifact-download sender.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(RuntimeError, match=r"before RemoteBuildController\.start"):
+        controller.get_artifacts_download_sender()

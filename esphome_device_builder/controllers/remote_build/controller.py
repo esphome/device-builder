@@ -800,7 +800,16 @@ def _build_images_response(
         msg = "artifacts tarball missing firmware.bin"
         raise _UnpackArtifactsError(msg)
     images.append(_image_entry("firmware.bin", firmware_offset, firmware_bytes))
-    for entry in idedata.get("extra", {}).get("flash_images") or []:
+    # Guard the chained ``.get`` — a non-dict ``extra`` field
+    # (``null`` / list / scalar) on a corrupt-but-parseable
+    # idedata would otherwise blow up on the second ``.get``
+    # with ``AttributeError`` and bypass the
+    # :class:`_UnpackArtifactsError` mapping. Mirror the
+    # :func:`helpers.build_artifacts.load_build_artifacts`
+    # stance: treat non-dict as "no extras."
+    extra = idedata.get("extra")
+    extras_list = extra.get("flash_images") or [] if isinstance(extra, dict) else []
+    for entry in extras_list:
         basename, offset = _flash_image_basename_offset(entry)
         image_bytes = image_bytes_by_name.pop(basename, None)
         if image_bytes is None:

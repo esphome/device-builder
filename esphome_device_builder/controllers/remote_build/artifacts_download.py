@@ -10,9 +10,12 @@ gzipped tarball and streams the bytes back over the peer-link.
 
 What goes in the tarball:
 
-* **The flash images listed in ``idedata.flash_images``** —
-  this is the upstream-canonical "what to flash where"
-  manifest esphome's own ``esptool`` install path consumes.
+* **The flash images listed in ``idedata.extra.flash_images``** —
+  plus ``firmware.bin`` itself, which upstream tracks
+  separately on :attr:`StorageJSON.firmware_bin_path` rather
+  than inside the ``extra`` block. Together this is the
+  upstream-canonical "what to flash where" manifest esphome's
+  own ``esptool`` install path consumes.
   For ESP32 the set is typically ``bootloader.bin`` +
   ``partitions.bin`` + ``ota_data_initial.bin`` +
   ``firmware.bin``; for ESP8266 just ``firmware.bin``; for
@@ -348,11 +351,14 @@ def _pack_build_artifacts(configuration: str) -> _PackedArtifacts:
 
     Files are flattened (no subdirectory structure) because
     the offloader-side install path only needs the bytes +
-    the offsets from ``idedata.flash_images``. The flash-image
-    entries in ``idedata.json`` reference each file by its
-    absolute build-dir path on the receiver; the offloader's
-    extractor rewrites those to the basenames it just
-    unpacked.
+    the offsets from ``idedata.extra.flash_images`` (plus
+    ``firmware.bin``'s offset, which the receiver puts on
+    :attr:`ArtifactsStartFrameData.firmware_offset` because
+    upstream tracks the firmware partition separately from
+    the ``extra`` block). The flash-image entries in
+    ``idedata.json`` reference each file by its absolute
+    build-dir path on the receiver; the offloader's extractor
+    rewrites those to the basenames it just unpacked.
 
     Raises :class:`FileNotFoundError` from
     :func:`load_build_artifacts` when the StorageJSON sidecar
@@ -360,8 +366,19 @@ def _pack_build_artifacts(configuration: str) -> _PackedArtifacts:
     :class:`RuntimeError` on duplicate-basename collision
     (defensive — upstream esphome doesn't emit this shape
     today, but we fail loudly rather than ship a silently-
-    truncated set) or when the uncompressed artifact set
-    exceeds :data:`FIRMWARE_MAX_TOTAL_BYTES`. The caller
+    truncated set) or when the artifact set exceeds
+    :data:`FIRMWARE_MAX_TOTAL_BYTES`. Two cap checks fire:
+    the uncompressed walking sum (cheap, lets us short-circuit
+    before reading huge files), and a final compressed-size
+    check on the rendered tarball (the offloader's
+    :class:`BundleAssembler` caps on
+    ``ArtifactsStartFrameData.total_bytes``, the wire-side
+    length, so the receiver-side ceiling needs to match).
+    Compression usually shrinks the payload, so the
+    uncompressed gate fires first in practice; the
+    post-render check exists for the incompressible-data +
+    tar-header-overhead corner where ``len(tarball)`` could
+    technically exceed the uncompressed total. The caller
     (:meth:`ArtifactsDownloadSender.handle_download_artifacts`)
     catches both and surfaces a structured reject reason.
     """
@@ -405,6 +422,24 @@ def _pack_build_artifacts(configuration: str) -> _PackedArtifacts:
     # invariant) — its offset is the value the offloader needs
     # for the start frame, since idedata.json's manifest
     # doesn't include the firmware partition itself.
-    return _PackedArtifacts(
-        tarball=buf.getvalue(), firmware_offset=artifacts.flash_images[0].offset
-    )
+    tarball = buf.getvalue()
+    # Final post-render cap on the wire-side length. The
+    # uncompressed-walking gate above already short-circuits
+    # the common case, but tar adds 512-byte headers per
+    # member and gzip can grow incompressible data by a few
+    # percent — for an artifact set that lands right at the
+    # limit, ``len(tarball)`` could in principle exceed the
+    # uncompressed total even though the body fits. The
+    # offloader's ``BundleAssembler`` caps on
+    # ``ArtifactsStartFrameData.total_bytes`` (the
+    # post-render length), so without this match the receiver
+    # could deterministically ship a stream the offloader
+    # rejects.
+    if len(tarball) > FIRMWARE_MAX_TOTAL_BYTES:
+        msg = (
+            f"build artifacts tarball for {configuration} would exceed "
+            f"FIRMWARE_MAX_TOTAL_BYTES on the wire "
+            f"({len(tarball)} > {FIRMWARE_MAX_TOTAL_BYTES})"
+        )
+        raise RuntimeError(msg)
+    return _PackedArtifacts(tarball=tarball, firmware_offset=artifacts.flash_images[0].offset)

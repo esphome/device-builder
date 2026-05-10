@@ -351,6 +351,44 @@ def test_pack_build_artifacts_rejects_oversized_idedata(
         _pack_build_artifacts("kitchen.yaml")
 
 
+def test_pack_build_artifacts_rejects_oversized_compressed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tarball that lands oversized after pack raises ``RuntimeError``.
+
+    Pins the post-render cap that catches the
+    incompressible-data + tar-header-overhead corner where
+    the uncompressed walking sum slips under the limit but
+    ``len(tarball)`` exceeds it. Constructs the corner case
+    with a synthetic ``BuildArtifacts`` whose uncompressed
+    total is tiny (passing the walking gates) but whose tar
+    headers + gzip framing inflate ``len(tarball)`` past a
+    monkey-patched cap.
+    """
+    firmware_path = tmp_path / "firmware.bin"
+    firmware_path.write_bytes(b"")  # 0 bytes — uncompressed walks pass with any cap >= 2
+    artifacts = BuildArtifacts(
+        flash_images=[FlashArtifact(path=firmware_path, offset="0x10000")],
+        idedata_bytes=b"{}",  # 2 bytes
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        lambda _config: artifacts,
+    )
+    # Cap=10 lets uncompressed total (2 bytes idedata + 0
+    # bytes firmware) clear the two walking gates but the
+    # rendered tarball — gzip envelope (~20B) + two tar
+    # headers (1024B compressed to ~30B) — easily exceeds.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download."
+        "FIRMWARE_MAX_TOTAL_BYTES",
+        10,
+    )
+
+    with pytest.raises(RuntimeError, match=r"on the wire"):
+        _pack_build_artifacts("kitchen.yaml")
+
+
 def test_pack_build_artifacts_rejects_oversized_cumulative(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -506,6 +544,128 @@ def test_unpack_artifacts_response_invalid_idedata_json_raises() -> None:
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
             job_id="j",
         )
+
+
+def test_unpack_artifacts_response_non_dict_idedata_raises() -> None:
+    """idedata.json that parses to a non-object raises :class:`_UnpackArtifactsError`."""
+    payload = b'["not", "an", "object"]'  # valid JSON, parses to list
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name="idedata.json")
+        info.size = len(payload)
+        tar.addfile(info, io.BytesIO(payload))
+
+    with pytest.raises(_UnpackArtifactsError, match="not a JSON object"):
+        _unpack_artifacts_response(
+            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
+            job_id="j",
+        )
+
+
+def test_unpack_artifacts_response_directory_entry_raises() -> None:
+    """A directory entry in the tarball (wire-format drift) raises ``_UnpackArtifactsError``."""
+    idedata_bytes = json.dumps({"extra": {"flash_images": []}}).encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        idedata_info = tarfile.TarInfo(name="idedata.json")
+        idedata_info.size = len(idedata_bytes)
+        tar.addfile(idedata_info, io.BytesIO(idedata_bytes))
+        # Stray directory entry — the receiver-side packer is
+        # flat by design, so a directory means a corrupted /
+        # version-skewed peer.
+        dir_info = tarfile.TarInfo(name="some_dir/")
+        dir_info.type = tarfile.DIRTYPE
+        tar.addfile(dir_info)
+
+    with pytest.raises(_UnpackArtifactsError, match="non-file tarball entry"):
+        _unpack_artifacts_response(
+            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
+            job_id="j",
+        )
+
+
+def test_unpack_artifacts_response_missing_flash_image_from_extras_raises() -> None:
+    """An extra-flash-image entry whose tarball member is missing raises."""
+    idedata_bytes = json.dumps(
+        {"extra": {"flash_images": [{"path": "/build/bootloader.bin", "offset": "0x1000"}]}}
+    ).encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        idedata_info = tarfile.TarInfo(name="idedata.json")
+        idedata_info.size = len(idedata_bytes)
+        tar.addfile(idedata_info, io.BytesIO(idedata_bytes))
+        firmware_info = tarfile.TarInfo(name="firmware.bin")
+        firmware_info.size = 4
+        tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
+        # No bootloader.bin in the tarball even though idedata
+        # declares it.
+
+    with pytest.raises(_UnpackArtifactsError, match=r"missing flash image 'bootloader\.bin'"):
+        _unpack_artifacts_response(
+            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
+            job_id="j",
+        )
+
+
+def test_unpack_artifacts_response_non_dict_flash_image_entry_raises() -> None:
+    """A non-dict ``extra.flash_images`` entry raises :class:`_UnpackArtifactsError`."""
+    idedata_bytes = json.dumps(
+        {"extra": {"flash_images": ["not-a-dict"]}}  # malformed entry
+    ).encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        idedata_info = tarfile.TarInfo(name="idedata.json")
+        idedata_info.size = len(idedata_bytes)
+        tar.addfile(idedata_info, io.BytesIO(idedata_bytes))
+        firmware_info = tarfile.TarInfo(name="firmware.bin")
+        firmware_info.size = 4
+        tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
+
+    with pytest.raises(_UnpackArtifactsError, match="entry is not an object"):
+        _unpack_artifacts_response(
+            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
+            job_id="j",
+        )
+
+
+def test_unpack_artifacts_response_flash_image_entry_missing_fields_raises() -> None:
+    """An ``extra.flash_images`` entry without path/offset raises."""
+    idedata_bytes = json.dumps(
+        {"extra": {"flash_images": [{"path": "/build/bootloader.bin"}]}}  # no offset
+    ).encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        idedata_info = tarfile.TarInfo(name="idedata.json")
+        idedata_info.size = len(idedata_bytes)
+        tar.addfile(idedata_info, io.BytesIO(idedata_bytes))
+        firmware_info = tarfile.TarInfo(name="firmware.bin")
+        firmware_info.size = 4
+        tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
+
+    with pytest.raises(_UnpackArtifactsError, match="missing path/offset"):
+        _unpack_artifacts_response(
+            DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
+            job_id="j",
+        )
+
+
+def test_unpack_artifacts_response_handles_non_dict_extra() -> None:
+    """An ``extra`` field that isn't a dict yields no extras (treated as empty)."""
+    idedata_bytes = json.dumps({"extra": None}).encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        idedata_info = tarfile.TarInfo(name="idedata.json")
+        idedata_info.size = len(idedata_bytes)
+        tar.addfile(idedata_info, io.BytesIO(idedata_bytes))
+        firmware_info = tarfile.TarInfo(name="firmware.bin")
+        firmware_info.size = 4
+        tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
+
+    response = _unpack_artifacts_response(
+        DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
+        job_id="j",
+    )
+    assert [image["name"] for image in response["images"]] == ["firmware.bin"]
 
 
 # ---------------------------------------------------------------------------
