@@ -1066,6 +1066,21 @@ class PairingSummary(DataClassORJSONMixin):
     seam on the receiver side so a future "store extra
     offloader-only fields on the row" change can't leak those
     by accident.
+
+    ``connected`` is the offloader-side mirror of
+    :attr:`PeerSummary.connected`: it reports whether the
+    offloader's per-pairing :class:`PeerLinkClient` task
+    currently has an open peer-link session against the
+    receiver. Computed at snapshot-build time from
+    :attr:`RemoteBuildController._open_peer_links`
+    (a ``set[(host, port)]`` populated by listeners on
+    :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` /
+    :attr:`EventType.OFFLOADER_PEER_LINK_CLOSED` that
+    :class:`PeerLinkClient` already fires from
+    :meth:`_fire_opened` / :meth:`_fire_closed`). Always
+    ``False`` for PENDING rows — the offloader doesn't spawn
+    a peer-link client until the receiver flips the row to
+    APPROVED.
     """
 
     receiver_hostname: str
@@ -1074,6 +1089,7 @@ class PairingSummary(DataClassORJSONMixin):
     label: str
     paired_at: float
     status: PeerStatus
+    connected: bool = False
 
 
 @dataclass

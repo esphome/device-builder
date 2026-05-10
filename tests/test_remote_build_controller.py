@@ -2316,12 +2316,13 @@ def test_enforce_pin_match_raises_precondition_failed_on_drift() -> None:
 def test_pairing_summary_drops_static_pubkey() -> None:
     """Wire view drops ``static_x25519_pub`` so the raw pubkey stays server-side."""
     pairing = _valid_stored_pairing(status=PeerStatus.PENDING)
-    summary = _pairing_summary(pairing)
+    summary = _pairing_summary(pairing, connected=False)
     assert isinstance(summary, PairingSummary)
     assert summary.receiver_hostname == "build.local"
     assert summary.pin_sha256 == "a" * 64
     assert summary.label == "desktop"
     assert summary.status is PeerStatus.PENDING
+    assert summary.connected is False
     # PairingSummary doesn't carry the raw bytes.
     assert not hasattr(summary, "static_x25519_pub")
 

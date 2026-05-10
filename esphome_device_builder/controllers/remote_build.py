@@ -96,6 +96,8 @@ from ..models import (
     OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
     OffloaderPairStatusChangedData,
+    OffloaderPeerLinkClosedData,
+    OffloaderPeerLinkOpenedData,
     OffloaderPeerRevokedAlert,
     OffloaderPinMismatchAlert,
     OffloaderQueueStatusChangedData,
@@ -394,7 +396,7 @@ def _peer_summary(peer: StoredPeer, *, status: PeerStatus, connected: bool) -> P
     )
 
 
-def _pairing_summary(pairing: StoredPairing) -> PairingSummary:
+def _pairing_summary(pairing: StoredPairing, *, connected: bool) -> PairingSummary:
     """Project a :class:`StoredPairing` to wire :class:`PairingSummary`.
 
     Mirror of :func:`_peer_summary` for the offloader side. Drops
@@ -402,6 +404,19 @@ def _pairing_summary(pairing: StoredPairing) -> PairingSummary:
     row — the unified in-RAM ``_pairings`` dict carries both
     PENDING and APPROVED rows, with the disk filter stripping
     PENDING at serialise time.
+
+    ``connected`` is the snapshot-time read the caller passes
+    in. The intended source is
+    ``pairing.pin_sha256 in controller._open_peer_links``, the
+    RAM-canonical set the controller maintains from
+    :class:`PeerLinkClient`-fired
+    :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` /
+    :attr:`EventType.OFFLOADER_PEER_LINK_CLOSED` events. The
+    helper is module-level so the registry isn't reachable
+    from here directly; the caller dereferences and threads
+    the bool through. PENDING callers pass ``False``; the
+    offloader doesn't spawn a peer-link client until the
+    receiver flips the row to APPROVED.
     """
     return PairingSummary(
         receiver_hostname=pairing.receiver_hostname,
@@ -410,6 +425,7 @@ def _pairing_summary(pairing: StoredPairing) -> PairingSummary:
         label=pairing.label,
         paired_at=pairing.paired_at,
         status=pairing.status,
+        connected=connected,
     )
 
 
@@ -827,6 +843,22 @@ class RemoteBuildController:
         # the connect-handshake-park-reconnect loop in
         # :meth:`PeerLinkClient.run`.
         self._peer_link_clients: dict[str, asyncio.Task[None]] = {}
+        # RAM-only set of ``pin_sha256`` strings whose
+        # offloader-side peer-link sessions are currently open.
+        # Mutated by listeners on ``OFFLOADER_PEER_LINK_OPENED``
+        # (add) / ``OFFLOADER_PEER_LINK_CLOSED`` (discard) the
+        # :class:`PeerLinkClient` already fires from
+        # :meth:`_fire_opened` / :meth:`_fire_closed`. Read at
+        # :meth:`pairings_snapshot` time to populate
+        # :attr:`PairingSummary.connected` so the offloader-side
+        # Settings UI's "Paired build servers" list can render a
+        # connected/disconnected indicator. Cleared on
+        # :meth:`unpair` for the matching pin (the row's gone;
+        # any stale "true" carried over a removal would land a
+        # phantom indicator on a re-pair before the handshake
+        # actually completes), and on :meth:`stop` along with
+        # the rest of controller-scoped state.
+        self._open_peer_links: set[str] = set()
         # Identities cached once at :meth:`start` so each
         # peer-link client can pick them up without an executor
         # hop on every spawn. ``_offloader_dashboard_id`` is the
@@ -1094,15 +1126,34 @@ class RemoteBuildController:
                 self._on_offloader_pair_pin_mismatch,
             )
         )
+        # Maintain ``_open_peer_links`` from the lifecycle
+        # events :class:`PeerLinkClient` fires; the snapshot
+        # at :meth:`pairings_snapshot` reads off the same set.
+        # Two listeners (one per direction) rather than one
+        # multi-event listener so each callback is straight-line
+        # (add vs. discard) without an event-type branch on the
+        # hot path.
+        self._unsub_bus_listeners.append(
+            self._db.bus.add_listener(
+                EventType.OFFLOADER_PEER_LINK_OPENED,
+                self._on_offloader_peer_link_opened,
+            )
+        )
+        self._unsub_bus_listeners.append(
+            self._db.bus.add_listener(
+                EventType.OFFLOADER_PEER_LINK_CLOSED,
+                self._on_offloader_peer_link_closed,
+            )
+        )
 
     def _on_offloader_pair_pin_mismatch(self, event: Event[OffloaderPairPinMismatchData]) -> None:
         """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot.
 
-        Receiver hostname / port form the dict key (matches the
-        synchronous mutation site in
-        :meth:`_apply_pair_status_result`). The alert payload
-        adds ``kind`` + ``fired_at`` to the bus event's wire
-        fields so the snapshot row survives the event drop.
+        Keyed on ``pin_sha256`` (matches the synchronous
+        mutation site in :meth:`_apply_pair_status_result`).
+        The alert payload adds ``kind`` + ``fired_at`` to the
+        bus event's wire fields so the snapshot row survives
+        the event drop.
         """
         data = event.data
         # Build the typed alert explicitly rather than as a bare
@@ -1123,6 +1174,19 @@ class RemoteBuildController:
             "fired_at": time.time(),
         }
         self._offloader_alerts[data["pin_sha256"]] = alert
+
+    def _on_offloader_peer_link_opened(self, event: Event[OffloaderPeerLinkOpenedData]) -> None:
+        """Add ``pin_sha256`` to ``_open_peer_links`` on session open."""
+        self._open_peer_links.add(event.data["pin_sha256"])
+
+    def _on_offloader_peer_link_closed(self, event: Event[OffloaderPeerLinkClosedData]) -> None:
+        """Discard ``pin_sha256`` from ``_open_peer_links`` on session close.
+
+        ``discard`` rather than ``remove`` so a CLOSED event
+        for a key we never saw OPENED for (cold-start race,
+        unpair-mid-handshake) is a no-op rather than raising.
+        """
+        self._open_peer_links.discard(event.data["pin_sha256"])
 
     def _on_offloader_queue_status_changed(
         self, event: Event[OffloaderQueueStatusChangedData]
@@ -1398,6 +1462,7 @@ class RemoteBuildController:
         # receiver-visible row), so silent clear is fine here.
         self._pairings.clear()
         self._peer_queue_status.clear()
+        self._open_peer_links.clear()
         self._peers.clear()
         # Receiver-side APPROVED peers clear silently too —
         # unlike :meth:`_clear_pending_peers_on_window_close`
@@ -1885,14 +1950,21 @@ class RemoteBuildController:
             # via the pair_request; the client just opens a
             # peer_link session against the same coordinates.
             self._spawn_peer_link_client(pairing)
-            return _pairing_summary(pairing)
+            # ``connected=False`` because the peer-link client
+            # task was just spawned; the actual WS handshake
+            # hasn't completed yet, and ``_open_peer_links``
+            # only flips to ``True`` on the
+            # ``OFFLOADER_PEER_LINK_OPENED`` listener fire. The
+            # next snapshot read after the handshake completes
+            # will report ``True``.
+            return _pairing_summary(pairing, connected=False)
         # PENDING: in-memory only, bounded by the receiver-side
         # pairing window. The listener observes the eventual flip
         # (admin Accept) and promotes the row in
         # ``_apply_pair_status_result`` — which mutates the dict
         # entry's ``status`` and schedules a save.
         self._spawn_pair_status_listener(pairing)
-        return _pairing_summary(pairing)
+        return _pairing_summary(pairing, connected=False)
 
     @api_command("remote_build/unpair")
     async def unpair(
@@ -1983,6 +2055,13 @@ class RemoteBuildController:
         # frontend is expected to drop derived per-peer state
         # in step.
         self._peer_queue_status.pop(key, None)
+        # Same rationale for ``_open_peer_links`` — the row is
+        # gone, so any stale "true" carried over the removal
+        # would land a phantom indicator on a re-pair before
+        # the new peer-link client's handshake actually
+        # completes. ``discard`` is no-op if the key wasn't
+        # present (PENDING removal, never-connected APPROVED).
+        self._open_peer_links.discard(key)
         return {"removed": True}
 
     def pairings_snapshot(self) -> list[PairingSummary]:
@@ -2007,7 +2086,11 @@ class RemoteBuildController:
         on app-startup, so a separate snapshot read would just be
         a redundant round-trip.
         """
-        return [_pairing_summary(p) for p in self._pairings.values()]
+        open_links = self._open_peer_links
+        return [
+            _pairing_summary(p, connected=p.pin_sha256 in open_links)
+            for p in self._pairings.values()
+        ]
 
     def offloader_alerts_snapshot(self) -> list[OffloaderAlertSnapshotEntry]:
         """Return the in-memory offloader pair alerts snapshot.
@@ -2200,6 +2283,7 @@ class RemoteBuildController:
             self._cancel_pair_status_listener(stale_pin)
             self._cancel_peer_link_client(stale_pin)
             self._peer_queue_status.pop(stale_pin, None)
+            self._open_peer_links.discard(stale_pin)
         # Alerts can outlive pairings — sweep them in a second
         # pass keyed on the alert's stored ``receiver_hostname``
         # / ``receiver_port`` (also walks the pin-keyed dict so
