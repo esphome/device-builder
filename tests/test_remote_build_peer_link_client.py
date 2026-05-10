@@ -2880,6 +2880,66 @@ async def test_peer_link_client_returns_transport_error_on_noise_failure(
 
 
 @pytest.mark.asyncio
+async def test_peer_link_client_close_event_carries_error_detail_on_noise_failure(
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transport / Noise failure populates ``error_detail`` and ``last_connect_error``.
+
+    Pins the operator-facing diagnostic shape: the
+    category-level ``reason`` (``transport_error``) is
+    accompanied by the specific exception text via
+    ``error_detail``, and the same string is reachable
+    sync-side via ``client.last_connect_error`` so a
+    ``pairings_snapshot()`` read after the failure carries
+    the message without the snapshot reader having to listen
+    for the close event.
+    """
+    server, _receiver, _, _ = receiver_server
+
+    async def _bad_handshake(**kwargs: Any) -> bytes:
+        raise NoiseInvalidMessage("forced for test")
+
+    monkeypatch.setattr(
+        remote_build_peer_link_client,
+        "_drive_initiator_handshake_and_read_response",
+        _bad_handshake,
+    )
+
+    bus = EventBus()
+    closed = capture_events(bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
+        receiver_label="test-receiver",
+        bus=bus,
+    )
+    task = asyncio.create_task(client.run())
+    try:
+        await asyncio.wait_for(closed.received.wait(), timeout=2.0)
+        # Category code is unchanged; the new field carries the
+        # specific exception text the operator wants to see.
+        assert closed[0]["reason"] == "transport_error"
+        assert closed[0]["error_detail"] == "NoiseInvalidMessage: forced for test"
+        # Sync read on the client mirrors the same string so the
+        # ``pairings_snapshot()`` projection in
+        # ``RemoteBuildController`` doesn't need to listen for
+        # close events to populate ``last_connect_error``.
+        assert client.last_connect_error == "NoiseInvalidMessage: forced for test"
+        # The reconnect loop is still alive (this isn't an
+        # orphan path); ``is_connecting`` reports the live state
+        # between attempts.
+        assert client.is_connecting is True
+        assert client.is_orphaned is False
+    finally:
+        await cancel_and_drain(task)
+
+
+@pytest.mark.asyncio
 async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
     receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:

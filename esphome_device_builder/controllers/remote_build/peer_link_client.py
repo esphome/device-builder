@@ -873,6 +873,18 @@ class PeerLinkClient:
         # session-loss the future gets
         # :class:`SubmitJobSessionLostError`.
         self._submit_job_acks: dict[str, asyncio.Future[SubmitJobAckFrameData]] = {}
+        # Last-connection-failure description for the operator-
+        # facing "Last connection error" line on the paired-rows
+        # list. Populated in :meth:`_run_one_session`'s exception
+        # paths with ``f"{type(exc).__name__}: {exc}"`` for
+        # transport / Noise failures, ``"auth rejected"`` for the
+        # post-handshake intent_response branch, and
+        # ``"pin mismatch"`` for the orphan-on-rotation path.
+        # Cleared when a session reaches the post-handshake open
+        # state so a stale failure message doesn't survive a
+        # successful reconnect. Empty on a never-connected pairing
+        # where the client task hasn't completed its first attempt.
+        self._last_connect_error: str = ""
 
     @property
     def receiver_hostname(self) -> str:
@@ -923,6 +935,49 @@ class PeerLinkClient:
         clears the flag.
         """
         return self._orphaned
+
+    @property
+    def is_connecting(self) -> bool:
+        """True if the run loop is alive but no session is currently open.
+
+        The ``True`` window covers both the very first connect
+        attempt (``_run_one_session`` before the post-handshake
+        ``intent_response: ok``) and every subsequent reconnect
+        cycle inside :meth:`run`'s backoff loop. Goes ``False``
+        in two distinct directions:
+
+        * Forward to ``connected``: a session reached the
+          post-handshake open state and parked on the receive
+          loop. :meth:`is_session_open` returns ``True``.
+        * Sideways to ``orphaned``: a pin-mismatch / superseded
+          close poisoned the run loop. :meth:`is_orphaned`
+          returns ``True``.
+
+        UI uses the tri-state to render "Connected" /
+        "Connecting…" / "Disconnected (last error: …)"; an
+        orphaned client is the disconnected case where the
+        operator has to re-pair or unpair to recover.
+        """
+        return not self._orphaned and not self.is_session_open
+
+    @property
+    def last_connect_error(self) -> str:
+        """Most-recent connection failure as a one-line description.
+
+        Set by :meth:`_run_one_session`'s exception paths to
+        ``f"{type(exc).__name__}: {exc}"`` for transport / Noise
+        failures, to ``"auth rejected"`` for handshake-rejected
+        sessions, and to ``"pin mismatch"`` for the orphan-on-
+        rotation path. Cleared when a session reaches the
+        post-handshake open state — a stale message must not
+        survive a successful reconnect.
+
+        Empty on a never-connected pairing (the run loop hasn't
+        completed its first attempt yet) and on cleanly-stopped
+        clients (``client_stopped`` close on controller
+        shutdown).
+        """
+        return self._last_connect_error
 
     async def submit_job(
         self,
@@ -1164,7 +1219,15 @@ class PeerLinkClient:
         try:
             while not self._orphaned:
                 close_reason = await self._run_one_session()
-                self._fire_closed(close_reason)
+                # ``_last_connect_error`` was populated by the
+                # exception paths inside ``_run_one_session`` (or
+                # left empty for clean closes — receiver-driven
+                # ``terminate`` frames, heartbeat timeouts that
+                # reach here without an exception, etc.). Pass it
+                # through so the close event carries the specific
+                # failure detail alongside the category-level
+                # ``reason``.
+                self._fire_closed(close_reason, error_detail=self._last_connect_error)
                 if close_reason == TerminateReason.SUPERSEDED.value:
                     _LOGGER.info(
                         "peer-link client to %s:%d superseded by another instance "
@@ -1270,6 +1333,7 @@ class PeerLinkClient:
                 # application frames flow.
                 if session.remote_static_pub != self._pinned_static_x25519_pub:
                     self._fire_pin_mismatch(observed=session.remote_static_pub)
+                    self._last_connect_error = "pin mismatch"
                     return _LOCAL_CLOSE_PIN_MISMATCH
                 response = _json.loads(session.decrypt(response_ct))
                 if (
@@ -1282,17 +1346,26 @@ class PeerLinkClient:
                         self._port,
                         response,
                     )
+                    self._last_connect_error = "auth rejected"
                     return _LOCAL_CLOSE_AUTH_REJECTED
                 # Session is live — build the shared channel
                 # over (noise, ws), fire OPENED, park on the
                 # receive loop with a heartbeat task running
                 # alongside. Setting ``_session_was_opened``
                 # tells :meth:`run`'s backoff logic to reset on
-                # the next iteration.
+                # the next iteration. Clearing
+                # ``_last_connect_error`` here means a successful
+                # reconnect drops the previous failure message
+                # off the operator-facing snapshot — a stale "the
+                # last connect tried 4 attempts ago failed with
+                # ConnectionRefusedError" would mislead the
+                # operator into thinking the live session is
+                # broken.
                 channel = PeerLinkChannel(
                     noise=session, ws=ws, log_label=f"{self._hostname}:{self._port}"
                 )
                 self._session_was_opened = True
+                self._last_connect_error = ""
                 self._fire_opened()
                 try:
                     return await self._run_session_loops(channel)
@@ -1312,6 +1385,7 @@ class PeerLinkClient:
                 exc,
                 exc_info=True,
             )
+            self._last_connect_error = f"{type(exc).__name__}: {exc}"
             return _LOCAL_CLOSE_TRANSPORT_ERROR
         except NOISE_ERRORS as exc:
             _LOGGER.warning(
@@ -1321,6 +1395,7 @@ class PeerLinkClient:
                 exc,
                 exc_info=True,
             )
+            self._last_connect_error = f"{type(exc).__name__}: {exc}"
             return _LOCAL_CLOSE_TRANSPORT_ERROR
 
     async def _run_session_loops(self, channel: PeerLinkChannel) -> str:
@@ -1628,12 +1703,13 @@ class PeerLinkClient:
         }
         self._bus.fire(EventType.OFFLOADER_PEER_LINK_OPENED, payload)
 
-    def _fire_closed(self, reason: str) -> None:
+    def _fire_closed(self, reason: str, *, error_detail: str = "") -> None:
         payload: OffloaderPeerLinkClosedData = {
             "receiver_hostname": self._hostname,
             "receiver_port": self._port,
             "pin_sha256": self._pin_sha256,
             "reason": reason,
+            "error_detail": error_detail,
         }
         self._bus.fire(EventType.OFFLOADER_PEER_LINK_CLOSED, payload)
 

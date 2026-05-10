@@ -524,11 +524,23 @@ class OffloaderPeerLinkClosedData(TypedDict):
     offloader-side reason when our side initiated:
     ``"transport_error"`` / ``"heartbeat_timeout"`` /
     ``"client_stopped"`` / ``"peer_hung_up"`` /
-    ``"auth_rejected"``. The :class:`PeerLinkClient`'s
-    reconnect logic branches on this — a ``"superseded"`` close
-    means a newer offloader instance with the same
-    ``dashboard_id`` already took our slot, so reconnecting
-    would just collide; the client orphans rather than retrying.
+    ``"auth_rejected"`` / ``"pin_mismatch"``. The
+    :class:`PeerLinkClient`'s reconnect logic branches on this
+    — a ``"superseded"`` close means a newer offloader
+    instance with the same ``dashboard_id`` already took our
+    slot, so reconnecting would just collide; the client
+    orphans rather than retrying.
+
+    ``error_detail`` is a one-line human-readable description
+    of the underlying failure for the categories that have one
+    (transport / Noise exceptions; auth-rejected handshakes;
+    pin-mismatch). Empty for clean closes where the category
+    *is* the explanation (``"client_stopped"``, ``"superseded"``,
+    receiver-driven ``terminate`` frames). The frontend displays
+    the detail under the paired-row's "Last connection error"
+    line so the operator sees "ConnectionRefusedError: [Errno
+    61] Connection refused" instead of just the
+    ``transport_error`` category.
 
     ``pin_sha256`` is the canonical offloader-side row key
     (4a-o part 6 re-keyed offloader state on pin); receiver
@@ -539,6 +551,7 @@ class OffloaderPeerLinkClosedData(TypedDict):
     receiver_port: int
     pin_sha256: str
     reason: str
+    error_detail: str
 
 
 class ReceiverPeerLinkSessionOpenedData(TypedDict):
@@ -1234,14 +1247,34 @@ class PairingSummary(DataClassORJSONMixin):
     currently has an open peer-link session against the
     receiver. Computed at snapshot-build time from
     :attr:`RemoteBuildController._open_peer_links`
-    (a ``set[(host, port)]`` populated by listeners on
-    :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` /
+    (a ``set[str]`` of ``pin_sha256`` values, populated by
+    listeners on :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` /
     :attr:`EventType.OFFLOADER_PEER_LINK_CLOSED` that
     :class:`PeerLinkClient` already fires from
     :meth:`_fire_opened` / :meth:`_fire_closed`). Always
     ``False`` for PENDING rows — the offloader doesn't spawn
     a peer-link client until the receiver flips the row to
     APPROVED.
+
+    ``connecting`` is the "live but not connected" state: the
+    per-pairing client task is alive (not orphaned) and not
+    currently sitting on an open session. The reconnect-backoff
+    loop in :meth:`PeerLinkClient.run` cycles through this
+    state every time a session ends and the client is about to
+    retry. UI uses it to render a "Connecting…" indicator
+    distinct from a permanently-orphaned pairing (pin mismatch,
+    superseded) where ``connecting`` is ``False`` *and*
+    ``connected`` is ``False`` — the operator's recovery there
+    is re-pair / unpair, not "wait for reconnect."
+
+    ``last_connect_error`` is a one-line human-readable
+    description of the most recent connection failure
+    (``"<ExceptionType>: <message>"`` form for transport /
+    Noise errors, ``"auth rejected"`` for handshake-rejected
+    sessions, ``"pin mismatch"`` for the orphan-on-rotation
+    path). Cleared when a session reaches the post-handshake
+    open state. Empty on a never-connected pairing where the
+    client task hasn't completed its first attempt yet.
     """
 
     receiver_hostname: str
@@ -1251,6 +1284,8 @@ class PairingSummary(DataClassORJSONMixin):
     paired_at: float
     status: PeerStatus
     connected: bool = False
+    connecting: bool = False
+    last_connect_error: str = ""
 
 
 @dataclass

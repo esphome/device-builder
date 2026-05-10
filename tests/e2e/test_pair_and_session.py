@@ -96,3 +96,33 @@ async def test_paired_instances_teardown_closes_session_cleanly(
     # and the registry has dropped the row.
     assert paired_instances.receiver_closed[0]["dashboard_id"] == receiver_key
     assert receiver_key not in paired_instances.receiver._peer_link_sessions
+
+    # (d) Clean-stop close path doesn't populate ``error_detail``;
+    # the category-level ``client_stopped`` reason already
+    # explains the close, so a synthetic detail string would just
+    # be noise on the operator's "last connection error" line.
+    assert paired_instances.offloader_closed[0]["error_detail"] == ""
+
+
+@pytest.mark.asyncio
+async def test_paired_instances_snapshot_reflects_connected_state(
+    paired_instances: PairedInstances,
+) -> None:
+    """``pairings_snapshot`` mirrors the live session's ``connecting`` / ``connected`` state.
+
+    Pins the offloader-side projection contract: once the
+    long-lived peer-link client has reached the post-handshake
+    open state, the snapshot a freshly-subscribing frontend
+    would read shows ``connected=True, connecting=False`` and an
+    empty ``last_connect_error``. The same projection drives
+    ``initial_state.pairings`` on every ``subscribe_events`` so
+    a tab opening after the session is already up paints the
+    right pill on first render rather than waiting on a
+    follow-up event.
+    """
+    await paired_instances.wait_until_session_opened()
+    [summary] = paired_instances.offloader.pairings_snapshot()
+    assert summary.pin_sha256 == paired_instances.pin_sha256
+    assert summary.connected is True
+    assert summary.connecting is False
+    assert summary.last_connect_error == ""

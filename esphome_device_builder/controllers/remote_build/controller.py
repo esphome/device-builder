@@ -480,7 +480,13 @@ def _peer_summary(peer: StoredPeer, *, status: PeerStatus, connected: bool) -> P
     )
 
 
-def _pairing_summary(pairing: StoredPairing, *, connected: bool) -> PairingSummary:
+def _pairing_summary(
+    pairing: StoredPairing,
+    *,
+    connected: bool,
+    connecting: bool = False,
+    last_connect_error: str = "",
+) -> PairingSummary:
     """Project a :class:`StoredPairing` to wire :class:`PairingSummary`.
 
     Mirror of :func:`_peer_summary` for the offloader side. Drops
@@ -489,18 +495,27 @@ def _pairing_summary(pairing: StoredPairing, *, connected: bool) -> PairingSumma
     PENDING and APPROVED rows, with the disk filter stripping
     PENDING at serialise time.
 
-    ``connected`` is the snapshot-time read the caller passes
-    in. The intended source is
-    ``pairing.pin_sha256 in controller._open_peer_links``, the
-    RAM-canonical set the controller maintains from
-    :class:`PeerLinkClient`-fired
-    :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` /
-    :attr:`EventType.OFFLOADER_PEER_LINK_CLOSED` events. The
-    helper is module-level so the registry isn't reachable
-    from here directly; the caller dereferences and threads
-    the bool through. PENDING callers pass ``False``; the
-    offloader doesn't spawn a peer-link client until the
-    receiver flips the row to APPROVED.
+    ``connected``, ``connecting``, and ``last_connect_error``
+    are the snapshot-time reads the caller passes in. Intended
+    sources:
+
+    * ``connected``: ``pairing.pin_sha256 in
+      controller._open_peer_links``, the RAM-canonical set the
+      controller maintains from :class:`PeerLinkClient`-fired
+      :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` /
+      :attr:`EventType.OFFLOADER_PEER_LINK_CLOSED` events.
+    * ``connecting`` / ``last_connect_error``: the matching
+      :class:`PeerLinkClient`'s :attr:`~PeerLinkClient.is_connecting` /
+      :attr:`~PeerLinkClient.last_connect_error` properties,
+      looked up via ``controller._peer_link_clients[pin_sha256]``.
+
+    The helper is module-level so the registries aren't
+    reachable from here directly; the caller dereferences and
+    threads the values through. PENDING callers pass
+    ``connected=False`` and let ``connecting`` /
+    ``last_connect_error`` take their defaults — the offloader
+    doesn't spawn a peer-link client until the receiver flips
+    the row to APPROVED.
     """
     return PairingSummary(
         receiver_hostname=pairing.receiver_hostname,
@@ -510,6 +525,8 @@ def _pairing_summary(pairing: StoredPairing, *, connected: bool) -> PairingSumma
         paired_at=pairing.paired_at,
         status=pairing.status,
         connected=connected,
+        connecting=connecting,
+        last_connect_error=last_connect_error,
     )
 
 
@@ -1224,36 +1241,23 @@ class RemoteBuildController:
         for pairing in self._pairings.values():
             if pairing.status is PeerStatus.APPROVED:
                 self._spawn_peer_link_client(pairing)
-        if self._db.devices is None:
-            _LOGGER.debug("RemoteBuildController.start called before devices controller")
-            return
-        zeroconf = self._db.devices.zeroconf
-        if zeroconf is None:
-            _LOGGER.debug("zeroconf unavailable; remote-build discovery disabled")
-            return
-        # Capture own service-instance name so our own advertise
-        # doesn't show up in ``list_hosts``. Reads through the
-        # public ``service_instance_name`` accessor on
-        # ``DashboardAdvertiser`` rather than reaching into
-        # ``_info``; keeps this controller decoupled from the
-        # advertiser's private layout.
-        advertiser = self._db._dashboard_advertiser
-        if advertiser is not None:
-            self._own_instance_name = advertiser.service_instance_name
-        # Wrap browser construction so a zeroconf-side failure (e.g.
-        # the underlying socket got torn down between
-        # ``DeviceStateMonitor.start`` and now, or the cache is in an
-        # unexpected state) doesn't abort dashboard startup. Peer
-        # discovery is fail-soft; same contract as the advertise.
-        try:
-            self._browser = AsyncServiceBrowser(
-                zeroconf.zeroconf,
-                [SERVICE_TYPE],
-                handlers=[self._on_service_state_change],
-            )
-        except Exception:
-            _LOGGER.exception("Could not start remote-build browser; peer discovery disabled")
-            self._browser = None
+        # Bus-listener registration runs unconditionally — the
+        # zeroconf / device-controller gates below skip
+        # discovery-side work (the mDNS browser, advertiser
+        # name capture) when those subsystems aren't up, but
+        # the lifecycle listeners maintained here only need
+        # ``self._db.bus`` (always present) and feed
+        # ``_open_peer_links`` / ``_offloader_alerts`` /
+        # ``_peer_queue_status`` / ``_offloader_remote_jobs``
+        # — none of which are zeroconf-driven. The earlier
+        # arrangement put listener registration after the
+        # zeroconf early-return; in test harnesses (and
+        # production paths where zeroconf failed to start) the
+        # listeners never wired and ``pairings_snapshot()``
+        # silently reported every paired session as
+        # ``connected=False`` because OFFLOADER_PEER_LINK_OPENED
+        # had nowhere to land.
+        #
         # Subscribe to firmware-queue lifecycle events so every
         # transition broadcasts a fresh ``queue_status`` snapshot
         # to all paired offloaders. The transitions of interest
@@ -1344,6 +1348,36 @@ class RemoteBuildController:
                 self._on_offloader_peer_link_closed,
             )
         )
+        if self._db.devices is None:
+            _LOGGER.debug("RemoteBuildController.start called before devices controller")
+            return
+        zeroconf = self._db.devices.zeroconf
+        if zeroconf is None:
+            _LOGGER.debug("zeroconf unavailable; remote-build discovery disabled")
+            return
+        # Capture own service-instance name so our own advertise
+        # doesn't show up in ``list_hosts``. Reads through the
+        # public ``service_instance_name`` accessor on
+        # ``DashboardAdvertiser`` rather than reaching into
+        # ``_info``; keeps this controller decoupled from the
+        # advertiser's private layout.
+        advertiser = self._db._dashboard_advertiser
+        if advertiser is not None:
+            self._own_instance_name = advertiser.service_instance_name
+        # Wrap browser construction so a zeroconf-side failure (e.g.
+        # the underlying socket got torn down between
+        # ``DeviceStateMonitor.start`` and now, or the cache is in an
+        # unexpected state) doesn't abort dashboard startup. Peer
+        # discovery is fail-soft; same contract as the advertise.
+        try:
+            self._browser = AsyncServiceBrowser(
+                zeroconf.zeroconf,
+                [SERVICE_TYPE],
+                handlers=[self._on_service_state_change],
+            )
+        except Exception:
+            _LOGGER.exception("Could not start remote-build browser; peer discovery disabled")
+            self._browser = None
 
     def _on_offloader_pair_pin_mismatch(self, event: Event[OffloaderPairPinMismatchData]) -> None:
         """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot.
@@ -2533,21 +2567,20 @@ class RemoteBuildController:
             # via the pair_request; the client just opens a
             # peer_link session against the same coordinates.
             self._spawn_peer_link_client(pairing)
-            # ``connected=False`` because the peer-link client
-            # task was just spawned; the actual WS handshake
-            # hasn't completed yet, and ``_open_peer_links``
-            # only flips to ``True`` on the
-            # ``OFFLOADER_PEER_LINK_OPENED`` listener fire. The
-            # next snapshot read after the handshake completes
-            # will report ``True``.
-            return _pairing_summary(pairing, connected=False)
+            # The just-spawned handle drives the response: the
+            # task is alive and its first connect attempt is in
+            # flight, so ``connecting`` resolves to ``True`` even
+            # though ``connected`` is still ``False`` (the
+            # post-handshake fire of ``OFFLOADER_PEER_LINK_OPENED``
+            # is what flips ``connected`` to ``True``).
+            return self._pairing_summary_for(pairing)
         # PENDING: in-memory only, bounded by the receiver-side
         # pairing window. The listener observes the eventual flip
         # (admin Accept) and promotes the row in
         # ``_apply_pair_status_result`` — which mutates the dict
         # entry's ``status`` and schedules a save.
         self._spawn_pair_status_listener(pairing)
-        return _pairing_summary(pairing, connected=False)
+        return self._pairing_summary_for(pairing)
 
     @api_command("remote_build/unpair")
     async def unpair(
@@ -2919,11 +2952,30 @@ class RemoteBuildController:
         on app-startup, so a separate snapshot read would just be
         a redundant round-trip.
         """
-        open_links = self._open_peer_links
-        return [
-            _pairing_summary(p, connected=p.pin_sha256 in open_links)
-            for p in self._pairings.values()
-        ]
+        return [self._pairing_summary_for(p) for p in self._pairings.values()]
+
+    def _pairing_summary_for(self, pairing: StoredPairing) -> PairingSummary:
+        """Project *pairing* into a wire :class:`PairingSummary`.
+
+        Threads the live ``connected`` / ``connecting`` /
+        ``last_connect_error`` state off the matching peer-link
+        client handle (if any), so the snapshot path and the
+        per-mutation ``_apply_pair_status_result`` response use
+        one source of truth and can't drift on the dynamic
+        connection-state fields. PENDING rows have no client
+        handle in :attr:`_peer_link_clients` (the offloader only
+        spawns a client when the receiver flips the row to
+        APPROVED), so they fall through the ``handle is None``
+        branch with all three fields at their connection-quiet
+        defaults.
+        """
+        handle = self._peer_link_clients.get(pairing.pin_sha256)
+        return _pairing_summary(
+            pairing,
+            connected=pairing.pin_sha256 in self._open_peer_links,
+            connecting=handle is not None and handle.client.is_connecting,
+            last_connect_error=(handle.client.last_connect_error if handle is not None else ""),
+        )
 
     def offloader_alerts_snapshot(self) -> list[OffloaderAlertSnapshotEntry]:
         """Return the in-memory offloader pair alerts snapshot.
