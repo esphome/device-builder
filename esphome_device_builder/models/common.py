@@ -207,6 +207,39 @@ class EventType(StrEnum):
     # ``superseded`` close doesn't trigger a reconnect storm.
     OFFLOADER_PEER_LINK_CLOSED = "offloader_peer_link_closed"
 
+    # Receiver-side counterpart to :attr:`OFFLOADER_PEER_LINK_OPENED`.
+    # Fires from :meth:`RemoteBuildController.register_peer_link_session`
+    # the moment a peer-link Noise WS session lands in the
+    # receiver's ``_peer_link_sessions`` registry — i.e. the
+    # post-handshake ``_run_peer_link_session`` has installed the
+    # session and is about to enter its dispatch loop. Payload:
+    # ``{dashboard_id}`` (the offloader's stable identity, as
+    # captured during the Noise XX handshake).
+    #
+    # Subscribers: 5b's ``queue_status`` push uses this as the
+    # signal to send the initial queue snapshot to a freshly-
+    # connected offloader (no lookup-then-push race window where
+    # a queue transition fires between handshake completion and
+    # session registration). The receiver-side frontend Settings
+    # UI uses it to render a "connected" indicator per offloader
+    # in the approved-peers list.
+    RECEIVER_PEER_LINK_SESSION_OPENED = "receiver_peer_link_session_opened"
+
+    # Counterpart to :attr:`RECEIVER_PEER_LINK_SESSION_OPENED`.
+    # Fires from :meth:`RemoteBuildController.unregister_peer_link_session`
+    # when the receiver's session loop unwinds (offloader
+    # disconnects, heartbeat timeout, controller shutdown,
+    # ``superseded`` eviction). Payload: ``{dashboard_id}``.
+    #
+    # No ``reason`` field on this side: the receiver sees only
+    # "the session loop returned"; the rich reason classification
+    # lives on the offloader side (``OFFLOADER_PEER_LINK_CLOSED``)
+    # because that's where the close path's branches diverge
+    # (transport error vs heartbeat timeout vs structured
+    # terminate frame). Receiver-side subscribers don't need to
+    # discriminate.
+    RECEIVER_PEER_LINK_SESSION_CLOSED = "receiver_peer_link_session_closed"
+
     # Offloader-side detection: the receiver's static X25519
     # pubkey hash observed during a pair-status / peer-link
     # handshake doesn't match the ``StoredPairing.pin_sha256``

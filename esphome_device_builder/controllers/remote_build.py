@@ -102,6 +102,8 @@ from ..models import (
     PairingWindowState,
     PeerStatus,
     PeerSummary,
+    ReceiverPeerLinkSessionClosedData,
+    ReceiverPeerLinkSessionOpenedData,
     ReceiverPeers,
     RemoteBuildHostRemovedData,
     RemoteBuildIdentityRotatedData,
@@ -967,6 +969,17 @@ class RemoteBuildController:
         self._peer_link_sessions[session.dashboard_id] = session
         if existing is not None and existing is not session:
             await existing.terminate(TerminateReason.SUPERSEDED)
+        # Fire AFTER the dict insert so any subscriber lookup of
+        # ``_peer_link_sessions[dashboard_id]`` from inside the
+        # listener observes the just-registered session. Phase 5b
+        # uses this hook to send the initial ``queue_status``
+        # snapshot to a freshly-connected offloader without a
+        # lookup-then-push race window.
+        if self._db.bus is not None:
+            self._db.bus.fire(
+                EventType.RECEIVER_PEER_LINK_SESSION_OPENED,
+                ReceiverPeerLinkSessionOpenedData(dashboard_id=session.dashboard_id),
+            )
 
     def unregister_peer_link_session(self, session: PeerLinkSession) -> None:
         """
@@ -982,6 +995,16 @@ class RemoteBuildController:
         """
         if self._peer_link_sessions.get(session.dashboard_id) is session:
             del self._peer_link_sessions[session.dashboard_id]
+            # Fire only when we actually dropped the slot — the
+            # no-op path (a SUPERSEDED-evicted session running its
+            # finally-block after the new session has taken its
+            # place) would double-fire CLOSED for a single
+            # logical close otherwise.
+            if self._db.bus is not None:
+                self._db.bus.fire(
+                    EventType.RECEIVER_PEER_LINK_SESSION_CLOSED,
+                    ReceiverPeerLinkSessionClosedData(dashboard_id=session.dashboard_id),
+                )
 
     async def stop(self) -> None:
         """Cancel the browser and drain in-flight resolve tasks."""

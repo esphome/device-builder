@@ -494,6 +494,42 @@ class OffloaderPeerLinkClosedData(TypedDict):
     reason: str
 
 
+class ReceiverPeerLinkSessionOpenedData(TypedDict):
+    """
+    Payload for ``EventType.RECEIVER_PEER_LINK_SESSION_OPENED``.
+
+    Fired by :meth:`RemoteBuildController.register_peer_link_session`
+    after the receiver has installed an offloader's peer-link
+    Noise WS session in its ``_peer_link_sessions`` registry —
+    i.e. the post-handshake ``_run_peer_link_session`` is about
+    to enter its dispatch loop. Receiver-side counterpart to
+    :class:`OffloaderPeerLinkOpenedData`.
+
+    ``dashboard_id`` is the offloader's stable identity captured
+    from the Noise XX handshake transcript.
+    """
+
+    dashboard_id: str
+
+
+class ReceiverPeerLinkSessionClosedData(TypedDict):
+    """
+    Payload for ``EventType.RECEIVER_PEER_LINK_SESSION_CLOSED``.
+
+    Fired by :meth:`RemoteBuildController.unregister_peer_link_session`
+    when the receiver's session loop unwinds (offloader
+    disconnect, heartbeat timeout, controller shutdown,
+    ``superseded`` eviction). Receiver-side counterpart to
+    :class:`OffloaderPeerLinkClosedData` — but no ``reason``
+    field, because the receiver only sees "the loop returned"
+    and the rich reason classification (transport vs heartbeat
+    vs structured terminate) lives on the offloader side where
+    those branches diverge.
+    """
+
+    dashboard_id: str
+
+
 @dataclass
 class StoredPeer(DataClassORJSONMixin):
     """

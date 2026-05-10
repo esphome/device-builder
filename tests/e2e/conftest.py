@@ -75,31 +75,50 @@ class PairedInstances:
     receiver_bus: EventBus
     offloader_bus: EventBus
     offloader_dashboard_id: str
-    # Pre-subscribed at fixture-construct time so a
-    # :meth:`wait_until_session_opened` call lands cleanly even
-    # when the OPENED event has already fired (the offloader's
-    # :class:`PeerLinkClient` connects on its own task; tests
-    # that race the listener subscription against the connect
-    # would otherwise have to wire the subscription before the
-    # fixture yields).
-    _opened: _CapturedEvents
+    # Pre-subscribed at fixture-construct time, before either
+    # ``start()`` runs. Tests assert against these captured
+    # lists rather than re-subscribing after the fixture yields
+    # (by which point the OPENED events have already fired and
+    # a fresh listener would never see them).
+    offloader_opened: _CapturedEvents
+    offloader_closed: _CapturedEvents
+    receiver_opened: _CapturedEvents
+    receiver_closed: _CapturedEvents
 
     async def wait_until_session_opened(self, *, timeout: float = 2.0) -> None:
-        """Block until the offloader observes ``OFFLOADER_PEER_LINK_OPENED``.
+        """Block until both sides have observed the peer-link session opening.
 
-        Event-based — the offloader fires
-        ``OFFLOADER_PEER_LINK_OPENED`` from its
-        :class:`PeerLinkClient` after processing the receiver's
-        post-handshake ``intent_response: ok``, which is the
-        offloader-side completion of the long-lived peer-link
-        session bring-up. Tests that need to assert on
-        receiver-side state (``_peer_link_sessions[<dashboard_id>]``)
-        can layer their own short
-        :func:`asyncio.wait_for` on top — the receiver's
-        ``register_peer_link_session`` runs on its own task
-        and may lag the offloader's OPENED fire by a tick.
+        Two awaits because the two sides reach "opened" on slightly
+        different schedules:
+
+        * Offloader fires :attr:`EventType.OFFLOADER_PEER_LINK_OPENED`
+          right after its :class:`PeerLinkClient` processes the
+          receiver's post-handshake ``intent_response: ok``.
+        * Receiver fires
+          :attr:`EventType.RECEIVER_PEER_LINK_SESSION_OPENED`
+          from inside :meth:`RemoteBuildController.register_peer_link_session`,
+          which the receiver handler enters *after* sending the
+          post-handshake response — so receiver-side registration
+          can lag the offloader's OPENED fire by an event-loop tick.
+
+        Waiting on both gives callers a single sync point that
+        holds true on both sides without each test having to
+        layer its own wait on top.
         """
-        await asyncio.wait_for(self._opened.received.wait(), timeout=timeout)
+        await asyncio.wait_for(self.offloader_opened.received.wait(), timeout=timeout)
+        await asyncio.wait_for(self.receiver_opened.received.wait(), timeout=timeout)
+
+    async def wait_until_session_closed(self, *, timeout: float = 2.0) -> None:
+        """Block until both sides have observed the peer-link session closing.
+
+        Mirror of :meth:`wait_until_session_opened` for the
+        teardown direction. Waits for the offloader's
+        ``OFFLOADER_PEER_LINK_CLOSED`` AND the receiver's
+        ``RECEIVER_PEER_LINK_SESSION_CLOSED`` so post-close
+        registry-empty assertions hold on both sides.
+        """
+        await asyncio.wait_for(self.offloader_closed.received.wait(), timeout=timeout)
+        await asyncio.wait_for(self.receiver_closed.received.wait(), timeout=timeout)
 
 
 @pytest.fixture
@@ -151,11 +170,17 @@ async def paired_instances(
     offloader_bus = EventBus()
     receiver = make_remote_build_controller(config_dir=receiver_dir, bus=receiver_bus)
     offloader = make_remote_build_controller(config_dir=offloader_dir, bus=offloader_bus)
-    # Subscribe to OPENED before the offloader's
-    # ``PeerLinkClient`` task has had a chance to fire it. The
-    # listener captures every event; ``wait_until_session_opened``
-    # waits on the captured-list's ``received`` event.
-    opened_events = capture_events(offloader_bus, EventType.OFFLOADER_PEER_LINK_OPENED)
+    # Pre-subscribe to all four session-lifecycle events before
+    # any ``start()`` runs — the offloader's ``PeerLinkClient``
+    # connects on its own task and fires OPENED essentially
+    # immediately; tests that subscribed after the fixture
+    # yielded would never see it. ``wait_until_session_opened`` /
+    # ``wait_until_session_closed`` wait on these pre-rolled
+    # captures.
+    offloader_opened = capture_events(offloader_bus, EventType.OFFLOADER_PEER_LINK_OPENED)
+    offloader_closed = capture_events(offloader_bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
+    receiver_opened = capture_events(receiver_bus, EventType.RECEIVER_PEER_LINK_SESSION_OPENED)
+    receiver_closed = capture_events(receiver_bus, EventType.RECEIVER_PEER_LINK_SESSION_CLOSED)
 
     # Stand up the receiver's peer-link WS endpoint on a real
     # TCP port. ``TestServer`` picks an ephemeral port; the
@@ -223,7 +248,10 @@ async def paired_instances(
         receiver_bus=receiver_bus,
         offloader_bus=offloader_bus,
         offloader_dashboard_id=pending_dashboard_id,
-        _opened=opened_events,
+        offloader_opened=offloader_opened,
+        offloader_closed=offloader_closed,
+        receiver_opened=receiver_opened,
+        receiver_closed=receiver_closed,
     )
     try:
         yield instances
