@@ -27,8 +27,9 @@ Flow:
    carries ``is_last=True`` we finalise (validates byte count
    + sha256), write the assembled tarball to
    ``<config>/.esphome/.remote_builds/<dashboard_id>/<device_name>.tar.gz``
-   (sibling of the per-device subtree, not child — see the
-   ``_BUNDLE_SUFFIX`` comment for why),
+   (sibling of the per-device subtree, not child — see
+   :class:`helpers.remote_build_layout.RemoteBuildPath` for the
+   canonical layout),
    extract via :func:`esphome.bundle.prepare_bundle_for_compile`
    (which preserves ``.esphome/`` / ``.pioenvs/`` for incremental
    builds — the load-bearing reason for the stable per-peer
@@ -70,6 +71,7 @@ from ...helpers.peer_link_bundle import (
     decode_chunk,
 )
 from ...helpers.peer_link_frames import frame_schema, is_valid_frame
+from ...helpers.remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
 from ...models import (
     JobType,
     SubmitJobAckFrameData,
@@ -132,30 +134,12 @@ _SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
     }
 )
 
-# Subdirectory under ``<config_dir>/.esphome/`` where remote-peer
-# bundles land. Hidden by the leading dot so a casual ``ls`` of
-# the user's main config tree doesn't show it next to their own
-# YAMLs; living under ``.esphome/`` keeps it adjacent to other
-# build artefacts (StorageJSON, build dirs) so phase-6's TTL
-# sweep can reuse the same parent walk.
-_REMOTE_BUILDS_SUBDIR = Path(".esphome") / ".remote_builds"
-
-# Bundle filename used as a sibling of the extract target_dir
-# (``<dashboard_id>/<device_name>.tar.gz``, next to the
-# ``<dashboard_id>/<device_name>/`` build subtree). Living
-# outside target_dir is load-bearing: upstream
-# :func:`prepare_bundle_for_compile` preserves only
-# ``.esphome`` / ``.pioenvs`` / ``.pio`` in target_dir and
-# wipes every other entry before extract; a bundle inside
-# target_dir would be deleted between the path-resolved
-# ``is_file`` check and the inner ``extract_bundle`` call,
-# surfacing as "Bundle file not found" at compile time.
-# Derived from *device_name* (not the offloader's raw
-# ``configuration_filename``) because ``_validate_configuration_filename``
-# already canonicalised it; using the canonical form keeps a
-# malicious sender from picking a path-traversal shape that
-# climbs out of the dashboard_id namespace.
-_BUNDLE_SUFFIX = ".tar.gz"
+# Layout for the per-dashboard / per-device subtree + sibling
+# bundle tarball lives in :mod:`helpers.remote_build_layout` so
+# the writer here, the 6c TTL sweep, and the controller's
+# in-flight-key derivation all flow through one source of
+# truth. See that module's :class:`RemoteBuildPath` for the
+# canonical key shape.
 
 # Allowed values of :attr:`SubmitJobFrameData.target`.
 # ``Literal["compile", "upload"]`` on the TypedDict is the
@@ -508,11 +492,18 @@ class SubmitJobReceiver:
         # only for filenames that already passed the gate.
         device_name = _validate_configuration_filename(pending.configuration_filename)
         assert device_name is not None  # narrowed by the upstream reject
-        remote_builds_root = self._config_dir / _REMOTE_BUILDS_SUBDIR
-        target_dir = remote_builds_root / session.dashboard_id / device_name
-        # Sibling of target_dir, not child — see _BUNDLE_SUFFIX
-        # comment for why this matters.
-        bundle_path = target_dir.parent / f"{device_name}{_BUNDLE_SUFFIX}"
+        # Subtree (extract target) + bundle (sibling tarball)
+        # flow through the layout helper so the writer here and
+        # the 6c sweeper read one source of truth for the
+        # on-disk shape. Sibling-not-child is load-bearing:
+        # upstream prepare_bundle_for_compile wipes target_dir
+        # before extract_bundle reads from bundle_path, so a
+        # bundle inside target_dir would be deleted mid-flow
+        # (PR #552).
+        key = RemoteBuildPath(dashboard_id=session.dashboard_id, device_name=device_name)
+        target_dir = key.subtree(self._config_dir)
+        bundle_path = key.bundle(self._config_dir)
+        remote_builds_root = self._config_dir / REMOTE_BUILDS_SUBDIR
 
         loop = asyncio.get_running_loop()
         try:

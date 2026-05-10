@@ -67,6 +67,7 @@ from collections.abc import Callable, Coroutine, Hashable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass as _dataclass
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import uuid4
@@ -91,14 +92,19 @@ from ...helpers.json import dumps as json_dumps
 from ...helpers.json import loads as json_loads
 from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
+from ...helpers.remote_build_cleanup import sweep_remote_builds
+from ...helpers.remote_build_layout import parse_from_configuration
 from ...helpers.storage import ShutdownCallback, Store
 from ...models import (
+    MAX_CLEANUP_TTL_SECONDS,
+    MIN_CLEANUP_TTL_SECONDS,
     PAIRING_VERSION_MAX_LEN,
     TERMINAL_JOB_EVENTS,
     ErrorCode,
     EventType,
     IdentityView,
     IntentResponse,
+    JobStatus,
     OffloaderAlertSnapshotEntry,
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
@@ -1111,6 +1117,15 @@ _PAIR_STATUS_RECONNECT_BACKOFF_SECONDS = 2.0
 # ``async_delay_save`` cadence on its own ``Store`` callers.
 _PAIRINGS_SAVE_DELAY_SECONDS = 1.0
 
+# 6c cleanup-sweep cadence. The sweep itself is cheap (one
+# stat per subtree + an rmtree for the cold ones); the cadence
+# just determines how long an expired subtree lingers before
+# reclamation. Hourly keeps the worst-case lag bounded without
+# burning CPU on a tight loop; the TTL itself is the
+# operator-tunable knob (default 24h, see
+# :data:`DEFAULT_CLEANUP_TTL_SECONDS`).
+_CLEANUP_SWEEP_INTERVAL_SECONDS = 60 * 60
+
 # Sliding window enforced per-pin between mDNS rebind probes
 # (4a-o part 7). Doubles as the in-flight guard (set when
 # scheduling, cleared only on probe success) and the
@@ -1561,6 +1576,18 @@ class RemoteBuildController:
             # controller-bound: detached in :meth:`stop`.
             self._job_fanout = JobFanout(self)
             self._job_fanout.start()
+            # 6c: periodic TTL sweep over the remote-build
+            # subtree. Lives alongside the other receiver-side
+            # primitives since it reads ``firmware._jobs`` to
+            # skip in-flight subtrees — gating on the same
+            # ``self._db.firmware is not None`` block keeps the
+            # cleanup task scoped to receivers that can
+            # actually compile. ``_track_task`` reaps it through
+            # the existing :meth:`stop` cancel-and-gather.
+            self._track_task(
+                self._run_cleanup_loop(),
+                name=f"{type(self).__name__}._run_cleanup_loop",
+            )
         # Load APPROVED pairings into RAM. ``StoredPairing.status``
         # defaults to ``APPROVED`` so older sidecars without the
         # field round-trip cleanly; freshly-saved files carry the
@@ -2401,6 +2428,50 @@ class RemoteBuildController:
         task.add_done_callback(self._tasks.discard)
         return task
 
+    async def _run_cleanup_loop(self) -> None:
+        """Sweep cold remote-build subtrees on a periodic tick (6c).
+
+        Reads the operator-configured TTL off
+        :attr:`RemoteBuildSettings.cleanup_ttl_seconds`,
+        collects in-flight job keys via the layout helper, and
+        hands the disk walk to the executor every
+        :data:`_CLEANUP_SWEEP_INTERVAL_SECONDS`. Cancel via
+        :meth:`stop` fires :class:`asyncio.CancelledError`
+        through the sleep so the loop settles cleanly (the
+        exception is a :class:`BaseException` subclass, so the
+        per-cycle ``except Exception`` below doesn't swallow
+        it). Per-cycle failures (permission error inside the
+        sweep, unexpected exception) are logged and the loop
+        continues with the next sleep — cleanup is best-effort
+        hygiene, a single bad cycle shouldn't lose the loop.
+        """
+        config_dir = self._db.settings.config_dir
+        loop = asyncio.get_running_loop()
+        while True:
+            await asyncio.sleep(_CLEANUP_SWEEP_INTERVAL_SECONDS)
+            try:
+                settings = await loop.run_in_executor(None, load_remote_build_settings, config_dir)
+                in_flight_keys = frozenset(
+                    rbp
+                    for job in self._db.firmware._jobs.values()
+                    if job.status in (JobStatus.QUEUED, JobStatus.RUNNING)
+                    and job.remote_peer
+                    and (rbp := parse_from_configuration(job.configuration)) is not None
+                )
+                deleted = await loop.run_in_executor(
+                    None,
+                    partial(
+                        sweep_remote_builds,
+                        config_dir,
+                        ttl_seconds=settings.cleanup_ttl_seconds,
+                        in_flight_keys=in_flight_keys,
+                    ),
+                )
+                if deleted:
+                    _LOGGER.info("remote-build cleanup: swept %d cold subtree(s)", deleted)
+            except Exception:
+                _LOGGER.exception("remote-build cleanup sweep failed")
+
     def _schedule_pairings_save(self) -> None:
         """Debounce-write the offloader pairings store.
 
@@ -2713,6 +2784,7 @@ class RemoteBuildController:
         """
         return RemoteBuildSettingsView(
             enabled=settings.enabled,
+            cleanup_ttl_seconds=settings.cleanup_ttl_seconds,
             peers=self._peer_summaries(),
         )
 
@@ -2795,7 +2867,13 @@ class RemoteBuildController:
         return self._to_view(settings)
 
     @api_command("remote_build/set_settings")
-    async def set_settings(self, *, enabled: bool, **kwargs: Any) -> RemoteBuildSettingsView:
+    async def set_settings(
+        self,
+        *,
+        enabled: bool,
+        cleanup_ttl_seconds: int | None = None,
+        **kwargs: Any,
+    ) -> RemoteBuildSettingsView:
         """
         Persist the receiver-side ``enabled`` master switch.
 
@@ -2809,6 +2887,16 @@ class RemoteBuildController:
         the opposite of what the user intended on a security-
         sensitive toggle.
 
+        Optionally accepts ``cleanup_ttl_seconds`` to update the
+        6c TTL sweep's cold-subtree threshold. Validated against
+        :data:`MIN_CLEANUP_TTL_SECONDS` /
+        :data:`MAX_CLEANUP_TTL_SECONDS` so a fat-fingered value
+        can't push the sweep to "delete everything every tick"
+        or "never reclaim disk". Omitting it (or sending
+        ``None``) preserves the current setting; the field is
+        optional on the wire so clients that only flip the
+        master switch don't have to re-supply the TTL.
+
         Live-rebinds the peer-link Noise WS listener after the
         write lands: a flip to ``True`` runs the same bind path
         :meth:`DeviceBuilder._maybe_start_remote_build_site` does
@@ -2821,9 +2909,27 @@ class RemoteBuildController:
         if not isinstance(enabled, bool):
             msg = "remote_build/set_settings: 'enabled' must be a boolean"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        if cleanup_ttl_seconds is not None:
+            # ``not_bool`` check first: Python's bool subclasses
+            # int, so ``isinstance(True, int)`` is true. A wire
+            # value of ``True`` would otherwise pass the int
+            # check and bind to ``cleanup_ttl_seconds=1`` (well
+            # below MIN), surfacing a confusing OUT_OF_RANGE
+            # rather than the "wrong type" the operator hit.
+            if isinstance(cleanup_ttl_seconds, bool) or not isinstance(cleanup_ttl_seconds, int):
+                msg = "remote_build/set_settings: 'cleanup_ttl_seconds' must be an integer"
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
+            if not MIN_CLEANUP_TTL_SECONDS <= cleanup_ttl_seconds <= MAX_CLEANUP_TTL_SECONDS:
+                msg = (
+                    f"remote_build/set_settings: 'cleanup_ttl_seconds' must be between "
+                    f"{MIN_CLEANUP_TTL_SECONDS} and {MAX_CLEANUP_TTL_SECONDS}"
+                )
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
         def _set(settings: RemoteBuildSettings) -> None:
             settings.enabled = enabled
+            if cleanup_ttl_seconds is not None:
+                settings.cleanup_ttl_seconds = cleanup_ttl_seconds
 
         view = await self._modify_settings(_set)
         await self._db.apply_remote_build_enabled()

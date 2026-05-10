@@ -1504,15 +1504,29 @@ class PairingSummary(DataClassORJSONMixin):
     esphome_version: str = ""
 
 
+# Default + bounds for :attr:`RemoteBuildSettings.cleanup_ttl_seconds`.
+# 24h matches 6c's "subtree is cold if it hasn't been
+# submitted-to for a day" intuition. Bounds: 1h floor keeps the
+# operator from setting "delete everything every sweep tick" by
+# accident; 30d ceiling keeps the cap somewhere finite for the
+# input validator (the disk-walk doesn't care about the upper
+# bound, but a typed cap surfaces silly inputs at the WS layer
+# rather than landing them on disk).
+DEFAULT_CLEANUP_TTL_SECONDS = 24 * 60 * 60
+MIN_CLEANUP_TTL_SECONDS = 60 * 60
+MAX_CLEANUP_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
 @dataclass
 class RemoteBuildSettings(DataClassORJSONMixin):
     """
     Receiver-side settings for the remote-build feature (storage shape).
 
     Stored in ``.device-builder.json`` under the ``_remote_build``
-    top-level key. Carries only the master ``enabled`` toggle
-    today. APPROVED :class:`StoredPeer` rows live in their own
-    per-file :class:`~helpers.storage.Store` at
+    top-level key. Carries the master ``enabled`` toggle and the
+    6c TTL sweep's ``cleanup_ttl_seconds`` knob. APPROVED
+    :class:`StoredPeer` rows live in their own per-file
+    :class:`~helpers.storage.Store` at
     ``<config_dir>/.receiver_peers.json`` (mirrors the offloader-
     side :class:`OffloaderRemoteBuildSettings` shape) so reads
     short-circuit through RAM and don't race a write in flight.
@@ -1522,9 +1536,21 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     started typing hostnames straight into ``request_pair``, and
     the ``tokens`` list (hash-only bearer tokens) went with the
     dormant bearer machinery in phase 4a-r2.
+
+    ``cleanup_ttl_seconds`` is the operator-tunable threshold
+    the 6c background sweep uses to decide a remote-build
+    subtree is cold enough to delete. Defaults to 24h
+    (:data:`DEFAULT_CLEANUP_TTL_SECONDS`); the WS validator
+    caps the input between :data:`MIN_CLEANUP_TTL_SECONDS` and
+    :data:`MAX_CLEANUP_TTL_SECONDS` so a fat-fingered or
+    malicious write can't push the sweep to "delete everything
+    every tick" or "never reclaim disk". Missing on an older
+    sidecar deserialises to the default via the dataclass
+    field default.
     """
 
     enabled: bool = False
+    cleanup_ttl_seconds: int = DEFAULT_CLEANUP_TTL_SECONDS
 
 
 @dataclass
@@ -1545,6 +1571,7 @@ class RemoteBuildSettingsView(DataClassORJSONMixin):
     """
 
     enabled: bool = False
+    cleanup_ttl_seconds: int = DEFAULT_CLEANUP_TTL_SECONDS
     peers: list[PeerSummary] = field(default_factory=list)
 
 
