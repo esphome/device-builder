@@ -1726,10 +1726,12 @@ async def test_run_peer_link_session_heartbeat_closures_route_to_session(
     controller._db.bus = MagicMock()
 
     captured: dict[str, Any] = {}
+    heartbeat_started = asyncio.Event()
 
     async def _capturing_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
         captured["send_ping"] = send_ping
         captured["on_dead"] = on_dead
+        heartbeat_started.set()
         # Park until the test signals via cancellation.
         await asyncio.Event().wait()
 
@@ -1744,14 +1746,10 @@ async def test_run_peer_link_session_heartbeat_closures_route_to_session(
             peer_ip="127.0.0.1",
         )
     )
-    # Wait for ``_run_peer_link_session`` to register, kick off the
-    # heartbeat, and park on ``_receive_loop``. A few ticks is
-    # enough — there's no I/O on this path.
-    for _ in range(20):
-        await asyncio.sleep(0)
-        if "send_ping" in captured:
-            break
-    assert "send_ping" in captured, "heartbeat helper was never invoked"
+    # Wait for ``_run_peer_link_session`` to register and kick off
+    # the heartbeat task — the helper sets ``heartbeat_started``
+    # the moment its callbacks land in ``captured``.
+    await asyncio.wait_for(heartbeat_started.wait(), timeout=2.0)
 
     # Exercise ``_send_ping`` — the closure encrypts and sends a
     # ping frame through ``send_app_frame``.

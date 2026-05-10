@@ -81,16 +81,36 @@ def _make_controller(*, config_dir: Path) -> RemoteBuildController:
     return RemoteBuildController(db)
 
 
-def capture_events(bus: EventBus, event_type: EventType) -> list[dict]:
+class _CapturedEvents(list[dict]):
+    """A list of captured event payloads with an :class:`asyncio.Event` that fires on each append.
+
+    Subclassing ``list`` keeps the natural ``captured[0]["reason"]``
+    / ``len(captured)`` access shape that callers expect; the
+    extra :attr:`received` event lets a test ``await asyncio.wait_for(
+    captured.received.wait(), timeout=...)`` instead of polling
+    on a ``for _ in range(N): sleep(0.01)`` loop.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.received = asyncio.Event()
+
+    def append(self, item: dict) -> None:
+        super().append(item)
+        self.received.set()
+
+
+def capture_events(bus: EventBus, event_type: EventType) -> _CapturedEvents:
     """Subscribe to *event_type* on *bus* and return a list captured-as-they-fire.
 
     Each fired event's ``data`` payload is materialised into a
-    plain dict and appended. Returned list is owned by the caller —
-    consumers can ``len(captured)``, ``captured[0]["reason"]``,
-    etc. without taking the ``Event`` wrapper apart at every call
-    site.
+    plain dict and appended. Returned object is a ``list`` subclass
+    with a ``received`` :class:`asyncio.Event` that's set on every
+    append — use ``await asyncio.wait_for(captured.received.wait(),
+    timeout=...)`` to block until the first event lands rather
+    than polling.
     """
-    captured: list[dict] = []
+    captured = _CapturedEvents()
     bus.add_listener(event_type, lambda event: captured.append(dict(event.data)))
     return captured
 
@@ -2199,10 +2219,7 @@ async def test_peer_link_client_fires_opened_after_handshake(
     )
 
     bus = EventBus()
-    fired: list[tuple[EventType, dict]] = []
-    bus.add_listener(
-        EventType.OFFLOADER_PEER_LINK_OPENED, lambda e: fired.append((e.event_type, e.data))
-    )
+    opened = capture_events(bus, EventType.OFFLOADER_PEER_LINK_OPENED)
 
     client = PeerLinkClient(
         receiver_hostname="127.0.0.1",
@@ -2212,19 +2229,11 @@ async def test_peer_link_client_fires_opened_after_handshake(
         bus=bus,
     )
     task = asyncio.create_task(client.run())
-    # Wait briefly for the handshake to complete and the OPENED
-    # event to fire. The receiver-side handshake is sub-ms; a
-    # generous timeout still finishes promptly on the happy path.
-    for _ in range(50):
-        await asyncio.sleep(0.01)
-        if fired:
-            break
     try:
-        assert len(fired) == 1
-        event_type, data = fired[0]
-        assert event_type is EventType.OFFLOADER_PEER_LINK_OPENED
-        assert data["receiver_hostname"] == "127.0.0.1"
-        assert data["receiver_port"] == server.port
+        await asyncio.wait_for(opened.received.wait(), timeout=2.0)
+        assert len(opened) == 1
+        assert opened[0]["receiver_hostname"] == "127.0.0.1"
+        assert opened[0]["receiver_port"] == server.port
     finally:
         await cancel_and_drain(task)
 
@@ -2316,12 +2325,10 @@ async def test_peer_link_client_orphans_on_superseded(
     task2 = asyncio.create_task(client2.run())
     try:
         await asyncio.wait_for(opened2.wait(), timeout=2.0)
-        # Wait for client1 to observe the superseded close.
-        for _ in range(100):
-            await asyncio.sleep(0.01)
-            if task1.done():
-                break
-        assert task1.done()
+        # Wait for client1 to observe the superseded close. ``run()``
+        # exits cleanly (returns) on superseded — no exception to
+        # gather around — so the wait_for can target the task directly.
+        await asyncio.wait_for(asyncio.shield(task1), timeout=2.0)
         assert client1.is_orphaned
         # The first close event should carry the superseded reason.
         superseded_events = [c for c in closed if c["reason"] == "superseded"]
@@ -2405,12 +2412,14 @@ async def test_run_session_loops_send_ping_routes_through_channel(
     """
     initiator, responder = _build_handshake_pair()
     closed_event = asyncio.Event()
+    ping_sent = asyncio.Event()
 
     sent_frames: list[bytes] = []
 
     class _RecordingWs(_ParkingWs):
         async def send_bytes(self, data: bytes) -> None:
             sent_frames.append(data)
+            ping_sent.set()
 
     ws = _RecordingWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
@@ -2429,11 +2438,7 @@ async def test_run_session_loops_send_ping_routes_through_channel(
         bus=EventBus(),
     )
     drive_task = asyncio.create_task(client._run_session_loops(channel))
-    for _ in range(50):
-        await asyncio.sleep(0)
-        if sent_frames:
-            break
-    assert sent_frames, "heartbeat never sent its ping through the channel"
+    await asyncio.wait_for(ping_sent.wait(), timeout=2.0)
     decoded = _json.loads(responder.decrypt(sent_frames[0]))
     assert decoded == {"type": "ping", "nonce": 42}
 
@@ -2613,11 +2618,7 @@ async def test_peer_link_client_returns_transport_error_on_type_error(
     )
     task = asyncio.create_task(client.run())
     try:
-        for _ in range(200):
-            await asyncio.sleep(0.01)
-            if closed:
-                break
-        assert closed, "expected an OFFLOADER_PEER_LINK_CLOSED event"
+        await asyncio.wait_for(closed.received.wait(), timeout=2.0)
         assert closed[0]["reason"] == "transport_error"
     finally:
         await cancel_and_drain(task)
@@ -2659,11 +2660,7 @@ async def test_peer_link_client_returns_transport_error_on_noise_failure(
     )
     task = asyncio.create_task(client.run())
     try:
-        for _ in range(200):
-            await asyncio.sleep(0.01)
-            if closed:
-                break
-        assert closed, "expected an OFFLOADER_PEER_LINK_CLOSED event"
+        await asyncio.wait_for(closed.received.wait(), timeout=2.0)
         assert closed[0]["reason"] == "transport_error"
     finally:
         await cancel_and_drain(task)
@@ -2694,11 +2691,7 @@ async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
     )
     task = asyncio.create_task(client.run())
     try:
-        for _ in range(200):
-            await asyncio.sleep(0.01)
-            if closed:
-                break
-        assert closed, "expected an OFFLOADER_PEER_LINK_CLOSED event"
+        await asyncio.wait_for(closed.received.wait(), timeout=2.0)
         assert closed[0]["reason"] == "auth_rejected"
     finally:
         await cancel_and_drain(task)
@@ -2711,6 +2704,7 @@ async def test_run_session_loops_responds_to_peer_ping(
     """A PING from the receiver is answered with a PONG and the loop keeps running."""
     initiator, responder = _build_handshake_pair()
     closed_event = asyncio.Event()
+    pong_sent = asyncio.Event()
 
     sent_frames: list[bytes] = []
 
@@ -2721,6 +2715,7 @@ async def test_run_session_loops_responds_to_peer_ping(
 
         async def send_bytes(self, data: bytes) -> None:
             sent_frames.append(data)
+            pong_sent.set()
 
         async def __anext__(self) -> Any:
             if not self._delivered:
@@ -2750,11 +2745,7 @@ async def test_run_session_loops_responds_to_peer_ping(
         return await client._run_session_loops(channel)
 
     drive_task = asyncio.create_task(_drive())
-    for _ in range(50):
-        await asyncio.sleep(0)
-        if sent_frames:
-            break
-    assert sent_frames, "expected a PONG to be sent in reply to PING"
+    await asyncio.wait_for(pong_sent.wait(), timeout=2.0)
     decoded = _json.loads(responder.decrypt(sent_frames[0]))
     assert decoded == {"type": "pong", "nonce": 7}
 
@@ -2788,11 +2779,13 @@ async def test_run_session_loops_bumps_last_pong_on_pong(
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
     captured_last_pong: list[float] = []
+    sample_taken = asyncio.Event()
 
     async def _capturing_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
         # Sleep one tick so the receive loop processes the PONG first.
         await asyncio.sleep(0)
         captured_last_pong.append(last_pong_at())
+        sample_taken.set()
         await closed_event.wait()
 
     monkeypatch.setattr(
@@ -2808,12 +2801,7 @@ async def test_run_session_loops_bumps_last_pong_on_pong(
     )
     drive_task = asyncio.create_task(client._run_session_loops(channel))
 
-    # Let the receive loop process the PONG and the heartbeat sample
-    # ``last_pong_at`` afterwards.
-    for _ in range(20):
-        await asyncio.sleep(0)
-        if captured_last_pong:
-            break
+    await asyncio.wait_for(sample_taken.wait(), timeout=2.0)
 
     closed_event.set()
     reason = await drive_task
@@ -2903,9 +2891,10 @@ async def test_run_session_loops_ignores_unknown_msg_type(
         bus=EventBus(),
     )
     drive_task = asyncio.create_task(client._run_session_loops(channel))
-    # Let the loop process the unknown frame, then close to exit.
-    for _ in range(20):
-        await asyncio.sleep(0)
+    # The fake WS delivers the unknown frame on the first
+    # ``__anext__`` and then awaits ``closed_event`` on the next
+    # call. Setting it now lets the receive loop process the
+    # unknown frame (logged + ignored) and exit cleanly.
     closed_event.set()
     reason = await drive_task
     # Default close reason — neither malformed nor terminate; the
