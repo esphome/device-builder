@@ -27,8 +27,6 @@ from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
-    JobLifecycleData,
-    JobOutputData,
     JobStatus,
     JobType,
 )
@@ -101,6 +99,18 @@ async def _drain_background(controller: Any) -> None:
     controller.background_tasks.clear()
 
 
+def _seed_via_queued(bus: EventBus, job: FirmwareJob) -> None:
+    """Fire ``JOB_QUEUED`` so the fan-out caches the remote-peer correlation.
+
+    Production fires ``JOB_QUEUED`` from
+    :meth:`FirmwareController._enqueue` before any subsequent
+    lifecycle / output event for the same job, so tests
+    exercising those later events need to seed the fan-out's
+    cache the same way the real flow would.
+    """
+    bus.fire(EventType.JOB_QUEUED, {"job": job})
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle event fan-out
 # ---------------------------------------------------------------------------
@@ -126,9 +136,10 @@ async def test_lifecycle_event_fans_out_as_job_state_changed(
     fanout = JobFanout(controller)
     fanout.start()
     job = _make_remote_job(status=status_field)
+    _seed_via_queued(bus, job)
+    session.send_app_frame.reset_mock()
 
-    payload: JobLifecycleData = {"job": job}
-    bus.fire(event_type, payload)
+    bus.fire(event_type, {"job": job})
     await _drain_background(controller)
 
     session.send_app_frame.assert_awaited_once()
@@ -148,9 +159,10 @@ async def test_failed_event_carries_error_message() -> None:
     fanout = JobFanout(controller)
     fanout.start()
     job = _make_remote_job(status=JobStatus.FAILED, error="compile failed: bad pin")
+    _seed_via_queued(bus, job)
+    session.send_app_frame.reset_mock()
 
-    payload: JobLifecycleData = {"job": job}
-    bus.fire(EventType.JOB_FAILED, payload)
+    bus.fire(EventType.JOB_FAILED, {"job": job})
     await _drain_background(controller)
 
     frame = session.send_app_frame.call_args.args[0]
@@ -184,27 +196,31 @@ async def test_lifecycle_skips_when_session_gone() -> None:
     """A fan-out for a peer whose session has unregistered is skipped silently."""
     bus = EventBus()
     # No session under the "alpha" key — the offloader disconnected
-    # mid-build.
+    # mid-build (after the fan-out cached its correlation tuple
+    # via JOB_QUEUED).
     controller = _make_controller(bus=bus, sessions={})
     fanout = JobFanout(controller)
     fanout.start()
     job = _make_remote_job(status=JobStatus.RUNNING)
+    _seed_via_queued(bus, job)
 
     bus.fire(EventType.JOB_STARTED, {"job": job})
     await _drain_background(controller)
-    # No background task should have been queued — the lookup
-    # returned None before reaching the send.
+    # No background task should have been queued — the session
+    # lookup returned None before reaching the send.
     assert controller.background_tasks == []
 
 
 @pytest.mark.asyncio
-async def test_job_queued_does_not_fan_out() -> None:
-    """``JOB_QUEUED`` is intentionally not forwarded — the ack already signals queued.
+async def test_job_queued_caches_correlation_but_does_not_fan_out() -> None:
+    """``JOB_QUEUED`` populates the fan-out cache but doesn't send a wire frame.
 
-    Pins the documented contract: the ``submit_job_ack``
-    response carries the queued signal implicitly, and a
-    redundant ``job_state_changed{queued}`` frame would race
-    the ack and add wire noise without adding signal.
+    Pins two contracts: (1) the ``submit_job_ack`` response
+    carries the queued signal implicitly, and a redundant
+    ``job_state_changed{queued}`` frame would race the ack and
+    add wire noise without adding signal; (2) the cache
+    population path itself runs so subsequent JOB_STARTED /
+    JOB_OUTPUT events can dispatch.
     """
     bus = EventBus()
     session = _make_session()
@@ -217,6 +233,34 @@ async def test_job_queued_does_not_fan_out() -> None:
     await _drain_background(controller)
 
     session.send_app_frame.assert_not_called()
+    # Cache populated — the JOB_STARTED that lands next will
+    # find its correlation tuple.
+    assert fanout._remote_jobs == {job.job_id: ("alpha", "wire-job")}
+
+
+@pytest.mark.asyncio
+async def test_terminal_event_drops_cache_entry() -> None:
+    """A terminal event (completed / failed / cancelled) drops the cache entry.
+
+    Pins the leak-prevention contract: the firmware controller
+    retains ``FirmwareJob`` rows for post-mortem inspection, so
+    relying on a "job removed" signal isn't an option. The
+    fan-out tracks lifecycle directly and clears its own state
+    when the job goes terminal.
+    """
+    bus = EventBus()
+    session = _make_session()
+    controller = _make_controller(bus=bus, sessions={"alpha": session})
+    fanout = JobFanout(controller)
+    fanout.start()
+    job = _make_remote_job()
+    _seed_via_queued(bus, job)
+    assert job.job_id in fanout._remote_jobs
+
+    bus.fire(EventType.JOB_COMPLETED, {"job": job})
+    await _drain_background(controller)
+
+    assert job.job_id not in fanout._remote_jobs
 
 
 # ---------------------------------------------------------------------------
@@ -226,17 +270,17 @@ async def test_job_queued_does_not_fan_out() -> None:
 
 @pytest.mark.asyncio
 async def test_job_output_fans_out_as_job_output_frame() -> None:
-    """``JOB_OUTPUT`` for a remote-peer job sends a ``job_output`` frame."""
+    """``JOB_OUTPUT`` for a cached remote-peer job sends a ``job_output`` frame."""
     bus = EventBus()
     session = _make_session(dashboard_id="alpha")
     controller = _make_controller(bus=bus, sessions={"alpha": session})
     job = _make_remote_job(job_id="local-1", status=JobStatus.RUNNING)
-    controller._db.firmware._jobs["local-1"] = job
     fanout = JobFanout(controller)
     fanout.start()
+    _seed_via_queued(bus, job)
+    session.send_app_frame.reset_mock()
 
-    payload: JobOutputData = {"job_id": "local-1", "line": "Compiling .pioenvs/...\n"}
-    bus.fire(EventType.JOB_OUTPUT, payload)
+    bus.fire(EventType.JOB_OUTPUT, {"job_id": "local-1", "line": "Compiling .pioenvs/...\n"})
     await _drain_background(controller)
 
     session.send_app_frame.assert_awaited_once()
@@ -249,50 +293,36 @@ async def test_job_output_fans_out_as_job_output_frame() -> None:
 
 @pytest.mark.asyncio
 async def test_job_output_skips_local_job() -> None:
-    """``JOB_OUTPUT`` for a local job (no ``remote_peer``) is skipped."""
+    """A local job's JOB_QUEUED never enters the cache, so its JOB_OUTPUT is skipped."""
     bus = EventBus()
     session = _make_session()
     controller = _make_controller(bus=bus, sessions={"alpha": session})
+    fanout = JobFanout(controller)
+    fanout.start()
     local_job = FirmwareJob(
         job_id="local-only",
         configuration="kitchen.yaml",
         job_type=JobType.COMPILE,
         status=JobStatus.RUNNING,
     )
-    controller._db.firmware._jobs["local-only"] = local_job
-    fanout = JobFanout(controller)
-    fanout.start()
+    _seed_via_queued(bus, local_job)  # remote_peer empty → cache miss
 
     bus.fire(EventType.JOB_OUTPUT, {"job_id": "local-only", "line": "x"})
     await _drain_background(controller)
 
     session.send_app_frame.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_job_output_skips_when_firmware_unavailable() -> None:
-    """``JOB_OUTPUT`` early-returns cleanly when the firmware controller is None."""
-    bus = EventBus()
-    controller = _make_controller(bus=bus, sessions={})
-    controller._db.firmware = None
-    fanout = JobFanout(controller)
-    fanout.start()
-
-    bus.fire(EventType.JOB_OUTPUT, {"job_id": "any", "line": "x"})
-    await _drain_background(controller)
-
-    assert controller.background_tasks == []
+    assert local_job.job_id not in fanout._remote_jobs
 
 
 @pytest.mark.asyncio
 async def test_job_output_skips_when_session_gone() -> None:
-    """``JOB_OUTPUT`` for a remote-peer job whose session unregistered is silently dropped."""
+    """``JOB_OUTPUT`` for a cached job whose session unregistered is silently dropped."""
     bus = EventBus()
     controller = _make_controller(bus=bus, sessions={})  # no session
     job = _make_remote_job(job_id="local-1", status=JobStatus.RUNNING)
-    controller._db.firmware._jobs["local-1"] = job
     fanout = JobFanout(controller)
     fanout.start()
+    _seed_via_queued(bus, job)
 
     bus.fire(EventType.JOB_OUTPUT, {"job_id": "local-1", "line": "x"})
     await _drain_background(controller)
@@ -302,7 +332,7 @@ async def test_job_output_skips_when_session_gone() -> None:
 
 @pytest.mark.asyncio
 async def test_job_output_skips_unknown_job_id() -> None:
-    """``JOB_OUTPUT`` for a job_id not in the firmware registry is silently dropped."""
+    """``JOB_OUTPUT`` for an unseen ``job_id`` (no JOB_QUEUED before) is silently dropped."""
     bus = EventBus()
     session = _make_session()
     controller = _make_controller(bus=bus, sessions={"alpha": session})
@@ -350,8 +380,10 @@ async def test_send_app_frame_failure_is_swallowed() -> None:
     controller = _make_controller(bus=bus, sessions={"alpha": session})
     fanout = JobFanout(controller)
     fanout.start()
+    job = _make_remote_job(status=JobStatus.RUNNING)
+    _seed_via_queued(bus, job)
 
-    bus.fire(EventType.JOB_STARTED, {"job": _make_remote_job(status=JobStatus.RUNNING)})
+    bus.fire(EventType.JOB_STARTED, {"job": job})
     # Drain doesn't raise — the helper logs at debug + returns.
     await _drain_background(controller)
 
