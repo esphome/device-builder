@@ -153,10 +153,26 @@ class JobFanout:
 
         Local-only jobs (``remote_peer`` empty) don't go in the
         cache — saves a per-line dict miss on the busy path.
+        Jobs with ``remote_peer`` set but ``remote_job_id``
+        empty are flagged at debug — the cache miss would be
+        silent on every later lifecycle / output event,
+        making the missing correlation hard to find. The
+        likely shape is a persisted job from before
+        ``remote_job_id`` existed, or a future call site
+        forgetting to pass it through ``_create_job``.
         """
         job = event.data["job"]
-        if job.remote_peer and job.remote_job_id:
-            self._remote_jobs[job.job_id] = (job.remote_peer, job.remote_job_id)
+        if not job.remote_peer:
+            return
+        if not job.remote_job_id:
+            _LOGGER.debug(
+                "JOB_QUEUED for remote peer %s (job %s) missing remote_job_id; "
+                "fan-out will skip this job's lifecycle and output events",
+                job.remote_peer,
+                job.job_id,
+            )
+            return
+        self._remote_jobs[job.job_id] = (job.remote_peer, job.remote_job_id)
 
     def _on_lifecycle(self, event: Event[JobLifecycleData]) -> None:
         """Forward a lifecycle transition to the submitting session, best-effort.

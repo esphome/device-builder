@@ -63,13 +63,15 @@ def _make_remote_job(
 def _make_controller(*, bus: EventBus, sessions: dict[str, Any] | None = None) -> Any:
     """Stub :class:`RemoteBuildController` with the attributes ``JobFanout`` reads.
 
-    ``_db.bus`` for listener attach, ``_peer_link_sessions``
-    for the per-event session lookup, ``_db.firmware._jobs``
-    for the JOB_OUTPUT lookup path, and
-    ``_db.create_background_task`` to drive the background
-    send. The send is awaited synchronously via the captured
-    coroutine list so the test can assert deterministically
-    without timing-based polling.
+    Three load-bearing fields:
+
+    * ``_db.bus`` — fan-out attaches its listeners here.
+    * ``_peer_link_sessions`` — per-event session lookup keyed
+      on ``FirmwareJob.remote_peer``.
+    * ``_db.create_background_task`` — captures each
+      ``send_app_frame`` coroutine into ``background_tasks``
+      so :func:`_drain_background` can run them deterministically
+      (no timing-based polling).
     """
     background_tasks: list[Any] = []
 
@@ -80,10 +82,6 @@ def _make_controller(*, bus: EventBus, sessions: dict[str, Any] | None = None) -
     db = MagicMock()
     db.bus = bus
     db.create_background_task = _create_background_task
-
-    firmware = MagicMock()
-    firmware._jobs = {}
-    db.firmware = firmware
 
     controller = MagicMock()
     controller._db = db
@@ -236,6 +234,34 @@ async def test_job_queued_caches_correlation_but_does_not_fan_out() -> None:
     # Cache populated — the JOB_STARTED that lands next will
     # find its correlation tuple.
     assert fanout._remote_jobs == {job.job_id: ("alpha", "wire-job")}
+
+
+@pytest.mark.asyncio
+async def test_queued_with_missing_remote_job_id_logs_and_skips_cache(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A remote-peer job missing ``remote_job_id`` logs at debug and isn't cached.
+
+    Pins the upgrade-shape behaviour: a persisted ``FirmwareJob``
+    from before ``remote_job_id`` existed (or a future call
+    site forgetting to thread the field through
+    ``_create_job``) carries ``remote_peer`` set but
+    ``remote_job_id`` empty. Without the diagnostic log here
+    the silent cache miss would mask the missing correlation
+    on every subsequent lifecycle / output event for the job.
+    """
+    bus = EventBus()
+    session = _make_session()
+    controller = _make_controller(bus=bus, sessions={"alpha": session})
+    fanout = JobFanout(controller)
+    fanout.start()
+    job = _make_remote_job(remote_job_id="")
+
+    with caplog.at_level("DEBUG"):
+        bus.fire(EventType.JOB_QUEUED, {"job": job})
+
+    assert job.job_id not in fanout._remote_jobs
+    assert any("missing remote_job_id" in record.message for record in caplog.records)
 
 
 @pytest.mark.asyncio
