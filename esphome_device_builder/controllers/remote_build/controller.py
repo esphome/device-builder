@@ -75,7 +75,6 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 from ...constants import __version__ as server_version
 from ...helpers.api import CommandError, api_command
-from ...helpers.config_bundle import build_yaml_bundle
 from ...helpers.dashboard_advertise import SERVICE_TYPE
 from ...helpers.dashboard_identity import (
     DASHBOARD_ID_MAX_CHARS,
@@ -2242,11 +2241,16 @@ class RemoteBuildController:
         already surfaces unhandled exceptions as
         ``INTERNAL_ERROR``.
 
-        ``EsphomeError`` is imported inside the method so the
-        cost of pulling in esphome's validation module is paid
-        on first submit, not at controller-module import time.
+        Both ``EsphomeError`` and ``build_yaml_bundle`` are
+        imported inside the method so the cost of pulling in
+        esphome's heavy validation + bundle modules is paid on
+        first submit, not at controller-module import time.
+        Dashboards that never offload a build never pay for the
+        import.
         """
         from esphome.core import EsphomeError  # noqa: PLC0415
+
+        from ...helpers.config_bundle import build_yaml_bundle  # noqa: PLC0415
 
         loop = asyncio.get_running_loop()
         yaml_path = await loop.run_in_executor(None, self._db.settings.rel_path, configuration)

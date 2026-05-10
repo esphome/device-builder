@@ -3773,12 +3773,19 @@ async def test_run_session_loops_resolves_submit_job_ack_future(
 
 
 @pytest.mark.asyncio
-async def test_run_session_loops_finally_drains_pending_submit_acks() -> None:
+async def test_run_session_loops_finally_drains_pending_submit_acks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Pending ack futures are completed with :class:`SubmitJobSessionLostError` on session end."""
     initiator, _responder = _build_handshake_pair()
     closed_event = asyncio.Event()
     ws = _ParkingWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+        await closed_event.wait()
+
+    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
 
     bus = EventBus()
     client = PeerLinkClient(
@@ -3793,9 +3800,6 @@ async def test_run_session_loops_finally_drains_pending_submit_acks() -> None:
     )
     pending: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
     client._submit_job_acks["abandoned"] = pending
-
-    async def _no_heartbeat(**kwargs: Any) -> None:
-        await closed_event.wait()
 
     drive_task = asyncio.create_task(client._run_session_loops(channel))
     # Let the receive loop park and set ``_active_channel``,
@@ -4089,7 +4093,10 @@ async def test_controller_submit_job_returns_ack_on_accept(
         captured_args["bundle_bytes"] = bundle_bytes
         return {"type": "submit_job_ack", "job_id": job_id, "accepted": True}
 
-    monkeypatch.setattr(rb, "build_yaml_bundle", _stub_build_bundle)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.config_bundle.build_yaml_bundle",
+        _stub_build_bundle,
+    )
     monkeypatch.setattr(client, "submit_job", _stub_submit_job)
 
     try:
@@ -4141,7 +4148,10 @@ async def test_controller_submit_job_passes_through_reject_reason(
             "reason": "queue_rejected",
         }
 
-    monkeypatch.setattr(rb, "build_yaml_bundle", _stub_build_bundle)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.config_bundle.build_yaml_bundle",
+        _stub_build_bundle,
+    )
     monkeypatch.setattr(client, "submit_job", _stub_submit_job)
 
     try:
@@ -4265,7 +4275,10 @@ async def test_controller_submit_job_timeout_maps_to_unavailable(
     async def _stub_submit_job(**kwargs: Any) -> dict[str, Any]:
         raise SubmitJobTimeoutError("ack timed out")
 
-    monkeypatch.setattr(rb, "build_yaml_bundle", _stub_build_bundle)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.config_bundle.build_yaml_bundle",
+        _stub_build_bundle,
+    )
     monkeypatch.setattr(client, "submit_job", _stub_submit_job)
 
     try:
@@ -4473,7 +4486,10 @@ async def test_controller_submit_job_yaml_invalid_maps_to_invalid_args(
     async def _stub_build_bundle(_path: Path) -> bytes:
         raise EsphomeError("schema validation failed")
 
-    monkeypatch.setattr(rb, "build_yaml_bundle", _stub_build_bundle)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.config_bundle.build_yaml_bundle",
+        _stub_build_bundle,
+    )
 
     try:
         with pytest.raises(CommandError) as exc_info:
@@ -4508,7 +4524,10 @@ async def test_controller_submit_job_missing_yaml_maps_to_not_found(
     async def _stub_build_bundle(_path: Path) -> bytes:
         raise FileNotFoundError("yaml gone")
 
-    monkeypatch.setattr(rb, "build_yaml_bundle", _stub_build_bundle)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.config_bundle.build_yaml_bundle",
+        _stub_build_bundle,
+    )
 
     try:
         with pytest.raises(CommandError) as exc_info:
@@ -4651,7 +4670,10 @@ async def test_controller_submit_job_no_session_during_send_maps_to_precondition
     async def _stub_submit_job(**kwargs: Any) -> dict[str, Any]:
         raise SubmitJobNoSessionError("session lost between lookup and send")
 
-    monkeypatch.setattr(rb, "build_yaml_bundle", _stub_build_bundle)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.config_bundle.build_yaml_bundle",
+        _stub_build_bundle,
+    )
     monkeypatch.setattr(client, "submit_job", _stub_submit_job)
 
     try:
