@@ -433,6 +433,39 @@ def test_service_target_endpoint_returns_none_before_register() -> None:
 
 
 @pytest.mark.asyncio
+async def test_service_target_endpoint_returns_none_when_info_lacks_server_or_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``ServiceInfo`` whose ``server`` / ``port`` is ``None`` doesn't crash the accessor.
+
+    The :class:`ServiceInfo` type stubs admit ``str | None`` /
+    ``int | None`` for those fields even though zeroconf always
+    populates them after ``register()``. Defensive guard on the
+    accessor; pin the contract so a future zeroconf version that
+    returns ``None`` for either field doesn't ``AttributeError``
+    inside peer-discovery hot paths.
+    """
+    monkeypatch.setattr(dashboard_advertise, "_local_addresses", lambda: ["192.168.1.10"])
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    zc = _make_zeroconf_mock()
+    await advertiser.register(zc)
+    try:
+        assert advertiser._info is not None
+        # Wipe ``server`` and re-check; same for ``port``.
+        advertiser._info.server = None
+        assert advertiser.service_target_endpoint is None
+        advertiser._info.server = "green.local."
+        advertiser._info.port = None
+        assert advertiser.service_target_endpoint is None
+    finally:
+        # Restore real server / port so ``unregister`` can match
+        # zeroconf's registered ServiceInfo.
+        advertiser._info.server = "green.local."
+        advertiser._info.port = advertiser._port
+        await advertiser.unregister()
+
+
+@pytest.mark.asyncio
 async def test_service_target_endpoint_returns_lowercased_no_trailing_dot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
