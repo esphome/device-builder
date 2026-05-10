@@ -57,7 +57,7 @@ import binascii
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from esphome.bundle import EsphomeError, prepare_bundle_for_compile
 
@@ -90,11 +90,40 @@ _LOGGER = logging.getLogger(__name__)
 # error messages.
 _REASON_DUPLICATE_SUBMIT = "duplicate_submit"
 _REASON_INVALID_HEADER = "invalid_header"
+_REASON_INVALID_CHUNK = "invalid_chunk"
 _REASON_NO_INFLIGHT = "no_inflight_submit"
 _REASON_JOB_ID_MISMATCH = "job_id_mismatch"
 _REASON_CHUNK_DECODE_FAILED = "chunk_decode_failed"
 _REASON_EXTRACT_FAILED = "extract_failed"
 _REASON_QUEUE_REJECTED = "queue_rejected"
+
+# Shape contracts for the two peer-controlled wire frames.
+# :func:`parse_app_frame` already confirms inbound bytes parse
+# to a ``dict[str, Any]``, but a malicious / buggy offloader
+# can still send a dict with missing fields or wrong-typed
+# values. Indexing those frames directly (``frame["job_id"]``,
+# etc.) would raise ``KeyError`` / ``TypeError`` and unwind out
+# of the receive loop without sending an ack — a remote-
+# triggered crash shape. The :func:`_validate_frame_shape`
+# gate below walks each contract and rejects the frame as
+# ``invalid_header`` / ``invalid_chunk`` with a
+# ``terminate{malformed_frame}`` close (the offloader has
+# wandered off the wire format).
+_SUBMIT_JOB_HEADER_FIELDS: dict[str, type] = {
+    "job_id": str,
+    "configuration_filename": str,
+    "target": str,
+    "total_bundle_bytes": int,
+    "num_chunks": int,
+    "bundle_sha256": str,
+}
+
+_SUBMIT_JOB_CHUNK_FIELDS: dict[str, type] = {
+    "job_id": str,
+    "chunk_index": int,
+    "data_b64": str,
+    "is_last": bool,
+}
 
 # Subdirectory under ``<config_dir>/.esphome/`` where remote-peer
 # bundles land. Hidden by the leading dot so a casual ``ls`` of
@@ -146,6 +175,32 @@ _RECOVERABLE_ASSEMBLER_ERRORS: frozenset[BundleAssemblerErrorCode] = frozenset(
 # defence-in-depth gate that catches anything an exotic filename
 # would slip past this.
 _FORBIDDEN_FILENAME_CHARS: frozenset[str] = frozenset({"/", "\\", "\x00"})
+
+
+def _validate_frame_shape(frame: dict[str, Any], required: dict[str, type]) -> bool:
+    """Return ``True`` iff *frame* has all *required* fields with matching types.
+
+    Defensive runtime check on a peer-controlled dict —
+    :func:`parse_app_frame` confirms the JSON parses to a dict,
+    but doesn't validate the inner shape. Indexing missing /
+    wrong-typed fields would otherwise raise inside
+    :meth:`SubmitJobReceiver.handle_submit_job` /
+    :meth:`SubmitJobReceiver.handle_submit_job_chunk` and
+    bubble out of the receive loop without an ack.
+
+    ``bool`` is special-cased because it's a subclass of
+    ``int`` in Python — a frame announcing
+    ``total_bundle_bytes=True`` would otherwise pass the
+    ``int`` check. We accept ``bool`` only when the contract
+    explicitly asks for ``bool``.
+    """
+    for field_name, expected in required.items():
+        value = frame.get(field_name)
+        if not isinstance(value, expected):
+            return False
+        if expected is int and isinstance(value, bool):
+            return False
+    return True
 
 
 def _validate_configuration_filename(filename: str) -> str | None:
@@ -272,6 +327,25 @@ class SubmitJobReceiver:
           the chunk stream hasn't started yet, the wire is still
           intact.
         """
+        # Validate the wire-frame shape before indexing
+        # peer-controlled fields. A malformed frame is wire-
+        # level misbehaviour and triggers a
+        # ``terminate{malformed_frame}``; ``job_id`` may itself
+        # be missing/wrong-typed so fall back to ``""`` for the
+        # ack payload. ``cast`` to ``dict[str, Any]`` because
+        # the validator works on the raw shape; the typed
+        # ``SubmitJobFrameData`` view is what the rest of the
+        # method operates on after the gate.
+        raw = cast(dict[str, Any], frame)
+        if not _validate_frame_shape(raw, _SUBMIT_JOB_HEADER_FIELDS):
+            job_id = raw.get("job_id") if isinstance(raw.get("job_id"), str) else ""
+            await self._reject(
+                session,
+                job_id=cast(str, job_id),
+                reason=_REASON_INVALID_HEADER,
+                terminate_session=True,
+            )
+            return
         if session.dashboard_id in self._inflight:
             await self._reject(session, job_id=frame["job_id"], reason=_REASON_DUPLICATE_SUBMIT)
             return
@@ -318,6 +392,22 @@ class SubmitJobReceiver:
         can retry on a fresh submit). Happy-path completion
         flows through :meth:`_finalise_and_queue`.
         """
+        # Same shape gate as the header path: peer-controlled
+        # fields must be present and correctly typed before any
+        # indexing. A malformed chunk is wire-level misbehaviour
+        # and the in-flight stream can't be recovered; drop it
+        # and terminate.
+        chunk_dict = cast(dict[str, Any], frame)
+        if not _validate_frame_shape(chunk_dict, _SUBMIT_JOB_CHUNK_FIELDS):
+            job_id = chunk_dict.get("job_id") if isinstance(chunk_dict.get("job_id"), str) else ""
+            await self._reject(
+                session,
+                job_id=cast(str, job_id),
+                reason=_REASON_INVALID_CHUNK,
+                drop_inflight=True,
+                terminate_session=True,
+            )
+            return
         pending = self._inflight.get(session.dashboard_id)
         if pending is None:
             await self._reject(session, job_id=frame["job_id"], reason=_REASON_NO_INFLIGHT)

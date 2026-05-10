@@ -174,6 +174,115 @@ async def test_submit_job_duplicate_header_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "broken_frame",
+    [
+        # Missing required fields.
+        {"type": "submit_job", "job_id": "j"},
+        {"type": "submit_job"},  # bare dict — no fields at all
+        # Wrong types.
+        {
+            "type": "submit_job",
+            "job_id": "j",
+            "configuration_filename": "kitchen.yaml",
+            "target": "compile",
+            "total_bundle_bytes": "not-an-int",  # str, not int
+            "num_chunks": 1,
+            "bundle_sha256": "0" * 64,
+        },
+        {
+            "type": "submit_job",
+            "job_id": 12345,  # int, not str
+            "configuration_filename": "kitchen.yaml",
+            "target": "compile",
+            "total_bundle_bytes": 100,
+            "num_chunks": 1,
+            "bundle_sha256": "0" * 64,
+        },
+        # bool isn't a legitimate ``int`` here even though it's a
+        # subclass — a frame announcing ``num_chunks=True`` is
+        # the offloader's bug.
+        {
+            "type": "submit_job",
+            "job_id": "j",
+            "configuration_filename": "kitchen.yaml",
+            "target": "compile",
+            "total_bundle_bytes": 100,
+            "num_chunks": True,
+            "bundle_sha256": "0" * 64,
+        },
+    ],
+)
+@pytest.mark.asyncio
+async def test_submit_job_malformed_header_terminates(
+    tmp_path: Path, broken_frame: dict[str, Any]
+) -> None:
+    """A malformed ``submit_job`` header rejects ``invalid_header`` and terminates the session.
+
+    Pins the DoS-defense gate: peer-controlled frames that
+    don't carry the expected fields / types are rejected at
+    the dispatch boundary rather than crashing the receive
+    loop with a ``KeyError`` / ``TypeError``.
+    """
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+
+    await receiver.handle_submit_job(session, cast(SubmitJobFrameData, broken_frame))
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "invalid_header"
+    session.terminate.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "broken_chunk",
+    [
+        {"type": "submit_job_chunk", "job_id": "j"},  # missing fields
+        # Wrong types.
+        {
+            "type": "submit_job_chunk",
+            "job_id": "j",
+            "chunk_index": "not-an-int",
+            "data_b64": "AAAA",
+            "is_last": True,
+        },
+        {
+            "type": "submit_job_chunk",
+            "job_id": "j",
+            "chunk_index": 0,
+            "data_b64": "AAAA",
+            "is_last": "yes",  # not bool
+        },
+        # bool isn't a legitimate ``int`` for ``chunk_index``.
+        {
+            "type": "submit_job_chunk",
+            "job_id": "j",
+            "chunk_index": True,
+            "data_b64": "AAAA",
+            "is_last": True,
+        },
+    ],
+)
+@pytest.mark.asyncio
+async def test_submit_job_chunk_malformed_terminates(
+    tmp_path: Path, broken_chunk: dict[str, Any]
+) -> None:
+    """A malformed ``submit_job_chunk`` rejects ``invalid_chunk`` and terminates the session."""
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+    await receiver.handle_submit_job(session, _header(bundle=b"hello"))
+    session.send_app_frame.reset_mock()
+
+    await receiver.handle_submit_job_chunk(session, cast(SubmitJobChunkFrameData, broken_chunk))
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "invalid_chunk"
+    session.terminate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_submit_job_invalid_target_rejected(tmp_path: Path) -> None:
     """A header with ``target`` outside compile/upload rejects ``invalid_header``."""
     receiver = _make_receiver(tmp_path)
