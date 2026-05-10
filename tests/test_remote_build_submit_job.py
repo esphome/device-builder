@@ -500,7 +500,10 @@ async def test_submit_job_happy_path_extracts_and_queues(
     job = firmware.created_jobs[0]
     assert job.remote_peer == "alpha-dashboard"
     assert job.job_type is JobType.COMPILE
-    assert job.configuration == str(expected_yaml.relative_to(tmp_path))
+    # Production emits ``as_posix()`` for cross-platform stable
+    # wire shape (Windows vs Linux receivers); test asserts in
+    # the same form.
+    assert job.configuration == expected_yaml.relative_to(tmp_path).as_posix()
     firmware._enqueue.assert_awaited_once()
 
 
