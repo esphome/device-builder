@@ -156,6 +156,32 @@ class FirmwareController:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    def queue_status_snapshot(self) -> tuple[bool, bool, int]:
+        """Return ``(idle, running, queue_depth)`` for the firmware queue.
+
+        Pure synchronous read of the controller's RAM state — no
+        executor hop, no disk read. Used by the remote-build
+        controller's :meth:`_broadcast_queue_status` to compose
+        the receiver-side snapshot for paired offloaders on every
+        ``JOB_QUEUED`` / ``JOB_STARTED`` / terminal event tick.
+
+        ``running`` is ``True`` while a single job occupies the
+        single-job runner slot (``_current_job is not None``);
+        ``queue_depth`` is the count of pending jobs waiting
+        their turn (``_queue.qsize()``); ``idle`` is the
+        nothing-running-and-nothing-queued state. The three
+        fields aren't strictly redundant — the
+        ``running=False, queue_depth>0`` window exists between
+        ``await _queue.put(job)`` and the runner's ``_queue.get()``
+        landing the same item, so a phase-7 scheduler that reads
+        only ``running`` would misclassify a fully-loaded receiver
+        as accepting more work.
+        """
+        running = self._current_job is not None
+        queue_depth = self._queue.qsize()
+        idle = not running and queue_depth == 0
+        return idle, running, queue_depth
+
     async def start(self) -> None:
         """Start the queue processor and restore persisted jobs."""
         self._esphome_cmd = _find_esphome_cmd()

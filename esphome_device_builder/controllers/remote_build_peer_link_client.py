@@ -52,6 +52,7 @@ from ..models import (
     IntentResponse,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
+    OffloaderQueueStatusChangedData,
     PeerLinkIntent,
 )
 from .remote_build_peer_link import (
@@ -937,6 +938,36 @@ class PeerLinkClient:
                         reason if isinstance(reason, str) else _LOCAL_CLOSE_PEER_HUNG_UP
                     )
                     break
+                if msg_type == AppMessageType.QUEUE_STATUS.value:
+                    # Receiver pushed a fresh firmware-queue
+                    # snapshot. Validate the three fields are
+                    # the expected primitive shapes before
+                    # firing — a malformed frame from a buggy
+                    # peer shouldn't land an ``OffloaderQueueStatusChangedData``
+                    # with a ``None`` ``queue_depth`` on the bus
+                    # for downstream consumers (the cache, the
+                    # ``subscribe_events`` re-broadcast). Drop
+                    # silently on shape mismatch — the receiver
+                    # will broadcast another snapshot on the
+                    # next queue transition.
+                    idle = parsed.get("idle")
+                    running = parsed.get("running")
+                    queue_depth = parsed.get("queue_depth")
+                    if (
+                        not isinstance(idle, bool)
+                        or not isinstance(running, bool)
+                        or not isinstance(queue_depth, int)
+                        or isinstance(queue_depth, bool)
+                    ):
+                        _LOGGER.debug(
+                            "peer-link client malformed queue_status frame from %s:%d: %r",
+                            self._hostname,
+                            self._port,
+                            parsed,
+                        )
+                        continue
+                    self._fire_queue_status(idle, running, queue_depth)
+                    continue
                 _LOGGER.debug(
                     "peer-link client unknown app frame type %r from %s:%d; ignoring",
                     msg_type,
@@ -963,3 +994,22 @@ class PeerLinkClient:
             "reason": reason,
         }
         self._bus.fire(EventType.OFFLOADER_PEER_LINK_CLOSED, payload)
+
+    def _fire_queue_status(self, idle: bool, running: bool, queue_depth: int) -> None:
+        """Fire ``OFFLOADER_QUEUE_STATUS_CHANGED`` for an inbound snapshot.
+
+        The peer-link receive loop validates the wire shape
+        (boolean / int) before getting here, so the event
+        payload's primitive contract holds without re-checking.
+        Listeners on the bus include the offloader-side
+        ``RemoteBuildController`` cache update and the
+        ``subscribe_events`` re-broadcast.
+        """
+        payload: OffloaderQueueStatusChangedData = {
+            "receiver_hostname": self._hostname,
+            "receiver_port": self._port,
+            "idle": idle,
+            "running": running,
+            "queue_depth": queue_depth,
+        }
+        self._bus.fire(EventType.OFFLOADER_QUEUE_STATUS_CHANGED, payload)

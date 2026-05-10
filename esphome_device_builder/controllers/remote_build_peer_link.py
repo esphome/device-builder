@@ -213,6 +213,7 @@ class AppMessageType(StrEnum):
     PING = "ping"
     PONG = "pong"
     TERMINATE = "terminate"
+    QUEUE_STATUS = "queue_status"
 
 
 async def make_peer_link_handler(

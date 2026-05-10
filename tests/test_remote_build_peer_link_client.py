@@ -3073,3 +3073,146 @@ async def test_stop_drains_peer_link_clients(
     # with ``return_exceptions=True`` so the test absorbs each
     # task's captured ``CancelledError`` without it surfacing.
     await asyncio.gather(*tasks, return_exceptions=True)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b: queue_status receive handling on the offloader-side client
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_session_loops_fires_queue_status_event_on_inbound_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``queue_status`` frame from the receiver fires ``OFFLOADER_QUEUE_STATUS_CHANGED``."""
+    initiator, responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+
+    class _QueueStatusWs(_ParkingWs):
+        def __init__(self, evt: asyncio.Event) -> None:
+            super().__init__(evt)
+            self._delivered = False
+
+        async def __anext__(self) -> Any:
+            if not self._delivered:
+                self._delivered = True
+                frame = responder.encrypt(
+                    _json.dumps(
+                        {
+                            "type": "queue_status",
+                            "idle": False,
+                            "running": True,
+                            "queue_depth": 3,
+                        }
+                    )
+                )
+                return WSMessage(type=WSMsgType.BINARY, data=frame, extra="")
+            await self._closed_event.wait()
+            raise StopAsyncIteration
+
+    ws = _QueueStatusWs(closed_event)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+        await closed_event.wait()
+
+    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+
+    bus = EventBus()
+    captured = capture_events(bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED)
+
+    client = PeerLinkClient(
+        receiver_hostname="receiver.local",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=bus,
+    )
+    drive_task = asyncio.create_task(client._run_session_loops(channel))
+
+    await asyncio.wait_for(captured.received.wait(), timeout=2.0)
+    closed_event.set()
+    reason = await drive_task
+    assert reason == "peer_hung_up"
+
+    assert len(captured) == 1
+    payload = captured[0]
+    assert payload == {
+        "receiver_hostname": "receiver.local",
+        "receiver_port": 6055,
+        "idle": False,
+        "running": True,
+        "queue_depth": 3,
+    }
+
+
+@pytest.mark.parametrize(
+    "frame_body",
+    [
+        # idle is not bool
+        {"type": "queue_status", "idle": "no", "running": True, "queue_depth": 1},
+        # running is missing
+        {"type": "queue_status", "idle": False, "queue_depth": 1},
+        # queue_depth is a string
+        {"type": "queue_status", "idle": False, "running": True, "queue_depth": "two"},
+        # queue_depth is bool (which would otherwise pass the int check
+        # because bool is a subclass of int)
+        {"type": "queue_status", "idle": False, "running": True, "queue_depth": True},
+    ],
+    ids=[
+        "non-bool-idle",
+        "missing-running",
+        "non-int-queue-depth",
+        "bool-queue-depth",
+    ],
+)
+@pytest.mark.asyncio
+async def test_run_session_loops_drops_malformed_queue_status(
+    monkeypatch: pytest.MonkeyPatch,
+    frame_body: dict[str, Any],
+) -> None:
+    """A malformed ``queue_status`` frame is dropped without firing the event."""
+    initiator, responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+
+    class _BadQueueStatusWs(_ParkingWs):
+        def __init__(self, evt: asyncio.Event) -> None:
+            super().__init__(evt)
+            self._delivered = False
+
+        async def __anext__(self) -> Any:
+            if not self._delivered:
+                self._delivered = True
+                frame = responder.encrypt(_json.dumps(frame_body))
+                return WSMessage(type=WSMsgType.BINARY, data=frame, extra="")
+            await self._closed_event.wait()
+            raise StopAsyncIteration
+
+    ws = _BadQueueStatusWs(closed_event)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+        await closed_event.wait()
+
+    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+
+    bus = EventBus()
+    captured = capture_events(bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED)
+
+    client = PeerLinkClient(
+        receiver_hostname="receiver.local",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=bus,
+    )
+    drive_task = asyncio.create_task(client._run_session_loops(channel))
+    # Yield long enough for the malformed-frame branch to run
+    # and drop the frame; then close out cleanly.
+    for _ in range(10):
+        await asyncio.sleep(0)
+    closed_event.set()
+    reason = await drive_task
+
+    assert reason == "peer_hung_up"
+    assert len(captured) == 0

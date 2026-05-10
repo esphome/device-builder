@@ -258,6 +258,22 @@ class EventType(StrEnum):
     # ``subscribe_events.initial_state.offloader_alerts``.
     OFFLOADER_PAIR_ALERT_DISMISSED = "offloader_pair_alert_dismissed"
 
+    # Offloader-side cache update: a paired receiver pushed a
+    # fresh ``queue_status`` snapshot over its peer-link
+    # session. Payload: ``{receiver_hostname, receiver_port,
+    # idle, running, queue_depth}``. Fired from the
+    # offloader-side ``PeerLinkClient`` receive loop on every
+    # inbound ``queue_status`` application frame; the
+    # remote-build controller listens, updates its
+    # ``_peer_queue_status`` cache (RAM-only, keyed on
+    # ``(host, port)``), and re-broadcasts via the global
+    # ``subscribe_events`` stream so frontend clients can
+    # render the per-peer queue depth live without polling.
+    # Phase 5b is the first real application message exercising
+    # the dispatch loop end-to-end against the 5a foundation;
+    # the scheduler in phase 7 reads the same cache.
+    OFFLOADER_QUEUE_STATUS_CHANGED = "offloader_queue_status_changed"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.

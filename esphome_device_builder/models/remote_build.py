@@ -494,6 +494,77 @@ class OffloaderPeerLinkClosedData(TypedDict):
     reason: str
 
 
+class QueueStatusFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.QUEUE_STATUS``.
+
+    Wire shape sent by the receiver-side
+    :class:`RemoteBuildController` over an active peer-link
+    session whenever the firmware queue transitions
+    (``JOB_QUEUED`` / ``JOB_STARTED`` / terminal events).
+    Encrypted under the established Noise session and
+    serialised as JSON before going on the wire.
+
+    The three fields aren't strictly redundant: the
+    ``running=False, queue_depth>0`` window exists between
+    ``await _queue.put(job)`` and the runner's ``_queue.get()``
+    landing the same item, so a phase-7 scheduler that reads
+    only ``running`` would misclassify a fully-loaded receiver
+    as accepting more work. ``idle`` and ``running`` carry both
+    edges so the consumer can render any of "available",
+    "busy", "queued" without re-deriving.
+    """
+
+    type: Literal["queue_status"]
+    idle: bool
+    running: bool
+    queue_depth: int
+
+
+class OffloaderQueueStatusChangedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_QUEUE_STATUS_CHANGED``.
+
+    Fired on the offloader's local bus whenever the
+    :class:`PeerLinkClient` receive loop processes an inbound
+    ``queue_status`` application frame from a paired receiver.
+    The remote-build controller listens, updates its
+    RAM-only ``_peer_queue_status`` cache (keyed on
+    ``(receiver_hostname, receiver_port)``), and re-broadcasts
+    via the global ``subscribe_events`` stream so frontend
+    clients can render per-peer queue depth without polling.
+    Phase-5b is the first real application message exercising
+    the 5a peer-link foundation end-to-end; the scheduler in
+    phase 7 reads the same cache to pick the least-busy peer
+    on each new offload.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    idle: bool
+    running: bool
+    queue_depth: int
+
+
+class PeerQueueStatusSnapshotEntry(TypedDict):
+    """
+    Snapshot row in the offloader-side per-peer queue-status cache.
+
+    Mirror of :class:`OffloaderQueueStatusChangedData` minus the
+    event-only framing (``type``). Used by
+    ``subscribe_events.initial_state.peer_queue_status`` so a
+    tab subscribing AFTER an event fired still sees the most
+    recent value the offloader observed for each paired peer
+    without waiting for the next live event.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    idle: bool
+    running: bool
+    queue_depth: int
+
+
 @dataclass
 class StoredPeer(DataClassORJSONMixin):
     """
