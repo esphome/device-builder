@@ -226,6 +226,25 @@ def _decode_txt_value(raw: bytes | None) -> str:
         return ""
 
 
+def _decode_txt_int(raw: bytes | None) -> int:
+    """Decode a TXT value as an int, falling back to 0.
+
+    Defensive: a corrupted / non-numeric TXT entry shouldn't
+    raise into the browser callback (which would abort the
+    resolve task and silently lose the peer). 0 is the same
+    "not advertised" sentinel TXT-absent rows already produce,
+    so downstream sites that gate on a real port already cover
+    the malformed-payload case.
+    """
+    decoded = _decode_txt_value(raw)
+    if not decoded:
+        return 0
+    try:
+        return int(decoded)
+    except ValueError:
+        return 0
+
+
 def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPeer:
     """
     Build a :class:`RemoteBuildPeer` from a resolved ``AsyncServiceInfo``.
@@ -253,15 +272,7 @@ def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPee
     # receivers that haven't published them; the rebind path
     # silently skips those rows.
     pin_sha256 = _decode_txt_value(properties.get(b"pin_sha256"))
-    remote_build_port_raw = _decode_txt_value(properties.get(b"remote_build_port"))
-    try:
-        remote_build_port = int(remote_build_port_raw) if remote_build_port_raw else 0
-    except ValueError:
-        # Malformed TXT (non-numeric) lands as 0 — the rebind
-        # path already early-returns on 0, so a corrupted
-        # broadcast just silently skips rebind rather than
-        # raising into the browser callback.
-        remote_build_port = 0
+    remote_build_port = _decode_txt_int(properties.get(b"remote_build_port"))
     # ``info.name`` comes back as ``<instance>.<service_type>``; we
     # only want the leftmost label as the friendly name.
     instance = (info.name or name).split(".", 1)[0]
