@@ -571,6 +571,15 @@ class DeviceBuilder:
                 initial["pairings"] = [
                     summary.to_dict() for summary in self.remote_build.pairings_snapshot()
                 ]
+                # Receiver-side peers (PENDING + APPROVED) for the
+                # Pairing-requests inbox + paired list. Same RAM
+                # snapshot pattern as ``pairings``: live updates
+                # flow from ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED``
+                # and ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` events
+                # through the same ``subscribe_events`` stream.
+                initial["peers"] = [
+                    summary.to_dict() for summary in self.remote_build.peers_snapshot()
+                ]
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.

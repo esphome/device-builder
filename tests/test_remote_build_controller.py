@@ -23,10 +23,6 @@ import pytest
 from zeroconf import ServiceStateChange
 
 from esphome_device_builder.controllers import remote_build as rb
-from esphome_device_builder.controllers.config import (
-    load_remote_build_settings,
-    remote_build_settings_transaction,
-)
 from esphome_device_builder.controllers.remote_build import (
     RemoteBuildController,
     _decode_pairings,
@@ -1066,20 +1062,19 @@ def _stored_peer(
     )
 
 
-async def _seed_peer(config_dir: Path, peer: StoredPeer) -> None:
-    """Persist *peer* as an APPROVED row under ``_remote_build.peers``.
+def _seed_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
+    """Insert *peer* into the controller's RAM-canonical APPROVED dict.
 
-    The persistent list is APPROVED-only — for PENDING entries
-    use :func:`_seed_pending_peer` to add to the controller's
-    in-memory dict instead.
+    APPROVED peers are RAM-canonical at runtime (mirror of the
+    offloader-side ``_pairings`` shape); the per-file
+    :class:`~helpers.storage.Store` at
+    ``<config_dir>/.receiver_peers.json`` is just persistence
+    across restarts. Tests don't need to round-trip through disk
+    — populating ``_approved_peers`` directly mirrors what
+    :meth:`start` would do after an :meth:`approve_peer` flow,
+    and lets the test stay sync.
     """
-    loop = asyncio.get_running_loop()
-
-    def _write() -> None:
-        with remote_build_settings_transaction(config_dir) as settings:
-            settings.peers.append(peer)
-
-    await loop.run_in_executor(None, _write)
+    controller._approved_peers[peer.dashboard_id] = peer
 
 
 def _seed_pending_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
@@ -1094,36 +1089,33 @@ def _seed_pending_peer(controller: RemoteBuildController, peer: StoredPeer) -> N
     controller._pending_peers[peer.dashboard_id] = peer
 
 
-@pytest.mark.asyncio
-async def test_list_peers_returns_empty_when_none_stored(tmp_path: Path) -> None:
-    """List on a fresh dashboard returns an empty list, not an error."""
+def test_peers_snapshot_returns_empty_when_none_stored(tmp_path: Path) -> None:
+    """Snapshot on a fresh dashboard returns an empty list, not an error."""
     controller = _make_controller(config_dir=tmp_path)
-    assert await controller.list_peers() == []
+    assert controller.peers_snapshot() == []
 
 
-@pytest.mark.asyncio
-async def test_list_peers_returns_summary_for_each_row(tmp_path: Path) -> None:
-    """``list_peers`` merges in-memory PENDING + persisted APPROVED rows."""
+def test_peers_snapshot_returns_summary_for_each_row(tmp_path: Path) -> None:
+    """``peers_snapshot`` merges in-memory PENDING + APPROVED rows from RAM."""
     controller = _make_controller(config_dir=tmp_path)
     pending = _stored_peer(dashboard_id="pending")
     approved = _stored_peer(dashboard_id="approved")
     _seed_pending_peer(controller, pending)
-    await _seed_peer(tmp_path, approved)
+    _seed_peer(controller, approved)
 
-    rows = await controller.list_peers()
+    rows = controller.peers_snapshot()
 
     assert {row.dashboard_id for row in rows} == {"pending", "approved"}
     statuses = {row.dashboard_id: row.status for row in rows}
     assert statuses == {"pending": PeerStatus.PENDING, "approved": PeerStatus.APPROVED}
 
 
-@pytest.mark.asyncio
-async def test_list_peers_drops_static_x25519_pub_from_wire(tmp_path: Path) -> None:
+def test_peers_snapshot_drops_static_x25519_pub_from_wire(tmp_path: Path) -> None:
     """The wire summary must not expose raw ``static_x25519_pub`` bytes."""
     controller = _make_controller(config_dir=tmp_path)
-    await _seed_peer(tmp_path, _stored_peer(static_x25519_pub=b"\xaa" * 32))
+    _seed_peer(controller, _stored_peer(static_x25519_pub=b"\xaa" * 32))
 
-    [row] = await controller.list_peers()
+    [row] = controller.peers_snapshot()
 
     serialised = row.to_dict()
     assert "static_x25519_pub" not in serialised
@@ -1140,11 +1132,10 @@ async def test_approve_peer_promotes_pending_to_approved(tmp_path: Path) -> None
 
     assert view.peers[0].status == PeerStatus.APPROVED
     assert "alpha" not in controller._pending_peers
-    # Hop the sync I/O off the loop so blockbuster doesn't flag it
-    # (the production path always goes through run_in_executor too).
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
-    assert settings.peers[0].dashboard_id == "alpha"
+    # APPROVED is RAM-canonical now; the disk write happens
+    # through the debounced peers Store.
+    assert "alpha" in controller._approved_peers
+    assert controller._approved_peers["alpha"].dashboard_id == "alpha"
 
 
 @pytest.mark.asyncio
@@ -1180,7 +1171,7 @@ async def test_approve_peer_already_approved_returns_invalid_args(tmp_path: Path
     """Re-approving an already-APPROVED peer is rejected, not silently re-fired."""
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
-    await _seed_peer(tmp_path, _stored_peer(dashboard_id="alpha"))
+    _seed_peer(controller, _stored_peer(dashboard_id="alpha"))
 
     with pytest.raises(CommandError) as exc:
         await controller.approve_peer(dashboard_id="alpha")
@@ -1243,7 +1234,7 @@ async def test_remove_peer_drops_approved_and_fires_event(tmp_path: Path) -> Non
     """Removing an APPROVED peer is revocation; fires the removed event."""
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
-    await _seed_peer(tmp_path, _stored_peer(dashboard_id="alpha"))
+    _seed_peer(controller, _stored_peer(dashboard_id="alpha"))
 
     view = await controller.remove_peer(dashboard_id="alpha")
 
@@ -1260,8 +1251,8 @@ async def test_remove_peer_keeps_other_rows(tmp_path: Path) -> None:
     """``remove_peer`` only touches the matching dashboard_id."""
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
-    await _seed_peer(tmp_path, _stored_peer(dashboard_id="keep"))
-    await _seed_peer(tmp_path, _stored_peer(dashboard_id="drop"))
+    _seed_peer(controller, _stored_peer(dashboard_id="keep"))
+    _seed_peer(controller, _stored_peer(dashboard_id="drop"))
 
     view = await controller.remove_peer(dashboard_id="drop")
 
@@ -1550,10 +1541,8 @@ async def test_record_pair_request_creates_pending_row(tmp_path: Path) -> None:
     )
 
     assert response == "pending"
-    # PENDING entries live in-memory; persistent storage is empty.
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
-    assert settings.peers == []
+    # PENDING entries live in-memory; APPROVED dict is empty.
+    assert controller._approved_peers == {}
     pending = controller._pending_peers["alpha"]
     assert pending.pin_sha256 == pin
     assert pending.static_x25519_pub == pubkey
@@ -1582,11 +1571,17 @@ async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
     fire.assert_called_once()
     event_type, payload = fire.call_args.args
     assert event_type is EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED
+    # The event carries the same ``paired_at`` the StoredPeer
+    # got — the controller emits a single timestamp into both so
+    # a frontend rebuilding the inbox row from the event matches
+    # the snapshot. Verify by reading the stored value back.
+    stored_paired_at = controller._pending_peers["alpha"].paired_at
     assert payload == {
         "dashboard_id": "alpha",
         "pin_sha256": pin,
         "label": "alpha",
         "peer_ip": "192.168.1.10",
+        "paired_at": stored_paired_at,
     }
 
 
@@ -1623,9 +1618,8 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
     assert refreshed.static_x25519_pub == new_pubkey
     assert refreshed.label == "renamed"
     assert refreshed.paired_at > 1.0
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
-    assert settings.peers == []
+    # APPROVED dict stays empty — refresh is PENDING-only.
+    assert controller._approved_peers == {}
 
 
 @pytest.mark.asyncio
@@ -1653,7 +1647,7 @@ async def test_record_pair_request_already_approved_same_pin_returns_approved(
         label="alpha",
         paired_at=1.0,
     )
-    await _seed_peer(tmp_path, approved)
+    _seed_peer(controller, approved)
 
     response = await controller.record_pair_request(
         dashboard_id="alpha",
@@ -1664,9 +1658,7 @@ async def test_record_pair_request_already_approved_same_pin_returns_approved(
     )
 
     assert response == "approved"
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
-    [peer] = settings.peers
+    [peer] = controller._approved_peers.values()
     assert peer.pin_sha256 == pin
     assert peer.label == "alpha"
     assert peer.paired_at == 1.0
@@ -1699,10 +1691,9 @@ async def test_record_pair_request_unknown_dashboard_id_closed_window_returns_no
     )
 
     assert response is IntentResponse.NO_PAIRING_WINDOW
-    # No row was created — the gate fired before the append.
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
-    assert settings.peers == []
+    # No row was created — the gate fired before the insert.
+    assert controller._approved_peers == {}
+    assert controller._pending_peers == {}
     # No event fired either — the pair_request_received event is
     # for surfacing rows in the inbox, and no row was created.
     controller._db.bus.fire.assert_not_called()
@@ -1735,7 +1726,7 @@ async def test_record_pair_request_already_approved_bypasses_closed_window(
         label="alpha",
         paired_at=1.0,
     )
-    await _seed_peer(tmp_path, approved)
+    _seed_peer(controller, approved)
     # Window stays CLOSED — no set_pairing_window call.
 
     response = await controller.record_pair_request(
@@ -1775,7 +1766,7 @@ async def test_record_pair_request_already_approved_different_pin_returns_reject
         label="alpha",
         paired_at=1.0,
     )
-    await _seed_peer(tmp_path, approved)
+    _seed_peer(controller, approved)
 
     new_pubkey = b"\x33" * 32
     new_pin = hashlib.sha256(new_pubkey).hexdigest()
@@ -1788,9 +1779,7 @@ async def test_record_pair_request_already_approved_different_pin_returns_reject
     )
 
     assert response == "rejected"
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
-    [peer] = settings.peers
+    [peer] = controller._approved_peers.values()
     # Original row untouched.
     assert peer.pin_sha256 == original_pin
     assert peer.static_x25519_pub == original_pubkey
@@ -1805,8 +1794,8 @@ async def test_lookup_peer_for_session_approved_returns_ok(tmp_path: Path) -> No
     controller._db.bus = MagicMock()
     pubkey = b"\xdd" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
-    await _seed_peer(
-        tmp_path,
+    _seed_peer(
+        controller,
         _stored_peer(
             dashboard_id="alpha",
             pin_sha256=pin,
@@ -1864,8 +1853,8 @@ async def test_lookup_peer_for_session_pin_mismatch_returns_rejected(tmp_path: P
     controller._db.bus = MagicMock()
     stored_pubkey = b"\xff" * 32
     stored_pin = hashlib.sha256(stored_pubkey).hexdigest()
-    await _seed_peer(
-        tmp_path,
+    _seed_peer(
+        controller,
         _stored_peer(
             dashboard_id="alpha",
             pin_sha256=stored_pin,
@@ -1889,8 +1878,8 @@ async def test_lookup_peer_for_status_mirrors_session_but_uses_approved_string(
     controller._db.bus = MagicMock()
     pubkey = b"\x44" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
-    await _seed_peer(
-        tmp_path,
+    _seed_peer(
+        controller,
         _stored_peer(
             dashboard_id="alpha",
             pin_sha256=pin,

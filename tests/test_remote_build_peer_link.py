@@ -32,10 +32,6 @@ from aiohttp.test_utils import TestClient, TestServer
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from noise.exceptions import NoiseInvalidMessage
 
-from esphome_device_builder.controllers.config import (
-    load_remote_build_settings,
-    remote_build_settings_transaction,
-)
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build_peer_link import (
     _PEER_LABEL_MAX_CHARS,
@@ -79,14 +75,9 @@ def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
     return RemoteBuildController(db)
 
 
-async def _seed_peer(config_dir: Path, peer: StoredPeer) -> None:
-    loop = asyncio.get_running_loop()
-
-    def _write() -> None:
-        with remote_build_settings_transaction(config_dir) as settings:
-            settings.peers.append(peer)
-
-    await loop.run_in_executor(None, _write)
+def _seed_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
+    """Insert *peer* into the controller's RAM-canonical APPROVED dict."""
+    controller._approved_peers[peer.dashboard_id] = peer
 
 
 # ---------------------------------------------------------------------------
@@ -171,9 +162,8 @@ async def test_dispatch_pair_request_closed_window_returns_no_pairing_window(
     controller._db.bus.fire.assert_not_called()
     # No row was created since the window gate fired first.
 
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
-    assert settings.peers == []
+    assert controller._approved_peers == {}
+    assert controller._pending_peers == {}
 
 
 @pytest.mark.asyncio
@@ -182,8 +172,8 @@ async def test_dispatch_peer_link_approved_returns_ok(tmp_path: Path) -> None:
     controller._db.bus = MagicMock()
     pubkey = b"\xbb" * 32
     pin = hashlib.sha256(pubkey).hexdigest()
-    await _seed_peer(
-        tmp_path,
+    _seed_peer(
+        controller,
         StoredPeer(
             dashboard_id="alpha",
             pin_sha256=pin,
@@ -237,9 +227,8 @@ async def test_dispatch_pair_request_empty_dashboard_id_returns_rejected(tmp_pat
 
     assert response is IntentResponse.REJECTED
     controller._db.bus.fire.assert_not_called()
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
-    assert settings.peers == []
+    assert controller._approved_peers == {}
+    assert controller._pending_peers == {}
     await controller.stop()
 
 
@@ -276,9 +265,8 @@ async def test_dispatch_pair_request_malformed_dashboard_id_returns_rejected(
 
     assert response is IntentResponse.REJECTED
     controller._db.bus.fire.assert_not_called()
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, load_remote_build_settings, tmp_path)
-    assert settings.peers == []
+    assert controller._approved_peers == {}
+    assert controller._pending_peers == {}
     await controller.stop()
 
 
@@ -832,12 +820,9 @@ async def test_e2e_pair_request_open_window_creates_row(
         == IntentResponse.PENDING
     )
 
-    # PENDING entries land in the in-memory dict, not on disk.
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(
-        None, load_remote_build_settings, controller._db.settings.config_dir
-    )
-    assert settings.peers == []
+    # PENDING entries land in the in-memory dict; APPROVED dict
+    # stays empty until admin clicks Accept.
+    assert controller._approved_peers == {}
     pending = controller._pending_peers["alpha"]
     assert pending.label == "alpha"
     # The receiver's controller derived the pin from the
@@ -865,11 +850,9 @@ async def test_e2e_pair_request_closed_window_returns_no_pairing_window(
         == IntentResponse.NO_PAIRING_WINDOW
     )
 
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(
-        None, load_remote_build_settings, controller._db.settings.config_dir
-    )
-    assert settings.peers == []
+    # Closed window short-circuits before any RAM mutation.
+    assert controller._approved_peers == {}
+    assert controller._pending_peers == {}
 
 
 @pytest.mark.asyncio
@@ -888,8 +871,8 @@ async def test_e2e_peer_link_approved_returns_ok(
         X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
     )
     pin = hashlib.sha256(initiator_pub).hexdigest()
-    await _seed_peer(
-        controller._db.settings.config_dir,
+    _seed_peer(
+        controller,
         StoredPeer(
             dashboard_id="alpha",
             pin_sha256=pin,

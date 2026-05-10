@@ -177,12 +177,19 @@ class RemoteBuildPairRequestReceivedData(TypedDict):
     Pairing requests inbox; ``peer_ip`` lets the operator
     sanity-check the source against expectations before
     OOB-confirming the pin.
+
+    ``paired_at`` carries the receiver-clock unix timestamp at
+    row creation, matching the ``StoredPeer.paired_at`` field
+    on the in-memory PENDING entry. Lets a subscriber rendering
+    the inbox from the event stream sort the most-recent attempt
+    first without a follow-up snapshot read.
     """
 
     dashboard_id: str
     pin_sha256: str
     label: str
     peer_ip: str
+    paired_at: float
 
 
 class RemoteBuildPairStatusChangedData(TypedDict):
@@ -550,19 +557,23 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     Receiver-side settings for the remote-build feature (storage shape).
 
     Stored in ``.device-builder.json`` under the ``_remote_build``
-    top-level key. ``peers`` carries the phase-4a
-    :class:`StoredPeer` rows: the receiver's pinned offloaders
-    derived from the peer-link Noise XX handshake. The shape
-    used to also persist a ``tokens`` list (issued bearer
-    tokens, hash-only); that field was deleted in phase 4a-r2
-    along with the rest of the dormant bearer machinery, and
-    legacy entries on older ``.device-builder.json`` files are
-    silently ignored at load time.
+    top-level key. Carries the master ``enabled`` toggle and the
+    ``manual_hosts`` list (cross-subnet / non-mDNS peers the user
+    typed in by hand). APPROVED :class:`StoredPeer` rows used to
+    live here under a ``peers`` field; that moved to its own
+    per-file :class:`~helpers.storage.Store` at
+    ``<config_dir>/.receiver_peers.json`` (mirrors the offloader-
+    side :class:`OffloaderRemoteBuildSettings` shape) so reads
+    short-circuit through RAM and don't race a write in flight.
+    Legacy ``peers`` entries on older sidecars are silently
+    ignored at load time. The shape used to also persist a
+    ``tokens`` list (issued bearer tokens, hash-only); that field
+    was deleted in phase 4a-r2 along with the rest of the dormant
+    bearer machinery.
     """
 
     enabled: bool = False
     manual_hosts: list[ManualHost] = field(default_factory=list)
-    peers: list[StoredPeer] = field(default_factory=list)
 
 
 @dataclass
@@ -571,16 +582,44 @@ class RemoteBuildSettingsView(DataClassORJSONMixin):
     Wire view of :class:`RemoteBuildSettings`.
 
     Returned from every WS command that exposes settings to a
-    client. Mirrors :class:`RemoteBuildSettings` except
-    ``peers`` is projected to :class:`PeerSummary` (the storage
-    and wire shapes happen to match today, but the projection
-    seam keeps a future "store extra peer-only fields" change
-    from accidentally leaking those).
+    client. Mirrors :class:`RemoteBuildSettings` plus the
+    ``peers`` projection (PENDING + APPROVED merged from the
+    controller's in-memory dicts and projected to
+    :class:`PeerSummary` so the raw X25519 pubkey bytes never
+    reach the wire). The frontend's primary peer surface is the
+    ``subscribe_events`` initial-state push + bus events; the
+    field is kept here so a client that round-trips
+    :meth:`set_settings` / :meth:`get_settings` sees a
+    consistent shape with what the snapshot delivered.
     """
 
     enabled: bool = False
     manual_hosts: list[ManualHost] = field(default_factory=list)
     peers: list[PeerSummary] = field(default_factory=list)
+
+
+@dataclass
+class ReceiverPeers(DataClassORJSONMixin):
+    """
+    Receiver-side APPROVED peers (storage shape).
+
+    Stored in its own per-file :class:`~helpers.storage.Store`
+    instance at ``<config_dir>/.receiver_peers.json`` — sibling
+    of the metadata sidecar rather than a sub-key of it, so
+    atomic writes are per-domain (corrupting the peers file
+    can't take out the rest of ``.device-builder.json``) and a
+    receiver-only mutation doesn't have to acquire the metadata
+    transaction lock. Mirrors the offloader-side
+    :class:`OffloaderRemoteBuildSettings` shape exactly: one
+    ``StoredPeer`` list, no other fields, RAM-canonical at
+    runtime.
+
+    PENDING peers live in ``RemoteBuildController._pending_peers``
+    and are never persisted (their lifetime is bounded by the
+    pairing window). Only APPROVED rows reach this file.
+    """
+
+    peers: list[StoredPeer] = field(default_factory=list)
 
 
 @dataclass

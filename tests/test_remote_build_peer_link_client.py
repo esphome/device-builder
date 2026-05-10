@@ -30,9 +30,6 @@ from aiohttp.test_utils import TestServer
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 from esphome_device_builder.controllers import remote_build_peer_link_client
-from esphome_device_builder.controllers.config import (
-    remote_build_settings_transaction,
-)
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build_peer_link import (
     PEER_LINK_PATH,
@@ -556,7 +553,7 @@ async def test_request_pair_open_window_returns_pending(
     assert len(result.remote_static_pub) == 32
     # Receiver's StoredPeer table got a new PENDING row keyed on
     # the offloader's dashboard_id.
-    peers = await controller.list_peers()
+    peers = controller.peers_snapshot()
     assert len(peers) == 1
     assert peers[0].dashboard_id == "abcdef0123456789"
     assert peers[0].status is PeerStatus.PENDING
@@ -1675,18 +1672,14 @@ def _seed_approved_peer_sync(
     pin: str,
     pubkey: bytes,
 ) -> None:
-    """Sync helper: drop+rewrite the receiver's APPROVED peer list."""
-    with remote_build_settings_transaction(controller._db.settings.config_dir) as settings:
-        settings.peers = [p for p in settings.peers if p.dashboard_id != dashboard_id]
-        settings.peers.append(
-            StoredPeer(
-                dashboard_id=dashboard_id,
-                pin_sha256=pin,
-                static_x25519_pub=pubkey,
-                label=dashboard_id,
-                paired_at=1.0,
-            )
-        )
+    """Sync helper: drop+rewrite the receiver's APPROVED peer dict."""
+    controller._approved_peers[dashboard_id] = StoredPeer(
+        dashboard_id=dashboard_id,
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        label=dashboard_id,
+        paired_at=1.0,
+    )
 
 
 @pytest.mark.asyncio

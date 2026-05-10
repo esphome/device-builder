@@ -97,6 +97,7 @@ from ..models import (
     PairingWindowState,
     PeerStatus,
     PeerSummary,
+    ReceiverPeers,
     RemoteBuildIdentityRotatedData,
     RemoteBuildPairingWindowChangedData,
     RemoteBuildPairRequestReceivedData,
@@ -407,24 +408,6 @@ def _pairing_summary(pairing: StoredPairing) -> PairingSummary:
     )
 
 
-def _find_peer_by_dashboard_id(
-    settings: RemoteBuildSettings, dashboard_id: str
-) -> StoredPeer | None:
-    """Return the first :class:`StoredPeer` with this ``dashboard_id``, or ``None``.
-
-    Single-pass linear scan; ``dashboard_id`` is the table's
-    de-facto primary key (the receiver-UI WS commands key on it,
-    the peer-link dispatcher keys on it, the offloader's
-    pair-status listener keys on it) so a name-keyed index would
-    just duplicate state. The peer table is small (one row per
-    paired offloader),
-    so the scan cost is fine and the convention "shape stays
-    list-of-dataclasses on disk" outweighs the O(N) -> O(1) win
-    for any production-realistic peer count.
-    """
-    return next((peer for peer in settings.peers if peer.dashboard_id == dashboard_id), None)
-
-
 _PIN_SHA256_LEN = 64  # 32-byte SHA-256 → 64 lowercase-hex chars
 _PAIR_LABEL_MAX_CHARS = 128  # mirrors :data:`_PEER_LABEL_MAX_CHARS` on the receiver
 
@@ -638,6 +621,7 @@ _PAIRINGS_SAVE_DELAY_SECONDS = 1.0
 # Leading dot keeps the file out of normal directory listings on
 # the user's editor pane (same convention as ``.device-builder.json``).
 _OFFLOADER_PAIRINGS_FILE = ".offloader_pairings.json"
+_RECEIVER_PEERS_FILE = ".receiver_peers.json"
 
 
 def _encode_pairings(value: OffloaderRemoteBuildSettings) -> bytes:
@@ -661,6 +645,26 @@ def _decode_pairings(raw: bytes) -> OffloaderRemoteBuildSettings:
     except Exception:
         _LOGGER.exception("Corrupt offloader pairings file; resetting to empty")
         return OffloaderRemoteBuildSettings()
+
+
+def _encode_peers(value: ReceiverPeers) -> bytes:
+    """Serialise the receiver-side peers shape for the store."""
+    return json_dumps(value.to_dict())
+
+
+def _decode_peers(raw: bytes) -> ReceiverPeers:
+    """Decode the receiver-side peers shape from the store.
+
+    Soft-recover to empty on malformed blobs, mirror of
+    :func:`_decode_pairings`. A corrupt peers file means every
+    paired offloader has to re-pair — annoying, not fatal — so
+    crashing dashboard startup is the wrong recovery posture.
+    """
+    try:
+        return ReceiverPeers.from_dict(json_loads(raw))
+    except Exception:
+        _LOGGER.exception("Corrupt receiver peers file; resetting to empty")
+        return ReceiverPeers()
 
 
 class RemoteBuildController:
@@ -767,6 +771,18 @@ class RemoteBuildController:
         # controller restart this dict is empty — any in-flight
         # pair attempts have to be re-initiated by the offloader.
         self._pending_peers: dict[str, StoredPeer] = {}
+        # RAM-canonical APPROVED peers, keyed on
+        # ``dashboard_id``. Loaded once at :meth:`start` from the
+        # ``_remote_build.peers`` block in the metadata sidecar
+        # and mutated in lockstep with ``approve_peer`` /
+        # ``remove_peer`` after the disk write succeeds. Reads
+        # (snapshot, ``_to_view``, ``_lookup_peer_response``)
+        # short-circuit through this dict so no read path hits
+        # disk while a write is in flight — the
+        # disk-read-vs-write race a fresh ``load_remote_build_settings``
+        # on every read would expose is closed structurally.
+        # Cleared in :meth:`stop` for shutdown ordering.
+        self._approved_peers: dict[str, StoredPeer] = {}
         # Single offloader-side ``StoredPairing`` map: contains both
         # PENDING and APPROVED rows, keyed on
         # ``(receiver_hostname, receiver_port)``. Source of truth at
@@ -793,6 +809,19 @@ class RemoteBuildController:
             shutdown_register=self._shutdown_callbacks.append,
             name="offloader_pairings",
         )
+        # Receiver-side APPROVED peers, persisted via the same
+        # per-file ``Store`` shape the offloader uses for
+        # pairings. RAM is canonical at runtime; disk is just
+        # persistence across restarts. Mutations land via
+        # ``async_delay_save`` so a burst of ``approve_peer`` /
+        # ``remove_peer`` collapses into one disk write.
+        self._peers_store: Store[ReceiverPeers] = Store(
+            self._db.settings.config_dir / _RECEIVER_PEERS_FILE,
+            encoder=_encode_peers,
+            decoder=_decode_peers,
+            shutdown_register=self._shutdown_callbacks.append,
+            name="receiver_peers",
+        )
 
     async def start(self) -> None:
         """
@@ -818,6 +847,15 @@ class RemoteBuildController:
         if (settings := await self._pairings_store.async_load()) is not None:
             for pairing in settings.pairings:
                 self._pairings[(pairing.receiver_hostname, pairing.receiver_port)] = pairing
+        # Seed the RAM-canonical APPROVED peer dict from the
+        # per-file peers store. Mirrors the offloader-side
+        # ``_pairings_store`` load above; RAM is canonical from
+        # this point on, every read short-circuits through
+        # ``_approved_peers`` and every mutation schedules a
+        # debounced write.
+        if (peers_state := await self._peers_store.async_load()) is not None:
+            for peer in peers_state.peers:
+                self._approved_peers[peer.dashboard_id] = peer
         if self._db.devices is None:
             _LOGGER.debug("RemoteBuildController.start called before devices controller")
             return
@@ -899,6 +937,7 @@ class RemoteBuildController:
         # receiver-visible row), so silent clear is fine here.
         self._pairings.clear()
         self._peers.clear()
+        self._approved_peers.clear()
 
     # ------------------------------------------------------------------
     # mDNS plumbing
@@ -987,23 +1026,55 @@ class RemoteBuildController:
         return self._to_view(settings)
 
     def _to_view(self, settings: RemoteBuildSettings) -> RemoteBuildSettingsView:
-        """Project receiver settings to wire view, merging in-memory PENDING peers.
+        """Project receiver settings to wire view, merging in-memory peers.
 
-        The persisted ``settings.peers`` list is APPROVED-only —
-        PENDING entries live in ``self._pending_peers`` for the
-        active pairing window's lifetime and never hit disk. The
-        wire view splices them together so the frontend's "Pairing
-        requests inbox + paired peers" UI sees one merged list
-        with the right ``status`` discriminator on each row.
+        The peer list is RAM-canonical: PENDING entries live in
+        ``self._pending_peers`` for the active pairing window's
+        lifetime (never hit disk) and APPROVED entries live in
+        ``self._approved_peers``, mirrored from the metadata
+        sidecar at :meth:`start` and kept in lockstep with the
+        sidecar by :meth:`approve_peer` / :meth:`remove_peer`.
+        ``settings`` is still consulted for ``enabled`` and
+        ``manual_hosts``.
         """
         return RemoteBuildSettingsView(
             enabled=settings.enabled,
             manual_hosts=list(settings.manual_hosts),
-            peers=[
-                _peer_summary(p, status=PeerStatus.PENDING) for p in self._pending_peers.values()
-            ]
-            + [_peer_summary(p, status=PeerStatus.APPROVED) for p in settings.peers],
+            peers=self._peer_summaries(),
         )
+
+    def _peer_summaries(self) -> list[PeerSummary]:
+        """Merge PENDING + APPROVED into a single ``PeerSummary`` list."""
+        return [
+            _peer_summary(p, status=PeerStatus.PENDING) for p in self._pending_peers.values()
+        ] + [_peer_summary(p, status=PeerStatus.APPROVED) for p in self._approved_peers.values()]
+
+    def peers_snapshot(self) -> list[PeerSummary]:
+        """
+        Return the in-memory peers snapshot (PENDING + APPROVED).
+
+        Pure synchronous read of ``_pending_peers`` +
+        ``_approved_peers`` — no executor hop, no disk read, no
+        race window. :meth:`start` seeded ``_approved_peers``
+        from disk; every mutation since has flowed through the
+        same dict, so RAM is the canonical source of truth (mirrors
+        the offloader-side :meth:`pairings_snapshot` shape).
+
+        Used by
+        :meth:`device_builder.DeviceBuilder._cmd_subscribe_events`
+        to seed the frontend's initial state. Live updates flow
+        from ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED`` and
+        ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` bus events through
+        the same ``subscribe_events`` stream — the events fire
+        right after the dict mutation, so a subscriber that reads
+        the snapshot then attaches its event handler will see
+        every state change without missing any.
+
+        Not a WS command: the dashboard frontend always subscribes
+        on app-startup, so a separate snapshot read would just be
+        a redundant round-trip.
+        """
+        return self._peer_summaries()
 
     async def _modify_settings(
         self, mutator: Callable[[RemoteBuildSettings], None]
@@ -1782,31 +1853,14 @@ class RemoteBuildController:
     # acting on them.
     # ------------------------------------------------------------------
 
-    @api_command("remote_build/list_peers")
-    async def list_peers(self, **kwargs: Any) -> list[PeerSummary]:
-        """
-        Return every peer row, projected to wire shape.
-
-        Merges in-memory PENDING entries (the live pairing-window
-        inbox) with persisted APPROVED entries from
-        ``settings.peers``. The frontend filters by ``status`` to
-        render the inbox vs the paired list.
-        """
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
-        )
-        return [
-            _peer_summary(peer, status=PeerStatus.PENDING) for peer in self._pending_peers.values()
-        ] + [_peer_summary(peer, status=PeerStatus.APPROVED) for peer in settings.peers]
-
     @api_command("remote_build/approve_peer")
     async def approve_peer(self, *, dashboard_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
         """
         Promote a PENDING peer to APPROVED.
 
-        Pops the in-memory PENDING entry, appends it to the
-        persistent ``settings.peers`` list, fires
+        Pops the in-memory PENDING entry, inserts it into the
+        RAM-canonical ``_approved_peers`` dict, schedules a
+        debounced write to the receiver-peers store, and fires
         :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED` with
         ``{dashboard_id, status: "approved"}``. The offloader's
         pair-status listener observes the flip via the bus event +
@@ -1822,23 +1876,20 @@ class RemoteBuildController:
         if pending is None:
             # Differentiate "already approved" from "never existed"
             # so the frontend can decide whether to refresh or
-            # surface an error.
-            loop = asyncio.get_running_loop()
-            settings = await loop.run_in_executor(
-                None, load_remote_build_settings, self._db.settings.config_dir
-            )
-            if _find_peer_by_dashboard_id(settings, clean_id) is not None:
+            # surface an error. Both reads short-circuit through
+            # RAM — no disk I/O.
+            if clean_id in self._approved_peers:
                 msg = f"peer is already approved: {clean_id}"
                 raise CommandError(ErrorCode.INVALID_ARGS, msg)
             msg = f"no pending peer with dashboard_id: {clean_id}"
             raise CommandError(ErrorCode.NOT_FOUND, msg)
 
-        def _persist(settings: RemoteBuildSettings) -> None:
-            settings.peers.append(pending)
-
-        view = await self._modify_settings(_persist)
+        self._approved_peers[clean_id] = pending
+        self._peers_store.async_delay_save(
+            self._serialize_peers, delay=_PAIRINGS_SAVE_DELAY_SECONDS
+        )
         self._fire_pair_status_changed(clean_id, "approved")
-        return view
+        return await self._current_settings_view()
 
     @api_command("remote_build/remove_peer")
     async def remove_peer(self, *, dashboard_id: str, **kwargs: Any) -> RemoteBuildSettingsView:
@@ -1853,40 +1904,58 @@ class RemoteBuildController:
           ``status="removed"`` event so any offloader currently
           long-polling pair_status sees the cancellation and
           drops its local state.
-        * Removing an APPROVED row from the persisted list is
-          *revocation* — fires the same
+        * Removing an APPROVED row from ``_approved_peers``
+          (RAM-canonical, debounced to disk) is *revocation* —
+          fires the same
           :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED`
           ``status="removed"`` event so the offloader can
           surface a ``peer_revoked`` UI alert (phase 4b-3).
 
-        ``NOT_FOUND`` if neither dict nor list has a row.
+        ``NOT_FOUND`` if neither dict has a row.
         """
         clean_id = _validate_dashboard_id(dashboard_id)
 
-        # PENDING: in-memory, no transaction.
+        # PENDING: in-memory, no disk write needed (PENDING never
+        # reaches the peers store).
         if self._pending_peers.pop(clean_id, None) is not None:
             self._fire_pair_status_changed(clean_id, "removed")
-            loop = asyncio.get_running_loop()
-            settings = await loop.run_in_executor(
-                None, load_remote_build_settings, self._db.settings.config_dir
-            )
-            return self._to_view(settings)
+            return await self._current_settings_view()
 
-        # APPROVED: drop from persisted list.
-        found_in_persistent = False
-
-        def _remove(settings: RemoteBuildSettings) -> None:
-            nonlocal found_in_persistent
-            before = len(settings.peers)
-            settings.peers = [p for p in settings.peers if p.dashboard_id != clean_id]
-            found_in_persistent = len(settings.peers) != before
-
-        view = await self._modify_settings(_remove)
-        if not found_in_persistent:
+        if self._approved_peers.pop(clean_id, None) is None:
             msg = f"no peer with dashboard_id: {clean_id}"
             raise CommandError(ErrorCode.NOT_FOUND, msg)
+        self._peers_store.async_delay_save(
+            self._serialize_peers, delay=_PAIRINGS_SAVE_DELAY_SECONDS
+        )
         self._fire_pair_status_changed(clean_id, "removed")
-        return view
+        return await self._current_settings_view()
+
+    def _serialize_peers(self) -> ReceiverPeers:
+        """Build the on-disk shape from the in-RAM ``_approved_peers`` dict.
+
+        Called by :meth:`Store.async_delay_save` at flush time, so
+        the persisted snapshot reflects whatever's currently in
+        RAM — not whatever was in RAM when the most recent
+        mutation scheduled the save. Mirrors the offloader-side
+        :meth:`_serialize_pairings` shape.
+        """
+        return ReceiverPeers(peers=list(self._approved_peers.values()))
+
+    async def _current_settings_view(self) -> RemoteBuildSettingsView:
+        """Load settings from disk and project to the wire view.
+
+        Helper for response paths that need a fresh
+        :class:`RemoteBuildSettingsView` after a mutation that
+        only touched RAM (peers). The view's ``peers`` field
+        reads from RAM via :meth:`_to_view`; the ``enabled`` /
+        ``manual_hosts`` fields still come from the metadata
+        sidecar.
+        """
+        loop = asyncio.get_running_loop()
+        settings = await loop.run_in_executor(
+            None, load_remote_build_settings, self._db.settings.config_dir
+        )
+        return self._to_view(settings)
 
     # ------------------------------------------------------------------
     # Peer-link Noise WS dispatch helpers (phase 4a-r1 part 4) — called
@@ -1944,13 +2013,11 @@ class RemoteBuildController:
           unknown-dashboard_id branch and the existing-PENDING
           branch only.
         """
-        # Already-APPROVED branch — read from the persisted list.
-        # No transaction needed because we don't mutate disk.
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
-        )
-        approved_peer = _find_peer_by_dashboard_id(settings, dashboard_id)
+        # Already-APPROVED branch — RAM read, no disk hop. The
+        # dict is the source of truth at runtime; ``start`` seeded
+        # it from disk and every approve / remove flows through
+        # the same dict.
+        approved_peer = self._approved_peers.get(dashboard_id)
         if approved_peer is not None:
             if approved_peer.pin_sha256 != pin_sha256:
                 # Pin mismatch on an APPROVED row is a
@@ -1977,18 +2044,25 @@ class RemoteBuildController:
         # keyed on dashboard_id so a re-pair while still pending
         # (offloader retried before admin clicked) overwrites the
         # earlier dict entry rather than creating a duplicate.
+        # Single ``paired_at`` shared between the StoredPeer and
+        # the event payload so a future refactor can't accidentally
+        # split them — frontend subscribers building a complete row
+        # from the event need the same timestamp the inbox
+        # snapshot would have shown.
+        paired_at = time.time()
         self._pending_peers[dashboard_id] = StoredPeer(
             dashboard_id=dashboard_id,
             pin_sha256=pin_sha256,
             static_x25519_pub=static_x25519_pub,
             label=label,
-            paired_at=time.time(),
+            paired_at=paired_at,
         )
         payload: RemoteBuildPairRequestReceivedData = {
             "dashboard_id": dashboard_id,
             "pin_sha256": pin_sha256,
             "label": label,
             "peer_ip": peer_ip,
+            "paired_at": paired_at,
         }
         self._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
         return IntentResponse.PENDING
@@ -2136,18 +2210,15 @@ class RemoteBuildController:
         local row + surface re-pair UI).
         """
         # PENDING dict first — most pair-flow traffic is pending
-        # peers polling pair_status, so checking the small
-        # in-memory dict before the disk-backed list saves I/O.
+        # peers polling pair_status. Both lookups are RAM reads
+        # (the APPROVED list moved off disk into ``_approved_peers``
+        # at startup).
         pending = self._pending_peers.get(dashboard_id)
         if pending is not None:
             if pending.pin_sha256 != pin_sha256:
                 return IntentResponse.REJECTED
             return IntentResponse.PENDING
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
-        )
-        peer = _find_peer_by_dashboard_id(settings, dashboard_id)
+        peer = self._approved_peers.get(dashboard_id)
         if peer is None or peer.pin_sha256 != pin_sha256:
             return IntentResponse.REJECTED
         return approved_response
