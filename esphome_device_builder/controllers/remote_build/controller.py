@@ -2675,7 +2675,7 @@ class RemoteBuildController:
         yaml_path = await loop.run_in_executor(None, self._db.settings.rel_path, configuration)
         return configuration, yaml_path
 
-    def _lookup_open_peer_link_client(self, pin_sha256: str) -> PeerLinkClient:
+    def _lookup_open_peer_link_client(self, pin_sha256: str, *, label: str) -> PeerLinkClient:
         """Return the live :class:`PeerLinkClient` for *pin_sha256*, raising on miss.
 
         Two error codes the frontend branches on: ``NOT_FOUND``
@@ -2686,10 +2686,16 @@ class RemoteBuildController:
         folded into one raise — the user's recovery is the
         same (wait + retry); the distinguishing detail is for
         the operator's log line, not a UI branch.
+
+        ``label`` names the calling operation in the
+        :class:`CommandError` message (``"submit_job"`` /
+        ``"cancel_job"`` / future senders) so the user-facing
+        text identifies which WS command failed rather than
+        always saying ``"submit_job: ..."``.
         """
         pairing = self._pairings.get(pin_sha256)
         if pairing is None:
-            msg = f"submit_job: no pairing for pin_sha256={pin_sha256!r}"
+            msg = f"{label}: no pairing for pin_sha256={pin_sha256!r}"
             raise CommandError(ErrorCode.NOT_FOUND, msg)
         if pairing.status is not PeerStatus.APPROVED:
             reason = f"status is {pairing.status.value!r}, not APPROVED"
@@ -2701,7 +2707,7 @@ class RemoteBuildController:
             reason = "session not connected (mid-reconnect / receiver offline)"
         else:
             return handle.client
-        msg = f"submit_job: peer-link to {pairing.label!r} not ready ({reason})"
+        msg = f"{label}: peer-link to {pairing.label!r} not ready ({reason})"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
     async def _build_submit_job_bundle(self, configuration: str, yaml_path: Path) -> bytes:
@@ -2818,7 +2824,7 @@ class RemoteBuildController:
         clean_pin = _validate_pin_sha256(pin_sha256)
         clean_target = _validate_submit_job_target(target)
         clean_config, yaml_path = await self._validate_submit_job_config(configuration)
-        client = self._lookup_open_peer_link_client(clean_pin)
+        client = self._lookup_open_peer_link_client(clean_pin, label="submit_job")
         # Build the bundle off the event loop. Any
         # ``BundleBuildError`` (CLI schema failure, missing
         # include, malformed secret) maps to INVALID_ARGS so the
@@ -2884,7 +2890,7 @@ class RemoteBuildController:
         if not isinstance(job_id, str) or not job_id:
             msg = "job_id must be a non-empty string"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
-        client = self._lookup_open_peer_link_client(clean_pin)
+        client = self._lookup_open_peer_link_client(clean_pin, label="cancel_job")
         try:
             sent = await client.cancel_job(job_id=job_id)
         except PeerLinkNoSessionError as exc:
