@@ -327,7 +327,8 @@ class OffloaderPeerLinkClosedData(TypedDict):
     ``"heartbeat_timeout"`` / ``"malformed_frame"``), or an
     offloader-side reason when our side initiated:
     ``"transport_error"`` / ``"heartbeat_timeout"`` /
-    ``"client_stopped"``. The :class:`PeerLinkClient`'s
+    ``"client_stopped"`` / ``"peer_hung_up"`` /
+    ``"auth_rejected"``. The :class:`PeerLinkClient`'s
     reconnect logic branches on this — a ``"superseded"`` close
     means a newer offloader instance with the same
     ``dashboard_id`` already took our slot, so reconnecting

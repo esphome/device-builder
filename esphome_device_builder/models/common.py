@@ -194,12 +194,15 @@ class EventType(StrEnum):
     # transport error during the receive loop. Payload:
     # ``{receiver_hostname, receiver_port, reason}`` where
     # ``reason`` is one of the receiver-side
-    # :class:`TerminateReason` wire values (e.g.
-    # ``"superseded"`` / ``"server_shutting_down"``) when the
-    # close came from a structured ``terminate`` frame, or one
-    # of the offloader-side reasons (``"transport_error"`` /
-    # ``"heartbeat_timeout"`` / ``"client_stopped"``) when our
-    # side initiated. The reconnect logic in
+    # :class:`TerminateReason` wire values
+    # (``"superseded"`` / ``"server_shutting_down"`` /
+    # ``"heartbeat_timeout"`` / ``"malformed_frame"``) when
+    # the close came from a structured ``terminate`` frame,
+    # or one of the offloader-side reasons
+    # (``"transport_error"`` / ``"heartbeat_timeout"`` /
+    # ``"client_stopped"`` / ``"peer_hung_up"`` /
+    # ``"auth_rejected"``) when our side initiated. The
+    # reconnect logic in
     # :class:`PeerLinkClient` branches on this so a
     # ``superseded`` close doesn't trigger a reconnect storm.
     OFFLOADER_PEER_LINK_CLOSED = "offloader_peer_link_closed"

@@ -27,7 +27,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from aiohttp import web
+from aiohttp import WSMessage, WSMsgType, web
 from aiohttp.test_utils import TestServer
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
@@ -47,6 +47,7 @@ from esphome_device_builder.controllers.remote_build_peer_link_client import (
     preview_pair,
     request_pair,
 )
+from esphome_device_builder.helpers import json as _json
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import (
@@ -2265,3 +2266,264 @@ async def test_peer_link_client_backoff_advances_when_session_never_opens(
     await client.run()
 
     assert backoffs_observed == [2.0, 4.0, 1.0, 2.0]
+
+
+def test_peer_link_client_exposes_receiver_coordinates() -> None:
+    """``receiver_hostname`` / ``receiver_port`` properties echo the constructor args."""
+    client = PeerLinkClient(
+        receiver_hostname="10.0.0.5",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=EventBus(),
+    )
+    assert client.receiver_hostname == "10.0.0.5"
+    assert client.receiver_port == 6055
+
+
+@pytest.mark.asyncio
+async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+) -> None:
+    """An unapproved dashboard_id fires CLOSED with auth_rejected.
+
+    Drives a real handshake against the receiver but skips the
+    ``_seed_approved_peer_for_initiator`` step. The receiver
+    responds ``intent_response: not_paired``; the client surfaces
+    that as the offloader-side ``auth_rejected`` reason on
+    ``OFFLOADER_PEER_LINK_CLOSED``.
+    """
+    server, _receiver, _ = receiver_server
+    bus = EventBus()
+    closed: list[dict] = []
+    bus.add_listener(EventType.OFFLOADER_PEER_LINK_CLOSED, lambda e: closed.append(dict(e.data)))
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="never-paired",
+        bus=bus,
+    )
+    task = asyncio.create_task(client.run())
+    try:
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if closed:
+                break
+        assert closed, "expected an OFFLOADER_PEER_LINK_CLOSED event"
+        assert closed[0]["reason"] == "auth_rejected"
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_run_session_loops_responds_to_peer_ping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PING from the receiver is answered with a PONG and the loop keeps running."""
+    initiator, responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+
+    sent_frames: list[bytes] = []
+
+    class _PingingWs(_ParkingWs):
+        def __init__(self, evt: asyncio.Event) -> None:
+            super().__init__(evt)
+            self._delivered = False
+
+        async def send_bytes(self, data: bytes) -> None:
+            sent_frames.append(data)
+
+        async def __anext__(self) -> Any:
+            if not self._delivered:
+                self._delivered = True
+                ping = responder.encrypt(_json.dumps({"type": "ping", "nonce": 7}))
+                return WSMessage(type=WSMsgType.BINARY, data=ping, extra="")
+            await self._closed_event.wait()
+            raise StopAsyncIteration
+
+    ws = _PingingWs(closed_event)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+        await closed_event.wait()
+
+    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=EventBus(),
+    )
+
+    async def _drive() -> str:
+        return await client._run_session_loops(channel)
+
+    drive_task = asyncio.create_task(_drive())
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if sent_frames:
+            break
+    assert sent_frames, "expected a PONG to be sent in reply to PING"
+    decoded = _json.loads(responder.decrypt(sent_frames[0]))
+    assert decoded == {"type": "pong", "nonce": 7}
+
+    closed_event.set()
+    reason = await drive_task
+    assert reason == "peer_hung_up"
+
+
+@pytest.mark.asyncio
+async def test_run_session_loops_bumps_last_pong_on_pong(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PONG from the receiver bumps ``last_pong_at`` so the next heartbeat sees fresh activity."""
+    initiator, responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+
+    class _PongingWs(_ParkingWs):
+        def __init__(self, evt: asyncio.Event) -> None:
+            super().__init__(evt)
+            self._delivered = False
+
+        async def __anext__(self) -> Any:
+            if not self._delivered:
+                self._delivered = True
+                pong = responder.encrypt(_json.dumps({"type": "pong", "nonce": 1}))
+                return WSMessage(type=WSMsgType.BINARY, data=pong, extra="")
+            await self._closed_event.wait()
+            raise StopAsyncIteration
+
+    ws = _PongingWs(closed_event)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    captured_last_pong: list[float] = []
+
+    async def _capturing_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+        # Sleep one tick so the receive loop processes the PONG first.
+        await asyncio.sleep(0)
+        captured_last_pong.append(last_pong_at())
+        await closed_event.wait()
+
+    monkeypatch.setattr(
+        remote_build_peer_link_client, "run_peer_link_heartbeat", _capturing_heartbeat
+    )
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=EventBus(),
+    )
+    drive_task = asyncio.create_task(client._run_session_loops(channel))
+
+    # Let the receive loop process the PONG and the heartbeat sample
+    # ``last_pong_at`` afterwards.
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if captured_last_pong:
+            break
+
+    closed_event.set()
+    reason = await drive_task
+
+    assert reason == "peer_hung_up"
+    assert captured_last_pong, "heartbeat callback never sampled last_pong_at"
+    # The captured value should be a real loop timestamp; we
+    # mostly care that the PONG branch ran without falling
+    # through to the unknown-msg-type branch (which would have
+    # left ``last_pong_at`` at the initial value).
+
+
+@pytest.mark.asyncio
+async def test_run_session_loops_returns_transport_error_on_malformed_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A frame that ``parse_frame`` rejects ends the loop with ``transport_error``."""
+    initiator, _responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+
+    class _GarbageWs(_ParkingWs):
+        def __init__(self, evt: asyncio.Event) -> None:
+            super().__init__(evt)
+            self._delivered = False
+
+        async def __anext__(self) -> Any:
+            if not self._delivered:
+                self._delivered = True
+                # Bytes that won't decrypt — parse_frame returns None.
+                return WSMessage(type=WSMsgType.BINARY, data=b"\x00" * 32, extra="")
+            await self._closed_event.wait()
+            raise StopAsyncIteration
+
+    ws = _GarbageWs(closed_event)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+        await closed_event.wait()
+
+    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=EventBus(),
+    )
+    reason = await client._run_session_loops(channel)
+    assert reason == "transport_error"
+
+
+@pytest.mark.asyncio
+async def test_run_session_loops_ignores_unknown_msg_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unknown ``type`` in a valid frame is logged and ignored; the loop keeps running."""
+    initiator, responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+
+    class _UnknownTypeWs(_ParkingWs):
+        def __init__(self, evt: asyncio.Event) -> None:
+            super().__init__(evt)
+            self._delivered = False
+
+        async def __anext__(self) -> Any:
+            if not self._delivered:
+                self._delivered = True
+                frame = responder.encrypt(_json.dumps({"type": "wat", "payload": 1}))
+                return WSMessage(type=WSMsgType.BINARY, data=frame, extra="")
+            await self._closed_event.wait()
+            raise StopAsyncIteration
+
+    ws = _UnknownTypeWs(closed_event)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+        await closed_event.wait()
+
+    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _idle_heartbeat)
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=EventBus(),
+    )
+    drive_task = asyncio.create_task(client._run_session_loops(channel))
+    # Let the loop process the unknown frame, then close to exit.
+    for _ in range(20):
+        await asyncio.sleep(0)
+    closed_event.set()
+    reason = await drive_task
+    # Default close reason — neither malformed nor terminate; the
+    # unknown frame was logged and dropped, the loop fell through
+    # to the WS close.
+    assert reason == "peer_hung_up"

@@ -201,6 +201,40 @@ def _build_ws_url(hostname: str, port: int) -> URL:
     return URL.build(scheme="ws", host=hostname, port=port, path=PEER_LINK_PATH)
 
 
+async def _drive_initiator_handshake_and_read_response(
+    *,
+    ws: aiohttp.ClientWebSocketResponse,
+    sess: PeerLinkNoiseSession,
+    intent: PeerLinkIntent,
+    msg3_payload: bytes,
+    read_timeout_seconds: float,
+) -> bytes:
+    """Drive Noise XX msg1/msg2/msg3 + read the post-handshake response ciphertext.
+
+    Shared by :func:`drive_initiator_round_trip` (short-lived
+    intents — preview / pair_request / pair_status) and
+    :meth:`PeerLinkClient._run_one_session` (long-lived
+    ``peer_link`` intent). Pre: *ws* is connected; *sess* is a
+    fresh initiator. Post: *sess* is in transport mode. Returns
+    the encrypted post-handshake response bytes; the caller is
+    responsible for decrypting and parsing them.
+
+    Each receive is bounded by *read_timeout_seconds* via
+    :func:`asyncio.wait_for` so a stalled peer fails fast even
+    when the surrounding WS session has no session-wide timeout
+    (the long-lived peer-link client deliberately drops
+    ``ClientTimeout(total=...)`` so the dispatch loop can stay
+    parked indefinitely).
+    """
+    msg1 = _json.dumps({"intent": intent.value})
+    await ws.send_bytes(sess.write_handshake_message(msg1))
+    sess.read_handshake_message(
+        await asyncio.wait_for(ws.receive_bytes(), timeout=read_timeout_seconds)
+    )
+    await ws.send_bytes(sess.write_handshake_message(msg3_payload))
+    return await asyncio.wait_for(ws.receive_bytes(), timeout=read_timeout_seconds)
+
+
 async def drive_initiator_round_trip(
     *,
     hostname: str,
@@ -267,11 +301,13 @@ async def drive_initiator_round_trip(
             aiohttp.ClientSession(timeout=timeout) as http,
             http.ws_connect(url, max_msg_size=_CONTROL_RESPONSE_MAX_BYTES) as ws,
         ):
-            msg1 = _json.dumps({"intent": intent.value})
-            await ws.send_bytes(sess.write_handshake_message(msg1))
-            sess.read_handshake_message(await ws.receive_bytes())
-            await ws.send_bytes(sess.write_handshake_message(msg3_payload))
-            response_ct = await ws.receive_bytes()
+            response_ct = await _drive_initiator_handshake_and_read_response(
+                ws=ws,
+                sess=sess,
+                intent=intent,
+                msg3_payload=msg3_payload,
+                read_timeout_seconds=timeout_seconds,
+            )
     except (TimeoutError, aiohttp.ClientError, OSError, ValueError) as exc:
         msg = f"{label} failed: {exc}"
         _LOGGER.debug(msg, exc_info=True)
@@ -750,21 +786,30 @@ class PeerLinkClient:
         """
         self._session_was_opened = False
         url = URL.build(scheme="ws", host=self._hostname, port=self._port, path=PEER_LINK_PATH)
-        timeout = aiohttp.ClientTimeout(total=_DEFAULT_TIMEOUT_SECONDS)
+        # ``total`` deliberately omitted: the peer-link session
+        # is long-lived (idle-by-design once parked on the
+        # receive loop), so a session-wide timeout would forcibly
+        # drop a healthy session after ``_DEFAULT_TIMEOUT_SECONDS``.
+        # Bound the *handshake* reads with ``asyncio.wait_for``
+        # below — that's what the receiver does in
+        # ``remote_build_peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS``
+        # — so a stalled handshake still fails fast without
+        # putting a ceiling on the dispatch loop's lifetime.
+        timeout = aiohttp.ClientTimeout(total=None, sock_connect=_DEFAULT_TIMEOUT_SECONDS)
         try:
             async with (
                 aiohttp.ClientSession(timeout=timeout) as http,
                 http.ws_connect(url, max_msg_size=APP_FRAME_MAX_BYTES) as ws,
             ):
                 session = PeerLinkNoiseSession.initiator(self._identity_priv)
-                # --- Noise XX msg1/msg2/msg3 ---
-                msg1 = _json.dumps({"intent": PeerLinkIntent.PEER_LINK.value})
-                await ws.send_bytes(session.write_handshake_message(msg1))
-                session.read_handshake_message(await ws.receive_bytes())
-                msg3 = _json.dumps({"dashboard_id": self._dashboard_id})
-                await ws.send_bytes(session.write_handshake_message(msg3))
-                # --- Post-handshake intent_response ---
-                response_ct = await ws.receive_bytes()
+                msg3_payload = _json.dumps({"dashboard_id": self._dashboard_id})
+                response_ct = await _drive_initiator_handshake_and_read_response(
+                    ws=ws,
+                    sess=session,
+                    intent=PeerLinkIntent.PEER_LINK,
+                    msg3_payload=msg3_payload,
+                    read_timeout_seconds=_DEFAULT_TIMEOUT_SECONDS,
+                )
                 response = _json.loads(session.decrypt(response_ct))
                 if (
                     not isinstance(response, dict)
