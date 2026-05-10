@@ -338,6 +338,35 @@ class DashboardAdvertiser:
         """
         return self._info.name if self._info is not None else None
 
+    @property
+    def service_target_endpoint(self) -> tuple[str, int] | None:
+        """
+        The published ``(server, port)`` SRV target, or ``None``.
+
+        ``server`` is the SRV record's target (the FQDN peers
+        will connect to, normalised to lowercase with the trailing
+        dot stripped); ``port`` is the dashboard's HTTP listen
+        port. Returned as a tuple so peer-discovery code can do
+        a single equality check against the resolved endpoint
+        of every browsed service to filter our own broadcast on
+        the (host, port) axis rather than the service-instance
+        name axis (which can drift if zeroconf rename-on-conflict
+        kicks in between our own register and our own browse
+        callback).
+
+        Two dashboards on the same host with different ports are
+        legitimate distinct peers; matching on both axes preserves
+        that ability. ``None`` when the advertiser hasn't
+        registered yet, same shape as :attr:`service_instance_name`.
+        """
+        if self._info is None:
+            return None
+        server = self._info.server
+        port = self._info.port
+        if server is None or port is None:
+            return None
+        return (server.rstrip(".").lower(), port)
+
     def build_service_info(self, addresses: list[str] | None = None) -> ServiceInfo:
         """
         Construct the ``ServiceInfo`` that will be published on register.

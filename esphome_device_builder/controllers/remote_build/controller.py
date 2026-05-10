@@ -1568,10 +1568,47 @@ class RemoteBuildController:
         construction; adding a field to :class:`RemoteBuildPeer`
         flows through both surfaces in lockstep without a manual
         bookkeeping update here.
+
+        Drops resolved entries whose ``(server, port)`` matches our
+        own published advertise so this dashboard never offers
+        itself as a pair candidate. The early
+        ``service_instance_name`` filter in
+        :meth:`_on_service_state_change` covers the common case
+        before resolve, but a rename-on-conflict zeroconf bounce
+        between our own register and our own browse callback can
+        leave the captured instance name out of date — the
+        endpoint comparison is the live cross-check that survives
+        that drift. Matching on both ``server`` and ``port`` (not
+        just ``server``) preserves the ability to run two
+        dashboards on the same host on different ports as
+        distinct peer candidates.
         """
         peer = _peer_from_service_info(name, info)
+        if self._is_self_endpoint(peer.hostname, peer.port):
+            return
         self._peers[name] = peer
         self._db.bus.fire(EventType.REMOTE_BUILD_HOST_ADDED, peer.to_dict())
+
+    def _is_self_endpoint(self, hostname: str, port: int) -> bool:
+        """Return True when *(hostname, port)* matches our published advertise.
+
+        Reads the live ``service_target_endpoint`` off the
+        :class:`DashboardAdvertiser` rather than a captured-at-start
+        value so a post-start register / re-register isn't missed.
+        Hostname comparison is case-insensitive and trailing-dot
+        tolerant; the advertiser already normalises its end of
+        the comparison to lowercase + no trailing dot, and the
+        resolved peer hostname (off the SRV target) gets the
+        same treatment here.
+        """
+        advertiser = self._db._dashboard_advertiser
+        if advertiser is None:
+            return False
+        endpoint = advertiser.service_target_endpoint
+        if endpoint is None:
+            return False
+        own_host, own_port = endpoint
+        return port == own_port and hostname.rstrip(".").lower() == own_host
 
     def _fire_host_removed(self, name: str) -> None:
         """Fire ``REMOTE_BUILD_HOST_REMOVED`` for *name*."""

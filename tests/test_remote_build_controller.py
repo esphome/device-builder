@@ -215,6 +215,78 @@ def test_on_service_state_change_filters_own_advertise(tmp_path: Path) -> None:
     assert controller._peers == {}
 
 
+def test_is_self_endpoint_matches_advertised_host_and_port(tmp_path: Path) -> None:
+    """A ``(host, port)`` matching the advertiser's published endpoint reports True.
+
+    Hostname comparison is case-insensitive and trailing-dot
+    tolerant on both sides; port match is exact. Pins the
+    contract :meth:`_upsert_host` relies on to drop our own
+    broadcast even when ``_own_instance_name`` capture missed
+    (rename-on-conflict bounce, HA-addon delayed register).
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    advertiser = MagicMock()
+    advertiser.service_target_endpoint = ("mac.example.org", 6052)
+    controller._db._dashboard_advertiser = advertiser
+
+    assert controller._is_self_endpoint("Mac.example.org.", 6052) is True
+    assert controller._is_self_endpoint("MAC.EXAMPLE.ORG", 6052) is True
+    # Same host on a different port is a legitimate distinct
+    # peer (two dashboards on the same machine on different
+    # ports); preserve that capability.
+    assert controller._is_self_endpoint("mac.example.org", 6053) is False
+    # Different host on the same port is also legitimate.
+    assert controller._is_self_endpoint("other.local", 6052) is False
+
+
+def test_is_self_endpoint_returns_false_when_advertiser_absent(tmp_path: Path) -> None:
+    """An unregistered / missing advertiser leaves the filter open.
+
+    Mirror of the early ``_own_instance_name`` capture path:
+    HA addon and zeroconf-down branches leave the dashboard
+    without a published advertise, so there's no self-broadcast
+    to filter and this guard must always return False.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+
+    controller._db._dashboard_advertiser = None
+    assert controller._is_self_endpoint("any.host.", 6052) is False
+
+    advertiser = MagicMock()
+    advertiser.service_target_endpoint = None
+    controller._db._dashboard_advertiser = advertiser
+    assert controller._is_self_endpoint("any.host.", 6052) is False
+
+
+def test_upsert_host_drops_self_endpoint(tmp_path: Path) -> None:
+    """``_upsert_host`` skips the self-endpoint even when the instance-name guard missed.
+
+    Simulates the rename-on-conflict zeroconf bounce: the early
+    instance-name filter doesn't catch the broadcast (different
+    name from what the controller captured), but the
+    ``(server, port)`` cross-check inside ``_upsert_host``
+    still drops the row and never fires
+    ``REMOTE_BUILD_HOST_ADDED``.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    advertiser = MagicMock()
+    advertiser.service_target_endpoint = ("mac.example.org", 6052)
+    controller._db._dashboard_advertiser = advertiser
+
+    info = MagicMock()
+    info.name = f"renamed.{SERVICE_TYPE}"
+    info.server = "Mac.example.org."
+    info.port = 6052
+    info.properties = {b"server_version": b"0.1.0", b"esphome_version": b"2026.5.0-dev"}
+    info.parsed_scoped_addresses = MagicMock(return_value=["10.0.0.42"])
+
+    controller._upsert_host(f"renamed.{SERVICE_TYPE}", info)
+
+    assert controller._peers == {}
+    controller._db.bus.fire.assert_not_called()
+
+
 def test_on_service_state_change_removed_drops_peer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
