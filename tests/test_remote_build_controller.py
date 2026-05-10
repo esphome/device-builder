@@ -1123,6 +1123,68 @@ def test_peers_snapshot_drops_static_x25519_pub_from_wire(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None:
+    """``start()`` loads APPROVED peers off disk into ``_approved_peers``.
+
+    Pre-seed the per-file ``Store`` with a row, instantiate a
+    fresh controller pointing at the same dir, call ``start()``,
+    and assert the dict is populated. Pins the cold-start
+    contract — APPROVED rows survive a controller restart so the
+    receiver-side admin doesn't have to re-approve every offloader
+    on every dashboard bounce. Mirrors the offloader-side
+    ``test_start_seeds_pairings_dict_from_disk`` shape.
+    """
+    seeder = _make_controller(config_dir=tmp_path)
+    seeder._db.bus = MagicMock()
+    seeder._db.devices = None  # short-circuit the post-load branches.
+    pubkey = b"\xee" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    seeder._approved_peers["alpha"] = _stored_peer(
+        dashboard_id="alpha",
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+    )
+    # Force-flush the debounced save through the same shutdown
+    # callback path production uses; the offloader-side test
+    # uses an identical shape.
+    seeder._peers_store.async_delay_save(seeder._serialize_peers, delay=0.0)
+    for cb in seeder._shutdown_callbacks:
+        await cb()
+
+    fresh = _make_controller(config_dir=tmp_path)
+    fresh._db.bus = MagicMock()
+    fresh._db.devices = None
+    await fresh.start()
+
+    assert "alpha" in fresh._approved_peers
+    loaded = fresh._approved_peers["alpha"]
+    assert loaded.pin_sha256 == pin
+    assert loaded.static_x25519_pub == pubkey
+
+
+@pytest.mark.asyncio
+async def test_start_recovers_to_empty_on_corrupt_peers_file(tmp_path: Path) -> None:
+    """A corrupt ``.receiver_peers.json`` doesn't crash startup; dict stays empty.
+
+    A user (or filesystem corruption) turning the peers file into
+    nonsense JSON would otherwise raise out of ``from_dict`` and
+    take dashboard startup with it, locking the user out of every
+    feature. Soft-recover to empty mirrors the offloader-side
+    pairings store's ``_decode_pairings`` posture: every paired
+    offloader has to re-pair (annoying) but the dashboard keeps
+    running.
+    """
+    (tmp_path / ".receiver_peers.json").write_bytes(b"this is not json")
+
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    controller._db.devices = None
+    await controller.start()
+
+    assert controller._approved_peers == {}
+
+
+@pytest.mark.asyncio
 async def test_approve_peer_promotes_pending_to_approved(tmp_path: Path) -> None:
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
