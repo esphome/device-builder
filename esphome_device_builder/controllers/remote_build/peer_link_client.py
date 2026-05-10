@@ -43,6 +43,7 @@ from yarl import URL
 
 from ...helpers import json as _json
 from ...helpers.peer_link_bundle import (
+    BUNDLE_CHUNK_SIZE_BYTES,
     chunk_bundle,
     compute_bundle_sha256,
     encode_chunk,
@@ -1032,27 +1033,37 @@ class PeerLinkClient:
     ) -> None:
         """Send the ``submit_job`` header and every chunk frame, in order.
 
+        Streams chunks via :func:`chunk_bundle`'s generator
+        rather than materialising the list — slicing
+        ``bundle_bytes`` produces a fresh ``bytes`` object per
+        chunk, and holding them all alive at once would roughly
+        double peak memory (up to :data:`BUNDLE_MAX_TOTAL_BYTES`,
+        4 MiB). ``num_chunks`` is computed via integer ceil on
+        ``total_bundle_bytes`` so the header still announces the
+        exact count without a materialise step.
+
         Raises :class:`SubmitJobSessionLostError` immediately if
         any send returns ``False`` (transport gone away
         mid-flow, JSON encode failure, Noise encrypt failure)
         rather than ploughing on through the chunk loop and
         relying on the ack-await timeout to surface the failure.
         """
-        chunks = list(chunk_bundle(bundle_bytes))
+        total_bytes = len(bundle_bytes)
+        num_chunks = (total_bytes + BUNDLE_CHUNK_SIZE_BYTES - 1) // BUNDLE_CHUNK_SIZE_BYTES
         header: SubmitJobFrameData = {
             "type": "submit_job",
             "job_id": job_id,
             "configuration_filename": configuration_filename,
             "target": target,
-            "total_bundle_bytes": len(bundle_bytes),
-            "num_chunks": len(chunks),
+            "total_bundle_bytes": total_bytes,
+            "num_chunks": num_chunks,
             "bundle_sha256": compute_bundle_sha256(bundle_bytes),
         }
         if not await channel.send_frame(cast(dict[str, Any], header)):
             raise SubmitJobSessionLostError(
                 f"submit_job: header send failed mid-flow to {self._hostname}:{self._port}"
             )
-        for chunk_index, raw, is_last in chunks:
+        for chunk_index, raw, is_last in chunk_bundle(bundle_bytes):
             chunk_frame: SubmitJobChunkFrameData = {
                 "type": "submit_job_chunk",
                 "job_id": job_id,
@@ -1475,14 +1486,30 @@ class PeerLinkClient:
                 ack_fut.done() if ack_fut is not None else False,
             )
             return
+        accepted = cast(bool, parsed["accepted"])
         ack: SubmitJobAckFrameData = {
             "type": "submit_job_ack",
             "job_id": job_id,
-            "accepted": cast(bool, parsed["accepted"]),
+            "accepted": accepted,
         }
+        # ``SubmitJobAckFrameData.reason`` is ``NotRequired`` and
+        # carries the rejection code on ``accepted=False``. A
+        # receiver that includes ``reason`` on accept is off-
+        # contract — preserve the typed shape by dropping the
+        # spurious field (logged at debug for the operator).
         reason = parsed.get("reason")
         if isinstance(reason, str):
-            ack["reason"] = reason
+            if accepted:
+                _LOGGER.debug(
+                    "peer-link client dropping spurious reason=%r on accepted ack "
+                    "from %s:%d (job_id=%r)",
+                    reason,
+                    self._hostname,
+                    self._port,
+                    job_id,
+                )
+            else:
+                ack["reason"] = reason
         ack_fut.set_result(ack)
 
     def _log_malformed(self, frame_type: str, parsed: dict[str, Any]) -> None:

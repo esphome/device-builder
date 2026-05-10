@@ -2180,12 +2180,16 @@ class RemoteBuildController:
         self._open_peer_links.discard(key)
         return {"removed": True}
 
-    async def _validate_submit_job_config(self, configuration: object) -> str:
-        """Validate the WS *configuration* arg + path-traversal boundary.
+    async def _validate_submit_job_config(self, configuration: object) -> tuple[str, Path]:
+        """Validate the WS *configuration* arg, return ``(name, yaml_path)``.
 
-        ``rel_path`` does the path-traversal check
-        (``Path.resolve`` is blocking) so the call lives inside
-        an executor. Mirrors
+        Validates the path-traversal boundary via
+        :meth:`DashboardSettings.rel_path` and returns the
+        resolved :class:`Path` so the downstream bundle build
+        doesn't have to redo the executor hop. ``rel_path`` is
+        blocking (``Path.resolve`` = ``os.path.abspath``
+        syscall) so the call lives inside an executor.
+        Mirrors
         :meth:`FirmwareController._validate_configuration_boundary`'s
         shape; lifted as a private helper so the future
         bulk-submit variant (multi-config offload) can reuse
@@ -2194,13 +2198,9 @@ class RemoteBuildController:
         if not isinstance(configuration, str) or not configuration:
             msg = "configuration must be a non-empty string"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
-
-        def _resolve_or_raise() -> None:
-            self._db.settings.rel_path(configuration)
-
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _resolve_or_raise)
-        return configuration
+        yaml_path = await loop.run_in_executor(None, self._db.settings.rel_path, configuration)
+        return configuration, yaml_path
 
     def _lookup_open_peer_link_client(self, pin_sha256: str) -> PeerLinkClient:
         """Return the live :class:`PeerLinkClient` for *pin_sha256*, raising on miss.
@@ -2231,8 +2231,8 @@ class RemoteBuildController:
         msg = f"submit_job: peer-link to {pairing.label!r} not ready ({reason})"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
-    async def _build_submit_job_bundle(self, configuration: str) -> bytes:
-        """Resolve *configuration* to a YAML path and build the bundle bytes.
+    async def _build_submit_job_bundle(self, configuration: str, yaml_path: Path) -> bytes:
+        """Build the bundle bytes for *yaml_path*.
 
         Wraps :func:`helpers.config_bundle.build_yaml_bundle`
         (which spawns the ``esphome bundle`` CLI). Maps the
@@ -2241,14 +2241,16 @@ class RemoteBuildController:
         to typed :class:`CommandError`; anything else
         propagates and lands as ``INTERNAL_ERROR`` via the WS
         dispatcher's outer ``except Exception``.
+
+        *configuration* is the original wire-arg, used only for
+        diagnostic messages; *yaml_path* is the resolved path
+        :meth:`_validate_submit_job_config` already produced.
         """
         from ...helpers.config_bundle import (  # noqa: PLC0415
             BundleBuildError,
             build_yaml_bundle,
         )
 
-        loop = asyncio.get_running_loop()
-        yaml_path = await loop.run_in_executor(None, self._db.settings.rel_path, configuration)
         try:
             return await build_yaml_bundle(yaml_path)
         except FileNotFoundError as exc:
@@ -2334,14 +2336,14 @@ class RemoteBuildController:
         """
         clean_pin = _validate_pin_sha256(pin_sha256)
         clean_target = _validate_submit_job_target(target)
-        clean_config = await self._validate_submit_job_config(configuration)
+        clean_config, yaml_path = await self._validate_submit_job_config(configuration)
         client = self._lookup_open_peer_link_client(clean_pin)
         # Build the bundle off the event loop. Any
-        # ``EsphomeError`` (read_config schema failure, missing
-        # include, malformed secret) propagates as INVALID_ARGS
-        # so the user gets the validator's message verbatim;
-        # any other exception lands as INTERNAL_ERROR.
-        bundle_bytes = await self._build_submit_job_bundle(clean_config)
+        # ``BundleBuildError`` (CLI schema failure, missing
+        # include, malformed secret) maps to INVALID_ARGS so the
+        # user gets the validator's stdout verbatim; any other
+        # exception lands as INTERNAL_ERROR.
+        bundle_bytes = await self._build_submit_job_bundle(clean_config, yaml_path)
         job_id = uuid4().hex[:12]
         try:
             ack = await client.submit_job(
