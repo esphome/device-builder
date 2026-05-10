@@ -2604,3 +2604,18 @@ def test_peer_queue_status_snapshot_returns_list(tmp_path: Path) -> None:
     assert len(snapshot) == 2
     hostnames = {entry["receiver_hostname"] for entry in snapshot}
     assert hostnames == {"a", "b"}
+
+
+def test_get_submit_job_receiver_raises_before_start(tmp_path: Path) -> None:
+    """Accessing ``get_submit_job_receiver`` before ``start()`` raises ``RuntimeError``.
+
+    Pins the bring-up ordering invariant: the wire dispatch in
+    :func:`controllers.remote_build_peer_link._receive_loop`
+    reaches the receiver via this accessor, and the peer-link
+    listener only binds after :meth:`start` has installed it.
+    The explicit failure surfaces a future bring-up regression
+    instead of silently no-op'ing the dispatch.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(RuntimeError, match=r"before RemoteBuildController\.start"):
+        controller.get_submit_job_receiver()
