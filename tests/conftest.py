@@ -188,6 +188,32 @@ def capture_events(bus: EventBus, event_type: EventType) -> _CapturedEvents:
     return captured
 
 
+def make_remote_build_controller(
+    *,
+    config_dir: Path,
+    bus: EventBus | None = None,
+) -> RemoteBuildController:
+    """Build a :class:`RemoteBuildController` against a stub :class:`DeviceBuilder`.
+
+    Single source of truth for the per-test stub-DB shape: pre-fix
+    every remote-build test file copy-pasted its own
+    ``_make_controller`` with the same MagicMock plumbing.
+    Mounted on a real :class:`EventBus` when *bus* is provided
+    (e.g. the e2e harness's two-instance setup), otherwise
+    ``MagicMock`` auto-attribute resolution gives the controller
+    a no-op ``bus.fire`` — the convention single-side tests use.
+    """
+    db = MagicMock()
+    db.devices = MagicMock()
+    db.devices.zeroconf = None
+    db._dashboard_advertiser = None
+    db.settings = MagicMock()
+    db.settings.config_dir = config_dir
+    if bus is not None:
+        db.bus = bus
+    return RemoteBuildController(db)
+
+
 async def cancel_and_drain(task: asyncio.Task[Any]) -> None:
     """Cancel *task* and await its termination, swallowing the resulting CancelledError.
 

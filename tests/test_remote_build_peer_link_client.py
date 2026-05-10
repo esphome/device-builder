@@ -71,17 +71,11 @@ from esphome_device_builder.models import (
     StoredPeer,
 )
 
-from .conftest import cancel_and_drain, capture_events
+from .conftest import cancel_and_drain, capture_events, make_remote_build_controller
 
 
 def _make_controller(*, config_dir: Path) -> RemoteBuildController:
-    db = MagicMock()
-    db.devices = MagicMock()
-    db.devices.zeroconf = None
-    db._dashboard_advertiser = None
-    db.settings = MagicMock()
-    db.settings.config_dir = config_dir
-    return RemoteBuildController(db)
+    return make_remote_build_controller(config_dir=config_dir)
 
 
 @pytest.fixture

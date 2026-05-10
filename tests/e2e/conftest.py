@@ -34,10 +34,9 @@ application messages."
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 from aiohttp import web
@@ -49,41 +48,9 @@ from esphome_device_builder.controllers.remote_build_peer_link import (
     make_peer_link_handler,
 )
 from esphome_device_builder.helpers.event_bus import EventBus
-from esphome_device_builder.models import PeerStatus
+from esphome_device_builder.models import EventType
 
-
-def _make_controller(*, config_dir: Path, bus: EventBus) -> RemoteBuildController:
-    """Construct a :class:`RemoteBuildController` against a stub :class:`DeviceBuilder`.
-
-    Mirrors the per-test ``_make_controller`` helpers in the
-    single-side tests but wires a *real* :class:`EventBus` (not a
-    :class:`MagicMock`) so events fire end-to-end through the
-    fan-out fabric the production dispatcher uses.
-    """
-    db = MagicMock()
-    db.devices = MagicMock()
-    db.devices.zeroconf = None
-    db._dashboard_advertiser = None
-    db.settings = MagicMock()
-    db.settings.config_dir = config_dir
-    db.bus = bus
-    return RemoteBuildController(db)
-
-
-async def _wait_until(condition: Callable[[], bool], *, timeout: float = 2.0) -> None:
-    """Yield to the loop until *condition()* returns truthy or *timeout* elapses.
-
-    Raises :exc:`TimeoutError` (via :func:`asyncio.wait_for`) when
-    the condition stays false past *timeout*. Mirrors the helper
-    in the single-side test files; copied here so the e2e harness
-    can stand alone without cross-importing test utilities.
-    """
-
-    async def _spin() -> None:
-        while not condition():
-            await asyncio.sleep(0)
-
-    await asyncio.wait_for(_spin(), timeout=timeout)
+from ..conftest import _CapturedEvents, capture_events, make_remote_build_controller
 
 
 @dataclass
@@ -108,24 +75,31 @@ class PairedInstances:
     receiver_bus: EventBus
     offloader_bus: EventBus
     offloader_dashboard_id: str
+    # Pre-subscribed at fixture-construct time so a
+    # :meth:`wait_until_session_opened` call lands cleanly even
+    # when the OPENED event has already fired (the offloader's
+    # :class:`PeerLinkClient` connects on its own task; tests
+    # that race the listener subscription against the connect
+    # would otherwise have to wire the subscription before the
+    # fixture yields).
+    _opened: _CapturedEvents
 
     async def wait_until_session_opened(self, *, timeout: float = 2.0) -> None:
-        """Block until the receiver has registered the offloader's peer-link session.
+        """Block until the offloader observes ``OFFLOADER_PEER_LINK_OPENED``.
 
-        Both sides observing the session is the natural "harness
-        is fully primed" signal: the offloader's
-        :class:`PeerLinkClient` has completed the Noise XX
-        handshake, the receiver's ``_run_peer_link_session`` has
-        registered the session in
-        :attr:`RemoteBuildController._peer_link_sessions`, and
-        the dispatch loop is parked on its receive iterator.
-        Tests that exercise application-message behaviour
-        (5b/5c/5d) start from this state.
+        Event-based — the offloader fires
+        ``OFFLOADER_PEER_LINK_OPENED`` from its
+        :class:`PeerLinkClient` after processing the receiver's
+        post-handshake ``intent_response: ok``, which is the
+        offloader-side completion of the long-lived peer-link
+        session bring-up. Tests that need to assert on
+        receiver-side state (``_peer_link_sessions[<dashboard_id>]``)
+        can layer their own short
+        :func:`asyncio.wait_for` on top — the receiver's
+        ``register_peer_link_session`` runs on its own task
+        and may lag the offloader's OPENED fire by a tick.
         """
-        await _wait_until(
-            lambda: self.offloader_dashboard_id in self.receiver._peer_link_sessions,
-            timeout=timeout,
-        )
+        await asyncio.wait_for(self._opened.received.wait(), timeout=timeout)
 
 
 @pytest.fixture
@@ -175,8 +149,13 @@ async def paired_instances(
 
     receiver_bus = EventBus()
     offloader_bus = EventBus()
-    receiver = _make_controller(config_dir=receiver_dir, bus=receiver_bus)
-    offloader = _make_controller(config_dir=offloader_dir, bus=offloader_bus)
+    receiver = make_remote_build_controller(config_dir=receiver_dir, bus=receiver_bus)
+    offloader = make_remote_build_controller(config_dir=offloader_dir, bus=offloader_bus)
+    # Subscribe to OPENED before the offloader's
+    # ``PeerLinkClient`` task has had a chance to fire it. The
+    # listener captures every event; ``wait_until_session_opened``
+    # waits on the captured-list's ``received`` event.
+    opened_events = capture_events(offloader_bus, EventType.OFFLOADER_PEER_LINK_OPENED)
 
     # Stand up the receiver's peer-link WS endpoint on a real
     # TCP port. ``TestServer`` picks an ephemeral port; the
@@ -219,23 +198,23 @@ async def paired_instances(
 
     # 4. Receiver-side admin clicks Accept. The PENDING peer's
     #    ``dashboard_id`` is the offloader's stable identity —
-    #    pull it off the row the receiver just landed.
+    #    pull it off the row the receiver just landed. Subscribe
+    #    to OFFLOADER_PAIR_STATUS_CHANGED *before* approve_peer
+    #    fires so the receiver's APPROVED → offloader's
+    #    pair-status listener → status-flip-event chain can be
+    #    awaited deterministically rather than spun on.
     [pending_dashboard_id] = list(receiver._pending_peers.keys())
+    pair_status_changed = capture_events(offloader_bus, EventType.OFFLOADER_PAIR_STATUS_CHANGED)
     await receiver.approve_peer(dashboard_id=pending_dashboard_id)
 
     # 5. Wait for the offloader's pair-status listener to observe
-    #    the flip + spawn the long-lived peer-link client. The
-    #    listener's long-poll WS unblocks on the receiver's bus
-    #    event, then ``_apply_pair_status_result`` flips the
-    #    local row to APPROVED and ``_spawn_peer_link_client``
-    #    creates the client task.
-    key = ("127.0.0.1", server.port)
-    await _wait_until(
-        lambda: (
-            key in offloader._pairings and offloader._pairings[key].status is PeerStatus.APPROVED
-        )
-    )
-    offloader_dashboard_id = pending_dashboard_id
+    #    the flip. The listener's long-poll WS unblocks on the
+    #    receiver's bus event, then ``_apply_pair_status_result``
+    #    flips the local row to APPROVED, fires
+    #    OFFLOADER_PAIR_STATUS_CHANGED, and spawns the long-lived
+    #    peer-link client.
+    await asyncio.wait_for(pair_status_changed.received.wait(), timeout=2.0)
+    assert pair_status_changed[-1]["status"] == "approved"
 
     instances = PairedInstances(
         receiver=receiver,
@@ -243,7 +222,8 @@ async def paired_instances(
         receiver_server=server,
         receiver_bus=receiver_bus,
         offloader_bus=offloader_bus,
-        offloader_dashboard_id=offloader_dashboard_id,
+        offloader_dashboard_id=pending_dashboard_id,
+        _opened=opened_events,
     )
     try:
         yield instances

@@ -56,6 +56,8 @@ from esphome_device_builder.models import (
     StoredPeer,
 )
 
+from .conftest import make_remote_build_controller
+
 # ---------------------------------------------------------------------------
 # Helpers used by the tests
 # ---------------------------------------------------------------------------
@@ -84,11 +86,6 @@ def _fake_service_info(
 
 
 def _make_controller(*, config_dir: Path, real_bus: bool = False) -> RemoteBuildController:
-    db = MagicMock()
-    db.devices = MagicMock()
-    db.devices.zeroconf = None
-    db._dashboard_advertiser = None
-    db.settings = MagicMock()
     # The controller's ``__init__`` constructs a per-file
     # ``Store`` keyed off ``config_dir / ".offloader_pairings.json"``,
     # so callers must thread a real ``Path`` through (typically
@@ -96,19 +93,21 @@ def _make_controller(*, config_dir: Path, real_bus: bool = False) -> RemoteBuild
     # ``MagicMock() / "..."`` and trip ``__truediv__`` somewhere
     # downstream; an explicit signature beats the silent failure
     # mode.
-    db.settings.config_dir = config_dir
+    #
+    # Long-poll tests for ``lookup_peer_for_status`` exercise the
+    # bus.listening machinery for real (a MagicMock bus would
+    # never deliver events to the listener and the long-poll
+    # would only ever take the timeout fallback); they pass
+    # ``real_bus=True``.
+    bus = EventBus() if real_bus else None
+    controller = make_remote_build_controller(config_dir=config_dir, bus=bus)
     # ``set_settings`` calls ``apply_remote_build_enabled`` to
     # live-rebind the listener; in-process tests don't exercise
-    # the bind path so a no-op AsyncMock is sufficient.
-    db.apply_remote_build_enabled = AsyncMock(return_value=False)
-    if real_bus:
-        # Long-poll tests for ``lookup_peer_for_status`` exercise the
-        # bus.listening machinery for real (a MagicMock bus would
-        # never deliver events to the listener and the long-poll
-        # would only ever take the timeout fallback). Bring up an
-        # actual ``EventBus`` for those.
-        db.bus = EventBus()
-    return RemoteBuildController(db)
+    # the bind path so a no-op AsyncMock is sufficient. Patched
+    # on the per-test stub-DB rather than baked into the shared
+    # helper because only this file's tests touch ``set_settings``.
+    controller._db.apply_remote_build_enabled = AsyncMock(return_value=False)
+    return controller
 
 
 async def _seed_metadata(config_dir: Any, remote_build: dict) -> None:
