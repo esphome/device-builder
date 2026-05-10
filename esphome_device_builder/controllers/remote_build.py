@@ -357,7 +357,7 @@ def _validate_hostname(
     return trimmed
 
 
-def _peer_summary(peer: StoredPeer, *, status: PeerStatus) -> PeerSummary:
+def _peer_summary(peer: StoredPeer, *, status: PeerStatus, connected: bool) -> PeerSummary:
     """Project a :class:`StoredPeer` to wire :class:`PeerSummary`.
 
     Drops the raw ``static_x25519_pub`` bytes; ``pin_sha256`` is
@@ -367,6 +367,16 @@ def _peer_summary(peer: StoredPeer, *, status: PeerStatus) -> PeerSummary:
     by the caller because :class:`StoredPeer` itself doesn't
     carry one — pending peers live in the controller's in-memory
     dict and persisted peers are implicitly approved.
+
+    ``connected`` is the snapshot-time read of
+    ``dashboard_id in self._peer_link_sessions`` (the
+    RAM-canonical receiver-side session registry the 5a-2
+    handshake populates). PENDING callers always pass
+    ``False``; the structural invariant is enforced by the
+    :meth:`RemoteBuildController.lookup_peer_for_session`
+    gate, but the parameter is explicit so a future code path
+    that legitimately tracks connection state on a non-APPROVED
+    row doesn't inherit the hardcoded default silently.
     """
     return PeerSummary(
         dashboard_id=peer.dashboard_id,
@@ -375,6 +385,7 @@ def _peer_summary(peer: StoredPeer, *, status: PeerStatus) -> PeerSummary:
         paired_at=peer.paired_at,
         status=status,
         peer_ip=peer.peer_ip,
+        connected=connected,
     )
 
 
@@ -1396,10 +1407,24 @@ class RemoteBuildController:
         )
 
     def _peer_summaries(self) -> list[PeerSummary]:
-        """Merge PENDING + APPROVED into a single ``PeerSummary`` list."""
+        """Merge PENDING + APPROVED into a single ``PeerSummary`` list.
+
+        ``connected`` is read off ``_peer_link_sessions`` per row.
+        PENDING peers always project as ``connected=False`` (the
+        peer-link dispatch refuses non-APPROVED rows; see
+        :meth:`lookup_peer_for_session`); APPROVED rows look up
+        their ``dashboard_id`` in the session registry to report
+        live connection state. The dict membership read is
+        sync, RAM-only, and constant-time per row.
+        """
+        sessions = self._peer_link_sessions
         return [
-            _peer_summary(p, status=PeerStatus.PENDING) for p in self._pending_peers.values()
-        ] + [_peer_summary(p, status=PeerStatus.APPROVED) for p in self._approved_peers.values()]
+            _peer_summary(p, status=PeerStatus.PENDING, connected=False)
+            for p in self._pending_peers.values()
+        ] + [
+            _peer_summary(p, status=PeerStatus.APPROVED, connected=p.dashboard_id in sessions)
+            for p in self._approved_peers.values()
+        ]
 
     def peers_snapshot(self) -> list[PeerSummary]:
         """

@@ -1003,6 +1003,58 @@ def test_peers_snapshot_drops_static_x25519_pub_from_wire(tmp_path: Path) -> Non
     assert serialised["pin_sha256"]  # the wire-friendly form is present
 
 
+def test_peers_snapshot_marks_approved_with_active_session_connected(
+    tmp_path: Path,
+) -> None:
+    """An APPROVED row with a registered peer-link session reports ``connected=True``.
+
+    The frontend's "Paired senders" list reads ``connected``
+    to render an online/offline indicator. Pin the snapshot
+    semantic so a future refactor that splits the session
+    registry from the peer dict can't silently drop the
+    membership read.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    _seed_peer(controller, _stored_peer(dashboard_id="alpha"))
+    _seed_peer(controller, _stored_peer(dashboard_id="beta"))
+    # Stub a session for ``alpha`` only; ``beta`` is approved
+    # but offline.
+    session = MagicMock()
+    session.dashboard_id = "alpha"
+    controller._peer_link_sessions["alpha"] = session
+
+    rows = {row.dashboard_id: row for row in controller.peers_snapshot()}
+
+    assert rows["alpha"].connected is True
+    assert rows["beta"].connected is False
+
+
+def test_peers_snapshot_pending_row_is_never_connected(tmp_path: Path) -> None:
+    """PENDING rows project as ``connected=False`` regardless of session state.
+
+    Peer-link is gated on APPROVED status (the receiver's
+    ``lookup_peer_for_session`` refuses non-APPROVED rows), so
+    a registered session with the same dashboard_id as a
+    PENDING entry shouldn't surface as ``connected=True``. The
+    invariant is the dispatch gate's responsibility, not the
+    snapshot's, but this test pins the structural default in
+    case a future code path legitimately registers a session
+    for a non-APPROVED row (it'd need to come back and lift
+    the hardcoded ``False``).
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    _seed_pending_peer(controller, _stored_peer(dashboard_id="pending"))
+    session = MagicMock()
+    session.dashboard_id = "pending"
+    controller._peer_link_sessions["pending"] = session
+
+    [row] = controller.peers_snapshot()
+
+    assert row.dashboard_id == "pending"
+    assert row.status is PeerStatus.PENDING
+    assert row.connected is False
+
+
 def test_peers_snapshot_carries_peer_ip(tmp_path: Path) -> None:
     """``peer_ip`` flows from the stored row through the wire summary.
 
