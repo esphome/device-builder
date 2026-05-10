@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 from aiohttp import WSMessage, WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
@@ -41,6 +42,7 @@ from esphome_device_builder.controllers.remote_build_peer_link import (
     _PEER_LABEL_MAX_CHARS,
     APP_FRAME_MAX_BYTES,
     PEER_LINK_PATH,
+    PeerLinkChannel,
     PeerLinkSession,
     TerminateReason,
     _dispatch_intent,
@@ -1499,6 +1501,49 @@ async def test_send_app_frame_returns_false_on_noise_encrypt_failure(tmp_path: P
         responder.encrypt = real_encrypt  # type: ignore[method-assign]
     assert sent is False
     assert ws.sends == []
+
+
+@pytest.mark.asyncio
+async def test_peer_link_channel_send_terminate_swallows_aiohttp_close_error(
+    tmp_path: Path,
+) -> None:
+    """``send_terminate`` returns cleanly when ``ws.close()`` raises ``aiohttp.ClientError``.
+
+    :class:`PeerLinkChannel` runs on both sides of the wire — the
+    offloader-side ``self.ws`` is an
+    :class:`aiohttp.ClientWebSocketResponse` whose ``.close()``
+    can raise ``ClientConnectionError`` / ``ClientError`` when
+    the peer has already gone away. Without widening the
+    suppression around the close, that exception would escape
+    and could block a caller's :class:`CancelledError`
+    propagation (e.g. inside
+    :meth:`PeerLinkClient._run_one_session`'s cancellation
+    handler that awaits ``send_terminate`` before re-raising).
+    """
+    _initiator, responder = _noise_pair()
+
+    class _RaisingCloseWs:
+        def __init__(self) -> None:
+            self.sends: list[bytes] = []
+            self.closed = False
+
+        async def send_bytes(self, data: bytes) -> None:
+            self.sends.append(data)
+
+        async def close(self) -> None:
+            self.closed = True
+            raise aiohttp.ClientConnectionError("forced for test")
+
+    ws = _RaisingCloseWs()
+    channel = PeerLinkChannel(noise=responder, ws=ws, log_label="test")  # type: ignore[arg-type]
+
+    # Should NOT raise — the suppression around ``ws.close()``
+    # widened to include ``aiohttp.ClientError``.
+    await channel.send_terminate(TerminateReason.SERVER_SHUTTING_DOWN.value)
+
+    # The terminate frame was still sent before the close attempt.
+    assert len(ws.sends) == 1
+    assert ws.closed is True
 
 
 # ---------------------------------------------------------------------------

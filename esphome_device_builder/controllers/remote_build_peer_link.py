@@ -62,6 +62,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import aiohttp
 from aiohttp import WSMsgType, web
 
 from ..helpers import json as _json
@@ -476,11 +477,21 @@ class PeerLinkChannel:
         follows is best-effort because a peer that has already
         gone away won't accept either, and we want the call site
         idempotent across "WS still up" and "WS dead" states.
-        Narrow suppress to transport-level errors only (Python
-        3.8+ already excludes ``CancelledError`` from ``Exception``).
+        Narrow suppress to transport-level errors only — including
+        :class:`aiohttp.ClientError` because this channel runs on
+        both sides of the wire (offloader side's ``self.ws`` is a
+        :class:`aiohttp.ClientWebSocketResponse` whose ``.close()``
+        can raise ``ClientConnectionError`` / ``ClientError``
+        when the peer has already gone away). A ``ClientError``
+        escaping here would block the caller's
+        :class:`CancelledError` propagation when used inside a
+        :meth:`PeerLinkClient._run_one_session` cancellation
+        handler. Python 3.8+ already excludes ``CancelledError``
+        from ``Exception``, so the wider suppression below stays
+        compatible with the no-swallow contract.
         """
         await self.send_frame({"type": AppMessageType.TERMINATE.value, "reason": reason})
-        with contextlib.suppress(OSError, RuntimeError):
+        with contextlib.suppress(OSError, RuntimeError, aiohttp.ClientError):
             await self.ws.close()
 
 

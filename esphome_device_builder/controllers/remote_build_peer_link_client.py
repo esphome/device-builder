@@ -891,7 +891,18 @@ class PeerLinkClient:
                 self._hostname,
                 self._port,
             )
-            with contextlib.suppress(OSError, RuntimeError):
+            # Best-effort close — include ``aiohttp.ClientError``
+            # alongside the basic transport types because
+            # :meth:`aiohttp.ClientWebSocketResponse.close` can
+            # raise ``ClientConnectionError`` / ``ClientError``
+            # when the peer has already gone away. Letting that
+            # escape here would crash the heartbeat task and let
+            # the receive loop fall through to its
+            # ``peer_hung_up`` default, masking the real
+            # heartbeat-timeout cause. ``CancelledError`` stays
+            # unsuppressed (Python 3.8+ excludes it from
+            # ``Exception``).
+            with contextlib.suppress(OSError, RuntimeError, aiohttp.ClientError):
                 await channel.ws.close()
 
         heartbeat_task = asyncio.create_task(

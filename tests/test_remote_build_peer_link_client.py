@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import aiohttp
 import pytest
 from aiohttp import WSMessage, WSMsgType, web
 from aiohttp.test_utils import TestServer
@@ -2901,6 +2902,57 @@ async def test_run_session_loops_ignores_unknown_msg_type(
     # unknown frame was logged and dropped, the loop fell through
     # to the WS close.
     assert reason == "peer_hung_up"
+
+
+@pytest.mark.asyncio
+async def test_run_session_loops_on_dead_swallows_aiohttp_close_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A heartbeat-driven close that raises ``aiohttp.ClientError`` doesn't crash the task.
+
+    Regression: the offloader-side ``_on_dead`` callback in
+    :meth:`PeerLinkClient._run_session_loops` originally
+    suppressed only ``OSError`` / ``RuntimeError`` around
+    ``ws.close()``. ``aiohttp.ClientWebSocketResponse.close()``
+    can raise ``ClientError`` when the peer has already
+    disappeared; that exception would crash the heartbeat task
+    and let the receive loop fall through to its
+    ``peer_hung_up`` default, masking the real
+    ``heartbeat_timeout`` cause.
+
+    Forces the failure by replacing the parking WS's ``close``
+    with one that raises ``aiohttp.ClientConnectionError``;
+    drives the receive loop via a stub heartbeat that fires
+    ``on_dead`` immediately; asserts the close reason is still
+    ``heartbeat_timeout``.
+    """
+    initiator, _responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+
+    class _RaisingCloseWs(_ParkingWs):
+        async def close(self) -> None:
+            self.closed = True
+            self._closed_event.set()
+            raise aiohttp.ClientConnectionError("forced for test")
+
+    ws = _RaisingCloseWs(closed_event)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    async def _fire_on_dead(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+        await on_dead()
+
+    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _fire_on_dead)
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=EventBus(),
+    )
+
+    close_reason = await client._run_session_loops(channel)
+    assert close_reason == "heartbeat_timeout"
 
 
 # ---------------------------------------------------------------------------
