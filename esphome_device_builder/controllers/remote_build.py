@@ -940,6 +940,15 @@ class RemoteBuildController:
         # receiver-visible row), so silent clear is fine here.
         self._pairings.clear()
         self._peers.clear()
+        # Receiver-side APPROVED peers clear silently too —
+        # unlike :meth:`_clear_pending_peers_on_window_close`
+        # which fires per-row ``status="removed"`` because PENDING
+        # rows are in-flight pairing state that long-pollers are
+        # actively watching, APPROVED rows are persistent trust
+        # anchors. A subscriber observing the dashboard come back
+        # up after a restart sees them populate from the next
+        # ``subscribe_events`` initial_state. Symmetric with the
+        # offloader-side ``_pairings.clear()`` above.
         self._approved_peers.clear()
 
     # ------------------------------------------------------------------
