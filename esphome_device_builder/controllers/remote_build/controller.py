@@ -2101,7 +2101,12 @@ class RemoteBuildController:
         Same epilogue both rebind callers (auto-rebind / user-
         driven edit) use: schedule the debounced save, cancel +
         respawn the peer-link client, fire
-        :attr:`EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND`.
+        :attr:`EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND`, and
+        clear any per-pin auto-probe cooldown that an earlier
+        failed mDNS-driven probe may have seeded — a successful
+        rebind through either path means the endpoint is live
+        again, so the next mDNS Updated for the same pin should
+        probe immediately rather than wait the cooldown out.
         Caller is responsible for the probe + identity verify
         before calling this — no in-helper checks.
         """
@@ -2109,6 +2114,7 @@ class RemoteBuildController:
         pairing.receiver_port = port
         self._schedule_pairings_save()
         self._respawn_peer_link_at_new_endpoint(pairing)
+        self._rebind_probe_until.pop(pairing.pin_sha256, None)
 
     def _respawn_peer_link_at_new_endpoint(self, pairing: StoredPairing) -> None:
         """Cancel + respawn the peer-link client and announce the new endpoint.
@@ -2244,7 +2250,6 @@ class RemoteBuildController:
                 # against state that's already moved on.
                 return
             self._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
-            self._rebind_probe_until.pop(pin, None)
             _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
 
     @contextmanager
@@ -2873,13 +2878,18 @@ class RemoteBuildController:
         if pairing.status is not PeerStatus.APPROVED:
             msg = f"edit_pairing_endpoint: pairing status is {pairing.status.value!r}, not APPROVED"
             raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+        # System-readiness check before user-input semantics:
+        # surface "identity not loaded yet" distinctly rather
+        # than a confusing "matches current" error when a user
+        # happens to hit Save with unchanged coords during
+        # startup.
+        if self._offloader_peer_link_priv is None:
+            msg = "edit_pairing_endpoint: offloader peer-link identity not loaded yet"
+            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
         if _endpoints_equal(
             pairing.receiver_hostname, pairing.receiver_port, clean_host, clean_port
         ):
             msg = f"edit_pairing_endpoint: new endpoint matches current ({clean_host}:{clean_port})"
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-        if self._offloader_peer_link_priv is None:
-            msg = "edit_pairing_endpoint: offloader peer-link identity not loaded yet"
             raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
         result = await self._probe_pairing_endpoint(

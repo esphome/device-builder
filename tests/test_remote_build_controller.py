@@ -848,7 +848,7 @@ async def test_edit_pairing_endpoint_pending_pairing_raises_precondition_failed(
         await controller.edit_pairing_endpoint(pin_sha256=pin, hostname="new.local", port=7000)
 
     assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
-    assert "PENDING" in str(exc_info.value).upper() or "pending" in str(exc_info.value)
+    assert "pending" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
@@ -873,7 +873,7 @@ async def test_edit_pairing_endpoint_same_endpoint_raises_precondition_failed(
 
 
 @pytest.mark.asyncio
-async def test_edit_pairing_endpoint_skips_when_pairing_replaced_mid_probe(
+async def test_edit_pairing_endpoint_raises_not_found_when_pairing_replaced_mid_probe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A re-pair under the same pin while the probe is in flight raises NOT_FOUND.
@@ -935,6 +935,90 @@ async def test_edit_pairing_endpoint_without_priv_raises_precondition_failed(
         await controller.edit_pairing_endpoint(pin_sha256=pin, hostname="new.local", port=7000)
 
     assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
+
+
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_status_changed_mid_probe_raises_precondition_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A mid-probe status flip away from APPROVED raises PRECONDITION_FAILED.
+
+    The probe captures the pairing reference, runs the Noise
+    XX handshake, then re-checks the dict entry. If the row's
+    status flipped during the await — e.g. a concurrent
+    listener flipped it to a non-APPROVED state — refuse to
+    rebind. Less likely than the dict-replaced race covered by
+    the sibling test (status only flips through dedicated code
+    paths) but defends against future code that might mutate
+    status under await without going through the same dict
+    swap.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+
+    async def _flip_status_during_preview(**_kwargs: object) -> str:
+        # Simulate the status flip mid-probe — same dict object,
+        # just a different status field. The probe's race-safe
+        # re-check sees this and bails.
+        pairing.status = PeerStatus.PENDING
+        return pin
+
+    monkeypatch.setattr(rb, "peer_link_preview_pair", _flip_status_during_preview)
+    cancel = MagicMock()
+    spawn = MagicMock()
+    monkeypatch.setattr(controller, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller, "_spawn_peer_link_client", spawn)
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.edit_pairing_endpoint(pin_sha256=pin, hostname="new.local", port=7000)
+
+    assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
+    # Hostname stays untouched: the commit didn't run.
+    assert pairing.receiver_hostname == "old.local"
+    assert pairing.receiver_port == 6058
+    cancel.assert_not_called()
+    spawn.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        # Pin shape — wrong type, non-hex, wrong length.
+        {"pin_sha256": 12345, "hostname": "a.local", "port": 6058},
+        {"pin_sha256": "z" * 64, "hostname": "a.local", "port": 6058},
+        {"pin_sha256": "a" * 63, "hostname": "a.local", "port": 6058},
+        # Hostname shape — empty, non-string.
+        {"pin_sha256": "a" * 64, "hostname": "", "port": 6058},
+        {"pin_sha256": "a" * 64, "hostname": 42, "port": 6058},
+        # Port shape — out of range, non-int, bool.
+        {"pin_sha256": "a" * 64, "hostname": "a.local", "port": 0},
+        {"pin_sha256": "a" * 64, "hostname": "a.local", "port": 65536},
+        {"pin_sha256": "a" * 64, "hostname": "a.local", "port": "6058"},
+        {"pin_sha256": "a" * 64, "hostname": "a.local", "port": True},
+    ],
+)
+@pytest.mark.asyncio
+async def test_edit_pairing_endpoint_invalid_args_rejected_before_lookup(
+    tmp_path: Path, kwargs: dict[str, Any]
+) -> None:
+    """Bad-shape inputs raise INVALID_ARGS before any dict lookup or probe.
+
+    Pins that the validators run first — guards against an
+    accidental reordering that would fall through to the
+    dict-lookup or probe with a tainted value (e.g. a non-string
+    pin reaching the dict's ``__getitem__`` would raise
+    ``TypeError`` and surface as a generic 500 instead of the
+    typed ``INVALID_ARGS`` the frontend expects).
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    controller._offloader_peer_link_priv = b"\x42" * 32
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.edit_pairing_endpoint(**kwargs)
+
+    assert exc_info.value.code is ErrorCode.INVALID_ARGS
 
 
 def test_peer_from_service_info_parses_pin_and_remote_build_port() -> None:
