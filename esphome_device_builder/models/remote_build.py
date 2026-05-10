@@ -1301,10 +1301,11 @@ class RemoteBuildPeer(DataClassORJSONMixin):
     server_version: str = ""
     esphome_version: str = ""
     # Receiver's peer-link X25519 static pubkey hash (lowercase-
-    # hex SHA-256, same value :class:`StoredPairing.pin_sha256`
-    # stores) and peer-link Noise WS port, both pulled out of
-    # the ``_esphomebuilder._tcp.local.`` TXT record. Distinct
-    # from the dashboard's 3a TLS cert SPKI fingerprint; the
+    # hex SHA-256, the same value as
+    # :attr:`StoredPairing.pin_sha256`) and peer-link Noise WS
+    # port, both pulled out of the
+    # ``_esphomebuilder._tcp.local.`` TXT record. Distinct from
+    # the dashboard's 3a TLS cert SPKI fingerprint; the
     # peer-link identity is its own X25519 keypair (see
     # ``helpers/peer_link_identity.py``). The offloader uses
     # both to match a discovered broadcast against a stored
@@ -1312,7 +1313,7 @@ class RemoteBuildPeer(DataClassORJSONMixin):
     # port for the auto-rebind probe (4a-o part 7). Empty
     # string / 0 for: receivers that haven't bound the
     # peer-link listener (default-off mode), and ``MANUAL``
-    # rows (which never go through the mDNS resolve path — the
+    # rows (which never go through the mDNS resolve path; the
     # user typed the hostname/port and the pair flow captures
     # the pin into ``StoredPairing`` rather than back onto this
     # row).

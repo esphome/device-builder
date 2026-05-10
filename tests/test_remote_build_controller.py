@@ -312,35 +312,6 @@ def _make_paired_offloader_controller(
     return controller
 
 
-def _make_mdns_info(
-    *,
-    name: str,
-    hostname: str,
-    port: int,
-    pin_sha256: str,
-    remote_build_port: int,
-) -> MagicMock:
-    """Build an ``AsyncServiceInfo`` mock matching the resolved-mDNS shape.
-
-    Mirrors what ``_peer_from_service_info`` reads off zeroconf:
-    ``name`` / ``server`` / ``port`` plus a TXT properties dict
-    with ``server_version`` / ``esphome_version`` /
-    ``pin_sha256`` / ``remote_build_port``.
-    """
-    info = MagicMock()
-    info.name = name
-    info.server = hostname
-    info.port = port
-    info.properties = {
-        b"server_version": b"0.1.0",
-        b"esphome_version": b"2026.5.0-dev",
-        b"pin_sha256": pin_sha256.encode(),
-        b"remote_build_port": str(remote_build_port).encode(),
-    }
-    info.parsed_scoped_addresses = MagicMock(return_value=["10.0.0.42"])
-    return info
-
-
 @pytest.mark.asyncio
 async def test_rebind_probe_match_mutates_pairing_and_fires_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -408,8 +379,7 @@ async def test_rebind_probe_pin_mismatch_does_not_mutate(
     assert pairing.receiver_port == 6058
     controller._cancel_peer_link_client.assert_not_called()
     controller._spawn_peer_link_client.assert_not_called()
-    # No rebind event for a mismatch.
-    # No rebind event for a mismatch — iterate the full call list
+    # No rebind event for a mismatch. Walk the full call list
     # because positional args alone don't make a stable equality
     # match against an arbitrary payload dict.
     assert not any(
