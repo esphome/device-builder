@@ -1750,6 +1750,36 @@ class RemoteBuildController:
             self._serialize_pairings, delay=_PAIRINGS_SAVE_DELAY_SECONDS
         )
 
+    def _respawn_peer_link_at_new_endpoint(self, pairing: StoredPairing) -> None:
+        """Cancel + respawn the peer-link client and announce the new endpoint.
+
+        Called after a caller has mutated *pairing*'s
+        ``receiver_hostname`` / ``receiver_port`` in place to
+        new coordinates. Encapsulates the three-step rebind
+        epilogue:
+
+        * cancel the old peer-link client task (parked on
+          ``aiohttp.ws_connect`` against the now-dead endpoint;
+          would otherwise idle there until heartbeat-timeout),
+        * spawn a fresh client at the pairing's new coordinates,
+        * fire :attr:`EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND`
+          so subscribed frontends update display fields without
+          a snapshot read.
+
+        Used by :meth:`_probe_and_rebind_endpoint` today; the
+        eventual phase 8b "manually edit a paired sender's
+        hostname/port" surface lands on the same epilogue
+        (different validate-and-mutate prologue, identical
+        respawn-and-announce shape).
+        """
+        self._cancel_peer_link_client(pairing.pin_sha256)
+        self._spawn_peer_link_client(pairing)
+        self._fire_offloader_pair_endpoint_rebound(
+            pin_sha256=pairing.pin_sha256,
+            receiver_hostname=pairing.receiver_hostname,
+            receiver_port=pairing.receiver_port,
+        )
+
     # ------------------------------------------------------------------
     # mDNS auto-rebind (4a-o part 7)
     # ------------------------------------------------------------------
@@ -1867,16 +1897,7 @@ class RemoteBuildController:
             current.receiver_hostname = new_hostname
             current.receiver_port = new_port
             self._schedule_pairings_save()
-            # Cancel-then-spawn so the old task (parked on
-            # ``aiohttp.ws_connect`` against the dead endpoint)
-            # doesn't idle there until heartbeat-timeout.
-            self._cancel_peer_link_client(pin)
-            self._spawn_peer_link_client(current)
-            self._fire_offloader_pair_endpoint_rebound(
-                pin_sha256=pin,
-                receiver_hostname=new_hostname,
-                receiver_port=new_port,
-            )
+            self._respawn_peer_link_at_new_endpoint(current)
             self._rebind_probe_until.pop(pin, None)
             _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
 
