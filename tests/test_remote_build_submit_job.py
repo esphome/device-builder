@@ -18,10 +18,8 @@ e2e harness in :mod:`tests.e2e` stays visible:
 from __future__ import annotations
 
 import hashlib
-import tarfile
-from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -31,35 +29,14 @@ from esphome_device_builder.controllers.remote_build_submit_job import (
     SubmitJobReceiver,
     _validate_configuration_filename,
 )
-from esphome_device_builder.helpers.peer_link_bundle import (
-    BUNDLE_CHUNK_SIZE_BYTES,
-    chunk_bundle,
-    compute_bundle_sha256,
-    encode_chunk,
-)
+from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_CHUNK_SIZE_BYTES
 from esphome_device_builder.models import (
     JobType,
     SubmitJobChunkFrameData,
     SubmitJobFrameData,
 )
 
-
-def _make_tar_bundle(yaml_filename: str, yaml_body: bytes) -> bytes:
-    """Build a minimal gzipped-tar bundle containing one YAML.
-
-    The receiver-side ``prepare_bundle_for_compile`` helper
-    expects an esphome-shaped bundle with a manifest and a
-    handful of validated members. For the unit tests here we
-    sidestep extraction by stubbing ``prepare_bundle_for_compile``;
-    a syntactically-valid tarball is enough for the
-    ``write_and_extract`` executor hop to take the happy path.
-    """
-    buf = BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo(name=yaml_filename)
-        info.size = len(yaml_body)
-        tar.addfile(info, BytesIO(yaml_body))
-    return buf.getvalue()
+from .conftest import make_submit_job_frames, make_tar_bundle
 
 
 def _make_session(*, dashboard_id: str = "alpha") -> Any:
@@ -107,44 +84,31 @@ def _header(
     target: str = "compile",
     bundle: bytes = b"\x00" * 100,
 ) -> SubmitJobFrameData:
-    return SubmitJobFrameData(
-        type="submit_job",
+    """Build a typed ``SubmitJobFrameData`` header via the shared helper."""
+    header, _chunks = make_submit_job_frames(
         job_id=job_id,
         configuration_filename=configuration_filename,
-        target=target,  # type: ignore[typeddict-item]
-        total_bundle_bytes=len(bundle),
-        num_chunks=max(1, (len(bundle) + BUNDLE_CHUNK_SIZE_BYTES - 1) // BUNDLE_CHUNK_SIZE_BYTES),
-        bundle_sha256=compute_bundle_sha256(bundle),
+        target=target,
+        bundle=bundle,
     )
+    return cast(SubmitJobFrameData, header)
+
+
+def _frame_chunks(job_id: str, bundle: bytes) -> list[SubmitJobChunkFrameData]:
+    """Build typed ``SubmitJobChunkFrameData`` chunks via the shared helper."""
+    _header_dict, chunks = make_submit_job_frames(
+        job_id=job_id,
+        configuration_filename="kitchen.yaml",  # not used; chunks key on job_id
+        target="compile",
+        bundle=bundle,
+    )
+    return [cast(SubmitJobChunkFrameData, chunk) for chunk in chunks]
 
 
 def _ack_payload(session: Any) -> dict[str, Any]:
     """Pull the most recent ``send_app_frame`` payload off *session*."""
     payload: dict[str, Any] = session.send_app_frame.call_args.args[0]
     return payload
-
-
-def _frame_chunks(job_id: str, bundle: bytes) -> list[SubmitJobChunkFrameData]:
-    """Wrap :func:`chunk_bundle` output in :class:`SubmitJobChunkFrameData` dicts.
-
-    The bundle helper produces raw ``(index, bytes, is_last)``
-    tuples; the wire format wraps each as a JSON-encoded
-    ``SubmitJobChunkFrameData`` (5c-3 will do this on the
-    offloader side). Tests here drive the receiver, so they
-    need the wrapped form to feed
-    :meth:`SubmitJobReceiver.handle_submit_job_chunk` the same
-    shape the live wire would land.
-    """
-    return [
-        SubmitJobChunkFrameData(
-            type="submit_job_chunk",
-            job_id=job_id,
-            chunk_index=index,
-            data_b64=encode_chunk(raw),
-            is_last=is_last,
-        )
-        for index, raw, is_last in chunk_bundle(bundle)
-    ]
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +349,7 @@ async def test_submit_job_happy_path_extracts_and_queues(
     firmware = _make_firmware_controller()
     receiver = _make_receiver(tmp_path, firmware)
     session = _make_session(dashboard_id="alpha-dashboard")
-    bundle = _make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
 
     # Stub ``prepare_bundle_for_compile`` because the real one
     # validates a manifest + esphome-shaped layout. The test

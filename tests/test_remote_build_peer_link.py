@@ -20,10 +20,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
-import tarfile
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -65,15 +63,6 @@ from esphome_device_builder.controllers.remote_build_submit_job import (
     SubmitJobReceiver,
 )
 from esphome_device_builder.helpers import json as _json
-from esphome_device_builder.helpers.peer_link_bundle import (
-    chunk_bundle as _chunk_bundle,
-)
-from esphome_device_builder.helpers.peer_link_bundle import (
-    compute_bundle_sha256 as _compute_bundle_sha256,
-)
-from esphome_device_builder.helpers.peer_link_bundle import (
-    encode_chunk as _encode_chunk,
-)
 from esphome_device_builder.helpers.peer_link_identity import (
     get_or_create_peer_link_identity,
 )
@@ -88,7 +77,11 @@ from esphome_device_builder.models import (
     StoredPeer,
 )
 
-from .conftest import make_remote_build_controller
+from .conftest import (
+    make_remote_build_controller,
+    make_submit_job_frames,
+    make_tar_bundle,
+)
 
 
 def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
@@ -1324,47 +1317,6 @@ def _install_stub_submit_job_receiver(
     return firmware_stub, queued_jobs
 
 
-def _build_submit_job_frames(
-    *, job_id: str, configuration_filename: str, bundle: bytes
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Build the wire-shape ``submit_job`` header + chunk frames for *bundle*."""
-    chunks = [
-        {
-            "type": "submit_job_chunk",
-            "job_id": job_id,
-            "chunk_index": index,
-            "data_b64": _encode_chunk(raw),
-            "is_last": is_last,
-        }
-        for index, raw, is_last in _chunk_bundle(bundle)
-    ]
-    header = {
-        "type": "submit_job",
-        "job_id": job_id,
-        "configuration_filename": configuration_filename,
-        "target": "compile",
-        "total_bundle_bytes": len(bundle),
-        "num_chunks": len(chunks),
-        "bundle_sha256": _compute_bundle_sha256(bundle),
-    }
-    return header, chunks
-
-
-def _build_minimal_bundle(yaml_filename: str, yaml_body: bytes) -> bytes:
-    """Build a minimal gzipped-tar bundle.
-
-    Pure-shape; the extraction tests at
-    :mod:`tests.test_remote_build_submit_job` cover the
-    receiver-side handler against this same shape.
-    """
-    buf = BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo(name=yaml_filename)
-        info.size = len(yaml_body)
-        tar.addfile(info, BytesIO(yaml_body))
-    return buf.getvalue()
-
-
 @pytest.mark.asyncio
 async def test_e2e_submit_job_dispatches_to_receiver(
     peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
@@ -1408,9 +1360,12 @@ async def test_e2e_submit_job_dispatches_to_receiver(
         "esphome_device_builder.controllers.remote_build_submit_job.prepare_bundle_for_compile",
         _stub_prepare,
     )
-    bundle = _build_minimal_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
-    header, chunks = _build_submit_job_frames(
-        job_id="wire-job", configuration_filename="kitchen.yaml", bundle=bundle
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+    header, chunks = make_submit_job_frames(
+        job_id="wire-job",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle=bundle,
     )
 
     session, ws, _ = await _drive_peer_link_session_open(

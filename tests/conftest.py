@@ -228,6 +228,78 @@ async def cancel_and_drain(task: asyncio.Task[Any]) -> None:
     await asyncio.gather(task, return_exceptions=True)
 
 
+# ---------------------------------------------------------------------------
+# submit_job test helpers (5c-2)
+#
+# Bundle construction + wire-frame builders shared between the
+# unit tests in ``test_remote_build_submit_job.py`` and the
+# integration tests in ``test_remote_build_peer_link.py``. Each
+# is a one-liner factory but they were duplicated across the
+# two files before this lived here.
+# ---------------------------------------------------------------------------
+
+
+def make_tar_bundle(yaml_filename: str, yaml_body: bytes) -> bytes:
+    """Build a minimal gzipped-tar bundle carrying a single YAML.
+
+    Pure-shape: the receiver-side
+    ``prepare_bundle_for_compile`` validates a manifest +
+    canonical layout that this helper deliberately doesn't
+    construct. Tests that exercise the receive-loop dispatch
+    stub ``prepare_bundle_for_compile`` rather than feeding it
+    a real esphome bundle.
+    """
+    import tarfile  # noqa: PLC0415 — keep tarfile out of the conftest top-level
+    from io import BytesIO  # noqa: PLC0415
+
+    buf = BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name=yaml_filename)
+        info.size = len(yaml_body)
+        tar.addfile(info, BytesIO(yaml_body))
+    return buf.getvalue()
+
+
+def make_submit_job_frames(
+    *, job_id: str, configuration_filename: str, target: str, bundle: bytes
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Build the wire-shape ``submit_job`` header + chunk frames for *bundle*.
+
+    Returns ``(header, chunks)`` as plain dicts so callers can
+    feed them through either the receiver-side handler
+    directly or as JSON-encoded ciphertext over a real WS.
+    Wraps :func:`chunk_bundle` so the chunk envelope (b64
+    encoding, indices, ``is_last`` flag, repeated ``job_id``)
+    lives in one place.
+    """
+    from esphome_device_builder.helpers.peer_link_bundle import (  # noqa: PLC0415
+        chunk_bundle,
+        compute_bundle_sha256,
+        encode_chunk,
+    )
+
+    chunks = [
+        {
+            "type": "submit_job_chunk",
+            "job_id": job_id,
+            "chunk_index": index,
+            "data_b64": encode_chunk(raw),
+            "is_last": is_last,
+        }
+        for index, raw, is_last in chunk_bundle(bundle)
+    ]
+    header = {
+        "type": "submit_job",
+        "job_id": job_id,
+        "configuration_filename": configuration_filename,
+        "target": target,
+        "total_bundle_bytes": len(bundle),
+        "num_chunks": len(chunks),
+        "bundle_sha256": compute_bundle_sha256(bundle),
+    }
+    return header, chunks
+
+
 @pytest.fixture(scope="session")
 def session_board_catalog() -> BoardCatalog:
     """Real ``BoardCatalog`` loaded once per xdist worker."""
