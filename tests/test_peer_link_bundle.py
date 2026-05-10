@@ -270,25 +270,24 @@ def test_assembler_finalise_hash_mismatch() -> None:
     assert excinfo.value.code is BundleAssemblerErrorCode.HASH_MISMATCH
 
 
-def test_assembler_finalise_after_finalise_raises_post_completion() -> None:
-    """A second ``finalise`` doesn't return cached bytes; it's a single-shot.
+def test_assembler_finalise_is_idempotent() -> None:
+    """A second ``finalise()`` on a closed assembler returns the same bytes.
 
-    Pinned because a future caller might be tempted to memoise
-    on the returned bytes; this assert documents the
-    single-use lifecycle and lets a refactor that wants
-    repeat-finalise rewire the test along with the
-    production change deliberately.
+    The closed-flag guard lives in :meth:`feed`, not
+    :meth:`finalise`; ``finalise`` re-validates the
+    aggregate (length + hash) against the stored header and
+    returns the buffer regardless of whether it's been called
+    before. Pinned to document the actual contract: callers
+    don't *need* to memoise the return value, and re-calling
+    is a no-op rather than an error. If a future change adds
+    a single-use guard (raising ``POST_COMPLETION`` on the
+    second call), this test should be flipped to assert that
+    raise instead, alongside the production change.
     """
     data = b"hash me"
     asm = BundleAssembler(**_header(data, chunk_size=len(data)))
     asm.feed(0, data, is_last=True)
-    asm.finalise()
-    # No state error on a second finalise call today (closed
-    # flag is checked by ``feed``, not ``finalise``); the
-    # contract is that the assembler is single-use, callers
-    # don't re-finalise. If a future change adds a guard, this
-    # test will start failing and the contract update should
-    # land alongside.
+    assert asm.finalise() == data
     assert asm.finalise() == data
 
 

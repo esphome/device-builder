@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 import voluptuous as vol
 from mashumaro.mixins.orjson import DataClassORJSONMixin
@@ -625,19 +625,21 @@ class SubmitJobAckFrameData(TypedDict):
 
     Receiver's response after the bundle stream completes (last
     chunk seen + ``bundle_sha256`` matches). ``accepted`` is
-    ``False`` when the job can't be queued — bundle hash
+    ``False`` when the job can't be queued; bundle hash
     mismatch, manifest version unsupported, queue full, etc.
     ``reason`` carries the structured error code on rejection
-    and is omitted on accept. The offloader treats a missing
-    ack inside :data:`_SUBMIT_JOB_ACK_TIMEOUT_SECONDS` as a
-    transport failure and tears the session down; it does
-    **not** retry mid-session.
+    and is omitted on accept (``NotRequired`` so the wire
+    payload is ``{type, job_id, accepted: true}`` on the
+    success path with no extra field). The offloader treats a
+    missing ack inside :data:`_SUBMIT_JOB_ACK_TIMEOUT_SECONDS`
+    as a transport failure and tears the session down; it
+    does **not** retry mid-session.
     """
 
     type: Literal["submit_job_ack"]
     job_id: str
     accepted: bool
-    reason: str  # NotRequired-on-accept; empty string when ``accepted=True``
+    reason: NotRequired[str]
 
 
 class JobStateChangedFrameData(TypedDict):
