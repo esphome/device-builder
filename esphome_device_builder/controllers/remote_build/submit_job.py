@@ -26,7 +26,9 @@ Flow:
    base64-decode and feed the assembler. On the chunk that
    carries ``is_last=True`` we finalise (validates byte count
    + sha256), write the assembled tarball to
-   ``<config>/.esphome/.remote_builds/<dashboard_id>/<device_name>/bundle.tar.gz``,
+   ``<config>/.esphome/.remote_builds/<dashboard_id>/<device_name>.tar.gz``
+   (sibling of the per-device subtree, not child — see the
+   ``_BUNDLE_SUFFIX`` comment for why),
    extract via :func:`esphome.bundle.prepare_bundle_for_compile`
    (which preserves ``.esphome/`` / ``.pioenvs/`` for incremental
    builds — the load-bearing reason for the stable per-peer
@@ -138,13 +140,22 @@ _SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
 # sweep can reuse the same parent walk.
 _REMOTE_BUILDS_SUBDIR = Path(".esphome") / ".remote_builds"
 
-# Bundle filename inside ``<dashboard_id>/<device_name>/``.
-# Constant rather than derived from the offloader's
-# ``configuration_filename`` so a malicious or buggy offloader
-# can't pick a name that collides with extracted artefacts (the
-# YAML, the ``manifest.yaml``, etc.) — the extracted tree owns
-# the rest of the directory.
-_BUNDLE_FILENAME = "bundle.tar.gz"
+# Bundle filename used as a sibling of the extract target_dir
+# (``<dashboard_id>/<device_name>.tar.gz``, next to the
+# ``<dashboard_id>/<device_name>/`` build subtree). Living
+# outside target_dir is load-bearing: upstream
+# :func:`prepare_bundle_for_compile` preserves only
+# ``.esphome`` / ``.pioenvs`` / ``.pio`` in target_dir and
+# wipes every other entry before extract; a bundle inside
+# target_dir would be deleted between the path-resolved
+# ``is_file`` check and the inner ``extract_bundle`` call,
+# surfacing as "Bundle file not found" at compile time.
+# Derived from *device_name* (not the offloader's raw
+# ``configuration_filename``) because ``_validate_configuration_filename``
+# already canonicalised it; using the canonical form keeps a
+# malicious sender from picking a path-traversal shape that
+# climbs out of the dashboard_id namespace.
+_BUNDLE_SUFFIX = ".tar.gz"
 
 # Allowed values of :attr:`SubmitJobFrameData.target`.
 # ``Literal["compile", "upload"]`` on the TypedDict is the
@@ -499,7 +510,9 @@ class SubmitJobReceiver:
         assert device_name is not None  # narrowed by the upstream reject
         remote_builds_root = self._config_dir / _REMOTE_BUILDS_SUBDIR
         target_dir = remote_builds_root / session.dashboard_id / device_name
-        bundle_path = target_dir / _BUNDLE_FILENAME
+        # Sibling of target_dir, not child — see _BUNDLE_SUFFIX
+        # comment for why this matters.
+        bundle_path = target_dir.parent / f"{device_name}{_BUNDLE_SUFFIX}"
 
         loop = asyncio.get_running_loop()
         try:

@@ -18,6 +18,7 @@ e2e harness in :mod:`tests.e2e` stays visible:
 from __future__ import annotations
 
 import hashlib
+import shutil
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
@@ -505,6 +506,76 @@ async def test_submit_job_happy_path_extracts_and_queues(
     # the same form.
     assert job.configuration == expected_yaml.relative_to(tmp_path).as_posix()
     firmware._enqueue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_submit_job_bundle_path_survives_prepare_bundle_wipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bundle path lives outside ``target_dir`` so upstream's wipe-then-extract works.
+
+    Upstream :func:`esphome.bundle.prepare_bundle_for_compile`
+    preserves only ``.esphome`` / ``.pioenvs`` / ``.pio`` inside
+    *target_dir* and wipes every other entry before its inner
+    ``extract_bundle`` reads back from *bundle_path*. If we wrote
+    the bundle inside *target_dir* (the pre-fix shape), the
+    wipe step would delete it between the executor write and
+    the extract call, surfacing as
+    ``EsphomeError("Bundle file not found: ...")`` for every
+    remote build the operator tried to run.
+
+    Stubbed prepare here mimics the upstream wipe-then-read
+    semantics: iterate *target_dir*, delete non-preserved
+    entries, then read *bundle_path*. A regression that moves
+    the bundle back inside *target_dir* will trip the
+    ``FileNotFoundError`` arm in the stub, which the helper
+    surfaces as ``extract_failed`` on the ack.
+    """
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session(dashboard_id="alpha-dashboard")
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+    expected_yaml = (
+        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+    )
+
+    # Mirror upstream prepare_bundle_for_compile's preserve set
+    # so the stub doesn't have to track every future esphome
+    # bump separately. The point isn't to pin which dirs are
+    # preserved — it's to pin that bundle_path is NOT inside
+    # target_dir, so the wipe-then-read can't fail on it.
+    preserved = {".esphome", ".pioenvs", ".pio"}
+
+    def _wipe_then_extract(bundle_path: Path, target_dir: Path) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for item in target_dir.iterdir():
+            if item.name in preserved:
+                continue
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+        # Real upstream reads back from bundle_path AFTER the
+        # wipe. A bundle living inside target_dir would be gone
+        # by now.
+        assert bundle_path.read_bytes() == bundle
+        expected_yaml.parent.mkdir(parents=True, exist_ok=True)
+        expected_yaml.write_bytes(b"esphome:\n  name: kitchen\n")
+        return expected_yaml
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        _wipe_then_extract,
+    )
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is True
+    assert payload["job_id"] == "job-1"
+    assert "reason" not in payload
 
 
 @pytest.mark.asyncio
