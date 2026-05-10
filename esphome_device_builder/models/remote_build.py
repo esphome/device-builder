@@ -1218,22 +1218,43 @@ class PeerSummary(DataClassORJSONMixin):
 # rename / remove the dataclass field AND the corresponding
 # schema entry in the same change.
 #
-# **No comparable schema on :class:`StoredPeer`.** The
-# receiver-side row's only production constructor is
-# ``record_pair_request``, which runs after a successful Noise
-# XX handshake — the noiseprotocol library guarantees
-# ``static_x25519_pub`` is exactly 32 bytes, the dispatcher
-# validates ``dashboard_id`` against ``DASHBOARD_ID_PATTERN``,
-# and ``_normalize_label`` caps ``label`` *before* the row is
-# constructed. Every field a storage-seam schema would gate is
-# already gated upstream of the constructor, so a mirror
-# ``__post_init__`` validator would be a second copy of the
-# same checks rather than independent defence-in-depth. The
-# offloader-side asymmetry exists because :class:`StoredPairing`
-# can also be reconstructed from disk by mashumaro on
-# controller restart, where the disk shape isn't gated by an
-# upstream validator — that path is genuinely missing on the
-# receiver, so the two surfaces aren't symmetric to begin with.
+# **No comparable schema on :class:`StoredPeer`.** Both rows
+# have a disk-reconstruction path (``_decode_pairings`` /
+# ``_decode_peers`` call ``from_dict`` on controller start),
+# so the validator gap on :class:`StoredPeer` is real — a
+# range-violating value (negative port, non-hex pin, etc.)
+# could survive into runtime if it landed on disk. We accept
+# the gap because:
+#
+# 1. The fail-closed-on-corruption posture both ``_decode_*``
+#    functions take catches the load-bearing failure mode.
+#    A malformed JSON blob or a type mismatch mashumaro can't
+#    coerce raises out of ``from_dict``; the outer
+#    ``except Exception`` resets the store to empty rather
+#    than crashing dashboard startup. ``StoredPeer``'s
+#    dataclass type annotations get most of that for free
+#    via mashumaro.
+# 2. The receiver-side row is constructively narrow: every
+#    field a schema would validate is gated upstream at
+#    *write* time (Noise XX pins ``static_x25519_pub`` at
+#    32 bytes; the dispatcher validates ``dashboard_id``
+#    against ``DASHBOARD_ID_PATTERN``; ``_normalize_label``
+#    caps ``label`` before ``record_pair_request`` is
+#    called). A corrupt disk row would have to come from
+#    *us* writing bad data, not from a malicious peer.
+# 3. The defense-in-depth a schema would add (catching
+#    logically-invalid-but-type-compatible disk corruption
+#    on data we wrote) is lower-value than the maintenance
+#    cost of a second source of truth alongside the
+#    dataclass annotations.
+#
+# :class:`StoredPairing` carries a schema because its
+# offloader-side write path is broader (user-controlled
+# ``request_pair`` args reach the controller through fewer
+# upstream gates than the receiver-side equivalents) and a
+# fail-closed disk shape is more valuable there. The
+# asymmetry is the honest reflection of the asymmetric
+# write-side trust, not an outstanding bug.
 _PAIRING_VALIDATOR = vol.Schema(
     {
         # RFC 1035 §2.3.4 caps a fully-qualified domain name at 253
