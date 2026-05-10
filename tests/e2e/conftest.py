@@ -48,7 +48,13 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
     make_peer_link_handler,
 )
 from esphome_device_builder.helpers.event_bus import EventBus
-from esphome_device_builder.models import EventType
+from esphome_device_builder.models import (
+    EventType,
+    FirmwareJob,
+    JobLifecycleData,
+    JobStatus,
+    JobType,
+)
 
 from ..conftest import _CapturedEvents, capture_events, make_remote_build_controller
 
@@ -277,3 +283,68 @@ async def paired_instances(
         await offloader.stop()
         await receiver.stop()
         await server.close()
+
+
+def make_remote_peer_job(
+    *,
+    remote_peer: str,
+    remote_job_id: str = "off-job-1",
+    job_id: str = "rcv-job-1",
+    error: str | None = None,
+) -> FirmwareJob:
+    """Build a synthetic :class:`FirmwareJob` carrying the remote-peer correlation.
+
+    Shared harness helper for fan-out / cancel / submit-job e2e
+    tests. The wire path only inspects ``job_id`` (cache key),
+    ``remote_peer`` (session lookup), ``remote_job_id`` (echoed
+    on the wire frame), and ``error`` (used on failed /
+    cancelled). Other fields take their dataclass defaults; we
+    deliberately don't run the firmware queue here since the
+    point is exercising the receiver-bus → wire → offloader-bus
+    chain on a synthetic event, not the queue's own state
+    transitions.
+    """
+    return FirmwareJob(
+        job_id=job_id,
+        configuration=".esphome/.remote_builds/foo/kitchen/kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+        remote_peer=remote_peer,
+        remote_job_id=remote_job_id,
+        error=error,
+    )
+
+
+async def make_and_seed_remote_peer_job(
+    instances: PairedInstances,
+    *,
+    error: str | None = None,
+) -> FirmwareJob:
+    """Build a synthetic remote-peer job and seed ``JOB_QUEUED`` so the fan-out caches it.
+
+    Combines :func:`make_remote_peer_job` (build a
+    :class:`FirmwareJob` whose ``remote_peer`` matches the
+    harness's offloader) with the ``JOB_QUEUED`` seed step that
+    populates :attr:`JobFanout._remote_jobs` so subsequent
+    lifecycle / output / cancel events fan out instead of
+    dropping on the floor. Every test that drives a
+    correlated :class:`JobFanout` lookup needs both, in this
+    order, against the same harness offloader id; the helper
+    collapses the two-line prelude into one call.
+
+    :class:`JobFanout._on_lifecycle` is a sync bus listener that
+    looks up the correlation in :attr:`JobFanout._remote_jobs`,
+    populated only by ``JOB_QUEUED`` (the fan-out deliberately
+    skips the queued frame itself; see
+    ``test_submit_job_fanout.py``'s module docstring on why a
+    redundant ``job_state_changed{queued}`` would race the
+    submit ack).
+    """
+    job = make_remote_peer_job(remote_peer=instances.offloader_dashboard_id, error=error)
+    instances.receiver_bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=job))
+    # Listener runs synchronously inside ``fire``; nothing to
+    # await. Yielding once lets any background-task scheduling
+    # the listener's send-frame work would have done settle
+    # before the test fires the next event.
+    await asyncio.sleep(0)
+    return job

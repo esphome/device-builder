@@ -48,8 +48,7 @@ from esphome_device_builder.models import (
 )
 
 from ..conftest import capture_events
-from .conftest import PairedInstances
-from .test_submit_job_fanout import _make_and_seed_remote_peer_job
+from .conftest import PairedInstances, make_and_seed_remote_peer_job
 
 
 @dataclass(frozen=True)
@@ -119,7 +118,7 @@ async def test_offloader_cancel_job_routes_to_receiver_firmware_cancel(
     queue.
     """
     await paired_instances.wait_until_session_opened()
-    job = await _make_and_seed_remote_peer_job(paired_instances)
+    job = await make_and_seed_remote_peer_job(paired_instances)
 
     result = await paired_instances.offloader.cancel_job(
         pin_sha256=paired_instances.pin_sha256,
@@ -156,7 +155,7 @@ async def test_offloader_cancel_job_full_round_trip_to_state_changed(
     terminal transition (no special cancel-only event type).
     """
     await paired_instances.wait_until_session_opened()
-    job = await _make_and_seed_remote_peer_job(paired_instances)
+    job = await make_and_seed_remote_peer_job(paired_instances)
     state_changes = capture_events(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
@@ -201,24 +200,42 @@ async def test_offloader_cancel_job_unknown_correlation_drops_silently(
     it is the receiver's call, and the offloader's UI relies on
     the next observed ``job_state_changed`` (or its absence) for
     the actual state.
+
+    Negative-path sync uses a known-good cancel as a barrier
+    rather than an arbitrary sleep. The unknown cancel goes out
+    first, then a known cancel for a seeded job follows; frames
+    are processed serially on the receiver's session loop, so
+    when the known cancel lands at :meth:`firmware.cancel` the
+    unknown one has already been processed and (correctly)
+    dropped. The final ``assert_awaited_once_with(job_id=
+    known.job_id)`` then pins both halves: only one cancel
+    reached the firmware controller, and it was the known one.
     """
     await paired_instances.wait_until_session_opened()
-    # Deliberately skip the JOB_QUEUED seed so JobFanout's cache
-    # has no correlation for the offloader's job_id below.
+    # Seed exactly one known job. The unknown cancel below
+    # targets a different ``job_id`` so JobFanout's cache has
+    # no correlation for it.
+    known_job = await make_and_seed_remote_peer_job(paired_instances)
 
-    result = await paired_instances.offloader.cancel_job(
+    unknown_result = await paired_instances.offloader.cancel_job(
         pin_sha256=paired_instances.pin_sha256,
         job_id="off-job-never-seen",
     )
+    assert unknown_result == {"sent": True}
 
-    assert result == {"sent": True}
-    # The receiver's handler logs-and-skips on the unknown
-    # correlation; no Event will ever fire. Wait briefly with
-    # ``asyncio.wait_for`` for the negative path — a timeout here
-    # is the success signal.
-    with pytest.raises(asyncio.TimeoutError):
-        await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=0.2)
-    receiver_firmware_cancel.mock.assert_not_awaited()
+    known_result = await paired_instances.offloader.cancel_job(
+        pin_sha256=paired_instances.pin_sha256,
+        job_id=known_job.remote_job_id,
+    )
+    assert known_result == {"sent": True}
+
+    # Sync on the known cancel landing. By the time this fires,
+    # the receiver's serial frame loop has already processed the
+    # earlier unknown cancel — so the assertion below catches a
+    # late incorrect cancel deterministically rather than racing
+    # an arbitrary timeout.
+    await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=2.0)
+    receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=known_job.job_id)
 
 
 # WS-layer error-mapping (CommandError(NOT_FOUND) /
