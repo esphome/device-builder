@@ -559,38 +559,8 @@ async def _receive_loop(session: PeerLinkSession) -> None:
     seam in 5b-5d.
     """
     async for msg in session.ws:
-        if msg.type != WSMsgType.BINARY:
-            _LOGGER.debug(
-                "peer-link expected binary frame from %s; got %s",
-                session.dashboard_id,
-                msg.type,
-            )
-            await session.terminate(TerminateReason.MALFORMED_FRAME)
-            return
-        if len(msg.data) > _APP_FRAME_MAX_BYTES:
-            _LOGGER.warning(
-                "peer-link oversize frame from %s (%d bytes); closing",
-                session.dashboard_id,
-                len(msg.data),
-            )
-            await session.terminate(TerminateReason.MALFORMED_FRAME)
-            return
-        try:
-            plaintext = session.noise.decrypt(msg.data)
-        except NOISE_ERRORS:
-            _LOGGER.warning(
-                "peer-link Noise decrypt failed from %s",
-                session.dashboard_id,
-                exc_info=True,
-            )
-            await session.terminate(TerminateReason.MALFORMED_FRAME)
-            return
-        parsed = _parse_json(plaintext)
-        if not isinstance(parsed, dict):
-            _LOGGER.debug(
-                "peer-link frame from %s did not decode to a JSON object",
-                session.dashboard_id,
-            )
+        parsed = _parse_app_frame(session, msg)
+        if parsed is None:
             await session.terminate(TerminateReason.MALFORMED_FRAME)
             return
         msg_type = parsed.get("type")
@@ -617,6 +587,51 @@ async def _receive_loop(session: PeerLinkSession) -> None:
         )
 
 
+def _parse_app_frame(session: PeerLinkSession, msg: Any) -> dict[str, Any] | None:
+    """
+    Validate, decrypt, and JSON-parse one inbound frame.
+
+    Returns the parsed dict on success or ``None`` on any of the
+    malformed-frame branches: wrong WS message type (not BINARY),
+    oversize body, Noise decrypt failure, or post-decrypt JSON
+    that isn't an object. The caller (``_receive_loop``) responds
+    to ``None`` with a structured ``terminate{malformed_frame}``
+    close — concentrating the per-branch logging here keeps the
+    dispatch loop a single straight line.
+    """
+    if msg.type != WSMsgType.BINARY:
+        _LOGGER.debug(
+            "peer-link expected binary frame from %s; got %s",
+            session.dashboard_id,
+            msg.type,
+        )
+        return None
+    if len(msg.data) > _APP_FRAME_MAX_BYTES:
+        _LOGGER.warning(
+            "peer-link oversize frame from %s (%d bytes); closing",
+            session.dashboard_id,
+            len(msg.data),
+        )
+        return None
+    try:
+        plaintext = session.noise.decrypt(msg.data)
+    except NOISE_ERRORS:
+        _LOGGER.warning(
+            "peer-link Noise decrypt failed from %s",
+            session.dashboard_id,
+            exc_info=True,
+        )
+        return None
+    parsed = _parse_json(plaintext)
+    if not isinstance(parsed, dict):
+        _LOGGER.debug(
+            "peer-link frame from %s did not decode to a JSON object",
+            session.dashboard_id,
+        )
+        return None
+    return parsed
+
+
 async def _heartbeat_loop(session: PeerLinkSession) -> None:
     """
     Receiver-driven heartbeat: ping every interval, close on missed-pong threshold.
@@ -631,10 +646,13 @@ async def _heartbeat_loop(session: PeerLinkSession) -> None:
     session.last_pong_at = _monotonic()
     nonce = 0
     while True:
-        try:
-            await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)
-        except asyncio.CancelledError:
-            return
+        # CancelledError from sleep() propagates out — the
+        # parent coroutine in :func:`_run_peer_link_session`
+        # cancels this task in its ``finally`` and awaits it
+        # under ``contextlib.suppress(CancelledError)``.
+        # Catching here would swallow the cancellation signal
+        # at the wrong layer.
+        await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)
         # Liveness check first — if we haven't heard a pong in
         # the threshold window, bail before sending another ping.
         if _monotonic() - session.last_pong_at > _HEARTBEAT_DEAD_AFTER_SECONDS:

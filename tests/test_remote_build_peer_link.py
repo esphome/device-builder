@@ -31,7 +31,11 @@ from aiohttp import WSMessage, WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from noise.exceptions import NoiseInvalidMessage
+from noise.exceptions import NoiseInvalidMessage as _NoiseInvalidMessage
 
+from esphome_device_builder.controllers import (
+    remote_build_peer_link as _peer_link_module,
+)
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build_peer_link import (
     _APP_FRAME_MAX_BYTES,
@@ -47,6 +51,7 @@ from esphome_device_builder.controllers.remote_build_peer_link import (
     _parse_intent,
     _parse_json,
     _read_handshake_message,
+    _receive_loop,
     _send_bytes_safely,
     _send_handshake_message,
     _send_response,
@@ -1298,13 +1303,19 @@ class _FakeWs:
 
     Captures every ``send_bytes`` payload + counts ``close``
     calls so tests can assert on the number / shape of sends
-    without standing up an aiohttp test server.
+    without standing up an aiohttp test server. Async-iterable
+    so :func:`_receive_loop` can iterate it directly: pre-load
+    ``inbox`` with the script of inbound :class:`WSMessage`
+    frames; the iterator yields each in order and then exits
+    (mirrors aiohttp's natural CLOSE-on-iterator-exhaustion
+    behaviour).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, inbox: list[WSMessage] | None = None) -> None:
         self.sends: list[bytes] = []
         self.closes: int = 0
         self.closed: bool = False
+        self._inbox: list[WSMessage] = list(inbox) if inbox else []
 
     async def send_bytes(self, data: bytes) -> None:
         self.sends.append(data)
@@ -1312,6 +1323,14 @@ class _FakeWs:
     async def close(self) -> None:
         self.closes += 1
         self.closed = True
+
+    def __aiter__(self) -> _FakeWs:
+        return self
+
+    async def __anext__(self) -> WSMessage:
+        if not self._inbox:
+            raise StopAsyncIteration
+        return self._inbox.pop(0)
 
 
 def _make_unit_session(noise: PeerLinkNoiseSession) -> tuple[PeerLinkSession, _FakeWs]:
@@ -1413,3 +1432,253 @@ def test_unregister_peer_link_session_removes_when_current(tmp_path: Path) -> No
 
     controller.unregister_peer_link_session(session)
     assert controller._peer_link_sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_send_app_frame_returns_false_on_unserialisable_payload(tmp_path: Path) -> None:
+    """A payload with a non-JSON-encodable value short-circuits before encrypting."""
+    _initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+
+    # ``object()`` is not JSON-serialisable — orjson raises TypeError.
+    sent = await session.send_app_frame({"type": "ping", "junk": object()})
+    assert sent is False
+    assert ws.sends == []
+
+
+@pytest.mark.asyncio
+async def test_send_app_frame_returns_false_on_noise_encrypt_failure(tmp_path: Path) -> None:
+    """A Noise-side failure surfaces as ``False``, not an unhandled exception.
+
+    Forces the failure by bumping the Noise nonce past its 2^64
+    cap is impractical; just monkey-patch ``noise.encrypt`` to
+    raise. The branch we're covering is the ``except NOISE_ERRORS``
+    block — any of the ``NOISE_ERRORS`` tuple's exception types
+    is sufficient.
+    """
+    _initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+
+    real_encrypt = responder.encrypt
+
+    def _encrypt_fails(plaintext: bytes) -> bytes:
+        raise _NoiseInvalidMessage("test stub")
+
+    responder.encrypt = _encrypt_fails  # type: ignore[method-assign]
+    try:
+        sent = await session.send_app_frame({"type": "ping"})
+    finally:
+        responder.encrypt = real_encrypt  # type: ignore[method-assign]
+    assert sent is False
+    assert ws.sends == []
+
+
+# ---------------------------------------------------------------------------
+# Receive loop unit tests — drive ``_receive_loop`` against a scripted ``_FakeWs``
+# so each malformed-frame branch fires its terminate cleanly.
+# ---------------------------------------------------------------------------
+
+
+def _binary_msg(data: bytes) -> WSMessage:
+    """Construct an aiohttp ``WSMessage`` carrying *data* as a BINARY frame."""
+    return WSMessage(type=WSMsgType.BINARY, data=data, extra="")
+
+
+def _text_msg(data: str) -> WSMessage:
+    """Construct a TEXT-typed ``WSMessage``."""
+    return WSMessage(type=WSMsgType.TEXT, data=data, extra="")
+
+
+@pytest.mark.asyncio
+async def test_receive_loop_terminates_on_text_frame(tmp_path: Path) -> None:
+    """A TEXT message (not BINARY) triggers ``terminate{malformed_frame}``."""
+    initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+    ws._inbox.append(_text_msg("hello"))
+
+    await _receive_loop(session)
+
+    # One terminate frame sent + WS closed; decode confirms the
+    # reason field carries the expected ``malformed_frame``.
+    assert len(ws.sends) == 1
+    assert ws.closes == 1
+    decoded = _json.loads(initiator.decrypt(ws.sends[0]))
+    assert decoded["type"] == "terminate"
+    assert decoded["reason"] == TerminateReason.MALFORMED_FRAME.value
+
+
+@pytest.mark.asyncio
+async def test_receive_loop_terminates_on_undecryptable_frame(tmp_path: Path) -> None:
+    """Random bytes that fail Noise decrypt trigger ``terminate{malformed_frame}``."""
+    _initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+    # 64 bytes of random garbage — not a valid ChaCha20-Poly1305
+    # frame against ``responder``'s current cipher state.
+    ws._inbox.append(_binary_msg(b"\xde\xad\xbe\xef" * 16))
+
+    await _receive_loop(session)
+
+    assert ws.closes == 1
+    # The terminate frame itself was sent before close — exact
+    # decryption check is in the e2e tests; here we just pin the
+    # branch ran.
+    assert len(ws.sends) == 1
+
+
+@pytest.mark.asyncio
+async def test_receive_loop_terminates_on_non_object_json(tmp_path: Path) -> None:
+    """Encrypted JSON that isn't an object (e.g. a list) triggers terminate."""
+    initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+    # Valid Noise frame carrying ``[1,2,3]`` plaintext.
+    bad_payload = initiator.encrypt(_json.dumps([1, 2, 3]))
+    ws._inbox.append(_binary_msg(bad_payload))
+
+    await _receive_loop(session)
+
+    assert ws.closes == 1
+    assert len(ws.sends) == 1
+
+
+@pytest.mark.asyncio
+async def test_receive_loop_pong_updates_last_pong_at(tmp_path: Path) -> None:
+    """A ``pong`` frame from the peer bumps ``session.last_pong_at``."""
+    initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+    session.last_pong_at = 0.0
+    pong = initiator.encrypt(_json.dumps({"type": "pong", "nonce": 7}))
+    ws._inbox.append(_binary_msg(pong))
+
+    await _receive_loop(session)
+
+    assert session.last_pong_at > 0.0
+    # No outbound frame fired (pong is one-way from peer to us).
+    assert ws.sends == []
+
+
+@pytest.mark.asyncio
+async def test_receive_loop_peer_terminate_exits_cleanly(tmp_path: Path) -> None:
+    """A peer-side ``terminate`` exits the loop without sending our own."""
+    initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+    bye = initiator.encrypt(_json.dumps({"type": "terminate", "reason": "client_quit"}))
+    ws._inbox.append(_binary_msg(bye))
+
+    await _receive_loop(session)
+
+    # No echo terminate, no close from our side — caller (the
+    # session-loop driver) closes the WS in its outer finally.
+    assert ws.sends == []
+    assert ws.closes == 0
+    assert session._closing is True
+
+
+@pytest.mark.asyncio
+async def test_receive_loop_unknown_app_frame_type_logged_and_ignored(tmp_path: Path) -> None:
+    """An unknown ``type`` field in a well-formed encrypted frame is logged at debug, not fatal.
+
+    Pins forward-compat: a future application message type from a
+    newer offloader must not crash an older receiver — we just
+    skip it. 5b-5d adding new types lands fine against this seam.
+    """
+    initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+    unknown = initiator.encrypt(_json.dumps({"type": "from_the_future"}))
+    ws._inbox.append(_binary_msg(unknown))
+    # Loop should consume the unknown frame and then exit when the
+    # iterator is empty (no further frames). Add an explicit close
+    # message? Async-iter exit on StopAsyncIteration is enough.
+
+    await _receive_loop(session)
+
+    # Nothing sent, no terminate, no close from our side.
+    assert ws.sends == []
+    assert ws.closes == 0
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat loop unit tests — fast clock + monkey-patched sleep so the test
+# doesn't actually wait 30s.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_loop_terminates_on_pong_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The heartbeat loop closes the session when no pong lands in the threshold window.
+
+    Shrinks the heartbeat interval to a few ms so the test
+    finishes quickly (real ``asyncio.sleep``, no stubbing — that
+    avoids recursion loops if a future ``_heartbeat_loop`` body
+    calls ``asyncio.sleep`` from anywhere else). Drives the
+    clock past the miss threshold on the second
+    :func:`_monotonic` read so the very first iteration trips
+    the timeout branch.
+    """
+    _initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+
+    monkeypatch.setattr(_peer_link_module, "_HEARTBEAT_INTERVAL_SECONDS", 0.001)
+    monkeypatch.setattr(_peer_link_module, "_HEARTBEAT_DEAD_AFTER_SECONDS", 0.0)
+    # First call seeds last_pong_at = 0; second call returns a
+    # large value so the gap exceeds the (zero-sized) threshold.
+    ticks = iter([0.0, 1000.0])
+    monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: next(ticks))
+
+    await _peer_link_module._heartbeat_loop(session)
+
+    assert len(ws.sends) == 1
+    assert ws.closes == 1
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_loop_terminates_on_send_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """If ``send_app_frame`` reports failure (WS dead), heartbeat terminates the session."""
+    _initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+
+    monkeypatch.setattr(_peer_link_module, "_HEARTBEAT_INTERVAL_SECONDS", 0.001)
+    # Clock stays inside the threshold so the timeout branch
+    # doesn't fire; only the send-failure path does.
+    monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 0.0)
+
+    async def _fail_send(_payload: dict[str, Any]) -> bool:
+        return False
+
+    monkeypatch.setattr(session, "send_app_frame", _fail_send)
+
+    await _peer_link_module._heartbeat_loop(session)
+
+    # ``terminate`` calls ``send_app_frame`` (which our stub
+    # makes False) but always closes the WS regardless.
+    assert ws.closes == 1
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_loop_propagates_cancellation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Cancelling the heartbeat task surfaces as ``CancelledError``, not a silent return.
+
+    Pin the no-swallow contract: catching ``CancelledError``
+    inside the loop would hide the cancellation signal from the
+    parent coroutine. The parent's ``contextlib.suppress(CancelledError)``
+    is the right layer to absorb it.
+    """
+    _initiator, responder = _noise_pair()
+    session, _ws = _make_unit_session(responder)
+
+    # Use a long interval so the task is reliably parked in
+    # ``asyncio.sleep`` when we cancel.
+    monkeypatch.setattr(_peer_link_module, "_HEARTBEAT_INTERVAL_SECONDS", 10.0)
+    monkeypatch.setattr(_peer_link_module, "_monotonic", lambda: 0.0)
+
+    task = asyncio.create_task(_peer_link_module._heartbeat_loop(session))
+    # Yield once so the task enters its sleep; then cancel.
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
