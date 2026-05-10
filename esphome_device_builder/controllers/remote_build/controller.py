@@ -60,8 +60,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Hashable
-from contextlib import ExitStack
+from collections.abc import Callable, Hashable, Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass as _dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -1764,7 +1764,7 @@ class RemoteBuildController:
         immediately. Failure paths leave the cooldown in place.
         """
         pin = pairing.pin_sha256
-        try:
+        with self._clear_cooldown_on_unexpected_exit(pin):
             assert self._offloader_peer_link_priv is not None  # narrowed by caller
             try:
                 observed_pin = await peer_link_preview_pair(
@@ -1820,12 +1820,22 @@ class RemoteBuildController:
             )
             self._rebind_probe_until.pop(pin, None)
             _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
+
+    @contextmanager
+    def _clear_cooldown_on_unexpected_exit(self, pin: str) -> Iterator[None]:
+        """Pop *pin* from ``_rebind_probe_until`` iff the wrapped block raises.
+
+        Graceful failure paths inside the probe (unreachable
+        host, pin mismatch, mid-probe re-pair) preserve the
+        cooldown entry to throttle retries. Cancellation /
+        unexpected exceptions shouldn't lock the pin out of
+        future legitimate rebind attempts, so on any escaped
+        exception we drop the entry before the exception
+        propagates.
+        """
+        try:
+            yield
         except BaseException:
-            # Catch-all reraise: anything that escapes (cancellation,
-            # unexpected exception) shouldn't leave the cooldown
-            # entry stranded in a way that blocks future probes
-            # for the full window. Keep the entry only on
-            # graceful-failure paths above.
             self._rebind_probe_until.pop(pin, None)
             raise
 
