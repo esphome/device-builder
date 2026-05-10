@@ -140,6 +140,21 @@ class EventType(StrEnum):
     # offloader knows are the ``(hostname, port)`` it dialled.
     OFFLOADER_PAIR_STATUS_CHANGED = "offloader_pair_status_changed"
 
+    # Offloader-side mDNS auto-rebind. Payload: ``{pin_sha256,
+    # receiver_hostname, receiver_port}``. Fired when the
+    # offloader's mDNS browser observes a known paired receiver
+    # broadcasting from a different ``(hostname, port)`` than the
+    # ``StoredPairing`` records, and a probe-before-mutate Noise
+    # XX handshake against the new endpoint confirmed the
+    # responder's static pubkey matches the stored pin. The
+    # controller has already mutated ``StoredPairing`` in place,
+    # cancelled the old peer-link client, and respawned a fresh
+    # one against the new coordinates by the time this fires;
+    # frontends update the row's display fields off the new
+    # ``receiver_hostname`` / ``receiver_port`` without a
+    # re-fetch (4a-o part 7).
+    OFFLOADER_PAIR_ENDPOINT_REBOUND = "offloader_pair_endpoint_rebound"
+
     # Pairing window opened, extended, or closed. Payload:
     # ``{open: bool, expires_in_seconds: float | None}``. Fires
     # on every state transition: window open (open=true,

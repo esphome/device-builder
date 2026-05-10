@@ -242,6 +242,32 @@ class OffloaderPairStatusChangedData(TypedDict):
     status: Literal["approved", "removed"]
 
 
+class OffloaderPairEndpointReboundData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND``.
+
+    Fired by the offloader's mDNS auto-rebind path
+    (``RemoteBuildController._probe_and_rebind_endpoint``) after
+    a paired receiver's broadcast arrived from a different
+    ``(hostname, port)`` than the ``StoredPairing`` records and a
+    probe-before-mutate Noise XX handshake against the new
+    endpoint confirmed the responder's static pubkey hash still
+    matches the stored ``pin_sha256``.
+
+    Carries the row's stable ``pin_sha256`` plus the new
+    receiver coordinates so subscribers update display fields
+    without a follow-up snapshot read. The peer-link client task
+    has already been respawned against the new coordinates by
+    the time this event fires; the ``OFFLOADER_PEER_LINK_OPENED``
+    fired by the new client follows in the same loop tick after
+    the handshake completes.
+    """
+
+    pin_sha256: str
+    receiver_hostname: str
+    receiver_port: int
+
+
 class OffloaderPairPinMismatchData(TypedDict):
     """
     Payload for ``EventType.OFFLOADER_PAIR_PIN_MISMATCH``.
@@ -1274,6 +1300,18 @@ class RemoteBuildPeer(DataClassORJSONMixin):
     addresses: list[str] = field(default_factory=list)
     server_version: str = ""
     esphome_version: str = ""
+    # Receiver's SPKI fingerprint (lowercase-hex SHA-256) and
+    # peer-link Noise WS port, both pulled out of the
+    # ``_esphomebuilder._tcp.local.`` TXT record. Empty / 0 when
+    # the receiver hasn't published them (default-off mode, or
+    # the listener hasn't bound yet); the offloader uses both to
+    # match a discovered broadcast against a stored pairing's
+    # ``pin_sha256`` and dial the right peer-link port for the
+    # auto-rebind probe (4a-o part 7). Manual-source rows leave
+    # both empty; phase 4 attempts the connection during pair
+    # and fills them in.
+    pin_sha256: str = ""
+    remote_build_port: int = 0
 
 
 @dataclass

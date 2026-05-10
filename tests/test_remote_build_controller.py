@@ -287,6 +287,460 @@ def test_upsert_host_drops_self_endpoint(tmp_path: Path) -> None:
     controller._db.bus.fire.assert_not_called()
 
 
+# ---------------------------------------------------------------------------
+# mDNS auto-rebind (4a-o part 7)
+# ---------------------------------------------------------------------------
+
+
+def _make_paired_offloader_controller(
+    *,
+    config_dir: Path,
+    pairing: StoredPairing,
+) -> RemoteBuildController:
+    """Build a controller with the offloader-side identity loaded + one APPROVED pairing.
+
+    The rebind path early-returns when the offloader's
+    peer-link identity isn't loaded (start-order guard). Tests
+    that drive the rebind code synthesise the post-start state
+    by setting both the dashboard_id and the priv key directly.
+    """
+    controller = _make_controller(config_dir=config_dir)
+    controller._db.bus = MagicMock()
+    controller._offloader_dashboard_id = "offloader-id-aaaa"
+    controller._offloader_peer_link_priv = b"\x42" * 32
+    controller._pairings[pairing.pin_sha256] = pairing
+    return controller
+
+
+def _make_mdns_info(
+    *,
+    name: str,
+    hostname: str,
+    port: int,
+    pin_sha256: str,
+    remote_build_port: int,
+) -> MagicMock:
+    """Build an ``AsyncServiceInfo`` mock matching the resolved-mDNS shape.
+
+    Mirrors what ``_peer_from_service_info`` reads off zeroconf:
+    ``name`` / ``server`` / ``port`` plus a TXT properties dict
+    with ``server_version`` / ``esphome_version`` /
+    ``pin_sha256`` / ``remote_build_port``.
+    """
+    info = MagicMock()
+    info.name = name
+    info.server = hostname
+    info.port = port
+    info.properties = {
+        b"server_version": b"0.1.0",
+        b"esphome_version": b"2026.5.0-dev",
+        b"pin_sha256": pin_sha256.encode(),
+        b"remote_build_port": str(remote_build_port).encode(),
+    }
+    info.parsed_scoped_addresses = MagicMock(return_value=["10.0.0.42"])
+    return info
+
+
+@pytest.mark.asyncio
+async def test_rebind_probe_match_mutates_pairing_and_fires_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A successful probe rebinds the StoredPairing and fires OFFLOADER_PAIR_ENDPOINT_REBOUND.
+
+    Pins the happy-path: an APPROVED pairing for pin X observed
+    at the same hostname but a new ``remote_build_port``, the
+    probe returns the matching pin, the pairing is mutated in
+    place, the peer-link client is cancelled + respawned at the
+    new endpoint, and the rebind event fires with the new
+    coords.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    cancel_calls: list[str] = []
+    spawn_calls: list[StoredPairing] = []
+    monkeypatch.setattr(controller, "_cancel_peer_link_client", cancel_calls.append)
+    monkeypatch.setattr(controller, "_spawn_peer_link_client", spawn_calls.append)
+    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value=pin))
+
+    await controller._probe_and_rebind_endpoint(
+        pairing=pairing, new_hostname="new.local", new_port=7000
+    )
+
+    assert pairing.receiver_hostname == "new.local"
+    assert pairing.receiver_port == 7000
+    assert cancel_calls == [pin]
+    assert spawn_calls == [pairing]
+    controller._db.bus.fire.assert_any_call(
+        EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND,
+        {"pin_sha256": pin, "receiver_hostname": "new.local", "receiver_port": 7000},
+    )
+    # Successful rebind clears the cooldown so a future move
+    # gets probed immediately rather than waiting out the window.
+    assert pin not in controller._rebind_probe_until
+
+
+@pytest.mark.asyncio
+async def test_rebind_probe_pin_mismatch_does_not_mutate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe whose observed pin differs from the stored pin leaves state alone.
+
+    Defends against an mDNS spoof where an attacker advertises
+    our pin at their endpoint: the probe's Noise XX handshake
+    captures the actual responder pubkey, hashes it, and a
+    mismatch bails the rebind.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    monkeypatch.setattr(controller, "_cancel_peer_link_client", MagicMock())
+    monkeypatch.setattr(controller, "_spawn_peer_link_client", MagicMock())
+    # Prime the cooldown to assert it's preserved on mismatch.
+    controller._rebind_probe_until[pin] = 9999.0
+    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value="b" * 64))
+
+    await controller._probe_and_rebind_endpoint(
+        pairing=pairing, new_hostname="spoofed.local", new_port=7000
+    )
+
+    assert pairing.receiver_hostname == "old.local"
+    assert pairing.receiver_port == 6058
+    controller._cancel_peer_link_client.assert_not_called()
+    controller._spawn_peer_link_client.assert_not_called()
+    # No rebind event for a mismatch.
+    fire_calls = [c.args for c in controller._db.bus.fire.call_args_list]
+    assert (EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND, ...) not in fire_calls
+    # Cooldown stays in place: a permanent spoof source mustn't
+    # trigger one probe per mDNS Updated burst.
+    assert controller._rebind_probe_until[pin] == 9999.0
+
+
+@pytest.mark.asyncio
+async def test_rebind_probe_unreachable_does_not_mutate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe that raises PeerLinkClientError leaves state alone and keeps the cooldown.
+
+    The probe is the reachability check (TCP connect + Noise
+    handshake completing means the new endpoint is up). A
+    transport / handshake error means we couldn't verify the
+    new endpoint at all; the rebind doesn't happen, and the
+    cooldown stays in place so a permanently-unreachable host
+    doesn't trigger a probe per mDNS event.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    controller._rebind_probe_until[pin] = 9999.0
+    monkeypatch.setattr(
+        rb,
+        "peer_link_preview_pair",
+        AsyncMock(side_effect=rb.PeerLinkClientError("connect refused")),
+    )
+
+    await controller._probe_and_rebind_endpoint(
+        pairing=pairing, new_hostname="unreachable.local", new_port=7000
+    )
+
+    assert pairing.receiver_hostname == "old.local"
+    assert pairing.receiver_port == 6058
+    # Cooldown preserved — gates retry on next mDNS event.
+    assert controller._rebind_probe_until[pin] == 9999.0
+
+
+@pytest.mark.asyncio
+async def test_rebind_probe_skips_when_pairing_replaced_mid_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A re-pair under the same pin while the probe is in flight wins; probe doesn't clobber.
+
+    Race: ``unpair`` + ``request_pair`` for the same pin
+    replaces the dict entry with a fresh ``StoredPairing``
+    object via ``_upsert_pairing``. The in-flight probe captured
+    the OLD pairing reference; on completion it must refuse to
+    mutate the NEW pairing's hostname/port.
+    """
+    pin = "a" * 64
+    old = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=old)
+    # Simulate the in-flight re-pair: replace the dict entry
+    # with a fresh object before the probe applies its result.
+    fresh = _valid_stored_pairing(receiver_hostname="user-typed.local", receiver_port=6060)
+    controller._pairings[pin] = fresh
+    monkeypatch.setattr(controller, "_cancel_peer_link_client", MagicMock())
+    monkeypatch.setattr(controller, "_spawn_peer_link_client", MagicMock())
+    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value=pin))
+
+    await controller._probe_and_rebind_endpoint(
+        pairing=old, new_hostname="rebind-target.local", new_port=7000
+    )
+
+    # Fresh pairing is untouched: identity check on the dict
+    # entry refuses to mutate a different object.
+    assert fresh.receiver_hostname == "user-typed.local"
+    assert fresh.receiver_port == 6060
+    controller._cancel_peer_link_client.assert_not_called()
+    controller._spawn_peer_link_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rebind_probe_skips_when_pairing_status_flips_mid_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pairing that flips out of APPROVED mid-probe doesn't get rebound.
+
+    Defensive: status is the row's lifecycle gate. If something
+    (a stale pair-status listener result, a manual mutation in
+    a test, a future code path) flips the captured pairing back
+    to PENDING after the probe completes, the rebind shouldn't
+    install a new endpoint on a row that no longer matches the
+    APPROVED contract.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    monkeypatch.setattr(controller, "_cancel_peer_link_client", MagicMock())
+    monkeypatch.setattr(controller, "_spawn_peer_link_client", MagicMock())
+
+    async def _flip_status_then_match(**_: Any) -> str:
+        # Same identity, but the row's status flipped between
+        # schedule and apply.
+        pairing.status = PeerStatus.PENDING
+        return pin
+
+    monkeypatch.setattr(rb, "peer_link_preview_pair", _flip_status_then_match)
+
+    await controller._probe_and_rebind_endpoint(
+        pairing=pairing, new_hostname="new.local", new_port=7000
+    )
+
+    assert pairing.receiver_hostname == "old.local"
+    assert pairing.receiver_port == 6058
+    controller._cancel_peer_link_client.assert_not_called()
+    controller._spawn_peer_link_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rebind_probe_unexpected_exception_clears_cooldown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unexpected exception (or cancellation) clears the cooldown and reraises.
+
+    Pins the BaseException-reraise path: graceful failures
+    (PeerLinkClientError, pin mismatch) preserve the cooldown
+    to throttle retries; unexpected escapes shouldn't lock the
+    pin out of future legitimate rebind attempts.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    controller._rebind_probe_until[pin] = 9999.0
+    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(side_effect=RuntimeError("boom")))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await controller._probe_and_rebind_endpoint(
+            pairing=pairing, new_hostname="new.local", new_port=7000
+        )
+
+    assert pin not in controller._rebind_probe_until
+
+
+@pytest.mark.asyncio
+async def test_rebind_probe_skips_when_pairing_unpaired_mid_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A user ``unpair`` while the probe is in flight wins; probe doesn't resurrect the row."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    # Simulate the in-flight unpair: drop the dict entry
+    # before the probe's mutate step.
+    controller._pairings.pop(pin)
+    monkeypatch.setattr(controller, "_cancel_peer_link_client", MagicMock())
+    monkeypatch.setattr(controller, "_spawn_peer_link_client", MagicMock())
+    monkeypatch.setattr(rb, "peer_link_preview_pair", AsyncMock(return_value=pin))
+
+    await controller._probe_and_rebind_endpoint(
+        pairing=pairing, new_hostname="new.local", new_port=7000
+    )
+
+    assert pin not in controller._pairings
+    controller._cancel_peer_link_client.assert_not_called()
+    controller._spawn_peer_link_client.assert_not_called()
+
+
+def test_maybe_schedule_rebind_probe_skips_when_endpoint_matches(
+    tmp_path: Path,
+) -> None:
+    """Steady-state mDNS Updated for an unchanged endpoint never spawns a probe."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="paired.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+
+    peer = RemoteBuildPeer(
+        name="paired",
+        hostname="paired.local.",  # trailing dot, common from zeroconf
+        port=6052,  # SRV port (dashboard HTTP); irrelevant to rebind
+        source=RemoteBuildPeerSource.MDNS,
+        pin_sha256=pin,
+        remote_build_port=6058,
+    )
+    controller._maybe_schedule_rebind_probe(peer)
+
+    assert pin not in controller._rebind_probe_until
+    assert controller._tasks == set()
+
+
+def test_maybe_schedule_rebind_probe_skips_when_no_pin_in_txt(tmp_path: Path) -> None:
+    """A receiver that hasn't bound the listener yet (no TXT pin) never triggers a probe."""
+    pairing = _valid_stored_pairing()
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+
+    peer = RemoteBuildPeer(
+        name="no-listener",
+        hostname="no-listener.local.",
+        port=6052,
+        source=RemoteBuildPeerSource.MDNS,
+        # No pin_sha256, no remote_build_port — receiver has the
+        # peer-link listener disabled (default-off mode).
+    )
+    controller._maybe_schedule_rebind_probe(peer)
+
+    assert controller._tasks == set()
+
+
+def test_maybe_schedule_rebind_probe_skips_pending(tmp_path: Path) -> None:
+    """A PENDING pairing isn't auto-rebound; pair-status listener owns its own connect."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(
+        receiver_hostname="old.local", receiver_port=6058, status=PeerStatus.PENDING
+    )
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+
+    peer = RemoteBuildPeer(
+        name="moved",
+        hostname="new.local.",
+        port=6052,
+        source=RemoteBuildPeerSource.MDNS,
+        pin_sha256=pin,
+        remote_build_port=7000,
+    )
+    controller._maybe_schedule_rebind_probe(peer)
+
+    assert controller._tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_maybe_schedule_rebind_probe_dedupes_within_cooldown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second mDNS Updated within the cooldown window doesn't spawn a duplicate probe.
+
+    Pins the in-flight + retry-throttle role of
+    ``_rebind_probe_until``: the first event sets the entry to
+    ``now + COOLDOWN``; subsequent events within that window
+    early-return rather than racing.
+    """
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    # Hang the probe so the first task stays in flight while the
+    # second schedule attempt runs against the live cooldown.
+    blocked = asyncio.Event()
+
+    async def _hanging_preview(**_: Any) -> str:
+        await blocked.wait()
+        return pin
+
+    monkeypatch.setattr(rb, "peer_link_preview_pair", _hanging_preview)
+    monkeypatch.setattr(controller, "_cancel_peer_link_client", MagicMock())
+    monkeypatch.setattr(controller, "_spawn_peer_link_client", MagicMock())
+
+    peer = RemoteBuildPeer(
+        name="moved",
+        hostname="new.local.",
+        port=6052,
+        source=RemoteBuildPeerSource.MDNS,
+        pin_sha256=pin,
+        remote_build_port=7000,
+    )
+    controller._maybe_schedule_rebind_probe(peer)
+    assert len(controller._tasks) == 1
+    controller._maybe_schedule_rebind_probe(peer)
+    assert len(controller._tasks) == 1
+
+    # Drain the hanging probe so the test exits cleanly.
+    blocked.set()
+    await asyncio.gather(*controller._tasks, return_exceptions=True)
+
+
+def test_maybe_schedule_rebind_probe_skips_without_priv(tmp_path: Path) -> None:
+    """No probe scheduled when the offloader's peer-link identity hasn't loaded yet."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    controller._offloader_peer_link_priv = None
+
+    peer = RemoteBuildPeer(
+        name="moved",
+        hostname="new.local.",
+        port=6052,
+        source=RemoteBuildPeerSource.MDNS,
+        pin_sha256=pin,
+        remote_build_port=7000,
+    )
+    controller._maybe_schedule_rebind_probe(peer)
+
+    assert controller._tasks == set()
+    assert pin not in controller._rebind_probe_until
+
+
+def test_peer_from_service_info_parses_pin_and_remote_build_port() -> None:
+    """TXT ``pin_sha256`` and ``remote_build_port`` flow through to ``RemoteBuildPeer``."""
+    info = MagicMock()
+    info.name = f"green.{SERVICE_TYPE}"
+    info.server = "green.local."
+    info.port = 6052
+    info.properties = {
+        b"server_version": b"0.1.0",
+        b"esphome_version": b"2026.5.0-dev",
+        b"pin_sha256": (b"a" * 64),
+        b"remote_build_port": b"6058",
+    }
+    info.parsed_scoped_addresses = MagicMock(return_value=["10.0.0.42"])
+
+    peer = _peer_from_service_info(f"green.{SERVICE_TYPE}", info)
+
+    assert peer.pin_sha256 == "a" * 64
+    assert peer.remote_build_port == 6058
+
+
+def test_peer_from_service_info_tolerates_malformed_remote_build_port() -> None:
+    """A non-numeric ``remote_build_port`` lands as 0 (rebind path skips on 0).
+
+    Defensive: a corrupted broadcast shouldn't raise into the
+    browser callback (which would abort the resolve task and
+    silently lose the peer). Lands as 0 instead, and the rebind
+    early-return on ``remote_build_port == 0`` skips the row.
+    """
+    info = MagicMock()
+    info.name = f"green.{SERVICE_TYPE}"
+    info.server = "green.local."
+    info.port = 6052
+    info.properties = {
+        b"server_version": b"",
+        b"esphome_version": b"",
+        b"pin_sha256": (b"a" * 64),
+        b"remote_build_port": b"not-a-number",
+    }
+    info.parsed_scoped_addresses = MagicMock(return_value=[])
+
+    peer = _peer_from_service_info(f"green.{SERVICE_TYPE}", info)
+
+    assert peer.remote_build_port == 0
+
+
 def test_on_service_state_change_removed_drops_peer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
