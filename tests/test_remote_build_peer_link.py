@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -86,6 +86,27 @@ def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
 def _seed_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
     """Insert *peer* into the controller's RAM-canonical APPROVED dict."""
     controller._approved_peers[peer.dashboard_id] = peer
+
+
+async def _wait_until(condition: Callable[[], bool], *, timeout: float = 2.0) -> None:
+    """Yield to the loop until *condition()* returns truthy or *timeout* elapses.
+
+    Raises :exc:`TimeoutError` (via :func:`asyncio.wait_for`) when
+    the condition stays false past *timeout* — surfaces a
+    deterministic failure in place of a silent
+    ``for _ in range(N): sleep(0)`` loop that would otherwise
+    fall through and let the next assertion produce a misleading
+    error message. Use for waits whose synchronisation source is
+    a piece of mutated state (registry dict membership, attribute
+    flip) rather than a callback we can wire an
+    :class:`asyncio.Event` into.
+    """
+
+    async def _spin() -> None:
+        while not condition():
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_spin(), timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -1063,16 +1084,12 @@ async def test_e2e_peer_link_session_stays_open_after_intent_response(
         client, dashboard_id="alpha", initiator_priv=initiator_priv
     )
     try:
-        # Allow the handler enough loop ticks to drop into the
-        # receive loop. If the WS closed, ``ws.closed`` would
-        # flip; if it's still open, we're in the session loop.
-        for _ in range(10):
-            await asyncio.sleep(0)
-            if ws.closed:
-                break
+        # Wait for the handler to drop into the receive loop —
+        # registration happens just before. If the WS closed
+        # instead, ``"alpha"`` would never land in the dict and
+        # the wait would time out (deterministic failure).
+        await _wait_until(lambda: "alpha" in controller._peer_link_sessions)
         assert not ws.closed
-        # Controller registered the session.
-        assert "alpha" in controller._peer_link_sessions
     finally:
         await ws.close()
 
@@ -1174,22 +1191,13 @@ async def test_e2e_peer_link_session_unregistered_on_peer_close(
     _session, ws, _ = await _drive_peer_link_session_open(
         client, dashboard_id="alpha", initiator_priv=initiator_priv
     )
-    # Wait for the registry to settle.
-    for _ in range(10):
-        await asyncio.sleep(0)
-        if "alpha" in controller._peer_link_sessions:
-            break
-    assert "alpha" in controller._peer_link_sessions
+    await _wait_until(lambda: "alpha" in controller._peer_link_sessions)
 
     await ws.close()
 
     # The receiver's session loop sees the close, exits, and
     # ``unregister_peer_link_session`` runs in its ``finally``.
-    for _ in range(20):
-        await asyncio.sleep(0)
-        if "alpha" not in controller._peer_link_sessions:
-            break
-    assert "alpha" not in controller._peer_link_sessions
+    await _wait_until(lambda: "alpha" not in controller._peer_link_sessions)
 
 
 @pytest.mark.asyncio
@@ -1215,11 +1223,7 @@ async def test_e2e_peer_link_session_drained_on_controller_stop(
         client, dashboard_id="alpha", initiator_priv=initiator_priv
     )
     try:
-        for _ in range(10):
-            await asyncio.sleep(0)
-            if "alpha" in controller._peer_link_sessions:
-                break
-        assert "alpha" in controller._peer_link_sessions
+        await _wait_until(lambda: "alpha" in controller._peer_link_sessions)
 
         # ``stop()`` runs in the same loop; the test fixture
         # also calls ``stop()`` on teardown but we drive it
