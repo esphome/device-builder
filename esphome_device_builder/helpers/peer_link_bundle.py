@@ -65,6 +65,16 @@ BUNDLE_CHUNK_SIZE_BYTES = 32 * 1024
 # a bundle. 5c-2 may revise based on production bundle sizes.
 BUNDLE_MAX_TOTAL_BYTES = 4 * 1024 * 1024
 
+# Hard cap on the assembled firmware binary (phase 6a). Typical
+# ESP32 firmware is 800 KiB - 1.5 MiB; ESP32-S3 with PSRAM
+# can reach ~4 MiB; future variants may grow further. 16 MiB
+# is well above the realistic ceiling but bounded enough that
+# a misbehaving receiver can't pin arbitrary memory pretending
+# to send firmware. Same buffer-size rationale as
+# :data:`BUNDLE_MAX_TOTAL_BYTES`, just with the larger cap
+# the firmware-binary direction needs.
+FIRMWARE_MAX_TOTAL_BYTES = 16 * 1024 * 1024
+
 
 class BundleAssemblerErrorCode(StrEnum):
     """
@@ -183,28 +193,45 @@ def compute_bundle_sha256(data: bytes) -> str:
 
 
 class BundleAssembler:
-    """Reassemble bundle bytes from a stream of in-order chunks.
+    """Reassemble payload bytes from a stream of in-order chunks.
 
-    Driven by the receiver-side dispatch (5c-2) once a
-    ``submit_job`` header has been parsed. The header values
-    are passed to ``__init__`` so every subsequent
-    :meth:`feed` call can validate against a captured baseline
-    rather than re-reading them from each chunk's envelope.
+    Driven by both:
+
+    * **Receiver-side bundle assembly** (5c-2 — bundle upload) —
+      after the receiver's dispatch parses a ``submit_job``
+      header, it constructs one of these against
+      :data:`BUNDLE_MAX_TOTAL_BYTES` (the default) and feeds
+      each inbound ``submit_job_chunk``.
+    * **Offloader-side firmware assembly** (6a — firmware
+      download) — after the offloader receives a
+      ``firmware_start`` header, it constructs one against
+      :data:`FIRMWARE_MAX_TOTAL_BYTES` (passed as
+      ``max_total_bytes`` kwarg) and feeds each inbound
+      ``firmware_chunk``.
+
+    Same wire shape, same validation rules, same finalise
+    semantics — only the size cap differs between the two
+    callers. The header values (``total_bytes``,
+    ``num_chunks``, ``sha256_hex``) are passed to ``__init__``
+    so every subsequent :meth:`feed` call can validate against
+    a captured baseline rather than re-reading them from each
+    chunk's envelope.
 
     Lifecycle:
 
     1. Construct with the header values (``total_bytes``,
-       ``num_chunks``, ``sha256_hex``).
+       ``num_chunks``, ``sha256_hex``); optionally override
+       ``max_total_bytes``.
     2. Call :meth:`feed` once per inbound chunk, in order, with
        its ``chunk_index``, decoded raw bytes, and ``is_last``
        flag. Mismatches raise :class:`BundleAssemblerError`.
     3. After the chunk with ``is_last=True`` lands, call
        :meth:`finalise` to validate the assembled stream
-       against the header and return the bundle bytes.
+       against the header and return the bytes.
 
     Re-feeding after :meth:`finalise` succeeds raises
     ``POST_COMPLETION``. The instance is single-use; spin a
-    fresh assembler per ``submit_job``.
+    fresh assembler per inbound stream.
     """
 
     def __init__(
@@ -213,16 +240,16 @@ class BundleAssembler:
         total_bytes: int,
         num_chunks: int,
         sha256_hex: str,
+        max_total_bytes: int = BUNDLE_MAX_TOTAL_BYTES,
     ) -> None:
         if total_bytes <= 0:
             _fail(_Code.EMPTY_BUNDLE, f"total_bytes must be positive; got {total_bytes}")
         if num_chunks <= 0:
             _fail(_Code.CHUNK_COUNT_MISMATCH, f"num_chunks must be positive; got {num_chunks}")
-        if total_bytes > BUNDLE_MAX_TOTAL_BYTES:
+        if total_bytes > max_total_bytes:
             _fail(
                 _Code.OVERSIZED,
-                f"announced total_bytes {total_bytes} exceeds "
-                f"BUNDLE_MAX_TOTAL_BYTES {BUNDLE_MAX_TOTAL_BYTES}",
+                f"announced total_bytes {total_bytes} exceeds max_total_bytes {max_total_bytes}",
             )
         self._total_bytes = total_bytes
         self._num_chunks = num_chunks

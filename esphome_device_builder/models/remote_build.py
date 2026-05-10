@@ -891,6 +891,129 @@ class JobOutputFrameData(TypedDict):
     line: str
 
 
+class DownloadArtifactsFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.DOWNLOAD_ARTIFACTS``.
+
+    Offloader → receiver request to fetch the build-artifact
+    bundle for a previously-completed remote build (phase 6a).
+    ``job_id`` is the offloader-supplied id from the original
+    ``submit_job`` header — the value the receiver stashed as
+    :attr:`FirmwareJob.remote_job_id`. The receiver resolves
+    it to the local :class:`FirmwareJob` by walking
+    :attr:`FirmwareController._jobs`; the job must be in
+    ``COMPLETED`` status (only completed builds have artifacts
+    on disk).
+
+    On success the receiver packs the build directory's
+    ``.pioenvs/<name>/*.bin`` / ``*.uf2`` outputs plus
+    ``idedata.json`` (esphome already emits the latter — it
+    carries the per-image flash offsets the offloader's Web
+    Serial / esptool path needs) into a gzipped tar, then
+    streams back ``artifacts_start`` (header with total_bytes
+    + num_chunks + artifacts_sha256) → N ``artifacts_chunk``
+    frames → ``artifacts_end{accepted=true}``. On failure
+    (unknown correlation, non-terminal job, missing build
+    dir, disk read error) the receiver sends
+    ``artifacts_end{accepted=false}`` and a structured
+    ``reason`` immediately, without any preceding
+    ``artifacts_start``.
+
+    The assembled bytes on the offloader side are a tar.gz —
+    extracting yields bootloader / partition / firmware
+    binaries plus the idedata manifest in one atomic
+    transport with a single SHA-256.
+    """
+
+    type: Literal["download_artifacts"]
+    job_id: str
+
+
+class ArtifactsStartFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.ARTIFACTS_START``.
+
+    Receiver-pushed header announcing a build-artifact
+    tarball stream for the offloader's previously-requested
+    ``download_artifacts`` (phase 6a). Carries
+    ``total_bytes`` so the offloader can pre-size the
+    assembly buffer + reject a mismatched stream cleanly;
+    ``num_chunks`` matches the chunk count the receiver will
+    actually send (assembler validates against this on every
+    chunk); ``artifacts_sha256`` is the lowercase hex digest
+    the offloader recomputes after assembly to catch
+    chunk-reordering bugs in our own framing (the per-frame
+    Noise AEAD already covers wire confidentiality +
+    authentication, so the hash isn't a security check).
+
+    Fires only on the success path. A failed download sends
+    ``artifacts_end`` with ``accepted=false`` and skips
+    ``artifacts_start`` entirely.
+    """
+
+    type: Literal["artifacts_start"]
+    job_id: str
+    total_bytes: int
+    num_chunks: int
+    artifacts_sha256: str
+
+
+class ArtifactsChunkFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.ARTIFACTS_CHUNK``.
+
+    One slice of the build-artifact tarball (phase 6a). Same
+    wire shape as :class:`SubmitJobChunkFrameData` but for
+    the reverse direction — bytes are base64-encoded inside
+    the JSON envelope so the dispatch seam stays uniform
+    across the bundle-upload and artifacts-download flows.
+    The offloader decodes back to raw bytes before feeding
+    its :class:`BundleAssembler` (configured with
+    :data:`FIRMWARE_MAX_TOTAL_BYTES`). Chunks must arrive in
+    monotonic order; the assembler rejects out-of-order,
+    duplicate, or post-completion frames with a structured
+    error so a misbehaving receiver can be ``terminate``'d
+    cleanly instead of corrupting the assembled bytes.
+    """
+
+    type: Literal["artifacts_chunk"]
+    job_id: str
+    chunk_index: int
+    data_b64: str
+    is_last: bool
+
+
+class ArtifactsEndFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.ARTIFACTS_END``.
+
+    Receiver's terminator frame for a ``download_artifacts``
+    request (phase 6a). Doubles as the success/failure ack:
+
+    * **Success path** — fires after the last chunk
+      (``is_last=true``) has been sent; ``accepted=true``,
+      ``reason`` omitted. The offloader validates the
+      assembled bytes against the announced
+      ``artifacts_sha256`` from ``artifacts_start`` before
+      resolving the per-job download future with the
+      tarball bytes.
+    * **Failure path** — fires *instead of* any
+      ``artifacts_start`` / ``artifacts_chunk`` when the
+      receiver-side dispatch refuses the request upfront
+      (unknown correlation, non-terminal job, missing build
+      dir, pack failure, disk error). ``accepted=false``
+      with a structured ``reason``; ``reason`` is omitted
+      on accept (``NotRequired`` so the success payload is
+      ``{type, job_id, accepted: true}`` with no extra
+      field).
+    """
+
+    type: Literal["artifacts_end"]
+    job_id: str
+    accepted: bool
+    reason: NotRequired[str]
+
+
 class CancelJobFrameData(TypedDict):
     """
     Application-frame payload for ``AppMessageType.CANCEL_JOB``.

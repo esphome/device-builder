@@ -258,6 +258,32 @@ class AppMessageType(StrEnum):
     # ``status="cancelled"`` is the confirmation the offloader
     # already has plumbing for.
     CANCEL_JOB = "cancel_job"
+    # 6a: offloader → receiver build-artifact fetch. The
+    # offloader sends ``download_artifacts`` carrying the
+    # offloader-supplied ``job_id`` from the original
+    # ``submit_job`` header. The receiver resolves it to the
+    # matching :class:`FirmwareJob` (must be in ``COMPLETED``
+    # status — only completed builds have artifacts on disk),
+    # packs the build directory's ``.pioenvs/<name>/*.bin`` /
+    # ``*.uf2`` outputs plus ``idedata.json`` (esphome already
+    # emits the latter — it carries the per-image flash
+    # offsets the offloader's Web Serial / esptool path
+    # needs) into a gzipped tar in an executor, then streams
+    # the assembled bytes back as ``artifacts_start`` (header
+    # with total_bytes + num_chunks + artifacts_sha256)
+    # followed by ``artifacts_chunk`` frames (base64 inside
+    # the JSON envelope, same shape as ``submit_job_chunk``)
+    # followed by ``artifacts_end`` (success+sha256-confirmed
+    # or failure-with-reason). Single stream rather than one
+    # frame per artifact: the offloader gets bootloader.bin +
+    # partitions.bin + firmware.bin + idedata.json in one
+    # atomic transport with a single SHA-256, and the wire
+    # format doesn't grow when a future platform adds another
+    # required output. See phase 6a in #106.
+    DOWNLOAD_ARTIFACTS = "download_artifacts"
+    ARTIFACTS_START = "artifacts_start"
+    ARTIFACTS_CHUNK = "artifacts_chunk"
+    ARTIFACTS_END = "artifacts_end"
 
 
 async def make_peer_link_handler(
@@ -753,6 +779,17 @@ async def _receive_loop(session: PeerLinkSession, controller: RemoteBuildControl
             # event fans out a ``job_state_changed{cancelled}``
             # which the offloader already plumbs.
             await controller.handle_cancel_job(session, parsed)
+            continue
+        if msg_type == AppMessageType.DOWNLOAD_ARTIFACTS.value:
+            # 6a: offloader is requesting the built-firmware
+            # artifact set for a previously-completed job. The
+            # sender packs idedata.json + every flash image
+            # listed in ``idedata.flash_images`` into a
+            # gzipped tarball + streams it back via
+            # ``artifacts_start`` → chunks → ``artifacts_end``.
+            await controller.get_artifacts_download_sender().handle_download_artifacts(
+                session, parsed
+            )
             continue
         _LOGGER.debug(
             "peer-link unknown app frame type %r from %s; ignoring",

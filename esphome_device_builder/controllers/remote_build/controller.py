@@ -134,6 +134,7 @@ from ..config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
 )
+from .artifacts_download import ArtifactsDownloadSender
 from .job_fanout import JobFanout
 from .peer_link import PeerLinkSession, TerminateReason
 from .peer_link_client import (
@@ -1072,6 +1073,18 @@ class RemoteBuildController:
         # after ``start``, so the not-yet-installed window is
         # never reachable on a healthy code path.
         self._submit_job_receiver: SubmitJobReceiver | None = None
+        # Receiver-side ``download_artifacts`` flow handler (6a).
+        # Same lifecycle as :attr:`_submit_job_receiver`:
+        # constructed in :meth:`start` once the firmware
+        # controller is available, accessed by the peer-link
+        # receive loop's ``DOWNLOAD_ARTIFACTS`` dispatch. Nullable
+        # because the controller is constructed before
+        # :meth:`start`; the wire dispatch into
+        # :meth:`get_artifacts_download_sender` raises if the
+        # not-yet-installed window were ever reached (it isn't —
+        # the peer-link listener doesn't bind until after
+        # ``start``).
+        self._artifacts_download_sender: ArtifactsDownloadSender | None = None
         # Receiver-side fan-out from firmware ``JOB_*`` events to
         # ``job_state_changed`` / ``job_output`` peer-link frames
         # (5c-2b). Subscribes in :meth:`start`, detaches in
@@ -1269,6 +1282,14 @@ class RemoteBuildController:
         if self._db.firmware is not None:
             self._submit_job_receiver = SubmitJobReceiver(
                 config_dir=self._db.settings.config_dir,
+                firmware_controller=self._db.firmware,
+            )
+            # 6a: stand up the receiver-side
+            # ``download_artifacts`` handler alongside the
+            # submit-job receiver. Same firmware-controller
+            # dependency; lifecycle bound to ``start`` /
+            # ``stop``.
+            self._artifacts_download_sender = ArtifactsDownloadSender(
                 firmware_controller=self._db.firmware,
             )
             # 5c-2b: subscribe to firmware ``JOB_*`` events so
@@ -1696,6 +1717,11 @@ class RemoteBuildController:
             # populated by the time we get here.
             if self._submit_job_receiver is not None:
                 self._submit_job_receiver.discard_session(session.dashboard_id)
+            # 6a: same shape — discard any in-flight artifacts
+            # download for this session so the slot doesn't
+            # outlive the session it was streaming over.
+            if self._artifacts_download_sender is not None:
+                self._artifacts_download_sender.discard_session(session.dashboard_id)
             # Fire only when we actually dropped the slot — the
             # no-op path (a SUPERSEDED-evicted session running its
             # finally-block after the new session has taken its
@@ -1803,6 +1829,24 @@ class RemoteBuildController:
             msg = "submit_job_receiver accessed before RemoteBuildController.start()"
             raise RuntimeError(msg)
         return self._submit_job_receiver
+
+    def get_artifacts_download_sender(self) -> ArtifactsDownloadSender:
+        """Receiver-side ``download_artifacts`` flow handler (6a).
+
+        Same shape as :meth:`get_submit_job_receiver`: accessed
+        by :func:`controllers.remote_build.peer_link._receive_loop`
+        to dispatch :attr:`AppMessageType.DOWNLOAD_ARTIFACTS`
+        frames, raises :class:`RuntimeError` if accessed before
+        :meth:`start` installed the sender. Same
+        not-a-property rationale —
+        :func:`helpers.api.collect_api_commands` walks public
+        attributes at start and a property would fire too
+        early.
+        """
+        if self._artifacts_download_sender is None:
+            msg = "artifacts_download_sender accessed before RemoteBuildController.start()"
+            raise RuntimeError(msg)
+        return self._artifacts_download_sender
 
     async def stop(self) -> None:
         """Cancel the browser and drain in-flight resolve tasks."""
