@@ -35,6 +35,7 @@ from esphome_device_builder.controllers import remote_build_peer_link_client
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build_peer_link import (
     PEER_LINK_PATH,
+    PeerLinkChannel,
     make_peer_link_handler,
 )
 from esphome_device_builder.controllers.remote_build_peer_link_client import (
@@ -1872,6 +1873,45 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
 # ---------------------------------------------------------------------------
 
 
+def _build_handshake_pair() -> tuple[PeerLinkNoiseSession, PeerLinkNoiseSession]:
+    """Drive a 3-message Noise XX handshake against itself; return both sides finalised."""
+    initiator = PeerLinkNoiseSession.initiator(secrets.token_bytes(32))
+    responder = PeerLinkNoiseSession.responder(secrets.token_bytes(32))
+    responder.read_handshake_message(initiator.write_handshake_message(b""))
+    initiator.read_handshake_message(responder.write_handshake_message(b""))
+    responder.read_handshake_message(initiator.write_handshake_message(b""))
+    return initiator, responder
+
+
+class _ParkingWs:
+    """Async-iterable fake WS that parks ``__anext__`` until ``close()`` is called.
+
+    Used in unit tests for :meth:`PeerLinkClient._run_session_loops`
+    where we want the receive loop to park until something else
+    (a stubbed heartbeat, a manual close call) wakes it. Once
+    ``close()`` runs, the parked ``__anext__`` raises
+    :class:`StopAsyncIteration` and the receive loop exits.
+    """
+
+    def __init__(self, closed_event: asyncio.Event) -> None:
+        self._closed_event = closed_event
+        self.closed = False
+
+    async def send_bytes(self, _data: bytes) -> None:  # pragma: no cover — no-op
+        pass
+
+    async def close(self) -> None:
+        self.closed = True
+        self._closed_event.set()
+
+    def __aiter__(self) -> _ParkingWs:
+        return self
+
+    async def __anext__(self) -> Any:
+        await self._closed_event.wait()
+        raise StopAsyncIteration
+
+
 async def _seed_approved_peer_for_initiator(
     receiver_controller: RemoteBuildController,
     *,
@@ -2104,3 +2144,124 @@ async def test_peer_link_client_reconnects_on_transport_error(
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_run_session_loops_returns_heartbeat_timeout_when_dead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The heartbeat ``on_dead`` callback writes ``heartbeat_timeout`` into the close reason.
+
+    Regression: pre-fix the receive loop's ``async for`` exited
+    after the heartbeat task closed the WS without overwriting
+    ``close_reason``, so the bus event lied about the cause as
+    ``peer_hung_up``. The fix uses :class:`_SessionLoopState`
+    so heartbeat-driven closes write the real cause into a
+    field both loops share.
+
+    Stubs ``run_peer_link_heartbeat`` to invoke its provided
+    ``on_dead`` immediately, then closes the parking WS — the
+    receive loop exits and returns the populated close reason.
+    No real timing involved.
+    """
+    initiator, _responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+    ws = _ParkingWs(closed_event)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    async def _fake_heartbeat(
+        *,
+        send_ping: Any,
+        last_pong_at: Any,
+        on_dead: Any,
+    ) -> None:
+        await on_dead()
+
+    monkeypatch.setattr(remote_build_peer_link_client, "run_peer_link_heartbeat", _fake_heartbeat)
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=EventBus(),
+    )
+
+    close_reason = await client._run_session_loops(channel)
+
+    assert close_reason == "heartbeat_timeout"
+
+
+@pytest.mark.asyncio
+async def test_peer_link_client_backoff_advances_when_session_never_opens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repeated never-opened sessions advance backoff exponentially; openings reset it.
+
+    Regression: pre-fix the run loop checked
+    ``_last_close_reason``, which only got set on the
+    auth-rejected path; transport errors left it ``None`` and
+    every iteration reset the backoff. The fix tracks
+    ``_session_was_opened`` and only resets the backoff when
+    the previous session reached ``intent_response: ok``.
+
+    Stubs out ``_run_one_session`` so the test controls the
+    sequence of "did this iteration open a session?" deterministically,
+    and stubs ``asyncio.sleep`` to capture the requested
+    backoff windows without actually sleeping.
+    """
+    initial = 1.0
+    cap = 30.0
+    monkeypatch.setattr(
+        remote_build_peer_link_client, "_RECONNECT_INITIAL_BACKOFF_SECONDS", initial
+    )
+    monkeypatch.setattr(remote_build_peer_link_client, "_RECONNECT_MAX_BACKOFF_SECONDS", cap)
+
+    backoffs_observed: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def _capturing_sleep(delay: float) -> None:
+        if delay >= initial:
+            backoffs_observed.append(delay)
+        await real_sleep(0)
+
+    monkeypatch.setattr(remote_build_peer_link_client.asyncio, "sleep", _capturing_sleep)
+
+    bus = EventBus()
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=bus,
+    )
+
+    # Iteration plan: (was_opened, close_reason)
+    #   1. transport_error, never opened → backoff doubles 1 → 2
+    #   2. transport_error, never opened → backoff doubles 2 → 4
+    #   3. peer_hung_up,    *opened*    → backoff resets to 1
+    #   4. transport_error, never opened → backoff doubles 1 → 2
+    plan = [
+        (False, "transport_error"),
+        (False, "transport_error"),
+        (True, "peer_hung_up"),
+        (False, "transport_error"),
+    ]
+    plan_iter = iter(plan)
+
+    async def _fake_run_one_session() -> str:
+        try:
+            opened, reason = next(plan_iter)
+        except StopIteration:
+            # No more iterations — orphan the client so run()
+            # exits cleanly.
+            client._orphaned = True
+            return "superseded"
+        client._session_was_opened = opened
+        return reason
+
+    monkeypatch.setattr(client, "_run_one_session", _fake_run_one_session)
+
+    await client.run()
+
+    assert backoffs_observed == [2.0, 4.0, 1.0, 2.0]
