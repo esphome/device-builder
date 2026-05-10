@@ -573,7 +573,7 @@ When changing the sync script or catalog handling, watch for these:
 | Path | What |
 |---|---|
 | `esphome_device_builder/device_builder.py` | Singleton owning controllers + event bus |
-| `esphome_device_builder/controllers/*.py` | One file per API surface (devices, firmware, components, boards, ...) |
+| `esphome_device_builder/controllers/*.py` | One file per API surface (components, boards, labels, ...). Larger surfaces (devices, firmware, remote_build) are packages — same shape, with a `controller.py` for the main class plus per-concern submodules and an `__init__.py` re-exporting the controller. |
 | `esphome_device_builder/models/*.py` | Data classes (mashumaro) — pure shape, no logic |
 | `esphome_device_builder/api/ws.py` | WebSocket dispatch |
 | `esphome_device_builder/definitions/components.json` | Generated; do not hand-edit |

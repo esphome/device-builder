@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.remote_build_job_fanout import JobFanout
+from esphome_device_builder.controllers.remote_build.job_fanout import JobFanout
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
     EventType,
@@ -265,7 +265,7 @@ async def test_queued_with_missing_remote_job_id_logs_and_skips_cache(
     job = _make_remote_job(remote_job_id="")
     debug_calls: list[str] = []
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_job_fanout._LOGGER.debug",
+        "esphome_device_builder.controllers.remote_build.job_fanout._LOGGER.debug",
         lambda fmt, *args, **kwargs: debug_calls.append(fmt % args if args else fmt),
     )
 

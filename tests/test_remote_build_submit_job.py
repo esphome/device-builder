@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from esphome.bundle import EsphomeError
 
-from esphome_device_builder.controllers.remote_build_submit_job import (
+from esphome_device_builder.controllers.remote_build.submit_job import (
     SubmitJobReceiver,
     _validate_configuration_filename,
 )
@@ -480,7 +480,7 @@ async def test_submit_job_happy_path_extracts_and_queues(
         return expected_yaml
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_submit_job.prepare_bundle_for_compile",
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
         _stub_prepare,
     )
 
@@ -553,7 +553,7 @@ async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
     session = _make_session(dashboard_id="../../escape")
     bundle = b"hello"
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_submit_job.prepare_bundle_for_compile",
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
         lambda _bundle, _target: tmp_path / "kitchen.yaml",
     )
 
@@ -579,7 +579,7 @@ async def test_submit_job_enqueue_failure_rejects(
     bundle = b"hello"
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_submit_job.prepare_bundle_for_compile",
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
         lambda _bundle, target: target / "kitchen.yaml",
     )
 
@@ -607,7 +607,7 @@ async def test_submit_job_extract_failure_rejects_without_terminate(
         raise EsphomeError("bundle invalid: missing manifest")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_submit_job.prepare_bundle_for_compile",
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
         _failing_prepare,
     )
 

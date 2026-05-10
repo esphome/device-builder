@@ -43,7 +43,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
-from esphome_device_builder.controllers.remote_build_peer_link import (
+from esphome_device_builder.controllers.remote_build.peer_link import (
     PEER_LINK_PATH,
     make_peer_link_handler,
 )

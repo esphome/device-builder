@@ -34,11 +34,11 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from noise.exceptions import NoiseInvalidMessage
 from noise.exceptions import NoiseInvalidMessage as _NoiseInvalidMessage
 
-from esphome_device_builder.controllers import (
-    remote_build_peer_link as _peer_link_module,
-)
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
-from esphome_device_builder.controllers.remote_build_peer_link import (
+from esphome_device_builder.controllers.remote_build import (
+    peer_link as _peer_link_module,
+)
+from esphome_device_builder.controllers.remote_build.peer_link import (
     _PEER_LABEL_MAX_CHARS,
     APP_FRAME_MAX_BYTES,
     PEER_LINK_PATH,
@@ -59,7 +59,7 @@ from esphome_device_builder.controllers.remote_build_peer_link import (
     _send_response,
     make_peer_link_handler,
 )
-from esphome_device_builder.controllers.remote_build_submit_job import (
+from esphome_device_builder.controllers.remote_build.submit_job import (
     SubmitJobReceiver,
 )
 from esphome_device_builder.helpers import json as _json
@@ -371,7 +371,7 @@ async def test_read_handshake_message_timeout_returns_none(
 ) -> None:
     """A peer that opens TCP but never sends msg1 falls through the timeout branch."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
+        "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
     session = PeerLinkNoiseSession.responder(secrets.token_bytes(32))
@@ -461,7 +461,7 @@ async def test_drive_session_msg1_timeout_returns_quietly(
 ) -> None:
     """A peer that never sends msg1 closes the WS without dispatching anything."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
+        "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
     controller = MagicMock(spec=RemoteBuildController)
@@ -491,7 +491,7 @@ async def test_handler_logs_unexpected_exception(
         raise RuntimeError("synthetic")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link._drive_peer_link_session",
+        "esphome_device_builder.controllers.remote_build.peer_link._drive_peer_link_session",
         _boom,
     )
 
@@ -501,12 +501,12 @@ async def test_handler_logs_unexpected_exception(
     ws_response = AsyncMock(spec=web.WebSocketResponse)
     ws_response.closed = False
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link.web.WebSocketResponse",
+        "esphome_device_builder.controllers.remote_build.peer_link.web.WebSocketResponse",
         lambda: ws_response,
     )
 
     with caplog.at_level(
-        "ERROR", logger="esphome_device_builder.controllers.remote_build_peer_link"
+        "ERROR", logger="esphome_device_builder.controllers.remote_build.peer_link"
     ):
         await handler(request)
     assert any("peer-link session error" in record.message for record in caplog.records)
@@ -587,7 +587,7 @@ async def test_drive_session_unknown_intent_msg3_read_failure(
 ) -> None:
     """Unknown intent + peer disconnects before msg3 closes without a response frame."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
+        "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
     controller = MagicMock(spec=RemoteBuildController)
@@ -636,7 +636,7 @@ async def test_drive_session_happy_path_msg3_read_failure(
 ) -> None:
     """Known intent + msg2 sends + msg3 read times out → driver bails before dispatch."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
+        "esphome_device_builder.controllers.remote_build.peer_link._HANDSHAKE_READ_TIMEOUT_SECONDS",
         0.01,
     )
     controller = MagicMock(spec=RemoteBuildController)
@@ -680,7 +680,7 @@ async def test_drive_session_handshake_not_complete_logs_and_returns(
 
     real_session = PeerLinkNoiseSession.responder(responder_priv)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_peer_link.PeerLinkNoiseSession.responder",
+        "esphome_device_builder.controllers.remote_build.peer_link.PeerLinkNoiseSession.responder",
         lambda priv: real_session,
     )
 
@@ -710,7 +710,7 @@ async def test_drive_session_handshake_not_complete_logs_and_returns(
         )
         with caplog.at_level(
             "WARNING",
-            logger="esphome_device_builder.controllers.remote_build_peer_link",
+            logger="esphome_device_builder.controllers.remote_build.peer_link",
         ):
             await _drive_peer_link_session(controller, ws, "10.0.0.1", responder_priv)
 
@@ -1332,7 +1332,7 @@ async def test_e2e_submit_job_dispatches_to_receiver(
     """A ``submit_job`` header + chunks over the wire dispatches to the receiver.
 
     Drives the receive-loop branches in
-    :func:`controllers.remote_build_peer_link._receive_loop`
+    :func:`controllers.remote_build.peer_link._receive_loop`
     that route ``SUBMIT_JOB`` / ``SUBMIT_JOB_CHUNK`` to the
     :class:`SubmitJobReceiver`. Stubs
     :func:`prepare_bundle_for_compile` because the real
@@ -1364,7 +1364,7 @@ async def test_e2e_submit_job_dispatches_to_receiver(
         return extracted_path
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build_submit_job.prepare_bundle_for_compile",
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
         _stub_prepare,
     )
     bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")

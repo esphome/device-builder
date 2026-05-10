@@ -44,8 +44,8 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal
 
-from ..helpers.event_bus import Event
-from ..models import (
+from ...helpers.event_bus import Event
+from ...models import (
     TERMINAL_JOB_EVENTS,
     EventType,
     JobLifecycleData,
@@ -55,8 +55,8 @@ from ..models import (
 )
 
 if TYPE_CHECKING:
-    from .remote_build import RemoteBuildController
-    from .remote_build_peer_link import PeerLinkSession
+    from .controller import RemoteBuildController
+    from .peer_link import PeerLinkSession
 
 _LOGGER = logging.getLogger(__name__)
 

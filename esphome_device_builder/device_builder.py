@@ -42,7 +42,7 @@ from .controllers.firmware import FirmwareController
 from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import RemoteBuildController
-from .controllers.remote_build_peer_link import PEER_LINK_PATH, make_peer_link_handler
+from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser

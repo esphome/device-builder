@@ -40,14 +40,14 @@ from typing import TYPE_CHECKING, Any
 import aiohttp
 from yarl import URL
 
-from ..helpers import json as _json
-from ..helpers.peer_link_noise import (
+from ...helpers import json as _json
+from ...helpers.peer_link_noise import (
     NOISE_ERRORS,
     HandshakeNotCompleteError,
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
-from ..models import (
+from ...models import (
     EventType,
     IntentResponse,
     OffloaderPairPinMismatchData,
@@ -56,7 +56,7 @@ from ..models import (
     OffloaderQueueStatusChangedData,
     PeerLinkIntent,
 )
-from .remote_build_peer_link import (
+from .peer_link import (
     APP_FRAME_MAX_BYTES,
     PEER_LINK_PATH,
     AppMessageType,
@@ -66,7 +66,7 @@ from .remote_build_peer_link import (
 )
 
 if TYPE_CHECKING:
-    from ..helpers.event_bus import EventBus
+    from ...helpers.event_bus import EventBus
 
 _LOGGER = logging.getLogger(__name__)
 

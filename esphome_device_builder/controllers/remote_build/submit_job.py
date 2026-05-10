@@ -61,13 +61,13 @@ from typing import TYPE_CHECKING, Any, cast
 
 from esphome.bundle import EsphomeError, prepare_bundle_for_compile
 
-from ..helpers.peer_link_bundle import (
+from ...helpers.peer_link_bundle import (
     BundleAssembler,
     BundleAssemblerError,
     BundleAssemblerErrorCode,
     decode_chunk,
 )
-from ..models import (
+from ...models import (
     JobType,
     SubmitJobAckFrameData,
     SubmitJobChunkFrameData,
@@ -75,8 +75,8 @@ from ..models import (
 )
 
 if TYPE_CHECKING:
-    from .firmware import FirmwareController
-    from .remote_build_peer_link import PeerLinkSession
+    from ..firmware import FirmwareController
+    from .peer_link import PeerLinkSession
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -628,7 +628,7 @@ class SubmitJobReceiver:
         # module via :class:`SubmitJobReceiver`-shaped duck
         # typing in its receive loop, but only the
         # ``TerminateReason`` enum reads back the other way.
-        from .remote_build_peer_link import TerminateReason  # noqa: PLC0415
+        from .peer_link import TerminateReason  # noqa: PLC0415
 
         if drop_inflight:
             self._inflight.pop(session.dashboard_id, None)
