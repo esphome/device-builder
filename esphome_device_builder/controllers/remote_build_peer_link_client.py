@@ -308,7 +308,7 @@ async def drive_initiator_round_trip(
                 msg3_payload=msg3_payload,
                 read_timeout_seconds=timeout_seconds,
             )
-    except (TimeoutError, aiohttp.ClientError, OSError, ValueError) as exc:
+    except (TimeoutError, aiohttp.ClientError, OSError, ValueError, TypeError) as exc:
         msg = f"{label} failed: {exc}"
         _LOGGER.debug(msg, exc_info=True)
         raise PeerLinkClientError(msg) from exc
@@ -843,7 +843,7 @@ class PeerLinkClient:
                     # close), so the frame goes out reliably.
                     await channel.send_terminate(_LOCAL_CLOSE_CLIENT_STOPPED)
                     raise
-        except (TimeoutError, aiohttp.ClientError, OSError, ValueError) as exc:
+        except (TimeoutError, aiohttp.ClientError, OSError, ValueError, TypeError) as exc:
             _LOGGER.debug(
                 "peer-link client to %s:%d transport error: %s",
                 self._hostname,

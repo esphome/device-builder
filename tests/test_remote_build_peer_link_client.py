@@ -2576,6 +2576,54 @@ def test_peer_link_client_exposes_receiver_coordinates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_peer_link_client_returns_transport_error_on_type_error(
+    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``TypeError`` from the handshake (e.g. non-binary frame) maps to ``transport_error``.
+
+    Covers the ``TypeError`` branch of the transport-exception
+    catch in :meth:`PeerLinkClient._run_one_session`.
+    aiohttp's ``ClientWebSocketResponse.receive_bytes()`` raises
+    ``TypeError`` when the peer sends a TEXT frame or closes
+    abruptly mid-handshake; without this branch the exception
+    would bubble out and kill the long-lived task instead of
+    triggering a reconnect.
+    """
+    server, _receiver, _ = receiver_server
+
+    async def _typeerror_handshake(**kwargs: Any) -> bytes:
+        raise TypeError("Received non-binary message")
+
+    monkeypatch.setattr(
+        remote_build_peer_link_client,
+        "_drive_initiator_handshake_and_read_response",
+        _typeerror_handshake,
+    )
+
+    bus = EventBus()
+    closed = capture_events(bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        bus=bus,
+    )
+    task = asyncio.create_task(client.run())
+    try:
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if closed:
+                break
+        assert closed, "expected an OFFLOADER_PEER_LINK_CLOSED event"
+        assert closed[0]["reason"] == "transport_error"
+    finally:
+        await cancel_and_drain(task)
+
+
+@pytest.mark.asyncio
 async def test_peer_link_client_returns_transport_error_on_noise_failure(
     receiver_server: tuple[TestServer, RemoteBuildController, str],
     monkeypatch: pytest.MonkeyPatch,
