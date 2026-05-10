@@ -113,6 +113,7 @@ from .config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
 )
+from .remote_build_peer_link import PeerLinkSession, TerminateReason
 from .remote_build_peer_link_client import (
     PairStatusResult,
     PeerLinkClientError,
@@ -759,6 +760,17 @@ class RemoteBuildController:
         # would expose is closed structurally. Cleared in
         # :meth:`stop` for shutdown ordering.
         self._approved_peers: dict[str, StoredPeer] = {}
+        # Active long-lived peer-link sessions, keyed on the
+        # offloader's ``dashboard_id``. Populated by
+        # :meth:`register_peer_link_session` after a successful
+        # ``intent="peer_link"`` Noise handshake (5a-1) and
+        # cleared on session exit (peer close / heartbeat
+        # timeout / shutdown). One entry per dashboard_id —
+        # a duplicate connect kicks the older session via
+        # ``_TerminateReason.SUPERSEDED`` so a restarted
+        # offloader takes over its previous slot rather than
+        # doubling. Drained in :meth:`stop`.
+        self._peer_link_sessions: dict[str, PeerLinkSession] = {}
         # Single offloader-side ``StoredPairing`` map: contains both
         # PENDING and APPROVED rows, keyed on
         # ``(receiver_hostname, receiver_port)``. Source of truth at
@@ -863,6 +875,44 @@ class RemoteBuildController:
             _LOGGER.exception("Could not start remote-build browser; peer discovery disabled")
             self._browser = None
 
+    async def register_peer_link_session(self, session: PeerLinkSession) -> None:
+        """
+        Register *session* in the active peer-link registry.
+
+        If a session already exists for the same ``dashboard_id``,
+        it's evicted via :class:`TerminateReason.SUPERSEDED` —
+        a restarted offloader takes over its previous slot
+        rather than doubling. The eviction's ``terminate`` frame
+        is best-effort: a peer that has already gone away won't
+        receive it, but the WS close still drains the old
+        session's receive loop and unregistration runs in its
+        ``finally``. The new session installs into the registry
+        synchronously *before* this awaitable suspends so a
+        subsequent dispatch lookup sees the freshest entry.
+        """
+        existing = self._peer_link_sessions.get(session.dashboard_id)
+        # Install the new session first so a concurrent dispatch
+        # sees it; the old session's terminate is the slow
+        # awaitable path.
+        self._peer_link_sessions[session.dashboard_id] = session
+        if existing is not None and existing is not session:
+            await existing.terminate(TerminateReason.SUPERSEDED)
+
+    def unregister_peer_link_session(self, session: PeerLinkSession) -> None:
+        """
+        Drop *session* from the active peer-link registry.
+
+        No-op when a different session has taken the slot (the
+        :meth:`register_peer_link_session` dedupe path replaces
+        the entry before the old session's loop unwinds; the old
+        loop's ``finally`` calls this and would otherwise evict
+        the new entry). Sync because it's just a dict pop — the
+        actual WS close + Noise teardown happens in the session
+        loop's ``finally`` chain.
+        """
+        if self._peer_link_sessions.get(session.dashboard_id) is session:
+            del self._peer_link_sessions[session.dashboard_id]
+
     async def stop(self) -> None:
         """Cancel the browser and drain in-flight resolve tasks."""
         if self._browser is not None:
@@ -891,6 +941,18 @@ class RemoteBuildController:
             self._pairing_window_handle.cancel()
             self._pairing_window_handle = None
         self._pairing_window_clients.clear()
+        # Drain every active peer-link session before the rest
+        # of the controller-state cleanup runs. ``terminate``
+        # sends a structured ``terminate{reason: server_shutting_down}``
+        # frame and closes the WS; the session's loop unwinds via
+        # ``unregister_peer_link_session`` in its ``finally``,
+        # which mutates ``self._peer_link_sessions`` — snapshot
+        # to a list first so the iteration doesn't race the dict
+        # mutation. Each terminate is best-effort (a peer that
+        # has already gone away just gets the close).
+        for peer_link_session in list(self._peer_link_sessions.values()):
+            await peer_link_session.terminate(TerminateReason.SERVER_SHUTTING_DOWN)
+        self._peer_link_sessions.clear()
         # Route the receiver-side PENDING clear through the same
         # helper the auto-close + explicit-close paths use, so
         # any in-flight pair_status long-poll on a still-alive bus

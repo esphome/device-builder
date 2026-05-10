@@ -34,8 +34,11 @@ from noise.exceptions import NoiseInvalidMessage
 
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build_peer_link import (
+    _APP_FRAME_MAX_BYTES,
     _PEER_LABEL_MAX_CHARS,
     PEER_LINK_PATH,
+    PeerLinkSession,
+    TerminateReason,
     _dispatch_intent,
     _DispatchInput,
     _drive_peer_link_session,
@@ -966,3 +969,447 @@ async def test_e2e_garbage_msg1_payload_handled_gracefully(
         await ws.close()
 
     assert _decode_intent_response(session, encrypted) == IntentResponse.REJECTED
+
+
+# ---------------------------------------------------------------------------
+# Phase 5a-1 — long-lived peer-link session: keep WS open after intent_response,
+# encrypted ping/pong heartbeat, structured terminate close, controller-side
+# session registry.
+# ---------------------------------------------------------------------------
+
+
+async def _drive_peer_link_session_open(
+    client: TestClient,
+    *,
+    dashboard_id: str,
+    initiator_priv: bytes | None = None,
+) -> tuple[PeerLinkNoiseSession, Any, bytes]:
+    """
+    Run the handshake + intent_response and return the still-open WS.
+
+    Caller is responsible for closing the WS. Use this for tests
+    that need to drive application frames after the OK response.
+    Returns ``(session, ws, initiator_pub)``.
+    """
+    if initiator_priv is None:
+        initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    session = PeerLinkNoiseSession.initiator(initiator_priv)
+    ws = await client.ws_connect(PEER_LINK_PATH)
+    msg1 = session.write_handshake_message(_json.dumps({"intent": "peer_link"}))
+    await ws.send_bytes(msg1)
+    msg2 = await ws.receive_bytes()
+    session.read_handshake_message(msg2)
+    msg3 = session.write_handshake_message(_json.dumps({"dashboard_id": dashboard_id}))
+    await ws.send_bytes(msg3)
+    encrypted_response = await ws.receive_bytes()
+    assert _decode_intent_response(session, encrypted_response) == IntentResponse.OK
+    return session, ws, initiator_pub
+
+
+async def _seed_approved_offloader(
+    controller: RemoteBuildController,
+    *,
+    dashboard_id: str,
+    pubkey: bytes,
+) -> None:
+    """Seed an APPROVED ``StoredPeer`` whose pubkey matches *pubkey*."""
+    pin = hashlib.sha256(pubkey).hexdigest()
+    _seed_peer(
+        controller,
+        StoredPeer(
+            dashboard_id=dashboard_id,
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            label=dashboard_id,
+            paired_at=1.0,
+        ),
+    )
+
+
+def _decode_app_frame(session: PeerLinkNoiseSession, encrypted: bytes) -> dict[str, Any]:
+    """Decrypt + JSON-parse a post-handshake application frame."""
+    parsed = _json.loads(session.decrypt(encrypted))
+    assert isinstance(parsed, dict)
+    return parsed
+
+
+@pytest.mark.asyncio
+async def test_e2e_peer_link_session_stays_open_after_intent_response(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+) -> None:
+    """The receiver doesn't close the WS after ``intent_response: ok`` for ``intent="peer_link"``.
+
+    Pins the foundational 5a-1 contract: a successful peer_link
+    auth keeps the session open for application messages
+    (5b-5d). Pre-5a-1 the receiver closed immediately; this test
+    catches a regression to that shape.
+    """
+    client, controller, _ = peer_link_app
+    initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    await _seed_approved_offloader(controller, dashboard_id="alpha", pubkey=initiator_pub)
+
+    _session, ws, _ = await _drive_peer_link_session_open(
+        client, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+    try:
+        # Allow the handler enough loop ticks to drop into the
+        # receive loop. If the WS closed, ``ws.closed`` would
+        # flip; if it's still open, we're in the session loop.
+        for _ in range(10):
+            await asyncio.sleep(0)
+            if ws.closed:
+                break
+        assert not ws.closed
+        # Controller registered the session.
+        assert "alpha" in controller._peer_link_sessions
+    finally:
+        await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_e2e_peer_link_session_responds_to_offloader_ping(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+) -> None:
+    """An offloader-side ``ping`` gets a ``pong`` echoing the same nonce.
+
+    The receiver is also sending its own pings (5a-1's heartbeat
+    loop), but the offloader-driven ping path is what the 5a-2
+    client side will rely on if it picks up bidirectional
+    keepalive — pin the parity now so 5a-2 doesn't have to
+    rediscover it.
+    """
+    client, controller, _ = peer_link_app
+    initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    await _seed_approved_offloader(controller, dashboard_id="alpha", pubkey=initiator_pub)
+
+    session, ws, _ = await _drive_peer_link_session_open(
+        client, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+    try:
+        ping = session.encrypt(_json.dumps({"type": "ping", "nonce": 42}))
+        await ws.send_bytes(ping)
+        pong_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=2.0)
+    finally:
+        await ws.close()
+
+    pong = _decode_app_frame(session, pong_encrypted)
+    assert pong["type"] == "pong"
+    assert pong["nonce"] == 42
+
+
+@pytest.mark.asyncio
+async def test_e2e_peer_link_session_kicks_old_on_duplicate_connect(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+) -> None:
+    """A second connect from the same dashboard_id terminates the older session.
+
+    Both sessions share the same ``dashboard_id``; the receiver
+    can have at most one active session per peer (issue's
+    "Connection lifecycle" spec). The duplicate-connect path
+    sends ``terminate{reason: superseded}`` to the older
+    session and closes its WS, freeing the registry slot for
+    the new connect. A restarted offloader gets its slot back
+    rather than doubling.
+    """
+    client, controller, _ = peer_link_app
+    # Both sessions present the SAME initiator pubkey because
+    # the same dashboard_id has to map to the same stored peer
+    # (the receiver pins on pubkey-hash, not dashboard_id alone).
+    initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    await _seed_approved_offloader(controller, dashboard_id="alpha", pubkey=initiator_pub)
+
+    old_session, old_ws, _ = await _drive_peer_link_session_open(
+        client, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+    _new_session, new_ws, _ = await _drive_peer_link_session_open(
+        client, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+    try:
+        # The old session should receive a ``terminate`` frame
+        # carrying ``reason: superseded`` before the WS closes.
+        terminate_encrypted = await asyncio.wait_for(old_ws.receive_bytes(), timeout=2.0)
+        terminate = _decode_app_frame(old_session, terminate_encrypted)
+        assert terminate["type"] == "terminate"
+        assert terminate["reason"] == TerminateReason.SUPERSEDED.value
+        # Receive one more frame to drive the WS through the
+        # CLOSE transition; aiohttp's client side only flips
+        # ``closed`` on the next ``receive()``-style call.
+        close_msg = await asyncio.wait_for(old_ws.receive(), timeout=2.0)
+        assert close_msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING)
+        # The registry now holds the NEW session; the old one is gone.
+        assert "alpha" in controller._peer_link_sessions
+    finally:
+        await new_ws.close()
+
+
+@pytest.mark.asyncio
+async def test_e2e_peer_link_session_unregistered_on_peer_close(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+) -> None:
+    """Closing the WS from the offloader side drops the registry entry."""
+    client, controller, _ = peer_link_app
+    initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    await _seed_approved_offloader(controller, dashboard_id="alpha", pubkey=initiator_pub)
+
+    _session, ws, _ = await _drive_peer_link_session_open(
+        client, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+    # Wait for the registry to settle.
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if "alpha" in controller._peer_link_sessions:
+            break
+    assert "alpha" in controller._peer_link_sessions
+
+    await ws.close()
+
+    # The receiver's session loop sees the close, exits, and
+    # ``unregister_peer_link_session`` runs in its ``finally``.
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if "alpha" not in controller._peer_link_sessions:
+            break
+    assert "alpha" not in controller._peer_link_sessions
+
+
+@pytest.mark.asyncio
+async def test_e2e_peer_link_session_drained_on_controller_stop(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+) -> None:
+    """``RemoteBuildController.stop()`` terminates active peer-link sessions.
+
+    The shutdown path snapshots the session dict, sends a
+    structured ``terminate{reason: server_shutting_down}`` to
+    each, and closes the WS. The session loop's ``finally``
+    runs ``unregister``; ``stop()`` then ``clear()``s the dict
+    belt-and-braces.
+    """
+    client, controller, _ = peer_link_app
+    initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    await _seed_approved_offloader(controller, dashboard_id="alpha", pubkey=initiator_pub)
+
+    session, ws, _ = await _drive_peer_link_session_open(
+        client, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+    try:
+        for _ in range(10):
+            await asyncio.sleep(0)
+            if "alpha" in controller._peer_link_sessions:
+                break
+        assert "alpha" in controller._peer_link_sessions
+
+        # ``stop()`` runs in the same loop; the test fixture
+        # also calls ``stop()`` on teardown but we drive it
+        # explicitly here so we can assert on the terminate
+        # frame the offloader sees.
+        stop_task = asyncio.create_task(controller.stop())
+
+        terminate_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=2.0)
+        terminate = _decode_app_frame(session, terminate_encrypted)
+        assert terminate["type"] == "terminate"
+        assert terminate["reason"] == TerminateReason.SERVER_SHUTTING_DOWN.value
+
+        await stop_task
+        assert controller._peer_link_sessions == {}
+    finally:
+        await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_e2e_peer_link_session_oversize_frame_terminates(
+    peer_link_app: tuple[TestClient, RemoteBuildController, bytes],
+) -> None:
+    """A frame past ``_APP_FRAME_MAX_BYTES`` triggers ``terminate{malformed_frame}``.
+
+    Closes a misbehaving / hostile peer at the dispatch seam
+    rather than letting an unbounded ciphertext pin memory.
+    Sized via ``ws_connect(max_msg_size=...)`` because aiohttp's
+    default 4 MiB cap would catch this before the application
+    layer does — we want to verify *our* check fires.
+    """
+    client, controller, _ = peer_link_app
+    initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
+    initiator_pub = (
+        X25519PrivateKey.from_private_bytes(initiator_priv).public_key().public_bytes_raw()
+    )
+    await _seed_approved_offloader(controller, dashboard_id="alpha", pubkey=initiator_pub)
+
+    session, ws, _ = await _drive_peer_link_session_open(
+        client, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+    try:
+        # Encrypt a payload larger than the cap. ChaCha20 adds a
+        # 16-byte auth tag; the encrypted size is plaintext + 16.
+        oversize = session.encrypt(b"x" * (_APP_FRAME_MAX_BYTES + 1))
+        await ws.send_bytes(oversize)
+        terminate_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=2.0)
+        terminate = _decode_app_frame(session, terminate_encrypted)
+        assert terminate["type"] == "terminate"
+        assert terminate["reason"] == TerminateReason.MALFORMED_FRAME.value
+    finally:
+        await ws.close()
+
+
+# ---------------------------------------------------------------------------
+# Pure-unit tests: PeerLinkSession.send_app_frame, registry methods
+# ---------------------------------------------------------------------------
+
+
+def _noise_pair() -> tuple[PeerLinkNoiseSession, PeerLinkNoiseSession]:
+    """Drive a 3-message Noise XX handshake against itself.
+
+    Returns ``(initiator, responder)`` with the handshake
+    finalised on both sides — application encrypts on either
+    side decrypt cleanly on the other. Drops the static pubkey
+    parity assertion to stay focused; tests that care about
+    the captured pubkey assert it themselves.
+    """
+    initiator = PeerLinkNoiseSession.initiator(secrets.token_bytes(32))
+    responder = PeerLinkNoiseSession.responder(secrets.token_bytes(32))
+    msg1 = initiator.write_handshake_message(b"")
+    responder.read_handshake_message(msg1)
+    msg2 = responder.write_handshake_message(b"")
+    initiator.read_handshake_message(msg2)
+    msg3 = initiator.write_handshake_message(b"")
+    responder.read_handshake_message(msg3)
+    return initiator, responder
+
+
+class _FakeWs:
+    """In-memory ``WebSocketResponse`` stand-in for unit tests.
+
+    Captures every ``send_bytes`` payload + counts ``close``
+    calls so tests can assert on the number / shape of sends
+    without standing up an aiohttp test server.
+    """
+
+    def __init__(self) -> None:
+        self.sends: list[bytes] = []
+        self.closes: int = 0
+        self.closed: bool = False
+
+    async def send_bytes(self, data: bytes) -> None:
+        self.sends.append(data)
+
+    async def close(self) -> None:
+        self.closes += 1
+        self.closed = True
+
+
+def _make_unit_session(noise: PeerLinkNoiseSession) -> tuple[PeerLinkSession, _FakeWs]:
+    """Build a :class:`PeerLinkSession` wired against a fresh :class:`_FakeWs`."""
+    ws = _FakeWs()
+    return PeerLinkSession(
+        dashboard_id="alpha",
+        ws=ws,  # type: ignore[arg-type]
+        noise=noise,
+        peer_ip="127.0.0.1",
+    ), ws
+
+
+@pytest.mark.asyncio
+async def test_peer_link_session_send_app_frame_is_serialised(tmp_path: Path) -> None:
+    """The session's send lock keeps concurrent encrypts from interleaving.
+
+    Noise's cipher state advances its nonce per encrypt and is
+    not safe to share across concurrent calls. The send lock
+    serialises encrypt + ws-write so the wire order matches the
+    encrypt order (which is what the peer's decrypt-by-position
+    requires).
+    """
+    initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+
+    # Fire two concurrent send_app_frame calls; the lock should
+    # serialise them so the responder's encrypt nonce advances
+    # in order, and decoding from the initiator side returns the
+    # frames in send-order.
+    await asyncio.gather(
+        session.send_app_frame({"type": "ping", "n": 1}),
+        session.send_app_frame({"type": "ping", "n": 2}),
+    )
+    assert len(ws.sends) == 2
+    decoded = [_json.loads(initiator.decrypt(frame)) for frame in ws.sends]
+    assert {entry["n"] for entry in decoded} == {1, 2}
+
+
+@pytest.mark.asyncio
+async def test_peer_link_session_terminate_idempotent(tmp_path: Path) -> None:
+    """Calling ``terminate`` twice doesn't double-send the frame or double-close the WS."""
+    _initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+
+    await session.terminate(TerminateReason.SUPERSEDED)
+    await session.terminate(TerminateReason.SUPERSEDED)
+    assert len(ws.sends) == 1
+    assert ws.closes == 1
+
+
+@pytest.mark.asyncio
+async def test_register_peer_link_session_kicks_existing(tmp_path: Path) -> None:
+    """Registering a new session for the same dashboard_id terminates the existing one."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+
+    # Stub two sessions with mocked terminate.
+    old = MagicMock(spec=PeerLinkSession)
+    old.dashboard_id = "alpha"
+    old.terminate = AsyncMock()
+    new = MagicMock(spec=PeerLinkSession)
+    new.dashboard_id = "alpha"
+    new.terminate = AsyncMock()
+
+    await controller.register_peer_link_session(old)
+    assert controller._peer_link_sessions["alpha"] is old
+    old.terminate.assert_not_called()
+
+    await controller.register_peer_link_session(new)
+    assert controller._peer_link_sessions["alpha"] is new
+    old.terminate.assert_awaited_once_with(TerminateReason.SUPERSEDED)
+    new.terminate.assert_not_called()
+
+
+def test_unregister_peer_link_session_no_op_when_replaced(tmp_path: Path) -> None:
+    """Unregistering a session that has already been replaced doesn't evict the new one."""
+    controller = _make_controller(config_dir=tmp_path)
+
+    old = MagicMock(spec=PeerLinkSession)
+    old.dashboard_id = "alpha"
+    new = MagicMock(spec=PeerLinkSession)
+    new.dashboard_id = "alpha"
+
+    controller._peer_link_sessions["alpha"] = new
+    controller.unregister_peer_link_session(old)
+    # New session still in place — the old session's late
+    # cleanup didn't evict the replacement.
+    assert controller._peer_link_sessions["alpha"] is new
+
+
+def test_unregister_peer_link_session_removes_when_current(tmp_path: Path) -> None:
+    """Unregistering the currently-registered session drops the entry."""
+    controller = _make_controller(config_dir=tmp_path)
+
+    session = MagicMock(spec=PeerLinkSession)
+    session.dashboard_id = "alpha"
+    controller._peer_link_sessions["alpha"] = session
+
+    controller.unregister_peer_link_session(session)
+    assert controller._peer_link_sessions == {}
