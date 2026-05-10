@@ -5091,7 +5091,6 @@ async def test_controller_download_artifacts_session_lost_maps_to_unavailable(
         ("job_not_completed", ErrorCode.PRECONDITION_FAILED),
         ("duplicate_download", ErrorCode.PRECONDITION_FAILED),
         ("pack_failed", ErrorCode.UNAVAILABLE),
-        ("invalid_request", ErrorCode.INVALID_ARGS),
         ("entirely_unknown_reason", ErrorCode.UNAVAILABLE),
     ],
 )

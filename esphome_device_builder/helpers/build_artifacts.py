@@ -138,6 +138,14 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
       shouldn't happen in practice but a clean error here
       beats a silent half-result later).
 
+    Raises :class:`ValueError` when ``idedata.json`` parses
+    to something that isn't a JSON object (``null`` / list /
+    scalar). Shouldn't happen in practice but keeps the
+    ``.get("extra", ...)`` chain below from blowing up with
+    ``AttributeError`` on a corrupt file — the caller's
+    surface (e.g. ``pack_failed`` reject reason) is much more
+    useful than an opaque traceback.
+
     Logs (at WARNING) and skips any
     :attr:`IDEData.extra_flash_images` entry whose path
     doesn't exist; matches upstream's
@@ -164,6 +172,18 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
         raise FileNotFoundError(msg)
     idedata_bytes = idedata_path.read_bytes()
     idedata = json_loads(idedata_bytes)
+    # Defensive dict-check — corrupt-but-parseable JSON
+    # (``null`` / list / scalar) would otherwise blow up on
+    # ``.get("extra", {})`` below with ``AttributeError``,
+    # which the caller surfaces as an opaque ``pack_failed``.
+    # Raising :class:`ValueError` here lets the receiver-side
+    # ``ArtifactsDownloadSender`` catch it via the existing
+    # ``Exception`` arm and surface a clean reject reason.
+    if not isinstance(idedata, dict):
+        msg = (
+            f"idedata.json for {configuration} is not a JSON object (got {type(idedata).__name__})"
+        )
+        raise ValueError(msg)
 
     # ``firmware.bin`` is the only image consistently
     # reported by ``StorageJSON.firmware_bin_path`` upstream.

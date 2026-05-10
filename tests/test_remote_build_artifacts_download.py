@@ -44,6 +44,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
 from esphome_device_builder.helpers.build_artifacts import (
     BuildArtifacts,
     FlashArtifact,
+    load_build_artifacts,
 )
 from esphome_device_builder.models import (
     DownloadArtifactsFrameData,
@@ -456,3 +457,43 @@ def test_unpack_artifacts_response_invalid_idedata_json_raises() -> None:
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
             job_id="j",
         )
+
+
+# ---------------------------------------------------------------------------
+# load_build_artifacts — defensive idedata shape check
+# ---------------------------------------------------------------------------
+
+
+def test_load_build_artifacts_rejects_non_dict_idedata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Corrupt-but-parseable idedata.json (``null`` / list) raises :class:`ValueError`.
+
+    Pins the defensive check that surfaces "esphome wrote a
+    weird idedata.json" as a clean error reachable through the
+    receiver-side packer's ``except Exception`` arm — without
+    it, ``idedata.get("extra", {})`` would blow up with
+    ``AttributeError`` and bubble as an opaque traceback rather
+    than a structured ``pack_failed`` reject.
+    """
+    firmware_path = tmp_path / "firmware.bin"
+    firmware_path.write_bytes(b"FW")
+    idedata_path = tmp_path / "idedata.json"
+    idedata_path.write_bytes(b"null")  # parses to None, not a dict
+
+    fake_storage = MagicMock()
+    fake_storage.firmware_bin_path = firmware_path
+    fake_storage.target_platform = "esp32"
+    fake_storage.name = "kitchen"
+
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.build_artifacts.StorageJSON.load",
+        staticmethod(lambda _path: fake_storage),
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.build_artifacts._resolve_idedata_path",
+        lambda _storage: idedata_path,
+    )
+
+    with pytest.raises(ValueError, match="not a JSON object"):
+        load_build_artifacts("kitchen.yaml")

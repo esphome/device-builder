@@ -202,12 +202,12 @@ class BundleAssembler:
       header, it constructs one of these against
       :data:`BUNDLE_MAX_TOTAL_BYTES` (the default) and feeds
       each inbound ``submit_job_chunk``.
-    * **Offloader-side firmware assembly** (6a — firmware
-      download) — after the offloader receives a
-      ``firmware_start`` header, it constructs one against
+    * **Offloader-side artifacts assembly** (6a — flash-artifact
+      download) — after the offloader receives an
+      ``artifacts_start`` header, it constructs one against
       :data:`FIRMWARE_MAX_TOTAL_BYTES` (passed as
       ``max_total_bytes`` kwarg) and feeds each inbound
-      ``firmware_chunk``.
+      ``artifacts_chunk``.
 
     Same wire shape, same validation rules, same finalise
     semantics — only the size cap differs between the two

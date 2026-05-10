@@ -94,8 +94,10 @@ _LOGGER = logging.getLogger(__name__)
 # :class:`ArtifactsEndFrameData.reason` when ``accepted=False``.
 # Same idiom as :data:`controllers.remote_build.submit_job._REASON_*` —
 # the offloader-side submitter (6b) maps these to user-facing
-# error messages.
-_REASON_INVALID_REQUEST = "invalid_request"
+# error messages. Only soft-rejects appear here; protocol
+# violations (malformed frame shape) skip the ``artifacts_end``
+# path entirely and terminate the session with
+# ``MALFORMED_FRAME``.
 _REASON_DUPLICATE_DOWNLOAD = "duplicate_download"
 _REASON_UNKNOWN_JOB = "unknown_job"
 _REASON_JOB_NOT_COMPLETED = "job_not_completed"
