@@ -196,7 +196,23 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
     # the StorageJSON sidecar and pick the offset.
     firmware_offset = _firmware_offset_for_platform(storage.target_platform)
     flash_images: list[FlashArtifact] = [FlashArtifact(path=firmware_bin, offset=firmware_offset)]
-    for entry in idedata.get("extra", {}).get("flash_images", []):
+    extra = idedata.get("extra")
+    raw_flash_images = extra.get("flash_images", []) if isinstance(extra, dict) else []
+    for entry in raw_flash_images:
+        # Defensive isinstance gate — a corrupt-but-parseable
+        # ``flash_images`` entry (string / null / nested array)
+        # would otherwise blow up on ``.get("path")`` with
+        # ``AttributeError``. Skip with a warning so a single
+        # malformed entry doesn't fail the whole pack — matches
+        # the existing "missing extra image is non-fatal" stance
+        # below.
+        if not isinstance(entry, dict):
+            _LOGGER.warning(
+                "skipping malformed flash image entry in idedata for %s: %r",
+                configuration,
+                entry,
+            )
+            continue
         path_str = entry.get("path")
         offset = entry.get("offset")
         if not path_str or not offset:

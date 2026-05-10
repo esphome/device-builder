@@ -46,6 +46,7 @@ from esphome_device_builder.helpers.build_artifacts import (
     FlashArtifact,
     load_build_artifacts,
 )
+from esphome_device_builder.helpers.peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
 from esphome_device_builder.models import (
     DownloadArtifactsFrameData,
     JobStatus,
@@ -329,6 +330,54 @@ def test_pack_build_artifacts_layout(tmp_path: Path, monkeypatch: pytest.MonkeyP
     with tarfile.open(fileobj=io.BytesIO(packed.tarball), mode="r:gz") as tar:
         names = tar.getnames()
     assert names == ["idedata.json", "firmware.bin", "bootloader.bin", "partitions.bin"]
+
+
+def test_pack_build_artifacts_rejects_oversized_idedata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Idedata.json alone exceeding ``FIRMWARE_MAX_TOTAL_BYTES`` raises ``RuntimeError``."""
+    firmware_path = tmp_path / "firmware.bin"
+    firmware_path.write_bytes(b"FW")
+    artifacts = BuildArtifacts(
+        flash_images=[FlashArtifact(path=firmware_path, offset="0x10000")],
+        idedata_bytes=b"x" * (FIRMWARE_MAX_TOTAL_BYTES + 1),
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        lambda _config: artifacts,
+    )
+
+    with pytest.raises(RuntimeError, match=r"already exceeds FIRMWARE_MAX_TOTAL_BYTES"):
+        _pack_build_artifacts("kitchen.yaml")
+
+
+def test_pack_build_artifacts_rejects_oversized_cumulative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cumulative artifact bytes exceeding the cap raises ``RuntimeError``."""
+    firmware_path = tmp_path / "firmware.bin"
+    firmware_path.write_bytes(b"x" * (FIRMWARE_MAX_TOTAL_BYTES + 1))
+    artifacts = BuildArtifacts(
+        flash_images=[FlashArtifact(path=firmware_path, offset="0x10000")],
+        idedata_bytes=b"{}",
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        lambda _config: artifacts,
+    )
+
+    with pytest.raises(RuntimeError, match=r"would exceed FIRMWARE_MAX_TOTAL_BYTES"):
+        _pack_build_artifacts("kitchen.yaml")
+
+
+def test_artifacts_download_sender_discard_session_clears_inflight() -> None:
+    """``discard_session`` removes the inflight slot for *dashboard_id*."""
+    sender = _make_sender()
+    sender._inflight["alpha"] = MagicMock()
+
+    sender.discard_session("alpha")
+
+    assert "alpha" not in sender._inflight
 
 
 def test_pack_build_artifacts_rejects_duplicate_basename(
