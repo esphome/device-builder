@@ -55,30 +55,49 @@ async def test_paired_instances_open_peer_link_session(
 async def test_paired_instances_teardown_closes_session_cleanly(
     paired_instances: PairedInstances,
 ) -> None:
-    """The harness teardown unwinds the peer-link session without leaking tasks.
+    """``offloader.stop()`` unwinds the peer-link session on both sides.
 
-    Pins the cleanup contract: after the test body returns and
-    the fixture's teardown runs (offloader.stop → receiver.stop
-    → server.close), both controllers' session registries are
-    empty and the offloader's
-    ``OFFLOADER_PEER_LINK_CLOSED`` event has fired with
-    ``reason="client_stopped"`` (the offloader-initiated path).
+    Pins the cleanup contract: cancelling the offloader's
+    long-lived peer-link client task (a) fires
+    ``OFFLOADER_PEER_LINK_CLOSED`` with ``reason="client_stopped"``
+    on the offloader-side bus, (b) drains the offloader's
+    ``_peer_link_clients`` registry, and (c) lets the receiver's
+    ``_run_peer_link_session`` finally-block run
+    ``unregister_peer_link_session`` so the receiver's
+    ``_peer_link_sessions`` registry drops the row.
 
-    The teardown itself happens after this test's body — the
-    body's job is to wait for the session to open + subscribe
-    to the closed event so the teardown's effects are
-    observable to the next assertion.
+    The fixture teardown runs ``offloader.stop → receiver.stop
+    → server.close`` after this body returns; this body drives
+    ``offloader.stop()`` explicitly so the cleanup contract can
+    be observed from inside the test rather than relying on
+    fixture teardown side-effects no test code sees.
     """
     closed = capture_events(paired_instances.offloader_bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
 
     await paired_instances.wait_until_session_opened()
+    receiver_key = paired_instances.offloader_dashboard_id
+    assert receiver_key in paired_instances.receiver._peer_link_sessions
 
-    # Drive the offloader's stop directly so we can assert
-    # on the resulting CLOSED event from inside the test
-    # body rather than chasing post-teardown state.
     await paired_instances.offloader.stop()
 
+    # (a) CLOSED fires offloader-side with the right reason.
     await asyncio.wait_for(closed.received.wait(), timeout=2.0)
     assert closed[0]["receiver_hostname"] == "127.0.0.1"
     assert closed[0]["receiver_port"] == paired_instances.receiver_server.port
     assert closed[0]["reason"] == "client_stopped"
+
+    # (b) Offloader's registry drained synchronously by ``stop()``.
+    assert paired_instances.offloader._peer_link_clients == {}
+
+    # (c) Receiver's session loop unwinds on its own task — the
+    # offloader's CancelledError handler sent a structured
+    # ``terminate{client_stopped}`` frame, the receiver's
+    # ``_receive_loop`` exits, and ``unregister_peer_link_session``
+    # runs in its ``finally``. There's no bus event for the
+    # unregistration today, so wait_for + a short spin against
+    # the registry is the available sync source.
+    async def _registry_drained() -> None:
+        while receiver_key in paired_instances.receiver._peer_link_sessions:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_registry_drained(), timeout=2.0)
