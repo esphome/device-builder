@@ -202,6 +202,16 @@ def make_remote_build_controller(
     (e.g. the e2e harness's two-instance setup), otherwise
     ``MagicMock`` auto-attribute resolution gives the controller
     a no-op ``bus.fire`` — the convention single-side tests use.
+
+    ``db.create_background_task`` is wired to
+    :func:`asyncio.create_task` rather than left as a MagicMock so
+    coroutines passed through it actually run. Single-side tests
+    that don't drive any background-scheduled work won't notice;
+    the e2e harness needs the wiring because the receiver-side
+    fan-out (5c-2b ``JobFanout._dispatch``) hands its
+    ``send_app_frame`` calls through this path, and a no-op
+    background-task hook would silently drop every fan-out frame
+    without ever raising on the unawaited coroutine.
     """
     db = MagicMock()
     db.devices = MagicMock()
@@ -209,6 +219,7 @@ def make_remote_build_controller(
     db._dashboard_advertiser = None
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
+    db.create_background_task = asyncio.create_task
     if bus is not None:
         db.bus = bus
     return RemoteBuildController(db)

@@ -75,6 +75,17 @@ class PairedInstances:
     receiver_bus: EventBus
     offloader_bus: EventBus
     offloader_dashboard_id: str
+    # Lowercase-hex SHA-256 of the receiver's Noise static
+    # X25519 public key, observed by the offloader during the
+    # live Noise XX handshake (see
+    # :func:`helpers.peer_link_noise.pin_sha256_for_pubkey`).
+    # Tests that drive post-pairing application messages
+    # (5b/5c/5d) look the offloader-side peer-link client up
+    # via ``_lookup_open_peer_link_client(pin_sha256)``;
+    # capturing the pin here means the harness's pre-paired
+    # state is immediately addressable from test bodies
+    # without each one re-walking the pair flow.
+    pin_sha256: str
     # Pre-subscribed at fixture-construct time, before either
     # ``start()`` runs. Tests assert against these captured
     # lists rather than re-subscribing after the fixture yields
@@ -248,6 +259,7 @@ async def paired_instances(
         receiver_bus=receiver_bus,
         offloader_bus=offloader_bus,
         offloader_dashboard_id=pending_dashboard_id,
+        pin_sha256=pin_sha256,
         offloader_opened=offloader_opened,
         offloader_closed=offloader_closed,
         receiver_opened=receiver_opened,
