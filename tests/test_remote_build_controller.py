@@ -24,6 +24,9 @@ from zeroconf import ServiceStateChange
 
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build import controller as rb
+from esphome_device_builder.controllers.remote_build.artifacts_download import (
+    ArtifactsDownloadSender,
+)
 from esphome_device_builder.controllers.remote_build.controller import (
     _decode_pairings,
     _decode_txt_value,
@@ -3506,3 +3509,12 @@ def test_get_artifacts_download_sender_raises_before_start(tmp_path: Path) -> No
     controller = _make_controller(config_dir=tmp_path)
     with pytest.raises(RuntimeError, match=r"before RemoteBuildController\.start"):
         controller.get_artifacts_download_sender()
+
+
+def test_get_artifacts_download_sender_returns_installed_sender(tmp_path: Path) -> None:
+    """After installation, ``get_artifacts_download_sender`` returns the live sender."""
+    controller = _make_controller(config_dir=tmp_path)
+    installed = ArtifactsDownloadSender(firmware_controller=MagicMock())
+    controller._artifacts_download_sender = installed
+
+    assert controller.get_artifacts_download_sender() is installed

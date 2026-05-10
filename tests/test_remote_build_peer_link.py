@@ -1752,6 +1752,28 @@ async def test_receive_loop_routes_cancel_job_to_controller(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_receive_loop_routes_download_artifacts_to_sender(tmp_path: Path) -> None:
+    """A ``download_artifacts`` Noise frame routes through the artifacts-download sender (6a)."""
+    initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+    payload = {"type": "download_artifacts", "job_id": "remote-7"}
+    frame = initiator.encrypt(_json.dumps(payload))
+    ws._inbox.append(_binary_msg(frame))
+
+    sender = MagicMock()
+    sender.handle_download_artifacts = AsyncMock()
+    controller = MagicMock()
+    controller.get_artifacts_download_sender = MagicMock(return_value=sender)
+    await _receive_loop(session, controller)
+
+    controller.get_artifacts_download_sender.assert_called_once()
+    sender.handle_download_artifacts.assert_awaited_once()
+    call_session, call_frame = sender.handle_download_artifacts.await_args.args
+    assert call_session is session
+    assert call_frame == payload
+
+
+@pytest.mark.asyncio
 async def test_receive_loop_pong_updates_last_pong_at(tmp_path: Path) -> None:
     """A ``pong`` frame from the peer bumps ``session.last_pong_at``."""
     initiator, responder = _noise_pair()

@@ -752,17 +752,17 @@ def _read_artifacts_tarball(tarball: bytes) -> tuple[dict[str, Any], dict[str, b
 def _read_tarball_member(tar: tarfile.TarFile, member: tarfile.TarInfo) -> bytes:
     """Read *member*'s bytes.
 
-    Raises :class:`_UnpackArtifactsError` on directory or
-    unreadable entries.
+    Raises :class:`_UnpackArtifactsError` on directory entries
+    or any other non-regular tarball member type. Stdlib
+    ``tarfile`` guarantees ``extractfile()`` returns a readable
+    stream iff ``isfile()`` returns ``True`` — ``extractfile``
+    only returns ``None`` for link / device / FIFO members,
+    every one of which ``isfile()`` already rejects.
     """
     if not member.isfile():
         msg = f"unexpected non-file tarball entry: {member.name!r}"
         raise _UnpackArtifactsError(msg)
-    extracted = tar.extractfile(member)
-    if extracted is None:
-        msg = f"tarball member {member.name!r} not extractable"
-        raise _UnpackArtifactsError(msg)
-    return extracted.read()
+    return cast(io.BufferedReader, tar.extractfile(member)).read()
 
 
 def _parse_idedata(payload: bytes) -> dict[str, Any]:
