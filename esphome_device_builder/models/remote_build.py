@@ -294,6 +294,15 @@ class StoredPeer(DataClassORJSONMixin):
 
     ``label`` is a human-readable name the offloader's user
     sets during pair (e.g. ``green``, ``laptop``).
+
+    ``peer_ip`` is the source IP we observed the offloader's
+    pair_request handshake from. Persisted (rather than carried
+    only on the live event) so the receiver Settings inbox can
+    surface it for clone-risk sanity-check on rows that landed
+    before the admin opened the page. Empty string when unknown
+    — legacy rows from receivers that pre-date this field load
+    cleanly with an empty default and the frontend hides the IP
+    line when blank.
     """
 
     dashboard_id: str
@@ -301,6 +310,7 @@ class StoredPeer(DataClassORJSONMixin):
     static_x25519_pub: bytes
     label: str
     paired_at: float
+    peer_ip: str = ""
 
     def refresh_from_pair_request(
         self,
@@ -309,18 +319,21 @@ class StoredPeer(DataClassORJSONMixin):
         static_x25519_pub: bytes,
         label: str,
         paired_at: float,
+        peer_ip: str,
     ) -> None:
         """
         Update the fields a fresh ``intent="pair_request"`` supplies.
 
         Owns the contract for "what changes on re-pair": the X25519
         pubkey + its hash (offloader rotated their identity), the
-        label (renamed dashboard), and the ``paired_at`` timestamp
-        (so the receiver-side inbox sorts the most-recent attempt
-        first). ``dashboard_id`` is the row's primary key and is
-        intentionally left out of the refresh set; ``status`` is
-        also left out because pair_request never changes status by
-        itself (the receiver-side user's Accept / Reject does, via
+        label (renamed dashboard), the ``paired_at`` timestamp (so
+        the receiver-side inbox sorts the most-recent attempt
+        first), and the source ``peer_ip`` (offloader could have
+        moved interfaces / DHCP renewed). ``dashboard_id`` is the
+        row's primary key and is intentionally left out of the
+        refresh set; ``status`` is also left out because
+        pair_request never changes status by itself (the
+        receiver-side user's Accept / Reject does, via
         ``approve_peer`` / ``remove_peer``).
 
         Caller is responsible for the no-demote-when-APPROVED
@@ -334,6 +347,7 @@ class StoredPeer(DataClassORJSONMixin):
         self.static_x25519_pub = static_x25519_pub
         self.label = label
         self.paired_at = paired_at
+        self.peer_ip = peer_ip
 
 
 @dataclass
@@ -344,7 +358,13 @@ class PeerSummary(DataClassORJSONMixin):
     Drops ``static_x25519_pub`` — the raw 32-byte pubkey is
     on-disk only; ``pin_sha256`` (lowercase-hex SHA-256 of the
     pubkey) is the wire-friendly form that UIs render for
-    OOB-verification.
+    OOB-verification. ``peer_ip`` is the source IP observed at
+    pair_request time; the receiver Settings inbox renders it
+    next to the pin so the operator has a second sanity-check
+    against a clone scenario (an attacker on a different IP
+    submitting a pair_request with a spoofed label or against a
+    drifted dashboard_id). Empty string for legacy rows from
+    receivers that pre-date the persisted ``peer_ip`` field.
     """
 
     dashboard_id: str
@@ -352,6 +372,7 @@ class PeerSummary(DataClassORJSONMixin):
     label: str
     paired_at: float
     status: PeerStatus
+    peer_ip: str = ""
 
 
 # Bounds enforced both at the WS-command boundary (the future

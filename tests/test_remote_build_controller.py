@@ -1041,6 +1041,7 @@ def _stored_peer(
     pin_sha256: str | None = None,
     static_x25519_pub: bytes | None = None,
     paired_at: float = 1_700_000_000.0,
+    peer_ip: str = "192.168.1.10",
 ) -> StoredPeer:
     """Construct a ``StoredPeer`` with sensible defaults for tests.
 
@@ -1059,6 +1060,7 @@ def _stored_peer(
         static_x25519_pub=pub,
         label=label,
         paired_at=paired_at,
+        peer_ip=peer_ip,
     )
 
 
@@ -1122,6 +1124,32 @@ def test_peers_snapshot_drops_static_x25519_pub_from_wire(tmp_path: Path) -> Non
     assert serialised["pin_sha256"]  # the wire-friendly form is present
 
 
+def test_peers_snapshot_carries_peer_ip(tmp_path: Path) -> None:
+    """``peer_ip`` flows from the stored row through the wire summary.
+
+    The receiver Settings inbox uses ``peer_ip`` as a clone-risk
+    sanity-check (operator can verify the request came from the
+    expected host). Pinning the projection here so a future
+    refactor can't silently drop it from the wire shape — that
+    would degrade a snapshot-loaded PENDING row to "no IP, can't
+    sanity-check" without admin noticing.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    _seed_pending_peer(
+        controller,
+        _stored_peer(dashboard_id="pending", peer_ip="192.168.1.55"),
+    )
+    _seed_peer(
+        controller,
+        _stored_peer(dashboard_id="approved", peer_ip="10.0.0.7"),
+    )
+
+    rows = {row.dashboard_id: row for row in controller.peers_snapshot()}
+
+    assert rows["pending"].peer_ip == "192.168.1.55"
+    assert rows["approved"].peer_ip == "10.0.0.7"
+
+
 @pytest.mark.asyncio
 async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None:
     """``start()`` loads APPROVED peers off disk into ``_approved_peers``.
@@ -1143,6 +1171,7 @@ async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None
         dashboard_id="alpha",
         pin_sha256=pin,
         static_x25519_pub=pubkey,
+        peer_ip="172.16.5.42",
     )
     # Force-flush the debounced save through the same shutdown
     # callback path production uses; the offloader-side test
@@ -1160,6 +1189,11 @@ async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None
     loaded = fresh._approved_peers["alpha"]
     assert loaded.pin_sha256 == pin
     assert loaded.static_x25519_pub == pubkey
+    # ``peer_ip`` survives the on-disk round-trip — the IP an
+    # APPROVED row was originally paired from is what the inbox
+    # / paired-senders UI shows after a restart, until a re-pair
+    # refreshes it.
+    assert loaded.peer_ip == "172.16.5.42"
 
 
 @pytest.mark.asyncio
@@ -1182,6 +1216,36 @@ async def test_start_recovers_to_empty_on_corrupt_peers_file(tmp_path: Path) -> 
     await controller.start()
 
     assert controller._approved_peers == {}
+
+
+@pytest.mark.asyncio
+async def test_start_loads_legacy_peers_file_without_peer_ip(tmp_path: Path) -> None:
+    """A ``.receiver_peers.json`` written before ``peer_ip`` was added loads cleanly.
+
+    The field defaults to ``""`` so legacy on-disk rows don't
+    raise ``MissingField`` out of ``from_dict``; the inbox just
+    shows no IP for them until a re-pair refreshes the row. Pin
+    the load contract here so a future field tightening can't
+    regress this without an explicit migration.
+    """
+    legacy = (
+        b'{"peers":[{'
+        b'"dashboard_id":"alpha",'
+        b'"pin_sha256":"' + b"a" * 64 + b'",'
+        b'"static_x25519_pub":"' + b"AA" * 32 + b'",'
+        b'"label":"alpha",'
+        b'"paired_at":1700000000.0'
+        b"}]}"
+    )
+    (tmp_path / ".receiver_peers.json").write_bytes(legacy)
+
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    controller._db.devices = None
+    await controller.start()
+
+    assert "alpha" in controller._approved_peers
+    assert controller._approved_peers["alpha"].peer_ip == ""
 
 
 @pytest.mark.asyncio
@@ -1637,14 +1701,19 @@ async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
     # got — the controller emits a single timestamp into both so
     # a frontend rebuilding the inbox row from the event matches
     # the snapshot. Verify by reading the stored value back.
-    stored_paired_at = controller._pending_peers["alpha"].paired_at
+    stored = controller._pending_peers["alpha"]
     assert payload == {
         "dashboard_id": "alpha",
         "pin_sha256": pin,
         "label": "alpha",
         "peer_ip": "192.168.1.10",
-        "paired_at": stored_paired_at,
+        "paired_at": stored.paired_at,
     }
+    # ``peer_ip`` is persisted on the StoredPeer (rather than
+    # carried only on the live event) so a snapshot-loaded
+    # PENDING row still surfaces the IP for the operator's
+    # clone-risk sanity-check.
+    assert stored.peer_ip == "192.168.1.10"
 
 
 @pytest.mark.asyncio
@@ -1680,6 +1749,11 @@ async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path
     assert refreshed.static_x25519_pub == new_pubkey
     assert refreshed.label == "renamed"
     assert refreshed.paired_at > 1.0
+    # ``peer_ip`` refreshes too — the offloader could be on a
+    # different interface / DHCP-renewed since the original
+    # pair attempt, and the inbox should show the source the
+    # current handshake came from.
+    assert refreshed.peer_ip == "10.0.0.1"
     # APPROVED dict stays empty — refresh is PENDING-only.
     assert controller._approved_peers == {}
 

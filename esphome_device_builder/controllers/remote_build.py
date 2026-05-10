@@ -386,6 +386,7 @@ def _peer_summary(peer: StoredPeer, *, status: PeerStatus) -> PeerSummary:
         label=peer.label,
         paired_at=peer.paired_at,
         status=status,
+        peer_ip=peer.peer_ip,
     )
 
 
@@ -2068,6 +2069,7 @@ class RemoteBuildController:
             static_x25519_pub=static_x25519_pub,
             label=label,
             paired_at=paired_at,
+            peer_ip=peer_ip,
         )
         payload: RemoteBuildPairRequestReceivedData = {
             "dashboard_id": dashboard_id,
