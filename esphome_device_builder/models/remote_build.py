@@ -1218,19 +1218,22 @@ class PeerSummary(DataClassORJSONMixin):
 # rename / remove the dataclass field AND the corresponding
 # schema entry in the same change.
 #
-# **Asymmetry with :class:`StoredPeer`.** The receiver-side
-# row doesn't run a comparable schema in
-# ``__post_init__``: ``record_pair_request`` is its only
-# constructor in production, and that path runs after a
-# successful Noise XX handshake (the noiseprotocol library
-# guarantees ``static_x25519_pub`` is exactly 32 bytes; the
-# dispatcher validates ``dashboard_id`` against
-# ``DASHBOARD_ID_PATTERN`` and caps ``label`` via
-# ``_normalize_label`` *before* reaching the controller). A
-# follow-up applying the same storage-seam validator to
-# ``StoredPeer`` for symmetry is on the 4a-o follow-up list;
-# for now this PR is documenting the inconsistency rather
-# than masking it.
+# **No comparable schema on :class:`StoredPeer`.** The
+# receiver-side row's only production constructor is
+# ``record_pair_request``, which runs after a successful Noise
+# XX handshake — the noiseprotocol library guarantees
+# ``static_x25519_pub`` is exactly 32 bytes, the dispatcher
+# validates ``dashboard_id`` against ``DASHBOARD_ID_PATTERN``,
+# and ``_normalize_label`` caps ``label`` *before* the row is
+# constructed. Every field a storage-seam schema would gate is
+# already gated upstream of the constructor, so a mirror
+# ``__post_init__`` validator would be a second copy of the
+# same checks rather than independent defence-in-depth. The
+# offloader-side asymmetry exists because :class:`StoredPairing`
+# can also be reconstructed from disk by mashumaro on
+# controller restart, where the disk shape isn't gated by an
+# upstream validator — that path is genuinely missing on the
+# receiver, so the two surfaces aren't symmetric to begin with.
 _PAIRING_VALIDATOR = vol.Schema(
     {
         # RFC 1035 §2.3.4 caps a fully-qualified domain name at 253
@@ -1251,9 +1254,8 @@ _PAIRING_VALIDATOR = vol.Schema(
         vol.Required("receiver_port"): vol.All(not_bool, int, vol.Range(min=1, max=65535)),
         # Lowercase-hex SHA-256: 64 chars from ``[0-9a-f]``. Factory
         # in ``helpers/voluptuous_validators.py`` so the same shape
-        # can be reused by the future ``StoredPeer`` validator (issue
-        # #106 follow-up) and the 4a-o parts 2-3 WS-command
-        # validators without drifting.
+        # can be reused by the 4a-o WS-command validators without
+        # drifting.
         vol.Required("pin_sha256"): lowercase_hex(64),
         # ``static_x25519_pub`` is the raw X25519 pubkey — exactly 32
         # bytes per RFC 7748 §5.
