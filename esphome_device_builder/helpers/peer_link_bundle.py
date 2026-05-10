@@ -42,8 +42,8 @@ from __future__ import annotations
 import base64
 import hashlib
 from collections.abc import Iterator
-from dataclasses import dataclass
 from enum import StrEnum
+from typing import NoReturn
 
 # Raw bytes per chunk before b64 encoding. Sized so the
 # resulting JSON frame fits comfortably under
@@ -93,13 +93,15 @@ class BundleAssemblerError(ValueError):
         self.code = code
 
 
-@dataclass(frozen=True)
-class _BundleHeader:
-    """Captured header values the assembler validates each chunk against."""
+# Module-local shorthands so the assembler's raise sites stay readable
+# at 100 cols. ``_Code`` is the error-code enum; ``_fail`` raises the
+# matching :class:`BundleAssemblerError` and returns ``NoReturn`` so
+# mypy treats every callsite as terminating control flow.
+_Code = BundleAssemblerErrorCode
 
-    total_bytes: int
-    num_chunks: int
-    sha256_hex: str
+
+def _fail(code: BundleAssemblerErrorCode, message: str) -> NoReturn:
+    raise BundleAssemblerError(code, message)
 
 
 def chunk_bundle(
@@ -213,28 +215,18 @@ class BundleAssembler:
         sha256_hex: str,
     ) -> None:
         if total_bytes <= 0:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.EMPTY_BUNDLE,
-                f"total_bytes must be positive; got {total_bytes}",
-            )
+            _fail(_Code.EMPTY_BUNDLE, f"total_bytes must be positive; got {total_bytes}")
         if num_chunks <= 0:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.CHUNK_COUNT_MISMATCH,
-                f"num_chunks must be positive; got {num_chunks}",
-            )
+            _fail(_Code.CHUNK_COUNT_MISMATCH, f"num_chunks must be positive; got {num_chunks}")
         if total_bytes > BUNDLE_MAX_TOTAL_BYTES:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.OVERSIZED,
-                (
-                    f"announced total_bytes {total_bytes} exceeds "
-                    f"BUNDLE_MAX_TOTAL_BYTES {BUNDLE_MAX_TOTAL_BYTES}"
-                ),
+            _fail(
+                _Code.OVERSIZED,
+                f"announced total_bytes {total_bytes} exceeds "
+                f"BUNDLE_MAX_TOTAL_BYTES {BUNDLE_MAX_TOTAL_BYTES}",
             )
-        self._header = _BundleHeader(
-            total_bytes=total_bytes,
-            num_chunks=num_chunks,
-            sha256_hex=sha256_hex.lower(),
-        )
+        self._total_bytes = total_bytes
+        self._num_chunks = num_chunks
+        self._sha256_hex = sha256_hex.lower()
         self._buf = bytearray()
         self._next_index = 0
         self._closed = False
@@ -242,47 +234,31 @@ class BundleAssembler:
     def feed(self, chunk_index: int, raw: bytes, *, is_last: bool) -> None:
         """Accept one chunk. Raises :class:`BundleAssemblerError` on mismatch."""
         if self._closed:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.POST_COMPLETION,
-                f"chunk {chunk_index} arrived after assembler completed",
-            )
+            _fail(_Code.POST_COMPLETION, f"chunk {chunk_index} arrived after completion")
         if chunk_index != self._next_index:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.OUT_OF_ORDER,
+            _fail(
+                _Code.OUT_OF_ORDER,
                 f"expected chunk_index {self._next_index}; got {chunk_index}",
             )
         new_total = len(self._buf) + len(raw)
-        if new_total > self._header.total_bytes:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.OVERSIZED,
-                (
-                    f"chunk {chunk_index} would push assembled bytes to "
-                    f"{new_total}, exceeding announced total_bytes "
-                    f"{self._header.total_bytes}"
-                ),
+        if new_total > self._total_bytes:
+            _fail(
+                _Code.OVERSIZED,
+                f"chunk {chunk_index} would push assembled bytes to {new_total}, "
+                f"exceeding announced total_bytes {self._total_bytes}",
             )
         self._buf.extend(raw)
         self._next_index += 1
-        # The ``is_last`` flag on the last chunk must align with
-        # the offloader's announced ``num_chunks``. A chunk
-        # claiming ``is_last`` while the count is short, or a
-        # non-last chunk on the announced final index, is an
-        # offloader bug — fail loudly so the misbehaviour
-        # surfaces at the wire layer rather than as a corrupt
-        # extract.
-        if is_last and self._next_index != self._header.num_chunks:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.CHUNK_COUNT_MISMATCH,
-                (
-                    f"is_last set on chunk {chunk_index} but only "
-                    f"{self._next_index} of announced {self._header.num_chunks} "
-                    f"chunks have arrived"
-                ),
-            )
-        if not is_last and self._next_index == self._header.num_chunks:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.CHUNK_COUNT_MISMATCH,
-                (f"chunk {chunk_index} is the announced final chunk but is_last was not set"),
+        # ``is_last`` must equal "this is the announced final chunk"; anything
+        # else is the offloader's chunk-count math drifting from ours. Fail
+        # loudly so the misbehaviour surfaces at the wire layer rather than as
+        # a corrupt extract.
+        is_announced_final = self._next_index == self._num_chunks
+        if is_last != is_announced_final:
+            _fail(
+                _Code.CHUNK_COUNT_MISMATCH,
+                f"is_last={is_last} on chunk {chunk_index} mismatches announced "
+                f"num_chunks={self._num_chunks} ({self._next_index} arrived)",
             )
         if is_last:
             self._closed = True
@@ -299,22 +275,20 @@ class BundleAssembler:
         offloader's announced digest.
         """
         if not self._closed:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.UNDERSIZED,
-                (
-                    f"finalise() called before is_last; "
-                    f"{self._next_index} of {self._header.num_chunks} chunks seen"
-                ),
+            _fail(
+                _Code.UNDERSIZED,
+                f"finalise() called before is_last; "
+                f"{self._next_index} of {self._num_chunks} chunks seen",
             )
-        if len(self._buf) != self._header.total_bytes:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.UNDERSIZED,
-                (f"assembled {len(self._buf)} bytes, header announced {self._header.total_bytes}"),
+        if len(self._buf) != self._total_bytes:
+            _fail(
+                _Code.UNDERSIZED,
+                f"assembled {len(self._buf)} bytes, header announced {self._total_bytes}",
             )
-        actual_hash = hashlib.sha256(self._buf).hexdigest()
-        if actual_hash != self._header.sha256_hex:
-            raise BundleAssemblerError(
-                BundleAssemblerErrorCode.HASH_MISMATCH,
-                (f"assembled bundle sha256 {actual_hash} != announced {self._header.sha256_hex}"),
+        actual = hashlib.sha256(self._buf).hexdigest()
+        if actual != self._sha256_hex:
+            _fail(
+                _Code.HASH_MISMATCH,
+                f"assembled bundle sha256 {actual} != announced {self._sha256_hex}",
             )
         return bytes(self._buf)
