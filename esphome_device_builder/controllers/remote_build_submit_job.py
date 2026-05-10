@@ -240,24 +240,12 @@ class SubmitJobReceiver:
           intact.
         """
         if session.dashboard_id in self._inflight:
-            await self._send_ack(
-                session,
-                job_id=frame["job_id"],
-                accepted=False,
-                reason=_REASON_DUPLICATE_SUBMIT,
-            )
+            await self._reject(session, job_id=frame["job_id"], reason=_REASON_DUPLICATE_SUBMIT)
             return
-
         target = frame["target"]
         if target not in _TARGET_TO_JOB_TYPE:
-            await self._send_ack(
-                session,
-                job_id=frame["job_id"],
-                accepted=False,
-                reason=_REASON_INVALID_HEADER,
-            )
+            await self._reject(session, job_id=frame["job_id"], reason=_REASON_INVALID_HEADER)
             return
-
         try:
             assembler = BundleAssembler(
                 total_bytes=frame["total_bundle_bytes"],
@@ -265,12 +253,7 @@ class SubmitJobReceiver:
                 sha256_hex=frame["bundle_sha256"],
             )
         except BundleAssemblerError as exc:
-            await self._send_ack(
-                session,
-                job_id=frame["job_id"],
-                accepted=False,
-                reason=exc.code.value,
-            )
+            await self._reject(session, job_id=frame["job_id"], reason=exc.code.value)
             return
 
         self._inflight[session.dashboard_id] = _PendingSubmit(
@@ -280,128 +263,96 @@ class SubmitJobReceiver:
             assembler=assembler,
         )
 
-    async def handle_submit_job_chunk(  # noqa: PLR0911 — branchy by design
+    async def handle_submit_job_chunk(
         self, session: PeerLinkSession, frame: SubmitJobChunkFrameData
     ) -> None:
         """Feed *frame* into the in-flight assembler. On final chunk: queue + ack.
 
-        Branches:
-
-        * No in-flight submit → ack reject ``no_inflight_submit``.
-        * ``job_id`` doesn't match the in-flight header → ack
-          reject ``job_id_mismatch`` (offloader is mixing two
-          different submits onto one session).
-        * Base64 decode fails → ack reject + terminate
-          ``malformed_frame`` (the wire format itself is broken).
-        * Recoverable assembler error
-          (:data:`_RECOVERABLE_ASSEMBLER_ERRORS`) → ack reject
-          with the assembler's code (offloader can retry).
-        * Other assembler error → ack reject + terminate
-          ``malformed_frame`` (offloader sent out-of-order /
-          post-completion / chunk-count-mismatched chunks; the
-          wire is corrupted, close the session).
-        * Final chunk + finalise success → write bundle,
-          extract, queue job, ack accepted. Failures in any of
-          those steps map to ack reject without a terminate
-          (the wire is fine, just our side hit an issue).
+        Reject branches all flow through :meth:`_reject` with a
+        ``reason`` code; the helper drops in-flight state and
+        optionally fires ``terminate{malformed_frame}`` based on
+        whether the failure is wire-level (offloader corrupted
+        the stream — close the session) or recoverable (offloader
+        can retry on a fresh submit). Happy-path completion
+        flows through :meth:`_finalise_and_queue`.
         """
-        from .remote_build_peer_link import TerminateReason  # noqa: PLC0415
-
         pending = self._inflight.get(session.dashboard_id)
         if pending is None:
-            await self._send_ack(
-                session,
-                job_id=frame["job_id"],
-                accepted=False,
-                reason=_REASON_NO_INFLIGHT,
-            )
+            await self._reject(session, job_id=frame["job_id"], reason=_REASON_NO_INFLIGHT)
             return
-
         if frame["job_id"] != pending.job_id:
-            await self._send_ack(
-                session,
-                job_id=frame["job_id"],
-                accepted=False,
-                reason=_REASON_JOB_ID_MISMATCH,
-            )
+            await self._reject(session, job_id=frame["job_id"], reason=_REASON_JOB_ID_MISMATCH)
             return
-
         try:
             raw = decode_chunk(frame["data_b64"])
         except (binascii.Error, ValueError):
-            self._inflight.pop(session.dashboard_id, None)
-            await self._send_ack(
+            await self._reject(
                 session,
                 job_id=pending.job_id,
-                accepted=False,
                 reason=_REASON_CHUNK_DECODE_FAILED,
+                drop_inflight=True,
+                terminate_session=True,
             )
-            await session.terminate(TerminateReason.MALFORMED_FRAME)
             return
-
         try:
             pending.assembler.feed(frame["chunk_index"], raw, is_last=frame["is_last"])
         except BundleAssemblerError as exc:
-            self._inflight.pop(session.dashboard_id, None)
-            await self._send_ack(
-                session,
-                job_id=pending.job_id,
-                accepted=False,
-                reason=exc.code.value,
-            )
-            if exc.code not in _RECOVERABLE_ASSEMBLER_ERRORS:
-                await session.terminate(TerminateReason.MALFORMED_FRAME)
+            await self._reject_assembler(session, pending=pending, exc=exc)
             return
-
         if not frame["is_last"]:
             return
+        await self._finalise_and_queue(session=session, pending=pending)
 
-        # Final chunk landed; finalise + extract + queue. Pull the
-        # entry out of ``_inflight`` first so a later mistake doesn't
-        # leave a closed assembler dangling.
+    async def _finalise_and_queue(
+        self, *, session: PeerLinkSession, pending: _PendingSubmit
+    ) -> None:
+        """Pull the in-flight entry, finalise the bundle, extract + queue + ack.
+
+        Split out from :meth:`handle_submit_job_chunk` so the
+        final-chunk path is read-on-its-own rather than tail-of-
+        a-flat-cascade. Drops the in-flight entry first so any
+        later failure can't leave a closed assembler dangling.
+        """
         self._inflight.pop(session.dashboard_id, None)
         try:
             assembled = pending.assembler.finalise()
         except BundleAssemblerError as exc:
-            await self._send_ack(
-                session,
-                job_id=pending.job_id,
-                accepted=False,
-                reason=exc.code.value,
-            )
-            if exc.code not in _RECOVERABLE_ASSEMBLER_ERRORS:
-                await session.terminate(TerminateReason.MALFORMED_FRAME)
+            await self._reject_assembler(session, pending=pending, exc=exc)
             return
-
         try:
-            queued_job_id = await self._extract_and_queue(
-                session=session,
-                pending=pending,
-                bundle_bytes=assembled,
-            )
+            await self._extract_and_queue(session=session, pending=pending, bundle_bytes=assembled)
         except _SubmitJobRejectionError as exc:
-            await self._send_ack(
-                session,
-                job_id=pending.job_id,
-                accepted=False,
-                reason=exc.reason,
-            )
+            await self._reject(session, job_id=pending.job_id, reason=exc.reason)
             return
+        # Echo the offloader's ``job_id`` back on the ack so the
+        # offloader can match the response to its submit; the
+        # receiver-side job id is threaded into the 5c-2b fan-out
+        # via :attr:`FirmwareJob.remote_peer` instead.
+        await self._send_ack_accepted(session, job_id=pending.job_id)
 
-        # ``_extract_and_queue`` returned the queued job's id; the
-        # offloader's ``job_id`` from the header is what they
-        # tagged the submit with, but the receiver-side job id is
-        # what every subsequent ``job_state_changed`` /
-        # ``job_output`` frame keys on. Echo the offloader's
-        # ``job_id`` back on the ack so the offloader can match
-        # the response to its submit; the receiver-side id is
-        # threaded into the 5c-2b fan-out via
-        # :attr:`FirmwareJob.remote_peer` instead.
-        del queued_job_id  # documented for the comment; not used yet
-        await self._send_ack(
+    async def _reject_assembler(
+        self,
+        session: PeerLinkSession,
+        *,
+        pending: _PendingSubmit,
+        exc: BundleAssemblerError,
+    ) -> None:
+        """Reject helper for assembler errors — terminates on wire-level codes only.
+
+        Codes in :data:`_RECOVERABLE_ASSEMBLER_ERRORS`
+        (``oversized`` / ``undersized`` / ``hash_mismatch`` /
+        ``empty_bundle``) ack-and-stay so the offloader can
+        retry on a fresh submit. Anything else (out-of-order,
+        post-completion, chunk-count-mismatched) is wire-level
+        misbehaviour and triggers a
+        ``terminate{malformed_frame}`` close after the ack.
+        """
+        await self._reject(
             session,
             job_id=pending.job_id,
-            accepted=True,
+            reason=exc.code.value,
+            drop_inflight=True,
+            terminate_session=exc.code not in _RECOVERABLE_ASSEMBLER_ERRORS,
         )
 
     async def _extract_and_queue(
@@ -410,16 +361,18 @@ class SubmitJobReceiver:
         session: PeerLinkSession,
         pending: _PendingSubmit,
         bundle_bytes: bytes,
-    ) -> str:
+    ) -> None:
         """Write the tarball, extract it, queue a :class:`FirmwareJob`.
 
-        Returns the queued job's ``job_id`` (receiver-side id,
-        distinct from the offloader's submit-tagged id). Raises
-        :class:`_SubmitJobRejectionError` on any failure with a
-        :class:`SubmitJobAckFrameData.reason`-shaped code so the
-        caller can convert into an ack reject without a terminate
-        (extract / queue failures are receiver-side problems, not
-        wire-level misbehaviour).
+        Raises :class:`_SubmitJobRejectionError` on any failure
+        with a :class:`SubmitJobAckFrameData.reason`-shaped code
+        so the caller can convert into an ack reject without a
+        terminate (extract / queue failures are receiver-side
+        problems, not wire-level misbehaviour). The receiver-side
+        job id is captured in :attr:`FirmwareJob.remote_peer` for
+        the 5c-2b fan-out path; the offloader echoes against its
+        own submit-tagged ``job_id`` rather than the receiver's
+        local one.
 
         Disk I/O hops to the executor:
         ``prepare_bundle_for_compile`` walks the tar, validates
@@ -482,41 +435,56 @@ class SubmitJobReceiver:
             configuration,
             pending.target,
         )
-        return job.job_id
 
-    async def _send_ack(
+    async def _send_ack_accepted(self, session: PeerLinkSession, *, job_id: str) -> None:
+        """Send the success-path ``submit_job_ack`` (no ``reason`` field)."""
+        payload = SubmitJobAckFrameData(type="submit_job_ack", job_id=job_id, accepted=True)
+        await session.send_app_frame(dict(payload))
+
+    async def _reject(
         self,
         session: PeerLinkSession,
         *,
         job_id: str,
-        accepted: bool,
-        reason: str | None = None,
+        reason: str,
+        drop_inflight: bool = False,
+        terminate_session: bool = False,
     ) -> None:
-        """Send a typed :class:`SubmitJobAckFrameData` to *session*.
+        """Single chokepoint for every reject path.
 
-        ``reason`` is omitted from the wire payload on the
-        success path so the frame is exactly
-        ``{type, job_id, accepted: true}`` (matching the
-        ``NotRequired`` declaration on the TypedDict). Failures
-        from ``send_app_frame`` are logged at the channel layer
-        and don't propagate here — the session is already
-        closing or gone, the ack going missing isn't actionable.
+        Drops the in-flight entry when *drop_inflight* is true
+        (the failure leaves no recoverable in-flight state, e.g.
+        decode / assembler errors mid-stream), sends a typed
+        ``submit_job_ack`` with ``accepted=False`` + the given
+        *reason*, then optionally fires
+        ``terminate{malformed_frame}`` on the session when the
+        failure was wire-level misbehaviour (out-of-order
+        chunks, base64 garbage). Receiver-side problems
+        (``extract_failed`` / ``queue_rejected`` / header
+        validation that didn't reach an assembler) leave the
+        session intact so the offloader can retry on a fresh
+        submit.
+
+        Failures from ``send_app_frame`` are logged at the
+        channel layer and don't propagate here — the session
+        is already closing or gone, the ack going missing
+        isn't actionable.
         """
-        payload: SubmitJobAckFrameData = (
-            SubmitJobAckFrameData(
-                type="submit_job_ack",
-                job_id=job_id,
-                accepted=accepted,
-            )
-            if reason is None
-            else SubmitJobAckFrameData(
-                type="submit_job_ack",
-                job_id=job_id,
-                accepted=accepted,
-                reason=reason,
-            )
+        # Local import sidesteps the circular dep:
+        # ``remote_build_peer_link`` imports symbols from this
+        # module via :class:`SubmitJobReceiver`-shaped duck
+        # typing in its receive loop, but only the
+        # ``TerminateReason`` enum reads back the other way.
+        from .remote_build_peer_link import TerminateReason  # noqa: PLC0415
+
+        if drop_inflight:
+            self._inflight.pop(session.dashboard_id, None)
+        payload = SubmitJobAckFrameData(
+            type="submit_job_ack", job_id=job_id, accepted=False, reason=reason
         )
         await session.send_app_frame(dict(payload))
+        if terminate_session:
+            await session.terminate(TerminateReason.MALFORMED_FRAME)
 
 
 class _SubmitJobRejectionError(Exception):
