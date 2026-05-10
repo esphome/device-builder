@@ -226,23 +226,30 @@ def _decode_txt_value(raw: bytes | None) -> str:
         return ""
 
 
-def _decode_txt_int(raw: bytes | None) -> int:
-    """Decode a TXT value as an int, falling back to 0.
+def _decode_txt_port(raw: bytes | None) -> int:
+    """Decode a TCP port from a TXT value; fall back to 0 on absent / malformed / out-of-range.
 
-    Defensive: a corrupted / non-numeric TXT entry shouldn't
-    raise into the browser callback (which would abort the
-    resolve task and silently lose the peer). 0 is the same
-    "not advertised" sentinel TXT-absent rows already produce,
-    so downstream sites that gate on a real port already cover
-    the malformed-payload case.
+    Defensive: a corrupted / non-numeric / out-of-range TXT
+    entry shouldn't raise into the browser callback (which
+    would abort the resolve task and silently lose the peer),
+    and shouldn't trigger spurious rebind probes for a port
+    we couldn't dial anyway. Negative integers and values
+    outside the IANA ``1..65535`` range collapse to the same
+    "not advertised" 0 sentinel TXT-absent rows already
+    produce, so downstream sites that gate on a real port
+    cover absence, malformation, and spoof attempts in one
+    check.
     """
     decoded = _decode_txt_value(raw)
     if not decoded:
         return 0
     try:
-        return int(decoded)
+        port = int(decoded)
     except ValueError:
         return 0
+    if not 1 <= port <= 65535:
+        return 0
+    return port
 
 
 def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPeer:
@@ -272,7 +279,7 @@ def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPee
     # receivers that haven't published them; the rebind path
     # silently skips those rows.
     pin_sha256 = _decode_txt_value(properties.get(b"pin_sha256"))
-    remote_build_port = _decode_txt_int(properties.get(b"remote_build_port"))
+    remote_build_port = _decode_txt_port(properties.get(b"remote_build_port"))
     # ``info.name`` comes back as ``<instance>.<service_type>``; we
     # only want the leftmost label as the friendly name.
     instance = (info.name or name).split(".", 1)[0]

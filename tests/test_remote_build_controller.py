@@ -721,13 +721,27 @@ def test_peer_from_service_info_parses_pin_and_remote_build_port() -> None:
     assert peer.remote_build_port == 6058
 
 
-def test_peer_from_service_info_tolerates_malformed_remote_build_port() -> None:
-    """A non-numeric ``remote_build_port`` lands as 0 (rebind path skips on 0).
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"not-a-number",  # non-numeric
+        b"-1",  # negative
+        b"0",  # zero
+        b"65536",  # one past the IANA range
+        b"99999999",  # absurdly large
+        b"",  # empty
+    ],
+)
+def test_peer_from_service_info_clamps_invalid_remote_build_port(raw: bytes) -> None:
+    """Non-numeric / out-of-range ``remote_build_port`` values land as 0.
 
-    Defensive: a corrupted broadcast shouldn't raise into the
-    browser callback (which would abort the resolve task and
-    silently lose the peer). Lands as 0 instead, and the rebind
-    early-return on ``remote_build_port == 0`` skips the row.
+    Defensive: a corrupted or spoofed broadcast shouldn't raise
+    into the browser callback (which would abort the resolve
+    task and silently lose the peer), and shouldn't trigger
+    spurious rebind probes for a port we couldn't dial anyway.
+    Negative integers, 0, and values above 65535 collapse to
+    the same ``0`` "not advertised" sentinel TXT-absent rows
+    already produce.
     """
     info = MagicMock()
     info.name = f"green.{SERVICE_TYPE}"
@@ -737,7 +751,7 @@ def test_peer_from_service_info_tolerates_malformed_remote_build_port() -> None:
         b"server_version": b"",
         b"esphome_version": b"",
         b"pin_sha256": (b"a" * 64),
-        b"remote_build_port": b"not-a-number",
+        b"remote_build_port": raw,
     }
     info.parsed_scoped_addresses = MagicMock(return_value=[])
 
