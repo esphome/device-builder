@@ -1038,6 +1038,46 @@ class RemoteBuildController:
                 self._on_offloader_queue_status_changed,
             )
         )
+        # Mirror :class:`PeerLinkClient`-fired pin-mismatch
+        # events into the RAM-only ``_offloader_alerts`` dict so
+        # the snapshot path
+        # (``subscribe_events.initial_state.offloader_alerts``)
+        # picks up alerts that fired from the long-lived
+        # peer-link path (peer-link handshake observed a
+        # different responder pubkey than the OOB-confirmed
+        # pin). Idempotent vs. the synchronous mutation in
+        # :meth:`_apply_pair_status_result`'s pin-drift branch
+        # — both paths land the same shape under the same key,
+        # so a same-tick fire from the pair-status listener
+        # ends with the listener overwriting a value the
+        # caller already wrote (no behaviour change there).
+        self._unsub_bus_listeners.append(
+            self._db.bus.add_listener(
+                EventType.OFFLOADER_PAIR_PIN_MISMATCH,
+                self._on_offloader_pair_pin_mismatch,
+            )
+        )
+
+    def _on_offloader_pair_pin_mismatch(self, event: Event[OffloaderPairPinMismatchData]) -> None:
+        """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot.
+
+        Receiver hostname / port form the dict key (matches the
+        synchronous mutation site in
+        :meth:`_apply_pair_status_result`). The alert payload
+        adds ``kind`` + ``fired_at`` to the bus event's wire
+        fields so the snapshot row survives the event drop.
+        """
+        data = event.data
+        key = (data["receiver_hostname"], data["receiver_port"])
+        self._offloader_alerts[key] = {
+            "kind": "pin_mismatch",
+            "receiver_hostname": data["receiver_hostname"],
+            "receiver_port": data["receiver_port"],
+            "receiver_label": data["receiver_label"],
+            "expected_pin": data["expected_pin"],
+            "observed_pin": data["observed_pin"],
+            "fired_at": time.time(),
+        }
 
     def _on_offloader_queue_status_changed(
         self, event: Event[OffloaderQueueStatusChangedData]
@@ -1998,6 +2038,13 @@ class RemoteBuildController:
             receiver_port=pairing.receiver_port,
             identity_priv=self._offloader_peer_link_priv,
             dashboard_id=self._offloader_dashboard_id,
+            # Pin the receiver's static pubkey from the
+            # OOB-verified pair flow so the long-lived peer-link
+            # handshake fails fast on identity drift instead of
+            # admitting an attacker with their own keypair to
+            # the application channel.
+            pinned_static_x25519_pub=pairing.static_x25519_pub,
+            receiver_label=pairing.label,
             bus=self._db.bus,
         )
         self._peer_link_clients[key] = asyncio.create_task(

@@ -2506,6 +2506,37 @@ async def test_broadcast_queue_status_continues_past_failed_session(
     )
 
 
+def test_on_offloader_pair_pin_mismatch_caches_alert(tmp_path: Path) -> None:
+    """``OFFLOADER_PAIR_PIN_MISMATCH`` listener caches the alert in ``_offloader_alerts``.
+
+    The peer-link path's pin-check (4a-o part 5) fires
+    ``OFFLOADER_PAIR_PIN_MISMATCH`` from the
+    :class:`PeerLinkClient` when ``session.remote_static_pub``
+    drifts from the pinned pubkey. The controller listens and
+    populates ``_offloader_alerts`` with a snapshot row so the
+    ``initial_state.offloader_alerts`` push picks it up for
+    late-subscribing tabs.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    payload = {
+        "receiver_hostname": "host.local",
+        "receiver_port": 6055,
+        "receiver_label": "my-laptop",
+        "expected_pin": "a" * 64,
+        "observed_pin": "b" * 64,
+    }
+    controller._on_offloader_pair_pin_mismatch(MagicMock(data=payload))
+
+    cached = controller._offloader_alerts[("host.local", 6055)]
+    assert cached["kind"] == "pin_mismatch"
+    assert cached["receiver_hostname"] == "host.local"
+    assert cached["receiver_port"] == 6055
+    assert cached["receiver_label"] == "my-laptop"
+    assert cached["expected_pin"] == "a" * 64
+    assert cached["observed_pin"] == "b" * 64
+    assert "fired_at" in cached  # set by the listener at fire-time
+
+
 def test_on_offloader_queue_status_changed_caches_snapshot(tmp_path: Path) -> None:
     """Inbound bus event lands a per-peer snapshot in the cache."""
     controller = _make_controller(config_dir=tmp_path)
