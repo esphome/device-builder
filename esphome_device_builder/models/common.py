@@ -207,6 +207,57 @@ class EventType(StrEnum):
     # ``superseded`` close doesn't trigger a reconnect storm.
     OFFLOADER_PEER_LINK_CLOSED = "offloader_peer_link_closed"
 
+    # Offloader-side detection: the receiver's static X25519
+    # pubkey hash observed during a pair-status / peer-link
+    # handshake doesn't match the ``StoredPairing.pin_sha256``
+    # the offloader recorded at pair time. The receiver's
+    # identity rotated under us (legitimate
+    # ``rotate_peer_link_identity`` from the receiver-side
+    # admin, or someone replacing the receiver). Payload:
+    # ``{receiver_hostname, receiver_port, receiver_label,
+    # expected_pin, observed_pin}``. Fires alongside
+    # ``OFFLOADER_PAIR_STATUS_CHANGED status="removed"`` (the
+    # row drops either way); subscribers use this event to
+    # surface the "re-pair to confirm the new identity" alert
+    # in the offloader's UI distinct from a peer-revocation
+    # alert. No receiver-side counterpart — the receiver never
+    # sees its own pin drift.
+    OFFLOADER_PAIR_PIN_MISMATCH = "offloader_pair_pin_mismatch"
+
+    # Offloader-side detection: the receiver actively returned
+    # ``intent_response="rejected"`` on a pair-status long-poll
+    # for a row the offloader had as PENDING / APPROVED.
+    # Receiver admin clicked Reject, the pairing window closed
+    # clearing the receiver's pending dict, the offloader's
+    # identity rotated, or the receiver never had this row.
+    # Payload: ``{receiver_hostname, receiver_port,
+    # receiver_label}``. Fires alongside
+    # ``OFFLOADER_PAIR_STATUS_CHANGED status="removed"``;
+    # subscribers use this event for the "the receiver removed
+    # us; reach out if this was a mistake" alert distinct from
+    # a pin-mismatch alert (different operator response —
+    # pin-mismatch can be re-paired right away, peer-revoked
+    # needs receiver-side admin coordination).
+    OFFLOADER_PAIR_PEER_REVOKED = "offloader_pair_peer_revoked"
+
+    # An offloader-side pair alert was cleared by one of the
+    # two resolution paths that fix the underlying broken
+    # state: a successful ``request_pair`` against the same
+    # ``(hostname, port)`` (re-pair auto-resolved the alert),
+    # or ``unpair`` removing the row outright. There is no
+    # operator-driven dismiss — clicking "OK got it" without
+    # acting would just hide a broken pairing the next peer-
+    # link session would still fail against, so re-pair and
+    # unpair are the only ways the alert clears. Payload:
+    # ``{receiver_hostname, receiver_port}``. RAM-only state
+    # on the controller's ``_offloader_alerts`` dict; the
+    # event keeps other tabs / clients on the global
+    # ``subscribe_events`` stream in sync without re-fetching
+    # the alerts snapshot. Late-subscribing clients pick up
+    # the canonical state via
+    # ``subscribe_events.initial_state.offloader_alerts``.
+    OFFLOADER_PAIR_ALERT_DISMISSED = "offloader_pair_alert_dismissed"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.

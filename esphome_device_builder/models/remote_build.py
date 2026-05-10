@@ -242,6 +242,160 @@ class OffloaderPairStatusChangedData(TypedDict):
     status: Literal["approved", "removed"]
 
 
+class OffloaderPairPinMismatchData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_PAIR_PIN_MISMATCH``.
+
+    Fired by the offloader's per-row pair-status listener task
+    (``RemoteBuildController._apply_pair_status_result``) when a
+    Noise XX handshake to the receiver returns
+    ``IntentResponse.APPROVED`` but the observed
+    ``pin_sha256`` (lowercase-hex SHA-256 of the receiver's
+    static X25519 pubkey, captured from the handshake
+    transcript) doesn't match what the offloader stored at pair
+    time on :class:`StoredPairing.pin_sha256`. The receiver's
+    identity rotated under us (legitimate
+    ``rotate_peer_link_identity`` from the receiver-side admin,
+    or someone replacing the receiver).
+
+    Fires *alongside* ``OFFLOADER_PAIR_STATUS_CHANGED
+    status="removed"`` (the row drops either way), but carries
+    the diagnostic detail (``expected_pin`` /
+    ``observed_pin``) the status-changed event doesn't, plus
+    the offloader's local ``receiver_label`` so the alert can
+    name the row even after the pairings list has dropped it.
+    The frontend's 4b-4 alert plumbing reshape uses the
+    distinct event to surface a "re-pair to confirm the new
+    identity" CTA, separate from the peer-revocation case.
+
+    No receiver-side counterpart event; the receiver never sees
+    its own pin drift, and the symmetric "offloader rotated"
+    case lands as a fresh PENDING row on the receiver's inbox
+    via :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED`.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    receiver_label: str
+    expected_pin: str
+    observed_pin: str
+
+
+class OffloaderPairAlertDismissedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_PAIR_ALERT_DISMISSED``.
+
+    Fired when an entry leaves the controller's RAM-only
+    ``_offloader_alerts`` dict via one of the two resolution
+    paths that fix the underlying broken state: a successful
+    ``request_pair`` against the same ``(hostname, port)``
+    (re-pair auto-resolved the alert), or ``unpair`` removing
+    the row outright. There is no operator-driven dismiss
+    surface; clicking "OK got it" without acting would just
+    hide a broken pairing the next peer-link session would
+    still fail against, so re-pair and unpair are the only
+    ways the alert clears. The event lets other tabs / clients
+    on the global ``subscribe_events`` stream sync their local
+    alerts list without re-fetching the snapshot.
+
+    The shape carries only the receiver coordinates the alert
+    was keyed on; subscribers find the row in their local
+    alerts map by ``${hostname}:${port}``. No discriminator on
+    *which* resolution path got us here — the user-facing
+    outcome (the alert disappears) is the same either way.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+
+
+class OffloaderPinMismatchAlert(TypedDict):
+    """
+    Snapshot row in the offloader-side alerts list.
+
+    Mirror of :class:`OffloaderPairPinMismatchData` (the live
+    event) plus a ``kind`` discriminator so a single alerts
+    list can carry both pin-mismatch and peer-revoked entries
+    on the wire. Frontend subscribers branch on ``kind`` to
+    pick the alert copy + CTA.
+
+    ``fired_at`` is the wall-clock unix timestamp the alert
+    was added to the dict. The snapshot's order is dict
+    insertion order: a brand-new row appends at the tail; an
+    upsert on an existing key keeps that key's slot in place
+    (Python dict semantics) so a re-fire on the same row
+    doesn't reshuffle the snapshot. Frontends that want
+    "newest first" sort on ``fired_at`` themselves.
+    """
+
+    kind: Literal["pin_mismatch"]
+    receiver_hostname: str
+    receiver_port: int
+    receiver_label: str
+    expected_pin: str
+    observed_pin: str
+    fired_at: float
+
+
+class OffloaderPeerRevokedAlert(TypedDict):
+    """
+    Snapshot row in the offloader-side alerts list.
+
+    Mirror of :class:`OffloaderPairPeerRevokedData` plus the
+    ``kind`` discriminator. Same shape rationale as
+    :class:`OffloaderPinMismatchAlert`.
+    """
+
+    kind: Literal["peer_revoked"]
+    receiver_hostname: str
+    receiver_port: int
+    receiver_label: str
+    fired_at: float
+
+
+# Sum type the snapshot list carries. Each entry is one of
+# the two TypedDicts above; the ``kind`` Literal narrows
+# field access at the consumer.
+OffloaderAlertSnapshotEntry = OffloaderPinMismatchAlert | OffloaderPeerRevokedAlert
+
+
+class OffloaderPairPeerRevokedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_PAIR_PEER_REVOKED``.
+
+    Fired by the offloader's per-row pair-status listener task
+    (``RemoteBuildController._apply_pair_status_result``) when
+    a Noise XX handshake to the receiver returns
+    ``IntentResponse.REJECTED`` for a row the offloader had as
+    PENDING / APPROVED. The receiver-side admin clicked Reject,
+    the pairing window closed clearing the receiver's pending
+    dict, the offloader's own peer-link identity rotated, or
+    the receiver simply doesn't have this row (legitimate
+    receiver re-install). From the offloader's perspective all
+    four collapse to "the receiver isn't going to talk to us";
+    the alert copy stays generic ("the receiver removed us;
+    reach out to that admin if this was a mistake").
+
+    Fires *alongside* ``OFFLOADER_PAIR_STATUS_CHANGED
+    status="removed"``; the distinct event lets the frontend's
+    4b-4 alert plumbing reshape surface a different CTA
+    ("contact the receiver admin") versus a pin-mismatch alert
+    ("re-pair right now to pick up the new identity"). The
+    operator action differs.
+
+    The ``receiver_label`` is carried so the alert can name the
+    row even after the pairings list has dropped it. No extra
+    diagnostic detail; the receiver doesn't tell us *why*
+    REJECTED, and the offloader can't distinguish
+    admin-Reject from window-close from row-never-existed at
+    this layer.
+    """
+
+    receiver_hostname: str
+    receiver_port: int
+    receiver_label: str
+
+
 class RemoteBuildPairingWindowChangedData(TypedDict):
     """
     Payload for ``EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED``.

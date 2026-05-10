@@ -587,6 +587,16 @@ class DeviceBuilder:
                 # the receiver controller's mDNS browser
                 # callbacks.
                 initial["hosts"] = [peer.to_dict() for peer in self.remote_build.hosts_snapshot()]
+                # Offloader-side pair alerts (RAM-only on the
+                # controller; populated when pair-status detection
+                # finds a drifted receiver pin or a REJECTED
+                # response). Late-subscribers pick up alerts they
+                # missed on the live stream via this snapshot.
+                # ``OFFLOADER_PAIR_PIN_MISMATCH`` /
+                # ``OFFLOADER_PAIR_PEER_REVOKED`` /
+                # ``OFFLOADER_PAIR_ALERT_DISMISSED`` events drive
+                # subsequent mutations.
+                initial["offloader_alerts"] = list(self.remote_build.offloader_alerts_snapshot())
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.
