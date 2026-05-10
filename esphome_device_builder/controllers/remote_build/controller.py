@@ -140,7 +140,7 @@ from .peer_link_client import (
     PairStatusResult,
     PeerLinkClient,
     PeerLinkClientError,
-    SubmitJobNoSessionError,
+    PeerLinkNoSessionError,
     SubmitJobSessionLostError,
     SubmitJobTimeoutError,
 )
@@ -2833,7 +2833,7 @@ class RemoteBuildController:
                 target=clean_target,
                 bundle_bytes=bundle_bytes,
             )
-        except SubmitJobNoSessionError as exc:
+        except PeerLinkNoSessionError as exc:
             raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
         except (SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
             raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
@@ -2887,7 +2887,7 @@ class RemoteBuildController:
         client = self._lookup_open_peer_link_client(clean_pin)
         try:
             sent = await client.cancel_job(job_id=job_id)
-        except SubmitJobNoSessionError as exc:
+        except PeerLinkNoSessionError as exc:
             raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
         return {"sent": sent}
 
