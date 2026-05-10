@@ -1003,6 +1003,58 @@ def test_peers_snapshot_drops_static_x25519_pub_from_wire(tmp_path: Path) -> Non
     assert serialised["pin_sha256"]  # the wire-friendly form is present
 
 
+def test_peers_snapshot_marks_approved_with_active_session_connected(
+    tmp_path: Path,
+) -> None:
+    """An APPROVED row with a registered peer-link session reports ``connected=True``.
+
+    The frontend's "Paired senders" list reads ``connected``
+    to render an online/offline indicator. Pin the snapshot
+    semantic so a future refactor that splits the session
+    registry from the peer dict can't silently drop the
+    membership read.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    _seed_peer(controller, _stored_peer(dashboard_id="alpha"))
+    _seed_peer(controller, _stored_peer(dashboard_id="beta"))
+    # Stub a session for ``alpha`` only; ``beta`` is approved
+    # but offline.
+    session = MagicMock()
+    session.dashboard_id = "alpha"
+    controller._peer_link_sessions["alpha"] = session
+
+    rows = {row.dashboard_id: row for row in controller.peers_snapshot()}
+
+    assert rows["alpha"].connected is True
+    assert rows["beta"].connected is False
+
+
+def test_peers_snapshot_pending_row_is_never_connected(tmp_path: Path) -> None:
+    """PENDING rows project as ``connected=False`` regardless of session state.
+
+    Peer-link is gated on APPROVED status (the receiver's
+    ``lookup_peer_for_session`` refuses non-APPROVED rows), so
+    a registered session with the same dashboard_id as a
+    PENDING entry shouldn't surface as ``connected=True``. The
+    invariant is the dispatch gate's responsibility, not the
+    snapshot's, but this test pins the structural default in
+    case a future code path legitimately registers a session
+    for a non-APPROVED row (it'd need to come back and lift
+    the hardcoded ``False``).
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    _seed_pending_peer(controller, _stored_peer(dashboard_id="pending"))
+    session = MagicMock()
+    session.dashboard_id = "pending"
+    controller._peer_link_sessions["pending"] = session
+
+    [row] = controller.peers_snapshot()
+
+    assert row.dashboard_id == "pending"
+    assert row.status is PeerStatus.PENDING
+    assert row.connected is False
+
+
 def test_peers_snapshot_carries_peer_ip(tmp_path: Path) -> None:
     """``peer_ip`` flows from the stored row through the wire summary.
 
@@ -2452,6 +2504,37 @@ async def test_broadcast_queue_status_continues_past_failed_session(
         "queue_status broadcast to session alpha raised" in record.message
         for record in caplog.records
     )
+
+
+def test_on_offloader_pair_pin_mismatch_caches_alert(tmp_path: Path) -> None:
+    """``OFFLOADER_PAIR_PIN_MISMATCH`` listener caches the alert in ``_offloader_alerts``.
+
+    The peer-link path's pin-check (4a-o part 5) fires
+    ``OFFLOADER_PAIR_PIN_MISMATCH`` from the
+    :class:`PeerLinkClient` when ``session.remote_static_pub``
+    drifts from the pinned pubkey. The controller listens and
+    populates ``_offloader_alerts`` with a snapshot row so the
+    ``initial_state.offloader_alerts`` push picks it up for
+    late-subscribing tabs.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    payload = {
+        "receiver_hostname": "host.local",
+        "receiver_port": 6055,
+        "receiver_label": "my-laptop",
+        "expected_pin": "a" * 64,
+        "observed_pin": "b" * 64,
+    }
+    controller._on_offloader_pair_pin_mismatch(MagicMock(data=payload))
+
+    cached = controller._offloader_alerts[("host.local", 6055)]
+    assert cached["kind"] == "pin_mismatch"
+    assert cached["receiver_hostname"] == "host.local"
+    assert cached["receiver_port"] == 6055
+    assert cached["receiver_label"] == "my-laptop"
+    assert cached["expected_pin"] == "a" * 64
+    assert cached["observed_pin"] == "b" * 64
+    assert "fired_at" in cached  # set by the listener at fire-time
 
 
 def test_on_offloader_queue_status_changed_caches_snapshot(tmp_path: Path) -> None:

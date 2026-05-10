@@ -829,6 +829,22 @@ class PeerSummary(DataClassORJSONMixin):
     submitting a pair_request with a spoofed label or against a
     drifted dashboard_id). Empty string for legacy rows from
     receivers that pre-date the persisted ``peer_ip`` field.
+
+    ``connected`` reports whether the receiver currently has
+    an active 5a-2 peer-link session for this peer
+    (``dashboard_id`` membership in
+    :attr:`RemoteBuildController._peer_link_sessions`). The
+    field is computed at snapshot-build time from the
+    receiver's RAM-canonical session registry — not stored
+    on disk — and live updates flow through the
+    :attr:`EventType.RECEIVER_PEER_LINK_SESSION_OPENED` /
+    ``_CLOSED`` bus events so a tab subscribing AFTER an
+    open / close still sees current state from the snapshot.
+    Always ``False`` for PENDING peers: peer-link is gated on
+    APPROVED status (the receiver's
+    :meth:`RemoteBuildController.lookup_peer_for_session`
+    only returns ``OK`` for APPROVED rows), so a PENDING peer
+    can never have a registered session.
     """
 
     dashboard_id: str
@@ -837,6 +853,7 @@ class PeerSummary(DataClassORJSONMixin):
     paired_at: float
     status: PeerStatus
     peer_ip: str = ""
+    connected: bool = False
 
 
 # Bounds enforced both at the WS-command boundary (the future

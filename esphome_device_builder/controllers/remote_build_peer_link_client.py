@@ -50,6 +50,7 @@ from ..helpers.peer_link_noise import (
 from ..models import (
     EventType,
     IntentResponse,
+    OffloaderPairPinMismatchData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
     OffloaderQueueStatusChangedData,
@@ -603,6 +604,18 @@ _LOCAL_CLOSE_HEARTBEAT_TIMEOUT = "heartbeat_timeout"
 _LOCAL_CLOSE_CLIENT_STOPPED = "client_stopped"
 _LOCAL_CLOSE_PEER_HUNG_UP = "peer_hung_up"
 _LOCAL_CLOSE_AUTH_REJECTED = "auth_rejected"
+# Receiver's static X25519 pubkey hash (from the live Noise XX
+# handshake) didn't match the value the offloader OOB-confirmed
+# at pair time. Either the receiver's identity legitimately
+# rotated, or an attacker has interposed (e.g. mDNS spoof
+# pointing the offloader at an attacker-controlled host that
+# completed the handshake with its own keypair). The
+# :class:`PeerLinkClient` aborts the connection before any
+# application frames flow and orphans itself so the reconnect
+# loop doesn't hammer the wrong endpoint; the operator's
+# resolution is to re-pair (clearing the alert) or unpair
+# (removing the row).
+_LOCAL_CLOSE_PIN_MISMATCH = "pin_mismatch"
 
 
 @dataclass
@@ -667,12 +680,25 @@ class PeerLinkClient:
         receiver_port: int,
         identity_priv: bytes,
         dashboard_id: str,
+        pinned_static_x25519_pub: bytes,
+        receiver_label: str,
         bus: EventBus,
     ) -> None:
         self._hostname = receiver_hostname
         self._port = receiver_port
         self._identity_priv = identity_priv
         self._dashboard_id = dashboard_id
+        # Pinned receiver pubkey from the OOB-verified pair flow,
+        # captured during ``preview_pair`` and stored on
+        # :class:`StoredPairing.static_x25519_pub`. Compared
+        # against ``session.remote_static_pub`` post-handshake on
+        # every connect so an attacker with their own X25519
+        # keypair can't complete Noise XX against this client and
+        # reach the application channel. ``receiver_label`` is
+        # carried so the pin-mismatch alert can name the row at
+        # firing time.
+        self._pinned_static_x25519_pub = pinned_static_x25519_pub
+        self._receiver_label = receiver_label
         self._bus = bus
         # Set to True when we observe a receiver-side
         # ``terminate{reason: superseded}`` close — means a
@@ -702,11 +728,25 @@ class PeerLinkClient:
 
     @property
     def is_orphaned(self) -> bool:
-        """True if a ``superseded`` close has poisoned this client.
+        """True if the run loop has been poisoned and won't reconnect.
 
-        See the class docstring for the rationale; the
-        controller's restart path (a fresh :meth:`run`) clears
-        the flag.
+        Set in two cases, both of which mean reconnecting would
+        just hammer the wrong endpoint:
+
+        * Receiver-side ``terminate{reason: superseded}`` close
+          — a newer offloader instance with the same
+          ``dashboard_id`` has taken our slot. Reconnecting
+          would collide with that instance.
+        * Pin-mismatch on the post-handshake pin-check (4a-o
+          part 5) — ``session.remote_static_pub`` didn't match
+          the OOB-confirmed pubkey, so we're talking to a
+          rotated-but-legitimate receiver or to an attacker.
+          Either way the operator's resolution (re-pair to
+          confirm the new identity, or unpair) is the only
+          path forward.
+
+        The controller's restart path (a fresh :meth:`run`)
+        clears the flag.
         """
         return self._orphaned
 
@@ -742,6 +782,26 @@ class PeerLinkClient:
                     _LOGGER.info(
                         "peer-link client to %s:%d superseded by another instance "
                         "with the same dashboard_id; orphaning",
+                        self._hostname,
+                        self._port,
+                    )
+                    self._orphaned = True
+                    return
+                if close_reason == _LOCAL_CLOSE_PIN_MISMATCH:
+                    # Pin drift means we're either talking to a
+                    # rotated-but-legitimate receiver or to an
+                    # attacker; in both cases reconnecting just
+                    # hammers the wrong endpoint. The bus event
+                    # ``OFFLOADER_PAIR_PIN_MISMATCH`` already
+                    # fired from ``_run_one_session`` carries the
+                    # diagnostic payload, and the controller's
+                    # listener has populated the alerts dict so
+                    # the operator sees the warning. Resolution is
+                    # user-driven: re-pair (clears the alert) or
+                    # unpair (drops the row).
+                    _LOGGER.warning(
+                        "peer-link client to %s:%d observed pin drift; orphaning "
+                        "until the operator re-pairs or unpairs",
                         self._hostname,
                         self._port,
                     )
@@ -811,6 +871,19 @@ class PeerLinkClient:
                     msg3_payload=msg3_payload,
                     read_timeout_seconds=_DEFAULT_TIMEOUT_SECONDS,
                 )
+                # Pin-check the receiver's static pubkey BEFORE
+                # decrypting / acting on the response. Noise XX
+                # authenticates that the responder holds the
+                # private key matching the pubkey it advertised,
+                # so a mismatched pubkey here means we connected
+                # to a different identity than the one we
+                # OOB-confirmed at pair time. Could be a
+                # legitimate receiver-side rotation or a MITM /
+                # mDNS spoof; either way we abort before any
+                # application frames flow.
+                if session.remote_static_pub != self._pinned_static_x25519_pub:
+                    self._fire_pin_mismatch(observed=session.remote_static_pub)
+                    return _LOCAL_CLOSE_PIN_MISMATCH
                 response = _json.loads(session.decrypt(response_ct))
                 if (
                     not isinstance(response, dict)
@@ -994,6 +1067,31 @@ class PeerLinkClient:
             "reason": reason,
         }
         self._bus.fire(EventType.OFFLOADER_PEER_LINK_CLOSED, payload)
+
+    def _fire_pin_mismatch(self, *, observed: bytes) -> None:
+        """Fire ``OFFLOADER_PAIR_PIN_MISMATCH`` after a peer-link pin drift.
+
+        Same event shape the pair-status listener already fires
+        from :meth:`RemoteBuildController._apply_pair_status_result`
+        on its own pin-drift branch. The controller listens for
+        the event and stores the alert in
+        ``_offloader_alerts`` so the snapshot path
+        (``subscribe_events.initial_state.offloader_alerts``)
+        carries it for late-subscribing tabs.
+
+        ``expected_pin`` / ``observed_pin`` are the
+        SHA-256 hashes of the pinned + observed pubkeys, in the
+        same lowercase-hex form
+        :class:`StoredPairing.pin_sha256` uses on disk.
+        """
+        payload: OffloaderPairPinMismatchData = {
+            "receiver_hostname": self._hostname,
+            "receiver_port": self._port,
+            "receiver_label": self._receiver_label,
+            "expected_pin": pin_sha256_for_pubkey(self._pinned_static_x25519_pub),
+            "observed_pin": pin_sha256_for_pubkey(observed),
+        }
+        self._bus.fire(EventType.OFFLOADER_PAIR_PIN_MISMATCH, payload)
 
     def _fire_queue_status(self, idle: bool, running: bool, queue_depth: int) -> None:
         """Fire ``OFFLOADER_QUEUE_STATUS_CHANGED`` for an inbound snapshot.

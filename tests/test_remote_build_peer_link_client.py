@@ -81,8 +81,15 @@ def _make_controller(*, config_dir: Path) -> RemoteBuildController:
 @pytest.fixture
 async def receiver_server(
     tmp_path: Path,
-) -> AsyncGenerator[tuple[TestServer, RemoteBuildController, str], None]:
-    """Spin up an in-process receiver. Yields (server, controller, expected_pin)."""
+) -> AsyncGenerator[tuple[TestServer, RemoteBuildController, str, bytes], None]:
+    """Spin up an in-process receiver. Yields (server, controller, expected_pin, pub).
+
+    The fourth element is the receiver's static X25519 pubkey
+    bytes so tests constructing :class:`PeerLinkClient` can pass
+    it as ``pinned_static_x25519_pub`` (the security pin-check
+    added in 4a-o part 5 rejects the connect when the captured
+    pubkey doesn't match this value).
+    """
     controller = _make_controller(config_dir=tmp_path)
     controller._db.bus = MagicMock()
 
@@ -95,7 +102,12 @@ async def receiver_server(
     server = TestServer(app)
     await server.start_server()
     try:
-        yield server, controller, pin_sha256_for_pubkey(identity.public_bytes)
+        yield (
+            server,
+            controller,
+            pin_sha256_for_pubkey(identity.public_bytes),
+            identity.public_bytes,
+        )
     finally:
         await server.close()
         await controller.stop()
@@ -108,11 +120,11 @@ async def receiver_server(
 
 @pytest.mark.asyncio
 async def test_preview_pair_returns_receivers_pin(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     tmp_path: Path,
 ) -> None:
     """The captured pin from the handshake matches the receiver's actual identity."""
-    server, _, expected_pin = receiver_server
+    server, _, expected_pin, _ = receiver_server
     initiator_priv = secrets.token_bytes(32)
 
     pin = await preview_pair(
@@ -126,7 +138,7 @@ async def test_preview_pair_returns_receivers_pin(
 
 @pytest.mark.asyncio
 async def test_preview_pair_does_not_persist_state_on_receiver(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """``intent="preview"`` returns ``OK`` without creating a peer row.
 
@@ -135,7 +147,7 @@ async def test_preview_pair_does_not_persist_state_on_receiver(
     the user has decided whether to trust the receiver, so
     receiver-side bookkeeping must not happen yet.
     """
-    server, controller, _ = receiver_server
+    server, controller, _, _ = receiver_server
     initiator_priv = secrets.token_bytes(32)
 
     await preview_pair(
@@ -374,7 +386,7 @@ async def test_drive_initiator_round_trip_missing_intent_response_raises_client_
 
 @pytest.mark.asyncio
 async def test_drive_initiator_round_trip_handshake_not_complete_raises_client_error(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Defensive: ``remote_static_pub`` raising ``HandshakeNotCompleteError`` is mapped.
@@ -394,7 +406,7 @@ async def test_drive_initiator_round_trip_handshake_not_complete_raises_client_e
     the documented ``PeerLinkClientError`` → ``UNAVAILABLE``
     shape.
     """
-    server, _, _ = receiver_server
+    server, _, _, _ = receiver_server
     initiator_priv = secrets.token_bytes(32)
 
     class _BrokenInitiator(PeerLinkNoiseSession):
@@ -534,10 +546,10 @@ async def test_drive_initiator_round_trip_maps_pathological_host_to_client_error
 
 @pytest.mark.asyncio
 async def test_request_pair_open_window_returns_pending(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """Request_pair against an open pairing window returns PENDING + lands a peer row."""
-    server, controller, expected_pin = receiver_server
+    server, controller, expected_pin, _ = receiver_server
     await controller.set_pairing_window(open=True, client="test-tab")
     initiator_priv = secrets.token_bytes(32)
 
@@ -566,10 +578,10 @@ async def test_request_pair_open_window_returns_pending(
 
 @pytest.mark.asyncio
 async def test_request_pair_closed_window_returns_no_pairing_window(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """Request_pair when the receiver window is closed returns NO_PAIRING_WINDOW."""
-    server, _, _ = receiver_server
+    server, _, _, _ = receiver_server
     initiator_priv = secrets.token_bytes(32)
 
     result = await request_pair(
@@ -669,11 +681,11 @@ async def _saved_pairings(offloader: RemoteBuildController) -> list[StoredPairin
 
 @pytest.mark.asyncio
 async def test_controller_preview_pair_returns_receiver_pin(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """End-to-end: ``RemoteBuildController.preview_pair`` returns the receiver's pin."""
-    server, _, expected_pin = receiver_server
+    server, _, expected_pin, _ = receiver_server
 
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
@@ -708,11 +720,11 @@ async def test_controller_preview_pair_unavailable_on_unreachable_receiver(
 
 @pytest.mark.asyncio
 async def test_controller_request_pair_persists_pending_row(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """End-to-end: ``RemoteBuildController.request_pair`` persists a PENDING StoredPairing."""
-    server, receiver_controller, expected_pin = receiver_server
+    server, receiver_controller, expected_pin, _ = receiver_server
     await receiver_controller.set_pairing_window(open=True, client="test-tab")
 
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -740,7 +752,7 @@ async def test_controller_request_pair_persists_pending_row(
 
 @pytest.mark.asyncio
 async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """User-supplied pin doesn't match the handshake → PRECONDITION_FAILED.
@@ -748,7 +760,7 @@ async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
     A receiver-side identity rotation between preview and request would land here
     in production; the test forces the same shape by passing a wrong pin.
     """
-    server, receiver_controller, _ = receiver_server
+    server, receiver_controller, _, _ = receiver_server
     await receiver_controller.set_pairing_window(open=True, client="test-tab")
 
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -769,11 +781,11 @@ async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
 
 @pytest.mark.asyncio
 async def test_controller_request_pair_closed_window_raises_no_pairing_window(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """Receiver window closed → CommandError(NO_PAIRING_WINDOW)."""
-    server, _, expected_pin = receiver_server
+    server, _, expected_pin, _ = receiver_server
     # Don't open the pairing window; receiver replies no_pairing_window.
 
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
@@ -1744,7 +1756,7 @@ async def test_request_pair_repair_against_pending_cancels_old_listener(
 
 @pytest.mark.asyncio
 async def test_request_pair_already_approved_persists_to_disk(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """Re-pair against an already-approved row persists APPROVED, no listener spawn.
@@ -1755,7 +1767,7 @@ async def test_request_pair_already_approved_persists_to_disk(
     ``intent_response=approved`` immediately and writes the row
     to the offloader's persistent file.
     """
-    server, receiver_controller, expected_pin = receiver_server
+    server, receiver_controller, expected_pin, _ = receiver_server
     await receiver_controller.set_pairing_window(open=True, client="receiver-tab")
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
@@ -1801,7 +1813,7 @@ async def test_request_pair_already_approved_persists_to_disk(
 
 @pytest.mark.asyncio
 async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """An offloader presenting a wrong pin against a PENDING dict entry → REJECTED.
 
@@ -1810,7 +1822,7 @@ async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected
     mismatch (not PENDING) so a peer with a stale / impersonated
     pubkey can't pretend to be a legitimate pending offloader.
     """
-    _, controller, _ = receiver_server
+    _, controller, _, _ = receiver_server
     pubkey = b"\x44" * 32
     real_pin = "a" * 64
     await controller.set_pairing_window(open=True, client="receiver-tab")
@@ -1836,11 +1848,11 @@ async def test_lookup_peer_for_status_pending_dict_pin_mismatch_returns_rejected
 
 @pytest.mark.asyncio
 async def test_await_pair_status_returns_approved_when_receiver_approved(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     offloader_controller_dir: Path,
 ) -> None:
     """await_pair_status against an APPROVED receiver row returns APPROVED + receiver pin."""
-    server, controller, expected_pin = receiver_server
+    server, controller, expected_pin, _ = receiver_server
     pubkey = b"\x55" * 32
     pair_pin = hashlib.sha256(pubkey).hexdigest()
     # Seed the receiver with an approved peer matching the
@@ -1880,10 +1892,10 @@ async def test_await_pair_status_returns_approved_when_receiver_approved(
 
 @pytest.mark.asyncio
 async def test_await_pair_status_unknown_dashboard_id_returns_rejected(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """await_pair_status against an unknown dashboard_id returns REJECTED."""
-    server, _, _ = receiver_server
+    server, _, _, _ = receiver_server
     offloader_id_priv = secrets.token_bytes(32)
 
     result = await remote_build_peer_link_client.await_pair_status(
@@ -2158,10 +2170,10 @@ async def _seed_approved_peer_for_initiator(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_fires_opened_after_handshake(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """A real PeerLinkClient against a real receiver fires OFFLOADER_PEER_LINK_OPENED."""
-    server, receiver, _ = receiver_server
+    server, receiver, _, receiver_pub = receiver_server
     initiator_priv = secrets.token_bytes(32)
     await _seed_approved_peer_for_initiator(
         receiver, dashboard_id="alpha", initiator_priv=initiator_priv
@@ -2175,6 +2187,8 @@ async def test_peer_link_client_fires_opened_after_handshake(
         receiver_port=server.port,
         identity_priv=initiator_priv,
         dashboard_id="alpha",
+        pinned_static_x25519_pub=receiver_pub,
+        receiver_label="test-receiver",
         bus=bus,
     )
     task = asyncio.create_task(client.run())
@@ -2189,10 +2203,10 @@ async def test_peer_link_client_fires_opened_after_handshake(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_fires_closed_on_cancel(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """Cancelling the client task fires OFFLOADER_PEER_LINK_CLOSED with client_stopped."""
-    server, receiver, _ = receiver_server
+    server, receiver, _, receiver_pub = receiver_server
     initiator_priv = secrets.token_bytes(32)
     await _seed_approved_peer_for_initiator(
         receiver, dashboard_id="alpha", initiator_priv=initiator_priv
@@ -2208,6 +2222,8 @@ async def test_peer_link_client_fires_closed_on_cancel(
         receiver_port=server.port,
         identity_priv=initiator_priv,
         dashboard_id="alpha",
+        pinned_static_x25519_pub=receiver_pub,
+        receiver_label="test-receiver",
         bus=bus,
     )
     task = asyncio.create_task(client.run())
@@ -2224,7 +2240,7 @@ async def test_peer_link_client_fires_closed_on_cancel(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_orphans_on_superseded(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """A receiver-side ``terminate{reason: superseded}`` orphans the client.
 
@@ -2235,7 +2251,7 @@ async def test_peer_link_client_orphans_on_superseded(
     kicks the first via ``terminate{reason: superseded}``, the
     first's run loop sees that and orphans rather than retrying.
     """
-    server, receiver, _ = receiver_server
+    server, receiver, _, receiver_pub = receiver_server
     initiator_priv = secrets.token_bytes(32)
     await _seed_approved_peer_for_initiator(
         receiver, dashboard_id="alpha", initiator_priv=initiator_priv
@@ -2259,6 +2275,8 @@ async def test_peer_link_client_orphans_on_superseded(
         receiver_port=server.port,
         identity_priv=initiator_priv,
         dashboard_id="alpha",
+        pinned_static_x25519_pub=receiver_pub,
+        receiver_label="test-receiver",
         bus=bus,
     )
     task1 = asyncio.create_task(client1.run())
@@ -2269,6 +2287,8 @@ async def test_peer_link_client_orphans_on_superseded(
         receiver_port=server.port,
         identity_priv=initiator_priv,
         dashboard_id="alpha",
+        pinned_static_x25519_pub=receiver_pub,
+        receiver_label="test-receiver",
         bus=bus,
     )
     task2 = asyncio.create_task(client2.run())
@@ -2291,7 +2311,7 @@ async def test_peer_link_client_orphans_on_superseded(
 @pytest.mark.asyncio
 async def test_peer_link_client_reconnects_on_transport_error(
     monkeypatch: pytest.MonkeyPatch,
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """A failed connect retries with backoff; succeed on second attempt.
 
@@ -2304,7 +2324,7 @@ async def test_peer_link_client_reconnects_on_transport_error(
     """
     monkeypatch.setattr(remote_build_peer_link_client, "_RECONNECT_INITIAL_BACKOFF_SECONDS", 0.01)
 
-    server, receiver, _ = receiver_server
+    server, receiver, _, receiver_pub = receiver_server
     initiator_priv = secrets.token_bytes(32)
     await _seed_approved_peer_for_initiator(
         receiver, dashboard_id="alpha", initiator_priv=initiator_priv
@@ -2334,6 +2354,8 @@ async def test_peer_link_client_reconnects_on_transport_error(
         receiver_port=1,  # privileged + closed; ECONNREFUSED
         identity_priv=initiator_priv,
         dashboard_id="alpha",
+        pinned_static_x25519_pub=receiver_pub,
+        receiver_label="test-receiver",
         bus=bus,
     )
     task = asyncio.create_task(client.run())
@@ -2384,6 +2406,8 @@ async def test_run_session_loops_send_ping_routes_through_channel(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=EventBus(),
     )
     drive_task = asyncio.create_task(client._run_session_loops(channel))
@@ -2433,6 +2457,8 @@ async def test_run_session_loops_returns_heartbeat_timeout_when_dead(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=EventBus(),
     )
 
@@ -2482,6 +2508,8 @@ async def test_peer_link_client_backoff_advances_when_session_never_opens(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=bus,
     )
 
@@ -2523,6 +2551,8 @@ def test_peer_link_client_exposes_receiver_coordinates() -> None:
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=EventBus(),
     )
     assert client.receiver_hostname == "10.0.0.5"
@@ -2531,7 +2561,7 @@ def test_peer_link_client_exposes_receiver_coordinates() -> None:
 
 @pytest.mark.asyncio
 async def test_peer_link_client_returns_transport_error_on_type_error(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A ``TypeError`` from the handshake (e.g. non-binary frame) maps to ``transport_error``.
@@ -2544,7 +2574,7 @@ async def test_peer_link_client_returns_transport_error_on_type_error(
     would bubble out and kill the long-lived task instead of
     triggering a reconnect.
     """
-    server, _receiver, _ = receiver_server
+    server, _receiver, _, _ = receiver_server
 
     async def _typeerror_handshake(**kwargs: Any) -> bytes:
         raise TypeError("Received non-binary message")
@@ -2563,6 +2593,8 @@ async def test_peer_link_client_returns_transport_error_on_type_error(
         receiver_port=server.port,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=bus,
     )
     task = asyncio.create_task(client.run())
@@ -2575,7 +2607,7 @@ async def test_peer_link_client_returns_transport_error_on_type_error(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_returns_transport_error_on_noise_failure(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A Noise-side failure during the handshake maps to ``transport_error``.
@@ -2586,7 +2618,7 @@ async def test_peer_link_client_returns_transport_error_on_noise_failure(
     :class:`NoiseInvalidMessage` — any of the
     :data:`NOISE_ERRORS` tuple's types is sufficient.
     """
-    server, _receiver, _ = receiver_server
+    server, _receiver, _, _ = receiver_server
 
     async def _bad_handshake(**kwargs: Any) -> bytes:
         raise NoiseInvalidMessage("forced for test")
@@ -2605,6 +2637,8 @@ async def test_peer_link_client_returns_transport_error_on_noise_failure(
         receiver_port=server.port,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=bus,
     )
     task = asyncio.create_task(client.run())
@@ -2617,7 +2651,7 @@ async def test_peer_link_client_returns_transport_error_on_noise_failure(
 
 @pytest.mark.asyncio
 async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
-    receiver_server: tuple[TestServer, RemoteBuildController, str],
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
 ) -> None:
     """An unapproved dashboard_id fires CLOSED with auth_rejected.
 
@@ -2627,7 +2661,7 @@ async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
     that as the offloader-side ``auth_rejected`` reason on
     ``OFFLOADER_PEER_LINK_CLOSED``.
     """
-    server, _receiver, _ = receiver_server
+    server, _receiver, _, receiver_pub = receiver_server
     bus = EventBus()
     closed = capture_events(bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
 
@@ -2636,12 +2670,94 @@ async def test_peer_link_client_auth_rejected_when_dashboard_id_unknown(
         receiver_port=server.port,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="never-paired",
+        pinned_static_x25519_pub=receiver_pub,
+        receiver_label="test-receiver",
         bus=bus,
     )
     task = asyncio.create_task(client.run())
     try:
         await asyncio.wait_for(closed.received.wait(), timeout=2.0)
         assert closed[0]["reason"] == "auth_rejected"
+    finally:
+        await cancel_and_drain(task)
+
+
+@pytest.mark.asyncio
+async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
+    receiver_server: tuple[TestServer, RemoteBuildController, str, bytes],
+) -> None:
+    """A pinned pubkey that doesn't match the receiver's actual key aborts the connect.
+
+    Pin-check (4a-o part 5) — the offloader's outbound
+    ``peer_link`` handshake must compare ``session.remote_static_pub``
+    against the value OOB-confirmed during preview. Drives a
+    real handshake against the receiver but passes the WRONG
+    ``pinned_static_x25519_pub``: the server's static key is
+    legitimate, but the client thinks it's expecting a different
+    one (simulating an mDNS spoof or an attacker on the wire).
+
+    The client must:
+
+    1. Fire ``OFFLOADER_PAIR_PIN_MISMATCH`` with the diagnostic
+       payload (expected vs. observed pin).
+    2. Fire ``OFFLOADER_PEER_LINK_CLOSED`` with ``reason="pin_mismatch"``.
+    3. Orphan itself so the reconnect loop doesn't keep
+       hammering whatever's at the wrong endpoint.
+    4. NOT fire ``OFFLOADER_PEER_LINK_OPENED`` — application
+       frames must not flow against the wrong identity.
+    """
+    server, receiver, _, receiver_pub = receiver_server
+    initiator_priv = secrets.token_bytes(32)
+    await _seed_approved_peer_for_initiator(
+        receiver, dashboard_id="alpha", initiator_priv=initiator_priv
+    )
+
+    bus = EventBus()
+    opened = capture_events(bus, EventType.OFFLOADER_PEER_LINK_OPENED)
+    closed = capture_events(bus, EventType.OFFLOADER_PEER_LINK_CLOSED)
+    pin_mismatch = capture_events(bus, EventType.OFFLOADER_PAIR_PIN_MISMATCH)
+
+    # Wrong pinned pubkey: flip one bit of the receiver's actual
+    # pubkey so the result is guaranteed-different. Reversing the
+    # bytes would have a vanishingly small but non-zero chance of
+    # producing the same value on a self-palindromic key; the
+    # XOR-with-0x01 form has none.
+    wrong_pub = bytes([receiver_pub[0] ^ 0x01]) + receiver_pub[1:]
+    assert wrong_pub != receiver_pub
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=server.port,
+        identity_priv=initiator_priv,
+        dashboard_id="alpha",
+        pinned_static_x25519_pub=wrong_pub,
+        receiver_label="my-laptop",
+        bus=bus,
+    )
+    task = asyncio.create_task(client.run())
+    try:
+        # Pin-mismatch fires before close; close fires before
+        # orphaning. Wait on close (the terminal signal).
+        await asyncio.wait_for(closed.received.wait(), timeout=2.0)
+        # Yield once so any pending ``run`` post-close work
+        # (orphan flag set, return) finishes before we assert.
+        for _ in range(10):
+            if task.done():
+                break
+            await asyncio.sleep(0)
+
+        assert closed[0]["reason"] == "pin_mismatch"
+        assert len(pin_mismatch) == 1
+        assert pin_mismatch[0]["receiver_hostname"] == "127.0.0.1"
+        assert pin_mismatch[0]["receiver_label"] == "my-laptop"
+        assert pin_mismatch[0]["expected_pin"] != pin_mismatch[0]["observed_pin"]
+        # Application channel never opened — bundles can't flow
+        # against the wrong identity.
+        assert len(opened) == 0
+        # Client orphaned: reconnect loop exits without further
+        # backoff. ``run`` has returned, so the task is done.
+        assert task.done()
+        assert client.is_orphaned is True
     finally:
         await cancel_and_drain(task)
 
@@ -2687,6 +2803,8 @@ async def test_run_session_loops_responds_to_peer_ping(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=EventBus(),
     )
 
@@ -2746,6 +2864,8 @@ async def test_run_session_loops_bumps_last_pong_on_pong(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=EventBus(),
     )
     drive_task = asyncio.create_task(client._run_session_loops(channel))
@@ -2797,6 +2917,8 @@ async def test_run_session_loops_returns_transport_error_on_malformed_frame(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=EventBus(),
     )
     reason = await client._run_session_loops(channel)
@@ -2837,6 +2959,8 @@ async def test_run_session_loops_ignores_unknown_msg_type(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=EventBus(),
     )
     drive_task = asyncio.create_task(client._run_session_loops(channel))
@@ -2896,6 +3020,8 @@ async def test_run_session_loops_on_dead_swallows_aiohttp_close_error(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=EventBus(),
     )
 
@@ -3126,6 +3252,8 @@ async def test_run_session_loops_fires_queue_status_event_on_inbound_frame(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=bus,
     )
     drive_task = asyncio.create_task(client._run_session_loops(channel))
@@ -3204,6 +3332,8 @@ async def test_run_session_loops_drops_malformed_queue_status(
         receiver_port=6055,
         identity_priv=secrets.token_bytes(32),
         dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        receiver_label="test-receiver",
         bus=bus,
     )
     drive_task = asyncio.create_task(client._run_session_loops(channel))
