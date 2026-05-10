@@ -122,6 +122,83 @@ in case anything has resurfaced.
 - **WS-first API.** Real-time updates are the default — clients
   `subscribe_events` once and get pushes. REST is only kept for HA
   backward compat in `api/legacy.py`.
+- **Stateful lists ship through subscribe_events, not a `list_*`
+  WS command.** Any per-session list whose contents mutate over
+  the lifetime of a connected client (devices, importable
+  devices, offloader pairings, receiver peers, …) must reach the
+  frontend via the snapshot-plus-events pattern below. The
+  pattern that *doesn't* belong on new code is "client calls
+  `list_X` on mount, then re-calls it after every mutation to
+  refresh." That shape — call it list-then-poll — has three
+  recurring failure modes, all of which we've hit:
+  * **Read-vs-write races.** A snapshot read concurrent with a
+    write returns whichever side won the lock, which may
+    disagree with what the next event delivers a moment later;
+    the frontend's local state ping-pongs between the two until
+    the user reloads. Receiver-side `remote_build/list_peers`
+    had this exact shape (#514) — `load_remote_build_settings`
+    on every read raced `_modify_settings` writes against the
+    metadata sidecar.
+  * **Cross-tab desync.** A second tab mutating state never
+    reaches the first tab unless the first tab re-polls.
+    Subscribers on the same dashboard see different worlds
+    until one of them reloads.
+  * **Round-trip overhead.** Every mutation pays a follow-up
+    list-fetch the events were already going to deliver. On a
+    cold tab the first paint is gated on the round-trip.
+
+  Do this instead:
+  1. Hold the list as a **RAM-canonical dict** on the
+     controller, keyed on whatever the wire commands key on
+     (`dashboard_id` for receiver peers, `(hostname, port)` for
+     offloader pairings, the YAML filename stem for devices).
+     Mutations update RAM immediately and schedule a debounced
+     disk write through a per-file `helpers.storage.Store`
+     (mirror `RemoteBuildController._approved_peers` /
+     `_peers_store` for the canonical shape).
+     `_to_view`-style projections and any post-mutation
+     response read straight off the dict; no executor hop, no
+     disk read, no race window. RAM is loaded from the Store at
+     `controller.start()`; disk is just persistence.
+  2. Seed the **first paint** through `subscribe_events`'s
+     `initial_state` push (`DeviceBuilder._cmd_subscribe_events.
+     _send_initial`). Add a sync `*_snapshot()` method on the
+     controller that returns the projection (e.g.
+     `pairings_snapshot()`, `peers_snapshot()`) and stitch its
+     output into `initial["<key>"] = [s.to_dict() for s in
+     controller.<key>_snapshot()]`. The snapshot reads must be
+     sync — the subscribe handler runs in the WS dispatch hot
+     path and an executor hop on every connect is the kind of
+     thing that slows down dashboard cold-load on large
+     fleets.
+  3. Fire **per-mutation bus events** with TypedDict payloads
+     carrying every field a subscriber needs to construct the
+     row from the event alone — no follow-up snapshot read
+     allowed. If a subscriber would otherwise look at the
+     timestamp / pin / label that the snapshot would have had,
+     the event payload carries it (see
+     `RemoteBuildPairRequestReceivedData`'s `paired_at`, added
+     in #514 for exactly this reason). Frontend mutates its
+     local list directly from the event; the dashboard never
+     gets a "refetch the list now" command.
+  4. Emit one event per state transition with deterministic
+     listener-attach-then-snapshot ordering — `subscribe_events`
+     attaches the bus listener *before* awaiting
+     `_send_initial`, so events fired during the snapshot await
+     are buffered behind the initial_state and arrive in
+     order. Frontend subscribers can rely on
+     "initial_state first, then live updates" without any
+     reordering logic.
+
+  Don't add `list_*` WS commands for new state surfaces. The
+  acceptable carve-outs that already exist are
+  `remote_build/list_hosts` (transient mDNS browse output that's
+  not stateful — no per-row events make sense) and
+  `devices/list_archived` (cold archive directory listing,
+  read-once on a dedicated screen). `labels/list` is the
+  middle-ground holdover — it's snapshot-fetch-then-events
+  rather than full subscribe-driven; new code should land
+  through `initial_state` rather than copying that shape.
 - **Event payloads use TypedDict, not dataclass.** Mirrors
   Home Assistant core's `Event[_DataT]` /
   `EventStateChangedData` / `EventStateReportedData` pattern.

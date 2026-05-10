@@ -142,6 +142,26 @@ Mirrors HA core's `Event[_DataT]` / `EventType[_DataT]` pattern. Deliberate dive
 
 New events should ship with a TypedDict from day one.
 
+### Stateful lists ride `subscribe_events`, not `list_*` WS commands
+
+Any per-session list whose contents mutate over the lifetime of a connected client (devices, importable devices, offloader pairings, receiver peers, …) reaches the frontend through one shape:
+
+1. **RAM-canonical state on the controller.** A keyed dict (`controller._approved_peers: dict[str, StoredPeer]`, `_pairings: dict[tuple[str, int], StoredPairing]`, etc.) is the runtime source of truth. Mutations update the dict immediately and schedule a debounced disk write through a per-file `helpers.storage.Store` (`.receiver_peers.json`, `.offloader_pairings.json`). Reads — projections, post-mutation responses, dispatch lookups — read straight off the dict; no executor hop, no disk read, no read-vs-write race window. RAM seeds from the Store at `controller.start()`; disk is just persistence.
+
+2. **First paint via `subscribe_events` `initial_state`.** A sync `*_snapshot()` method on the controller (`pairings_snapshot()`, `peers_snapshot()`) returns the projection. `DeviceBuilder._cmd_subscribe_events._send_initial` stitches it into `initial["<key>"] = [s.to_dict() for s in controller.<key>_snapshot()]`. Snapshot reads must be sync — the subscribe handler runs in the WS dispatch hot path.
+
+3. **Live updates via per-mutation TypedDict events.** Every state transition fires one event whose payload carries every field a subscriber needs to construct the row from the event alone. If the snapshot would carry a timestamp / pin / label, the event payload carries the same value (e.g. `RemoteBuildPairRequestReceivedData.paired_at`). The frontend mutates its local list directly from events; there is no follow-up "refetch" command.
+
+4. **Listener-attach-then-snapshot ordering is load-bearing.** `_cmd_subscribe_events` attaches the bus listener *before* awaiting `_send_initial`, so any event fired during the snapshot await is buffered behind the `initial_state` and delivered in order. Subscribers can rely on "initial state first, then live updates" without reordering logic.
+
+The shape *not* to use on new code: `list_X` WS command read once on mount, re-fetched after every mutation. Three failure modes, all of which we've hit:
+
+- **Read-vs-write races.** A snapshot read concurrent with a write returns whichever side won the lock, which may disagree with what the next event delivers a moment later; the frontend's local state ping-pongs until the user reloads. Receiver-side `remote_build/list_peers` had this exact shape before #514 — `load_remote_build_settings` on every read raced `_modify_settings` writes against the metadata sidecar.
+- **Cross-tab desync.** A second tab mutating state never reaches the first tab unless the first tab re-polls; subscribers on the same dashboard see different worlds.
+- **Round-trip overhead.** Every mutation pays a follow-up list-fetch the events were already going to deliver. On a cold tab the first paint is gated on the round-trip.
+
+Carve-outs that are *not* state-surfaces and stay RPC: `remote_build/list_hosts` (transient mDNS browse output, no per-row events make sense) and `devices/list_archived` (cold archive directory listing, dedicated screen, read-once). `labels/list` is the middle-ground holdover — snapshot-fetch-then-events rather than full subscribe-driven; new code should land through `initial_state` rather than copy that shape.
+
 ## Firmware Job Queue
 
 Jobs are persistent, event-driven, and decoupled from WebSocket connections:
