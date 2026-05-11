@@ -23,10 +23,12 @@ contracts that are easy to misregress.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
+import pytest_asyncio
 from aiohttp_asyncmdnsresolver._impl import _AsyncMDNSResolverBase
 from aiohttp_asyncmdnsresolver.api import AsyncDualMDNSResolver
 from zeroconf.asyncio import AsyncZeroconf
@@ -49,7 +51,30 @@ def _fake_async_zeroconf() -> AsyncZeroconf:
     return MagicMock(spec=AsyncZeroconf)
 
 
-async def test_make_peer_link_resolver_borrows_the_zeroconf() -> None:
+@pytest_asyncio.fixture
+async def resolver() -> AsyncIterator[PeerLinkDNSResolver]:
+    """Yield a :class:`PeerLinkDNSResolver` and guarantee teardown.
+
+    The resolver's parent :class:`aiohttp.resolver.AsyncResolver`
+    constructor spawns a ``pycares`` background thread
+    (``_run_safe_shutdown_loop``); without an explicit
+    :meth:`real_close` the thread leaks and a later test's
+    teardown waits on it indefinitely. The leak surfaced as a
+    flaky 120s ``pytest-timeout`` on an unrelated downstream
+    test running in the same xdist worker. Every test in this
+    file that needs a real resolver takes this fixture instead
+    of constructing one inline.
+    """
+    instance = make_peer_link_resolver(_fake_async_zeroconf())
+    try:
+        yield instance
+    finally:
+        await instance.real_close()
+
+
+async def test_make_peer_link_resolver_borrows_the_zeroconf(
+    resolver: PeerLinkDNSResolver,
+) -> None:
     """Constructed resolver doesn't own the shared :class:`AsyncZeroconf`.
 
     ``_aiozc_owner`` is ``False`` when an external
@@ -59,13 +84,13 @@ async def test_make_peer_link_resolver_borrows_the_zeroconf() -> None:
     device-state monitor owns the real instance and tears it
     down separately on its own stop path.
     """
-    aiozc = _fake_async_zeroconf()
-    resolver = make_peer_link_resolver(aiozc)
-    assert resolver._aiozc is aiozc
+    assert isinstance(resolver._aiozc, MagicMock)
     assert resolver._aiozc_owner is False
 
 
-async def test_resolver_close_is_no_op_so_connector_close_keeps_it_usable() -> None:
+async def test_resolver_close_is_no_op_so_connector_close_keeps_it_usable(
+    resolver: PeerLinkDNSResolver,
+) -> None:
     """``close()`` doesn't release ``aiodns`` or drop the zeroconf reference.
 
     A per-request :class:`aiohttp.TCPConnector` that closes its
@@ -73,13 +98,12 @@ async def test_resolver_close_is_no_op_so_connector_close_keeps_it_usable() -> N
     shared resolver — multiple peer-link sessions reuse it.
     The wrapper's no-op :meth:`close` is what enforces this.
     """
-    resolver = make_peer_link_resolver(_fake_async_zeroconf())
     captured_aiozc = resolver._aiozc
     await resolver.close()
     assert resolver._aiozc is captured_aiozc
 
 
-async def test_real_close_releases_aiodns_resources(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_real_close_releases_aiodns_resources(resolver: PeerLinkDNSResolver) -> None:
     """``real_close()`` is the explicit teardown entry point.
 
     Mirrors Home Assistant's ``HassAsyncDNSResolver`` pattern:
@@ -89,19 +113,21 @@ async def test_real_close_releases_aiodns_resources(monkeypatch: pytest.MonkeyPa
     resources can be released without being dragged down by an
     intermediate connector teardown.
 
-    Patches the upstream parent's :meth:`close` directly rather
-    than standing up a real ``aiodns`` resolver — the contract
-    we want to pin is "``real_close`` walks through to the
-    parent's close" and that's the smallest reproducer.
+    Patches the upstream parent's :meth:`close` as a context
+    manager so the patch is removed before the ``resolver``
+    fixture's cleanup calls :meth:`real_close` on the real code
+    path — that second call is what actually shuts down
+    ``pycares`` and keeps the thread from leaking.
     """
     real_close = AsyncMock()
-    monkeypatch.setattr(_AsyncMDNSResolverBase, "close", real_close)
-    resolver = make_peer_link_resolver(_fake_async_zeroconf())
-    await resolver.real_close()
-    real_close.assert_awaited_once()
+    with patch.object(_AsyncMDNSResolverBase, "close", real_close):
+        await resolver.real_close()
+        real_close.assert_awaited_once()
 
 
-async def test_make_peer_link_http_session_with_resolver_wires_connector() -> None:
+async def test_make_peer_link_http_session_with_resolver_wires_connector(
+    resolver: PeerLinkDNSResolver,
+) -> None:
     """A non-``None`` resolver lands on the session's :class:`TCPConnector`.
 
     Pins the contract :func:`drive_initiator_round_trip` and
@@ -110,7 +136,6 @@ async def test_make_peer_link_http_session_with_resolver_wires_connector() -> No
     the shared resolver so outbound ``.local`` hostnames are
     resolved through mDNS.
     """
-    resolver = make_peer_link_resolver(_fake_async_zeroconf())
     timeout = aiohttp.ClientTimeout(total=5.0)
     async with make_peer_link_http_session(timeout=timeout, resolver=resolver) as session:
         connector = session.connector

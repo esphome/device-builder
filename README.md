@@ -130,6 +130,11 @@ default to both roles on.
 
 ### Pairing in four steps
 
+The receiving dashboard only accepts new pair requests while its
+**Pairing requests** screen is open — open that screen *before*
+clicking Pair on the sending side, and keep it open until you've
+clicked Accept. Step 2 is the prerequisite, not the wrap-up.
+
 1. Start both dashboards on the same subnet, or with a working
    mDNS reflector between subnets. Outside the Home Assistant
    add-on, a dashboard advertises itself over mDNS as soon as it
@@ -141,19 +146,23 @@ default to both roles on.
    the receiving side flips that toggle. (HA add-on instances
    stay silent on the network; two add-on dashboards on the same
    LAN need the manual-entry flow below.)
-2. On the dashboard you want to **send** builds from, open
-   **Settings → Send builds → Known dashboards**. The list shows
-   every dashboard the LAN discovered.
-3. Find the dashboard you want to send to and click **Pair**.
-   Both dashboards now display a pairing **fingerprint** rendered
-   as an emoji grid. Compare the two fingerprints out of band;
-   they must match for the pairing to be safe to accept. Hex
-   bytes are tucked behind a **Show hex bytes** disclosure if
-   you prefer that form, but the emoji grid is the primary
-   verification surface.
-4. Click **Accept** on the receiving dashboard's **Pairing
-   requests** screen. The pairing persists on both sides and
-   survives restarts.
+2. **On the receiving dashboard**, open **Settings → Build
+   server → Pairing requests**. This opens the pairing window;
+   the receiver will refuse any pair request that arrives while
+   this screen isn't mounted. Leave the screen open through
+   step 4.
+3. **On the sending dashboard**, open **Settings → Send builds →
+   Known dashboards**, find the receiver in the list, and click
+   **Pair**. Both dashboards now display a pairing **fingerprint**
+   rendered as an emoji grid. Compare the two fingerprints out
+   of band; they must match for the pairing to be safe to
+   accept. Hex bytes are tucked behind a **Show hex bytes**
+   disclosure if you prefer that form, but the emoji grid is the
+   primary verification surface.
+4. Back on the receiving dashboard's still-open **Pairing
+   requests** screen, the new request now shows up — click
+   **Accept**. The pairing persists on both sides and survives
+   restarts.
 
 If a dashboard you expected to show up doesn't appear in
 **Known dashboards**, run `esphome-device-builder-discover` on
@@ -191,15 +200,18 @@ Auto-route installs to remote build**.
 If the dashboards are on different subnets, or if either side is
 running as the Home Assistant add-on (which doesn't advertise
 itself on mDNS), use the **Pair with another dashboard** section
-beneath **Known dashboards**. Click **Pair with a build server**,
-type the receiver's hostname and port, and submit; the pairing
-flow runs identically to the discovered-dashboard case from
-there. The peer-link is a WebSocket served at
-`/remote-build/peer-link` over TCP port 6055 by default; if a
-reverse proxy or firewall sits between the two dashboards it
-needs to allow WebSocket upgrades on that path. The wire is
-Noise-encrypted regardless of how you reach it, and the
-emoji-fingerprint comparison still gates pairing the same way.
+beneath **Known dashboards**. Open the receiving dashboard's
+**Pairing requests** screen first (same prerequisite as the
+discovered-dashboard flow above), then click **Pair with a build
+server** on the sending side, type the receiver's hostname and
+port, and submit; the pairing flow runs identically to the
+discovered-dashboard case from there. The peer-link is a
+WebSocket served at `/remote-build/peer-link` over TCP port
+6055 by default; if a reverse proxy or firewall sits between
+the two dashboards it needs to allow WebSocket upgrades on
+that path. The wire is Noise-encrypted regardless of how you
+reach it, and the emoji-fingerprint comparison still gates
+pairing the same way.
 
 ### Known limitations
 
