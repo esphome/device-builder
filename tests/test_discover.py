@@ -142,6 +142,71 @@ def test_on_service_state_change_prints_offline_on_removal(
     assert "build-server" in captured
 
 
+def test_on_service_state_change_falls_back_to_ipv6_when_no_ipv4(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An IPv6-only dashboard renders with its scoped address.
+
+    Pins the address-resolution fallback: when the browser
+    callback fires for a dashboard whose mDNS announcement only
+    carries an AAAA record (IPv6-only host, or IPv4 not resolved
+    yet), the row still gets a meaningful Address:Port column
+    value instead of ``unknown``.
+    ``parsed_scoped_addresses(IPVersion.All)`` is the project-
+    wide convention for this fallback (cf.
+    ``_device_state_monitor`` / ``remote_build.controller``).
+    """
+    fake_info = MagicMock()
+    fake_info.properties = {b"server_version": b"0.1.62"}
+    fake_info.ip_addresses_by_version.return_value = []  # no IPv4
+    fake_info.parsed_scoped_addresses.return_value = ["fe80::1%eth0", "2001:db8::1"]
+    fake_info.port = 6052
+
+    with patch("esphome_device_builder.discover.AsyncServiceInfo", return_value=fake_info):
+        _on_service_state_change(
+            MagicMock(),
+            "_esphomebuilder._tcp.local.",
+            "build-server._esphomebuilder._tcp.local.",
+            ServiceStateChange.Added,
+        )
+
+    captured = capsys.readouterr().out
+    assert "fe80::1%eth0:6052" in captured
+    fake_info.parsed_scoped_addresses.assert_called_once_with(IPVersion.All)
+
+
+def test_on_service_state_change_handles_none_properties(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A cache miss with ``properties = None`` doesn't crash the callback.
+
+    ``AsyncServiceInfo.load_from_cache`` can return ``False``
+    when the browser callback fires before the resolve
+    completes; in that case ``info.properties`` is ``None``.
+    The callback must guard so the browse loop survives — a
+    crash here would silently kill all subsequent rows.
+    """
+    fake_info = MagicMock()
+    fake_info.properties = None  # cache miss
+    fake_info.ip_addresses_by_version.return_value = []
+    fake_info.parsed_scoped_addresses.return_value = []
+    fake_info.port = 6052
+
+    with patch("esphome_device_builder.discover.AsyncServiceInfo", return_value=fake_info):
+        _on_service_state_change(
+            MagicMock(),
+            "_esphomebuilder._tcp.local.",
+            "build-server._esphomebuilder._tcp.local.",
+            ServiceStateChange.Added,
+        )
+
+    captured = capsys.readouterr().out
+    # No traceback escaped; the row landed with every TXT field
+    # showing the ``unknown`` sentinel.
+    assert "ONLINE" in captured
+    assert captured.count("unknown") >= 4  # 4 TXT fields all unknown
+
+
 @pytest.mark.asyncio
 async def test_run_prints_header_then_awaits_then_cleans_up(
     capsys: pytest.CaptureFixture[str],
