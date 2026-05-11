@@ -711,6 +711,49 @@ class OffloaderJobOutputData(TypedDict):
     line: str
 
 
+class OffloaderRemoteBuildsToggledData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED``.
+
+    Fires from :meth:`RemoteBuildController.set_offloader_settings`
+    when the operator flips the master "Remote builds enabled"
+    switch on the offloader Settings UI (7b). Subscribers are
+    the 7b Settings UI on every connected tab — one toggle on
+    one tab should flip the switch state on every other open
+    tab without a refresh. The scheduler doesn't need this
+    event because it reads
+    :attr:`RemoteBuildController._remote_builds_enabled` on
+    every install via :meth:`build_scheduler_snapshot`; the
+    event is purely cross-tab UI sync.
+    """
+
+    remote_builds_enabled: bool
+
+
+class OffloaderPairingEnabledChangedData(TypedDict):
+    """
+    Payload for ``EventType.OFFLOADER_PAIRING_ENABLED_CHANGED``.
+
+    Fires from :meth:`RemoteBuildController.set_pairing_enabled`
+    when the operator flips an individual paired-receiver
+    enable switch on the offloader Settings UI (7b).
+    Subscribers update the matching row's switch state. The
+    scheduler reads :attr:`StoredPairing.enabled` directly
+    off the in-RAM ``_pairings`` dict via the snapshot, so no
+    scheduler-side listener is needed; the event is the
+    cross-tab UI sync seam.
+
+    ``pin_sha256`` is the canonical row key (4a-o part 6
+    re-keyed offloader state on pin); receivers
+    ``(hostname, port)`` aren't on the payload — frontends
+    that need them join through their own
+    :class:`PairingSummary` snapshot.
+    """
+
+    pin_sha256: str
+    enabled: bool
+
+
 class OffloaderRemoteJobSnapshotEntry(TypedDict):
     """
     Snapshot row in the offloader-side in-flight remote-job cache.
@@ -1332,6 +1375,16 @@ _PAIRING_VALIDATOR = vol.Schema(
         # existed); pick_build_path's version-compat gate
         # accepts empty as "unknown, fall through to compat".
         vol.Required("esphome_version"): vol.All(str, vol.Length(max=PAIRING_VERSION_MAX_LEN)),
+        # Per-pairing master toggle (7b). The 7b Settings UI
+        # exposes one switch per paired build server; when
+        # ``False`` the scheduler skips this row entirely (the
+        # operator wants this receiver paired but doesn't want
+        # transparent install to route here). ``not_bool`` not
+        # needed — ``bool`` is the strict accept, and an
+        # explicit ``bool`` requirement rejects the same
+        # ``int``-coerced-to-bool shape that bit the
+        # cleanup_ttl_seconds validator.
+        vol.Required("enabled"): bool,
     }
 )
 
@@ -1427,6 +1480,17 @@ class StoredPairing(DataClassORJSONMixin):
     # copy is the cross-restart fallback for "last known
     # version" UI display.
     esphome_version: str = ""
+    # 7b per-pairing master toggle. ``True`` matches the
+    # historical implicit behaviour (every APPROVED row is
+    # eligible for the scheduler), so older sidecars from
+    # before this field landed deserialise as enabled.
+    # When ``False`` the scheduler's
+    # :func:`helpers.build_scheduler.pick_build_path` skips
+    # this row — the operator wants the receiver paired
+    # (peer-link stays open, Send-builds power-user surface
+    # still works) but doesn't want transparent install to
+    # route here.
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         """Run :data:`_PAIRING_VALIDATOR`; re-raise as ``ValueError``."""
@@ -1502,6 +1566,10 @@ class PairingSummary(DataClassORJSONMixin):
     # can spot a version skew before the version-compat gate in
     # pick_build_path silent-fallbacks them to LOCAL.
     esphome_version: str = ""
+    # 7b per-pairing enable toggle, mirroring
+    # :attr:`StoredPairing.enabled`. The 7b Settings UI
+    # renders the switch from this field.
+    enabled: bool = True
 
 
 # Default + bounds for :attr:`RemoteBuildSettings.cleanup_ttl_seconds`.
@@ -1656,14 +1724,23 @@ class OffloaderRemoteBuildSettings(DataClassORJSONMixin):
     only has to move one file.
 
     ``pairings`` carries phase-4a-o :class:`StoredPairing`
-    rows: the offloader's pinned receivers. There's no
-    ``enabled`` toggle here because the offloader is always
-    the initiator (it doesn't bind a listener); whether the
-    dashboard exposes the offloader UI is a frontend concern
-    for now.
+    rows: the offloader's pinned receivers.
+
+    ``remote_builds_enabled`` (7b) is the master switch the
+    scheduler reads. When ``False`` the transparent install
+    flow short-circuits to LOCAL for every device — paired
+    receivers stay paired and the peer-link sessions stay
+    open (the explicit Send-builds power-user dialog still
+    works); only the implicit "Install → maybe route to a
+    receiver" path is gated off. Default ``True`` matches
+    the implicit behaviour the dashboard had before this
+    field existed: any APPROVED + connected + idle pairing
+    was eligible. Older sidecars from before the field
+    landed deserialise as enabled.
     """
 
     pairings: list[StoredPairing] = field(default_factory=list)
+    remote_builds_enabled: bool = True
 
 
 @dataclass
@@ -1675,9 +1752,16 @@ class OffloaderRemoteBuildSettingsView(DataClassORJSONMixin):
     projected to :class:`PairingSummary` (drops
     ``static_x25519_pub``); same projection-seam pattern as
     :class:`RemoteBuildSettingsView`.
+
+    ``remote_builds_enabled`` (7b) mirrors the storage-shape
+    master toggle so the frontend's "Remote builds enabled"
+    switch can read its initial state from the same
+    ``get_offloader_settings`` round-trip that already
+    surfaces the pairings list.
     """
 
     pairings: list[PairingSummary] = field(default_factory=list)
+    remote_builds_enabled: bool = True
 
 
 @dataclass

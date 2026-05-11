@@ -3302,6 +3302,39 @@ def test_decode_pairings_recovers_to_empty_on_schema_drift(
     assert any("Corrupt offloader pairings file" in r.message for r in caplog.records)
 
 
+def test_decode_pairings_back_compat_missing_enabled_defaults_true() -> None:
+    """
+    A sidecar from before the 7b ``enabled`` field landed deserialises as ``enabled=True``.
+
+    Older offloader installs persisted the pairings list without
+    the ``enabled`` key, and the master ``remote_builds_enabled``
+    flag wasn't on disk at all. Both defaults must round-trip to
+    ``True`` so the dashboard preserves the pre-7b semantic on
+    first boot after upgrade — any APPROVED pairing was eligible
+    before, and no operator action should be required to keep that
+    behaviour.
+    """
+    legacy_payload = json.dumps(
+        {
+            "pairings": [
+                {
+                    "receiver_hostname": "build.local",
+                    "receiver_port": 6055,
+                    "pin_sha256": "a" * 64,
+                    "static_x25519_pub": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+                    "label": "desktop",
+                    "paired_at": 1.0,
+                    "status": "approved",
+                }
+            ]
+        }
+    ).encode()
+    decoded = _decode_pairings(legacy_payload)
+    assert decoded.remote_builds_enabled is True
+    assert len(decoded.pairings) == 1
+    assert decoded.pairings[0].enabled is True
+
+
 # ---------------------------------------------------------------------------
 # Phase 5b: queue_status receiver-side broadcast + offloader-side cache
 # ---------------------------------------------------------------------------
@@ -3826,3 +3859,165 @@ def test_get_pairing_returns_matching_row(tmp_path: Path) -> None:
 
     assert controller.get_pairing(pairing.pin_sha256) is pairing
     assert controller.get_pairing("b" * 64) is None
+
+
+# ---------------------------------------------------------------------------
+# 7b — offloader Settings: master + per-pairing toggles
+# ---------------------------------------------------------------------------
+
+
+def test_remote_builds_enabled_default_is_true(tmp_path: Path) -> None:
+    """Fresh controller defaults to ``remote_builds_enabled=True``.
+
+    Matches the implicit historical behaviour: before the 7b
+    toggle landed, any APPROVED + connected + idle pairing
+    was eligible. The default keeps that semantic for
+    dashboards that haven't touched the new switch yet.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    assert controller.remote_builds_enabled_snapshot() is True
+    assert controller.build_scheduler_snapshot().remote_builds_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_set_offloader_settings_toggles_master_and_fires_event(tmp_path: Path) -> None:
+    """
+    ``set_offloader_settings(remote_builds_enabled=False)`` flips the toggle + fires the event.
+
+    Two halves of the same write: the in-RAM field flips so
+    the scheduler short-circuits to LOCAL on the very next
+    install, and the bus event lets other open tabs sync
+    their switch state without polling.
+    """
+    controller = _make_controller(config_dir=tmp_path, real_bus=True)
+    captured: list[Any] = []
+    controller._db.bus.add_listener(
+        EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED,
+        lambda event: captured.append(event.data),
+    )
+
+    view = await controller.set_offloader_settings(remote_builds_enabled=False)
+
+    assert controller.remote_builds_enabled_snapshot() is False
+    assert controller.build_scheduler_snapshot().remote_builds_enabled is False
+    assert view.remote_builds_enabled is False
+    assert captured == [{"remote_builds_enabled": False}]
+
+
+@pytest.mark.asyncio
+async def test_set_offloader_settings_rejects_non_bool(tmp_path: Path) -> None:
+    """Truthy non-bool inputs raise ``INVALID_ARGS`` rather than coerce.
+
+    A wire value of ``"false"`` would otherwise coerce to
+    ``True`` and persist the opposite of what the operator
+    intended on a security-relevant toggle. Strict-bool
+    matches the receiver-side ``set_settings`` validator.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.set_offloader_settings(remote_builds_enabled="false")  # type: ignore[arg-type]
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    # Untouched.
+    assert controller.remote_builds_enabled_snapshot() is True
+
+
+@pytest.mark.asyncio
+async def test_set_pairing_enabled_flips_field_and_fires_event(tmp_path: Path) -> None:
+    """
+    ``set_pairing_enabled(pin, False)`` flips ``StoredPairing.enabled`` + fires the event.
+
+    Mutation is in-place on the existing row (no replace), so
+    the scheduler's snapshot on the next install reads the
+    new value without re-traversing the dict. The event
+    payload carries the canonical ``pin_sha256`` row key + the
+    new state so cross-tab UI listeners can update their
+    matching row's switch.
+    """
+    controller = _make_controller(config_dir=tmp_path, real_bus=True)
+    pairing = _valid_stored_pairing(label="desktop")
+    controller._pairings[pairing.pin_sha256] = pairing
+    captured: list[Any] = []
+    controller._db.bus.add_listener(
+        EventType.OFFLOADER_PAIRING_ENABLED_CHANGED,
+        lambda event: captured.append(event.data),
+    )
+
+    summary = await controller.set_pairing_enabled(pin_sha256=pairing.pin_sha256, enabled=False)
+
+    assert pairing.enabled is False
+    assert summary.enabled is False
+    assert captured == [{"pin_sha256": pairing.pin_sha256, "enabled": False}]
+
+
+@pytest.mark.asyncio
+async def test_set_pairing_enabled_rejects_unknown_pin(tmp_path: Path) -> None:
+    """An unknown pin raises ``NOT_FOUND`` instead of silently no-op'ing.
+
+    A stale UI flipping a switch for a pairing the operator
+    just unpaired on another tab should get a clean error,
+    not a switch state that doesn't match anything.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.set_pairing_enabled(pin_sha256="b" * 64, enabled=False)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_set_pairing_enabled_rejects_non_bool(tmp_path: Path) -> None:
+    """Strict ``bool`` validation matches the master-toggle command."""
+    controller = _make_controller(config_dir=tmp_path)
+    pairing = _valid_stored_pairing()
+    controller._pairings[pairing.pin_sha256] = pairing
+
+    with pytest.raises(CommandError) as exc:
+        await controller.set_pairing_enabled(
+            pin_sha256=pairing.pin_sha256,
+            enabled="false",  # type: ignore[arg-type]
+        )
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    # Row's enabled untouched.
+    assert pairing.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_get_offloader_settings_returns_master_plus_pairings(tmp_path: Path) -> None:
+    """The view bundles the master toggle with the pairings snapshot.
+
+    First-paint contract for the offloader Settings UI: one
+    round-trip surfaces every switch the page renders.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    pairing = _valid_stored_pairing(label="desktop")
+    controller._pairings[pairing.pin_sha256] = pairing
+    controller._remote_builds_enabled = False
+
+    view = await controller.get_offloader_settings()
+
+    assert view.remote_builds_enabled is False
+    assert [p.pin_sha256 for p in view.pairings] == [pairing.pin_sha256]
+    assert view.pairings[0].enabled is True  # Default for the seeded row.
+
+
+def test_pairing_summary_surfaces_enabled_field(tmp_path: Path) -> None:
+    """``PairingSummary.enabled`` mirrors the storage-shape field.
+
+    The 7b Settings UI reads the per-row switch state from
+    this projection — without it, the frontend would have to
+    fetch the full storage shape (which exposes
+    ``static_x25519_pub``).
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    enabled_pairing = _valid_stored_pairing(label="alpha")
+    disabled_pairing = _valid_stored_pairing()
+    # The default factory sets pin_sha256="a"*64; use a
+    # distinct pin so both rows can coexist.
+    object.__setattr__(disabled_pairing, "pin_sha256", "b" * 64)
+    disabled_pairing.enabled = False
+    controller._pairings[enabled_pairing.pin_sha256] = enabled_pairing
+    controller._pairings[disabled_pairing.pin_sha256] = disabled_pairing
+
+    summaries = {s.pin_sha256: s for s in controller.pairings_snapshot()}
+
+    assert summaries["a" * 64].enabled is True
+    assert summaries["b" * 64].enabled is False

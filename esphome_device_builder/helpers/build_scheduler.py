@@ -190,6 +190,14 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
       eligible. PENDING rows haven't been OOB-confirmed by the
       receiver yet; using them silently would route bytes to a
       not-yet-trusted peer.
+    * **Per-pairing enabled toggle.** :attr:`StoredPairing.enabled`
+      gates the row independently of status / connection (7b).
+      The operator may have a paired receiver they want to keep
+      reachable via the Send-builds power-user surface but
+      *not* receive transparent install routing — e.g. a build
+      server on a flaky link they don't want eating dashboard
+      installs every time it briefly looks idle. A disabled
+      row is skipped; the peer-link client stays open.
     * **Live peer-link session.** ``pin_sha256`` must be in
       ``inputs.open_peer_links`` — the RAM-canonical set the
       :class:`RemoteBuildController` maintains from
@@ -245,6 +253,12 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
     )
     for pin_sha256, pairing in ordered:
         if pairing.status is not PeerStatus.APPROVED:
+            continue
+        if not pairing.enabled:
+            # 7b per-pairing toggle off — operator wants this
+            # receiver paired (Send-builds power-user surface
+            # still works) but doesn't want transparent
+            # install to route here.
             continue
         if pin_sha256 not in inputs.open_peer_links:
             continue

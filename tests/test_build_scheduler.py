@@ -32,13 +32,15 @@ def _stub_pairing(
     label: str = "desktop",
     paired_at: float = 1.0,
     status: PeerStatus = PeerStatus.APPROVED,
+    enabled: bool = True,
 ) -> StoredPairing:
     """Build a :class:`StoredPairing` with defaults aimed at the scheduler tests.
 
-    Defaults to APPROVED because the scheduler's interesting
-    cases all start from "this pairing would be eligible if it
-    cleared the rest of the filter"; PENDING-rejection is one
-    test, not the baseline.
+    Defaults to APPROVED + enabled because the scheduler's
+    interesting cases all start from "this pairing would be
+    eligible if it cleared the rest of the filter";
+    PENDING-rejection / disabled are one test each, not the
+    baseline.
     """
     return StoredPairing(
         receiver_hostname=receiver_hostname,
@@ -48,6 +50,7 @@ def _stub_pairing(
         label=label,
         paired_at=paired_at,
         status=status,
+        enabled=enabled,
     )
 
 
@@ -311,6 +314,53 @@ def test_skips_disconnected_picks_next() -> None:
                 pin_b: _stub_pairing(pin_sha256=pin_b, paired_at=2.0),
             },
             open_peer_links={pin_b},  # only B's session is live
+            peer_queue_status={
+                pin_a: _stub_queue_status(pin_sha256=pin_a),
+                pin_b: _stub_queue_status(pin_sha256=pin_b),
+            },
+        )
+    )
+    assert decision == BuildPathDecision.remote(pin_b)
+
+
+def test_disabled_pairing_skipped() -> None:
+    """An ``enabled=False`` row is skipped even when otherwise eligible.
+
+    7b per-pairing toggle: the operator wants this receiver
+    paired (peer-link clients keep their sessions open and
+    Send-builds manual dispatch still works) but doesn't want
+    transparent install to route here. The scheduler skips
+    the row the same way it skips PENDING / disconnected /
+    busy candidates — silently, falling through to the next
+    eligible pairing.
+    """
+    pin = "a" * 64
+    decision = pick_build_path(
+        _inputs(
+            pairings={pin: _stub_pairing(pin_sha256=pin, enabled=False)},
+            open_peer_links={pin},
+            peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        )
+    )
+    assert decision == BuildPathDecision.local()
+
+
+def test_skips_disabled_picks_next_enabled() -> None:
+    """A disabled first row falls through; second enabled row wins.
+
+    Pins the loop-continuation behaviour for the per-pairing
+    toggle so a disabled receiver doesn't shadow every
+    later-paired enabled one.
+    """
+    pin_a = "a" * 64
+    pin_b = "b" * 64
+    decision = pick_build_path(
+        _inputs(
+            pairings={
+                pin_a: _stub_pairing(pin_sha256=pin_a, enabled=False),
+                pin_b: _stub_pairing(pin_sha256=pin_b, enabled=True),
+            },
+            open_peer_links={pin_a, pin_b},
             peer_queue_status={
                 pin_a: _stub_queue_status(pin_sha256=pin_a),
                 pin_b: _stub_queue_status(pin_sha256=pin_b),

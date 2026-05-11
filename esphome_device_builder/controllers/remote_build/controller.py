@@ -106,6 +106,7 @@ from ...models import (
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
     OffloaderPairEndpointReboundData,
+    OffloaderPairingEnabledChangedData,
     OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
     OffloaderPairStatusChangedData,
@@ -115,6 +116,8 @@ from ...models import (
     OffloaderPinMismatchAlert,
     OffloaderQueueStatusChangedData,
     OffloaderRemoteBuildSettings,
+    OffloaderRemoteBuildSettingsView,
+    OffloaderRemoteBuildsToggledData,
     OffloaderRemoteJobSnapshotEntry,
     PairingSummary,
     PairingWindowState,
@@ -615,6 +618,7 @@ def _pairing_summary(
         connecting=connecting,
         last_connect_error=last_connect_error,
         esphome_version=pairing.esphome_version,
+        enabled=pairing.enabled,
     )
 
 
@@ -1210,6 +1214,14 @@ class RemoteBuildController:
         # ``_apply_pair_status_result`` — saves debounce
         # through :attr:`_pairings_store`.
         self._pairings: dict[str, StoredPairing] = {}
+        # 7b master toggle. Default ``True`` matches the
+        # historical implicit behaviour (no setting ⇒ the
+        # scheduler treats remote builds as eligible). Loaded
+        # from the per-file Store at :meth:`start`; persisted
+        # via the same Store on every mutation through the
+        # offloader-settings WS commands. Read by
+        # :meth:`build_scheduler_snapshot` on every install.
+        self._remote_builds_enabled: bool = True
         # RAM-only offloader-side pair alerts. Keyed on
         # ``pin_sha256`` to match ``_pairings`` (4a-o part 6).
         # Populated by ``_apply_pair_status_result`` when a
@@ -1379,6 +1391,12 @@ class RemoteBuildController:
         if (settings := await self._pairings_store.async_load()) is not None:
             for pairing in settings.pairings:
                 self._pairings[pairing.pin_sha256] = pairing
+            # 7b master toggle. Older sidecars from before
+            # this field landed deserialise with the dataclass
+            # default of ``True`` (mashumaro's missing-field
+            # behaviour), so the load path treats absence the
+            # same as "operator hasn't opted out yet".
+            self._remote_builds_enabled = settings.remote_builds_enabled
         # Seed the RAM-canonical APPROVED peer dict from the
         # per-file peers store. Mirrors the offloader-side
         # ``_pairings_store`` load above; RAM is canonical from
@@ -2733,6 +2751,132 @@ class RemoteBuildController:
         return view
 
     # ------------------------------------------------------------------
+    # Offloader-side settings (phase 7b) — the master "Remote builds
+    # enabled" toggle + per-pairing enable switch. These configure the
+    # ``pick_build_path`` scheduler that ``firmware/install`` routes
+    # through. Mutations persist via the existing
+    # ``_pairings_store`` (the master toggle lives on
+    # :class:`OffloaderRemoteBuildSettings` alongside the pairings
+    # list), so a single debounced save covers both kinds of edit.
+    # ------------------------------------------------------------------
+
+    @api_command("remote_build/get_offloader_settings")
+    async def get_offloader_settings(self, **kwargs: Any) -> OffloaderRemoteBuildSettingsView:
+        """
+        Return the offloader-side settings view.
+
+        Bundles the master ``remote_builds_enabled`` toggle
+        with the projected :class:`PairingSummary` list so the
+        7b Settings UI's first paint reads everything it needs
+        from one round-trip. Subsequent live updates flow
+        through ``OFFLOADER_REMOTE_BUILDS_TOGGLED`` /
+        ``OFFLOADER_PAIRING_ENABLED_CHANGED`` /
+        ``OFFLOADER_PAIR_STATUS_CHANGED`` events on the global
+        ``subscribe_events`` stream — no polling.
+
+        Pure synchronous RAM read; no executor hop. The
+        in-RAM ``_pairings`` dict + ``_remote_builds_enabled``
+        flag are the canonical sources of truth after
+        :meth:`start` seeded them from disk.
+        """
+        return OffloaderRemoteBuildSettingsView(
+            pairings=self.pairings_snapshot(),
+            remote_builds_enabled=self._remote_builds_enabled,
+        )
+
+    @api_command("remote_build/set_offloader_settings")
+    async def set_offloader_settings(
+        self,
+        *,
+        remote_builds_enabled: bool,
+        **kwargs: Any,
+    ) -> OffloaderRemoteBuildSettingsView:
+        """
+        Flip the offloader-side master toggle for transparent install.
+
+        When ``False``, :func:`pick_build_path` short-circuits
+        every install to LOCAL regardless of how many idle
+        receivers are paired. Peer-link sessions stay open and
+        the Send-builds power-user dialog still works — only
+        the implicit "Install → maybe route to a receiver"
+        path is gated off. The intent is "I want to keep the
+        receivers paired but stop the dashboard from
+        auto-routing builds there for now."
+
+        Strict ``bool`` validation rather than truthiness:
+        the string ``"false"`` would otherwise coerce to
+        ``True`` and persist the opposite of what the
+        operator intended.
+
+        Fires ``EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED`` so
+        other open tabs sync the switch state without
+        polling, then debounce-saves through the existing
+        ``_pairings_store`` (the master toggle lives on the
+        same on-disk shape as the pairings list).
+        """
+        if not isinstance(remote_builds_enabled, bool):
+            msg = "remote_build/set_offloader_settings: 'remote_builds_enabled' must be a boolean"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        self._remote_builds_enabled = remote_builds_enabled
+        toggled: OffloaderRemoteBuildsToggledData = {
+            "remote_builds_enabled": remote_builds_enabled,
+        }
+        self._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
+        self._schedule_pairings_save()
+        return OffloaderRemoteBuildSettingsView(
+            pairings=self.pairings_snapshot(),
+            remote_builds_enabled=self._remote_builds_enabled,
+        )
+
+    @api_command("remote_build/set_pairing_enabled")
+    async def set_pairing_enabled(
+        self,
+        *,
+        pin_sha256: str,
+        enabled: bool,
+        **kwargs: Any,
+    ) -> PairingSummary:
+        """
+        Flip the per-pairing enable switch for transparent install.
+
+        The 7b Settings UI exposes one switch per paired
+        build server: a connected, healthy receiver the
+        operator nevertheless doesn't want eating dashboard
+        installs (flaky link, doing heavy work, in a build
+        contention with another offloader). Distinct from
+        ``unpair`` — the row stays in ``_pairings``, peer-link
+        clients keep their sessions open, the Send-builds
+        manual-dispatch path still works against this row.
+
+        Both ``pin_sha256`` and ``enabled`` are strictly
+        validated (the same shape gate
+        :data:`_validate_pin_sha256` uses across this
+        controller). An unknown pin raises ``NOT_FOUND``
+        rather than silently no-op'ing so a stale UI doesn't
+        get the wrong "switch flipped" feedback.
+
+        Fires ``EventType.OFFLOADER_PAIRING_ENABLED_CHANGED``
+        for cross-tab UI sync, then debounce-saves the
+        pairings store so the choice survives restart.
+        """
+        clean_pin = _validate_pin_sha256(pin_sha256)
+        if not isinstance(enabled, bool):
+            msg = "remote_build/set_pairing_enabled: 'enabled' must be a boolean"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        pairing = self._pairings.get(clean_pin)
+        if pairing is None:
+            msg = f"remote_build/set_pairing_enabled: no pairing for pin_sha256={clean_pin!r}"
+            raise CommandError(ErrorCode.NOT_FOUND, msg)
+        pairing.enabled = enabled
+        payload: OffloaderPairingEnabledChangedData = {
+            "pin_sha256": clean_pin,
+            "enabled": enabled,
+        }
+        self._db.bus.fire(EventType.OFFLOADER_PAIRING_ENABLED_CHANGED, payload)
+        self._schedule_pairings_save()
+        return self._pairing_summary_for(pairing)
+
+    # ------------------------------------------------------------------
     # Offloader-side pair flow (phase 4a-o) — initiator commands that
     # open Noise XX WebSockets to a receiver's peer-link endpoint. The
     # wire-shape driver lives in
@@ -3566,6 +3710,25 @@ class RemoteBuildController:
         """
         return self._pairings.get(pin_sha256)
 
+    def remote_builds_enabled_snapshot(self) -> bool:
+        """
+        Return the current value of the 7b master toggle.
+
+        Pure synchronous RAM read. Used by
+        :meth:`DeviceBuilder._cmd_subscribe_events` to seed
+        the offloader Settings UI's "Remote builds enabled"
+        switch on first paint; subsequent updates flow via
+        ``OFFLOADER_REMOTE_BUILDS_TOGGLED`` events on the
+        same stream.
+
+        The scheduler doesn't go through this — it reads
+        :attr:`_remote_builds_enabled` directly via
+        :meth:`build_scheduler_snapshot`. The named helper is
+        purely the subscribe-events seed point so the UI
+        consumer doesn't reach into a private attribute.
+        """
+        return self._remote_builds_enabled
+
     def build_scheduler_snapshot(self) -> BuildSchedulerInputs:
         """
         Bundle the scheduler's input state into an immutable snapshot.
@@ -3607,15 +3770,16 @@ class RemoteBuildController:
         time) — flagged here so the surface choice is a
         deliberate move, not a silent assumption.
 
-        ``remote_builds_enabled`` is hardcoded to ``True`` for
-        7a-3 — the master "remote builds enabled" toggle in
-        :class:`OffloaderRemoteBuildSettings` lands with the
-        7b Settings UI; until then the implicit gate is
-        whether any APPROVED + connected + idle pairing
-        exists.
+        ``remote_builds_enabled`` reads :attr:`_remote_builds_enabled`
+        (7b), the master switch the offloader Settings UI
+        flips through ``set_offloader_settings``. ``False``
+        gates every install to LOCAL without tearing down the
+        peer-link sessions — the Send-builds power-user dialog
+        and the receiver-side housekeeping (queue_status push,
+        artifact downloads for manual dispatches) keep working.
         """
         return BuildSchedulerInputs(
-            remote_builds_enabled=True,
+            remote_builds_enabled=self._remote_builds_enabled,
             pairings=dict(self._pairings),
             open_peer_links=frozenset(self._open_peer_links),
             peer_queue_status=dict(self._peer_queue_status),
@@ -3736,9 +3900,14 @@ class RemoteBuildController:
         persisted snapshot reflects whatever's currently in RAM —
         not whatever was in RAM when the most recent mutation
         scheduled the save.
+
+        Also persists :attr:`_remote_builds_enabled` (7b
+        master toggle) so the next dashboard start picks up
+        the operator's last choice without an extra mutation.
         """
         return OffloaderRemoteBuildSettings(
             pairings=[p for p in self._pairings.values() if p.status is PeerStatus.APPROVED],
+            remote_builds_enabled=self._remote_builds_enabled,
         )
 
     # ------------------------------------------------------------------

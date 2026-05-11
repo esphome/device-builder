@@ -617,6 +617,16 @@ class DeviceBuilder:
                 initial["remote_jobs"] = [
                     dict(entry) for entry in self.remote_build.offloader_remote_jobs_snapshot()
                 ]
+                # 7b master toggle. The Settings UI reads the
+                # initial switch state from here; live updates
+                # flow through ``OFFLOADER_REMOTE_BUILDS_TOGGLED``
+                # events on the same ``subscribe_events``
+                # stream. Per-pairing ``enabled`` rides on each
+                # ``PairingSummary`` in ``initial["pairings"]``
+                # so no separate seed key is needed for that.
+                initial["remote_builds_enabled"] = (
+                    self.remote_build.remote_builds_enabled_snapshot()
+                )
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.

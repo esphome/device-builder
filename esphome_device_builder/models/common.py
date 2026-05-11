@@ -351,6 +351,30 @@ class EventType(StrEnum):
     # Phase 5c-3 wiring.
     OFFLOADER_JOB_OUTPUT = "offloader_job_output"
 
+    # 7b. Offloader-side master toggle changed. Fires from
+    # :meth:`RemoteBuildController.set_offloader_settings`
+    # whenever the operator flips the "Remote builds enabled"
+    # switch in the offloader Settings UI. Payload:
+    # ``{remote_builds_enabled: bool}``. Subscribers are the
+    # 7b Settings UI (renders the live switch state) — the
+    # scheduler doesn't need an event because it reads
+    # :attr:`RemoteBuildController._remote_builds_enabled` on
+    # every install via :meth:`build_scheduler_snapshot`. The
+    # event still fires so a second open tab sees the
+    # cross-tab toggle without polling.
+    OFFLOADER_REMOTE_BUILDS_TOGGLED = "offloader_remote_builds_toggled"
+
+    # 7b. Offloader-side per-pairing toggle changed. Fires
+    # from :meth:`RemoteBuildController.set_pairing_enabled`
+    # whenever the operator flips an individual paired
+    # receiver's enable switch. Payload:
+    # ``{pin_sha256: str, enabled: bool}``. Subscribers
+    # update the matching row's switch in the offloader
+    # Settings UI; the scheduler reads
+    # :attr:`StoredPairing.enabled` directly off the in-RAM
+    # ``_pairings`` dict via the snapshot.
+    OFFLOADER_PAIRING_ENABLED_CHANGED = "offloader_pairing_enabled_changed"
+
 
 class StreamEvent(StrEnum):
     """Per-stream frame names sent via ``WebSocketClient.send_event``.
