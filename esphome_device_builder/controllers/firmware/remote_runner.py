@@ -106,20 +106,27 @@ async def run_remote_compile_job(
     # fires first.
     session_lost: asyncio.Future[OffloaderPeerLinkClosedData] = loop.create_future()
 
+    def _is_ours(data: OffloaderJobOutputData | OffloaderJobStateChangedData) -> bool:
+        """Return True if *data* belongs to this runner's (pin, job_id) pair."""
+        return data["pin_sha256"] == pin and data["job_id"] == target_job_id
+
     def _on_output(event: Event[OffloaderJobOutputData]) -> None:
-        data = event.data
-        if data["pin_sha256"] != pin or data["job_id"] != target_job_id:
+        if not _is_ours(event.data):
             return
-        _ingest_output_line(job, bus, data["line"])
+        _ingest_output_line(job, bus, event.data["line"])
 
     def _on_state(event: Event[OffloaderJobStateChangedData]) -> None:
         data = event.data
-        if data["pin_sha256"] != pin or data["job_id"] != target_job_id:
+        if not _is_ours(data):
             return
         if data["status"] in _TERMINAL_WIRE_STATUSES and not terminal.done():
             terminal.set_result(data)
 
     def _on_session_closed(event: Event[OffloaderPeerLinkClosedData]) -> None:
+        # Pin-only filter — session-close events don't carry a
+        # job_id (the close brings down every in-flight job on
+        # the link). ``_is_ours`` keys on job_id too, so this
+        # one stays inline.
         data = event.data
         if data["pin_sha256"] != pin or session_lost.done():
             return

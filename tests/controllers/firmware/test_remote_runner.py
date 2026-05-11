@@ -22,7 +22,6 @@ separate test that asserts the runner ignores it.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -235,7 +234,6 @@ def _fire_session_closed(
 @pytest.mark.asyncio
 async def test_remote_compile_translates_output_and_completes(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """Receiver fan-out events translate into local ``JOB_*`` fires.
@@ -252,7 +250,6 @@ async def test_remote_compile_translates_output_and_completes(
     captured = _capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -286,7 +283,6 @@ async def test_remote_compile_translates_output_and_completes(
 @pytest.mark.asyncio
 async def test_remote_compile_progress_translates_to_local_progress_event(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """A wire output line carrying a percentage fires a local ``JOB_PROGRESS``.
@@ -302,7 +298,6 @@ async def test_remote_compile_progress_translates_to_local_progress_event(
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     _wire_remote_build(controller)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -326,7 +321,6 @@ async def test_remote_compile_progress_translates_to_local_progress_event(
 @pytest.mark.asyncio
 async def test_remote_compile_ignores_events_for_other_jobs(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """A wire frame for a different ``job_id`` doesn't leak into this runner.
@@ -340,7 +334,6 @@ async def test_remote_compile_ignores_events_for_other_jobs(
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     _wire_remote_build(controller)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job(job_id="ours")
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -370,14 +363,12 @@ async def test_remote_compile_ignores_events_for_other_jobs(
 @pytest.mark.asyncio
 async def test_remote_compile_failed_status_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """A receiver ``failed`` terminal lands as local ``JOB_FAILED`` with the error text."""
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     _wire_remote_build(controller)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -399,7 +390,6 @@ async def test_remote_compile_failed_status_fires_job_failed(
 @pytest.mark.asyncio
 async def test_remote_compile_rejected_ack_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """``submit_job`` rejection (``accepted=False``) finalises locally with the reason."""
@@ -407,7 +397,6 @@ async def test_remote_compile_rejected_ack_fires_job_failed(
     captured = _capture_local_events(controller)
     client = _make_client(accepted=False, reason="receiver queue full")
     _wire_remote_build(controller, client=client)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     await remote_runner.run_remote_compile_job(controller, job)
@@ -420,7 +409,6 @@ async def test_remote_compile_rejected_ack_fires_job_failed(
 @pytest.mark.asyncio
 async def test_remote_compile_receiver_unreachable_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """A missing peer-link client finalises the job as FAILED with the lookup error."""
@@ -430,7 +418,6 @@ async def test_remote_compile_receiver_unreachable_fires_job_failed(
         controller,
         lookup_error=CommandError(ErrorCode.PRECONDITION_FAILED, "session not connected"),
     )
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     await remote_runner.run_remote_compile_job(controller, job)
@@ -443,7 +430,6 @@ async def test_remote_compile_receiver_unreachable_fires_job_failed(
 @pytest.mark.asyncio
 async def test_remote_compile_non_compile_job_type_fails_locally(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """REMOTE with a non-COMPILE ``job_type`` is rejected at the runner's top.
@@ -478,7 +464,6 @@ async def test_remote_compile_non_compile_job_type_fails_locally(
 @pytest.mark.asyncio
 async def test_remote_compile_local_cancel_translates_to_wire_cancel_job(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """Adding the job to ``_cancel_requested`` triggers a wire ``cancel_job`` send.
@@ -494,7 +479,6 @@ async def test_remote_compile_local_cancel_translates_to_wire_cancel_job(
     captured = _capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -517,7 +501,6 @@ async def test_remote_compile_local_cancel_translates_to_wire_cancel_job(
 @pytest.mark.asyncio
 async def test_remote_compile_cancel_beats_receiver_completed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """
@@ -537,7 +520,6 @@ async def test_remote_compile_cancel_beats_receiver_completed(
     captured = _capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -560,7 +542,6 @@ async def test_remote_compile_cancel_beats_receiver_completed(
 @pytest.mark.asyncio
 async def test_remote_compile_receiver_initiated_cancel_finalises_as_cancelled(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """
@@ -576,7 +557,6 @@ async def test_remote_compile_receiver_initiated_cancel_finalises_as_cancelled(
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     _wire_remote_build(controller)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -593,7 +573,6 @@ async def test_remote_compile_receiver_initiated_cancel_finalises_as_cancelled(
 @pytest.mark.asyncio
 async def test_remote_compile_cancel_during_bundle_build_finalises_as_cancelled(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
@@ -635,7 +614,6 @@ async def test_remote_compile_cancel_during_bundle_build_finalises_as_cancelled(
 @pytest.mark.asyncio
 async def test_remote_compile_bundle_file_missing_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``FileNotFoundError`` from the bundle subprocess surfaces in ``job.error``."""
@@ -657,7 +635,6 @@ async def test_remote_compile_bundle_file_missing_fires_job_failed(
 @pytest.mark.asyncio
 async def test_remote_compile_bundle_build_error_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``BundleBuildError.output`` surfaces in ``job.error`` for the user."""
@@ -685,7 +662,6 @@ async def test_remote_compile_bundle_build_error_fires_job_failed(
 @pytest.mark.asyncio
 async def test_remote_compile_missing_source_pin_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """A REMOTE job with empty ``source_pin_sha256`` fails before any wire work."""
@@ -710,7 +686,6 @@ async def test_remote_compile_missing_source_pin_fires_job_failed(
 @pytest.mark.asyncio
 async def test_remote_compile_no_remote_build_controller_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """A REMOTE job dispatched before the remote-build controller is initialised fails cleanly."""
@@ -720,7 +695,6 @@ async def test_remote_compile_no_remote_build_controller_fires_job_failed(
     # ``DeviceBuilder.__init__`` but ``None`` is the typed
     # default the runner has to handle.
     controller._db.remote_build = None
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     await remote_runner.run_remote_compile_job(controller, job)
@@ -733,7 +707,6 @@ async def test_remote_compile_no_remote_build_controller_fires_job_failed(
 @pytest.mark.asyncio
 async def test_remote_compile_submit_no_session_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """``submit_job`` raising :class:`PeerLinkNoSessionError` surfaces in ``job.error``."""
@@ -741,7 +714,6 @@ async def test_remote_compile_submit_no_session_fires_job_failed(
     captured = _capture_local_events(controller)
     client = _make_client(submit_error=PeerLinkNoSessionError("session not open"))
     _wire_remote_build(controller, client=client)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     await remote_runner.run_remote_compile_job(controller, job)
@@ -759,7 +731,6 @@ async def test_remote_compile_submit_no_session_fires_job_failed(
 @pytest.mark.asyncio
 async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """
@@ -775,7 +746,6 @@ async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     captured = _capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -801,7 +771,6 @@ async def test_remote_compile_session_lost_mid_build_fires_job_failed(
 @pytest.mark.asyncio
 async def test_remote_compile_cancel_translation_handles_missing_session(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """
@@ -824,7 +793,6 @@ async def test_remote_compile_cancel_translation_handles_missing_session(
         CommandError(ErrorCode.PRECONDITION_FAILED, "session not connected (mid-reconnect)"),
     ]
     controller._db.remote_build = remote_build
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -841,7 +809,6 @@ async def test_remote_compile_cancel_translation_handles_missing_session(
 @pytest.mark.asyncio
 async def test_remote_compile_cancel_translation_handles_session_drop_on_send(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """``cancel_job`` raising ``PeerLinkNoSessionError`` finalises CANCELLED locally."""
@@ -849,7 +816,6 @@ async def test_remote_compile_cancel_translation_handles_session_drop_on_send(
     captured = _capture_local_events(controller)
     client = _make_client(cancel_error=PeerLinkNoSessionError("session gone"))
     _wire_remote_build(controller, client=client)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -870,7 +836,6 @@ async def test_remote_compile_cancel_translation_handles_session_drop_on_send(
 @pytest.mark.asyncio
 async def test_remote_compile_runner_task_cancelled_finalises_as_cancelled(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """
@@ -885,7 +850,6 @@ async def test_remote_compile_runner_task_cancelled_finalises_as_cancelled(
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     _wire_remote_build(controller)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
@@ -908,7 +872,6 @@ async def test_remote_compile_runner_task_cancelled_finalises_as_cancelled(
 @pytest.mark.asyncio
 async def test_execute_job_routes_remote_source_through_remote_runner(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """
@@ -928,7 +891,6 @@ async def test_execute_job_routes_remote_source_through_remote_runner(
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     _wire_remote_build(controller)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
     runner = asyncio.create_task(controller._execute_job(job))
@@ -949,7 +911,6 @@ async def test_execute_job_routes_remote_source_through_remote_runner(
 @pytest.mark.asyncio
 async def test_submit_job_ack_echoes_caller_job_id(
     firmware_controller_factory: FirmwareControllerFactory,
-    tmp_path: Path,
     patch_bundle: AsyncMock,
 ) -> None:
     """
@@ -968,7 +929,6 @@ async def test_submit_job_ack_echoes_caller_job_id(
     _capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job(job_id="unique-echo-1234")
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
