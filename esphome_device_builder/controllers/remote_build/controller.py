@@ -75,6 +75,7 @@ from zeroconf import IPVersion, ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 from ...constants import __version__ as server_version
+from ...helpers import dashboard_identity as _dashboard_identity_helper
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_advertise import SERVICE_TYPE
@@ -82,7 +83,6 @@ from ...helpers.dashboard_identity import (
     DASHBOARD_ID_MAX_CHARS,
     DASHBOARD_ID_PATTERN,
     get_or_create_identity,
-    rotate_certificate,
 )
 from ...helpers.event_bus import Event
 from ...helpers.hostname import normalize_hostname
@@ -4417,21 +4417,25 @@ class RemoteBuildController:
     @api_command("remote_build/get_identity")
     async def get_identity(self, **kwargs: Any) -> IdentityView:
         """
-        Return this dashboard's stable identity (id + cert pin + versions).
+        Return this dashboard's stable identity (id + pin + versions).
 
         Reads the persistent identity via
         :func:`helpers.dashboard_identity.get_or_create_identity`
-        — idempotent, and lazy-creates the cert + key pair if
-        missing. ``listener_bound`` reports whether the
-        peer-link Noise WS listener is currently serving
-        traffic. The cert + key PEMs themselves are intentionally
-        NOT returned; only the SPKI fingerprint (``pin_sha256``)
-        is safe to ship to a frontend, and the fingerprint is
-        what an offloader pins against anyway.
+        — idempotent, and lazy-creates the X25519 peer-link
+        keypair if missing. ``listener_bound`` reports whether
+        the peer-link Noise WS listener is currently serving
+        traffic. The X25519 private key is intentionally NOT
+        returned; only the SHA-256 of the public key
+        (``pin_sha256``) is safe to ship, and the fingerprint
+        is what an offloader pins against during pairing AND
+        what the mDNS TXT advertise broadcasts. The two MUST
+        match: a UI that showed one fingerprint while peers
+        observed a different one on the wire would defeat the
+        entire OOB-verification story.
 
         ``server_version`` and ``esphome_version`` ride on the
         same response so the Settings UI can render the "Build
-        host" card from a single WS call instead of hopping
+        server" card from a single WS call instead of hopping
         through the existing ``firmware/get_versions``-style
         commands.
         """
@@ -4444,30 +4448,30 @@ class RemoteBuildController:
     @api_command("remote_build/rotate_identity")
     async def rotate_identity(self, **kwargs: Any) -> IdentityView:
         """
-        Mint a fresh cert + key pair, replacing whatever's on disk.
+        Mint a fresh X25519 peer-link keypair, replacing whatever's on disk.
 
-        Forces every paired offloader to re-pair: the new SPKI
-        produces a new ``pin_sha256``, and any peer that pinned
-        the old one will see a fingerprint mismatch on the next
-        TLS handshake (peer-link work in phase 5+ surfaces this
-        through a re-verify wizard). The ``dashboard_id`` is
-        preserved so the receiver-side audit trail stays
-        readable across rotations.
+        Forces every paired offloader to re-pair: the new
+        ``pin_sha256`` (SHA-256 of the new public key) is what
+        peers verify against on the next Noise handshake, and
+        any peer that pinned the old one will see a fingerprint
+        mismatch and surface the re-pair wizard. The
+        ``dashboard_id`` is preserved so the receiver-side
+        audit trail stays readable across rotations.
 
-        Side effects: (1) the bound TCP site is torn down and
-        rebuilt with a fresh SSL context if remote-build is
-        currently enabled and bound; the rebuild fail-softs
+        Side effects: (1) the bound peer-link site is torn down
+        and rebuilt with the fresh X25519 key if remote-build
+        is currently enabled and bound; the rebuild fail-softs
         (``listener_bound=False`` in the response) so the
         Settings UI can show "rotation succeeded but the
         listener didn't come back up — check logs". (2) The
         mDNS advertise picks up the new ``pin_sha256`` either
-        way so peers re-browsing see the rotation even when the
-        listener wasn't bound. (3) An
+        way so peers re-browsing see the rotation even when
+        the listener wasn't bound. (3) An
         :attr:`EventType.REMOTE_BUILD_IDENTITY_ROTATED` event
         fires on the bus carrying ``{dashboard_id, pin_sha256}``
-        so subscribers (the offloader-side peer-link in 4+, the
-        receiver Settings UI in 3c2) can refresh without
-        polling ``get_identity``.
+        so subscribers (the offloader-side peer-link, the
+        receiver Settings UI) can refresh without polling
+        ``get_identity``.
 
         **Concurrent calls fail with ``ALREADY_EXISTS``.** Two
         rotations racing would each tear down + rebuild the
@@ -4475,9 +4479,8 @@ class RemoteBuildController:
         accidental double-click rather than two intentional
         events; the frontend is expected to confirm before each
         call. Rotation is otherwise intentionally cheap to
-        invoke (Ed25519 keygen + a couple of disk writes),
-        bounded only by the WS auth gate on this command's
-        channel.
+        invoke (X25519 keygen + one atomic file write), bounded
+        only by the WS auth gate on this command's channel.
         """
         # Single-threaded asyncio guarantees the check + set is
         # atomic — no other coroutine runs between these two
@@ -4489,7 +4492,7 @@ class RemoteBuildController:
         try:
             loop = asyncio.get_running_loop()
             identity = await loop.run_in_executor(
-                None, rotate_certificate, self._db.settings.config_dir
+                None, _dashboard_identity_helper.rotate_identity, self._db.settings.config_dir
             )
             listener_bound = await self._db.reload_remote_build_identity(
                 pin_sha256=identity.pin_sha256,

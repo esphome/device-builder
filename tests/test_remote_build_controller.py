@@ -1659,23 +1659,24 @@ async def test_get_identity_returns_dashboard_id_pin_and_versions(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_get_identity_lazy_creates_cert_and_key_on_first_call(tmp_path: Path) -> None:
-    """``get_identity`` writes the cert + key to disk if they're missing."""
+async def test_get_identity_lazy_creates_peer_link_key_on_first_call(tmp_path: Path) -> None:
+    """``get_identity`` writes the X25519 peer-link key to disk if it's missing."""
     controller = _make_controller(config_dir=tmp_path)
     _stub_identity_db(controller)
-    # Pre-condition: empty config_dir, no cert / key on disk.
-    assert not (tmp_path / ".device-builder-cert.pem").exists()
-    assert not (tmp_path / ".device-builder-key.pem").exists()
+    # Pre-condition: empty config_dir, no key on disk.
+    assert not (tmp_path / ".device-builder-peer-link-key.bin").exists()
 
     await controller.get_identity()
 
-    # ``get_or_create_identity`` is the lazy-creator; the
-    # controller relies on this so a cold-boot dashboard's
-    # Settings UI doesn't have to call rotate_identity to get a
-    # cert. Asserts the contract so a future refactor that
-    # switches to ``get_identity_or_raise`` would catch here.
-    assert (tmp_path / ".device-builder-cert.pem").is_file()
-    assert (tmp_path / ".device-builder-key.pem").is_file()
+    # ``get_or_create_identity`` is the lazy-creator (delegating
+    # to the peer-link helper). Asserts the contract so a future
+    # refactor that switches to ``get_identity_or_raise`` would
+    # catch here. Also confirms the legacy Ed25519 cert + key
+    # files are NOT created — the helper no longer touches
+    # those.
+    assert (tmp_path / ".device-builder-peer-link-key.bin").is_file()
+    assert not (tmp_path / ".device-builder-cert.pem").exists()
+    assert not (tmp_path / ".device-builder-key.pem").exists()
 
 
 @pytest.mark.asyncio

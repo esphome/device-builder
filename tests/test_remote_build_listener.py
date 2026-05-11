@@ -36,7 +36,7 @@ from esphome_device_builder.device_builder import (
 )
 from esphome_device_builder.helpers.dashboard_identity import (
     get_or_create_identity,
-    rotate_certificate,
+    rotate_identity,
 )
 from esphome_device_builder.helpers.event_bus import EventBus
 
@@ -474,7 +474,7 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
 
         # Rotate the cert + key on disk so the rebuild loads
         # the new identity.
-        new_identity = await loop.run_in_executor(None, rotate_certificate, tmp_path)
+        new_identity = await loop.run_in_executor(None, rotate_identity, tmp_path)
         listener_bound = await db.reload_remote_build_identity(
             pin_sha256=new_identity.pin_sha256,
         )

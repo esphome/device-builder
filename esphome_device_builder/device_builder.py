@@ -978,33 +978,22 @@ class DeviceBuilder:
 
     async def reload_remote_build_identity(self, *, pin_sha256: str) -> bool:
         """
-        Rebuild the peer-link listener after a TLS cert rotation.
+        Rebuild the peer-link listener after an X25519 identity rotation.
 
-        Wired up to ``RemoteBuildController.rotate_identity`` (phase
-        3c1) right after :func:`rotate_certificate` writes the new
-        cert + key to disk. **This rotation path is dormant after
-        the phase 4a-r1 pivot** — the listener no longer terminates
-        TLS, the pin advertised in mDNS is now the X25519 peer-link
-        identity's ``pin_sha256_formatted`` (loaded once at handler-
-        factory time), and the cert + key on disk are unused by the
-        receiver site. Calling this method still tears down + rebinds
-        the listener (so the X25519 identity is reloaded from disk
-        too), but the ``pin_sha256`` argument is the *cert* SPKI hash
-        that no peer pins against any longer.
-
-        Phase 4a-r2 (issue #106) tears out the dormant cert-rotation
-        WS commands and replaces them with a peer-link identity
-        rotation that actually rotates the right key + invalidates
-        every paired peer; until then this method is a vestigial
-        no-op for the rotation contract that just happens to also
-        rebind the X25519 identity as a side effect.
+        Wired up to ``RemoteBuildController.rotate_identity`` right
+        after :func:`rotate_peer_link_identity` writes the new
+        X25519 keypair to disk. The new ``pin_sha256`` is what
+        every paired offloader pins against on the next Noise
+        handshake — the rotation invalidates every existing
+        pairing, peers see a fingerprint mismatch and surface the
+        re-pair wizard.
 
         When the listener is bound, three side effects in order:
 
         * Listener teardown — the bound runner is still holding
           the old X25519 peer-link identity in its handler closure.
-          Without a rebuild, the next session would still drive the
-          handshake against the old key.
+          Without a rebuild, the next session would still drive
+          the handshake against the old key.
         * mDNS clear — both ``pin_sha256`` and ``remote_build_port``
           drop out of TXT immediately. The TXT contract is
           "these fields appear iff the listener is currently
@@ -1015,20 +1004,19 @@ class DeviceBuilder:
           failure the cleared state is the steady state.
         * Listener rebuild — re-runs the same path
           ``_maybe_start_remote_build_site`` does at startup, which
-          loads the (post-rotation but unused) cert + the X25519
-          peer-link identity from disk, and (on success) re-pushes
-          the new peer-link pin + port to mDNS. Fail-soft: a rebuild
-          failure leaves the dashboard running without a receiver
-          listener (same contract as the initial bind), and the
-          return value reflects that so the rotater can surface
-          the failure to the operator.
+          loads the new X25519 identity from disk and (on success)
+          re-pushes the new pin + port to mDNS. Fail-soft: a
+          rebuild failure leaves the dashboard running without a
+          receiver listener (same contract as the initial bind),
+          and the return value reflects that so the rotater can
+          surface the failure to the operator.
 
         When the listener is NOT bound, this method is a no-op:
         no mDNS push (there's no listener for peers to connect
         to anyway, and pushing a pin without a port would
-        contradict the TXT contract). The cert + key on disk are
-        already updated by the time this method runs; the next
-        bind picks them up.
+        contradict the TXT contract). The new X25519 key is
+        already on disk by the time this method runs; the next
+        bind picks it up.
 
         Returns whether the receiver listener is currently bound
         after this call. ``True`` means the rebind landed; ``False``

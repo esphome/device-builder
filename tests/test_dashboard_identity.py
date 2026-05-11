@@ -1,26 +1,41 @@
-"""Tests for the dashboard identity helper."""
+"""
+Tests for the dashboard identity helper.
+
+The helper bundles two persistent values: the X25519 peer-link
+key's ``pin_sha256`` (which paired offloaders pin against during
+the Noise handshake) and the stable ``dashboard_id`` correlation
+token in the metadata sidecar's ``_remote_build`` block. Phase
+4a-r2 retired the Ed25519 self-signed cert this helper previously
+owned; the X25519 key now drives both the actual peer-link
+authentication AND the displayed fingerprint. Coverage here pins
+that:
+
+* The compose path returns a struct whose ``pin_sha256`` matches
+  the X25519 peer-link helper's output (i.e. no divergence
+  between what the UI shows and what offloaders observe).
+* ``dashboard_id`` is generated once on first read, persisted
+  under ``_remote_build.dashboard_id``, idempotent across calls,
+  preserved across rotations.
+* The metadata sidecar's fail-safe paths (missing key, non-dict
+  block, corrupt JSON) all land on a fresh dashboard_id without
+  crashing.
+"""
 
 from __future__ import annotations
 
 import json
-import stat
-import sys
 import threading
-from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-from cryptography import x509
-
 from esphome_device_builder.helpers.dashboard_identity import (
-    _CERT_FILENAME,
-    _CERT_NOT_BEFORE_BACKDATE,
-    _KEY_FILENAME,
-    _KEY_MODE,
+    DASHBOARD_ID_MAX_CHARS,
+    DASHBOARD_ID_PATTERN,
     DashboardIdentity,
-    _add_years,
     get_or_create_identity,
-    rotate_certificate,
+    rotate_identity,
+)
+from esphome_device_builder.helpers.peer_link_identity import (
+    get_or_create_peer_link_identity,
 )
 
 
@@ -29,18 +44,33 @@ def _read_metadata(config_dir: Path) -> dict:
 
 
 def test_first_call_generates_and_persists_identity(tmp_path: Path) -> None:
-    """Fresh config dir → cert, key, and dashboard_id all created."""
+    """Fresh config dir → X25519 key, and dashboard_id all created."""
     identity = get_or_create_identity(tmp_path)
 
     assert isinstance(identity, DashboardIdentity)
     assert identity.dashboard_id  # non-empty
-    assert (tmp_path / _CERT_FILENAME).exists()
-    assert (tmp_path / _KEY_FILENAME).exists()
-    # Cert PEM round-trips through the file.
-    assert identity.cert_pem == (tmp_path / _CERT_FILENAME).read_bytes()
+    # The X25519 peer-link key file is what actually drives the
+    # Noise handshake; verify it landed on disk so a subsequent
+    # bind picks it up.
+    assert (tmp_path / ".device-builder-peer-link-key.bin").exists()
     # ``dashboard_id`` lands in ``_remote_build.dashboard_id``.
     metadata = _read_metadata(tmp_path)
     assert metadata["_remote_build"]["dashboard_id"] == identity.dashboard_id
+
+
+def test_pin_sha256_matches_peer_link_identity(tmp_path: Path) -> None:
+    """The displayed ``pin_sha256`` is the X25519 public key's SHA-256.
+
+    Load-bearing contract: the UI fingerprint MUST match what
+    paired offloaders observe during the Noise handshake. A
+    divergence here was the original bug that motivated this
+    helper's rewrite — the UI displayed a dormant Ed25519 cert's
+    SPKI hash while peers verified the X25519 peer-link key's
+    hash on the wire.
+    """
+    identity = get_or_create_identity(tmp_path)
+    peer_link = get_or_create_peer_link_identity(tmp_path)
+    assert identity.pin_sha256 == peer_link.pin_sha256
 
 
 def test_second_call_returns_identical_identity(tmp_path: Path) -> None:
@@ -48,15 +78,6 @@ def test_second_call_returns_identical_identity(tmp_path: Path) -> None:
     first = get_or_create_identity(tmp_path)
     second = get_or_create_identity(tmp_path)
     assert first == second
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
-def test_key_file_has_restrictive_mode(tmp_path: Path) -> None:
-    """The private-key file lands at ``0600`` from the start, never wider."""
-    get_or_create_identity(tmp_path)
-    key_path = tmp_path / _KEY_FILENAME
-    mode = stat.S_IMODE(key_path.stat().st_mode)
-    assert mode == _KEY_MODE
 
 
 def test_pin_sha256_is_lowercase_hex_64_chars(tmp_path: Path) -> None:
@@ -78,57 +99,6 @@ def test_pin_sha256_formatted_groups_in_pairs(tmp_path: Path) -> None:
     assert formatted.replace(" ", "") == identity.pin_sha256
 
 
-def test_missing_key_file_triggers_regeneration(tmp_path: Path) -> None:
-    """Cert file alone (key gone) is treated as missing; both regenerate."""
-    first = get_or_create_identity(tmp_path)
-    (tmp_path / _KEY_FILENAME).unlink()
-
-    second = get_or_create_identity(tmp_path)
-    assert second.cert_pem != first.cert_pem
-    assert second.dashboard_id == first.dashboard_id  # id is stable
-
-
-def test_missing_cert_file_triggers_regeneration(tmp_path: Path) -> None:
-    """Key file alone (cert gone) regenerates both."""
-    first = get_or_create_identity(tmp_path)
-    (tmp_path / _CERT_FILENAME).unlink()
-
-    second = get_or_create_identity(tmp_path)
-    assert second.cert_pem != first.cert_pem
-
-
-def test_unparsable_cert_triggers_regeneration(tmp_path: Path) -> None:
-    """Garbage in the cert file regenerates rather than crashing on load."""
-    first = get_or_create_identity(tmp_path)
-    (tmp_path / _CERT_FILENAME).write_bytes(b"not a real cert")
-
-    second = get_or_create_identity(tmp_path)
-    assert second.cert_pem != first.cert_pem
-
-
-def test_unparsable_key_triggers_regeneration(tmp_path: Path) -> None:
-    """Garbage in the key file regenerates rather than crashing on load."""
-    first = get_or_create_identity(tmp_path)
-    (tmp_path / _KEY_FILENAME).write_bytes(b"not a real key")
-
-    second = get_or_create_identity(tmp_path)
-    assert second.cert_pem != first.cert_pem
-
-
-def test_mismatched_cert_and_key_triggers_regeneration(tmp_path: Path) -> None:
-    """Cert + key both parse but don't pair; treated as missing, regenerate."""
-    first = get_or_create_identity(tmp_path)
-    # Drop a valid-but-unrelated key next to the first identity's cert.
-    other_dir = tmp_path / "other"
-    other_dir.mkdir()
-    other = get_or_create_identity(other_dir)
-    (tmp_path / _KEY_FILENAME).write_bytes(other.key_pem)
-
-    third = get_or_create_identity(tmp_path)
-    assert third.cert_pem != first.cert_pem
-    assert third.cert_pem != other.cert_pem
-
-
 def test_concurrent_dashboard_id_generation_is_serialised(tmp_path: Path) -> None:
     """Two concurrent ``get_or_create_identity`` calls land on the same id."""
     results: list[str] = []
@@ -147,22 +117,18 @@ def test_concurrent_dashboard_id_generation_is_serialised(tmp_path: Path) -> Non
     assert len(set(results)) == 1, results
 
 
-def test_rotate_certificate_keeps_dashboard_id(tmp_path: Path) -> None:
-    """``rotate_certificate`` swaps the cert / key but preserves the id."""
+def test_rotate_identity_keeps_dashboard_id(tmp_path: Path) -> None:
+    """``rotate_identity`` swaps the X25519 key but preserves the id."""
     first = get_or_create_identity(tmp_path)
-    rotated = rotate_certificate(tmp_path)
+    rotated = rotate_identity(tmp_path)
 
     assert rotated.dashboard_id == first.dashboard_id
     assert rotated.pin_sha256 != first.pin_sha256
-    assert rotated.cert_pem != first.cert_pem
-    assert rotated.key_pem != first.key_pem
 
 
-def test_rotate_certificate_persists_to_disk(tmp_path: Path) -> None:
+def test_rotate_identity_persists_to_disk(tmp_path: Path) -> None:
     """A subsequent ``get_or_create_identity`` call returns the rotated values."""
-    rotate_certificate(tmp_path)
-    rotated = get_or_create_identity(tmp_path)
-
+    rotated = rotate_identity(tmp_path)
     next_call = get_or_create_identity(tmp_path)
     assert next_call == rotated
 
@@ -171,10 +137,11 @@ def test_dashboard_id_survives_other_remote_build_mutations(tmp_path: Path) -> N
     """
     Writing other ``_remote_build`` keys doesn't drop ``dashboard_id``.
 
-    Pin the read-modify-write semantics of ``_save_dashboard_id`` —
-    a bare overwrite of the ``_remote_build`` blob would silently
-    reset every other field; equally, an external mutation that
-    follows the same RMW shape must preserve ``dashboard_id``.
+    Pin the read-modify-write semantics of the dashboard_id
+    persistence path — a bare overwrite of the ``_remote_build``
+    blob would silently reset every other field; equally, an
+    external mutation that follows the same RMW shape must
+    preserve ``dashboard_id``.
     """
     identity = get_or_create_identity(tmp_path)
 
@@ -189,14 +156,14 @@ def test_dashboard_id_survives_other_remote_build_mutations(tmp_path: Path) -> N
     assert second.dashboard_id == identity.dashboard_id
 
 
-def test_rotation_after_id_only_mutation(tmp_path: Path) -> None:
+def test_init_after_id_only_mutation_preserves_other_fields(tmp_path: Path) -> None:
     """
     Writing ``_remote_build`` data BEFORE first identity init still works.
 
-    Real-world path: a user enables remote-build via a phase-2b
-    Settings flow before phase 3 ever fires. The metadata sidecar
-    already has ``_remote_build.enabled`` set; the identity init
-    must merge into that rather than replacing the whole key.
+    Real-world path: a user flips the Settings toggle before the
+    identity helper has ever run. The metadata sidecar already
+    has ``_remote_build.enabled`` set; the identity init must
+    merge into that rather than replacing the whole key.
     """
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b'{"_remote_build": {"enabled": true}}')
@@ -247,31 +214,30 @@ def test_non_dict_remote_build_value_falls_back(tmp_path: Path) -> None:
 def test_dashboard_id_is_url_safe(tmp_path: Path) -> None:
     """``secrets.token_urlsafe`` output: only ``[A-Za-z0-9_-]``."""
     identity = get_or_create_identity(tmp_path)
-    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
-    assert set(identity.dashboard_id) <= allowed
+    assert DASHBOARD_ID_PATTERN.fullmatch(identity.dashboard_id)
     # 24 bytes base64url-encoded = 32 chars (no padding in token_urlsafe).
     assert len(identity.dashboard_id) == 32
+    assert len(identity.dashboard_id) <= DASHBOARD_ID_MAX_CHARS
 
 
-def test_add_years_regular_date() -> None:
-    """``_add_years`` shifts a non-leap-day date by N years."""
-    d = datetime(2026, 5, 8, 12, 0, 0, tzinfo=UTC)
-    assert _add_years(d, 100) == datetime(2126, 5, 8, 12, 0, 0, tzinfo=UTC)
+def test_dashboard_id_pattern_rejects_control_chars() -> None:
+    """The validator rejects spaces, control bytes, unicode, punctuation."""
+    assert DASHBOARD_ID_PATTERN.fullmatch("hello world") is None
+    assert DASHBOARD_ID_PATTERN.fullmatch("hello\x00world") is None
+    assert DASHBOARD_ID_PATTERN.fullmatch("héllo") is None
+    assert DASHBOARD_ID_PATTERN.fullmatch("hello.world") is None
+    assert DASHBOARD_ID_PATTERN.fullmatch("") is None
 
 
-def test_add_years_clamps_feb_29_to_28() -> None:
-    """``_add_years`` clamps Feb 29 -> Feb 28 when the target year isn't a leap year."""
-    leap = datetime(2000, 2, 29, 12, 0, 0, tzinfo=UTC)
-    # 2000 + 100 = 2100, divisible by 100 and not by 400 -> not leap.
-    assert _add_years(leap, 100) == datetime(2100, 2, 28, 12, 0, 0, tzinfo=UTC)
+def test_no_legacy_cert_files_created(tmp_path: Path) -> None:
+    """
+    The pre-pivot Ed25519 cert + key files are no longer produced.
 
-
-def test_cert_not_valid_before_is_backdated(tmp_path: Path) -> None:
-    """The cert's ``not_valid_before`` is ~5 minutes before generation."""
-    before = datetime.now(UTC)
-    identity = get_or_create_identity(tmp_path)
-    cert = x509.load_pem_x509_certificate(identity.cert_pem)
-    nvb = cert.not_valid_before_utc
-    # Cert claims to be valid from before this test started, by at
-    # least the configured backdate.
-    assert nvb <= before - _CERT_NOT_BEFORE_BACKDATE / 2
+    Pins that a fresh install lands a clean ``config_dir`` without
+    the dormant Ed25519 artefacts that used to sit alongside the
+    X25519 key. A regression that re-introduced the cert helper
+    would put these back; this test catches it.
+    """
+    get_or_create_identity(tmp_path)
+    assert not (tmp_path / ".device-builder-cert.pem").exists()
+    assert not (tmp_path / ".device-builder-key.pem").exists()

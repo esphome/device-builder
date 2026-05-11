@@ -143,13 +143,13 @@ class RemoteBuildIdentityRotatedData(TypedDict):
     """
     Payload for ``EventType.REMOTE_BUILD_IDENTITY_ROTATED``.
 
-    Fired after ``rotate_certificate`` succeeds and the new
+    Fired after ``rotate_identity`` succeeds and the new
     ``pin_sha256`` is reloaded into the listener. Subscribers
-    (the offloader-side peer-link in phase 4+, the receiver
-    Settings UI in 3c2) refresh their cached pin without polling
-    ``get_identity``. The event reflects only that the cert + key
-    on disk changed; the listener rebuild may still fail-soft, in
-    which case the rotater's ``IdentityView`` response carries
+    (the offloader-side peer-link, the receiver Settings UI)
+    refresh their cached pin without polling ``get_identity``.
+    The event reflects that the X25519 keypair on disk changed;
+    the listener rebuild may still fail-soft, in which case the
+    rotater's ``IdentityView`` response carries
     ``listener_bound=False``.
     """
 
@@ -1895,11 +1895,11 @@ class IdentityView(DataClassORJSONMixin):
     Receiver-side dashboard identity, projected for the Settings UI.
 
     Returned from ``remote_build/get_identity`` and
-    ``remote_build/rotate_identity``. The cert + key PEMs are
-    intentionally NOT included: only the ``pin_sha256`` (the
-    SHA-256 of the cert's SubjectPublicKeyInfo, lowercase hex) is
-    safe to ship, and the cert PEM itself adds nothing the
-    fingerprint doesn't already let an offloader pin against.
+    ``remote_build/rotate_identity``. The X25519 private key
+    is intentionally NOT included: only the ``pin_sha256`` (the
+    SHA-256 of the X25519 public key, lowercase hex) is safe to
+    ship, and the pubkey itself adds nothing the fingerprint
+    doesn't already let an offloader pin against.
 
     ``server_version`` is this dashboard's package version;
     ``esphome_version`` is the bundled esphome's. Both are also
