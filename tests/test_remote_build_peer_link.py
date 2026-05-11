@@ -36,6 +36,7 @@ from esphome.const import __version__ as esphome_version
 from noise.exceptions import NoiseInvalidMessage
 from noise.exceptions import NoiseInvalidMessage as _NoiseInvalidMessage
 
+from esphome_device_builder.api.ws import init_ws_app
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build import (
     peer_link as _peer_link_module,
@@ -781,6 +782,7 @@ async def peer_link_app(
     identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, tmp_path)
 
     app = web.Application()
+    init_ws_app(app)
     handler = await make_peer_link_handler(controller, tmp_path)
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)

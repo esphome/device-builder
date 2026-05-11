@@ -35,6 +35,7 @@ from aiohttp.test_utils import TestServer
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from noise.exceptions import NoiseInvalidMessage
 
+from esphome_device_builder.api.ws import init_ws_app
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build import controller as rb
 from esphome_device_builder.controllers.remote_build import (
@@ -123,6 +124,7 @@ async def receiver_server(
     identity = await loop.run_in_executor(None, get_or_create_peer_link_identity, tmp_path)
 
     app = web.Application()
+    init_ws_app(app)
     handler = await make_peer_link_handler(controller, tmp_path)
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
