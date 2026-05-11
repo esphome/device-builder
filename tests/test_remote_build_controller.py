@@ -1363,6 +1363,38 @@ async def test_start_leaves_peer_link_resolver_none_when_zeroconf_failed_to_bind
 
 
 @pytest.mark.asyncio
+async def test_stop_swallows_peer_link_resolver_close_failures(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    A failure in ``real_close`` doesn't crash ``stop``.
+
+    The teardown path must finish unwinding the rest of the
+    controller's state — peer-link clients, listener
+    unregistrations, debounced-save flush — even if the
+    underlying ``aiodns`` close raises. Logged at DEBUG and
+    swallowed; the resolver reference is cleared either way so
+    a subsequent ``start`` reconstructs cleanly.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.devices.zeroconf = MagicMock(spec=AsyncZeroconf)
+    await controller.start()
+    assert controller._peer_link_resolver is not None
+    # Force the close path to raise; the controller should
+    # catch + log + clear the reference rather than propagate.
+    controller._peer_link_resolver.real_close = AsyncMock(  # type: ignore[method-assign]
+        side_effect=RuntimeError("aiodns gone")
+    )
+    with caplog.at_level(
+        "DEBUG", logger="esphome_device_builder.controllers.remote_build.controller"
+    ):
+        await controller.stop()
+    assert controller._peer_link_resolver is None
+    assert any("peer-link resolver close failed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_start_constructs_peer_link_resolver_when_zeroconf_is_up(
     tmp_path: Path,
 ) -> None:
