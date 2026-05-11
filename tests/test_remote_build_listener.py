@@ -42,24 +42,67 @@ from esphome_device_builder.helpers.event_bus import EventBus
 
 
 @pytest.mark.asyncio
-async def test_maybe_start_remote_build_site_skips_when_disabled(tmp_path: Path) -> None:
+async def test_maybe_start_remote_build_site_skips_when_explicitly_disabled(
+    tmp_path: Path,
+) -> None:
     """
-    Default-off: ``_maybe_start_remote_build_site`` early-returns when ``enabled=False``.
+    Operator-disabled: ``_maybe_start_remote_build_site`` early-returns when ``enabled=False``.
 
-    Pins the gate at the lifecycle hook, not just at the
-    settings layer — a refactor that bound the listener
-    unconditionally (or read the wrong field) would fail here
-    even if ``RemoteBuildSettings.enabled`` still defaulted to
-    ``False``.
+    Persist ``enabled=False`` via the settings sidecar so the
+    operator's explicit-disable choice is what's under test, not
+    the model default (which is ``True``). Pins the gate at the
+    lifecycle hook, not just at the settings layer — a refactor
+    that bound the listener unconditionally (or read the wrong
+    field) would fail here.
     """
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+
     settings = DashboardSettings(config_dir=tmp_path)
     db = DeviceBuilder(settings)
-    db.loop = asyncio.get_running_loop()
+    db.loop = loop
     db.remote_build = MagicMock()
     db.remote_build._db.settings.config_dir = tmp_path
 
     await db._maybe_start_remote_build_site()
     assert db._remote_build_runner is None
+
+
+@pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_binds_by_default_on_fresh_install(
+    tmp_path: Path,
+) -> None:
+    """
+    Fresh install (no ``_remote_build`` block in metadata) binds by default.
+
+    Default-on for non-HA-addon deployments: the model default
+    ``RemoteBuildSettings.enabled = True`` carries through the
+    load path so a fresh sidecar with no ``_remote_build`` key
+    still ends up with the listener bound. The privilege gate
+    is the receiver-side pair-approval dialog, not the bind
+    address. Pins the new default so a regression that
+    re-introduced ``enabled: bool = False`` would fail here.
+    """
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0  # ephemeral so the bind doesn't collide
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
+    db._publish_remote_build_advertise = AsyncMock()
+
+    try:
+        await db._maybe_start_remote_build_site()
+        assert db._remote_build_runner is not None
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()
 
 
 @pytest.mark.asyncio
@@ -262,11 +305,45 @@ async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemera
 
 
 @pytest.mark.asyncio
-async def test_maybe_start_remote_build_site_warns_on_ha_addon(
+async def test_maybe_start_remote_build_site_skips_ha_addon_without_persisted_opt_in(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """HA-addon mode logs a warning when the listener binds."""
+    """
+    HA addon + no persisted ``_remote_build`` block → skip the bind.
+
+    The addon's docker container doesn't expose port 6055 to the
+    LAN by default, and the mDNS advertise is already skipped on
+    HA addon, so binding by default would burn the port without
+    making the feature reachable. Skip until the operator
+    explicitly opts in via the Settings toggle.
+    """
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    settings.on_ha_addon = True  # the branch under test
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
+
+    await db._maybe_start_remote_build_site()
+    assert db._remote_build_runner is None
+
+
+@pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_binds_ha_addon_after_explicit_opt_in(
+    tmp_path: Path,
+) -> None:
+    """
+    HA addon + persisted ``enabled=True`` → bind (operator override).
+
+    Some legacy-dashboard operators historically added the
+    receiver port to their addon's ``ports:`` config to expose
+    it. Once they flip the toggle in Settings (which persists
+    ``_remote_build``), the bind site respects that explicit
+    opt-in exactly like every other deployment mode — no
+    deployment-mode short-circuit at this point.
+    """
     loop = asyncio.get_running_loop()
 
     def _enable() -> None:
@@ -278,21 +355,55 @@ async def test_maybe_start_remote_build_site_warns_on_ha_addon(
     settings = DashboardSettings(config_dir=tmp_path)
     settings.host = "127.0.0.1"
     settings.remote_build_port = 0
-    settings.on_ha_addon = True  # the branch under test
+    settings.on_ha_addon = True
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build = MagicMock()
+    db.remote_build._db.settings.config_dir = tmp_path
+    db._publish_remote_build_advertise = AsyncMock()
+
+    try:
+        await db._maybe_start_remote_build_site()
+        assert db._remote_build_runner is not None
+    finally:
+        if db._remote_build_runner is not None:
+            await db._remote_build_runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_maybe_start_remote_build_site_respects_ha_addon_explicit_disable(
+    tmp_path: Path,
+) -> None:
+    """
+    HA addon + persisted ``enabled=False`` → skip (operator explicit-off).
+
+    An operator who explicitly disabled the toggle on HA addon
+    triggers the second gate (``rb_settings.enabled`` check),
+    not the first (HA-addon "no persisted block") -- because
+    persisting any value flips the persistence signal to ``True``.
+    Pins that the gate composition is correct: HA-addon shortcut
+    only suppresses the *fresh-install default-on* path, never
+    overrides an explicit operator choice.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    settings.on_ha_addon = True
     db = DeviceBuilder(settings)
     db.loop = loop
     db.remote_build = MagicMock()
     db.remote_build._db.settings.config_dir = tmp_path
 
-    with caplog.at_level("WARNING", logger="esphome_device_builder.device_builder"):
-        try:
-            await db._maybe_start_remote_build_site()
-            assert db._remote_build_runner is not None
-        finally:
-            if db._remote_build_runner is not None:
-                await db._remote_build_runner.cleanup()
-    warnings = [r for r in caplog.records if "HA addon" in r.getMessage()]
-    assert warnings, "expected an HA-addon warning"
+    await db._maybe_start_remote_build_site()
+    assert db._remote_build_runner is None
 
 
 @pytest.mark.asyncio
@@ -525,9 +636,21 @@ async def test_apply_remote_build_enabled_tears_down_when_disk_says_false(
     tmp_path: Path,
 ) -> None:
     """Convergence: disk ``enabled=False`` + listener bound → teardown + advertiser clear."""
+    loop = asyncio.get_running_loop()
+
+    # Persist an explicit ``enabled=False`` so the test exercises
+    # the disabled-on-disk path. With the new default-on model
+    # value an empty sidecar would load as ``enabled=True`` and
+    # this test would no longer cover its named contract.
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+
     settings = DashboardSettings(config_dir=tmp_path)
     db = DeviceBuilder(settings)
-    db.loop = asyncio.get_running_loop()
+    db.loop = loop
 
     advertiser = MagicMock()
     advertiser.refresh = AsyncMock()

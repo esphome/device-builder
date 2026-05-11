@@ -923,6 +923,16 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
             self.register = AsyncMock()
             self.registered = False
             self.unregister = AsyncMock()
+            # With the default-on remote-build setting,
+            # ``db.start()`` now binds the peer-link site and
+            # then pushes pin + port into the advertiser via
+            # ``_publish_remote_build_advertise``. Stub the
+            # setter calls so the test can keep asserting on
+            # advertiser-construction without the bind path
+            # raising on a missing attribute.
+            self.set_pin_sha256 = MagicMock()
+            self.set_remote_build_port = MagicMock()
+            self.refresh = AsyncMock()
             instances.append(self)
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
@@ -931,6 +941,10 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
     settings = make_settings(with_core_path=True)
     settings.on_ha_addon = False
     settings.port = 6052
+    # Use an ephemeral peer-link port so the now-default-on bind
+    # doesn't collide with whatever's actually listening on the
+    # configured default port on the test host.
+    settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     # Seed ``adv`` to ``None`` so the ``finally`` block can guard
     # against a failure in ``db.start()`` that would otherwise leave

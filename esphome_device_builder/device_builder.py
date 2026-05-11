@@ -34,6 +34,7 @@ from .controllers.components import ComponentCatalog
 from .controllers.config import (
     ConfigController,
     DashboardSettings,
+    has_remote_build_settings_persisted,
     load_remote_build_settings,
 )
 from .controllers.devices import DevicesController
@@ -775,34 +776,64 @@ class DeviceBuilder:
         """
         Bind the peer-link Noise WS listener if remote-build is enabled.
 
-        Default-off: the listener only binds when
-        ``RemoteBuildSettings.enabled`` is true. Loads the X25519
-        peer-link identity off disk via
+        Default-on for non-HA-addon deployments: a fresh sidecar
+        deserialises to ``RemoteBuildSettings(enabled=True)`` and
+        the listener binds without an extra operator step. The
+        receiver-side **pair-approval dialog** is the privilege
+        gate — an unpaired peer can connect to the TCP port but
+        the Noise XX handshake fails without a matching pubkey, so
+        binding the port grants nothing on its own. Loads the
+        X25519 peer-link identity off disk via
         :func:`get_or_create_peer_link_identity` (separate from the
         3a Ed25519 cert; the cert is no longer involved on this
         listener). Hops through ``run_in_executor`` because the
         helper is sync-blocking by design.
 
+        **HA addon: default-off but operator-overridable.** The
+        addon's docker container doesn't expose port 6055 to the
+        LAN by default, and the mDNS advertise is already skipped
+        on HA addon — so binding by default would produce a port
+        that's invisible to LAN peers. But some legacy-dashboard
+        users DID expose port 6052 (and historically other addon
+        ports) via the addon's ``ports:`` config, so a hard skip
+        would lock them out. The compromise: on HA addon, skip
+        the bind unless the operator has *explicitly persisted*
+        ``_remote_build`` in metadata via the Settings toggle.
+        ``has_remote_build_settings_persisted`` returns ``True``
+        the moment ``set_settings`` writes the block — even a
+        write that lands on the dataclass defaults still flips
+        the signal. This means: fresh addon install → no bind;
+        addon operator flips the toggle in Settings → bind
+        respects the persisted ``enabled`` field. The HA-addon
+        operator path stays open; the fresh-install default
+        stops burning a port nothing can reach.
+
         Fail-soft: any exception during identity load or bind is
         caught and logged. The main dashboard keeps running; the
         operator gets a warning and the listener is simply absent
         until the next restart with the issue resolved.
-
-        On HA addon mode with the listener enabled, logs a warning
-        that the addon's ``ports:`` config must expose the bound
-        port for LAN peers to actually reach it. The bind itself
-        proceeds; "not supported by default today" rather than
-        "hard-refused forever."
         """
         if self.remote_build is None or self.loop is None:
             return
         loop = self.loop
+        if self.settings.on_ha_addon:
+            persisted = await loop.run_in_executor(
+                None, has_remote_build_settings_persisted, self.settings.config_dir
+            )
+            if not persisted:
+                _LOGGER.debug(
+                    "Skipping remote-build peer-link site: running as HA addon "
+                    "without an explicit ``_remote_build`` block in metadata "
+                    "(addon container doesn't expose port 6055 to the LAN by "
+                    "default; flip the toggle in Settings to override)"
+                )
+                return
         rb_settings = await loop.run_in_executor(
             None, load_remote_build_settings, self.settings.config_dir
         )
         if not rb_settings.enabled:
             _LOGGER.debug(
-                "Skipping remote-build peer-link site: not enabled in settings "
+                "Skipping remote-build peer-link site: disabled in settings "
                 "(set ``remote_build/set_settings`` enabled=true to bind)"
             )
             return
@@ -828,21 +859,12 @@ class DeviceBuilder:
             remote_build_port=port,
         )
 
-        if self.settings.on_ha_addon:
-            _LOGGER.warning(
-                "Remote-build peer-link site bound on %s:%d while running as HA "
-                "addon. Peers won't reach this port unless the addon's "
-                "``ports:`` config exposes it to the host.",
-                self.settings.host,
-                port,
-            )
-        else:
-            _LOGGER.info(
-                "Remote-build peer-link site listening on %s:%d (peer-link pin %s)",
-                self.settings.host,
-                port,
-                identity.pin_sha256_formatted,
-            )
+        _LOGGER.info(
+            "Remote-build peer-link site listening on %s:%d (peer-link pin %s)",
+            self.settings.remote_build_host,
+            port,
+            identity.pin_sha256_formatted,
+        )
 
     async def _publish_remote_build_advertise(
         self,

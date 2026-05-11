@@ -1619,6 +1619,32 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     the ``tokens`` list (hash-only bearer tokens) went with the
     dormant bearer machinery in phase 4a-r2.
 
+    ``enabled`` is the master gate the dashboard checks before
+    binding the receiver site. Defaults to ``True`` so fresh
+    installs are LAN-discoverable and pairable without an
+    extra operator step — the feature's discoverability is the
+    point, and the actual privilege grant happens at the
+    receiver-side **pair-approval dialog** (a paired peer can
+    submit jobs, but pairing requires explicit user approval
+    on this dashboard, so binding the port alone grants
+    nothing).
+
+    HA-addon deployments override this default at the bind
+    site: a fresh addon install with no persisted
+    ``_remote_build`` block in metadata does not bind. The
+    addon's docker container doesn't expose port 6055 to the
+    LAN by default, so binding it would waste the port and
+    confuse operators. HA-addon operators who DO want the
+    feature (e.g. they've added ``6055/tcp`` to the addon's
+    ``ports:`` config, as some legacy-dashboard operators have
+    historically done with the HTTP port) flip the toggle in
+    Settings; the resulting write persists the block, the
+    "explicit operator opt-in" signal flips, and the next
+    boot's bind site respects the persisted ``enabled`` field
+    exactly like every other deployment mode. See
+    :meth:`device_builder.DeviceBuilder._maybe_start_remote_build_site`
+    for the gate.
+
     ``cleanup_ttl_seconds`` is the operator-tunable threshold
     the 6c background sweep uses to decide a remote-build
     subtree is cold enough to delete. Defaults to 24h
@@ -1631,7 +1657,7 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     field default.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     cleanup_ttl_seconds: int = DEFAULT_CLEANUP_TTL_SECONDS
 
     def __post_init__(self) -> None:
@@ -1692,7 +1718,7 @@ class RemoteBuildSettingsView(DataClassORJSONMixin):
     consistent shape with what the snapshot delivered.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     cleanup_ttl_seconds: int = DEFAULT_CLEANUP_TTL_SECONDS
     peers: list[PeerSummary] = field(default_factory=list)
 

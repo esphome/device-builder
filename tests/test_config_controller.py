@@ -43,6 +43,7 @@ from esphome_device_builder.controllers.config import (
     delete_label_cascade,
     get_device_ip,
     get_device_metadata,
+    has_remote_build_settings_persisted,
     labels_transaction,
     load_labels,
     load_preferences,
@@ -396,8 +397,17 @@ def test_load_preferences_returns_defaults_on_bad_data(tmp_path: Path) -> None:
 
 
 def test_load_remote_build_settings_returns_defaults_on_missing(tmp_path: Path) -> None:
-    """Fresh config dir → ``RemoteBuildSettings()`` with ``enabled=False``."""
+    """Fresh config dir → ``RemoteBuildSettings()`` with ``enabled=True``.
+
+    Default-on so fresh installs are discoverable + pairable
+    without an extra operator step. The HA-addon path overrides
+    this at the bind site via
+    :func:`has_remote_build_settings_persisted` rather than at
+    load time, so the load function returns the same shape
+    regardless of deployment mode.
+    """
     assert load_remote_build_settings(tmp_path) == RemoteBuildSettings()
+    assert load_remote_build_settings(tmp_path).enabled is True
 
 
 def test_load_remote_build_settings_returns_defaults_on_bad_data(
@@ -426,6 +436,51 @@ def test_save_remote_build_settings_round_trip(tmp_path: Path) -> None:
     settings = RemoteBuildSettings(enabled=True)
     save_remote_build_settings(tmp_path, settings)
     assert load_remote_build_settings(tmp_path) == settings
+
+
+def test_has_remote_build_settings_persisted_false_on_fresh_install(tmp_path: Path) -> None:
+    """No metadata file → operator has not opted in via the toggle."""
+    assert has_remote_build_settings_persisted(tmp_path) is False
+
+
+def test_has_remote_build_settings_persisted_false_when_other_keys_set(tmp_path: Path) -> None:
+    """A metadata file with unrelated keys is still ``False`` (no toggle write)."""
+    (tmp_path / ".device-builder.json").write_bytes(b'{"some_other_key": {}}')
+    assert has_remote_build_settings_persisted(tmp_path) is False
+
+
+def test_has_remote_build_settings_persisted_true_after_save(tmp_path: Path) -> None:
+    """``save_remote_build_settings`` flips the persistence signal to ``True``.
+
+    Pins the load-bearing contract the HA-addon bind gate
+    depends on:
+    :meth:`device_builder.DeviceBuilder._maybe_start_remote_build_site`
+    skips the bind on HA addon UNTIL this returns ``True``,
+    which only happens after ``set_settings`` writes a
+    ``_remote_build`` block. Even a write that lands on the
+    dataclass defaults still flips the signal -- the existence
+    of the block is the "operator opted in" marker, not its
+    contents.
+    """
+    save_remote_build_settings(tmp_path, RemoteBuildSettings(enabled=True))
+    assert has_remote_build_settings_persisted(tmp_path) is True
+
+
+def test_has_remote_build_settings_persisted_true_for_explicit_disable(tmp_path: Path) -> None:
+    """An operator who explicitly disabled the toggle still counts as "opted in".
+
+    Once the operator interacts with the toggle (in either
+    direction) the persistence signal flips to True. That's the
+    right shape for the HA-addon gate: the operator has shown
+    they know the feature exists and made a deliberate choice
+    -- subsequent boots should respect their choice without
+    re-asking. (The bind site then also reads
+    ``RemoteBuildSettings.enabled`` and skips the bind because
+    that's still False; the gate only suppresses the
+    fresh-install default-on path.)
+    """
+    save_remote_build_settings(tmp_path, RemoteBuildSettings(enabled=False))
+    assert has_remote_build_settings_persisted(tmp_path) is True
 
 
 @pytest.mark.parametrize(

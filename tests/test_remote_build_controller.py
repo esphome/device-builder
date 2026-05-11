@@ -1193,10 +1193,18 @@ def test_hosts_snapshot_empty_when_no_peers(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_get_settings_defaults_when_unset(tmp_path: Path) -> None:
-    """A fresh dashboard with no metadata returns ``enabled=False``."""
+    """A fresh dashboard with no metadata returns ``enabled=True``.
+
+    Default-on for non-HA-addon deployments: a fresh sidecar
+    deserialises to ``RemoteBuildSettings(enabled=True)`` and the
+    bind site treats that as opt-in by default. The HA-addon path
+    overrides at the bind site (see
+    :func:`has_remote_build_settings_persisted`); the settings
+    surface returns the same shape regardless of deployment mode.
+    """
     controller = _make_controller(config_dir=tmp_path)
     settings = await controller.get_settings()
-    assert settings == RemoteBuildSettingsView(enabled=False)
+    assert settings == RemoteBuildSettingsView(enabled=True)
 
 
 @pytest.mark.asyncio
@@ -1223,9 +1231,12 @@ async def test_set_settings_rejects_non_bool(tmp_path: Path) -> None:
     with pytest.raises(CommandError) as exc:
         await controller.set_settings(enabled="false")  # type: ignore[arg-type]
     assert exc.value.code == ErrorCode.INVALID_ARGS
-    # No write happened — disk still at default.
+    # No write happened — disk still at model default (``enabled=True``).
+    # The point of the assertion is "the write was rejected", not the
+    # specific default value; the read confirms the rejection path
+    # didn't leak partial state.
     settings = await controller.get_settings()
-    assert settings.enabled is False
+    assert settings.enabled is True
 
 
 @pytest.mark.asyncio

@@ -646,12 +646,40 @@ def load_remote_build_settings(config_dir: Path) -> RemoteBuildSettings:
     """
     Load the receiver-side remote-build settings.
 
-    Returns defaults (``enabled=False``) when the metadata file is
-    missing or the ``_remote_build`` key isn't present. A wholly
-    malformed blob falls back to defaults rather than crashing
-    dashboard startup.
+    Returns defaults (``RemoteBuildSettings()``, i.e.
+    ``enabled=True``) when the metadata file is missing or the
+    ``_remote_build`` key isn't present. A wholly malformed blob
+    falls back to defaults rather than crashing dashboard startup.
+
+    HA-addon callers that need to suppress the auto-bind on a
+    fresh install should pair this with
+    :func:`has_remote_build_settings_persisted` and gate
+    accordingly — the load function returns the data dataclass
+    semantically; the deployment-mode rule lives at the bind
+    site so the toggle's "operator opted in" signal isn't lost.
     """
     return _settings_from_raw(_load_metadata(config_dir).get(_REMOTE_BUILD_KEY, {}))
+
+
+def has_remote_build_settings_persisted(config_dir: Path) -> bool:
+    """
+    Return ``True`` when ``_remote_build`` has been explicitly written.
+
+    Distinguishes "fresh install, never touched the toggle"
+    (returns ``False``) from "operator deliberately set a value,
+    even if that value matches the dataclass default" (returns
+    ``True``). The HA-addon default-off rule keys on this so a
+    fresh addon install doesn't bind port 6055 (the container
+    doesn't expose it anyway) but an operator who flips the
+    toggle in Settings still gets the receiver bound regardless
+    of deployment mode.
+
+    Implementation: ``set_settings`` writes a full
+    ``RemoteBuildSettings.to_dict()`` blob, so presence of the
+    key is the load-bearing signal — even a write that lands
+    on the dataclass defaults still flips this to ``True``.
+    """
+    return _REMOTE_BUILD_KEY in _load_metadata(config_dir)
 
 
 def save_remote_build_settings(config_dir: Path, settings: RemoteBuildSettings) -> None:
