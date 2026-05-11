@@ -111,6 +111,17 @@ _BUILD_PRODUCING_JOB_TYPES: frozenset[JobType] = frozenset(
 # running for this configuration?" check has to filter for these.
 _ACTIVE_JOB_STATUSES: frozenset[JobStatus] = frozenset({JobStatus.QUEUED, JobStatus.RUNNING})
 
+# Maps each terminal :class:`JobStatus` to the lifecycle event the
+# runner fires when a job reaches that status. Routes through
+# :meth:`FirmwareController._finalize_terminal` so every
+# finalisation site stays paired with the right event — keeps the
+# six-call-site signature consistent.
+_STATUS_TO_TERMINAL_EVENT: dict[JobStatus, EventType] = {
+    JobStatus.COMPLETED: EventType.JOB_COMPLETED,
+    JobStatus.FAILED: EventType.JOB_FAILED,
+    JobStatus.CANCELLED: EventType.JOB_CANCELLED,
+}
+
 
 def _resolve_download_component(target_platform: str | None) -> str:
     """Return the ``esphome.components`` module name for *target_platform*.
@@ -749,6 +760,16 @@ class FirmwareController:
             raise CommandError(ErrorCode.NOT_FOUND, msg)
 
         if job.status == JobStatus.QUEUED:
+            # Mark + persist before fire so a restart-after-cancel
+            # reload sees the job as CANCELLED (the test pins
+            # this in ``test_cancelled_job_survives_restart_without_
+            # being_requeued``). Doesn't go through
+            # :meth:`_finalize_terminal` because the helper
+            # collapses mark + fire and we need to land
+            # ``_persist_jobs`` in between; the slot-release the
+            # helper does is a no-op anyway for a QUEUED job
+            # (``_current_job`` belongs to whatever's actually
+            # running, not this queue entry).
             _mark_job_terminal(job, JobStatus.CANCELLED)
             self._prune_history()
             await self._persist_jobs()
@@ -1033,7 +1054,6 @@ class FirmwareController:
                 _LOGGER.info("Job %s cancelled mid-run (exit %s)", job.job_id, exit_code)
             else:
                 success = exit_code == 0 and not has_error_in_output
-                _mark_job_terminal(job, JobStatus.COMPLETED if success else JobStatus.FAILED)
                 if has_error_in_output and exit_code == 0:
                     if saw_no_esphome_module:
                         job.error = (
@@ -1047,9 +1067,11 @@ class FirmwareController:
                         job.error = "Process exited 0 but output contains errors"
                     _LOGGER.warning("Job %s: %s", job.job_id, job.error)
 
-                event = EventType.JOB_COMPLETED if success else EventType.JOB_FAILED
-                terminal_payload: JobLifecycleData = {"job": job}
-                self._db.bus.fire(event, terminal_payload)
+                # ``_finalize_terminal`` runs the mark + slot-
+                # release + fire sequence in the order the
+                # ``queue_status`` broadcaster needs (see helper
+                # docstring for the regression context).
+                self._finalize_terminal(job, JobStatus.COMPLETED if success else JobStatus.FAILED)
                 _LOGGER.info(
                     "Job %s %s (exit code %s)",
                     job.job_id,
@@ -1076,9 +1098,7 @@ class FirmwareController:
                 _LOGGER.info("Job %s cancelled before subprocess wait: %s", job.job_id, exc)
             else:
                 job.error = str(exc)
-                _mark_job_terminal(job, JobStatus.FAILED)
-                failed_payload: JobLifecycleData = {"job": job}
-                self._db.bus.fire(EventType.JOB_FAILED, failed_payload)
+                self._finalize_terminal(job, JobStatus.FAILED)
                 _LOGGER.exception("Job %s failed: %s", job.job_id, exc)
         finally:
             self._current_job = None
@@ -1195,18 +1215,62 @@ class FirmwareController:
         finally:
             self._current_process = prev
 
+    def _finalize_terminal(self, job: FirmwareJob, status: JobStatus) -> None:
+        """Stamp *job* terminal, release the runner slot, fire the matching event.
+
+        The three-step "this job is over" sequence every
+        finalisation site has to run, bundled so a future call
+        site can't accidentally skip one. Steps in order:
+
+        1. :func:`_mark_job_terminal` stamps ``status`` +
+           ``completed_at`` on the model (raises on a
+           non-terminal *status* — preserves the existing
+           loud-fail guard).
+        2. Release the runner slot (``_current_job`` /
+           ``_current_process``) if *job* holds it. Guarded on
+           ``is job`` so the QUEUED-cancel path in :meth:`cancel`
+           (where ``_current_job`` belongs to whatever's actually
+           running) doesn't evict the wrong job.
+        3. Fire the matching lifecycle event
+           (``JOB_COMPLETED`` / ``JOB_FAILED`` / ``JOB_CANCELLED``)
+           on the bus.
+
+        Step 2 has to land *before* step 3: the ``queue_status``
+        broadcaster
+        (:meth:`RemoteBuildController._on_firmware_queue_transition`)
+        reads :meth:`queue_status_snapshot` *synchronously*
+        inside the fire and needs to see the post-terminal idle
+        state. Without the prior release the snapshot reports
+        ``running=True``, the offloader's ``_peer_queue_status``
+        cache freezes there, and
+        :func:`helpers.build_scheduler.pick_build_path` rejects
+        the pairing on every subsequent install — the silent
+        LOCAL-fallback regression after the first remote build.
+        The ``finally`` block in :meth:`_execute_job` still
+        re-clears both fields as a backstop for exception paths
+        that bypass this helper.
+
+        Callers that want to ride a payload field (e.g.
+        ``job.error = "..."``) into the event must set it on the
+        job *before* invoking this helper — the broadcast reads
+        whatever's on the model at fire time.
+        """
+        _mark_job_terminal(job, status)
+        if self._current_job is job:
+            self._current_job = None
+            self._current_process = None
+        payload: JobLifecycleData = {"job": job}
+        self._db.bus.fire(_STATUS_TO_TERMINAL_EVENT[status], payload)
+
     def _finalize_cancelled(self, job: FirmwareJob) -> None:
         """
         Run the runtime-cancel finalisation: discard, mark, fire.
 
-        Centralises the three-line sequence every "user cancelled
-        an in-flight job" code path needs: drop the id from
-        ``_cancel_requested`` (so a subsequent re-queue starts
-        clean), stamp ``CANCELLED`` + ``completed_at`` via the
-        shared ``_mark_job_terminal`` helper, and broadcast
-        ``JOB_CANCELLED`` so frontends following the all-jobs
-        stream stay consistent. Each call site adds its own log
-        line so the message can name the phase that was cancelled.
+        Drops the id from ``_cancel_requested`` (so a subsequent
+        re-queue starts clean) then routes through
+        :meth:`_finalize_terminal` for the mark + slot-release +
+        fire sequence. Each call site adds its own log line so
+        the message can name the phase that was cancelled.
 
         Doesn't cover the QUEUED-cancel path in ``cancel`` itself —
         that one also runs ``_prune_history`` + ``_persist_jobs``
@@ -1215,9 +1279,7 @@ class FirmwareController:
         they don't otherwise need.
         """
         self._cancel_requested.discard(job.job_id)
-        _mark_job_terminal(job, JobStatus.CANCELLED)
-        post_cancel_payload: JobLifecycleData = {"job": job}
-        self._db.bus.fire(EventType.JOB_CANCELLED, post_cancel_payload)
+        self._finalize_terminal(job, JobStatus.CANCELLED)
 
     def _raise_if_cancelled(self, job: FirmwareJob, phase: str) -> None:
         """

@@ -170,12 +170,20 @@ def firmware_controller_factory(
         # binding doesn't treat the lambda as an unbound method.
         controller._db.create_background_task = lambda coro: coro.close()
 
+        # ``_finalize_terminal`` releases the runner slot before
+        # firing — so ``_current_job`` / ``_current_process`` need
+        # to exist on every stub (default ``None``, matching
+        # production's ``__init__``) even on test paths that
+        # don't drive the runner. Without this, cancel-queued /
+        # supersede tests that fire JOB_CANCELLED through the
+        # helper crash on ``AttributeError``.
+        controller._current_job = None
+        controller._current_process = None
+
         if with_queue:
             controller._queue = AsyncMock()
 
         if with_terminate:
-            controller._current_job = None
-            controller._current_process = None
             controller._cancel_requested = set()
             controller._cancel_events = {}
             controller._terminate_current_process = AsyncMock()

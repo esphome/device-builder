@@ -449,3 +449,188 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
     assert len(paired_instances.receiver_closed) == 0
     assert len(paired_instances.offloader_opened) == opened_at_start[0]
     assert len(paired_instances.receiver_opened) == opened_at_start[1]
+
+
+def _drive_receiver_lifecycle(
+    paired_instances: PairedInstances,
+    job: FirmwareJob,
+    *,
+    terminal: EventType,
+) -> None:
+    """Fire one queue lifecycle (QUEUED → STARTED → terminal) on the receiver bus.
+
+    Models the receiver-side firmware queue's three-event
+    transition for a single job. ``queue_status_snapshot`` is
+    pinned ahead of each fire so the
+    :meth:`RemoteBuildController._on_firmware_queue_transition`
+    listener captures the matching ``(idle, running, depth)``
+    tuple synchronously inside the broadcast — same shape
+    production's :meth:`FirmwareController._finalize_terminal`
+    would land on (slot release + idle snapshot *before* the
+    terminal fire reaches subscribers).
+
+    A regression on the slot-release ordering would surface
+    here as the offloader's ``_peer_queue_status`` ending up
+    ``running=True`` after the terminal — the cache state the
+    7a-3 install scheduler rejects on the next install.
+    """
+    firmware = paired_instances.receiver._db.firmware
+    bus = paired_instances.receiver_bus
+
+    # JOB_QUEUED: queue_depth bumped, runner not yet picking up.
+    firmware.queue_status_snapshot = MagicMock(return_value=(False, False, 1))
+    bus.fire(EventType.JOB_QUEUED, JobLifecycleData(job=job))
+
+    # JOB_STARTED: runner picked up, queue_depth back to 0.
+    firmware.queue_status_snapshot = MagicMock(return_value=(False, True, 0))
+    bus.fire(EventType.JOB_STARTED, JobLifecycleData(job=job))
+
+    # Terminal: post-``_finalize_terminal`` state — slot
+    # released, nothing queued. The fix this test pins is that
+    # this snapshot is what the broadcast carries.
+    firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
+    bus.fire(terminal, JobLifecycleData(job=job))
+
+
+async def _wait_for_offloader_idle(paired_instances: PairedInstances) -> None:
+    """Spin until the offloader's ``_peer_queue_status`` reports idle.
+
+    Bus listeners are synchronous on the receiver side, but each
+    ``queue_status`` broadcast is scheduled as a background task
+    (``create_background_task``) that has to encrypt + send +
+    receive + bus-fire on the offloader's loop. A bounded
+    ``asyncio.sleep(0)`` spin is enough for the harness — all
+    sends are in-memory transports — but we cap at a hard
+    timeout so a regression that breaks the broadcast surfaces
+    as a clean ``TimeoutError`` rather than a hang.
+    """
+    pin_sha256 = paired_instances.pin_sha256
+    offloader = paired_instances.offloader
+    for _ in range(200):
+        entry = offloader._peer_queue_status.get(pin_sha256)
+        if entry is not None and entry["idle"]:
+            return
+        await asyncio.sleep(0)
+    msg = (
+        f"offloader's _peer_queue_status never reached idle: "
+        f"{offloader._peer_queue_status.get(pin_sha256)!r}"
+    )
+    raise TimeoutError(msg)
+
+
+@pytest.mark.asyncio
+async def test_back_to_back_successful_jobs_keep_scheduler_routing_remote(
+    paired_instances: PairedInstances,
+) -> None:
+    """Two completed remote jobs in a row both leave the cache idle.
+
+    Pins the second-install bug user-reported after #575 landed:
+    the first install routed REMOTE, the second silently fell
+    back to LOCAL. Root cause was the firmware controller
+    firing the terminal event *before* releasing the runner
+    slot — the receiver's ``queue_status`` broadcast captured a
+    stale ``running=True`` snapshot at JOB_COMPLETED time,
+    froze the offloader's ``_peer_queue_status`` there, and
+    :func:`pick_build_path`'s idle gate rejected the pairing
+    on every subsequent install.
+
+    The fix routes every terminal fire through
+    :meth:`FirmwareController._finalize_terminal`, which
+    releases the slot before firing. This test simulates the
+    production fire order via the test helper and asserts both
+    cycles round-trip through to idle on the offloader-side
+    cache.
+    """
+    await paired_instances.wait_until_session_opened()
+    receiver_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    # Initial cold-connect push lands; cache should already be
+    # idle before we drive any traffic.
+    await _wait_for_offloader_idle(paired_instances)
+
+    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    bundle_bytes = _build_real_bundle()
+
+    for cycle in range(2):
+        job_tag = f"off-job-{cycle}"
+        ack = await handle.client.submit_job(
+            job_id=job_tag,
+            configuration_filename="kitchen.yaml",
+            target="compile",
+            bundle_bytes=bundle_bytes,
+        )
+        assert ack["accepted"] is True
+        assert receiver_jobs[-1].remote_job_id == job_tag
+
+        _drive_receiver_lifecycle(
+            paired_instances, receiver_jobs[-1], terminal=EventType.JOB_COMPLETED
+        )
+        # After the terminal broadcast lands on the offloader,
+        # the cache must reflect idle — proves the slot release
+        # happened before the fire and the scheduler will pick
+        # REMOTE for the next install. A regression that froze
+        # the snapshot at ``running=True`` would hang this wait
+        # past the timeout.
+        await _wait_for_offloader_idle(paired_instances)
+
+        snapshot = paired_instances.offloader.build_scheduler_snapshot()
+        decision = pick_build_path(snapshot)
+        assert decision.path is BuildPath.REMOTE, (
+            f"cycle {cycle}: scheduler fell back to LOCAL after a completed "
+            f"remote job; cache entry: "
+            f"{paired_instances.offloader._peer_queue_status[paired_instances.pin_sha256]!r}"
+        )
+        assert decision.pin_sha256 == paired_instances.pin_sha256
+
+
+@pytest.mark.asyncio
+async def test_failed_first_job_still_routes_remote_on_second_install(
+    paired_instances: PairedInstances,
+) -> None:
+    """A failed remote job leaves the scheduler eligible for the next install.
+
+    Same shape as the back-to-back-success test, but cycle 1
+    fires ``JOB_FAILED`` instead of ``JOB_COMPLETED``. The
+    user-visible regression mode after #575 was the same — a
+    receiver-side compile failure (anything the runner finishes
+    with non-zero exit / matching error patterns) used to leave
+    the offloader's cache stuck at ``running=True`` because the
+    JOB_FAILED fire happened before the slot was released, and
+    cycle 2 silently fell back to LOCAL. After the
+    :meth:`_finalize_terminal` consolidation the FAILED path
+    fires the same idle snapshot the COMPLETED path does, so
+    the next install routes REMOTE again.
+    """
+    await paired_instances.wait_until_session_opened()
+    receiver_jobs = _wire_receiver_firmware_recorder(paired_instances)
+    await _wait_for_offloader_idle(paired_instances)
+
+    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    bundle_bytes = _build_real_bundle()
+
+    # Cycle 1: fail.
+    ack = await handle.client.submit_job(
+        job_id="off-job-fail",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=bundle_bytes,
+    )
+    assert ack["accepted"] is True
+    _drive_receiver_lifecycle(paired_instances, receiver_jobs[-1], terminal=EventType.JOB_FAILED)
+    await _wait_for_offloader_idle(paired_instances)
+    snapshot = paired_instances.offloader.build_scheduler_snapshot()
+    assert pick_build_path(snapshot).path is BuildPath.REMOTE
+
+    # Cycle 2: success on the same paired session.
+    ack = await handle.client.submit_job(
+        job_id="off-job-ok",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=bundle_bytes,
+    )
+    assert ack["accepted"] is True
+    _drive_receiver_lifecycle(paired_instances, receiver_jobs[-1], terminal=EventType.JOB_COMPLETED)
+    await _wait_for_offloader_idle(paired_instances)
+    snapshot = paired_instances.offloader.build_scheduler_snapshot()
+    decision = pick_build_path(snapshot)
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == paired_instances.pin_sha256

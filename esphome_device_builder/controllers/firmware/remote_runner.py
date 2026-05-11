@@ -41,7 +41,6 @@ from ...helpers.subprocess import iter_lines_with_progress
 from ...models import (
     EventType,
     FirmwareJob,
-    JobLifecycleData,
     JobStatus,
     JobType,
     OffloaderJobOutputData,
@@ -56,7 +55,7 @@ from ..remote_build.peer_link_client import (
     SubmitJobTimeoutError,
 )
 from .constants import ESPHOME_SUBPROCESS_ENV
-from .helpers import _ingest_output_line, _mark_job_terminal
+from .helpers import _ingest_output_line
 
 if TYPE_CHECKING:
     from ...helpers.event_bus import Event, EventBus
@@ -626,9 +625,13 @@ def _finalize_success(controller: FirmwareController, job: FirmwareJob) -> None:
     stamp on the caller forces the COMPILE path to make the
     "remote compile produced zero exit" choice explicit.
     """
-    _mark_job_terminal(job, JobStatus.COMPLETED)
-    payload: JobLifecycleData = {"job": job}
-    controller.bus.fire(EventType.JOB_COMPLETED, payload)
+    # Routes through the controller's terminal-finalise helper so
+    # the mark + runner-slot-release + fire sequence stays in
+    # lockstep with the local subprocess path in
+    # :meth:`FirmwareController._execute_job` (see
+    # :meth:`FirmwareController._finalize_terminal` for the
+    # ``queue_status`` broadcaster ordering rationale).
+    controller._finalize_terminal(job, JobStatus.COMPLETED)
 
 
 async def _send_cancel_or_finalise(
@@ -707,7 +710,5 @@ def _fail_locally(
         _LOGGER.info("Remote job %s cancelled (failure path: %s)", job.job_id, error)
         return
     job.error = error
-    _mark_job_terminal(job, JobStatus.FAILED)
-    payload: JobLifecycleData = {"job": job}
-    controller.bus.fire(EventType.JOB_FAILED, payload)
+    controller._finalize_terminal(job, JobStatus.FAILED)
     _LOGGER.warning("Remote job %s failed: %s", job.job_id, error)
