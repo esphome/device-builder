@@ -3,11 +3,14 @@
 The env composition forks on the job's ``configuration`` shape:
 local jobs inherit the dashboard's deployment-mode context
 unchanged, receiver-side remote-build jobs pin
-``ESPHOME_DATA_DIR`` to the per-build subtree so esphome writes
-storage / idedata / build under one ``(dashboard_id, device)``-keyed
-directory. The fork is small but load-bearing — without the
-override the download-time reader looks at a path the subprocess
-didn't write to and the offloader sees silent ``build_dir_missing``
+``ESPHOME_DATA_DIR`` to a per-dashboard subdirectory of
+``CORE.data_dir`` so esphome writes storage / idedata / build
+under one ``dashboard_id``-keyed directory on the same volume
+the dashboard already uses for its own builds (``/data`` on
+the HA addon, ``<config_dir>/.esphome`` in default mode). The
+fork is small but load-bearing — without the override the
+download-time reader looks at a path the subprocess didn't
+write to and the offloader sees silent ``build_dir_missing``
 rejects on every install.
 """
 
@@ -16,6 +19,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from esphome.core import CORE
 
 from esphome_device_builder.controllers.firmware.constants import (
     ESPHOME_SUBPROCESS_ENV,
@@ -54,7 +59,7 @@ def test_local_job_env_does_not_override_data_dir(
         assert env[key] == value
 
 
-def test_remote_build_job_pins_data_dir_to_per_build_subtree(
+def test_remote_build_job_pins_data_dir_to_per_dashboard_esphome(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
 ) -> None:
@@ -63,22 +68,31 @@ def test_remote_build_job_pins_data_dir_to_per_build_subtree(
     The configuration is the relative POSIX path the receiver-side
     submit_job dispatch sets on the :class:`FirmwareJob`
     (``.esphome/.remote_builds/<dashboard_id>/<device>/<device>.yaml``).
-    The env override points at the per-build subtree under the
-    controller's settings ``config_dir`` so esphome's
-    ``CORE.data_dir`` resolves there and storage / idedata / build
-    all land under one ``(dashboard_id, device)``-keyed directory.
+    The env override points at the per-dashboard
+    ``<CORE.data_dir>/.remote_builds/<dashboard_id>/.esphome``
+    directory: one toolchain cache + storage keyspace shared
+    across every device that offloader submits, isolated
+    from the dashboard's local-build keyspace AND from other
+    offloaders. The ``dashboard_id`` partition prevents the
+    same-basename collision (two offloaders' ``kitchen.yaml``
+    would otherwise mix sidecars).
+
+    Anchoring on ``CORE.data_dir`` rather than on
+    ``settings.config_dir`` matters in HA-addon mode: on the
+    addon ``CORE.data_dir`` is ``/data`` (the addon's
+    per-instance persistent volume), so the toolchain + build
+    cache lands there rather than on ``/config`` (the user's
+    Home Assistant config mount, often a small partition).
+    Tests run in default mode where ``CORE.data_dir`` is
+    ``<config_dir>/.esphome`` so the resolved value is
+    equivalent — but the assertion is built from
+    ``CORE.data_dir`` to pin the *anchor*, not just the path.
     """
     controller = firmware_controller_factory(with_settings=True)
     configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
     env = controller._compose_subprocess_env(_make_job(configuration=configuration))
 
-    expected = (
-        controller._db.settings.config_dir
-        / ".esphome"
-        / ".remote_builds"
-        / "dashboard-alpha"
-        / "kitchen"
-    )
+    expected = Path(CORE.data_dir) / ".remote_builds" / "dashboard-alpha" / ".esphome"
     assert env["ESPHOME_DATA_DIR"] == str(expected)
     # The override is the only data-dir-related change; the
     # ANSI / unbuffered overlays still land.

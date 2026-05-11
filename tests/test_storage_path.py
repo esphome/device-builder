@@ -3,8 +3,8 @@
 The canonical storage / idedata path resolver every project-internal
 caller routes through. Local-only callers get the same behaviour as
 upstream :func:`esphome.storage_json.ext_storage_path`; receiver-side
-remote-build configurations land under the per-build subtree the
-compile subprocess writes into.
+remote-build configurations land under a per-dashboard subdirectory
+of ``CORE.data_dir`` that the compile subprocess writes into.
 """
 
 from __future__ import annotations
@@ -31,19 +31,25 @@ def test_resolve_data_dir_local_configuration_uses_core_data_dir() -> None:
     assert resolve_data_dir("kitchen.yaml") == Path(CORE.data_dir)
 
 
-def test_resolve_data_dir_remote_build_configuration_uses_per_build_subtree(
+def test_resolve_data_dir_remote_build_configuration_uses_per_dashboard_esphome(
     tmp_path: Path,
 ) -> None:
-    """A remote-build configuration resolves to its per-build subtree.
+    """A remote-build configuration resolves to its per-dashboard ``.esphome``.
 
     The receiver-side compile subprocess for that configuration
-    runs with ``ESPHOME_DATA_DIR`` pinned to the same subtree
-    (see :meth:`FirmwareController._compose_subprocess_env`), so
-    the read path here lands where the write path landed.
+    runs with ``ESPHOME_DATA_DIR`` pinned to the same per-dashboard
+    directory anchored on ``CORE.data_dir`` (see
+    :meth:`FirmwareController._compose_subprocess_env`), so the
+    read path here lands where the write path landed. In default
+    test mode ``CORE.data_dir`` is ``<tmp_path>/.esphome`` so the
+    resolved value is equivalent to the old per-build-subtree
+    location for the same configuration — but the resolver is
+    anchored on ``CORE.data_dir`` to keep HA-addon builds out of
+    the ``/config`` volume.
     """
     configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
     assert resolve_data_dir(configuration) == (
-        tmp_path / ".esphome" / ".remote_builds" / "dashboard-alpha" / "kitchen"
+        tmp_path / ".esphome" / ".remote_builds" / "dashboard-alpha" / ".esphome"
     )
 
 
@@ -88,7 +94,7 @@ def test_resolve_storage_path_remote_build_uses_basename_keyspace(tmp_path: Path
         / ".esphome"
         / ".remote_builds"
         / "dashboard-alpha"
-        / "kitchen"
+        / ".esphome"
         / "storage"
         / "kitchen.yaml.json"
     )
@@ -109,7 +115,7 @@ def test_resolve_idedata_path_remote_build(tmp_path: Path) -> None:
         / ".esphome"
         / ".remote_builds"
         / "dashboard-alpha"
-        / "kitchen"
+        / ".esphome"
         / "idedata"
         / "kitchen.json"
     )

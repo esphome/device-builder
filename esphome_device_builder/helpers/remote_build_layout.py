@@ -31,13 +31,18 @@ exactly one file: change it here once, every consumer follows.
 
 :class:`RemoteBuildPath` is the canonical key. The forward
 methods (:meth:`subtree`, :meth:`bundle`) take a
-``config_dir`` and return absolute paths; the reverse
-factory (:func:`parse_from_configuration`) takes the
-relative POSIX path :attr:`FirmwareJob.configuration` carries
-and rebuilds the key. Anything that doesn't match the layout
-shape (a locally-submitted job, a hand-edited configuration,
-a future call site that bends the path) round-trips through
-``None`` so callers can short-circuit cleanly without an
+``config_dir`` and return absolute paths under the user's
+config tree; :meth:`data_dir` takes the dashboard's
+``CORE.data_dir`` (a *different* root on the HA addon,
+``/data`` vs ``/config/esphome``) and returns the
+``ESPHOME_DATA_DIR`` the compile subprocess writes its
+build artefacts into. The reverse factory
+(:func:`parse_from_configuration`) takes the relative POSIX
+path :attr:`FirmwareJob.configuration` carries and rebuilds
+the key. Anything that doesn't match the layout shape (a
+locally-submitted job, a hand-edited configuration, a future
+call site that bends the path) round-trips through ``None``
+so callers can short-circuit cleanly without an
 ``if len(parts) >= ...`` chain at every call site.
 """
 
@@ -46,12 +51,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-# Subdirectory under ``<config_dir>/.esphome/`` where remote-peer
-# build artefacts land. Hidden by the leading dot so a casual
-# ``ls`` of the user's main config tree doesn't show it next to
-# their own YAMLs; living under ``.esphome/`` keeps it adjacent
-# to other build artefacts (StorageJSON, build dirs).
-REMOTE_BUILDS_SUBDIR = Path(".esphome") / ".remote_builds"
+# Single segment used by every layout path. Hidden by the leading
+# dot so a casual ``ls`` of the parent tree doesn't show it next
+# to the user's own files.
+REMOTE_BUILDS_NAME = ".remote_builds"
+
+# Subdirectory under ``<config_dir>/`` where the receiver extracts
+# per-device bundles. Living under ``.esphome/`` keeps the YAML
+# extraction adjacent to the user's other ``.esphome``-bucketed
+# artefacts (StorageJSON, build dirs) and out of the way of a
+# casual ``ls`` of ``config_dir``.
+REMOTE_BUILDS_SUBDIR = Path(".esphome") / REMOTE_BUILDS_NAME
 
 # Suffix the bundle tarball lives at, as a sibling of the
 # extracted build subtree (PR #552 moved the bundle outside the
@@ -117,52 +127,95 @@ class RemoteBuildPath:
             / f"{self.device_name}{BUNDLE_SUFFIX}"
         )
 
-    def data_dir(self, config_dir: Path) -> Path:
+    def data_dir(self, dashboard_data_dir: Path) -> Path:
         """Return the ``ESPHOME_DATA_DIR`` for this per-build compile.
 
-        The receiver-side compile subprocess for a remote-build
-        job runs with ``ESPHOME_DATA_DIR`` pinned to this path so
-        :attr:`esphome.core.CORE.data_dir` (and therefore
-        ``storage_path()`` / ``build_path`` / the idedata cache
-        directory) lands under the per-build subtree —
-        independent of the dashboard process's data_dir, which
-        differs across deployment modes (default /
-        HA-addon / ``ESPHOME_DATA_DIR`` override).
+        Resolves to
+        ``<dashboard_data_dir>/.remote_builds/<dashboard_id>/.esphome``
+        — one ``.esphome`` per paired offloader, anchored
+        under whatever the dashboard process is using for its
+        own data directory (:attr:`esphome.core.CORE.data_dir`):
 
-        Why pin per-build rather than rely on esphome's default
-        ``relative_config_path(".esphome")`` rule:
+        * **Default mode**: ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/.esphome``
+          — co-located with the user's local-build artefacts.
+        * **HA-addon mode**: ``/data/.remote_builds/<dashboard_id>/.esphome``
+          — on the addon's per-instance persistent volume.
+          *Critically* not under ``<config_dir>`` (=``/config/esphome``
+          on the addon): build artefacts can run to multiple
+          gigabytes (``.platformio/`` toolchain + ``build/`` cache)
+          and ``/config`` is the user's Home Assistant config
+          mount, often a small partition shared with HA core
+          and every other addon. ``/data`` is the dedicated
+          per-addon volume the addon was given exactly for this
+          kind of artefact.
+        * **``ESPHOME_DATA_DIR`` env override**:
+          ``$ESPHOME_DATA_DIR/.remote_builds/<dashboard_id>/.esphome``.
 
-        * In HA-addon mode the dashboard sets
-          ``ESPHOME_DATA_DIR=/data``; the subprocess inherits
-          that and esphome writes all per-config artefacts to
-          ``/data/storage/<basename>.json`` regardless of where
-          the YAML lives. Two paired offloaders submitting the
-          same device name collide on a single sidecar / build
-          directory — silently mixed builds, possibly delivering
-          one offloader's bytes to the other's device.
-        * In default mode esphome's rule incidentally isolates
-          remote builds (the YAML lives nested, so the rule
-          produces a per-build ``.esphome`` directory inside the
-          subtree), but the dashboard's read path goes through
-          :func:`esphome.storage_json.ext_storage_path` against
-          its own ``CORE.data_dir`` (one level higher), so the
-          download-time read silently misses the per-build write
-          and rejects ``build_dir_missing``.
+        Anchoring on ``CORE.data_dir`` rather than on
+        ``config_dir`` is the load-bearing detail — the dashboard
+        already routes its own build output through the same
+        env-override / HA-addon / default fallback chain, so the
+        remote-build artefacts land in the volume the operator
+        expects to grow.
 
-        Setting :attr:`ESPHOME_DATA_DIR` to the subtree itself
-        keeps the entire per-build state (storage, build, idedata,
-        PlatformIO caches in ``.platformio/``) under one
-        ``(dashboard_id, device_name)`` key. The 6c TTL sweep that
-        walks :meth:`subtree` then naturally reclaims everything
-        in one ``shutil.rmtree`` when the pairing goes cold.
+        Every device from the same dashboard shares one toolchain
+        cache (``.platformio/``), one storage keyspace, one
+        idedata cache, and one build root; different offloaders
+        get independent dirs.
 
-        The same value is what
-        :func:`helpers.build_artifacts.load_build_artifacts` uses
-        on the read side: derive the data_dir back from the
-        configuration string via :func:`parse_from_configuration`,
-        then call this method.
+        Why per-dashboard (and not per-device or shared):
+
+        * **Per-device** would re-download the ~1-2 GB
+          PlatformIO toolchain on every new device a paired
+          offloader submitted. Per-dashboard means device #N
+          from that offloader hits a warm cache.
+        * **Single shared** across all dashboards would bring
+          back the original problem PR #578 was solving:
+          two offloaders submitting the same YAML basename
+          (e.g. both have ``kitchen.yaml``) collide on
+          ``storage/kitchen.yaml.json``, silently delivering
+          one offloader's bytes to the other's device. The
+          ``dashboard_id`` partition is the load-bearing
+          isolation gate.
+        * **Survives prepare_bundle_for_compile's cleanup
+          walk.** Upstream :func:`esphome.bundle.prepare_bundle_for_compile`
+          wipes the non-preserved children of *target_dir*
+          (== :meth:`subtree`, the per-device subtree) before
+          extracting the new bundle. The per-device subtree
+          lives under ``<config_dir>/.esphome/.remote_builds/...``
+          and now contains only the YAML — build artefacts are
+          one tree away under ``CORE.data_dir``, so the walk
+          never sees them. No ``rmtree`` recursion over the
+          deep ``build/<env>/.pioenvs/`` tree, no race against
+          macOS Finder ``.DS_Store`` re-writes (the original
+          ``OSError(ENOTEMPTY, '.../build/.../.pioenvs')``
+          report; see #578 follow-up).
+
+        Why pin ``ESPHOME_DATA_DIR`` at all rather than just
+        inherit the dashboard's value:
+
+        * The dashboard's value points at *its own* data dir
+          (``/data`` on the addon, ``<config_dir>/.esphome``
+          in default mode). Without the override, the
+          subprocess would write the remote-build sidecar /
+          build dir into the same keyspace as the dashboard's
+          local builds — same-basename collisions across
+          dashboards (and against the user's own local YAMLs)
+          silently mix builds.
+
+        Pinning keeps every remote-build artefact under one
+        ``dashboard_id``-keyed directory. The 6c TTL sweep that
+        walks an offloader's subtrees can reclaim the whole
+        offloader (including the shared toolchain cache) by
+        walking ``<dashboard_data_dir>/.remote_builds/<dashboard_id>/``.
+
+        Read side: :func:`helpers.build_artifacts.load_build_artifacts`
+        derives ``data_dir`` back from the configuration string
+        via :func:`parse_from_configuration`, then calls this
+        method — same value as the write side because both
+        route ``Path(CORE.data_dir)`` through here.
         """
-        return self.subtree(config_dir)
+        return dashboard_data_dir / REMOTE_BUILDS_NAME / self.dashboard_id / ".esphome"
 
 
 def parse_from_configuration(configuration: str) -> RemoteBuildPath | None:

@@ -16,17 +16,17 @@ every YAML — which is true for the user's local YAMLs (the dashboard
 process sets ``CORE.config_path`` to a sentinel inside ``config_dir``
 on startup and ``data_dir`` resolves off that) but **wrong** for the
 receiver-side remote-build flow. There the compile subprocess runs
-with ``ESPHOME_DATA_DIR`` pinned to a per-build subtree
-(``<config_dir>/.esphome/.remote_builds/<dashboard_id>/<device>/``,
+with ``ESPHOME_DATA_DIR`` pinned to a per-dashboard subdirectory of
+``CORE.data_dir`` (``<CORE.data_dir>/.remote_builds/<dashboard_id>/.esphome``,
 the same path the writer-side env override produces — see
 :meth:`FirmwareController._compose_subprocess_env`) so esphome writes
-storage / idedata / build under that one
-``(dashboard_id, device)``-keyed directory. The dashboard process's
-``CORE.data_dir`` still points at the dashboard-wide ``.esphome``
-tree, so a naive ``ext_storage_path(configuration)`` call resolves
-to a path the subprocess didn't write to — silent
-``FileNotFoundError`` on every receiver-side ``download_artifacts``
-request after a successful compile.
+storage / idedata / build under that one ``dashboard_id``-keyed
+directory. The dashboard process's own writes still land at the
+top level of ``CORE.data_dir`` (``<data_dir>/storage/...``), so a
+naive ``ext_storage_path(configuration)`` call against the bare
+configuration string resolves to a path the subprocess didn't write
+to — silent ``FileNotFoundError`` on every receiver-side
+``download_artifacts`` request after a successful compile.
 
 The fork happens once, here, keyed on whether the configuration
 parses through :func:`helpers.remote_build_layout.parse_from_configuration`
@@ -59,26 +59,32 @@ def resolve_data_dir(configuration: str) -> Path:
 
     For a receiver-side remote-build job (configuration parses
     as a :class:`RemoteBuildPath`) the compile subprocess runs
-    with ``ESPHOME_DATA_DIR`` pinned to the per-build subtree
-    (see :meth:`FirmwareController._compose_subprocess_env`),
-    so storage / idedata / build_path all land under
-    ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/<device>/``
-    regardless of the dashboard process's own
-    ``CORE.data_dir``. This helper returns that per-build
-    directory so the reader looks where the writer landed; for
-    everything else (a locally-submitted job, an offloader-side
-    handle) it falls back to ``CORE.data_dir`` which honours
-    the existing deployment-mode logic (default / HA-addon /
-    ``ESPHOME_DATA_DIR`` env override).
+    with ``ESPHOME_DATA_DIR`` pinned to a per-dashboard
+    subdirectory of ``CORE.data_dir`` (see
+    :meth:`FirmwareController._compose_subprocess_env`), so
+    storage / idedata / build_path all land under
+    ``<CORE.data_dir>/.remote_builds/<dashboard_id>/.esphome/``.
+    For everything else (a locally-submitted job, an
+    offloader-side handle) it falls back to ``CORE.data_dir``
+    which honours the existing deployment-mode logic (default /
+    HA-addon / ``ESPHOME_DATA_DIR`` env override).
+
+    Anchoring on ``CORE.data_dir`` matters on the HA addon: the
+    dashboard's ``data_dir`` there is ``/data`` (the addon's
+    per-instance volume), so remote-build artefacts that can
+    run to multiple gigabytes land on the volume the operator
+    expects to grow rather than on ``/config`` (the user's
+    Home Assistant config mount).
 
     The writer-side env override and this reader-side resolver
     both route the same configuration string through
-    :func:`parse_from_configuration` so they agree on the
-    directory without an explicit handshake on the wire.
+    :func:`parse_from_configuration` AND anchor on
+    ``Path(CORE.data_dir)``, so they agree on the directory
+    without an explicit handshake on the wire.
     """
     remote_build_path = parse_remote_build_path(configuration)
     if remote_build_path is not None:
-        return remote_build_path.data_dir(Path(CORE.config_path).parent)
+        return remote_build_path.data_dir(Path(CORE.data_dir))
     return Path(CORE.data_dir)
 
 
@@ -92,7 +98,7 @@ def resolve_storage_path(configuration: str) -> Path:
     * **Receiver-side remote-build configurations**
       (``.esphome/.remote_builds/<dashboard_id>/<device>/<device>.yaml``):
       sidecar lives at
-      ``<subtree>/storage/<basename>.json``.
+      ``<CORE.data_dir>/.remote_builds/<dashboard_id>/.esphome/storage/<basename>.json``.
     * **Everything else** (the user's local YAMLs, archive /
       delete / get_binaries / get_compiled_device_info, etc.):
       ``<CORE.data_dir>/storage/<basename>.json`` — matches
@@ -114,8 +120,9 @@ def resolve_storage_path(configuration: str) -> Path:
     ``CORE.config_filename`` (which is ``Path(config_path).name``)
     so a remote-build path like
     ``.esphome/.remote_builds/<id>/kitchen/kitchen.yaml`` lands
-    its sidecar at ``<subtree>/storage/kitchen.yaml.json``, not
-    ``<subtree>/storage/.esphome/.remote_builds/...yaml.json``.
+    its sidecar at
+    ``<CORE.data_dir>/.remote_builds/<id>/.esphome/storage/kitchen.yaml.json``,
+    not at a path that re-embeds the relative configuration.
     """
     return resolve_data_dir(configuration) / "storage" / f"{Path(configuration).name}.json"
 

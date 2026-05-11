@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from operator import attrgetter
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -28,6 +29,7 @@ from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 from esphome.components.libretiny.const import (
     FAMILY_COMPONENT as _LIBRETINY_FAMILY_COMPONENT,
 )
+from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError, api_command
@@ -1454,16 +1456,19 @@ class FirmwareController:
            cache, build directory, PlatformIO project) lands under
            one ``(dashboard_id, device)``-keyed directory.
 
-        Without step 3 the subprocess inherits the dashboard's
-        ``CORE.data_dir`` (``<config_dir>/.esphome`` in default
-        mode, ``/data`` in HA-addon mode) and the download-time
-        reader looks at a path the subprocess didn't write to —
-        silent ``build_dir_missing`` rejects on every paired
-        offloader's ``firmware/install``. The writer-side env
-        override and the reader-side
-        :func:`helpers.storage_path.resolve_data_dir` resolve to
-        the same path because both route the configuration
-        through the layout helper. The 6c TTL sweep walks
+        Without step 3 the subprocess would inherit the
+        dashboard's own ``ESPHOME_DATA_DIR`` and write storage /
+        build / idedata into the same keyspace as the user's
+        local builds — same-basename collisions across paired
+        offloaders silently mix builds. The override pins each
+        offloader's remote builds to a per-dashboard subdirectory
+        of ``CORE.data_dir`` (``<config_dir>/.esphome/.remote_builds/<id>/.esphome``
+        in default mode, ``/data/.remote_builds/<id>/.esphome``
+        on the HA addon). Anchoring on ``CORE.data_dir``
+        (not on ``settings.config_dir``) keeps the multi-GB
+        toolchain + build cache off the user's ``/config`` mount
+        on the HA addon, where it lives on the addon's
+        per-instance data volume instead. The 6c TTL sweep walks
         :meth:`RemoteBuildPath.subtree` so the whole per-build
         state reclaims in one ``shutil.rmtree``.
 
@@ -1474,7 +1479,7 @@ class FirmwareController:
         env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
         remote_build_path = parse_remote_build_path(job.configuration)
         if remote_build_path is not None:
-            env["ESPHOME_DATA_DIR"] = str(remote_build_path.data_dir(self._db.settings.config_dir))
+            env["ESPHOME_DATA_DIR"] = str(remote_build_path.data_dir(Path(CORE.data_dir)))
         return env
 
     def _build_command(
