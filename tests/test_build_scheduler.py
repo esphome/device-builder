@@ -190,19 +190,21 @@ def test_approved_but_session_not_open_skipped() -> None:
 
 
 def test_approved_open_busy_still_returns_remote() -> None:
-    """A connected receiver currently running a job → still REMOTE.
+    """
+    A connected-but-busy receiver still wins via the second pass.
 
-    The receiver runs its own firmware queue; a remote
-    dispatch lands behind whatever's currently building and
-    runs when the queue drains. Silent fallback to LOCAL
-    here used to split the fleet across two compile contexts
-    (warm receiver toolchain vs cold local) and re-flash from
-    a different build than the first Install — confusing and
-    surprising for the user who didn't pick a build location.
-    The scheduler now ignores the idle / running / depth
-    signal; that snapshot is informational (UI-only) and a
-    future per-install "Force local" override link is the
-    user-facing way to opt out.
+    Single eligible pairing, snapshot reports
+    ``idle=False`` → first-pass idle preference finds no
+    candidate, second pass picks the same pairing and
+    queues the dispatch behind whatever's currently
+    building. Pre-policy-change the scheduler fell back to
+    LOCAL here, which split the fleet across two compile
+    contexts (warm receiver toolchain vs cold local) and
+    re-flashed from a different build than the first
+    Install — confusing and surprising for a user who
+    didn't pick a build location. A future per-install
+    "Force local" override link in the install dialog is
+    the user-facing opt-out.
     """
     pin = "a" * 64
     decision = pick_build_path(
@@ -218,13 +220,18 @@ def test_approved_open_busy_still_returns_remote() -> None:
 
 
 def test_approved_open_missing_queue_snapshot_still_returns_remote() -> None:
-    """No queue snapshot yet → still REMOTE.
+    """
+    No queue snapshot for the pairing yet → REMOTE via the second pass.
 
-    The first 5b ``queue_status`` push fires immediately on
-    session open, but there's a tiny window between
+    The first 5b ``queue_status`` push fires immediately
+    on session open, but there's a tiny window between
     ``OFFLOADER_PEER_LINK_OPENED`` and the first snapshot
-    arriving. Pre-policy-change the scheduler treated the
-    unknown window as busy and fell back to LOCAL; now the
+    arriving. During that window the first-pass idle
+    preference can't qualify the pairing (no explicit
+    ``idle=True`` to read), but the second pass treats it
+    as eligible-with-unknown-state and queues there.
+    Pre-policy-change the scheduler treated the unknown
+    window as busy and fell back to LOCAL; now the
     receiver's queue absorbs the dispatch regardless of
     snapshot state, so the window stops affecting routing.
     """
@@ -383,7 +390,8 @@ def test_skips_pending_picks_next_approved() -> None:
 
 
 def test_all_candidates_busy_picks_oldest_to_queue_remote() -> None:
-    """Every paired receiver is busy → REMOTE on oldest paired_at.
+    """
+    Every paired receiver is busy → REMOTE on oldest paired_at.
 
     Pins the two-tier policy: when no idle candidate
     qualifies the second pass picks the oldest connected
@@ -414,7 +422,8 @@ def test_all_candidates_busy_picks_oldest_to_queue_remote() -> None:
 
 
 def test_no_idle_candidate_with_some_missing_snapshots_picks_oldest_to_queue() -> None:
-    """No snapshot + busy snapshot → REMOTE on oldest paired_at.
+    """
+    Missing snapshot + busy snapshot → REMOTE on oldest paired_at.
 
     The first-pass idle preference requires an explicit
     ``idle=True`` snapshot. A pairing whose snapshot hasn't
@@ -445,7 +454,8 @@ def test_no_idle_candidate_with_some_missing_snapshots_picks_oldest_to_queue() -
 
 
 def test_first_busy_oldest_then_idle_younger_prefers_idle() -> None:
-    """Idle younger pairing beats busy oldest in the first pass.
+    """
+    Idle younger pairing beats busy oldest in the first pass.
 
     Pins the fan-out-on-idle goal: given a busy oldest A and
     an idle younger B, the first pass picks B so concurrent

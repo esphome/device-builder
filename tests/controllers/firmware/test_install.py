@@ -242,13 +242,22 @@ def _stub_remote_build(
     open_pins: frozenset[str] = frozenset(),
     idle_pins: frozenset[str] = frozenset(),
 ) -> None:
-    """Wire a stub ``_db.remote_build`` with a scripted scheduler snapshot.
+    """
+    Wire a stub ``_db.remote_build`` with a scripted scheduler snapshot.
 
-    The scheduler walks ``pairings`` and gates each entry on
-    membership in ``open_pins`` + an idle entry in the queue
-    snapshot — so tests parametrise the three slices
-    independently and assert the resulting LOCAL / REMOTE
-    routing.
+    The scheduler walks ``pairings`` (APPROVED-only) and
+    requires membership in ``open_pins`` for the peer-link
+    session gate. ``idle_pins`` controls which pairings get
+    an ``idle=True`` snapshot entry; pairings *not* listed in
+    ``idle_pins`` have no entry at all. Under the two-tier
+    scheduler policy the first pass picks oldest-idle and
+    the second pass queues on oldest-otherwise — so a busy
+    receiver (open + not idle) routes REMOTE on the second
+    pass when no idle candidate exists. Pre-two-tier this
+    helper's docstring claimed "open_pins + idle entry"
+    *gated* the candidate; that's no longer accurate. Tests
+    that want LOCAL routing have to omit the pairing from
+    ``open_pins`` or skip the pairing fixture entirely.
     """
     rows = pairings or []
     pairings_map = {p.pin_sha256: p for p in rows}
@@ -334,7 +343,8 @@ async def test_install_routes_to_remote_when_pairing_is_idle_and_connected(
 async def test_install_still_routes_remote_when_receiver_is_busy(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """A busy paired receiver still wins REMOTE — receiver queues the dispatch.
+    """
+    A busy paired receiver still wins REMOTE — receiver queues the dispatch.
 
     The scheduler's two-tier pick prefers idle pairings first
     but falls through to busy ones (rather than LOCAL) when
