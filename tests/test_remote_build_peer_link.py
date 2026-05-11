@@ -1346,13 +1346,19 @@ def _install_stub_submit_job_receiver(
         configuration: str,
         job_type: Any,
         remote_peer: str = "",
+        remote_peer_label: str = "",
         remote_job_id: str = "",
+        device_name: str = "",
+        device_friendly_name: str = "",
     ) -> Any:
         job = MagicMock()
         job.job_id = f"local-{len(queued_jobs)}"
         job.configuration = configuration
         job.remote_peer = remote_peer
+        job.remote_peer_label = remote_peer_label
         job.remote_job_id = remote_job_id
+        job.device_name = device_name
+        job.device_friendly_name = device_friendly_name
         return job
 
     async def _enqueue(job: Any) -> Any:

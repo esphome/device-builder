@@ -280,7 +280,13 @@ def make_tar_bundle(yaml_filename: str, yaml_body: bytes) -> bytes:
 
 
 def make_submit_job_frames(
-    *, job_id: str, configuration_filename: str, target: str, bundle: bytes
+    *,
+    job_id: str,
+    configuration_filename: str,
+    target: str,
+    bundle: bytes,
+    device_name: str = "",
+    device_friendly_name: str = "",
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Build the wire-shape ``submit_job`` header + chunk frames for *bundle*.
 
@@ -290,6 +296,13 @@ def make_submit_job_frames(
     Wraps :func:`chunk_bundle` so the chunk envelope (b64
     encoding, indices, ``is_last`` flag, repeated ``job_id``)
     lives in one place.
+
+    ``device_name`` / ``device_friendly_name`` are the
+    ``NotRequired`` display fields the receiver stamps onto
+    :class:`FirmwareJob` for the firmware-tasks UI title. Both
+    default to empty so existing callers stay one-liners; a
+    test that wants to pin the round-trip passes them
+    explicitly.
     """
     from esphome_device_builder.helpers.peer_link_bundle import (  # noqa: PLC0415
         chunk_bundle,
@@ -315,6 +328,8 @@ def make_submit_job_frames(
         "total_bundle_bytes": len(bundle),
         "num_chunks": len(chunks),
         "bundle_sha256": compute_bundle_sha256(bundle),
+        "device_name": device_name,
+        "device_friendly_name": device_friendly_name,
     }
     return header, chunks
 

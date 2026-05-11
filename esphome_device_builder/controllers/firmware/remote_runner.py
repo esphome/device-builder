@@ -267,12 +267,38 @@ async def _dispatch_and_drive(  # noqa: PLR0911
         )
         return
 
+    # Look up the local Device entry so the receiver's
+    # firmware-tasks UI can render the device's actual name +
+    # friendly name instead of the cryptic
+    # ``.esphome/.remote_builds/<id>/<device>/<device>.yaml``
+    # path. The offloader already has both from its scanner —
+    # sending them on the wire avoids the receiver having to
+    # re-parse the bundled YAML just to render a title.
+    # ``getattr`` falls through cleanly when the devices
+    # controller isn't wired yet (pre-``start()`` race, test
+    # stubs without a Device list). A missing scanner entry
+    # for a real lookup leaves the fields empty and the
+    # receiver falls back to the path's device segment —
+    # happens for newly-added YAMLs whose scanner entry
+    # hasn't refreshed yet, not worth blocking on.
+    device_name = ""
+    device_friendly_name = ""
+    devices_controller = getattr(controller._db, "devices", None)
+    if devices_controller is not None:
+        for device in devices_controller.get_devices():
+            if device.configuration == job.configuration:
+                device_name = device.name
+                device_friendly_name = device.friendly_name
+                break
+
     try:
         ack = await client.submit_job(
             job_id=job.job_id,
             configuration_filename=job.configuration,
             target="compile",
             bundle_bytes=bundle_bytes,
+            device_name=device_name,
+            device_friendly_name=device_friendly_name,
         )
     except (PeerLinkNoSessionError, SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
         _fail_locally(

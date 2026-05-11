@@ -1612,10 +1612,13 @@ class FirmwareController:
         port: str = "",
         new_name: str = "",
         remote_peer: str = "",
+        remote_peer_label: str = "",
         remote_job_id: str = "",
         source: JobSource = JobSource.LOCAL,
         source_pin_sha256: str = "",
         source_label: str = "",
+        device_name: str = "",
+        device_friendly_name: str = "",
     ) -> FirmwareJob:
         """Create a new job and add it to the in-memory map.
 
@@ -1630,7 +1633,17 @@ class FirmwareController:
         is the offloader's submit-tagged ``job_id`` from the
         same flow; the receiver-side ``job_id`` above is
         generated independently so the two id-spaces don't
-        collide.
+        collide. ``remote_peer_label`` is the offloader's
+        display label (:attr:`StoredPeer.label`) snapshotted at
+        submit time so the receiver's firmware-tasks UI can
+        render "from {label}" without a separate lookup —
+        symmetric to ``source_label`` on the offloader side.
+
+        ``device_name`` / ``device_friendly_name`` are the
+        ``esphome.name`` / ``esphome.friendly_name`` parsed from
+        the bundled YAML on receiver-side remote-build jobs.
+        Empty for locally-submitted jobs (the dashboard's own
+        Device list already carries the friendly name).
 
         ``source`` / ``source_pin_sha256`` / ``source_label`` are
         the offloader-side dispatch-origin fields (7a-2a):
@@ -1649,10 +1662,13 @@ class FirmwareController:
             port=port,
             new_name=new_name,
             remote_peer=remote_peer,
+            remote_peer_label=remote_peer_label,
             remote_job_id=remote_job_id,
             source=source,
             source_pin_sha256=source_pin_sha256,
             source_label=source_label,
+            device_name=device_name,
+            device_friendly_name=device_friendly_name,
         )
         self._jobs[job.job_id] = job
         return job

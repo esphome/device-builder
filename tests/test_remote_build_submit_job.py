@@ -55,13 +55,23 @@ def _make_firmware_controller() -> Any:
     created_jobs: list[Any] = []
 
     def _create_job(
-        configuration: str, job_type: JobType, *, remote_peer: str = "", **_: Any
+        configuration: str,
+        job_type: JobType,
+        *,
+        remote_peer: str = "",
+        remote_peer_label: str = "",
+        device_name: str = "",
+        device_friendly_name: str = "",
+        **_: Any,
     ) -> Any:
         job = MagicMock()
         job.job_id = f"local-{len(created_jobs)}"
         job.configuration = configuration
         job.job_type = job_type
         job.remote_peer = remote_peer
+        job.remote_peer_label = remote_peer_label
+        job.device_name = device_name
+        job.device_friendly_name = device_friendly_name
         created_jobs.append(job)
         return job
 
@@ -506,6 +516,143 @@ async def test_submit_job_happy_path_extracts_and_queues(
     # the same form.
     assert job.configuration == expected_yaml.relative_to(tmp_path).as_posix()
     firmware._enqueue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_submit_job_carries_display_fields_through_to_firmware_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The submit_job header's display fields land on the created FirmwareJob.
+
+    Pins the round-trip for the firmware-tasks title surface:
+
+    * ``device_name`` / ``device_friendly_name`` come off the
+      wire header (the offloader knows both from its local
+      Device list at install time, so the receiver doesn't
+      re-parse the bundled YAML).
+    * ``remote_peer_label`` is snapshotted from the receiver's
+      ``_approved_peers[dashboard_id].label`` at submit time —
+      symmetric to ``source_label`` on the offloader side.
+
+    A regression that drops any of the three would leave the
+    firmware-tasks UI rendering the cryptic
+    ``.esphome/.remote_builds/<id>/<device>/<device>.yaml``
+    path instead of "AC Float Monitor 32 / from MacBook Pro".
+    """
+    firmware = _make_firmware_controller()
+    # Wire the receiver's peer lookup: ``submit_job._handle_complete``
+    # walks ``self._firmware._db.remote_build._approved_peers`` so
+    # stub the chain. Production initialises this in
+    # ``RemoteBuildController.start``.
+    firmware._db = MagicMock()
+    fake_peer = MagicMock()
+    fake_peer.label = "MacBook Pro"
+    firmware._db.remote_build._approved_peers = {"alpha-dashboard": fake_peer}
+
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session(dashboard_id="alpha-dashboard")
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+    expected_yaml = (
+        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+    )
+
+    def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        expected_yaml.parent.mkdir(parents=True, exist_ok=True)
+        expected_yaml.write_bytes(b"esphome:\n  name: kitchen\n")
+        return expected_yaml
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        _stub_prepare,
+    )
+
+    header, chunks = make_submit_job_frames(
+        job_id="off-job-1",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle=bundle,
+        device_name="kitchen",
+        device_friendly_name="AC Float Monitor 32",
+    )
+    await receiver.handle_submit_job(session, cast(SubmitJobFrameData, header))
+    for chunk in chunks:
+        await receiver.handle_submit_job_chunk(session, cast(SubmitJobChunkFrameData, chunk))
+
+    assert _ack_payload(session)["accepted"] is True
+    assert len(firmware.created_jobs) == 1
+    job = firmware.created_jobs[0]
+    assert job.device_name == "kitchen"
+    assert job.device_friendly_name == "AC Float Monitor 32"
+    assert job.remote_peer_label == "MacBook Pro"
+
+
+@pytest.mark.asyncio
+async def test_submit_job_missing_display_fields_falls_through_to_empty_strings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A header without the NotRequired display fields produces empty strings.
+
+    Backwards-compat: older offloaders won't set
+    ``device_name`` / ``device_friendly_name``. The receiver
+    must accept the header and create the job with empty
+    display fields; the frontend title surface then falls back
+    to the configuration path's device segment.
+    """
+    firmware = _make_firmware_controller()
+    firmware._db = MagicMock()
+    firmware._db.remote_build._approved_peers = {}  # no peer label either
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session(dashboard_id="alpha-dashboard")
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+    expected_yaml = (
+        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+    )
+
+    def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        expected_yaml.parent.mkdir(parents=True, exist_ok=True)
+        expected_yaml.write_bytes(b"esphome:\n  name: kitchen\n")
+        return expected_yaml
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        _stub_prepare,
+    )
+
+    # Hand-roll the header WITHOUT the NotRequired fields, mimicking
+    # an older offloader. ``make_submit_job_frames`` always sets them
+    # so we build the header directly.
+    from esphome_device_builder.helpers.peer_link_bundle import (  # noqa: PLC0415
+        compute_bundle_sha256,
+    )
+
+    _hdr_with_fields, chunks = make_submit_job_frames(
+        job_id="off-job-1",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle=bundle,
+    )
+    legacy_header = {
+        "type": "submit_job",
+        "job_id": "off-job-1",
+        "configuration_filename": "kitchen.yaml",
+        "target": "compile",
+        "total_bundle_bytes": len(bundle),
+        "num_chunks": len(chunks),
+        "bundle_sha256": compute_bundle_sha256(bundle),
+        # Intentionally no device_name / device_friendly_name.
+    }
+
+    await receiver.handle_submit_job(session, cast(SubmitJobFrameData, legacy_header))
+    for chunk in chunks:
+        await receiver.handle_submit_job_chunk(session, cast(SubmitJobChunkFrameData, chunk))
+
+    assert _ack_payload(session)["accepted"] is True
+    job = firmware.created_jobs[0]
+    assert job.device_name == ""
+    assert job.device_friendly_name == ""
+    assert job.remote_peer_label == ""
 
 
 @pytest.mark.asyncio

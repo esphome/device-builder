@@ -369,6 +369,58 @@ async def test_remote_compile_translates_output_and_completes(
         configuration_filename="kitchen.yaml",
         target="compile",
         bundle_bytes=b"FAKEBUNDLE",
+        device_name="",
+        device_friendly_name="",
+    )
+
+
+@pytest.mark.asyncio
+async def test_remote_compile_plumbs_device_names_from_local_scanner(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """The offloader looks up the local Device entry and sends names on the wire.
+
+    Pins the receiver-side title-rendering contract: the
+    offloader already has ``esphome.name`` /
+    ``esphome.friendly_name`` from its local scanner at install
+    time, so the receiver doesn't have to re-parse the bundled
+    YAML just to render the firmware-tasks title. Stub the
+    devices controller's ``get_devices`` to return one Device
+    matching the job's configuration; assert ``submit_job`` is
+    called with both names.
+
+    A regression that dropped the lookup (or fell back to
+    parsing the YAML on the receiver) would surface here.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+
+    fake_device = MagicMock()
+    fake_device.configuration = "kitchen.yaml"
+    fake_device.name = "kitchen"
+    fake_device.friendly_name = "AC Float Monitor 32"
+    devices_stub = MagicMock()
+    devices_stub.get_devices.return_value = [fake_device]
+    controller._db.devices = devices_stub
+
+    job = _make_remote_job()
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.COMPLETED
+    assert len(captured[EventType.JOB_COMPLETED]) == 1
+    client.submit_job.assert_awaited_once_with(
+        job_id=job.job_id,
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=b"FAKEBUNDLE",
+        device_name="kitchen",
+        device_friendly_name="AC Float Monitor 32",
     )
 
 

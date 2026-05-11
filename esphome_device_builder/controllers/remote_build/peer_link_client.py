@@ -1109,6 +1109,8 @@ class PeerLinkClient:
         configuration_filename: str,
         target: Literal["compile", "upload"],
         bundle_bytes: bytes,
+        device_name: str = "",
+        device_friendly_name: str = "",
     ) -> SubmitJobAckFrameData:
         """Send a ``submit_job`` header + chunked bundle and await the receiver's ack.
 
@@ -1166,6 +1168,8 @@ class PeerLinkClient:
                 configuration_filename=configuration_filename,
                 target=target,
                 bundle_bytes=bundle_bytes,
+                device_name=device_name,
+                device_friendly_name=device_friendly_name,
             )
             return await self._await_submit_job_ack(ack_fut, job_id=job_id)
         finally:
@@ -1304,6 +1308,8 @@ class PeerLinkClient:
         configuration_filename: str,
         target: Literal["compile", "upload"],
         bundle_bytes: bytes,
+        device_name: str = "",
+        device_friendly_name: str = "",
     ) -> None:
         """Send the ``submit_job`` header and every chunk frame, in order.
 
@@ -1332,6 +1338,8 @@ class PeerLinkClient:
             "total_bundle_bytes": total_bytes,
             "num_chunks": num_chunks,
             "bundle_sha256": compute_bundle_sha256(bundle_bytes),
+            "device_name": device_name,
+            "device_friendly_name": device_friendly_name,
         }
         if not await channel.send_frame(cast(dict[str, Any], header)):
             raise SubmitJobSessionLostError(

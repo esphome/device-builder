@@ -119,6 +119,32 @@ class FirmwareJob(DataClassORJSONMixin):
     # offloader matches against its own submit-tagged id, not
     # the receiver's local one.
     remote_job_id: str = ""
+    # Display label for the offloader that submitted this job,
+    # when ``remote_peer`` is set. Empty for locally-submitted
+    # jobs and for offloader-side rows.
+    # Snapshot of :attr:`StoredPeer.label` at submit time —
+    # doesn't track later renames of the peer's label (the
+    # log entry reflects what was true when the work landed).
+    # Symmetric to :attr:`source_label` on the offloader side:
+    # both surfaces want a human handle on the OTHER half of
+    # the pair without re-querying that half's mutable state.
+    remote_peer_label: str = ""
+    # The device's ``esphome.name`` (machine handle) and
+    # ``esphome.friendly_name`` (display string), parsed from
+    # the bundled YAML at submit time. Populated only on
+    # receiver-side remote-build jobs — the configuration field
+    # carries the full ``.esphome/.remote_builds/<id>/<device>/...``
+    # path which is useless as a title; these fields let the
+    # firmware-tasks UI render the device's actual name and
+    # friendly name instead. Empty for locally-submitted jobs
+    # (the dashboard's own Device list already knows the
+    # friendly name for those — no need to duplicate it on the
+    # job). ``device_friendly_name`` may legitimately be empty
+    # for a YAML that doesn't set ``esphome.friendly_name``;
+    # callers fall back to ``device_name`` (then to the
+    # configuration path's device segment) for the title.
+    device_name: str = ""
+    device_friendly_name: str = ""
     # Where the build's bytes come from. The offloader-side
     # firmware-queue runner branches on this to choose its
     # pipeline (local subprocess vs peer-link dispatch).
@@ -180,8 +206,10 @@ class FirmwareJob(DataClassORJSONMixin):
         - **Preserves identity** — ``configuration`` /
           ``job_type`` / ``port`` / ``new_name`` / ``created_at``
           / ``job_id`` / ``source`` / ``source_pin_sha256`` /
-          ``source_label`` / ``remote_peer`` / ``remote_job_id``
-          describe the job rather than the run, so they stay
+          ``source_label`` / ``remote_peer`` / ``remote_peer_label`` /
+          ``remote_job_id`` / ``device_name`` /
+          ``device_friendly_name`` describe the job rather than
+          the run, so they stay
           intact.
         """
         self.output = [*self.output, _RECOVERY_NOTICE]

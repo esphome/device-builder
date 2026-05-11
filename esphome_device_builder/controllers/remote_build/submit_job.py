@@ -240,6 +240,18 @@ class _PendingSubmit:
     configuration_filename: str
     target: str
     assembler: BundleAssembler
+    # Display strings carried on the SUBMIT_JOB header; empty
+    # for older offloaders that don't set the (NotRequired)
+    # wire fields. The receiver stamps both onto the
+    # :class:`FirmwareJob` so the firmware-tasks UI renders the
+    # device's actual name + friendly name instead of the
+    # ``.esphome/.remote_builds/<id>/<device>/<device>.yaml``
+    # path. No semantic meaning beyond display: the path-level
+    # security gate (``_validate_configuration_filename``) is
+    # what keeps the receiver safe; these fields are purely UI
+    # plumbing.
+    device_name: str = ""
+    device_friendly_name: str = ""
 
 
 class SubmitJobReceiver:
@@ -351,6 +363,13 @@ class SubmitJobReceiver:
             configuration_filename=frame["configuration_filename"],
             target=target,
             assembler=assembler,
+            # Pull display strings off the header. ``.get`` keeps
+            # backwards-compat with older offloaders that don't
+            # send the NotRequired fields; defaults to empty
+            # strings the receiver-side title surface treats as
+            # "fall back to the configuration path".
+            device_name=frame.get("device_name", ""),
+            device_friendly_name=frame.get("device_friendly_name", ""),
         )
 
     async def handle_submit_job_chunk(
@@ -547,12 +566,37 @@ class SubmitJobReceiver:
         rel_yaml = extracted_yaml.relative_to(self._config_dir)
         configuration = rel_yaml.as_posix()
 
+        # Snapshot the offloader's display label so the
+        # firmware-tasks UI can render "from {label}" without
+        # re-looking-up the (potentially since-renamed) peer.
+        # ``_db.remote_build`` is the controller this receiver
+        # lives inside; the indirection through the firmware
+        # controller stays consistent with how other receiver-
+        # side helpers reach back to peer metadata.
+        remote_peer_label = ""
+        remote_build = self._firmware._db.remote_build
+        if remote_build is not None:
+            peer = remote_build._approved_peers.get(session.dashboard_id)
+            if peer is not None:
+                remote_peer_label = peer.label
+
         try:
             job = self._firmware._create_job(
                 configuration=configuration,
                 job_type=_TARGET_TO_JOB_TYPE[pending.target],
                 remote_peer=session.dashboard_id,
+                remote_peer_label=remote_peer_label,
                 remote_job_id=pending.job_id,
+                # ``device_name`` / ``device_friendly_name`` come
+                # off the wire header — the offloader already
+                # knows both from its local Device list at install
+                # time, so the receiver doesn't re-parse the
+                # bundled YAML just to render a title. Defaults
+                # to ``""`` for older offloaders that don't set
+                # the (NotRequired) fields; the frontend's title
+                # then falls back to the configuration path.
+                device_name=pending.device_name,
+                device_friendly_name=pending.device_friendly_name,
             )
             await self._firmware._enqueue(job)
         except Exception as exc:

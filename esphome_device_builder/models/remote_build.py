@@ -827,6 +827,18 @@ class SubmitJobFrameData(TypedDict):
     integrity check on top of the per-frame Noise AEAD;
     catches a chunk-reassembly bug (e.g. a missed
     ``is_last``) that AEAD wouldn't surface.
+
+    ``device_name`` / ``device_friendly_name`` carry the
+    offloader's view of the device for the receiver-side
+    firmware-tasks UI — the offloader already has both off
+    its local Device list at install time, so the receiver
+    avoids re-parsing the bundled YAML just to render a
+    title. ``NotRequired`` so an older offloader that
+    doesn't set them still produces a valid frame; the
+    receiver-side title then falls back to the last segment
+    of the configuration path. New offloaders always set
+    both (empty string for ``device_friendly_name`` when the
+    YAML doesn't define one).
     """
 
     type: Literal["submit_job"]
@@ -836,6 +848,8 @@ class SubmitJobFrameData(TypedDict):
     total_bundle_bytes: int
     num_chunks: int
     bundle_sha256: str
+    device_name: NotRequired[str]
+    device_friendly_name: NotRequired[str]
 
 
 class SubmitJobChunkFrameData(TypedDict):
