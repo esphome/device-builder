@@ -22,11 +22,23 @@ the right defaults and order. This file pins:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import ErrorCode, EventType, JobStatus, JobType
+from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
+from esphome_device_builder.models import (
+    ErrorCode,
+    EventType,
+    JobSource,
+    JobStatus,
+    JobType,
+    PeerQueueStatusSnapshotEntry,
+    PeerStatus,
+    StoredPairing,
+)
 from tests.controllers.firmware.conftest import (
     CaptureEnqueueOrderFactory,
     EnqueueStep,
@@ -200,3 +212,196 @@ async def test_install_registers_job_in_jobs_map(
     job = await controller.install(configuration="kitchen.yaml")
 
     assert await controller.get_job(job_id=job.job_id) is job
+
+
+# ---------------------------------------------------------------------------
+# Scheduler integration (7a-3) — install routes through pick_build_path
+# ---------------------------------------------------------------------------
+
+
+_PIN = "a" * 64
+
+
+def _make_pairing(label: str = "desktop") -> StoredPairing:
+    """Build a passing :class:`StoredPairing` for the scheduler tests."""
+    return StoredPairing(
+        receiver_hostname="build.local",
+        receiver_port=6055,
+        pin_sha256=_PIN,
+        static_x25519_pub=b"\x01" * 32,
+        label=label,
+        paired_at=1.0,
+        status=PeerStatus.APPROVED,
+    )
+
+
+def _stub_remote_build(
+    controller: Any,
+    *,
+    pairings: list[StoredPairing] | None = None,
+    open_pins: frozenset[str] = frozenset(),
+    idle_pins: frozenset[str] = frozenset(),
+) -> None:
+    """Wire a stub ``_db.remote_build`` with a scripted scheduler snapshot.
+
+    The scheduler walks ``pairings`` and gates each entry on
+    membership in ``open_pins`` + an idle entry in the queue
+    snapshot — so tests parametrise the three slices
+    independently and assert the resulting LOCAL / REMOTE
+    routing.
+    """
+    rows = pairings or []
+    pairings_map = {p.pin_sha256: p for p in rows}
+    queue_status = {
+        pin: PeerQueueStatusSnapshotEntry(
+            receiver_hostname="build.local",
+            receiver_port=6055,
+            pin_sha256=pin,
+            idle=True,
+            running=False,
+            queue_depth=0,
+        )
+        for pin in idle_pins
+    }
+    remote_build = MagicMock()
+    remote_build.build_scheduler_snapshot.return_value = BuildSchedulerInputs(
+        remote_builds_enabled=True,
+        pairings=pairings_map,
+        open_peer_links=open_pins,
+        peer_queue_status=queue_status,
+    )
+    remote_build.get_pairing.side_effect = pairings_map.get
+    controller._db.remote_build = remote_build
+
+
+@pytest.mark.asyncio
+async def test_install_routes_to_local_when_no_paired_receivers(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """No paired receivers → ``install`` falls through to LOCAL.
+
+    The scheduler only picks REMOTE when at least one
+    APPROVED + connected + idle pairing is available. A fresh
+    dashboard with no pairings stays on the local subprocess
+    pipeline — the existing behaviour, with no user-visible
+    change.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _stub_remote_build(controller, pairings=[])
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.install(configuration="kitchen.yaml")
+
+    assert job.source is JobSource.LOCAL
+    assert job.source_pin_sha256 == ""
+    assert job.source_label == ""
+
+
+@pytest.mark.asyncio
+async def test_install_routes_to_remote_when_pairing_is_idle_and_connected(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """
+    An APPROVED + connected + idle pairing routes the install to REMOTE.
+
+    Pins the transparent install flow's user-visible
+    behaviour: Install with a paired build server up routes
+    transparently to that server; the user doesn't choose,
+    the scheduler decides. ``source_pin_sha256`` carries the
+    machine handle the runner uses to look up the
+    PeerLinkClient; ``source_label`` is the display string
+    the install dialog renders as "Building on
+    {receiver_label}".
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    pairing = _make_pairing(label="desktop")
+    _stub_remote_build(
+        controller,
+        pairings=[pairing],
+        open_pins=frozenset({_PIN}),
+        idle_pins=frozenset({_PIN}),
+    )
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.install(configuration="kitchen.yaml")
+
+    assert job.source is JobSource.REMOTE
+    assert job.source_pin_sha256 == _PIN
+    assert job.source_label == "desktop"
+
+
+@pytest.mark.asyncio
+async def test_install_falls_back_to_local_when_receiver_is_busy(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A paired receiver that isn't idle falls back to LOCAL (silent fallback).
+
+    The scheduler's first-cut policy is "idle or local"; a
+    busy receiver doesn't queue work today. The install
+    handler honours that silently — the user doesn't see a
+    "remote build server busy" message, the install just
+    runs locally.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    pairing = _make_pairing()
+    # APPROVED + connected, but ``idle_pins`` is empty so the
+    # snapshot has no queue entry → scheduler skips.
+    _stub_remote_build(controller, pairings=[pairing], open_pins=frozenset({_PIN}))
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.install(configuration="kitchen.yaml")
+
+    assert job.source is JobSource.LOCAL
+
+
+@pytest.mark.asyncio
+async def test_install_forces_local_for_serial_port(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """
+    Serial ``port`` forces LOCAL regardless of the scheduler.
+
+    The runner's REMOTE flash step uses ``esphome upload
+    --file`` which routes through
+    ``upload_using_esptool`` as a single ``FlashImage`` at
+    offset ``0x0``. That works for OTA / web_server pushes
+    but corrupts an ESP32 wired flash (needs bootloader /
+    partitions / OTA-data at their own offsets stitched
+    from ``idedata.extra.flash_images``). Until the runner
+    can stage the full multi-image set, serial REMOTE
+    installs stay LOCAL.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    pairing = _make_pairing()
+    _stub_remote_build(
+        controller,
+        pairings=[pairing],
+        open_pins=frozenset({_PIN}),
+        idle_pins=frozenset({_PIN}),
+    )
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
+
+    assert job.source is JobSource.LOCAL
+
+
+@pytest.mark.asyncio
+async def test_install_falls_back_to_local_when_remote_build_controller_absent(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """
+    ``_db.remote_build is None`` falls through to LOCAL without raising.
+
+    Production sets ``DeviceBuilder.remote_build`` during
+    ``start()``; a firmware-queue restart-recovery path that
+    fires before remote-build start would otherwise reach
+    into ``None``. The resolver's None check is the gate.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    controller._db.remote_build = None
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.install(configuration="kitchen.yaml")
+
+    assert job.source is JobSource.LOCAL

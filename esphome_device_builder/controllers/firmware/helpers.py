@@ -188,6 +188,35 @@ def _parse_progress(line: str) -> int | None:
     return None
 
 
+def _is_serial_port(port: str) -> bool:
+    """
+    Return True if *port* looks like a serial-device path.
+
+    Shared between :func:`_validate_port`'s accept rules and
+    the remote-install gate that forces serial targets to the
+    LOCAL path. ``esphome.__main__.get_port_type`` is the
+    upstream equivalent, but it lives in ``__main__`` — not a
+    stable public surface to import from. Owning our own
+    classifier keeps the dashboard pinned to its own rules
+    rather than tracking an unversioned upstream private.
+
+    Tracked at esphome/device-builder#562 — once we land an
+    upstream PR that re-exports ``get_port_type`` /
+    ``PortType`` from a non-``__main__`` module and bump the
+    esphome dependency floor past it, this helper collapses
+    to a thin re-export of the upstream call.
+
+    Adding a new serial-path marker updates both
+    :func:`_validate_port` (the WS validator) and the
+    remote-install gate together — keep them in lockstep.
+    """
+    return (
+        port.startswith("/")
+        or port.startswith("COM")
+        or any(marker in port for marker in ("ttyUSB", "ttyACM", "cu.", "tty."))
+    )
+
+
 def _validate_port(port: str) -> None:
     """Sanity-check the user-supplied ``--device`` value.
 
@@ -225,11 +254,7 @@ def _validate_port(port: str) -> None:
     if not port or port == "OTA":
         return
     # Serial paths.
-    if (
-        port.startswith("/")
-        or port.startswith("COM")
-        or any(marker in port for marker in ("ttyUSB", "ttyACM", "cu.", "tty."))
-    ):
+    if _is_serial_port(port):
         return
     # IP-shaped input must parse as a valid IP. Doing this check
     # *before* the hostname check rejects truncated / malformed

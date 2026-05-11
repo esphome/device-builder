@@ -22,13 +22,19 @@ separate test that asserts the runner ignores it.
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.firmware import remote_runner
+from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
+    UnpackArtifactsError,
+)
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
+    DownloadArtifactsError,
+    DownloadArtifactsResult,
     PeerLinkNoSessionError,
 )
 from esphome_device_builder.helpers.api import CommandError
@@ -510,16 +516,17 @@ async def test_remote_compile_receiver_unreachable_fires_job_failed(
 
 
 @pytest.mark.asyncio
-async def test_remote_compile_non_compile_job_type_fails_locally(
+async def test_remote_compile_unsupported_job_type_fails_locally(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
 ) -> None:
-    """REMOTE with a non-COMPILE ``job_type`` is rejected at the runner's top.
+    """REMOTE with a non-COMPILE/UPLOAD/INSTALL ``job_type`` is rejected at the runner's top.
 
-    7a-2b's scope is COMPILE only — UPLOAD / INSTALL land in
-    7a-3. Anything else here must surface a clear FAILED with
-    an explanatory ``error`` instead of running through the
-    submit path with the wrong target.
+    The receiver's ``submit_job`` contract is compile-only;
+    job types that don't have a corresponding wire flow
+    (``CLEAN``, ``RENAME``, ``RESET_BUILD_ENV``) must surface
+    a clear FAILED with an explanatory ``error`` rather than
+    running through the submit path with the wrong target.
     """
     controller = firmware_controller_factory(with_terminate=True)
     _capture_local_events(controller)
@@ -527,7 +534,7 @@ async def test_remote_compile_non_compile_job_type_fails_locally(
     job = FirmwareJob(
         job_id="x",
         configuration="kitchen.yaml",
-        job_type=JobType.INSTALL,
+        job_type=JobType.CLEAN,
         source=JobSource.REMOTE,
         source_pin_sha256=_PIN,
     )
@@ -1201,3 +1208,300 @@ async def test_remote_compile_cancel_after_remote_build_torn_down_finalises_loca
     assert job.status == JobStatus.CANCELLED
     assert len(captured[EventType.JOB_CANCELLED]) == 1
     assert job.job_id not in controller._cancel_requested
+
+
+# ---------------------------------------------------------------------------
+# UPLOAD / INSTALL — local flash step after receiver compile
+# ---------------------------------------------------------------------------
+
+
+def _make_remote_install_job(*, job_id: str = "remote-1", port: str = "OTA") -> FirmwareJob:
+    return FirmwareJob(
+        job_id=job_id,
+        configuration="kitchen.yaml",
+        job_type=JobType.INSTALL,
+        port=port,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN,
+        source_label="desktop",
+    )
+
+
+def _wire_upload_subprocess(
+    controller: Any,
+    *,
+    exit_code: int = 0,
+    stdout: str = "Uploading 100%...\n",
+) -> None:
+    """Point the controller's runner at a python-one-liner ``esphome upload``.
+
+    The runner builds the cmd as ``[*controller._esphome_cmd,
+    '--dashboard', ..., 'upload', <yaml>, '--device', <port>,
+    '--file', <staged_firmware>]``. Pointing
+    ``_esphome_cmd`` at ``python -c <script>`` lets the test
+    drive a deterministic subprocess (controlled stdout +
+    exit code) without an actual esphome install on PATH.
+
+    ``_build_cache_args`` is stubbed to return ``[]`` so the
+    runner doesn't reach into the (absent in unit tests)
+    devices controller's address cache. The runner's
+    ``_tracked_subprocess`` is the real method — it
+    registers the spawn with ``_current_process`` so the
+    cancel-during-upload tests can SIGTERM the chain.
+    """
+    quoted_stdout = repr(stdout)
+    script = (
+        f"import sys; sys.stdout.write({quoted_stdout}); sys.stdout.flush(); sys.exit({exit_code})"
+    )
+    controller._esphome_cmd = [sys.executable, "-c", script]
+    controller._build_cache_args = lambda _job: []
+
+
+def _make_packed_artifacts(tarball: bytes = b"FAKE-TARBALL") -> DownloadArtifactsResult:
+    return DownloadArtifactsResult(tarball=tarball, firmware_offset="0x10000")
+
+
+@pytest.fixture
+def patch_extract_firmware(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """Replace :func:`extract_firmware_bin` with a stub that returns canned bytes.
+
+    The real implementation parses a gzipped tarball; tests
+    don't care about the parse, only about the bytes that
+    end up at the staged path. Patching the symbol on
+    ``remote_runner`` (where the import landed) is the
+    standard "intercept at the call site" pattern.
+    """
+    stub = MagicMock(return_value=b"STAGED-FIRMWARE-BYTES")
+    monkeypatch.setattr(remote_runner, "extract_firmware_bin", stub)
+    return stub
+
+
+@pytest.mark.asyncio
+async def test_remote_install_completes_after_local_upload_succeeds(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+    patch_extract_firmware: MagicMock,
+    tmp_path: Any,
+) -> None:
+    """
+    Happy path: receiver compile → download_artifacts → local upload → COMPLETED.
+
+    Pins the end-to-end shape of the transparent-install
+    REMOTE branch: dispatch is ``submit_job(target=compile)``,
+    receiver returns completed, runner pulls the tarball back
+    via ``download_artifacts``, stages ``firmware.bin`` to a
+    tmpdir, and spawns the local ``esphome upload`` subprocess
+    against the staged file. A zero exit code closes the job
+    as ``COMPLETED`` and fires the local terminal event.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
+    _wire_remote_build(controller, client=client)
+    _wire_upload_subprocess(controller, exit_code=0)
+    job = _make_remote_install_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=5.0)
+
+    assert job.status == JobStatus.COMPLETED
+    assert job.exit_code == 0
+    assert len(captured[EventType.JOB_COMPLETED]) == 1
+    client.download_artifacts.assert_awaited_once_with(job_id=job.job_id)
+    # ``firmware.bin`` was staged + ``esphome upload`` saw it.
+    patch_extract_firmware.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_remote_install_local_upload_failure_fires_job_failed(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+    patch_extract_firmware: MagicMock,
+) -> None:
+    """A non-zero ``esphome upload`` exit lands as JOB_FAILED with exit-code in error."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
+    _wire_remote_build(controller, client=client)
+    _wire_upload_subprocess(controller, exit_code=7)
+    job = _make_remote_install_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=5.0)
+
+    assert job.status == JobStatus.FAILED
+    assert job.exit_code == 7
+    assert job.error is not None and "exit 7" in job.error
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_install_download_artifacts_failure_fires_job_failed(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """``download_artifacts`` failing surfaces in ``job.error`` with the receiver's reason."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    client.download_artifacts = AsyncMock(
+        side_effect=DownloadArtifactsError("build dir wiped", reason="build_dir_missing")
+    )
+    _wire_remote_build(controller, client=client)
+    job = _make_remote_install_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None and "build dir wiped" in job.error
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_install_malformed_tarball_fires_job_failed(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Tarball missing ``firmware.bin`` surfaces as JOB_FAILED with extract error.
+
+    Defensive — the receiver-side packer enforces the
+    layout, so a malformed tarball means an in-flight bug
+    or a misbehaving peer.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
+    _wire_remote_build(controller, client=client)
+    monkeypatch.setattr(
+        remote_runner,
+        "extract_firmware_bin",
+        MagicMock(side_effect=UnpackArtifactsError("firmware.bin missing")),
+    )
+    job = _make_remote_install_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None and "firmware.bin missing" in job.error
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+    patch_extract_firmware: MagicMock,
+) -> None:
+    """
+    User Stop during the ``esphome upload`` subprocess finalises as CANCELLED.
+
+    The runner's ``_tracked_subprocess`` registers the
+    upload spawn with ``controller._current_process``, and
+    ``FirmwareController.cancel``'s
+    ``_terminate_current_process`` lands SIGTERM on the
+    spawned tree. The subprocess exits non-zero (terminated
+    by signal); the runner's post-spawn cancel-check
+    routes through ``_finalize_cancelled`` rather than the
+    FAILED branch the non-zero exit would normally trigger.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
+    _wire_remote_build(controller, client=client)
+    # A subprocess that runs long enough for us to cancel it.
+    _wire_upload_subprocess(
+        controller,
+        exit_code=0,
+        stdout=(
+            "import sys, time; sys.stdout.write('starting upload\\n'); "
+            "sys.stdout.flush(); time.sleep(30)"
+        ),
+    )
+    # Replace the script with one that actually sleeps, so the
+    # subprocess is parked when we cancel.
+    controller._esphome_cmd = [
+        sys.executable,
+        "-c",
+        "import sys, time; sys.stdout.write('starting upload\\n'); "
+        "sys.stdout.flush(); time.sleep(30)",
+    ]
+
+    async def _terminate() -> None:
+        assert controller._current_process is not None  # type narrowing
+        controller._current_process.terminate()
+
+    controller._terminate_current_process = _terminate  # type: ignore[method-assign]
+    job = _make_remote_install_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+
+    # Wait until the subprocess is up.
+    while controller._current_process is None:
+        await asyncio.sleep(0.01)
+
+    _request_remote_cancel(controller, job)
+    await controller._terminate_current_process()
+    await asyncio.wait_for(runner, timeout=5.0)
+
+    assert job.status == JobStatus.CANCELLED
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_upload_runs_the_same_local_flash_chain_as_install(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+    patch_extract_firmware: MagicMock,
+) -> None:
+    """
+    ``JobType.UPLOAD`` with REMOTE source follows the same artifact-fetch + flash chain.
+
+    INSTALL and UPLOAD share the runner's UPLOAD/INSTALL
+    branch — the difference between the two on the local
+    subprocess path (compile-then-flash vs flash-only)
+    doesn't matter here because the receiver did the
+    compile already. Pinning this prevents a future
+    branch that special-cases on ``job_type`` from
+    silently breaking the UPLOAD path.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
+    _wire_remote_build(controller, client=client)
+    _wire_upload_subprocess(controller, exit_code=0)
+    job = FirmwareJob(
+        job_id="upload-1",
+        configuration="kitchen.yaml",
+        job_type=JobType.UPLOAD,
+        port="192.168.1.50",
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN,
+    )
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=5.0)
+
+    assert job.status == JobStatus.COMPLETED
+    assert len(captured[EventType.JOB_COMPLETED]) == 1
+    client.download_artifacts.assert_awaited_once()

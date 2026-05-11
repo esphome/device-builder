@@ -58,10 +58,7 @@ own browsers (``_esphomelib._tcp.local.`` for devices,
 from __future__ import annotations
 
 import asyncio
-import base64
-import io
 import logging
-import tarfile
 import time
 from collections.abc import Callable, Coroutine, Hashable, Iterator
 from contextlib import ExitStack, contextmanager
@@ -79,6 +76,7 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 from ...constants import __version__ as server_version
 from ...helpers.api import CommandError, api_command
+from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_advertise import SERVICE_TYPE
 from ...helpers.dashboard_identity import (
     DASHBOARD_ID_MAX_CHARS,
@@ -144,11 +142,11 @@ from ..config import (
     remote_build_settings_transaction,
 )
 from .artifacts_download import ArtifactsDownloadSender
+from .artifacts_tarball import UnpackArtifactsError, unpack_artifacts_response
 from .job_fanout import JobFanout
 from .peer_link import PeerLinkSession, TerminateReason
 from .peer_link_client import (
     DownloadArtifactsError,
-    DownloadArtifactsResult,
     PairStatusResult,
     PeerLinkClient,
     PeerLinkClientError,
@@ -642,20 +640,6 @@ _DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE: dict[str, ErrorCode] = {
 }
 
 
-class _UnpackArtifactsError(RuntimeError):
-    """Raised by :func:`_unpack_artifacts_response` on a malformed tarball.
-
-    The receiver-side packer
-    (:func:`controllers.remote_build.artifacts_download._pack_build_artifacts`)
-    is the only thing that should be writing this stream, so a
-    structural failure here means an in-flight bug or a
-    misbehaving peer — surfaced as ``INVALID_ARGS`` rather than
-    ``INTERNAL_ERROR`` so the user sees a clear "the receiver
-    sent a tarball we can't parse" message rather than a
-    generic backend-stack-trace toast.
-    """
-
-
 def _download_artifacts_error_to_command_error(exc: DownloadArtifactsError) -> CommandError:
     """Map the receiver's structured reject reason to a typed :class:`CommandError`.
 
@@ -673,209 +657,6 @@ def _download_artifacts_error_to_command_error(exc: DownloadArtifactsError) -> C
     """
     code = _DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE.get(exc.reason, ErrorCode.UNAVAILABLE)
     return CommandError(code, str(exc))
-
-
-def _unpack_artifacts_response(packed: DownloadArtifactsResult, job_id: str) -> dict[str, Any]:
-    """Unpack the receiver's artifact tarball into the WS response shape.
-
-    Synchronous; meant to run in an executor (``tarfile.open``
-    + per-image ``read()`` are blocking syscalls). Mirrors the
-    layout the receiver-side packer
-    (:func:`controllers.remote_build.artifacts_download._pack_build_artifacts`)
-    writes:
-
-    .. code-block:: text
-
-        idedata.json
-        firmware.bin
-        bootloader.bin       (ESP32 / native IDF only)
-        partitions.bin       (ESP32 / native IDF only)
-        ota_data_initial.bin (ESP32 / native IDF only)
-
-    Reads ``idedata.json`` to recover the upstream-canonical
-    flash-image manifest, then walks the tarball's remaining
-    members to build the ``images`` list. The
-    ``firmware.bin`` partition's offset comes from
-    *packed*'s ``firmware_offset`` field — the receiver
-    populated it from ``StorageJSON.target_platform`` via
-    :func:`helpers.build_artifacts._firmware_offset_for_platform`.
-    The remaining offsets ride inside
-    ``idedata.extra.flash_images``. Rewrites every
-    ``extra.flash_images[].path`` from the receiver's absolute
-    build-dir paths to bare basenames (the only thing the
-    offloader's install path can resolve against the
-    in-tarball entries).
-
-    Raises :class:`_UnpackArtifactsError` on:
-
-    * Missing ``idedata.json``.
-    * ``idedata.json`` not parseable as JSON, or not a dict.
-    * A flash image declared in ``idedata.extra.flash_images``
-      whose tarball member is missing.
-    * Missing ``firmware.bin`` in the tarball.
-    * A directory entry in the tarball (the receiver-side
-      packer is flat by design; a directory means the wire
-      format drifted).
-    """
-    idedata, image_bytes_by_name = _read_artifacts_tarball(packed.tarball)
-    images = _build_images_response(packed.firmware_offset, idedata, image_bytes_by_name)
-    rewritten_idedata = _rewrite_idedata_paths(idedata)
-    total_bytes = sum(int(image["size"]) for image in images)
-    return {
-        "job_id": job_id,
-        "idedata": rewritten_idedata,
-        "images": images,
-        "total_bytes": total_bytes,
-    }
-
-
-def _read_artifacts_tarball(tarball: bytes) -> tuple[dict[str, Any], dict[str, bytes]]:
-    """Read every member of *tarball* into ``(idedata, files-by-basename)``.
-
-    ``idedata`` is the parsed ``idedata.json`` object;
-    ``files-by-basename`` excludes ``idedata.json``. Raises
-    :class:`_UnpackArtifactsError` on any structural problem
-    in the tarball.
-    """
-    idedata: dict[str, Any] | None = None
-    image_bytes_by_name: dict[str, bytes] = {}
-    try:
-        with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
-            for member in tar:
-                payload = _read_tarball_member(tar, member)
-                if member.name == "idedata.json":
-                    idedata = _parse_idedata(payload)
-                else:
-                    image_bytes_by_name[member.name] = payload
-    except tarfile.TarError as exc:
-        msg = f"artifacts tarball is malformed: {exc}"
-        raise _UnpackArtifactsError(msg) from exc
-    if idedata is None:
-        msg = "artifacts tarball missing idedata.json"
-        raise _UnpackArtifactsError(msg)
-    return idedata, image_bytes_by_name
-
-
-def _read_tarball_member(tar: tarfile.TarFile, member: tarfile.TarInfo) -> bytes:
-    """Read *member*'s bytes.
-
-    Raises :class:`_UnpackArtifactsError` on directory entries
-    or any other non-regular tarball member type. Stdlib
-    ``tarfile`` guarantees ``extractfile()`` returns a readable
-    stream iff ``isfile()`` returns ``True`` — ``extractfile``
-    only returns ``None`` for link / device / FIFO members,
-    every one of which ``isfile()`` already rejects.
-    """
-    if not member.isfile():
-        msg = f"unexpected non-file tarball entry: {member.name!r}"
-        raise _UnpackArtifactsError(msg)
-    return cast(io.BufferedReader, tar.extractfile(member)).read()
-
-
-def _parse_idedata(payload: bytes) -> dict[str, Any]:
-    """Parse *payload* as ``idedata.json``; raise on non-dict / invalid JSON."""
-    try:
-        parsed = json_loads(payload)
-    except ValueError as exc:
-        msg = f"idedata.json is not valid JSON: {exc}"
-        raise _UnpackArtifactsError(msg) from exc
-    if not isinstance(parsed, dict):
-        msg = "idedata.json is not a JSON object"
-        raise _UnpackArtifactsError(msg)
-    return parsed
-
-
-def _build_images_response(
-    firmware_offset: str,
-    idedata: dict[str, Any],
-    image_bytes_by_name: dict[str, bytes],
-) -> list[dict[str, Any]]:
-    """Pop bytes from *image_bytes_by_name* in the canonical order, base64-encoding as we go.
-
-    Order is ``firmware.bin`` first, then every entry from
-    ``idedata.extra.flash_images`` in their declared order
-    (matches :attr:`BuildArtifacts.flash_images` on the
-    receiver side). Mutates *image_bytes_by_name*: every
-    image referenced by the manifest is popped; on return
-    the dict should be empty, and any leftover entry means
-    the tarball carried a file the manifest didn't account
-    for.
-    """
-    images: list[dict[str, Any]] = []
-    firmware_bytes = image_bytes_by_name.pop("firmware.bin", None)
-    if firmware_bytes is None:
-        msg = "artifacts tarball missing firmware.bin"
-        raise _UnpackArtifactsError(msg)
-    images.append(_image_entry("firmware.bin", firmware_offset, firmware_bytes))
-    # Guard the chained ``.get`` — a non-dict ``extra`` field
-    # (``null`` / list / scalar) on a corrupt-but-parseable
-    # idedata would otherwise blow up on the second ``.get``
-    # with ``AttributeError`` and bypass the
-    # :class:`_UnpackArtifactsError` mapping. Mirror the
-    # :func:`helpers.build_artifacts.load_build_artifacts`
-    # stance: treat non-dict as "no extras."
-    extra = idedata.get("extra")
-    extras_list = extra.get("flash_images") or [] if isinstance(extra, dict) else []
-    for entry in extras_list:
-        basename, offset = _flash_image_basename_offset(entry)
-        image_bytes = image_bytes_by_name.pop(basename, None)
-        if image_bytes is None:
-            msg = f"artifacts tarball missing flash image {basename!r}"
-            raise _UnpackArtifactsError(msg)
-        images.append(_image_entry(basename, offset, image_bytes))
-    if image_bytes_by_name:
-        msg = (
-            f"artifacts tarball contains unexpected files not referenced by idedata: "
-            f"{sorted(image_bytes_by_name)}"
-        )
-        raise _UnpackArtifactsError(msg)
-    return images
-
-
-def _image_entry(name: str, offset: str, payload: bytes) -> dict[str, Any]:
-    """Build one ``images`` list entry: ``{name, offset, size, data_b64}``."""
-    return {
-        "name": name,
-        "offset": offset,
-        "size": len(payload),
-        "data_b64": base64.b64encode(payload).decode("ascii"),
-    }
-
-
-def _flash_image_basename_offset(entry: object) -> tuple[str, str]:
-    """Validate one ``idedata.extra.flash_images`` entry and return ``(basename, offset)``."""
-    if not isinstance(entry, dict):
-        msg = "idedata.extra.flash_images entry is not an object"
-        raise _UnpackArtifactsError(msg)
-    path_str = entry.get("path")
-    offset = entry.get("offset")
-    if not isinstance(path_str, str) or not isinstance(offset, str):
-        msg = "idedata.extra.flash_images entry missing path/offset"
-        raise _UnpackArtifactsError(msg)
-    return Path(path_str).name, offset
-
-
-def _rewrite_idedata_paths(idedata: dict[str, Any]) -> dict[str, Any]:
-    """Return *idedata* with ``extra.flash_images[].path`` replaced by basenames.
-
-    The receiver writes absolute build-dir paths into
-    ``idedata.json`` at compile time; those paths are
-    meaningless on the offloader. The offloader-side
-    consumers look up bytes by basename in the unpacked
-    ``images`` list, so the wire-rendered idedata mirrors
-    that with basenames in the same field. Returns a
-    shallow-copied dict; the caller's input isn't mutated.
-    """
-    extra = idedata.get("extra")
-    if not isinstance(extra, dict):
-        return idedata
-    flash_images = extra.get("flash_images") or []
-    rewritten = [
-        {**entry, "path": Path(entry["path"]).name}
-        for entry in flash_images
-        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
-    ]
-    return {**idedata, "extra": {**extra, "flash_images": rewritten}}
 
 
 def _validate_pin_sha256(raw: object) -> str:
@@ -3720,9 +3501,9 @@ class RemoteBuildController:
             raise _download_artifacts_error_to_command_error(exc) from exc
         try:
             return await asyncio.get_running_loop().run_in_executor(
-                None, _unpack_artifacts_response, packed, job_id
+                None, unpack_artifacts_response, packed, job_id
             )
-        except _UnpackArtifactsError as exc:
+        except UnpackArtifactsError as exc:
             raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
 
     @api_command("remote_build/cancel_job")
@@ -3770,6 +3551,59 @@ class RemoteBuildController:
         except PeerLinkNoSessionError as exc:
             raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
         return {"sent": sent}
+
+    def get_pairing(self, pin_sha256: str) -> StoredPairing | None:
+        """
+        Return the :class:`StoredPairing` for *pin_sha256*, or ``None``.
+
+        Pure synchronous read of the unified ``_pairings`` dict.
+        Used by the firmware controller's install-source resolver
+        after :func:`helpers.build_scheduler.pick_build_path` has
+        chosen a receiver — the resolver needs the pairing's
+        ``label`` to stamp on the new :class:`FirmwareJob`'s
+        ``source_label`` so the install dialog's "Building on
+        {receiver_label}" sub-line has a name to render.
+        """
+        return self._pairings.get(pin_sha256)
+
+    def build_scheduler_snapshot(self) -> BuildSchedulerInputs:
+        """
+        Bundle the scheduler's input state into an immutable snapshot.
+
+        Pure synchronous read of three RAM-canonical dicts plus
+        a master toggle: ``_pairings`` (every paired receiver,
+        PENDING + APPROVED), ``_open_peer_links`` (pin_sha256 set
+        of currently-live peer-link sessions), and
+        ``_peer_queue_status`` (most recent ``queue_status``
+        snapshot per pin). Construction is sync + side-effect-
+        free so the ``firmware/install`` WS handler can call it
+        without an executor hop on the hot install path.
+
+        The :class:`BuildSchedulerInputs` typing
+        (``Mapping[str, StoredPairing]`` + ``frozenset[str]`` +
+        ``Mapping[str, PeerQueueStatusSnapshotEntry]``) forces
+        the caller into read-only iteration: a concurrent
+        mutation on the controller's underlying dicts during a
+        long-running install (a fresh pairing landing on a
+        different event-loop tick) doesn't poison the snapshot
+        the scheduler is walking. Shallow copies are enough
+        because :class:`StoredPairing` is a frozen dataclass —
+        any future mutation of an existing row goes through a
+        replace, not an in-place edit.
+
+        ``remote_builds_enabled`` is hardcoded to ``True`` for
+        7a-3 — the master "remote builds enabled" toggle in
+        :class:`OffloaderRemoteBuildSettings` lands with the
+        7b Settings UI; until then the implicit gate is
+        whether any APPROVED + connected + idle pairing
+        exists.
+        """
+        return BuildSchedulerInputs(
+            remote_builds_enabled=True,
+            pairings=dict(self._pairings),
+            open_peer_links=frozenset(self._open_peer_links),
+            peer_queue_status=dict(self._peer_queue_status),
+        )
 
     def pairings_snapshot(self) -> list[PairingSummary]:
         """Return the in-memory pairings snapshot (PENDING + APPROVED).

@@ -43,6 +43,7 @@ from esphome_device_builder.controllers.remote_build.controller import (
     _validate_port,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
@@ -53,6 +54,7 @@ from esphome_device_builder.models import (
     IntentResponse,
     OffloaderRemoteBuildSettings,
     PairingSummary,
+    PeerQueueStatusSnapshotEntry,
     PeerStatus,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
@@ -3741,3 +3743,86 @@ async def test_run_cleanup_loop_short_circuits_when_firmware_missing(
 
     # Sweep never ran because the firmware-None gate kicked in.
     assert sweep_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# build_scheduler_snapshot + get_pairing
+# ---------------------------------------------------------------------------
+
+
+def test_build_scheduler_snapshot_returns_immutable_view(tmp_path: Path) -> None:
+    """
+    The snapshot exposes pairings / open links / queue status as a frozen view.
+
+    The scheduler reads these without holding the controller's
+    event loop, and the helper :func:`pick_build_path` walks
+    them in a single tick. Immutable typing on the
+    :class:`BuildSchedulerInputs` fields means a future
+    refactor that hands the snapshot to a task can't mutate
+    the controller's RAM state through the indirection.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    pairing = _valid_stored_pairing()
+    controller._pairings[pairing.pin_sha256] = pairing
+    controller._open_peer_links.add(pairing.pin_sha256)
+    controller._peer_queue_status[pairing.pin_sha256] = PeerQueueStatusSnapshotEntry(
+        receiver_hostname=pairing.receiver_hostname,
+        receiver_port=pairing.receiver_port,
+        pin_sha256=pairing.pin_sha256,
+        idle=True,
+        running=False,
+        queue_depth=0,
+    )
+
+    snapshot = controller.build_scheduler_snapshot()
+
+    assert isinstance(snapshot, BuildSchedulerInputs)
+    assert snapshot.remote_builds_enabled is True
+    assert snapshot.pairings[pairing.pin_sha256] is pairing
+    assert pairing.pin_sha256 in snapshot.open_peer_links
+    assert snapshot.peer_queue_status[pairing.pin_sha256]["idle"] is True
+
+
+def test_build_scheduler_snapshot_decouples_from_live_state(tmp_path: Path) -> None:
+    """
+    Mutating the controller after the snapshot doesn't change the snapshot.
+
+    Shallow copies of the three dicts + a frozenset means a
+    follow-up mutation on the controller (a fresh pair, a
+    queue-status update) is invisible to a scheduler call
+    that's still walking the snapshot. The
+    :class:`BuildSchedulerInputs` typing already gates
+    mutation through the view; this test pins the underlying
+    copy behaviour so the typing's promise is honoured.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    initial = _valid_stored_pairing(label="initial")
+    controller._pairings[initial.pin_sha256] = initial
+
+    snapshot = controller.build_scheduler_snapshot()
+
+    # Mutations after the snapshot don't bleed through.
+    controller._pairings.clear()
+    controller._open_peer_links.add("some-other-pin")
+    controller._peer_queue_status["pin-2"] = PeerQueueStatusSnapshotEntry(
+        receiver_hostname="other.local",
+        receiver_port=6055,
+        pin_sha256="pin-2",
+        idle=False,
+        running=True,
+        queue_depth=0,
+    )
+
+    assert initial.pin_sha256 in snapshot.pairings
+    assert snapshot.open_peer_links == frozenset()
+    assert snapshot.peer_queue_status == {}
+
+
+def test_get_pairing_returns_matching_row(tmp_path: Path) -> None:
+    """``get_pairing(pin)`` returns the stored row; missing pins return ``None``."""
+    controller = _make_controller(config_dir=tmp_path)
+    pairing = _valid_stored_pairing(label="desktop")
+    controller._pairings[pairing.pin_sha256] = pairing
+
+    assert controller.get_pairing(pairing.pin_sha256) is pairing
+    assert controller.get_pairing("b" * 64) is None

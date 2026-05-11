@@ -31,6 +31,7 @@ from esphome.components.libretiny.const import (
 from esphome.storage_json import StorageJSON, ext_storage_path
 
 from ...helpers.api import CommandError, api_command
+from ...helpers.build_scheduler import BuildPath, pick_build_path
 from ...helpers.event_bus import StreamControls, stream_events
 from ...helpers.process import terminate_subtree_with_grace
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
@@ -58,6 +59,7 @@ from .helpers import (
     _find_esphome_cmd,
     _ingest_output_line,
     _is_no_module_named_esphome,
+    _is_serial_port,
     _mark_job_terminal,
     _names_touched_by_job,
     _trim_job_output,
@@ -340,10 +342,31 @@ class FirmwareController:
         explicit IP / hostname for "install to a specific address"
         — the address cache is bypassed when the user names the
         target directly.
+
+        Routes through :func:`helpers.build_scheduler.pick_build_path`
+        before queuing: when a paired receiver is APPROVED +
+        peer-link-connected + idle, the resulting job carries
+        ``source=REMOTE`` + ``source_pin_sha256=<pin>`` +
+        ``source_label=<receiver_label>`` so the source-routed
+        runner (7a-2b) dispatches the compile to that receiver
+        and stages the resulting artifacts back for the local
+        flash step. Otherwise the job stays ``source=LOCAL``
+        and runs through the existing in-process subprocess
+        pipeline. Silent fallback by design — the user doesn't
+        choose a build location; the scheduler routes
+        transparently.
         """
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
-        job = self._create_job(configuration, JobType.INSTALL, port=port)
+        source, pin_sha256, label = self._resolve_install_source(configuration, port)
+        job = self._create_job(
+            configuration,
+            JobType.INSTALL,
+            port=port,
+            source=source,
+            source_pin_sha256=pin_sha256,
+            source_label=label,
+        )
         return await self._enqueue(job)
 
     @api_command("firmware/rename")
@@ -443,7 +466,15 @@ class FirmwareController:
         jobs: list[FirmwareJob] = []
         for config in configurations:
             try:
-                job = self._create_job(config, JobType.INSTALL, port=port)
+                source, pin_sha256, label = self._resolve_install_source(config, port)
+                job = self._create_job(
+                    config,
+                    JobType.INSTALL,
+                    port=port,
+                    source=source,
+                    source_pin_sha256=pin_sha256,
+                    source_label=label,
+                )
                 await self._enqueue(job)
             except CommandError as exc:
                 _LOGGER.info("Skipping %s in install_bulk: %s", config, exc.message)
@@ -1448,6 +1479,9 @@ class FirmwareController:
         new_name: str = "",
         remote_peer: str = "",
         remote_job_id: str = "",
+        source: JobSource = JobSource.LOCAL,
+        source_pin_sha256: str = "",
+        source_label: str = "",
     ) -> FirmwareJob:
         """Create a new job and add it to the in-memory map.
 
@@ -1463,6 +1497,15 @@ class FirmwareController:
         same flow; the receiver-side ``job_id`` above is
         generated independently so the two id-spaces don't
         collide.
+
+        ``source`` / ``source_pin_sha256`` / ``source_label`` are
+        the offloader-side dispatch-origin fields (7a-2a):
+        ``LOCAL`` for jobs the offloader compiles itself, ``REMOTE``
+        for jobs the offloader dispatches to a paired receiver via
+        the source-routed runner (7a-2b). ``source_pin_sha256``
+        identifies the receiver; ``source_label`` is the display
+        name. Defaults make every existing call site continue to
+        produce LOCAL jobs.
         """
         job = FirmwareJob(
             job_id=uuid4().hex[:12],
@@ -1473,9 +1516,68 @@ class FirmwareController:
             new_name=new_name,
             remote_peer=remote_peer,
             remote_job_id=remote_job_id,
+            source=source,
+            source_pin_sha256=source_pin_sha256,
+            source_label=source_label,
         )
         self._jobs[job.job_id] = job
         return job
+
+    def _resolve_install_source(self, configuration: str, port: str) -> tuple[JobSource, str, str]:
+        """
+        Pick LOCAL or REMOTE for an install of *configuration*.
+
+        Calls :func:`helpers.build_scheduler.pick_build_path` with
+        a snapshot from the remote-build controller. Returns
+        ``(source, pin_sha256, label)`` — for LOCAL decisions
+        ``pin_sha256`` and ``label`` are empty strings.
+
+        Pure sync helper so the install handlers can call it
+        without an additional executor hop; the snapshot read
+        is RAM-only and the scheduler is a pure function.
+        Returns LOCAL whenever the remote-build controller
+        hasn't been wired up — :class:`DeviceBuilder`
+        initialises ``self.remote_build`` to ``None`` in
+        ``__init__`` and only sets the controller during
+        ``start()``, so a firmware-queue restart-recovery
+        path that fires before remote-build start would
+        otherwise reach into ``None``.
+
+        Serial *port* values also force LOCAL: the runner's
+        REMOTE flash step spawns ``esphome upload --file
+        <staged_firmware.bin>`` against the staged bytes,
+        which upstream wires through to a single FlashImage
+        at offset ``0x0`` (see
+        :func:`esphome.__main__.upload_using_esptool`). That
+        single-image shape works for OTA / web-server pushes
+        (where one binary is the entire upload) but corrupts
+        an ESP32 wired flash, which needs bootloader /
+        partitions / OTA-data at their own offsets stitched
+        from ``idedata.extra.flash_images``. Until the runner
+        can stage the full multi-image set in a way the
+        non-``--file`` path resolves cleanly, serial REMOTE
+        installs stay LOCAL.
+        """
+        if _is_serial_port(port):
+            return JobSource.LOCAL, "", ""
+        remote_build = self._db.remote_build
+        if remote_build is None:
+            return JobSource.LOCAL, "", ""
+        decision = pick_build_path(remote_build.build_scheduler_snapshot())
+        if decision.path is not BuildPath.REMOTE or decision.pin_sha256 is None:
+            return JobSource.LOCAL, "", ""
+        pairing = remote_build.get_pairing(decision.pin_sha256)
+        if pairing is None:
+            # Scheduler picked a pin that's no longer paired (race
+            # against an ``unpair`` on the same loop tick); silent
+            # fallback to local. The scheduler's filters already
+            # reject non-APPROVED rows so this is a near-impossible
+            # window, but the typed return keeps the install handler
+            # from feeding an empty ``source_pin_sha256`` to the
+            # runner, which would land on the runner's missing-pin
+            # FAILED branch.
+            return JobSource.LOCAL, "", ""
+        return JobSource.REMOTE, pairing.pin_sha256, pairing.label
 
     async def _enqueue(self, job: FirmwareJob) -> FirmwareJob:
         """

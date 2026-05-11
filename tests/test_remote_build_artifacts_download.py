@@ -12,8 +12,8 @@ harness stays visible:
   (``artifacts_start`` → chunks →
   ``artifacts_end{accepted: true}``).
 * Tarball pack/unpack contract — the receiver's
-  ``_pack_build_artifacts`` and the offloader's
-  ``_unpack_artifacts_response`` are wire-format mirrors;
+  ``pack_build_artifacts`` and the offloader's
+  ``unpack_artifacts_response`` are wire-format mirrors;
   pin the round-trip + the basename rewrite of
   ``idedata.extra.flash_images[].path``.
 """
@@ -31,12 +31,12 @@ import pytest
 
 from esphome_device_builder.controllers.remote_build.artifacts_download import (
     ArtifactsDownloadSender,
-    _pack_build_artifacts,
-    _PackedArtifacts,
 )
-from esphome_device_builder.controllers.remote_build.controller import (
-    _unpack_artifacts_response,
-    _UnpackArtifactsError,
+from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
+    PackedArtifacts,
+    UnpackArtifactsError,
+    pack_build_artifacts,
+    unpack_artifacts_response,
 )
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsResult,
@@ -185,7 +185,7 @@ async def test_download_artifacts_build_dir_missing_rejected(
         raise FileNotFoundError("build dir gone")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download._pack_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
         _raise_missing,
     )
     sender = _make_sender()
@@ -209,7 +209,7 @@ async def test_download_artifacts_pack_failed_rejected(
         raise RuntimeError("size cap")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download._pack_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
         _raise,
     )
     sender = _make_sender()
@@ -230,11 +230,11 @@ async def test_download_artifacts_happy_path_streams_start_chunk_end(
     """Happy path sends ``artifacts_start`` → chunk(s) → ``artifacts_end{accepted: true}``."""
     tarball = b"x" * 200
 
-    def _fake_pack(_configuration: str) -> _PackedArtifacts:
-        return _PackedArtifacts(tarball=tarball, firmware_offset="0x10000")
+    def _fake_pack(_configuration: str) -> PackedArtifacts:
+        return PackedArtifacts(tarball=tarball, firmware_offset="0x10000")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download._pack_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
         _fake_pack,
     )
     sender = _make_sender()
@@ -268,7 +268,7 @@ async def test_download_artifacts_clears_inflight_on_reject(
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download._pack_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
         _raise,
     )
     sender = _make_sender()
@@ -320,11 +320,11 @@ def test_pack_build_artifacts_layout(tmp_path: Path, monkeypatch: pytest.MonkeyP
         extra_offsets=[("bootloader.bin", "0x1000"), ("partitions.bin", "0x8000")],
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
         lambda _config: artifacts,
     )
 
-    packed = _pack_build_artifacts("kitchen.yaml")
+    packed = pack_build_artifacts("kitchen.yaml")
 
     assert packed.firmware_offset == "0x10000"
     with tarfile.open(fileobj=io.BytesIO(packed.tarball), mode="r:gz") as tar:
@@ -343,12 +343,12 @@ def test_pack_build_artifacts_rejects_oversized_idedata(
         idedata_bytes=b"x" * (FIRMWARE_MAX_TOTAL_BYTES + 1),
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
         lambda _config: artifacts,
     )
 
     with pytest.raises(RuntimeError, match=r"already exceeds FIRMWARE_MAX_TOTAL_BYTES"):
-        _pack_build_artifacts("kitchen.yaml")
+        pack_build_artifacts("kitchen.yaml")
 
 
 def test_pack_build_artifacts_rejects_oversized_compressed(
@@ -372,7 +372,7 @@ def test_pack_build_artifacts_rejects_oversized_compressed(
         idedata_bytes=b"{}",  # 2 bytes
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
         lambda _config: artifacts,
     )
     # Cap=10 lets uncompressed total (2 bytes idedata + 0
@@ -380,13 +380,13 @@ def test_pack_build_artifacts_rejects_oversized_compressed(
     # rendered tarball — gzip envelope (~20B) + two tar
     # headers (1024B compressed to ~30B) — easily exceeds.
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download."
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball."
         "FIRMWARE_MAX_TOTAL_BYTES",
         10,
     )
 
     with pytest.raises(RuntimeError, match=r"on the wire"):
-        _pack_build_artifacts("kitchen.yaml")
+        pack_build_artifacts("kitchen.yaml")
 
 
 def test_pack_build_artifacts_rejects_oversized_cumulative(
@@ -400,12 +400,12 @@ def test_pack_build_artifacts_rejects_oversized_cumulative(
         idedata_bytes=b"{}",
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
         lambda _config: artifacts,
     )
 
     with pytest.raises(RuntimeError, match=r"would exceed FIRMWARE_MAX_TOTAL_BYTES"):
-        _pack_build_artifacts("kitchen.yaml")
+        pack_build_artifacts("kitchen.yaml")
 
 
 def test_artifacts_download_sender_discard_session_clears_inflight() -> None:
@@ -439,12 +439,12 @@ def test_pack_build_artifacts_rejects_duplicate_basename(
         idedata_bytes=b"{}",
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
         lambda _config: artifacts,
     )
 
     with pytest.raises(RuntimeError, match="duplicate flash image basename"):
-        _pack_build_artifacts("kitchen.yaml")
+        pack_build_artifacts("kitchen.yaml")
 
 
 def test_unpack_artifacts_response_round_trip(
@@ -456,12 +456,12 @@ def test_unpack_artifacts_response_round_trip(
         extra_offsets=[("bootloader.bin", "0x1000"), ("ota_data_initial.bin", "0xe000")],
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.load_build_artifacts",
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball.load_build_artifacts",
         lambda _config: artifacts,
     )
 
-    packed = _pack_build_artifacts("kitchen.yaml")
-    response = _unpack_artifacts_response(
+    packed = pack_build_artifacts("kitchen.yaml")
+    response = unpack_artifacts_response(
         DownloadArtifactsResult(tarball=packed.tarball, firmware_offset="0x10000"),
         job_id="remote-1",
     )
@@ -479,22 +479,22 @@ def test_unpack_artifacts_response_round_trip(
 
 
 def test_unpack_artifacts_response_missing_idedata_raises() -> None:
-    """A tarball without ``idedata.json`` raises :class:`_UnpackArtifactsError`."""
+    """A tarball without ``idedata.json`` raises :class:`UnpackArtifactsError`."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         info = tarfile.TarInfo(name="firmware.bin")
         info.size = 4
         tar.addfile(info, io.BytesIO(b"FIRM"))
 
-    with pytest.raises(_UnpackArtifactsError, match=r"missing idedata\.json"):
-        _unpack_artifacts_response(
+    with pytest.raises(UnpackArtifactsError, match=r"missing idedata\.json"):
+        unpack_artifacts_response(
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
             job_id="j",
         )
 
 
 def test_unpack_artifacts_response_missing_firmware_raises() -> None:
-    """A tarball without ``firmware.bin`` raises :class:`_UnpackArtifactsError`."""
+    """A tarball without ``firmware.bin`` raises :class:`UnpackArtifactsError`."""
     idedata_bytes = json.dumps({"extra": {"flash_images": []}}).encode("utf-8")
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -502,8 +502,8 @@ def test_unpack_artifacts_response_missing_firmware_raises() -> None:
         info.size = len(idedata_bytes)
         tar.addfile(info, io.BytesIO(idedata_bytes))
 
-    with pytest.raises(_UnpackArtifactsError, match=r"missing firmware\.bin"):
-        _unpack_artifacts_response(
+    with pytest.raises(UnpackArtifactsError, match=r"missing firmware\.bin"):
+        unpack_artifacts_response(
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
             job_id="j",
         )
@@ -524,30 +524,30 @@ def test_unpack_artifacts_response_unreferenced_file_raises() -> None:
         stray_info.size = 1
         tar.addfile(stray_info, io.BytesIO(b"X"))
 
-    with pytest.raises(_UnpackArtifactsError, match="unexpected files not referenced"):
-        _unpack_artifacts_response(
+    with pytest.raises(UnpackArtifactsError, match="unexpected files not referenced"):
+        unpack_artifacts_response(
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
             job_id="j",
         )
 
 
 def test_unpack_artifacts_response_invalid_idedata_json_raises() -> None:
-    """Malformed JSON in idedata.json raises :class:`_UnpackArtifactsError`."""
+    """Malformed JSON in idedata.json raises :class:`UnpackArtifactsError`."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         info = tarfile.TarInfo(name="idedata.json")
         info.size = 4
         tar.addfile(info, io.BytesIO(b"{bad"))
 
-    with pytest.raises(_UnpackArtifactsError, match="not valid JSON"):
-        _unpack_artifacts_response(
+    with pytest.raises(UnpackArtifactsError, match="not valid JSON"):
+        unpack_artifacts_response(
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
             job_id="j",
         )
 
 
 def test_unpack_artifacts_response_non_dict_idedata_raises() -> None:
-    """idedata.json that parses to a non-object raises :class:`_UnpackArtifactsError`."""
+    """idedata.json that parses to a non-object raises :class:`UnpackArtifactsError`."""
     payload = b'["not", "an", "object"]'  # valid JSON, parses to list
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -555,15 +555,15 @@ def test_unpack_artifacts_response_non_dict_idedata_raises() -> None:
         info.size = len(payload)
         tar.addfile(info, io.BytesIO(payload))
 
-    with pytest.raises(_UnpackArtifactsError, match="not a JSON object"):
-        _unpack_artifacts_response(
+    with pytest.raises(UnpackArtifactsError, match="not a JSON object"):
+        unpack_artifacts_response(
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
             job_id="j",
         )
 
 
 def test_unpack_artifacts_response_directory_entry_raises() -> None:
-    """A directory entry in the tarball (wire-format drift) raises ``_UnpackArtifactsError``."""
+    """A directory entry in the tarball (wire-format drift) raises ``UnpackArtifactsError``."""
     idedata_bytes = json.dumps({"extra": {"flash_images": []}}).encode("utf-8")
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -577,8 +577,8 @@ def test_unpack_artifacts_response_directory_entry_raises() -> None:
         dir_info.type = tarfile.DIRTYPE
         tar.addfile(dir_info)
 
-    with pytest.raises(_UnpackArtifactsError, match="non-file tarball entry"):
-        _unpack_artifacts_response(
+    with pytest.raises(UnpackArtifactsError, match="non-file tarball entry"):
+        unpack_artifacts_response(
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x0"),
             job_id="j",
         )
@@ -600,15 +600,15 @@ def test_unpack_artifacts_response_missing_flash_image_from_extras_raises() -> N
         # No bootloader.bin in the tarball even though idedata
         # declares it.
 
-    with pytest.raises(_UnpackArtifactsError, match=r"missing flash image 'bootloader\.bin'"):
-        _unpack_artifacts_response(
+    with pytest.raises(UnpackArtifactsError, match=r"missing flash image 'bootloader\.bin'"):
+        unpack_artifacts_response(
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
             job_id="j",
         )
 
 
 def test_unpack_artifacts_response_non_dict_flash_image_entry_raises() -> None:
-    """A non-dict ``extra.flash_images`` entry raises :class:`_UnpackArtifactsError`."""
+    """A non-dict ``extra.flash_images`` entry raises :class:`UnpackArtifactsError`."""
     idedata_bytes = json.dumps(
         {"extra": {"flash_images": ["not-a-dict"]}}  # malformed entry
     ).encode("utf-8")
@@ -621,8 +621,8 @@ def test_unpack_artifacts_response_non_dict_flash_image_entry_raises() -> None:
         firmware_info.size = 4
         tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
 
-    with pytest.raises(_UnpackArtifactsError, match="entry is not an object"):
-        _unpack_artifacts_response(
+    with pytest.raises(UnpackArtifactsError, match="entry is not an object"):
+        unpack_artifacts_response(
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
             job_id="j",
         )
@@ -642,8 +642,8 @@ def test_unpack_artifacts_response_flash_image_entry_missing_fields_raises() -> 
         firmware_info.size = 4
         tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
 
-    with pytest.raises(_UnpackArtifactsError, match="missing path/offset"):
-        _unpack_artifacts_response(
+    with pytest.raises(UnpackArtifactsError, match="missing path/offset"):
+        unpack_artifacts_response(
             DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
             job_id="j",
         )
@@ -661,7 +661,7 @@ def test_unpack_artifacts_response_handles_non_dict_extra() -> None:
         firmware_info.size = 4
         tar.addfile(firmware_info, io.BytesIO(b"FIRM"))
 
-    response = _unpack_artifacts_response(
+    response = unpack_artifacts_response(
         DownloadArtifactsResult(tarball=buf.getvalue(), firmware_offset="0x10000"),
         job_id="j",
     )

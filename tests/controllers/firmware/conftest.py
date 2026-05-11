@@ -149,7 +149,14 @@ def firmware_controller_factory(
             controller._persist_jobs = AsyncMock()
 
         bus: EventBus | MagicMock = EventBus() if with_real_bus else MagicMock()
-        db_attrs: dict[str, Any] = {"bus": bus}
+        # ``remote_build`` defaults to ``None`` so the firmware
+        # controller's ``_resolve_install_source`` helper sees the
+        # same shape it does in production before
+        # ``DeviceBuilder.start()`` has constructed the
+        # ``RemoteBuildController`` — without the seed an attribute
+        # lookup would raise ``AttributeError`` and mask the
+        # silent-fallback-LOCAL semantic.
+        db_attrs: dict[str, Any] = {"bus": bus, "remote_build": None}
         if with_settings:
             settings = DashboardSettings()
             settings.config_dir = tmp_path
