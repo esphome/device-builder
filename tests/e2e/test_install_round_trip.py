@@ -492,30 +492,44 @@ def _drive_receiver_lifecycle(
     bus.fire(terminal, JobLifecycleData(job=job))
 
 
-async def _wait_for_offloader_idle(paired_instances: PairedInstances) -> None:
-    """Spin until the offloader's ``_peer_queue_status`` reports idle.
+async def _wait_for_offloader_idle(
+    paired_instances: PairedInstances,
+    queue_status_events: Any,
+    *,
+    timeout: float = 2.0,
+) -> None:
+    """Block until the offloader's ``_peer_queue_status`` reports idle for this pin.
 
-    Bus listeners are synchronous on the receiver side, but each
-    ``queue_status`` broadcast is scheduled as a background task
-    (``create_background_task``) that has to encrypt + send +
-    receive + bus-fire on the offloader's loop. A bounded
-    ``asyncio.sleep(0)`` spin is enough for the harness — all
-    sends are in-memory transports — but we cap at a hard
-    timeout so a regression that breaks the broadcast surfaces
-    as a clean ``TimeoutError`` rather than a hang.
+    Event-driven: the caller installs *queue_status_events*
+    (a :func:`capture_events` handle on
+    ``OFFLOADER_QUEUE_STATUS_CHANGED``) before driving any
+    lifecycle so no broadcast races the listener-attach. Each
+    iteration first checks the cache (an earlier broadcast may
+    already have landed before we re-enter), then clears the
+    capture's ``received`` flag and parks on
+    :func:`asyncio.wait_for` for the next event. The bounded
+    deadline turns a regression that breaks the broadcast into
+    a clean ``TimeoutError`` rather than the previous fixed-
+    iteration spin that could pass under CI load if the
+    background ``queue_status`` send/receive happened to take
+    more than a few event-loop turns (per Copilot review on
+    #576).
     """
     pin_sha256 = paired_instances.pin_sha256
-    offloader = paired_instances.offloader
-    for _ in range(200):
-        entry = offloader._peer_queue_status.get(pin_sha256)
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        entry = paired_instances.offloader._peer_queue_status.get(pin_sha256)
         if entry is not None and entry["idle"]:
             return
-        await asyncio.sleep(0)
-    msg = (
-        f"offloader's _peer_queue_status never reached idle: "
-        f"{offloader._peer_queue_status.get(pin_sha256)!r}"
-    )
-    raise TimeoutError(msg)
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            msg = (
+                f"offloader's _peer_queue_status never reached idle within "
+                f"{timeout}s: {paired_instances.offloader._peer_queue_status.get(pin_sha256)!r}"
+            )
+            raise TimeoutError(msg)
+        queue_status_events.received.clear()
+        await asyncio.wait_for(queue_status_events.received.wait(), timeout=remaining)
 
 
 @pytest.mark.asyncio
@@ -541,11 +555,18 @@ async def test_back_to_back_successful_jobs_keep_scheduler_routing_remote(
     cycles round-trip through to idle on the offloader-side
     cache.
     """
+    # Install the capture before opening the session — the
+    # cold-connect ``queue_status`` push fires inside
+    # ``wait_until_session_opened`` and the helper needs to see
+    # it without racing.
+    queue_status_events = capture_events(
+        paired_instances.offloader_bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED
+    )
     await paired_instances.wait_until_session_opened()
     receiver_jobs = _wire_receiver_firmware_recorder(paired_instances)
     # Initial cold-connect push lands; cache should already be
     # idle before we drive any traffic.
-    await _wait_for_offloader_idle(paired_instances)
+    await _wait_for_offloader_idle(paired_instances, queue_status_events)
 
     handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
     bundle_bytes = _build_real_bundle()
@@ -570,7 +591,7 @@ async def test_back_to_back_successful_jobs_keep_scheduler_routing_remote(
         # REMOTE for the next install. A regression that froze
         # the snapshot at ``running=True`` would hang this wait
         # past the timeout.
-        await _wait_for_offloader_idle(paired_instances)
+        await _wait_for_offloader_idle(paired_instances, queue_status_events)
 
         snapshot = paired_instances.offloader.build_scheduler_snapshot()
         decision = pick_build_path(snapshot)
@@ -600,9 +621,12 @@ async def test_failed_first_job_still_routes_remote_on_second_install(
     fires the same idle snapshot the COMPLETED path does, so
     the next install routes REMOTE again.
     """
+    queue_status_events = capture_events(
+        paired_instances.offloader_bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED
+    )
     await paired_instances.wait_until_session_opened()
     receiver_jobs = _wire_receiver_firmware_recorder(paired_instances)
-    await _wait_for_offloader_idle(paired_instances)
+    await _wait_for_offloader_idle(paired_instances, queue_status_events)
 
     handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
     bundle_bytes = _build_real_bundle()
@@ -616,7 +640,7 @@ async def test_failed_first_job_still_routes_remote_on_second_install(
     )
     assert ack["accepted"] is True
     _drive_receiver_lifecycle(paired_instances, receiver_jobs[-1], terminal=EventType.JOB_FAILED)
-    await _wait_for_offloader_idle(paired_instances)
+    await _wait_for_offloader_idle(paired_instances, queue_status_events)
     snapshot = paired_instances.offloader.build_scheduler_snapshot()
     assert pick_build_path(snapshot).path is BuildPath.REMOTE
 
@@ -629,7 +653,7 @@ async def test_failed_first_job_still_routes_remote_on_second_install(
     )
     assert ack["accepted"] is True
     _drive_receiver_lifecycle(paired_instances, receiver_jobs[-1], terminal=EventType.JOB_COMPLETED)
-    await _wait_for_offloader_idle(paired_instances)
+    await _wait_for_offloader_idle(paired_instances, queue_status_events)
     snapshot = paired_instances.offloader.build_scheduler_snapshot()
     decision = pick_build_path(snapshot)
     assert decision.path is BuildPath.REMOTE
