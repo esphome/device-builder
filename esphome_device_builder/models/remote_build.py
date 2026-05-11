@@ -143,14 +143,22 @@ class RemoteBuildIdentityRotatedData(TypedDict):
     """
     Payload for ``EventType.REMOTE_BUILD_IDENTITY_ROTATED``.
 
-    Fired after ``rotate_identity`` succeeds and the new
-    ``pin_sha256`` is reloaded into the listener. Subscribers
-    (the offloader-side peer-link, the receiver Settings UI)
-    refresh their cached pin without polling ``get_identity``.
-    The event reflects that the X25519 keypair on disk changed;
-    the listener rebuild may still fail-soft, in which case the
+    Fires after ``rotate_identity`` persists the new X25519
+    keypair to disk and attempts the listener rebuild. The
+    event ONLY signals that the rotation landed on disk and
+    the rebuild was attempted — not that the listener is
+    currently serving traffic against the new key. The
+    rebuild can fail-soft (port collision, permission denied,
+    listener unbound at rotation time), in which case the
     rotater's ``IdentityView`` response carries
-    ``listener_bound=False``.
+    ``listener_bound=False`` and the new pin will hit the
+    wire on the next successful bind. Subscribers (the
+    offloader-side peer-link, the receiver Settings UI) use
+    the event to refresh their cached pin without polling
+    ``get_identity``; they should check
+    ``IdentityView.listener_bound`` (via a follow-up
+    ``get_identity`` call or by inspecting their own session
+    state) before assuming end-to-end propagation.
     """
 
     dashboard_id: str

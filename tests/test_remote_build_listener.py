@@ -472,8 +472,8 @@ async def test_reload_remote_build_identity_rebuilds_listener(tmp_path: Path) ->
         assert db._remote_build_runner is not None
         first_runner = db._remote_build_runner
 
-        # Rotate the cert + key on disk so the rebuild loads
-        # the new identity.
+        # Rotate the X25519 peer-link key on disk so the
+        # rebuild loads the new identity.
         new_identity = await loop.run_in_executor(None, rotate_identity, tmp_path)
         listener_bound = await db.reload_remote_build_identity(
             pin_sha256=new_identity.pin_sha256,

@@ -4464,14 +4464,20 @@ class RemoteBuildController:
         (``listener_bound=False`` in the response) so the
         Settings UI can show "rotation succeeded but the
         listener didn't come back up — check logs". (2) The
-        mDNS advertise picks up the new ``pin_sha256`` either
-        way so peers re-browsing see the rotation even when
-        the listener wasn't bound. (3) An
-        :attr:`EventType.REMOTE_BUILD_IDENTITY_ROTATED` event
-        fires on the bus carrying ``{dashboard_id, pin_sha256}``
-        so subscribers (the offloader-side peer-link, the
-        receiver Settings UI) can refresh without polling
-        ``get_identity``.
+        mDNS advertise picks up the new ``pin_sha256`` only
+        when the listener was bound at rotation time: the
+        TXT contract is "pin + port appear iff the listener
+        is currently bound", so an unbound rotation leaves
+        mDNS alone and the next successful bind (after the
+        operator flips remote-build on, or after the
+        fail-soft path resolves) advertises the new pin.
+        (3) An :attr:`EventType.REMOTE_BUILD_IDENTITY_ROTATED`
+        event fires on the bus carrying
+        ``{dashboard_id, pin_sha256}`` regardless of
+        listener-bound state — subscribers (the offloader-side
+        peer-link, the receiver Settings UI) refresh their
+        cached pin without polling ``get_identity`` even when
+        the listener didn't come back up.
 
         **Concurrent calls fail with ``ALREADY_EXISTS``.** Two
         rotations racing would each tear down + rebuild the
