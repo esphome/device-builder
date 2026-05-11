@@ -26,7 +26,6 @@ import weakref
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
 from aiohttp import WSCloseCode, web
 from pytest_aiohttp.plugin import AiohttpClient
 
@@ -35,6 +34,7 @@ from esphome_device_builder.api.ws import (
     WEBSOCKETS_KEY,
     close_active_websockets,
     create_ws_routes,
+    init_ws_app,
 )
 from esphome_device_builder.device_builder import DeviceBuilder
 
@@ -61,8 +61,8 @@ def _bare_app() -> web.Application:
     app = web.Application()
     app["device_builder"] = device_builder
     app["trusted_site"] = True
+    init_ws_app(app)
     app.router.add_routes(create_ws_routes())
-    app.on_shutdown.append(close_active_websockets)
     return app
 
 
@@ -227,16 +227,15 @@ def test_close_handler_module_export() -> None:
     assert hasattr(ws_module, "WEBSOCKETS_KEY")
 
 
-@pytest.mark.parametrize("import_path", ["close_active_websockets"])
-def test_close_handler_registered_in_create_app(import_path: str) -> None:
-    """The dashboard's ``create_app`` actually appends the closer.
+def test_init_ws_app_called_in_create_app() -> None:
+    """The dashboard's ``create_app`` actually wires the WS init helper.
 
-    Source-grep guard. Mirrors
-    ``test_websocket_heartbeat.test_construction_site_uses_named_constant``:
-    if a future rebase loses the ``app.on_shutdown.append`` call,
-    SIGTERM latency would silently regress to the 20-60s symptom
-    this PR fixes, with every other test still passing. Grep the
-    source so the test fails the moment the wire-up drops off.
+    Source-grep guard. If a future rebase loses the
+    ``init_ws_app(app)`` call, SIGTERM latency would silently
+    regress to the 20-60s symptom we fixed plus the WeakSet
+    seed would be missing (every WS connection would crash on
+    ``KeyError: '_active_websockets'``). Grep the source so the
+    test fails the moment the wire-up drops off.
     """
     source = inspect.getsource(DeviceBuilder.create_app)
-    assert f"app.on_shutdown.append({import_path})" in source
+    assert "init_ws_app(app)" in source

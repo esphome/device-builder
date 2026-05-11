@@ -72,6 +72,7 @@ async def test_websocket_response_constructed_with_heartbeat(
     app = web.Application()
     app["device_builder"] = device_builder
     app["trusted_site"] = True  # skip the in-band auth handshake
+    ws_module.init_ws_app(app)
     app.router.add_routes(ws_module.create_ws_routes())
 
     with patch.object(ws_module.web, "WebSocketResponse", _CapturingWS):

@@ -83,6 +83,7 @@ async def test_bearer_token_with_valid_session_pre_authenticates(
     app = web.Application()
     app["device_builder"] = device_builder
     app["trusted_site"] = False
+    ws_module.init_ws_app(app)
     app.router.add_routes(ws_module.create_ws_routes())
 
     # Capture the ``WebSocketClient`` instance the handler builds
@@ -143,6 +144,7 @@ async def test_bearer_token_with_invalid_session_falls_back_to_in_band_auth(
     app = web.Application()
     app["device_builder"] = device_builder
     app["trusted_site"] = False
+    ws_module.init_ws_app(app)
     app.router.add_routes(ws_module.create_ws_routes())
 
     client = await aiohttp_client(app)
@@ -200,6 +202,7 @@ async def test_invalid_json_message_returns_invalid_message_error(
     app = web.Application()
     app["device_builder"] = device_builder
     app["trusted_site"] = True  # skip in-band auth so the loop runs immediately
+    ws_module.init_ws_app(app)
     app.router.add_routes(ws_module.create_ws_routes())
 
     client = await aiohttp_client(app)

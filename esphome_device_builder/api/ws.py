@@ -70,6 +70,34 @@ _WS_HEARTBEAT_SECONDS = 30.0
 WEBSOCKETS_KEY = "_active_websockets"
 
 
+def init_ws_app(app: web.Application) -> None:
+    """Seed *app* with the active-WS registry + the shutdown closer.
+
+    Single source of truth for the two pieces of state every app
+    using :func:`create_ws_routes` needs at construction time:
+
+    * ``app[WEBSOCKETS_KEY]`` — the WeakSet the WS handler adds
+      to on every connection. Seeding it here means the handler
+      can call ``.add(ws)`` without ``setdefault``, which would
+      mutate app state after ``runner.setup`` and trip aiohttp
+      3.10's "Changing state of started or joined application"
+      deprecation.
+    * ``on_shutdown`` listener — :func:`close_active_websockets`
+      iterates the WeakSet on app shutdown and closes every live
+      WS with ``GOING_AWAY``. Without it, an idle client pins
+      shutdown for the full ``shutdown_timeout`` window.
+
+    Idempotent: re-seeding the key replaces the WeakSet (any
+    in-flight WS that's still alive holds its own reference and
+    survives the swap, but new connections register against the
+    fresh set); appending the listener a second time would
+    double-close but is cheap. Callers should call this exactly
+    once per app, immediately after construction.
+    """
+    app[WEBSOCKETS_KEY] = weakref.WeakSet()
+    app.on_shutdown.append(close_active_websockets)
+
+
 class WebSocketClient:
     """A single WebSocket client connection."""
 
@@ -276,13 +304,13 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     await ws.prepare(request)
 
     # Register on the per-app weak set so the shutdown closer can
-    # reach this WS without us holding a strong reference.
-    # ``setdefault`` lazily creates the set on the first connect;
-    # the matching ``on_shutdown`` handler is appended in
-    # :meth:`DeviceBuilder.create_app` so the closer is in place
-    # before any WS handler is allowed to run.
-    active = request.app.setdefault(WEBSOCKETS_KEY, weakref.WeakSet())
-    active.add(ws)
+    # reach this WS without us holding a strong reference. The set
+    # is seeded in :meth:`DeviceBuilder.create_app` at construction
+    # time (mutating an already-started app would trip aiohttp's
+    # 3.10 deprecation guard); the matching ``on_shutdown`` handler
+    # is appended there too, so the closer is in place before any
+    # WS handler is allowed to run.
+    request.app[WEBSOCKETS_KEY].add(ws)
 
     pre_authenticated = trusted_site or not settings.using_password
     token: str | None = None

@@ -42,6 +42,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
+from esphome_device_builder.api.ws import init_ws_app
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build.peer_link import (
     PEER_LINK_PATH,
@@ -203,6 +204,7 @@ async def paired_instances(
     # TCP port. ``TestServer`` picks an ephemeral port; the
     # offloader dials ``("127.0.0.1", server.port)``.
     app = web.Application()
+    init_ws_app(app)
     handler = await make_peer_link_handler(receiver, receiver_dir)
     app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)

@@ -376,6 +376,7 @@ def _password_protected_app(trusted_domains: list[str]) -> web.Application:
     app = web.Application()
     app["device_builder"] = device_builder
     app["trusted_site"] = False  # public site -> gating runs
+    ws_module.init_ws_app(app)
     app.router.add_routes(ws_module.create_ws_routes())
     return app
 
@@ -476,6 +477,7 @@ async def test_handler_skips_gating_on_trusted_site(
     app = web.Application()
     app["device_builder"] = device_builder
     app["trusted_site"] = True  # ingress site -> gating skipped
+    ws_module.init_ws_app(app)
     app.router.add_routes(ws_module.create_ws_routes())
 
     client = await aiohttp_client(app)
@@ -539,6 +541,7 @@ async def test_handler_accepts_when_no_password(
     app = web.Application()
     app["device_builder"] = device_builder
     app["trusted_site"] = False
+    ws_module.init_ws_app(app)
     app.router.add_routes(ws_module.create_ws_routes())
 
     client = await aiohttp_client(app)

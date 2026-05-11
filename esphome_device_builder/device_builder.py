@@ -25,7 +25,7 @@ from aiohttp import web
 from esphome.const import __version__ as esphome_version
 
 from .api.legacy import create_legacy_routes
-from .api.ws import close_active_websockets, create_ws_routes
+from .api.ws import create_ws_routes, init_ws_app
 from .constants import __version__ as server_version
 from .controllers.auth import AuthController
 from .controllers.automations import AutomationsController
@@ -740,21 +740,20 @@ class DeviceBuilder:
         app = web.Application(middlewares=middlewares)
         app["device_builder"] = self
         app["trusted_site"] = trusted
-
-        # WebSocket API
-        app.router.add_routes(create_ws_routes())
-
-        # Explicitly close every active WS on app shutdown so an
-        # idle paired client doesn't pin the run loop to aiohttp's
-        # ``shutdown_timeout`` (60s default) waiting for the
-        # ``async for msg in ws`` handler to unwind. Without this,
-        # SIGTERM-to-exit took 20-60s with one connected client and
-        # ~150ms idle; with it, SIGTERM-to-exit drops to ~150ms in
-        # both cases. Registered unconditionally (no
+        # Seed the active-WS registry + the on_shutdown closer in
+        # one place. ``close_active_websockets`` fires at app
+        # shutdown so an idle paired client doesn't pin the run
+        # loop to aiohttp's ``shutdown_timeout`` (60s default)
+        # waiting for the ``async for msg in ws`` handler to
+        # unwind; without it, SIGTERM-to-exit was 20-60s with one
+        # connected client. Registered unconditionally (no
         # ``with_lifecycle`` gate) because the ingress and remote-
         # build apps share the same WS-handler shape and the same
         # latency cost on shutdown.
-        app.on_shutdown.append(close_active_websockets)
+        init_ws_app(app)
+
+        # WebSocket API
+        app.router.add_routes(create_ws_routes())
 
         # Legacy REST endpoints (HA backward compat)
         app.router.add_routes(create_legacy_routes())
@@ -1122,14 +1121,14 @@ class DeviceBuilder:
                 None, get_or_create_peer_link_identity, self.settings.config_dir
             )
             app = web.Application(middlewares=[_strip_server_header_middleware])
+            # Same WS init shape as the main /ws app: seed the
+            # active-WS registry + the shutdown closer so an idle
+            # paired offloader doesn't pin ``runner.cleanup()``
+            # to aiohttp's 60s ``shutdown_timeout`` while its
+            # handler sits in ``async for msg in session.ws``.
+            init_ws_app(app)
             handler = await make_peer_link_handler(self.remote_build, self.settings.config_dir)
             app.router.add_get(PEER_LINK_PATH, handler)
-            # Same SIGTERM-latency fix as the main /ws app: close
-            # every paired peer's WS explicitly so an idle offloader
-            # doesn't pin ``runner.cleanup()`` to aiohttp's 60s
-            # ``shutdown_timeout`` while its handler sits in
-            # ``async for msg in session.ws``.
-            app.on_shutdown.append(close_active_websockets)
 
             runner = web.AppRunner(app)
             await runner.setup()
