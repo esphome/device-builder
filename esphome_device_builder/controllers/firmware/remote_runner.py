@@ -466,18 +466,20 @@ async def _fetch_and_run_local_upload(
         SubmitJobSessionLostError,
         DownloadArtifactsError,
     ) as exc:
-        # Hint the operator at the receiver-side log for the
-        # path-level detail. The receiver logs the configuration
-        # string and (for ``build_dir_missing``) the actual file
-        # that couldn't be opened at WARNING — that's the
-        # actionable bit; the offloader-side error text only
-        # carries the structured reason code.
+        # Receiver-side WARNING logs carry the actionable
+        # detail (configuration, missing path, current status)
+        # for every soft-reject; point operators at the build
+        # server log either way. The previous shape only
+        # mentioned "missing path", which was misleading for
+        # non-``build_dir_missing`` rejects (``unknown_job`` /
+        # ``job_not_completed`` / session lost — none of which
+        # involve a path).
         _fail_locally(
             controller,
             job,
             error=(
                 f"remote build: download_artifacts failed: {exc} "
-                f"(check the build server's log for the missing path)"
+                f"(check the build server logs for details)"
             ),
         )
         return

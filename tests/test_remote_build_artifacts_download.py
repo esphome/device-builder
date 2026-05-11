@@ -131,7 +131,8 @@ async def test_download_artifacts_malformed_terminates(broken_frame: dict[str, A
 async def test_download_artifacts_unknown_job_rejected(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An unknown job_id rejects ``unknown_job`` (no terminate).
+    """
+    An unknown job_id rejects ``unknown_job`` (no terminate).
 
     Receiver-side WARNING log carries the requested ``job_id``
     plus the list of ``remote_job_id`` values the receiver does
@@ -160,7 +161,8 @@ async def test_download_artifacts_unknown_job_rejected(
 async def test_download_artifacts_job_not_completed_rejected(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A job in ``RUNNING`` status rejects ``job_not_completed``.
+    """
+    A job in ``RUNNING`` status rejects ``job_not_completed``.
 
     Receiver-side WARNING log carries the configuration string
     and the actual status so operators can see *why* the
@@ -206,7 +208,8 @@ async def test_download_artifacts_build_dir_missing_rejected(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A ``FileNotFoundError`` from the packer rejects ``build_dir_missing``.
+    """
+    A ``FileNotFoundError`` from the packer rejects ``build_dir_missing``.
 
     Also pins the receiver-side log: the WARNING includes the
     configuration string and the actual missing-path text from
