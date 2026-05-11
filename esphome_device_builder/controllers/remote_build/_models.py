@@ -13,11 +13,6 @@ typed-value layer in one place.
   :attr:`~RemoteBuildController._peer_link_clients` lookup
   yields both, instead of two parallel dicts that could
   drift.
-* :class:`PairRequestOutcome` is an out-param the
-  :meth:`record_pair_request` sync settings mutator uses to
-  communicate the IntentResponse back to its async caller —
-  beats a ``nonlocal`` because the data flow is explicit at
-  the call site.
 * :class:`RebindProbeOutcome` / :class:`RebindProbeResult` are
   the typed shape :meth:`_probe_pairing_endpoint` returns to
   its two callers (auto mDNS rebind + user-driven endpoint
@@ -35,7 +30,7 @@ import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
 
-from ...models import ErrorCode, IntentResponse
+from ...models import ErrorCode
 from .peer_link_client import PeerLinkClient, PeerLinkClientError
 
 
@@ -55,24 +50,6 @@ class PeerLinkClientHandle:
 
     client: PeerLinkClient
     task: asyncio.Task[None]
-
-
-@dataclass
-class PairRequestOutcome:
-    """
-    Out-param for ``record_pair_request``'s settings mutator.
-
-    The mutator runs inside a sync transaction (``_modify_settings``
-    drives it on the disk-write hop) and needs to communicate back
-    to the async caller whether the row was created / refreshed /
-    already-APPROVED / pin-mismatched. A dataclass beats a
-    ``nonlocal`` because the data flow is explicit at the call
-    site — a reader can grep for ``PairRequestOutcome`` and find
-    the contract — and future fields (an event payload, metrics)
-    can be added without nonlocal-ing each new variable.
-    """
-
-    response: IntentResponse | None = None
 
 
 class RebindProbeOutcome(StrEnum):
