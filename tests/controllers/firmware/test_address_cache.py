@@ -312,3 +312,46 @@ def test_command_includes_dashboard_flag_with_no_cache_args() -> None:
     controller = _firmware_controller_with(None)
     cmd = controller._build_command(JobType.COMPILE, "kitchen.yaml", "")
     assert cmd == ["esphome", "--dashboard", "compile", "kitchen.yaml"]
+
+
+def test_clean_job_command_invokes_esphome_clean_against_yaml() -> None:
+    """A CLEAN job runs ``esphome clean <yaml>``; no port, no extra flags.
+
+    Pins the receiver-side seam the ``firmware/clean`` fan-out
+    depends on: paired with the per-dashboard ``ESPHOME_DATA_DIR``
+    override (see ``test_subprocess_env.py``), invoking
+    ``esphome clean <yaml>`` resolves ``CORE.data_dir`` to the
+    receiver's per-offloader subtree and wipes
+    ``<that>/build/<device_name>/`` — the directory the operator
+    actually wanted gone.
+
+    A regression that mapped ``JobType.CLEAN`` to ``"clean-all"``
+    or added ``--no-logs`` or any other accidental flag would
+    surface here rather than as a confusing "the clean ran but
+    nothing got removed" report from the field.
+    """
+    controller = _firmware_controller_with(None)
+    cmd = controller._build_command(JobType.CLEAN, "kitchen.yaml", "")
+    assert cmd == ["esphome", "--dashboard", "clean", "kitchen.yaml"]
+
+
+def test_clean_job_command_passes_remote_build_yaml_path_through() -> None:
+    """The CLEAN command threads the receiver-side YAML path through verbatim.
+
+    The receiver's submit_job dispatch lands a ``FirmwareJob``
+    whose ``configuration`` is the relative POSIX path under
+    ``.esphome/.remote_builds/<dashboard_id>/<device>/``. The
+    build-command builder must thread that path verbatim — the
+    paired ``ESPHOME_DATA_DIR`` override resolves esphome's
+    ``CORE.data_dir`` to the per-offloader subtree, and
+    ``esphome clean <yaml>`` keys its delete target off the
+    YAML's resolved ``CORE.config_filename``. A regression that
+    rewrites the path (e.g. strips the leading subtree segments
+    on the assumption the YAML lives next to the dashboard's
+    config) would clean the wrong build directory or fail with
+    "config not found."
+    """
+    controller = _firmware_controller_with(None)
+    rel_yaml = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
+    cmd = controller._build_command(JobType.CLEAN, rel_yaml, "")
+    assert cmd == ["esphome", "--dashboard", "clean", rel_yaml]

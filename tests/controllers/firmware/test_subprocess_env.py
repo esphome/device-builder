@@ -31,12 +31,16 @@ if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
 
 
-def _make_job(*, configuration: str) -> FirmwareJob:
+def _make_job(
+    *,
+    configuration: str,
+    job_type: JobType = JobType.COMPILE,
+) -> FirmwareJob:
     """Build a minimal :class:`FirmwareJob` keyed on *configuration*."""
     return FirmwareJob(
         job_id="j1",
         configuration=configuration,
-        job_type=JobType.COMPILE,
+        job_type=job_type,
     )
 
 
@@ -98,6 +102,38 @@ def test_remote_build_job_pins_data_dir_to_per_dashboard_esphome(
     # ANSI / unbuffered overlays still land.
     for key, value in ESPHOME_SUBPROCESS_ENV.items():
         assert env[key] == value
+
+
+def test_remote_build_clean_job_pins_data_dir_to_per_dashboard_esphome(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A receiver-side CLEAN job with a remote-build configuration pins the data dir.
+
+    Pins the seam the ``firmware/clean`` fan-out depends on:
+    the env override fires off the configuration path, not the
+    job type, so a CLEAN job pointing at the per-offloader
+    subtree's YAML resolves to the same per-dashboard
+    ``ESPHOME_DATA_DIR`` a COMPILE job would. ``esphome clean``
+    then sees ``CORE.data_dir`` rooted there and wipes
+    ``<that>/build/<device_name>/`` — exactly the directory
+    the operator's "Clean build files" click expects to drop
+    on each connected receiver.
+
+    Tested explicitly with ``JobType.CLEAN`` so a future
+    refactor that adds a ``job_type``-keyed branch in
+    ``_compose_subprocess_env`` and accidentally skips the
+    override for CLEAN doesn't slip past review — the
+    silent regression mode would be "clean ran but pointed
+    at the wrong data dir, so nothing got removed."
+    """
+    controller = firmware_controller_factory(with_settings=True)
+    configuration = ".esphome/.remote_builds/dashboard-alpha/kitchen/kitchen.yaml"
+    env = controller._compose_subprocess_env(
+        _make_job(configuration=configuration, job_type=JobType.CLEAN)
+    )
+
+    expected = Path(CORE.data_dir) / ".remote_builds" / "dashboard-alpha" / ".esphome"
+    assert env["ESPHOME_DATA_DIR"] == str(expected)
 
 
 def test_malformed_remote_build_path_falls_through_to_local(
