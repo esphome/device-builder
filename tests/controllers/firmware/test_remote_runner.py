@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -1461,6 +1462,75 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     await controller._terminate_current_process()
     await asyncio.wait_for(runner, timeout=5.0)
 
+    assert job.status == JobStatus.CANCELLED
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_terminates(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_extract_firmware: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Cancel landing during the staging executor hops fires ``_terminate_current_process`` post-spawn.
+
+    The runner has two cancel-check sites for this path:
+
+    1. **Pre-spawn early check** in
+       ``_fetch_and_run_local_upload`` — covered by
+       ``test_fetch_and_run_local_upload_cancel_pre_spawn_skips_subprocess``.
+    2. **Post-spawn in-context-manager check** in
+       ``_run_upload_subprocess`` — fires when the cancel
+       flag was *not* set at the pre-check moment but *is*
+       set by the time the spawn returns. The window is the
+       executor hops for ``mkdtemp`` + ``firmware_path.write_bytes``
+       between the two checks.
+
+    This test races a cancel into that window by patching
+    ``firmware_path.write_bytes`` (via ``Path.write_bytes``)
+    to flip ``_cancel_requested`` as a side effect — so by
+    the time the spawn returns, the in-context check sees
+    the flag and fires ``_terminate_current_process``.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
+    job = _make_remote_install_job()
+
+    terminate_calls: list[None] = []
+
+    async def _terminate() -> None:
+        terminate_calls.append(None)
+
+    controller._terminate_current_process = _terminate  # type: ignore[method-assign]
+    # Subprocess emits one line + exits 0 — the
+    # cancel-aware finalise routes through CANCELLED
+    # regardless of the exit.
+    _wire_upload_subprocess(controller, exit_code=0, stdout="ok\n")
+
+    # Patch ``Path.write_bytes`` so the executor hop that
+    # writes the staged firmware file flips
+    # ``_cancel_requested`` as a side effect. That puts the
+    # cancel into the gap between the pre-spawn check and
+    # the in-context-manager check.
+    original_write_bytes = Path.write_bytes
+
+    def _write_bytes_then_cancel(self: Path, data: bytes) -> int:
+        result = original_write_bytes(self, data)
+        controller._cancel_requested.add(job.job_id)
+        return result
+
+    monkeypatch.setattr(Path, "write_bytes", _write_bytes_then_cancel)
+
+    await remote_runner._fetch_and_run_local_upload(controller=controller, job=job, client=client)
+
+    # The post-spawn check inside ``_run_upload_subprocess``
+    # called ``_terminate_current_process``.
+    assert terminate_calls, (
+        "expected _terminate_current_process to fire from the in-context-manager cancel check"
+    )
     assert job.status == JobStatus.CANCELLED
     assert len(captured[EventType.JOB_CANCELLED]) == 1
 

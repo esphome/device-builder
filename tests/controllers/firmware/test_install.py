@@ -408,6 +408,58 @@ async def test_install_falls_back_to_local_when_remote_build_controller_absent(
 
 
 @pytest.mark.asyncio
+async def test_install_falls_back_to_local_when_scheduler_picked_pin_disappeared(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """
+    Scheduler picks a pin → ``get_pairing`` returns ``None`` → falls back to LOCAL.
+
+    Defensive against a TOCTOU window: the scheduler walks
+    one snapshot, then ``_resolve_install_source`` looks up
+    the chosen pin's label from a fresh ``get_pairing`` call.
+    If an ``unpair`` ran on the same loop tick between the
+    two reads, the second read returns ``None`` and we
+    silently fall back to LOCAL — feeding an empty
+    ``source_pin_sha256`` to the runner would otherwise land
+    on its missing-pin FAILED branch.
+
+    Near-impossible in practice but the typed-return surface
+    is the gate, so pin it.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    # Scheduler picks ``_PIN`` (snapshot says it's APPROVED +
+    # connected + idle), but ``get_pairing(_PIN)`` returns
+    # ``None`` — the unpair landed between the two reads.
+    pairing = _make_pairing()
+    remote_build = MagicMock()
+    remote_build.build_scheduler_snapshot.return_value = BuildSchedulerInputs(
+        remote_builds_enabled=True,
+        pairings={_PIN: pairing},
+        open_peer_links=frozenset({_PIN}),
+        peer_queue_status={
+            _PIN: PeerQueueStatusSnapshotEntry(
+                receiver_hostname="build.local",
+                receiver_port=6055,
+                pin_sha256=_PIN,
+                idle=True,
+                running=False,
+                queue_depth=0,
+            ),
+        },
+    )
+    # ``get_pairing`` returns None — the unpair happened
+    # after the snapshot was taken.
+    remote_build.get_pairing.return_value = None
+    controller._db.remote_build = remote_build
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.install(configuration="kitchen.yaml")
+
+    assert job.source is JobSource.LOCAL
+    assert job.source_pin_sha256 == ""
+
+
+@pytest.mark.asyncio
 async def test_install_bulk_routes_each_config_through_the_scheduler(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
