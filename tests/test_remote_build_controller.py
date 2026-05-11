@@ -51,7 +51,6 @@ from esphome_device_builder.models import (
     EventType,
     IdentityView,
     IntentResponse,
-    JobStatus,
     OffloaderRemoteBuildSettings,
     PairingSummary,
     PeerStatus,
@@ -3586,27 +3585,25 @@ async def test_run_cleanup_loop_reclaims_cold_subtree_and_skips_in_flight(
     """One cycle of ``_run_cleanup_loop`` deletes a cold subtree + leaves in-flight.
 
     Pins the controller-side body of the cleanup loop end-to-end:
-    settings load → in-flight key derivation off ``firmware._jobs``
-    → executor hand-off to :func:`sweep_remote_builds` → log on
-    non-zero deletes. Drives a single iteration by patching
+    settings load → in-flight key derivation via
+    :meth:`FirmwareController.active_remote_peer_jobs` → executor
+    hand-off to :func:`sweep_remote_builds` → log on non-zero
+    deletes. Drives a single iteration by patching
     ``asyncio.sleep`` to raise :class:`asyncio.CancelledError`
     on the second call (after the sweep cycle completes), which
     propagates out of the loop and back to the test body.
     """
     controller = _make_controller(config_dir=tmp_path)
-    # Wire a real firmware mock with two jobs: one in-flight,
-    # one terminal. The cleanup loop should keep the in-flight
-    # one's subtree.
+    # Wire the firmware mock to return one in-flight remote-peer
+    # job through the public ``active_remote_peer_jobs`` seam.
+    # The cleanup loop derives in-flight keys from that
+    # generator; a terminal / non-remote job that the firmware
+    # controller wouldn't yield from this method is implicitly
+    # tested by absence from the iterator.
     in_flight_job = MagicMock()
-    in_flight_job.status = JobStatus.RUNNING
-    in_flight_job.remote_peer = "alpha"
     in_flight_job.configuration = ".esphome/.remote_builds/alpha/in_flight/kitchen.yaml"
-    terminal_job = MagicMock()
-    terminal_job.status = JobStatus.COMPLETED
-    terminal_job.remote_peer = "alpha"
-    terminal_job.configuration = ".esphome/.remote_builds/alpha/terminal/kitchen.yaml"
     firmware = MagicMock()
-    firmware._jobs = {"a": in_flight_job, "b": terminal_job}
+    firmware.active_remote_peer_jobs = MagicMock(return_value=iter([in_flight_job]))
     controller._db.firmware = firmware
 
     # Lay down two subtrees, both past TTL. Only the
@@ -3659,8 +3656,9 @@ async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(
     raises mid-sweep, the second proceeds normally.
     """
     controller = _make_controller(config_dir=tmp_path)
-    controller._db.firmware = MagicMock()
-    controller._db.firmware._jobs = {}
+    firmware = MagicMock()
+    firmware.active_remote_peer_jobs = MagicMock(return_value=iter([]))
+    controller._db.firmware = firmware
 
     sweep_calls = 0
 

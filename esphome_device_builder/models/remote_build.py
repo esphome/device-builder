@@ -1552,6 +1552,46 @@ class RemoteBuildSettings(DataClassORJSONMixin):
     enabled: bool = False
     cleanup_ttl_seconds: int = DEFAULT_CLEANUP_TTL_SECONDS
 
+    def __post_init__(self) -> None:
+        """Coerce + clamp ``cleanup_ttl_seconds`` on load.
+
+        The WS validator on :meth:`RemoteBuildController.set_settings`
+        gates writes that come through the WS surface, but the
+        on-disk decode path (``from_dict`` →
+        ``RemoteBuildSettings(...)``) doesn't apply the same
+        ``not_bool`` / range check. A hand-edited or corrupt
+        sidecar with ``cleanup_ttl_seconds: true`` would
+        deserialise as ``1`` (bool is an int subclass), and
+        the sweep would treat anything older than 1s as cold —
+        near-immediate cache deletion. Other wrong types (string,
+        float, None) would propagate to the sweep's ``now -
+        ttl_seconds`` arithmetic and raise ``TypeError``, which
+        the controller's cleanup loop catches but logs every
+        cycle.
+
+        Both failure modes resolve to the safe default: coerce
+        non-int / bool values back to
+        :data:`DEFAULT_CLEANUP_TTL_SECONDS` and clamp the
+        result to [:data:`MIN_CLEANUP_TTL_SECONDS`,
+        :data:`MAX_CLEANUP_TTL_SECONDS`]. The ``enabled``
+        toggle is left alone — a bad cleanup TTL shouldn't
+        flip the master switch.
+
+        Doesn't reject the row (no ``ValueError``) so the
+        load path stays robust against partially-corrupt
+        sidecars; the operator's last good ``enabled`` value
+        survives even if the TTL field is broken.
+        """
+        if isinstance(self.cleanup_ttl_seconds, bool) or not isinstance(
+            self.cleanup_ttl_seconds, int
+        ):
+            self.cleanup_ttl_seconds = DEFAULT_CLEANUP_TTL_SECONDS
+            return
+        if self.cleanup_ttl_seconds < MIN_CLEANUP_TTL_SECONDS:
+            self.cleanup_ttl_seconds = MIN_CLEANUP_TTL_SECONDS
+        elif self.cleanup_ttl_seconds > MAX_CLEANUP_TTL_SECONDS:
+            self.cleanup_ttl_seconds = MAX_CLEANUP_TTL_SECONDS
+
 
 @dataclass
 class RemoteBuildSettingsView(DataClassORJSONMixin):

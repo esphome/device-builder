@@ -70,6 +70,14 @@ BUNDLE_SUFFIX = ".tar.gz"
 # stores ``.esphome/.remote_builds/...``).
 _REMOTE_BUILDS_PARTS: tuple[str, ...] = tuple(REMOTE_BUILDS_SUBDIR.as_posix().split("/"))
 
+# Number of path segments AFTER ``_REMOTE_BUILDS_PARTS`` that a
+# valid configuration carries: ``dashboard_id`` (1) +
+# ``device_name`` (2) + at least one entry inside the device
+# subtree (3 — the YAML filename the writer extracts). Anything
+# shorter is malformed; the parse returns ``None`` so callers
+# can skip it.
+_TAIL_SEGMENT_COUNT = 3
+
 
 @dataclass(frozen=True)
 class RemoteBuildPath:
@@ -131,12 +139,15 @@ def parse_from_configuration(configuration: str) -> RemoteBuildPath | None:
     """
     parts = PurePosixPath(configuration).parts
     expected = _REMOTE_BUILDS_PARTS
-    # Require root segments + dashboard_id + device_name + at
-    # least one entry under the device subtree (the YAML name).
-    # A 4-segment path (e.g. ``.esphome/.remote_builds/alpha/kitchen.yaml``)
-    # is the writer never producing the device subtree it
-    # should have; treat as malformed.
-    if len(parts) < len(expected) + 3:
+    # Layout: <expected...>/<dashboard_id>/<device_name>/<yaml>.
+    # That's three tail segments after the root prefix:
+    # dashboard_id (1), device_name (2), and at least one
+    # entry inside the device subtree (3 — the YAML filename
+    # the writer extracts). A 4-segment path like
+    # ``.esphome/.remote_builds/alpha/kitchen.yaml`` is the
+    # writer never producing the device subtree it should
+    # have; treat as malformed and return ``None``.
+    if len(parts) < len(expected) + _TAIL_SEGMENT_COUNT:
         return None
     if parts[: len(expected)] != tuple(expected):
         return None

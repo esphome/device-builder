@@ -233,3 +233,63 @@ async def test_get_job_does_not_mutate_state(
 
     assert await controller.get_jobs() == before
     controller._persist_jobs.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# active_remote_peer_jobs
+# ---------------------------------------------------------------------------
+
+
+def test_active_remote_peer_jobs_yields_only_in_flight_remote_jobs(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Only QUEUED / RUNNING jobs with non-empty ``remote_peer`` are yielded.
+
+    The 6c cleanup sweep keys off this iterator to skip
+    in-flight subtrees; other potential callers (future
+    schedulers, diagnostics surfaces) need the same shape.
+    Pin every filter branch so a future refactor that
+    inverts a condition trips here instead of in production.
+    """
+    local_queued = _job("local-queued", status=JobStatus.QUEUED)
+    remote_queued = FirmwareJob(
+        job_id="remote-queued",
+        configuration=".esphome/.remote_builds/alpha/kitchen/kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+        remote_peer="alpha",
+    )
+    remote_running = FirmwareJob(
+        job_id="remote-running",
+        configuration=".esphome/.remote_builds/alpha/bedroom/bedroom.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        remote_peer="alpha",
+    )
+    remote_completed = FirmwareJob(
+        job_id="remote-completed",
+        configuration=".esphome/.remote_builds/alpha/bath/bath.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.COMPLETED,
+        remote_peer="alpha",
+    )
+    controller = firmware_controller_factory(
+        local_queued, remote_queued, remote_running, remote_completed, with_settings=False
+    )
+
+    yielded = list(controller.active_remote_peer_jobs())
+
+    assert {job.job_id for job in yielded} == {"remote-queued", "remote-running"}
+
+
+def test_active_remote_peer_jobs_empty_when_no_remote_jobs(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """All-local jobs → empty iterator; the cleanup sweep gets an empty in-flight set."""
+    controller = firmware_controller_factory(
+        _job("local-1", status=JobStatus.QUEUED),
+        _job("local-2", status=JobStatus.RUNNING),
+        with_settings=False,
+    )
+
+    assert list(controller.active_remote_peer_jobs()) == []

@@ -57,7 +57,14 @@ from esphome_device_builder.controllers.config import (
     set_device_metadata,
 )
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import ErrorCode, Label, RemoteBuildSettings
+from esphome_device_builder.models import (
+    DEFAULT_CLEANUP_TTL_SECONDS,
+    MAX_CLEANUP_TTL_SECONDS,
+    MIN_CLEANUP_TTL_SECONDS,
+    ErrorCode,
+    Label,
+    RemoteBuildSettings,
+)
 from esphome_device_builder.models.preferences import (
     DashboardView,
     Theme,
@@ -419,6 +426,71 @@ def test_save_remote_build_settings_round_trip(tmp_path: Path) -> None:
     settings = RemoteBuildSettings(enabled=True)
     save_remote_build_settings(tmp_path, settings)
     assert load_remote_build_settings(tmp_path) == settings
+
+
+@pytest.mark.parametrize(
+    "ttl_in",
+    [
+        True,  # bool (int subclass): decodes as 1, would trigger immediate sweep.
+        "86400",  # string: comparison in sweep would raise TypeError.
+        None,
+        86400.5,  # float
+    ],
+)
+def test_remote_build_settings_post_init_coerces_bad_ttl_to_default(
+    ttl_in: object,
+) -> None:
+    """Non-int / bool ``cleanup_ttl_seconds`` falls back to default at construction.
+
+    The WS validator on ``set_settings`` rejects these, but the
+    on-disk decode path (``from_dict`` →
+    ``RemoteBuildSettings(...)``) doesn't apply the same gate.
+    A hand-edited or corrupt sidecar with
+    ``cleanup_ttl_seconds: true`` would deserialise as 1 (bool
+    is an int subclass) and trigger near-immediate cache
+    deletion. ``__post_init__`` coerces back to
+    :data:`DEFAULT_CLEANUP_TTL_SECONDS` so the sweep stays
+    safe regardless of what mashumaro produced.
+
+    Doesn't reject the row (no ``ValueError``) — the load path
+    stays robust against partially-corrupt sidecars; the
+    operator's last-good ``enabled`` value survives even if
+    the TTL field is broken.
+    """
+    settings = RemoteBuildSettings(
+        enabled=True,
+        cleanup_ttl_seconds=ttl_in,  # type: ignore[arg-type]
+    )
+    assert settings.cleanup_ttl_seconds == DEFAULT_CLEANUP_TTL_SECONDS
+    assert settings.enabled is True  # bad TTL doesn't flip the master switch
+
+
+@pytest.mark.parametrize(
+    ("ttl_in", "expected"),
+    [
+        (0, MIN_CLEANUP_TTL_SECONDS),
+        (60, MIN_CLEANUP_TTL_SECONDS),  # below MIN
+        (MAX_CLEANUP_TTL_SECONDS + 1, MAX_CLEANUP_TTL_SECONDS),
+        (-3600, MIN_CLEANUP_TTL_SECONDS),
+    ],
+)
+def test_remote_build_settings_post_init_clamps_out_of_range_ttl(
+    ttl_in: int, expected: int
+) -> None:
+    """An out-of-range int is clamped to the nearest MIN / MAX bound.
+
+    Hand-edited sidecars setting silly values (0, negative,
+    decades in seconds) don't push the sweep into pathological
+    behaviour; they land at the nearest sane bound.
+    """
+    settings = RemoteBuildSettings(cleanup_ttl_seconds=ttl_in)
+    assert settings.cleanup_ttl_seconds == expected
+
+
+def test_remote_build_settings_post_init_preserves_valid_ttl() -> None:
+    """An in-range int passes through unchanged."""
+    settings = RemoteBuildSettings(cleanup_ttl_seconds=7200)
+    assert settings.cleanup_ttl_seconds == 7200
 
 
 def test_remote_build_settings_transaction_falls_back_on_bad_data(

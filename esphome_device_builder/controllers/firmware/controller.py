@@ -17,7 +17,7 @@ import importlib
 import logging
 import os
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from operator import attrgetter
@@ -456,6 +456,31 @@ class FirmwareController:
     async def get_job(self, *, job_id: str, **kwargs: Any) -> FirmwareJob | None:
         """Get a specific job with full output."""
         return self._jobs.get(job_id)
+
+    def active_remote_peer_jobs(self) -> Iterator[FirmwareJob]:
+        """Yield every QUEUED / RUNNING job that arrived via the peer-link.
+
+        Synchronous, no-copy generator over :attr:`_jobs` for the
+        peer-link tier's lookups (the 6c cleanup sweep keys off
+        this to skip in-flight subtrees; future schedulers /
+        diagnostics surfaces should call this rather than
+        reaching into ``_jobs`` directly). The single-underscore
+        prefix on ``_jobs`` marks it as private to the firmware
+        controller; this public accessor is the load-bearing
+        seam so a future refactor (lock-wrapped jobs map,
+        QUEUED + RUNNING split into two dicts, indexed view)
+        doesn't silently break callers.
+
+        ``remote_peer`` filters to peer-link-originated jobs
+        only — :class:`FirmwareJob.remote_peer` is empty for
+        locally-submitted jobs (see :mod:`models.firmware`).
+        """
+        for job in self._jobs.values():
+            if job.status not in _ACTIVE_JOB_STATUSES:
+                continue
+            if not job.remote_peer:
+                continue
+            yield job
 
     @api_command("firmware/follow_job")
     async def follow_job(

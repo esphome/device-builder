@@ -104,7 +104,6 @@ from ...models import (
     EventType,
     IdentityView,
     IntentResponse,
-    JobStatus,
     OffloaderAlertSnapshotEntry,
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
@@ -2444,6 +2443,13 @@ class RemoteBuildController:
         sweep, unexpected exception) are logged and the loop
         continues with the next sleep — cleanup is best-effort
         hygiene, a single bad cycle shouldn't lose the loop.
+
+        Sleeps before the first cycle on purpose: receivers
+        deploy with no accumulated subtrees (6c lands ahead of
+        any production user), and the TTL is 24h, so nothing
+        is eligible for reclamation for the first 24+ hours
+        anyway. Firing on startup would just churn an empty
+        directory.
         """
         config_dir = self._db.settings.config_dir
         loop = asyncio.get_running_loop()
@@ -2459,12 +2465,14 @@ class RemoteBuildController:
                 if firmware is None:
                     continue
                 settings = await loop.run_in_executor(None, load_remote_build_settings, config_dir)
+                # ``active_remote_peer_jobs`` is the public seam
+                # on the firmware controller (status-and-remote_peer
+                # filtered); reaching directly into ``_jobs`` here
+                # would couple us to its private shape.
                 in_flight_keys = frozenset(
                     rbp
-                    for job in firmware._jobs.values()
-                    if job.status in (JobStatus.QUEUED, JobStatus.RUNNING)
-                    and job.remote_peer
-                    and (rbp := parse_from_configuration(job.configuration)) is not None
+                    for job in firmware.active_remote_peer_jobs()
+                    if (rbp := parse_from_configuration(job.configuration)) is not None
                 )
                 deleted = await loop.run_in_executor(
                     None,
