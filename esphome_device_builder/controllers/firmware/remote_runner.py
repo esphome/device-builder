@@ -454,6 +454,11 @@ async def _fetch_and_run_local_upload(
     via the cancel-aware ``_fail_locally`` when the user
     raced a Stop).
     """
+    _LOGGER.info(
+        "Remote job %s: requesting build artefacts for configuration=%r from receiver",
+        job.job_id,
+        job.configuration,
+    )
     try:
         packed = await client.download_artifacts(job_id=job.job_id)
     except (
@@ -461,10 +466,19 @@ async def _fetch_and_run_local_upload(
         SubmitJobSessionLostError,
         DownloadArtifactsError,
     ) as exc:
+        # Hint the operator at the receiver-side log for the
+        # path-level detail. The receiver logs the configuration
+        # string and (for ``build_dir_missing``) the actual file
+        # that couldn't be opened at WARNING — that's the
+        # actionable bit; the offloader-side error text only
+        # carries the structured reason code.
         _fail_locally(
             controller,
             job,
-            error=f"remote build: download_artifacts failed: {exc}",
+            error=(
+                f"remote build: download_artifacts failed: {exc} "
+                f"(check the build server's log for the missing path)"
+            ),
         )
         return
 

@@ -199,14 +199,39 @@ class ArtifactsDownloadSender:
         job_id = typed["job_id"]
 
         if session.dashboard_id in self._inflight:
+            _LOGGER.warning(
+                "download_artifacts from %s: rejecting job %s as duplicate "
+                "(another download is already streaming for this session)",
+                session.dashboard_id,
+                job_id,
+            )
             await self._send_reject(session, job_id, _REASON_DUPLICATE_DOWNLOAD)
             return
 
         firmware_job = self._find_remote_job(session.dashboard_id, job_id)
         if firmware_job is None:
+            _LOGGER.warning(
+                "download_artifacts from %s: no matching firmware job for "
+                "remote_job_id=%s (peer's submitted jobs: %s)",
+                session.dashboard_id,
+                job_id,
+                [
+                    j.remote_job_id
+                    for j in self._firmware._jobs.values()
+                    if j.remote_peer == session.dashboard_id
+                ],
+            )
             await self._send_reject(session, job_id, _REASON_UNKNOWN_JOB)
             return
         if firmware_job.status != JobStatus.COMPLETED:
+            _LOGGER.warning(
+                "download_artifacts from %s: job %s (configuration=%r) is "
+                "%s, not COMPLETED — rejecting",
+                session.dashboard_id,
+                job_id,
+                firmware_job.configuration,
+                firmware_job.status,
+            )
             await self._send_reject(session, job_id, _REASON_JOB_NOT_COMPLETED)
             return
 
@@ -217,20 +242,38 @@ class ArtifactsDownloadSender:
                 packed = await loop.run_in_executor(
                     None, pack_build_artifacts, firmware_job.configuration
                 )
-            except FileNotFoundError:
-                _LOGGER.debug(
-                    "download_artifacts from %s: build dir / idedata missing for job %s",
+            except FileNotFoundError as exc:
+                # ``FileNotFoundError`` from
+                # :func:`load_build_artifacts` carries the actual
+                # path that couldn't be opened (StorageJSON
+                # sidecar, ``firmware_bin_path`` value, or
+                # ``idedata.json``). Surface that path in the log
+                # at WARNING so operators can compare the read
+                # path against where esphome actually wrote the
+                # build artefacts — the original symptom was
+                # "Install failed" on the offloader with no
+                # actionable detail because this log lived at
+                # DEBUG. Production trips this when the receiver
+                # crashes mid-build (no sidecar written) or when
+                # the configuration string the offloader-submitted
+                # job carries doesn't match the storage path
+                # esphome uses for the compile.
+                _LOGGER.warning(
+                    "download_artifacts from %s: build artefacts missing for "
+                    "job %s (configuration=%r): %s",
                     session.dashboard_id,
                     job_id,
-                    exc_info=True,
+                    firmware_job.configuration,
+                    exc,
                 )
                 await self._send_reject(session, job_id, _REASON_BUILD_DIR_MISSING)
                 return
             except Exception:
                 _LOGGER.exception(
-                    "download_artifacts from %s: pack failed for job %s",
+                    "download_artifacts from %s: pack failed for job %s (configuration=%r)",
                     session.dashboard_id,
                     job_id,
+                    firmware_job.configuration,
                 )
                 await self._send_reject(session, job_id, _REASON_PACK_FAILED)
                 return

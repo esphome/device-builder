@@ -128,35 +128,59 @@ async def test_download_artifacts_malformed_terminates(broken_frame: dict[str, A
 
 
 @pytest.mark.asyncio
-async def test_download_artifacts_unknown_job_rejected() -> None:
-    """An unknown job_id rejects ``unknown_job`` (no terminate)."""
+async def test_download_artifacts_unknown_job_rejected(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unknown job_id rejects ``unknown_job`` (no terminate).
+
+    Receiver-side WARNING log carries the requested ``job_id``
+    plus the list of ``remote_job_id`` values the receiver does
+    have on file for this peer — keeps the failure debuggable
+    when a frontend retry sends a stale id after a restart.
+    """
     firmware = _make_firmware_with_job(remote_job_id="another")
     sender = _make_sender(firmware)
     session = _make_session()
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "missing"}
-    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    with caplog.at_level("WARNING"):
+        await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
 
     session.terminate.assert_not_awaited()
     payload = _last_app_frame(session)
     assert payload["type"] == "artifacts_end"
     assert payload["accepted"] is False
     assert payload["reason"] == "unknown_job"
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert "missing" in log_text  # requested job_id
+    assert "another" in log_text  # the receiver's known job_ids
 
 
 @pytest.mark.asyncio
-async def test_download_artifacts_job_not_completed_rejected() -> None:
-    """A job in ``RUNNING`` status rejects ``job_not_completed``."""
-    firmware = _make_firmware_with_job(status=JobStatus.RUNNING)
+async def test_download_artifacts_job_not_completed_rejected(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A job in ``RUNNING`` status rejects ``job_not_completed``.
+
+    Receiver-side WARNING log carries the configuration string
+    and the actual status so operators can see *why* the
+    receiver refused the download (still compiling vs.
+    cancelled vs. failed).
+    """
+    firmware = _make_firmware_with_job(status=JobStatus.RUNNING, configuration="kitchen.yaml")
     sender = _make_sender(firmware)
     session = _make_session()
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
-    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    with caplog.at_level("WARNING"):
+        await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
 
     payload = _last_app_frame(session)
     assert payload["accepted"] is False
     assert payload["reason"] == "job_not_completed"
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert "kitchen.yaml" in log_text
+    assert "running" in log_text.lower()
 
 
 @pytest.mark.asyncio
@@ -180,25 +204,40 @@ async def test_download_artifacts_duplicate_rejected_without_terminate(
 @pytest.mark.asyncio
 async def test_download_artifacts_build_dir_missing_rejected(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A ``FileNotFoundError`` from the packer rejects ``build_dir_missing``."""
+    """A ``FileNotFoundError`` from the packer rejects ``build_dir_missing``.
+
+    Also pins the receiver-side log: the WARNING includes the
+    configuration string and the actual missing-path text from
+    the :class:`FileNotFoundError` so operators can see *which*
+    file the receiver looked for. Without the path in the log
+    the failure surfaces on the offloader as a bare
+    ``build_dir_missing`` with no actionable detail.
+    """
 
     def _raise_missing(_configuration: str) -> Any:
-        raise FileNotFoundError("build dir gone")
+        raise FileNotFoundError("StorageJSON sidecar missing for kitchen.yaml")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
         _raise_missing,
     )
-    sender = _make_sender()
+    sender = _make_sender(_make_firmware_with_job(configuration="kitchen.yaml"))
     session = _make_session()
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
-    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    with caplog.at_level("WARNING"):
+        await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
 
     payload = _last_app_frame(session)
     assert payload["accepted"] is False
     assert payload["reason"] == "build_dir_missing"
+    # Receiver-side log carries the configuration + the
+    # FileNotFoundError detail (the actual missing path).
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert "kitchen.yaml" in log_text
+    assert "StorageJSON sidecar missing" in log_text
 
 
 @pytest.mark.asyncio
