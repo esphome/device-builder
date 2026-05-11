@@ -195,22 +195,86 @@ def _local_addresses() -> list[str]:
     return out
 
 
-def _default_hostname() -> str:
-    """
-    System mDNS hostname for the ``ServiceInfo.server`` SRV target.
+_DASHBOARD_ID_SUFFIX_CHARS = 8
+_HOSTNAME_PREFIX_MAX_CHARS = 32
+_FALLBACK_HOSTNAME_PREFIX = "dashboard"
 
-    Returns ``socket.gethostname()`` with ``.local`` appended when
-    the result has no dot. Doesn't use ``socket.getfqdn()``: on
-    macOS that resolver can return the reverse-DNS arpa form (e.g.
-    ``...ip6.arpa``) when reverse lookup fails, which is worse
-    than no hostname at all.
+
+def build_mdns_hostname(*, dashboard_id: str = "") -> str:
     """
-    raw = (socket.gethostname() or "").strip()
-    if not raw:
-        return ""
-    if "." in raw:
-        return raw
-    return f"{raw}.local"
+    Single source of truth for the dashboard's mDNS SRV target.
+
+    Returns ``{short_hostname}-{short_dashboard_id}.local`` for
+    the production path (system hostname + a stable per-install
+    identifier), with graceful degradation when either piece is
+    missing. Mirrors Home Assistant's zeroconf advertise pattern:
+    the SRV target is a per-install identifier rather than the
+    raw system hostname, so two machines named ``mac`` on the
+    same LAN advertise distinct SRV targets.
+
+    Eliminated by construction:
+
+    * **FQDN leak.** Only the leftmost label of
+      ``socket.gethostname()`` is consumed; a system FQDN like
+      ``mac.koston.org`` can't reach the wire.
+    * **Case-sensitivity drift.** Both halves lowercase, so the
+      same machine can't show up as ``Mac.local`` from one code
+      path and ``mac.local`` from another.
+    * **Hostname collisions on the LAN.** Two machines named
+      ``mac`` get distinct SRV targets via the ``dashboard_id``
+      suffix (~48 bits of entropy at
+      :data:`_DASHBOARD_ID_SUFFIX_CHARS`; collision needs ~16M
+      concurrent dashboards on one LAN).
+    * **Overlong labels.** The hostname prefix is capped at
+      :data:`_HOSTNAME_PREFIX_MAX_CHARS`, well under the RFC
+      1035 §2.3.4 63-octet per-label ceiling, so a comically
+      long system hostname can't push the SRV target past what
+      ``zeroconf`` is willing to publish.
+
+    ``dashboard_id`` is the 32-char base64url string from
+    :func:`secrets.token_urlsafe`; the helper sanitises it to a
+    strict RFC 1123 label (``[a-z0-9-]+``) and takes the first
+    :data:`_DASHBOARD_ID_SUFFIX_CHARS` characters.
+
+    Fallback shapes (in order of preference):
+
+    * Both pieces present: ``{short_hostname}-{short_id}.local``.
+    * Hostname missing / empty: ``dashboard-{short_id}.local``
+      (avoids a leading hyphen + still tags the install).
+    * ``dashboard_id`` missing / empty: ``{short_hostname}.local``
+      (pre-identity-loaded fallback; collision risk reverts to
+      "two machines with the same name" until the next restart
+      picks up an identity).
+    * Both missing: ``""`` (caller fails soft; no advertise).
+
+    Doesn't use ``socket.getfqdn()``: on macOS that resolver can
+    return the reverse-DNS arpa form (``...ip6.arpa``) when
+    reverse lookup fails, which would be worse than no hostname
+    at all.
+    """
+    raw_hostname = (socket.gethostname() or "").strip().split(".", 1)[0]
+    prefix = _sanitize_dns_label(raw_hostname)[:_HOSTNAME_PREFIX_MAX_CHARS].strip("-")
+    suffix = _sanitize_dns_label(dashboard_id)[:_DASHBOARD_ID_SUFFIX_CHARS].strip("-")
+    if prefix and suffix:
+        return f"{prefix}-{suffix}.local"
+    if suffix:
+        return f"{_FALLBACK_HOSTNAME_PREFIX}-{suffix}.local"
+    if prefix:
+        return f"{prefix}.local"
+    return ""
+
+
+def _sanitize_dns_label(raw: str) -> str:
+    """Strip *raw* to an RFC 1123 hostname label (``[a-z0-9-]``).
+
+    Lowercases, replaces underscores with hyphens, drops anything
+    else. Caller is responsible for trimming the result to the
+    63-octet per-label cap (RFC 1035 §2.3.4) and stripping any
+    boundary hyphens left by truncation.
+    """
+    return "".join(
+        c if c.isalnum() or c == "-" else "-" if c == "_" else "" for c in raw.strip().lower()
+    )
 
 
 class DashboardAdvertiser:
@@ -234,6 +298,7 @@ class DashboardAdvertiser:
         remote_build_port: int | None = None,
         name: str | None = None,
         hostname: str | None = None,
+        dashboard_id: str | None = None,
     ) -> None:
         """
         Capture the static fields used in the published ``ServiceInfo``.
@@ -242,11 +307,24 @@ class DashboardAdvertiser:
         connects to once it's chosen this advertisement from a
         browse. ``name`` defaults to the system hostname's leftmost
         label and is used as the mDNS service-instance name (the
-        bit before ``._esphomebuilder._tcp.local.``). ``hostname``
-        defaults to the system's mDNS hostname and lands in the SRV
-        record's target. Neither is duplicated in TXT — peers read
-        them off ``ServiceInfo.name`` / ``ServiceInfo.server`` for
-        free.
+        bit before ``._esphomebuilder._tcp.local.``); operators
+        name their machines with intentional case, so the friendly
+        name is *not* lowercased.
+
+        ``hostname`` lands in the SRV record's target. When
+        ``dashboard_id`` is provided (the production path) the SRV
+        target is composed as ``{short_hostname}-{short_dashboard_id}.local``
+        via :func:`_compose_mdns_hostname` for collision-free
+        per-install identification. When ``hostname`` is passed
+        explicitly it overrides that composition (tests +
+        belt-and-braces). When neither is set, falls back to
+        :func:`_default_hostname` (system hostname's leftmost
+        label, lowercased + ``.local`` appended — same
+        normalisation as a single-dashboard LAN).
+
+        Neither name nor hostname is duplicated in TXT — peers
+        read them off ``ServiceInfo.name`` / ``ServiceInfo.server``
+        for free.
 
         ``pin_sha256`` is SHA-256 of the receiver's X25519 peer-link
         public key (lowercase hex). When set, peers who browse the
@@ -266,7 +344,8 @@ class DashboardAdvertiser:
         the listener isn't bound (default-off shape).
         """
         friendly = (name or "").strip() or _default_friendly_name()
-        host = (hostname or "").strip() or _default_hostname()
+        explicit_host = (hostname or "").strip()
+        host = explicit_host or build_mdns_hostname(dashboard_id=dashboard_id or "")
         self._port = int(port)
         self._name = friendly
         self._hostname = host

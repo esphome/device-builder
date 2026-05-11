@@ -47,6 +47,7 @@ from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_h
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.auth import auth_middleware
 from .helpers.dashboard_advertise import DashboardAdvertiser
+from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware
 from .helpers.peer_link_identity import get_or_create_peer_link_identity
@@ -351,10 +352,23 @@ class DeviceBuilder:
                 "(ingress-only; port 6052 not LAN-reachable)"
             )
         else:
+            # ``dashboard_id`` makes the SRV target collision-free
+            # ({short_hostname}-{short_dashboard_id}.local) so two
+            # machines named ``mac`` on the same LAN advertise
+            # distinct targets, and the system's FQDN
+            # (``mac.koston.org``) can't leak through. Loaded
+            # synchronously off disk via the identity helper's
+            # cached read; the same value seeds the peer-link Noise
+            # handshake's identity, so it's already deterministic
+            # across restarts.
+            dashboard_identity = await self.loop.run_in_executor(
+                None, get_or_create_dashboard_identity, self.settings.config_dir
+            )
             self._dashboard_advertiser = DashboardAdvertiser(
                 port=self.settings.port,
                 server_version=server_version,
                 esphome_version=esphome_version,
+                dashboard_id=dashboard_identity.dashboard_id,
             )
             await self._dashboard_advertiser.register(zeroconf)
 
