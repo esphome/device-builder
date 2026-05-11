@@ -31,13 +31,12 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from ...helpers.api import CommandError
 from ...helpers.config_bundle import BundleBuildError, build_yaml_bundle
 from ...models import (
     EventType,
     FirmwareJob,
     JobLifecycleData,
-    JobOutputData,
-    JobProgressData,
     JobStatus,
     JobType,
     OffloaderJobOutputData,
@@ -48,8 +47,7 @@ from ..remote_build.peer_link_client import (
     SubmitJobSessionLostError,
     SubmitJobTimeoutError,
 )
-from .constants import _INFLIGHT_TRIM_KEEP, _MAX_OUTPUT_LINES_INFLIGHT
-from .helpers import _mark_job_terminal, _parse_progress, _trim_job_output
+from .helpers import _ingest_output_line, _mark_job_terminal
 
 if TYPE_CHECKING:
     from ...helpers.event_bus import Event
@@ -82,9 +80,7 @@ async def run_remote_compile_job(
         _fail_locally(
             controller,
             job,
-            error=(
-                f"remote source only supports COMPILE jobs in this phase (got {job.job_type.value})"
-            ),
+            error=f"remote source supports only COMPILE (got {job.job_type.value})",
         )
         return
 
@@ -106,23 +102,7 @@ async def run_remote_compile_job(
         data = event.data
         if data["pin_sha256"] != pin or data["job_id"] != target_job_id:
             return
-        line = data["line"]
-        job.output.append(line)
-        if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
-            _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
-        out_payload: JobOutputData = {"job_id": job.job_id, "line": line}
-        bus.fire(EventType.JOB_OUTPUT, out_payload)
-        progress = _parse_progress(line)
-        if progress is None:
-            return
-        current = job.progress or 0
-        if progress > current:
-            job.progress = progress
-            prog_payload: JobProgressData = {
-                "job_id": job.job_id,
-                "progress": progress,
-            }
-            bus.fire(EventType.JOB_PROGRESS, prog_payload)
+        _ingest_output_line(job, bus, data["line"])
 
     def _on_state(event: Event[OffloaderJobStateChangedData]) -> None:
         data = event.data
@@ -135,11 +115,20 @@ async def run_remote_compile_job(
         bus.listening([EventType.OFFLOADER_JOB_OUTPUT], _on_output),
         bus.listening([EventType.OFFLOADER_JOB_STATE_CHANGED], _on_state),
     ):
-        await _dispatch_and_drive(
-            controller=controller,
-            job=job,
-            terminal=terminal,
-        )
+        try:
+            await _dispatch_and_drive(
+                controller=controller,
+                job=job,
+                terminal=terminal,
+            )
+        except asyncio.CancelledError:
+            # Runner-task shutdown (controller stop). Mirror the
+            # local subprocess path's contract: finalise the job
+            # as CANCELLED so subscribers see a terminal event,
+            # then re-raise to let the outer runner unwind.
+            controller._finalize_cancelled(job)
+            _LOGGER.info("Remote job %s cancelled (runner shutdown)", job.job_id)
+            raise
 
 
 async def _dispatch_and_drive(
@@ -189,11 +178,11 @@ async def _dispatch_and_drive(
         client = remote_build._lookup_open_peer_link_client(
             job.source_pin_sha256, label="firmware_remote"
         )
-    except Exception as exc:  # CommandError shape — receiver gone / unpaired
+    except CommandError as exc:
         _fail_locally(
             controller,
             job,
-            error=f"remote build: receiver not reachable: {exc}",
+            error=f"remote build: receiver not reachable: {exc.message}",
         )
         return
 
@@ -245,36 +234,7 @@ async def _await_terminal(
     while not terminal.done():
         if job.job_id in controller._cancel_requested and not cancel_sent:
             cancel_sent = True
-            remote_build = controller._db.remote_build
-            if remote_build is None:
-                # Receiver controller torn down mid-run — finalise as
-                # cancelled rather than spinning forever on a future
-                # that nothing will set.
-                controller._finalize_cancelled(job)
-                return
-            try:
-                client = remote_build._lookup_open_peer_link_client(
-                    job.source_pin_sha256, label="firmware_remote_cancel"
-                )
-                await client.cancel_job(job_id=job.job_id)
-            except PeerLinkNoSessionError as exc:
-                # Session dropped before cancel could land — finalise
-                # locally so the user's Stop click doesn't hang
-                # waiting for a frame that will never arrive.
-                _LOGGER.info(
-                    "remote cancel for job %s: session gone (%s); finalising locally",
-                    job.job_id,
-                    exc,
-                )
-                controller._finalize_cancelled(job)
-                return
-            except Exception as exc:
-                _LOGGER.warning(
-                    "remote cancel for job %s failed (%s); finalising locally",
-                    job.job_id,
-                    exc,
-                )
-                controller._finalize_cancelled(job)
+            if not await _send_cancel_or_finalise(controller, job):
                 return
         await asyncio.wait([terminal], timeout=0.5)
 
@@ -305,6 +265,57 @@ async def _await_terminal(
         _mark_job_terminal(job, JobStatus.FAILED)
         failed_payload: JobLifecycleData = {"job": job}
         bus.fire(EventType.JOB_FAILED, failed_payload)
+
+
+async def _send_cancel_or_finalise(
+    controller: FirmwareController,
+    job: FirmwareJob,
+) -> bool:
+    """
+    Translate a pending local cancel into a wire ``cancel_job``.
+
+    Returns ``True`` if the cancel frame is on the wire and the
+    caller should keep waiting for the receiver's cancelled
+    terminal frame; ``False`` if the local side already
+    finalised the job (because there's no live session to
+    cancel against, or the controller was torn down). Splits
+    out from :func:`_await_terminal`'s loop so the lookup-vs-
+    send error paths each get their own ``except`` clause
+    without nesting.
+    """
+    remote_build = controller._db.remote_build
+    if remote_build is None:
+        # Receiver controller torn down mid-run — finalise as
+        # cancelled rather than spinning forever on a future
+        # that nothing will set.
+        controller._finalize_cancelled(job)
+        return False
+    try:
+        client = remote_build._lookup_open_peer_link_client(
+            job.source_pin_sha256, label="firmware_remote_cancel"
+        )
+    except CommandError as exc:
+        _LOGGER.info(
+            "remote cancel for job %s: peer-link unavailable (%s); finalising locally",
+            job.job_id,
+            exc.message,
+        )
+        controller._finalize_cancelled(job)
+        return False
+    try:
+        await client.cancel_job(job_id=job.job_id)
+    except PeerLinkNoSessionError as exc:
+        # Session dropped between lookup and send. Finalise
+        # locally so the user's Stop click doesn't hang on a
+        # frame that will never arrive.
+        _LOGGER.info(
+            "remote cancel for job %s: session gone (%s); finalising locally",
+            job.job_id,
+            exc,
+        )
+        controller._finalize_cancelled(job)
+        return False
+    return True
 
 
 def _fail_locally(

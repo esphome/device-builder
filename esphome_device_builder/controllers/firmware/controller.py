@@ -41,8 +41,6 @@ from ...models import (
     EventType,
     FirmwareJob,
     JobLifecycleData,
-    JobOutputData,
-    JobProgressData,
     JobSource,
     JobStatus,
     JobType,
@@ -51,19 +49,17 @@ from ...models import (
 from ..config import _load_metadata, metadata_transaction
 from .constants import (
     _ERROR_PATTERNS,
-    _INFLIGHT_TRIM_KEEP,
     _JOBS_KEY,
     _MAX_AUX_TERMINAL_JOBS,
-    _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_PRIMARY_TERMINAL_JOBS,
     _PRIMARY_JOB_TYPES,
 )
 from .helpers import (
     _find_esphome_cmd,
+    _ingest_output_line,
     _is_no_module_named_esphome,
     _mark_job_terminal,
     _names_touched_by_job,
-    _parse_progress,
     _trim_job_output,
     _validate_port,
     _verify_esphome_importable,
@@ -898,23 +894,6 @@ class FirmwareController:
                         has_error_in_output = True
                         return
 
-            def _check_progress(text: str) -> None:
-                progress = _parse_progress(text)
-                if progress is None:
-                    return
-                # Monotonic clamp — output sometimes flips between
-                # phases (compile reports "100%", then flash starts at
-                # "0%"). For a single coarse bar we want the highest
-                # so far so the frontend doesn't appear to regress.
-                current = job.progress or 0
-                if progress > current:
-                    job.progress = progress
-                    progress_payload: JobProgressData = {
-                        "job_id": job.job_id,
-                        "progress": progress,
-                    }
-                    self._db.bus.fire(EventType.JOB_PROGRESS, progress_payload)
-
             async with self._tracked_subprocess(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -949,28 +928,22 @@ class FirmwareController:
                 # whether to append a new line or overwrite the last
                 # one.
                 async for line in iter_lines_with_progress(proc.stdout):
-                    job.output.append(line)
-                    # Bound mid-run memory growth. Without this, a
-                    # build that streams gigabytes of stderr (chatty
-                    # external_components fetch loop, esptool stuck on
-                    # a repeating error) holds every line in memory
-                    # until the subprocess exits — only the post-
-                    # completion ``_trim_job_output`` in the
-                    # ``finally`` block ever ran. Trim down to a
-                    # smaller keep size than the trigger so the next
-                    # ``cap - keep`` appends don't each pay an O(cap)
-                    # slice copy. Concretely with the current
-                    # constants: cap=4000, keep=2000, so 2000 lines
-                    # fit between trims.
-                    if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
-                        _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
-                    output_payload: JobOutputData = {
-                        "job_id": job.job_id,
-                        "line": line,
-                    }
-                    self._db.bus.fire(EventType.JOB_OUTPUT, output_payload)
+                    # Shared with the source-routed remote runner
+                    # (``remote_runner._on_output``). The helper
+                    # buffers + trims + fires ``JOB_OUTPUT`` and
+                    # advances ``JOB_PROGRESS`` on a parseable
+                    # percentage — same per-line bookkeeping
+                    # whether the build's bytes come from this
+                    # CPU or a paired receiver. ``_check_error``
+                    # stays inline because it mutates the
+                    # nonlocal ``has_error_in_output`` /
+                    # ``saw_no_esphome_module`` flags the
+                    # post-exit handler reads; remote builds
+                    # surface a structured ``failed`` status from
+                    # the receiver instead, so the stderr scrape
+                    # only matters here.
+                    _ingest_output_line(job, self._db.bus, line)
                     _check_error(line)
-                    _check_progress(line)
 
                 exit_code = await proc.wait()
                 job.exit_code = exit_code

@@ -29,8 +29,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import remote_runner
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
+    ErrorCode,
     EventType,
     FirmwareJob,
     JobSource,
@@ -390,7 +392,10 @@ async def test_remote_compile_receiver_unreachable_fires_job_failed(
     """A missing peer-link client finalises the job as FAILED with the lookup error."""
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
-    _wire_remote_build(controller, lookup_error=RuntimeError("session not connected"))
+    _wire_remote_build(
+        controller,
+        lookup_error=CommandError(ErrorCode.PRECONDITION_FAILED, "session not connected"),
+    )
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
     job = _make_remote_job()
 
@@ -472,4 +477,47 @@ async def test_remote_compile_local_cancel_translates_to_wire_cancel_job(
 
     assert job.status == JobStatus.CANCELLED
     assert job.job_id not in controller._cancel_requested
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_compile_cancel_beats_receiver_completed(
+    firmware_controller_factory: FirmwareControllerFactory,
+    tmp_path: Path,
+    patch_bundle: AsyncMock,
+) -> None:
+    """
+    User cancel + receiver-completed race finalises as CANCELLED.
+
+    If a Stop click is registered (``_cancel_requested`` flips)
+    while the receiver is mid-build, the runner sends a wire
+    ``cancel_job`` — but the receiver may have already finished
+    and emit ``completed`` before the cancel lands. The local
+    contract (matching the local subprocess path) is that user
+    intent wins: the job is CANCELLED, not COMPLETED. Without
+    this branch the user would click Stop and still see a
+    successful install offered for the receiver's bytes — but
+    they explicitly asked to abort.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
+    job = _make_remote_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    for _ in range(4):
+        await asyncio.sleep(0)
+
+    # Register the cancel, then fire ``completed`` (instead of
+    # ``cancelled``) — the receiver finished before our cancel
+    # frame could arrive on its side.
+    controller._cancel_requested.add(job.job_id)
+    await asyncio.sleep(0.6)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.CANCELLED
+    assert captured[EventType.JOB_COMPLETED] == []
     assert len(captured[EventType.JOB_CANCELLED]) == 1
