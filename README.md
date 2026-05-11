@@ -103,6 +103,85 @@ every few minutes.
 
 </details>
 
+## Send builds to another dashboard
+
+Compiling ESPHome firmware is CPU-heavy, especially for ESP-IDF
+targets. If your dashboard runs on a low-power host (the Home
+Assistant add-on on a Raspberry Pi or HA Green, say), you can
+pair it to a beefier dashboard on the same LAN — ESPHome Desktop
+on a workstation, for example — and offload compiles there. The
+firmware bytes still install from the original dashboard; only
+the build runs elsewhere.
+
+Two roles:
+
+- **Build server** — the dashboard that lends its CPU. Surfaced
+  under **Settings → Build server**. Accepts pair requests,
+  compiles incoming jobs, returns artefacts.
+- **Send builds** — the dashboard that delegates compiles.
+  Surfaced under **Settings → Send builds**. Lists dashboards
+  the LAN discovered and the ones you've paired with.
+
+A single dashboard can play both roles at once. The Home
+Assistant add-on defaults to send-only (it doesn't accept
+inbound build jobs without opt-in — sensible default for a
+typically-shared host); ESPHome Desktop and standalone installs
+default to both roles on.
+
+### Pairing in four steps
+
+1. Start both dashboards on the same subnet (or with a working
+   mDNS reflector between subnets). Each one advertises itself
+   over mDNS as long as the receiver listener is bound.
+2. On the dashboard you want to **send** builds from, open
+   **Settings → Send builds → Known dashboards**. The list shows
+   every dashboard the LAN discovered.
+3. Find the dashboard you want to send to and click **Pair**.
+   Both dashboards now display a pairing **fingerprint** rendered
+   as a row of emoji. Compare the two fingerprints out of band —
+   they must match for the pairing to be safe to accept. (Hex
+   bytes are tucked behind a "Show details" disclosure if you
+   prefer that form, but the emoji grid is the primary
+   verification surface.)
+4. Click **Accept** on the receiving dashboard's **Pairing
+   requests** screen. The pairing persists on both sides and
+   survives restarts.
+
+After pairing, clicking Install on a device automatically routes
+through the paired receiver when it's online and idle. The
+install dialog shows a "Building on `{receiver}`" sub-line so you
+can see which side is doing the work. You can override per-install
+via the **Build locally instead** link in the install dialog, or
+disable auto-routing entirely from **Settings → Send builds →
+Auto-route installs to remote build**.
+
+### Manual entry (no mDNS)
+
+If the dashboards are on different subnets and your LAN has no
+mDNS reflector, type the receiver's hostname and port directly
+into the field at the bottom of **Known dashboards**. The
+peer-link uses plain TCP on port 6055 by default; the pairing
+flow runs identically to the discovered-dashboard case from there.
+
+### Known limitations
+
+Remote build works end-to-end for OTA installs over Wi-Fi or
+Ethernet across every chip family ESPHome's OTA component
+supports (ESP32, ESP8266, RP2040 / RP2350, the LibreTiny family
+— BK72xx, RTL87xx, LN882x — and the nRF52 line). Open
+follow-ups tracked separately:
+
+- Serial installs (USB-attached devices) don't route through a
+  paired receiver yet — the runner's local flash step expects a
+  single-image upload, but a wired flash needs the full
+  bootloader / partitions / firmware set stitched at their own
+  offsets. See [#570](https://github.com/esphome/device-builder/issues/570).
+- A toggle to allow major-version mismatches between paired
+  dashboards is planned but not shipped. Pairings whose receiver
+  runs a different ESPHome major version than the sender still
+  build today (no enforcement gate yet); that gate lands together
+  with the toggle. See [#607](https://github.com/esphome/device-builder/issues/607).
+
 ## Roadmap
 
 - ✅ Standalone backend with WS-first API, persistent compile queue, mDNS device discovery
@@ -127,6 +206,9 @@ every few minutes.
 
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — controllers, event bus,
   firmware queue, catalog sync, deployment.
+- **[docs/ARCHITECTURE.md § Remote build](docs/ARCHITECTURE.md#remote-build)** —
+  internals of the pair flow, peer-link transport, and build scheduler
+  behind the "Send builds" feature above.
 - **[docs/API.md](docs/API.md)** — every WebSocket command, request/response
   shapes, event types.
 - **[esphome_device_builder/definitions/README.md](esphome_device_builder/definitions/README.md)** —
