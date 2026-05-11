@@ -80,16 +80,27 @@ toggle in the official ESPHome container and Home Assistant add-on.
 
   Existing modules over 800 lines (audit `wc -l` periodically;
   the worst offender at the time of writing was 5176 lines) are
-  grandfathered: opportunistic refactors are welcome, but a
-  drive-by split inside an unrelated bugfix PR is scope creep.
-  The hard rule is: **split first, then change**. If a planned
-  bugfix or feature would push a module over 800 lines, land
-  the split as its own behavior-free refactor PR first, then
-  layer the change on top in a follow-up PR. That keeps each
-  PR reviewable as one concern: the refactor PR diff is a pure
-  move, the bugfix PR diff is the actual change. A PR that
-  touches a module *already over* 800 lines should not make it
-  worse. New top-level modules start under the cap.
+  grandfathered. The split rule is scoped to invasive changes:
+
+  * **Small bugfix headed for a patch release**: ship the fix,
+    skip the split. Blocking a few-line patch on a 5000-line
+    refactor would delay releases and force the refactor under
+    bugfix pressure (the wrong context for an invasive
+    behavior-free move). The cap is a soft cap; readability
+    isn't worth a delayed patch.
+  * **Invasive change** (new feature, significant refactor,
+    structural touch): **split first**. Land the split as a
+    behavior-free refactor PR; then layer the actual change on
+    top in a follow-up PR. Each PR is reviewable as one
+    concern: the refactor diff is a pure move; the feature
+    diff is the actual change.
+
+  A drive-by split inside an unrelated bugfix PR is scope creep
+  regardless. Opportunistic refactor PRs targeting the largest
+  offenders are welcome and should land as their own PRs.
+
+  A PR that touches a module *already over* 800 lines should
+  not make it worse. New top-level modules start under the cap.
 
 ## Commit / PR conventions
 
