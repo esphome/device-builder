@@ -117,6 +117,53 @@ class RemoteBuildPath:
             / f"{self.device_name}{BUNDLE_SUFFIX}"
         )
 
+    def data_dir(self, config_dir: Path) -> Path:
+        """Return the ``ESPHOME_DATA_DIR`` for this per-build compile.
+
+        The receiver-side compile subprocess for a remote-build
+        job runs with ``ESPHOME_DATA_DIR`` pinned to this path so
+        :attr:`esphome.core.CORE.data_dir` (and therefore
+        ``storage_path()`` / ``build_path`` / the idedata cache
+        directory) lands under the per-build subtree —
+        independent of the dashboard process's data_dir, which
+        differs across deployment modes (default /
+        HA-addon / ``ESPHOME_DATA_DIR`` override).
+
+        Why pin per-build rather than rely on esphome's default
+        ``relative_config_path(".esphome")`` rule:
+
+        * In HA-addon mode the dashboard sets
+          ``ESPHOME_DATA_DIR=/data``; the subprocess inherits
+          that and esphome writes all per-config artefacts to
+          ``/data/storage/<basename>.json`` regardless of where
+          the YAML lives. Two paired offloaders submitting the
+          same device name collide on a single sidecar / build
+          directory — silently mixed builds, possibly delivering
+          one offloader's bytes to the other's device.
+        * In default mode esphome's rule incidentally isolates
+          remote builds (the YAML lives nested, so the rule
+          produces a per-build ``.esphome`` directory inside the
+          subtree), but the dashboard's read path goes through
+          :func:`esphome.storage_json.ext_storage_path` against
+          its own ``CORE.data_dir`` (one level higher), so the
+          download-time read silently misses the per-build write
+          and rejects ``build_dir_missing``.
+
+        Setting :attr:`ESPHOME_DATA_DIR` to the subtree itself
+        keeps the entire per-build state (storage, build, idedata,
+        PlatformIO caches in ``.platformio/``) under one
+        ``(dashboard_id, device_name)`` key. The 6c TTL sweep that
+        walks :meth:`subtree` then naturally reclaims everything
+        in one ``shutil.rmtree`` when the pairing goes cold.
+
+        The same value is what
+        :func:`helpers.build_artifacts.load_build_artifacts` uses
+        on the read side: derive the data_dir back from the
+        configuration string via :func:`parse_from_configuration`,
+        then call this method.
+        """
+        return self.subtree(config_dir)
+
 
 def parse_from_configuration(configuration: str) -> RemoteBuildPath | None:
     """Recover the :class:`RemoteBuildPath` key from *configuration*, or ``None``.

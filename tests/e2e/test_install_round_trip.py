@@ -64,6 +64,9 @@ from esphome_device_builder.helpers.build_scheduler import (
     BuildPath,
     pick_build_path,
 )
+from esphome_device_builder.helpers.remote_build_layout import (
+    parse_from_configuration as parse_remote_build_path,
+)
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
@@ -164,21 +167,28 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
 def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dict[str, bytes]:
     """Lay down a real StorageJSON sidecar + idedata.json + per-image binaries.
 
-    Mirror of ``test_download_artifacts._write_build_artifacts_on_disk``,
-    but parameterised on *configuration* so the StorageJSON
-    sidecar lands at exactly the path
-    :func:`load_build_artifacts` will read for the
-    receiver-recorded job — which submit_job sets to the
-    relative path under ``.esphome/.remote_builds/<dashboard_id>/<device>/``.
-    Production would have the real build pipeline write these
+    Models the on-disk layout the receiver-side compile
+    subprocess produces under the 7a-5 per-build isolation:
+    ``ESPHOME_DATA_DIR`` is pinned to
+    ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/<device>/``
+    so esphome writes storage / idedata / build under that
+    one ``(dashboard_id, device)``-keyed subtree. Production
+    has the real ``esphome compile`` invocation produce these
     files there; the e2e variant short-circuits the build.
 
     The autouse ``_core_config_path_in_tmp`` fixture pins
-    ``CORE.data_dir`` to ``tmp_path / .esphome``; the
-    StorageJSON path is therefore
-    ``tmp_path / .esphome / storage / <configuration>.json``.
+    ``CORE.config_path`` to a sentinel inside *tmp_path*, so
+    :func:`helpers.build_artifacts._resolve_data_dir` resolves
+    a remote-build configuration to the per-build subtree
+    under ``tmp_path``. Mirror that exactly here.
     """
-    build_dir = tmp_path / "build"
+    remote_build_path = parse_remote_build_path(configuration)
+    assert remote_build_path is not None, (
+        f"configuration {configuration!r} must be a remote-build path; "
+        "the helper is e2e-specific and not meant for bare-basename inputs"
+    )
+    data_dir = remote_build_path.data_dir(tmp_path)
+    build_dir = data_dir / "build" / remote_build_path.device_name
     build_dir.mkdir(parents=True, exist_ok=True)
     images: dict[str, bytes] = {
         "firmware.bin": b"firmware-bin-bytes",
@@ -191,24 +201,24 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
         path.write_bytes(payload)
         image_paths[name] = path
 
-    # ``write_storage_json`` lays down
-    # ``CORE.data_dir/storage/<configuration>.json``. A
-    # submit_job-derived configuration is a relative path with
-    # segments like ``.esphome/.remote_builds/<id>/kitchen/kitchen.yaml``,
-    # so the sidecar lands under several intermediate dirs that
-    # the helper doesn't create. Ensure them here so the
-    # ``.write_text`` inside ``write_storage_json`` succeeds.
-    sidecar_path = tmp_path / ".esphome" / "storage" / f"{configuration}.json"
-    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+    # The receiver-side compile writes
+    # ``<data_dir>/storage/<basename>.json`` (esphome's
+    # ``storage_path()`` keys on ``CORE.config_filename`` — the
+    # YAML's basename — and ``CORE.data_dir`` resolves to the
+    # ``ESPHOME_DATA_DIR`` we pinned). The shared helper carries
+    # the full schema; pass ``data_dir`` so the sidecar lands in
+    # the per-build subtree.
     write_storage_json(
         tmp_path,
         configuration,
+        data_dir=data_dir,
+        build_path=build_dir,
         firmware_bin_path=image_paths["firmware.bin"],
         overrides={"target_platform": "esp32"},
     )
 
     stem = Path(configuration).stem
-    idedata_dir = tmp_path / ".esphome" / "idedata"
+    idedata_dir = data_dir / "idedata"
     idedata_dir.mkdir(parents=True, exist_ok=True)
     idedata = {
         "extra": {

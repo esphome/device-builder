@@ -34,6 +34,7 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildPath, pick_build_path
 from ...helpers.event_bus import StreamControls, stream_events
 from ...helpers.process import terminate_subtree_with_grace
+from ...helpers.remote_build_layout import parse_from_configuration as parse_remote_build_path
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import (
     TERMINAL_JOB_EVENTS,
@@ -966,12 +967,7 @@ class FirmwareController:
             cmd = self._build_command(job.job_type, config_path, job.port, cache_args, job.new_name)
             _LOGGER.debug("Running: %s", " ".join(cmd))
 
-            # Force ANSI colour through even when stdout isn't a TTY.
-            # Shared with the source-routed remote runner's local
-            # upload step (7a-3) so output streams look identical
-            # regardless of which CPU produced the bytes — see
-            # :data:`ESPHOME_SUBPROCESS_ENV` for the rationale.
-            env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
+            env = self._compose_subprocess_env(job)
             has_error_in_output = False
             # Captured at append time because the in-flight trim can
             # elide the offending line before the post-exit handler
@@ -1412,6 +1408,49 @@ class FirmwareController:
             raise ValueError(msg)
 
         _LOGGER.debug("Chip verified: %s on %s", detected, job.port)
+
+    def _compose_subprocess_env(self, job: FirmwareJob) -> dict[str, str]:
+        """Return the env dict for *job*'s ``esphome`` subprocess.
+
+        Layers, in order:
+
+        1. ``os.environ`` (inherits the dashboard's deployment-mode
+           context: ``ESPHOME_DATA_DIR`` on the HA addon, etc.).
+        2. :data:`ESPHOME_SUBPROCESS_ENV` (force ANSI colour /
+           unbuffered output regardless of TTY — see the constant's
+           docstring for the rationale).
+        3. For a receiver-side remote-build job (configuration
+           parses through
+           :func:`helpers.remote_build_layout.parse_from_configuration`
+           — i.e. the YAML lives under
+           ``.esphome/.remote_builds/<dashboard_id>/<device>/``):
+           pin ``ESPHOME_DATA_DIR`` to the per-build subtree so
+           every per-config artefact (storage sidecar, idedata
+           cache, build directory, PlatformIO project) lands under
+           one ``(dashboard_id, device)``-keyed directory.
+
+        Without step 3 the subprocess inherits the dashboard's
+        ``CORE.data_dir`` (``<config_dir>/.esphome`` in default
+        mode, ``/data`` in HA-addon mode) and the download-time
+        reader looks at a path the subprocess didn't write to —
+        silent ``build_dir_missing`` rejects on every paired
+        offloader's ``firmware/install``. The writer-side env
+        override and the reader-side
+        :func:`helpers.build_artifacts._resolve_data_dir` resolve
+        to the same path because both route the configuration
+        through the layout helper. The 6c TTL sweep walks
+        :meth:`RemoteBuildPath.subtree` so the whole per-build
+        state reclaims in one ``shutil.rmtree``.
+
+        Factored out of :meth:`_execute_job` so the receiver-side
+        env override is unit-testable without standing up a real
+        subprocess.
+        """
+        env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
+        remote_build_path = parse_remote_build_path(job.configuration)
+        if remote_build_path is not None:
+            env["ESPHOME_DATA_DIR"] = str(remote_build_path.data_dir(self._db.settings.config_dir))
+        return env
 
     def _build_command(
         self,
