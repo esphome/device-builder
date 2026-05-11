@@ -239,3 +239,30 @@ def test_init_ws_app_called_in_create_app() -> None:
     """
     source = inspect.getsource(DeviceBuilder.create_app)
     assert "init_ws_app(app)" in source
+
+
+def test_init_ws_app_is_idempotent() -> None:
+    """A second call against the same app keeps the existing set and listener.
+
+    If the second call overwrote ``app[WEBSOCKETS_KEY]``, any WS
+    registered against the first call's WeakSet would no longer
+    be reachable from ``close_active_websockets`` on shutdown,
+    silently reintroducing the slow-shutdown symptom. If it
+    re-appended ``close_active_websockets`` to ``on_shutdown``,
+    the closer would fire twice. Pin both invariants so a
+    regression can't slip past review.
+    """
+    app = web.Application()
+    init_ws_app(app)
+    first_weakset = app[WEBSOCKETS_KEY]
+    first_listener_count = sum(
+        1 for listener in app.on_shutdown if listener is close_active_websockets
+    )
+
+    init_ws_app(app)
+
+    assert app[WEBSOCKETS_KEY] is first_weakset
+    second_listener_count = sum(
+        1 for listener in app.on_shutdown if listener is close_active_websockets
+    )
+    assert second_listener_count == first_listener_count == 1

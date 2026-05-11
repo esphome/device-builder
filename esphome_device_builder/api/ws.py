@@ -87,15 +87,18 @@ def init_ws_app(app: web.Application) -> None:
       WS with ``GOING_AWAY``. Without it, an idle client pins
       shutdown for the full ``shutdown_timeout`` window.
 
-    Idempotent: re-seeding the key replaces the WeakSet (any
-    in-flight WS that's still alive holds its own reference and
-    survives the swap, but new connections register against the
-    fresh set); appending the listener a second time would
-    double-close but is cheap. Callers should call this exactly
-    once per app, immediately after construction.
+    Idempotent: a second call against the same app keeps the
+    existing WeakSet so live WSes registered against the first
+    call's set stay reachable from :func:`close_active_websockets`
+    on shutdown, and skips re-appending the listener so the closer
+    fires exactly once. A regression that orphaned the old set or
+    double-fired the closer would silently leak live WSes past
+    shutdown, so both branches matter.
     """
-    app[WEBSOCKETS_KEY] = weakref.WeakSet()
-    app.on_shutdown.append(close_active_websockets)
+    if WEBSOCKETS_KEY not in app:
+        app[WEBSOCKETS_KEY] = weakref.WeakSet()
+    if close_active_websockets not in app.on_shutdown:
+        app.on_shutdown.append(close_active_websockets)
 
 
 class WebSocketClient:
