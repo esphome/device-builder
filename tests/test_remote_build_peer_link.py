@@ -1688,6 +1688,41 @@ async def test_register_peer_link_session_swallows_snapshot_exception(tmp_path: 
     assert controller._peer_link_sessions["alpha"] is session
 
 
+@pytest.mark.asyncio
+async def test_register_peer_link_session_swallows_send_app_frame_exception(
+    tmp_path: Path,
+) -> None:
+    """A ``send_app_frame`` raise inside the background task is logged, not propagated.
+
+    ``send_app_frame`` already swallows the common transport /
+    encrypt / serialise failures and returns ``False``; the
+    inner ``except Exception`` in :meth:`_send_initial_queue_status`
+    is the catch-all for an unexpected raise (mock contract
+    drift, future code path that raises before the inner gate).
+    Pins that an unhandled raise from the send doesn't leak into
+    the background task's exception handler — the offloader
+    catches up on the next queue transition instead.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    controller._db.firmware = MagicMock()
+    controller._db.firmware.queue_status_snapshot = MagicMock(return_value=(True, False, 0))
+
+    session = MagicMock(spec=PeerLinkSession)
+    session.dashboard_id = "alpha"
+    session.send_app_frame = AsyncMock(side_effect=RuntimeError("boom"))
+
+    await controller.register_peer_link_session(session)
+    # Drain the background task; the inner swallow must keep
+    # the raise from surfacing as an unhandled task exception.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    session.send_app_frame.assert_awaited_once()
+    # Session still registered — the failed push doesn't roll it back.
+    assert controller._peer_link_sessions["alpha"] is session
+
+
 def test_unregister_peer_link_session_no_op_when_replaced(tmp_path: Path) -> None:
     """Unregistering a session that has already been replaced doesn't evict the new one."""
     controller = _make_controller(config_dir=tmp_path)
