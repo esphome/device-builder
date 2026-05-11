@@ -375,6 +375,18 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
     state_changes = capture_events(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
+    # Snapshot the OPENED counts AFTER the initial pair-up but
+    # BEFORE driving submit_job → fan-out → download_artifacts.
+    # The point of the assertion at the end of this test is to
+    # prove all three flows ran on the *same* Noise session that
+    # was open here, not on a re-opened one — :class:`PeerLinkClient`
+    # auto-reconnects on transport drops, and a regression that
+    # closes the session between message types would otherwise
+    # silently get a fresh session for download_artifacts.
+    opened_at_start = (
+        len(paired_instances.offloader_opened),
+        len(paired_instances.receiver_opened),
+    )
 
     # 1. submit_job with a real bundle.
     handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
@@ -463,3 +475,16 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
     for img in response_images:
         assert base64.b64decode(img["data_b64"]) == images[img["name"]]
     assert result["total_bytes"] == sum(int(img["size"]) for img in response_images)
+
+    # Pin "same session" — no CLOSED events fired and no
+    # additional OPENED events landed past the pre-test snapshot.
+    # PeerLinkClient auto-reconnects on drops, so a regression
+    # that broke session liveness between message types could
+    # otherwise close + re-open transparently and let
+    # download_artifacts succeed on the second session; the
+    # test's "all three flows on one session" claim would still
+    # appear to hold.
+    assert len(paired_instances.offloader_closed) == 0
+    assert len(paired_instances.receiver_closed) == 0
+    assert len(paired_instances.offloader_opened) == opened_at_start[0]
+    assert len(paired_instances.receiver_opened) == opened_at_start[1]
