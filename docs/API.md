@@ -156,7 +156,7 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 - Queued jobs flip to `cancelled` immediately.
 - Running jobs receive SIGTERM, with SIGKILL escalation after a 3 s grace period. The job's status becomes `cancelled` (not `failed`) and `JOB_CANCELLED` fires.
 
-**Progress**: `FirmwareJob.progress` is an `int | null` 0–100 latched from the highest percentage seen in `[ 17%] Compiling …` (PlatformIO) or `Writing at 0x… (45 %)` (esptool) lines. `null` means the tooling hasn't emitted a percentage yet — most early compile output is opaque. The value is monotonically non-decreasing within a job so the UI doesn't appear to regress between phases.
+**Progress**: `FirmwareJob.progress` is an `int | null` 0–100 latched from the highest percentage seen in `[ 17%] Compiling …` (PlatformIO) or `Writing at 0x… (45 %)` (esptool) lines. `null` means the tooling hasn't emitted a percentage yet — most early compile output is opaque. The value is monotonically non-decreasing *within a phase*; at known phase seams (REMOTE install's compile → upload boundary) the runner explicitly resets to 0 and fires `job_progress{progress: 0}` so the next phase's percents aren't silently clamped against the previous phase's peak. Subscribers should render the bar from the latest event rather than asserting non-decreasing progress.
 
 **Job events** (broadcast to all subscribed clients):
 - `job_queued`, `job_started`, `job_output`, `job_progress`, `job_completed`, `job_failed`, `job_cancelled`

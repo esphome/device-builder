@@ -94,7 +94,12 @@ class FirmwareJob(DataClassORJSONMixin):
     # ``esphome rename`` CLI. Empty for every other job type.
     new_name: str = ""
     # Coarse progress estimate parsed from PlatformIO/esptool output
-    # (0-100, monotonically non-decreasing while the job runs).
+    # (0-100). Monotonically non-decreasing *within a phase* — the
+    # streaming ingest only latches a higher parsed percent. At
+    # known phase seams (REMOTE install's compile → upload boundary
+    # in :func:`controllers.firmware.remote_runner._fetch_and_run_local_upload`)
+    # the runner explicitly resets to 0 so subsequent phase percents
+    # aren't silently clamped against the previous phase's peak.
     # ``None`` when the underlying tooling hasn't emitted a percentage
     # yet -- most compile output is opaque, but the heavy phases (PIO
     # build, esptool flash) do emit percentages we can latch onto.
@@ -243,10 +248,16 @@ class JobProgressData(TypedDict):
     Payload for ``EventType.JOB_PROGRESS``.
 
     Coarse 0-100 progress estimate parsed from PlatformIO /
-    esptool output. ``progress`` is monotonically non-decreasing
-    while the job runs (the runner only fires when the parsed
-    percentage advances). The dashboard renders this as a
-    progress bar in the firmware-tasks panel.
+    esptool output. The streaming ingest only fires this event
+    when the parsed percent advances, so the gauge climbs
+    monotonically *within a phase*. At known phase seams
+    (REMOTE install's compile → upload boundary —
+    :func:`controllers.firmware.remote_runner._fetch_and_run_local_upload`)
+    the runner explicitly fires a ``progress=0`` reset so the
+    next phase's percents don't get clamped against the
+    previous phase's peak. Subscribers should render the bar
+    from the latest event rather than asserting non-decreasing
+    progress.
     """
 
     job_id: str
