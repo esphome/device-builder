@@ -110,7 +110,20 @@ def _on_service_state_change(
     )
 
 
-async def _run(argv: list[str]) -> None:
+def _build_parser() -> argparse.ArgumentParser:
+    """Construct the CLI argument parser.
+
+    Factored out of :func:`main` so the construction site is
+    callable from tests without the rest of the bootstrap, and
+    so :func:`_run` can stay free of filesystem-touching work.
+    Python 3.14's :class:`argparse.ArgumentParser` constructor
+    calls :func:`gettext.gettext`, which does an ``os.stat``
+    under the hood; running that inside an asyncio test
+    triggers blockbuster's "no blocking calls on the event
+    loop" guard. Keeping argparse out of :func:`_run` means the
+    CLI's async body is pure orchestration and the test stays
+    quiet on every Python version.
+    """
     parser = argparse.ArgumentParser(
         "esphome-device-builder-discover",
         description=(
@@ -125,13 +138,18 @@ async def _run(argv: list[str]) -> None:
         action="store_true",
         help="Enable DEBUG-level logging (including zeroconf's own).",
     )
-    args = parser.parse_args(argv[1:])
+    return parser
 
-    logging.basicConfig(
-        format="%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s",
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+
+async def _run(args: argparse.Namespace) -> None:
+    """Orchestrate the browse against pre-parsed *args*.
+
+    Async body deliberately doesn't do any filesystem-touching
+    work (no argparse construction, no logging.basicConfig with
+    a file handler) so blockbuster's event-loop guard stays
+    quiet under test. The caller in :func:`main` resolves all
+    of that synchronously before entering the loop.
+    """
     if args.verbose:
         logging.getLogger("zeroconf").setLevel(logging.DEBUG)
 
@@ -152,9 +170,23 @@ async def _run(argv: list[str]) -> None:
 
 
 def main() -> None:
-    """CLI entry point."""
+    """CLI entry point.
+
+    All filesystem-touching bootstrap (argparse construction,
+    ``logging.basicConfig``) runs synchronously here, before the
+    asyncio loop starts. :func:`_run` is then a pure async
+    orchestration coroutine — keeps Python 3.14's blockbuster
+    suite quiet (its argparse constructor calls ``os.stat`` via
+    gettext, which would otherwise trip the event-loop guard).
+    """
+    args = _build_parser().parse_args(sys.argv[1:])
+    logging.basicConfig(
+        format="%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s",
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(_run(sys.argv))
+        asyncio.run(_run(args))
 
 
 if __name__ == "__main__":  # pragma: no cover

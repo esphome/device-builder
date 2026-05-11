@@ -16,6 +16,7 @@ pinning:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -26,6 +27,7 @@ from zeroconf import IPVersion, ServiceStateChange
 from esphome_device_builder.discover import (
     _COLUMN_NAMES,
     _UNKNOWN,
+    _build_parser,
     _decode,
     _on_service_state_change,
     _run,
@@ -171,7 +173,7 @@ async def test_run_prints_header_then_awaits_then_cleans_up(
             return_value=fake_browser,
         ) as browser_ctor,
     ):
-        runner = asyncio.create_task(_run(["esphome-device-builder-discover"]))
+        runner = asyncio.create_task(_run(argparse.Namespace(verbose=False)))
         # One loop turn lets ``_run`` print the header and reach
         # the ``asyncio.Event().wait()`` await. ``sleep(0)`` is
         # enough because ``AsyncZeroconf()`` / ``AsyncServiceBrowser()``
@@ -222,7 +224,7 @@ async def test_run_verbose_flag_enables_debug_logging() -> None:
         patch("esphome_device_builder.discover.AsyncZeroconf", return_value=fake_aiozc),
         patch("esphome_device_builder.discover.AsyncServiceBrowser", return_value=fake_browser),
     ):
-        runner = asyncio.create_task(_run(["esphome-device-builder-discover", "-v"]))
+        runner = asyncio.create_task(_run(argparse.Namespace(verbose=True)))
         await asyncio.sleep(0)
         runner.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -239,9 +241,15 @@ def test_main_suppresses_keyboard_interrupt() -> None:
     browse. Without the suppression, the shell would see a
     traceback on every clean exit.
     """
-    with patch(
-        "esphome_device_builder.discover.asyncio.run",
-        side_effect=KeyboardInterrupt,
+    with (
+        patch(
+            "esphome_device_builder.discover.sys.argv",
+            ["esphome-device-builder-discover"],
+        ),
+        patch(
+            "esphome_device_builder.discover.asyncio.run",
+            side_effect=KeyboardInterrupt,
+        ),
     ):
         # Doesn't raise — the ``contextlib.suppress`` swallows it.
         main()
@@ -255,6 +263,28 @@ def test_main_runs_to_completion_when_inner_returns() -> None:
     does, but the contract is that ``main`` doesn't add error
     paths beyond the Ctrl-C suppression).
     """
-    with patch("esphome_device_builder.discover.asyncio.run", return_value=None) as mock_run:
+    with (
+        patch(
+            "esphome_device_builder.discover.sys.argv",
+            ["esphome-device-builder-discover"],
+        ),
+        patch("esphome_device_builder.discover.asyncio.run", return_value=None) as mock_run,
+    ):
         main()
     mock_run.assert_called_once()
+
+
+def test_build_parser_accepts_verbose_flag() -> None:
+    """The CLI parser carries the documented ``-v`` / ``--verbose`` flag.
+
+    Pin the argparse surface — a future copy / refactor that
+    drops the flag without updating callers would silently
+    stop honouring DEBUG-log requests.
+    """
+    parser = _build_parser()
+    args = parser.parse_args(["-v"])
+    assert args.verbose is True
+    long_args = parser.parse_args(["--verbose"])
+    assert long_args.verbose is True
+    default_args = parser.parse_args([])
+    assert default_args.verbose is False
