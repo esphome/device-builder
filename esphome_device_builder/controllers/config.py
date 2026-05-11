@@ -614,24 +614,45 @@ def save_preferences(config_dir: Path, prefs: UserPreferences) -> None:
         data[_PREFS_KEY] = prefs.to_dict()
 
 
+_REMOTE_BUILD_FAIL_SAFE = RemoteBuildSettings(enabled=False)
+
+
 def _settings_from_raw(raw: Any) -> RemoteBuildSettings:
     """
-    Decode a ``_remote_build`` blob, falling back to defaults on shape mismatch.
+    Decode a ``_remote_build`` blob, failing safe on shape mismatch.
 
-    A wholly malformed blob resets to defaults loudly so a
-    schema break is visible at startup rather than silently
-    producing wrong state. Legacy ``tokens`` / ``manual_hosts`` /
-    ``peers`` entries on older ``.device-builder.json`` files are
-    silently dropped — mashumaro's ``DataClassORJSONMixin``
-    ignores unknown keys by default. The ``tokens`` field went
-    with the dormant bearer machinery (phase 4a-r2);
+    With the default ``RemoteBuildSettings.enabled=True``, a
+    malformed blob can no longer silently fall through to
+    "defaults" — that path would enable the listener on a
+    corrupted sidecar without any operator opt-in. Instead:
+
+    * A non-dict raw value (None / list / scalar from a hand-
+      edit or partial-write) returns ``enabled=False``.
+    * A dict that fails ``from_dict`` decode (schema break,
+      type-incompatible value on a known field) returns
+      ``enabled=False``.
+
+    Both paths log a warning at the call site so the operator
+    can spot the corrupted sidecar.
+
+    Legacy ``tokens`` / ``manual_hosts`` / ``peers`` entries
+    on older ``.device-builder.json`` files are silently
+    dropped — mashumaro's ``DataClassORJSONMixin`` ignores
+    unknown keys by default. The ``tokens`` field went with
+    the dormant bearer machinery (phase 4a-r2);
     ``manual_hosts`` was removed once the pair dialog started
     typing hostnames straight into ``request_pair``; ``peers``
     moved to its own per-file ``Store`` at
     ``.receiver_peers.json``.
     """
     if not isinstance(raw, dict):
-        return RemoteBuildSettings()
+        _LOGGER.warning(
+            "Malformed ``_remote_build`` block in metadata "
+            "(expected dict, got %s); failing safe to enabled=False. "
+            "Fix or remove the block to recover default behaviour.",
+            type(raw).__name__,
+        )
+        return _REMOTE_BUILD_FAIL_SAFE
     # Drop the legacy ``tokens`` key explicitly so a corrupt
     # token row in an older sidecar can't crash the whole
     # ``from_dict`` decode of an otherwise-valid blob.
@@ -639,7 +660,12 @@ def _settings_from_raw(raw: Any) -> RemoteBuildSettings:
     try:
         return RemoteBuildSettings.from_dict(cleaned)
     except Exception:
-        return RemoteBuildSettings()
+        _LOGGER.exception(
+            "Failed to decode ``_remote_build`` block in metadata; "
+            "failing safe to enabled=False. Fix or remove the block "
+            "to recover default behaviour."
+        )
+        return _REMOTE_BUILD_FAIL_SAFE
 
 
 def load_remote_build_settings(config_dir: Path) -> RemoteBuildSettings:
@@ -648,17 +674,24 @@ def load_remote_build_settings(config_dir: Path) -> RemoteBuildSettings:
 
     Returns defaults (``RemoteBuildSettings()``, i.e.
     ``enabled=True``) when the metadata file is missing or the
-    ``_remote_build`` key isn't present. A wholly malformed blob
-    falls back to defaults rather than crashing dashboard startup.
+    ``_remote_build`` key isn't present (fresh install). A
+    present-but-malformed block fails safe to
+    ``enabled=False`` rather than silently inheriting the
+    permissive default — see :func:`_settings_from_raw` for
+    the corruption-path rationale.
 
     HA-addon callers that need to suppress the auto-bind on a
     fresh install should pair this with
     :func:`has_remote_build_settings_persisted` and gate
-    accordingly — the load function returns the data dataclass
+    accordingly — the load function returns the dataclass
     semantically; the deployment-mode rule lives at the bind
-    site so the toggle's "operator opted in" signal isn't lost.
+    site so the toggle's "operator opted in" signal isn't
+    lost.
     """
-    return _settings_from_raw(_load_metadata(config_dir).get(_REMOTE_BUILD_KEY, {}))
+    metadata = _load_metadata(config_dir)
+    if _REMOTE_BUILD_KEY not in metadata:
+        return RemoteBuildSettings()
+    return _settings_from_raw(metadata[_REMOTE_BUILD_KEY])
 
 
 def has_remote_build_settings_persisted(config_dir: Path) -> bool:
@@ -674,12 +707,17 @@ def has_remote_build_settings_persisted(config_dir: Path) -> bool:
     toggle in Settings still gets the receiver bound regardless
     of deployment mode.
 
-    Implementation: ``set_settings`` writes a full
-    ``RemoteBuildSettings.to_dict()`` blob, so presence of the
-    key is the load-bearing signal — even a write that lands
-    on the dataclass defaults still flips this to ``True``.
+    The block must also have the expected on-disk shape (a
+    dict). A malformed ``_remote_build`` value (list, scalar,
+    null) doesn't count as opt-in — ``set_settings`` writes
+    ``RemoteBuildSettings.to_dict()`` which is always a dict,
+    so any non-dict value reached the sidecar via a hand-edit
+    or partial-write, not an operator interaction with the
+    toggle. Returning ``False`` for that shape keeps the
+    HA-addon gate consistent with the fail-safe shape in
+    :func:`_settings_from_raw`.
     """
-    return _REMOTE_BUILD_KEY in _load_metadata(config_dir)
+    return isinstance(_load_metadata(config_dir).get(_REMOTE_BUILD_KEY), dict)
 
 
 def save_remote_build_settings(config_dir: Path, settings: RemoteBuildSettings) -> None:

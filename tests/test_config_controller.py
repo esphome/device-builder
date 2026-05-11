@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -410,25 +411,57 @@ def test_load_remote_build_settings_returns_defaults_on_missing(tmp_path: Path) 
     assert load_remote_build_settings(tmp_path).enabled is True
 
 
-def test_load_remote_build_settings_returns_defaults_on_bad_data(
-    tmp_path: Path,
+def test_load_remote_build_settings_fails_safe_on_non_dict_block(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Corrupted ``_remote_build`` blob → default object, not partial recovery.
+    """Non-dict ``_remote_build`` blob → ``enabled=False``, not the permissive default.
 
-    Same fallback semantics as ``load_preferences``: an older
-    version's payload that doesn't deserialise under the current
-    mashumaro schema lands on defaults rather than crashing
-    dashboard startup. Pinning ``RemoteBuildSettings()`` keeps
-    the recovery shape stable so a future regression that
-    silently mutates the fallback would surface here.
+    With the default ``RemoteBuildSettings.enabled=True``, a
+    corrupted block that fell through to the dataclass defaults
+    would silently bind the listener without any operator opt-in.
+    Fail safe: a list / scalar / null value lands on
+    ``enabled=False`` and emits a warning so the operator can
+    spot the corrupted sidecar.
     """
-    # Use a payload mashumaro can't coerce — a list where a dict
-    # was expected. (A bare ``"not-a-bool"`` for ``enabled`` would
-    # silently coerce to truthy, masking the fallback path.)
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b'{"_remote_build": [1, 2, 3]}')
 
-    assert load_remote_build_settings(tmp_path) == RemoteBuildSettings()
+    with caplog.at_level(logging.WARNING, logger="esphome_device_builder.controllers.config"):
+        settings = load_remote_build_settings(tmp_path)
+    assert settings.enabled is False
+    assert any("Malformed" in r.getMessage() for r in caplog.records)
+
+
+def test_load_remote_build_settings_fails_safe_on_decode_error(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dict that fails ``from_dict`` decode → ``enabled=False``.
+
+    Same fail-safe shape as the non-dict path: a schema break
+    that raises out of mashumaro's ``from_dict`` lands on
+    ``enabled=False`` rather than silently enabling via the
+    permissive default. Monkeypatched rather than crafted: most
+    real-world malformed values are coerced by mashumaro
+    (``["not", "a", "bool"]`` truthy-coerces to ``True``, etc.),
+    so the cleanest way to exercise the except-arm is to force
+    ``from_dict`` to raise — which is what a hypothetical future
+    schema break would do.
+    """
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b'{"_remote_build": {"enabled": true}}')
+
+    def _boom(*args: object, **kwargs: object) -> RemoteBuildSettings:
+        msg = "synthetic schema break"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(RemoteBuildSettings, "from_dict", classmethod(_boom))
+
+    with caplog.at_level(logging.ERROR, logger="esphome_device_builder.controllers.config"):
+        settings = load_remote_build_settings(tmp_path)
+    assert settings.enabled is False
+    assert any("Failed to decode" in r.getMessage() for r in caplog.records)
 
 
 def test_save_remote_build_settings_round_trip(tmp_path: Path) -> None:
@@ -481,6 +514,27 @@ def test_has_remote_build_settings_persisted_true_for_explicit_disable(tmp_path:
     """
     save_remote_build_settings(tmp_path, RemoteBuildSettings(enabled=False))
     assert has_remote_build_settings_persisted(tmp_path) is True
+
+
+def test_has_remote_build_settings_persisted_false_on_malformed_block(tmp_path: Path) -> None:
+    """A malformed (non-dict) ``_remote_build`` value doesn't count as opt-in.
+
+    ``set_settings`` always writes ``RemoteBuildSettings.to_dict()``
+    which is a dict. A non-dict value (list, scalar, null) on
+    disk reached the sidecar via a hand-edit or partial-write,
+    not an operator interaction with the toggle. The HA-addon
+    gate must treat that as "not opted in" so a corrupted
+    sidecar doesn't silently bind the listener on the addon
+    path.
+    """
+    (tmp_path / ".device-builder.json").write_bytes(b'{"_remote_build": [1, 2, 3]}')
+    assert has_remote_build_settings_persisted(tmp_path) is False
+
+    (tmp_path / ".device-builder.json").write_bytes(b'{"_remote_build": null}')
+    assert has_remote_build_settings_persisted(tmp_path) is False
+
+    (tmp_path / ".device-builder.json").write_bytes(b'{"_remote_build": "string"}')
+    assert has_remote_build_settings_persisted(tmp_path) is False
 
 
 @pytest.mark.parametrize(
@@ -548,17 +602,25 @@ def test_remote_build_settings_post_init_preserves_valid_ttl() -> None:
     assert settings.cleanup_ttl_seconds == 7200
 
 
-def test_remote_build_settings_transaction_falls_back_on_bad_data(
+def test_remote_build_settings_transaction_fails_safe_on_bad_data(
     tmp_path: Path,
 ) -> None:
-    """Corrupted blob → the transaction yields defaults, not crashes."""
+    """Corrupted blob → the transaction yields ``enabled=False``, not the permissive default.
+
+    Same fail-safe shape as :func:`load_remote_build_settings`:
+    a non-dict ``_remote_build`` value lands on
+    ``enabled=False`` rather than the model default ``True``.
+    Mutating the yielded settings inside the block replaces the
+    corrupt blob with the new canonical state on commit.
+    """
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b'{"_remote_build": [1, 2, 3]}')
 
     with remote_build_settings_transaction(tmp_path) as settings:
-        # Yielded value is the defaults; any mutation persists as
-        # the new canonical state, replacing the corrupt blob.
-        assert settings == RemoteBuildSettings()
+        # Yielded value is the fail-safe shape; any mutation
+        # persists as the new canonical state, replacing the
+        # corrupt blob.
+        assert settings.enabled is False
         settings.enabled = True
 
     assert load_remote_build_settings(tmp_path) == RemoteBuildSettings(enabled=True)
