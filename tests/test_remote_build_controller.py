@@ -2689,7 +2689,8 @@ async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_record_pair_request_refreshes_existing_pending_row(tmp_path: Path) -> None:
-    """Re-pair from same dashboard_id + same pubkey refreshes label / peer_ip / paired_at.
+    """
+    Re-pair from same dashboard_id + same pubkey refreshes label / peer_ip / paired_at.
 
     The legitimate retry case: the offloader resent ``pair_request``
     before the admin clicked Approve, possibly with an updated
@@ -2743,7 +2744,8 @@ async def test_record_pair_request_pending_pubkey_mismatch_returns_rejected(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Different pubkey under an existing PENDING ``dashboard_id`` is refused.
+    """
+    Different pubkey under an existing PENDING ``dashboard_id`` is refused.
 
     Security: closes the silent-overwrite path a LAN-adjacent
     attacker could exploit to swap their X25519 pubkey into an
