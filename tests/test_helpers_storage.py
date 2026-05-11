@@ -141,15 +141,24 @@ async def test_async_delay_save_extends_deadline_on_later_call(
 async def test_async_delay_save_earlier_call_replaces_handle(
     store_path: Path, store: Store[bytes]
 ) -> None:
-    """A call requesting an earlier deadline cancels the existing handle."""
+    """A call requesting an earlier deadline cancels the existing handle.
+
+    The threshold sits well below the 'later' deadline so the
+    timing distinguishes 'replaced' from 'fired the later
+    handle'. Generous slack (1.5s) covers Windows-CI's slow
+    timer granularity + executor-hop + atomic-rename latency
+    on a noisy xdist worker — the previous 0.45s threshold
+    flaked at ~0.7s elapsed on the Windows runner even when
+    the earlier handle correctly replaced the later one.
+    """
     loop = asyncio.get_running_loop()
     started = loop.time()
-    store.async_delay_save(lambda: b"later", delay=0.50)
+    store.async_delay_save(lambda: b"later", delay=3.0)
     store.async_delay_save(lambda: b"earlier", delay=0.05)
 
-    await _drain_loop_until(store_path.exists, timeout=1.0)
+    await _drain_loop_until(store_path.exists, timeout=4.0)
     elapsed = loop.time() - started
-    assert elapsed < 0.45
+    assert elapsed < 1.5, f"earlier handle did not replace later: {elapsed:.3f}s"
     assert store_path.read_bytes() == b"earlier"
 
 
