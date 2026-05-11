@@ -1,4 +1,5 @@
-"""Tests for ``--remote-build-host`` / ``ESPHOME_REMOTE_BUILD_HOST`` resolution.
+"""
+Tests for ``--remote-build-host`` / ``ESPHOME_REMOTE_BUILD_HOST`` resolution.
 
 The peer-link receiver site binds to
 :attr:`DashboardSettings.remote_build_host` rather than the
@@ -13,9 +14,12 @@ to lock the receiver to a specific NIC via the flag or env var.
 
 Precedence mirrors ``--remote-build-port`` (and
 ``--trusted-domains`` / ``--username``): an explicit CLI value
-wins over the env var; a missing CLI value falls back to
-``$ESPHOME_REMOTE_BUILD_HOST``; an empty / unset env var falls
-back to ``0.0.0.0``.
+wins over the env var; a missing / empty / whitespace-only CLI
+value falls back to ``$ESPHOME_REMOTE_BUILD_HOST``; an empty /
+unset env var falls back to ``0.0.0.0``. Empty / whitespace CLI
+values fall through rather than passing ``""`` to ``TCPSite`` —
+that would produce a cryptic ``getaddrinfo`` failure instead of
+the obvious default.
 """
 
 from __future__ import annotations
@@ -101,3 +105,34 @@ def test_explicit_loopback_override(tmp_path: Path) -> None:
     with patch.dict("os.environ", {"ESPHOME_REMOTE_BUILD_HOST": ""}, clear=False):
         settings.parse_args(_ns(configuration=str(tmp_path), remote_build_host="127.0.0.1"))
     assert settings.remote_build_host == "127.0.0.1"
+
+
+def test_empty_cli_flag_falls_through_to_env(tmp_path: Path) -> None:
+    """``--remote-build-host ""`` (empty / whitespace) falls back to the env var.
+
+    Passing an empty string straight through to ``TCPSite`` would
+    produce a cryptic low-level ``getaddrinfo`` failure rather than
+    a clean default — treat an empty / whitespace-only flag as
+    "unset" so the env-then-default fallback chain still resolves
+    to something bindable.
+    """
+    settings = DashboardSettings()
+    with patch.dict("os.environ", {"ESPHOME_REMOTE_BUILD_HOST": "10.0.0.5"}, clear=False):
+        settings.parse_args(_ns(configuration=str(tmp_path), remote_build_host="   "))
+    assert settings.remote_build_host == "10.0.0.5"
+
+
+def test_empty_cli_flag_and_empty_env_falls_through_to_default(tmp_path: Path) -> None:
+    """``--remote-build-host ""`` with empty env falls back to ``0.0.0.0``."""
+    settings = DashboardSettings()
+    with patch.dict("os.environ", {"ESPHOME_REMOTE_BUILD_HOST": ""}, clear=False):
+        settings.parse_args(_ns(configuration=str(tmp_path), remote_build_host=""))
+    assert settings.remote_build_host == "0.0.0.0"
+
+
+def test_env_whitespace_falls_through_to_default(tmp_path: Path) -> None:
+    """A whitespace-only env value (e.g. ``ESPHOME_REMOTE_BUILD_HOST=" "``) defaults."""
+    settings = DashboardSettings()
+    with patch.dict("os.environ", {"ESPHOME_REMOTE_BUILD_HOST": "   "}, clear=False):
+        settings.parse_args(_ns(configuration=str(tmp_path)))
+    assert settings.remote_build_host == "0.0.0.0"

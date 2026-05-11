@@ -71,11 +71,16 @@ class DashboardSettings:
     host: str = "0.0.0.0"
     ingress_port: int = DEFAULT_INGRESS_PORT
     ingress_host: str = ""
-    # HTTPS port for the remote-build receiver site (issue #106).
-    # The site is only bound when ``RemoteBuildSettings.enabled`` is
-    # set; default-off keeps the listener inactive on installs that
-    # haven't opted in. Lives separately from ``port`` because it
-    # serves a TLS-pinned route group with its own auth gate.
+    # Plain-TCP port for the remote-build peer-link receiver site
+    # (issue #106). The transport is Noise XX over plain HTTP/WS,
+    # not TLS — Noise provides mutual auth + forward secrecy +
+    # confidentiality at the application layer, which is why phase
+    # 4a-r1 part 4 dropped the earlier HTTPS+bearer wrapping. The
+    # site is only bound when ``RemoteBuildSettings.enabled`` is set;
+    # default-off keeps the listener inactive on installs that
+    # haven't opted in. Lives separately from ``port`` because the
+    # peer-link's auth gate (Noise + pre-shared pin pairing) is
+    # independent from the dashboard's WS gate (loopback / login).
     remote_build_port: int = DEFAULT_REMOTE_BUILD_PORT
     # Bind address for the remote-build peer-link receiver. Defaults
     # to all interfaces — the feature's whole point is letting paired
@@ -194,18 +199,28 @@ class DashboardSettings:
                 self.remote_build_port = DEFAULT_REMOTE_BUILD_PORT
         # ``--remote-build-host`` (or ``$ESPHOME_REMOTE_BUILD_HOST``).
         # Same precedence pattern as the port: an explicit CLI value
-        # wins; absence means "consult the env var, then fall back to
-        # the default". The default is ``0.0.0.0`` (all interfaces) —
-        # binding the peer-link receiver to the same interface as the
-        # HTTP dashboard would break the desktop-app shape, where
-        # ``--host 127.0.0.1`` is the dashboard's security boundary
-        # but the peer-link still needs to be LAN-reachable so paired
-        # peers can actually dial the IPs the mDNS announce broadcasts.
-        cli_remote_build_host = getattr(args, "remote_build_host", None)
-        if cli_remote_build_host is not None:
+        # wins; absence (or empty / whitespace-only) means "consult
+        # the env var, then fall back to the default". Empty-string
+        # falls through to the env var rather than passing ``""`` to
+        # ``TCPSite`` — aiohttp would translate that to a low-level
+        # ``getaddrinfo`` failure with a cryptic error rather than
+        # the obvious "0.0.0.0 default". The default is ``0.0.0.0``
+        # (all interfaces) — binding the peer-link receiver to the
+        # same interface as the HTTP dashboard would break the
+        # desktop-app shape, where ``--host 127.0.0.1`` is the
+        # dashboard's security boundary but the peer-link still needs
+        # to be LAN-reachable so paired peers can actually dial the
+        # IPs the mDNS announce broadcasts.
+        cli_remote_build_host_raw = getattr(args, "remote_build_host", None)
+        cli_remote_build_host = (
+            cli_remote_build_host_raw.strip()
+            if isinstance(cli_remote_build_host_raw, str)
+            else None
+        )
+        if cli_remote_build_host:
             self.remote_build_host = cli_remote_build_host
         else:
-            env_remote_build_host = os.getenv("ESPHOME_REMOTE_BUILD_HOST", "")
+            env_remote_build_host = os.getenv("ESPHOME_REMOTE_BUILD_HOST", "").strip()
             self.remote_build_host = env_remote_build_host or "0.0.0.0"
         self.dev_mode = bool(getattr(args, "dev", False))
         # ``--trusted-domains a,b,c`` (or ``$ESPHOME_TRUSTED_DOMAINS``).
