@@ -376,7 +376,15 @@ class FirmwareController:
                 source_pin_sha256=pairing.pin_sha256,
                 source_label=pairing.label,
             )
-            await self._enqueue(remote_job)
+            # ``supersede=False``: the fan-out batch is N+1 jobs
+            # all sharing one ``configuration``, so default
+            # supersede semantics ("cancel any prior active job
+            # for this configuration") would cancel the local
+            # clean we just queued plus every prior fan-out
+            # sibling, leaving only the LAST peer's clean alive.
+            # See ``_enqueue``'s docstring for the carve-out
+            # rationale.
+            await self._enqueue(remote_job, supersede=False)
 
     def _active_build_for(self, configuration: str) -> FirmwareJob | None:
         """Return any in-flight build-producing job on *configuration*.
@@ -1852,7 +1860,7 @@ class FirmwareController:
             return JobSource.LOCAL, "", ""
         return JobSource.REMOTE, pairing.pin_sha256, pairing.label
 
-    async def _enqueue(self, job: FirmwareJob) -> FirmwareJob:
+    async def _enqueue(self, job: FirmwareJob, *, supersede: bool = True) -> FirmwareJob:
         """
         Enqueue a job, persist, and fire JOB_QUEUED.
 
@@ -1866,6 +1874,22 @@ class FirmwareController:
         drop the old entry silently rather than parking it in the
         "Recent" history. Reset jobs (empty configuration) skip the
         supersede.
+
+        ``supersede=False`` opts out of the cancel-by-configuration
+        step. Used by the ``firmware/clean`` fan-out: the local job
+        enqueues with supersede=True (cancelling any prior in-flight
+        work on this device, the right "make this device idle"
+        behaviour), then the per-peer remote fan-out jobs enqueue
+        with supersede=False so the fan-out batch doesn't cancel
+        its own siblings or the just-queued local job. Without this
+        carve-out, every successive ``_enqueue`` in the fan-out
+        loop would cancel its predecessors and only the LAST peer's
+        clean would actually run; see esphome/device-builder#608
+        review for the failure trace. The carve-out is safe because
+        the fan-out is a coordinated batch from one operator click;
+        if the user clicks clean a second time, the next batch's
+        LOCAL enqueue (supersede=True) cancels every member of the
+        prior batch in one pass.
 
         Rejects with ``CommandError(INVALID_ARGS)`` when an in-flight
         ``RENAME`` job has the new job's configuration locked. Rename
@@ -1881,7 +1905,7 @@ class FirmwareController:
         await self._queue.put(job)
         queued_payload: JobLifecycleData = {"job": job}
         self._db.bus.fire(EventType.JOB_QUEUED, queued_payload)
-        if job.configuration:
+        if supersede and job.configuration:
             await self._supersede_active_jobs(job.configuration, exclude_job_id=job.job_id)
         await self._persist_jobs()
         return job

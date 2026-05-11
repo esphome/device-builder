@@ -331,9 +331,21 @@ async def test_clean_fans_out_to_connected_approved_peers(
     # _jobs via the fan-out.
     assert returned.source is JobSource.LOCAL
     assert returned.job_type is JobType.CLEAN
-
+    # Crucially: every fan-out job stays QUEUED. The fan-out
+    # passes ``supersede=False`` to ``_enqueue`` so the N+1 jobs
+    # that all share one ``configuration`` don't cancel each
+    # other. Pre-fix the default supersede semantics meant only
+    # the last peer's clean survived (Copilot review on #608).
+    # Assert on status, not just existence, so a regression that
+    # re-introduced supersede shows up here rather than as silent
+    # cancellation of every clean but the last one in production.
     clean_jobs = [j for j in controller._jobs.values() if j.job_type is JobType.CLEAN]
     assert len(clean_jobs) == 3  # 1 local + 2 remote
+    assert all(j.status is JobStatus.QUEUED for j in clean_jobs), (
+        "every fan-out job must stay QUEUED; if any are CANCELLED the "
+        "supersede carve-out got dropped and only the last peer's clean ran"
+    )
+    assert returned.status is JobStatus.QUEUED
 
     remote_jobs = sorted(
         (j for j in clean_jobs if j.source is JobSource.REMOTE),
@@ -347,6 +359,119 @@ async def test_clean_fans_out_to_connected_approved_peers(
     # Every fan-out job carries the same configuration the
     # operator clicked clean on.
     assert all(j.configuration == "kitchen.yaml" for j in clean_jobs)
+
+
+@pytest.mark.asyncio
+async def test_clean_fan_out_does_not_supersede_sibling_jobs(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Regression test for the supersede-cancels-its-own-siblings bug.
+
+    Pre-fix shape: ``_enqueue`` default-superseded any active job
+    sharing the new job's ``configuration``. The clean fan-out
+    queues N+1 jobs with one ``configuration``, so each
+    ``_enqueue`` call cancelled its predecessors and only the
+    LAST peer's clean survived. Locally-reproduced behaviour
+    before the fix:
+
+        clean src=local  pin=-          status=cancelled
+        clean src=remote pin=a0...      status=cancelled
+        clean src=remote pin=b0...      status=queued
+
+    The fix passes ``supersede=False`` for fan-out remote jobs.
+    This test pins the inverse of the failure mode: with two
+    connected peers the local + both remotes all stay
+    ``QUEUED``. A regression that drops the ``supersede=False``
+    flag lands here as a CANCELLED status assertion fail rather
+    than as a confusing "I clicked clean but my second receiver
+    still has stale artifacts" report from the field.
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_remote_build_with_peers(
+        controller,
+        (_pairing(pin_sha256="a", label="desktop"), True),
+        (_pairing(pin_sha256="b", label="laptop"), True),
+    )
+
+    await controller.clean(configuration="kitchen.yaml")
+
+    statuses = {
+        (j.source.value, j.source_pin_sha256[:1] or "-"): j.status
+        for j in controller._jobs.values()
+        if j.job_type is JobType.CLEAN
+    }
+    assert statuses == {
+        ("local", "-"): JobStatus.QUEUED,
+        ("remote", "a"): JobStatus.QUEUED,
+        ("remote", "b"): JobStatus.QUEUED,
+    }
+
+
+@pytest.mark.asyncio
+async def test_repeat_clean_supersedes_entire_prior_fan_out_batch(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A second clean click cancels every job from the first batch.
+
+    Pins the supersede contract still works correctly for the
+    user's "I clicked clean twice in a row" scenario, even with
+    the fan-out carve-out: the second click's LOCAL clean
+    enqueues with default ``supersede=True``, which walks every
+    active job for the configuration and cancels it — sweeping
+    the first batch's local clean AND every fan-out remote in
+    one pass. The new batch's own remote fan-out then enqueues
+    with ``supersede=False`` and stays intact.
+
+    Without this guarantee a hyperactive operator clicking clean
+    repeatedly would accumulate active jobs on the queue across
+    every click. With it, the rule stays "the latest clean batch
+    is the live one, all earlier batches are cancelled."
+    """
+    (tmp_path / "kitchen.yaml").write_text("")
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_remote_build_with_peers(
+        controller,
+        (_pairing(pin_sha256="a", label="desktop"), True),
+        (_pairing(pin_sha256="b", label="laptop"), True),
+    )
+
+    first_local = await controller.clean(configuration="kitchen.yaml")
+    first_remotes = [
+        j
+        for j in controller._jobs.values()
+        if j.source is JobSource.REMOTE
+        and j.job_type is JobType.CLEAN
+        and j.job_id != first_local.job_id
+    ]
+    assert first_local.status is JobStatus.QUEUED
+    assert all(j.status is JobStatus.QUEUED for j in first_remotes)
+
+    # Second click. The new LOCAL clean's ``supersede=True`` must
+    # cancel the first local AND every first-batch fan-out remote.
+    second_local = await controller.clean(configuration="kitchen.yaml")
+    assert first_local.status is JobStatus.CANCELLED
+    assert all(j.status is JobStatus.CANCELLED for j in first_remotes)
+
+    # Second batch's own fan-out members still get to live, only
+    # the second local + its two new remotes are active.
+    active = [
+        j
+        for j in controller._jobs.values()
+        if j.job_type is JobType.CLEAN and j.status is JobStatus.QUEUED
+    ]
+    assert {j.job_id for j in active} == {
+        second_local.job_id,
+        *(
+            j.job_id
+            for j in controller._jobs.values()
+            if j.source is JobSource.REMOTE and j.status is JobStatus.QUEUED
+        ),
+    }
+    # And the count is 1 + 2.
+    assert len(active) == 3
 
 
 @pytest.mark.asyncio
