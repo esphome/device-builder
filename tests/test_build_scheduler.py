@@ -1,10 +1,10 @@
 """
 Tests for :mod:`helpers.build_scheduler`'s :func:`pick_build_path` decision.
 
-Phase 7a-1 of issue #106 — the first slice of the transparent
-install flow. The function is pure; tests pin the candidate-
-filter rules (master-switch / APPROVED / open-peer-link / idle)
-without standing up the remote-build controller.
+Transparent install routing for issue #106. The function is
+pure; tests pin the candidate-filter rules (master-switch /
+APPROVED / open-peer-link / idle) without standing up the
+remote-build controller.
 """
 
 from __future__ import annotations
@@ -274,7 +274,7 @@ def test_picks_oldest_eligible_pairing() -> None:
 
     The design doc explicitly leaves a richer pick policy
     (round-robin / least-loaded / cache-hot affinity) to a
-    7a-3+ iteration. For now the scheduler picks by
+    later iteration. For now the scheduler picks by
     ``paired_at`` ascending so the oldest trusted receiver
     handles the first dispatch — deterministic across
     ``Mapping`` impls (see

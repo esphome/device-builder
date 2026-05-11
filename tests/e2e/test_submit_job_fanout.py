@@ -1,13 +1,13 @@
 """
 End-to-end: receiver-side ``JOB_*`` events fan out to the offloader bus.
 
-Exercises the 5c-2b wire-round-trip path that the unit tests
+Exercises the wire-round-trip path that the unit tests
 in ``tests/test_remote_build_job_fanout.py`` only cover up to
 ``send_app_frame``-was-called. The harness here drives a real
 peer-link session, so every assertion below proves the chain
 that production runs end-to-end:
 
-  receiver-side bus  →  JobFanout listener (5c-2b)
+  receiver-side bus  →  JobFanout listener
                      →  peer-link ``job_state_changed`` /
                         ``job_output`` frame (real Noise AEAD)
                      →  offloader-side ``_run_session_loops``
@@ -27,8 +27,8 @@ the e2e variant is the wire shape, not the queue plumbing.
 The ``submit_job`` accept path itself (header → chunks → ack) is
 covered by the receiver-side unit tests
 (``test_remote_build_submit_job.py``) and the offloader-side
-unit tests (``test_remote_build_peer_link_client.py`` 5c-3
-section); the value-add of an end-to-end submit_job test is
+unit tests (``test_remote_build_peer_link_client.py``); the
+value-add of an end-to-end submit_job test is
 catching wire-shape mismatches between the two halves, which
 ``test_pair_and_session.py`` already pins for the handshake +
 session lifecycle. A submit_job e2e test is the natural next
@@ -59,7 +59,7 @@ async def test_remote_peer_job_lifecycle_fans_out_to_offloader_bus(
 ) -> None:
     """``JOB_STARTED`` on the receiver bus → ``OFFLOADER_JOB_STATE_CHANGED`` on the offloader bus.
 
-    Pins the 5c-2b fan-out's wire-round-trip contract:
+    Pins the fan-out's wire-round-trip contract:
 
     1. Receiver fires :attr:`EventType.JOB_QUEUED` so the
        :class:`JobFanout` cache learns this job's

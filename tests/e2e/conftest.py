@@ -164,7 +164,7 @@ async def paired_instances(
     6. Offloader's pair-status listener (spawned in step 4)
        observes the flip via its long-poll WS, updates the
        local :class:`StoredPairing` to APPROVED, and spawns
-       the long-lived :class:`PeerLinkClient` (5a-2).
+       the long-lived :class:`PeerLinkClient`.
 
     Per-side event buses are real, so production-shape event
     fan-out runs end-to-end. The handshake reads pin + dashboard_id

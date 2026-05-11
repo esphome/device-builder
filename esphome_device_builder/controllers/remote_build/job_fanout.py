@@ -1,7 +1,7 @@
 """
 Receiver-side fan-out from firmware ``JOB_*`` events to peer-link frames.
 
-Phase 5c-2b of issue #106. Pairs with the 5c-2a accept path
+Pairs with the receiver-side accept path
 (:mod:`controllers.remote_build_submit_job`): once a remote-peer
 :class:`FirmwareJob` is queued (carrying ``remote_peer`` +
 ``remote_job_id``), the firmware controller's existing

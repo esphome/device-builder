@@ -242,7 +242,7 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
     try:
         await db._maybe_start_remote_build_site()
         assert db._remote_build_runner is not None
-        # SPKI pin and listener port both made it to the advertiser.
+        # Pin and listener port both made it to the advertiser.
         assert fake_advertiser.set_pin_sha256.called
         assert fake_advertiser.set_remote_build_port.called
         # ``refresh`` was awaited so the TXT change actually

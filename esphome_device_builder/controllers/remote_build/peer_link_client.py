@@ -637,7 +637,7 @@ async def await_pair_status(
 
 
 # ---------------------------------------------------------------------------
-# Phase 5a-2 — Long-lived offloader-side peer-link session.
+# Long-lived offloader-side peer-link session.
 # ---------------------------------------------------------------------------
 
 
@@ -890,7 +890,7 @@ class PeerLinkClient:
     Long-lived offloader-side peer-link Noise WS session.
 
     One instance per APPROVED :class:`StoredPairing`, owned by
-    :class:`RemoteBuildController` (5a-2 wiring). Drive via
+    :class:`RemoteBuildController`. Drive via
     :meth:`run` (cancellable asyncio task) — connects to the
     receiver's peer-link port, runs the Noise XX handshake with
     ``intent="peer_link"``, parks on a receive loop, drives an
@@ -1263,8 +1263,8 @@ class PeerLinkClient:
         """Return the live :class:`PeerLinkChannel` or raise :class:`PeerLinkNoSessionError`.
 
         ``label`` is folded into the exception message so each
-        caller (``submit_job`` from 5c-3, ``cancel_job`` from
-        5d) names itself in the no-session log line. Every
+        caller (``submit_job``, ``cancel_job``) names itself in
+        the no-session log line. Every
         application-message sender that needs a live session
         flows through this single check; a future sender
         inherits the same exception class + WS-layer mapping

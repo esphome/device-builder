@@ -1,13 +1,14 @@
 """
 Noise XX handshake + ChaCha20-Poly1305 framing for the peer-link WS.
 
-Phase 4a's auth model. Two dashboards meet on the peer-link WS
+Two dashboards meet on the peer-link WS
 (``ws://<receiver>:<peer_link_port>/remote-build/peer-link``);
 each side holds a long-lived X25519 keypair (its own peer-link
-identity, supplied by the caller — keypair lifecycle helper lands
-later in 4a-r1). The Noise XX pattern exchanges and authenticates
-both static keys, derives a forward-secret session key, and
-ChaCha20-Poly1305 wraps every subsequent frame.
+identity, supplied by the caller — keypair lifecycle is in
+:mod:`helpers.peer_link_identity`). The Noise XX pattern
+exchanges and authenticates both static keys, derives a
+forward-secret session key, and ChaCha20-Poly1305 wraps every
+subsequent frame.
 
 Library: ``noiseprotocol`` (already a transitive dep through
 ``aioesphomeapi``, which uses it with ``Noise_NNpsk0_…`` for the

@@ -1,8 +1,8 @@
 """
 Receiver-side TTL cleanup sweep for the remote-build subtree.
 
-Phase 6c of issue #106. Disk-side counterpart to the periodic
-loop in :class:`RemoteBuildController`: walks every
+Disk-side counterpart to the periodic loop in
+:class:`RemoteBuildController`: walks every
 ``<dashboard_id>/<device_name>/`` subtree under the remote-builds
 root, deletes the ones whose modification time is older than
 the operator-configured TTL AND aren't tracked by an in-flight

@@ -1,5 +1,5 @@
 """
-Tests for the phase-2 remote-build controller.
+Tests for the remote-build controller.
 
 Covers the helper that turns ``AsyncServiceInfo`` into
 ``RemoteBuildPeer`` plus the WS commands (``list_hosts`` /
@@ -1507,7 +1507,7 @@ async def test_stop_drains_resolve_tasks(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2b: manual hosts
+# Manual hosts
 # ---------------------------------------------------------------------------
 
 
@@ -1648,9 +1648,9 @@ async def test_get_identity_returns_dashboard_id_pin_and_versions(tmp_path: Path
     assert isinstance(view, IdentityView)
     # Every field is non-empty: dashboard_id is the random 24-byte
     # b64url id from get_or_create_identity, pin_sha256 is the
-    # hex SPKI fingerprint, server_version + esphome_version come
-    # from constants. Don't pin specific values — the test would
-    # break on every version bump.
+    # hex SHA-256 of the X25519 peer-link pubkey, server_version
+    # + esphome_version come from constants. Don't pin specific
+    # values — the test would break on every version bump.
     assert view.dashboard_id
     assert len(view.pin_sha256) == 64  # SHA-256 hex
     assert all(c in "0123456789abcdef" for c in view.pin_sha256)
@@ -1723,7 +1723,7 @@ async def test_get_identity_is_idempotent_across_calls(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_rotate_identity_changes_pin_sha256(tmp_path: Path) -> None:
-    """A rotate produces a different SPKI fingerprint than the previous identity."""
+    """A rotate produces a different ``pin_sha256`` than the previous identity."""
     controller = _make_controller(config_dir=tmp_path)
     _stub_identity_db(controller)
     pre = await controller.get_identity()
@@ -1849,7 +1849,7 @@ async def test_rotate_identity_clears_in_flight_flag_on_failure(tmp_path: Path) 
 
 
 # ---------------------------------------------------------------------------
-# Phase 4a-r1 part 3: peer CRUD + pairing window
+# Peer CRUD + pairing window
 # ---------------------------------------------------------------------------
 
 
@@ -2615,7 +2615,7 @@ async def test_explicit_close_cancels_handle_no_duplicate_event(
 
 
 # ---------------------------------------------------------------------------
-# Phase 4a-r1 part 4: peer-link Noise WS dispatch helpers
+# Peer-link Noise WS dispatch helpers
 # ---------------------------------------------------------------------------
 
 
@@ -3474,7 +3474,7 @@ def test_decode_pairings_back_compat_missing_enabled_defaults_true() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5b: queue_status receiver-side broadcast + offloader-side cache
+# queue_status receiver-side broadcast + offloader-side cache
 # ---------------------------------------------------------------------------
 
 
@@ -3574,7 +3574,7 @@ async def test_broadcast_queue_status_continues_past_failed_session(
 ) -> None:
     """A session whose ``send_app_frame`` raises doesn't block sibling sessions.
 
-    Phase-5b's broadcast is best-effort per session: a closed
+    The queue_status broadcast is best-effort per session: a closed
     session (race with concurrent terminate), a transport
     error, or any other unexpected raise on one session must
     not cancel the broadcast for the others. The per-session

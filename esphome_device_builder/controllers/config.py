@@ -74,8 +74,7 @@ class DashboardSettings:
     # Plain-TCP port for the remote-build peer-link receiver site
     # (issue #106). The transport is Noise XX over plain HTTP/WS,
     # not TLS — Noise provides mutual auth + forward secrecy +
-    # confidentiality at the application layer, which is why phase
-    # 4a-r1 part 4 dropped the earlier HTTPS+bearer wrapping. The
+    # confidentiality at the application layer. The
     # site is only bound when ``RemoteBuildSettings.enabled`` is set;
     # default-off keeps the listener inactive on installs that
     # haven't opted in. Lives separately from ``port`` because the

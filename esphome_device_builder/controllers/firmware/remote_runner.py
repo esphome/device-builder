@@ -522,8 +522,8 @@ async def _fetch_and_run_local_upload(
     2. Extract ``firmware.bin`` to a per-run tmpdir (the
        only piece the OTA / web_server flash paths need; the
        multi-image set required for ESP32 wired flash isn't
-       supported in 7a-3 — serial REMOTE installs were
-       rejected at the install handler).
+       supported by transparent install — serial REMOTE installs
+       are rejected at the install handler).
     3. Spawn ``esphome upload --device <port> --file
        <staged>`` through :meth:`FirmwareController._tracked_subprocess`
        so the cancel handler's SIGTERM lands on the subprocess

@@ -4,7 +4,7 @@ Bundle chunking + reassembly helpers for the peer-link ``submit_job`` flow.
 The offloader produces a gzipped tarball via
 :class:`esphome.bundle.ConfigBundleCreator`; that's a single
 ``bytes`` payload that has to ride the peer-link's per-frame
-size cap (:data:`APP_FRAME_MAX_BYTES`, 32 KiB at 5a-1).
+size cap (:data:`APP_FRAME_MAX_BYTES`, 32 KiB).
 :func:`chunk_bundle` slices the bundle into the wire-format's
 base64 envelope shape; :class:`BundleAssembler` does the
 reverse on the receiver side, with structured rejection of
@@ -197,12 +197,12 @@ class BundleAssembler:
 
     Driven by both:
 
-    * **Receiver-side bundle assembly** (5c-2 — bundle upload) —
+    * **Receiver-side bundle assembly** (bundle upload) —
       after the receiver's dispatch parses a ``submit_job``
       header, it constructs one of these against
       :data:`BUNDLE_MAX_TOTAL_BYTES` (the default) and feeds
       each inbound ``submit_job_chunk``.
-    * **Offloader-side artifacts assembly** (6a — flash-artifact
+    * **Offloader-side artifacts assembly** (flash-artifact
       download) — after the offloader receives an
       ``artifacts_start`` header, it constructs one against
       :data:`FIRMWARE_MAX_TOTAL_BYTES` (passed as

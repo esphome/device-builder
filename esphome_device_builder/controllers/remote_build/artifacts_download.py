@@ -1,8 +1,7 @@
 """
 Receiver-side ``download_artifacts`` flow for the remote-build peer-link.
 
-Phase 6a of issue #106. Mirror of
-:mod:`controllers.remote_build.submit_job`'s upload path but
+Mirror of :mod:`controllers.remote_build.submit_job`'s upload path but
 running the other direction: the receiver, given an
 offloader-supplied ``job_id`` for a previously-completed
 ``FirmwareJob``, packs the build's flash artifacts into a
@@ -141,8 +140,8 @@ class ArtifactsDownloadSender:
     completed downloads drop their entry as soon as the
     final ``artifacts_end`` frame goes out. The build
     artifacts on disk are owned by the firmware controller
-    + the per-peer-per-device build subtree convention
-    from 5c-2a; 6c's TTL sweep is what reclaims those.
+    + the per-peer-per-device build subtree convention; the
+    receiver's periodic TTL sweep is what reclaims those.
     """
 
     def __init__(self, firmware_controller: FirmwareController) -> None:

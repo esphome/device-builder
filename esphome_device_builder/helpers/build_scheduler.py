@@ -1,19 +1,18 @@
 """
 Pick the build path for a firmware job — local or one of the paired remotes.
 
-Phase 7a-1 of issue #106 — the first slice of the transparent
-install flow. This module is a pure decision function: it takes
-the offloader's current state (paired receivers + per-pairing
-peer-link openness + per-pairing queue snapshot) plus the
-user's remote-builds toggle, and returns a typed
-:class:`BuildPathDecision` telling the caller whether to spawn
-a local ``FirmwareJob`` or dispatch to a specific paired
+Transparent install routing for issue #106. This module is a
+pure decision function: it takes the offloader's current state
+(paired receivers + per-pairing peer-link openness + per-pairing
+queue snapshot) plus the user's remote-builds toggle, and returns
+a typed :class:`BuildPathDecision` telling the caller whether to
+spawn a local ``FirmwareJob`` or dispatch to a specific paired
 receiver.
 
 The decision function is intentionally side-effect-free: no
 controller references, no event-bus interaction, no I/O. The
-caller (the ``firmware/install`` WS handler in 7a-3)
-gathers the state and threads it in. Two reasons for that shape:
+caller (the ``firmware/install`` WS handler) gathers the state
+and threads it in. Two reasons for that shape:
 
 * **Unit-testability.** The candidate-filter rules
   (PENDING vs APPROVED, connected vs not) and the two-tier
@@ -55,11 +54,9 @@ What this module *does not* do:
   later-iteration concerns; the design doc explicitly puts
   richer picking policy beyond this first cut.
 * **Caller integration.** The ``firmware/install`` WS handler
-  route-through lands in 7a-3 alongside the event-stream
+  routes through this decision alongside the event-stream
   bridge that re-fires ``OFFLOADER_JOB_*`` as local-shaped
-  ``JOB_*``. Today this decision is unused — landing it as a
-  standalone helper keeps the unit-test layer reviewable
-  ahead of the integration's larger blast radius.
+  ``JOB_*``.
 """
 
 from __future__ import annotations
@@ -102,8 +99,8 @@ class BuildSchedulerInputs:
     Bundles the four pieces :func:`pick_build_path` reads into
     one immutable value so the helper's signature can't be
     misused with raw controller-owned dicts that another task
-    might mutate mid-iteration. The caller — eventually
-    :class:`RemoteBuildController` in 7a-3 — is responsible for
+    might mutate mid-iteration. The caller —
+    :class:`RemoteBuildController` — is responsible for
     handing in a *snapshot*: today the natural call site is on
     the same event loop as the controller's mutations so a
     shallow ``dict(...)`` / ``frozenset(...)`` of each field
@@ -177,10 +174,9 @@ class BuildPathDecision:
 def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
     """Decide whether a firmware job runs locally or on a paired receiver.
 
-    Pure function — no controller references, no I/O. Designed
-    to be called from the ``firmware/install`` WS handler once
-    7a-3's integration lands; testable today without standing
-    up the controllers.
+    Pure function — no controller references, no I/O. Called
+    from the ``firmware/install`` WS handler; testable today
+    without standing up the controllers.
 
     The candidate filter walks ``inputs.pairings`` sorted by
     :attr:`StoredPairing.paired_at` ascending (oldest pairing
@@ -262,11 +258,11 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
     site.
 
     Returns :class:`BuildPathDecision.local` when no candidate
-    qualifies. The integration in 7a-3 treats LOCAL as the
-    default (silent-fallback semantic from the design doc);
-    callers don't surface a "couldn't find a remote" UI
-    message because the user didn't pick "remote" — they
-    picked Install, and the scheduler routes transparently.
+    qualifies. The ``firmware/install`` integration treats LOCAL
+    as the default (silent-fallback semantic); callers don't
+    surface a "couldn't find a remote" UI message because the
+    user didn't pick "remote" — they picked Install, and the
+    scheduler routes transparently.
     """
     if not inputs.remote_builds_enabled:
         return BuildPathDecision.local()

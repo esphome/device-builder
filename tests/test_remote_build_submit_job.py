@@ -10,9 +10,9 @@ e2e harness in :mod:`tests.e2e` stays visible:
   the per-branch reject reasons and the happy-path enqueue.
 * End-to-end flow against a real
   :class:`PeerLinkSession` + a real bundle goes in the
-  ``tests/e2e`` harness in 5c-2b once the firmware-event
-  fan-out lands; the submit-and-ack contract here is enough
-  for 5c-2a.
+  ``tests/e2e`` harness once the firmware-event fan-out is
+  driven; the submit-and-ack contract here is enough for the
+  unit layer.
 """
 
 from __future__ import annotations

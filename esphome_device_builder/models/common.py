@@ -74,7 +74,7 @@ class EventType(StrEnum):
     JOB_FAILED = "job_failed"
     JOB_CANCELLED = "job_cancelled"
 
-    # Receiver rotated its TLS keypair via
+    # Receiver rotated its X25519 peer-link identity via
     # ``remote_build/rotate_identity``. Payload carries
     # ``{dashboard_id, pin_sha256}``: subscribers (the offloader-
     # side peer-link, the receiver Settings UI) can refresh
@@ -83,7 +83,7 @@ class EventType(StrEnum):
     # listener rebuild may still fail-soft, in which case the
     # rotater's ``IdentityView`` response carries
     # ``listener_bound=False`` while the event itself reflects
-    # only that the cert + key on disk changed.
+    # only that the persistent key on disk changed.
     REMOTE_BUILD_IDENTITY_ROTATED = "remote_build_identity_rotated"
 
     # A pair_request Noise frame landed for a previously-unknown
@@ -186,7 +186,7 @@ class EventType(StrEnum):
     # row from its discovered set on this event.
     REMOTE_BUILD_HOST_REMOVED = "remote_build_host_removed"
 
-    # An offloader-side ``PeerLinkClient`` (5a-2) successfully
+    # An offloader-side ``PeerLinkClient`` successfully
     # established a long-lived peer-link Noise WS session against
     # an APPROVED receiver — handshake completed, post-handshake
     # ``intent_response: ok`` landed, the dispatch loop is
@@ -330,7 +330,7 @@ class EventType(StrEnum):
     # :attr:`JOB_COMPLETED` family because remote-driven jobs
     # don't have a corresponding :class:`FirmwareJob` row on
     # the offloader — the receiver owns the queue state and we
-    # only see the wire reflection. Phase 5c-3 wiring.
+    # only see the wire reflection.
     OFFLOADER_JOB_STATE_CHANGED = "offloader_job_state_changed"
 
     # Offloader-side: a paired receiver pushed a ``job_output``
@@ -343,15 +343,14 @@ class EventType(StrEnum):
     # high rate during an active build (one per line of compiler
     # / linker output); subscribers should debounce / batch
     # downstream rendering rather than re-rendering per event.
-    # Phase 5c-3 wiring.
     OFFLOADER_JOB_OUTPUT = "offloader_job_output"
 
-    # 7b. Offloader-side master toggle changed. Fires from
+    # Offloader-side master toggle changed. Fires from
     # :meth:`RemoteBuildController.set_offloader_settings`
     # whenever the operator flips the "Remote builds enabled"
     # switch in the offloader Settings UI. Payload:
     # ``{remote_builds_enabled: bool}``. Subscribers are the
-    # 7b Settings UI (renders the live switch state) — the
+    # Settings UI (renders the live switch state) — the
     # scheduler doesn't need an event because it reads
     # :attr:`RemoteBuildController._remote_builds_enabled` on
     # every install via :meth:`build_scheduler_snapshot`. The
@@ -359,7 +358,7 @@ class EventType(StrEnum):
     # cross-tab toggle without polling.
     OFFLOADER_REMOTE_BUILDS_TOGGLED = "offloader_remote_builds_toggled"
 
-    # 7b. Offloader-side per-pairing toggle changed. Fires
+    # Offloader-side per-pairing toggle changed. Fires
     # from :meth:`RemoteBuildController.set_pairing_enabled`
     # whenever the operator flips an individual paired
     # receiver's enable switch. Payload:

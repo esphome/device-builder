@@ -1,7 +1,7 @@
 """
 Peer-link Noise WS handler for the remote-build feature (issue #106).
 
-Phase 4a-r1 part 4. Owns the wire shape of the
+Owns the wire shape of the
 ``/remote-build/peer-link`` WebSocket endpoint: drives the
 ``Noise_XX_25519_ChaChaPoly_SHA256`` handshake, parses the
 offloader's ``intent`` discriminator out of the cleartext msg1
@@ -34,15 +34,14 @@ on a successful auth (``IntentResponse.OK``), the receiver
 on top of the same Noise transport: every subsequent frame is
 JSON-encoded then ChaCha20-Poly1305-encrypted via
 :meth:`PeerLinkNoiseSession.encrypt` /
-:meth:`PeerLinkNoiseSession.decrypt`. Phase 5a-1 lands the
-session loop with heartbeat (encrypted ``ping`` / ``pong``,
-30s tick + 90s miss threshold) and a controller-side session
-registry that dedupes by ``dashboard_id`` (a duplicate connect
-kicks the older session via a ``terminate`` frame so a restarted
-offloader takes over its previous slot rather than doubling).
-Application message types (``submit_job``, ``job_state_changed``,
-``queue_status``, …) land in subsequent 5b-5d PRs against this
-foundation.
+:meth:`PeerLinkNoiseSession.decrypt`. The session loop runs an
+encrypted ``ping`` / ``pong`` heartbeat (30s tick + 90s miss
+threshold) and a controller-side session registry dedupes by
+``dashboard_id`` (a duplicate connect kicks the older session
+via a ``terminate`` frame so a restarted offloader takes over
+its previous slot rather than doubling). Application message
+types (``submit_job``, ``job_state_changed``, ``queue_status``,
+…) ride on top of the same Noise transport.
 
 Timeouts: handshake reads have an explicit timeout so a peer that
 opens a TCP connection and never sends the first frame can't pin
@@ -189,7 +188,7 @@ class TerminateReason(StrEnum):
     Wire ``reason`` value on a structured ``terminate`` close frame.
 
     Sent inside an :attr:`AppMessageType.TERMINATE` application
-    frame so the offloader's reconnect logic (5a-2) can branch
+    frame so the offloader's reconnect logic can branch
     on the reason rather than guessing from the WS close code.
 
     * ``SUPERSEDED`` — a fresh peer-link connect from the same
@@ -244,14 +243,14 @@ class AppMessageType(StrEnum):
     # optional ``reason``) once the full bundle has reassembled.
     # Mid-build, the receiver pushes ``job_state_changed``
     # (lifecycle transitions) and ``job_output`` (per-line
-    # stdout/stderr) back to the offloader. Wired into the
-    # firmware queue + controller seams in 5c-2 / 5c-3.
+    # stdout/stderr) back to the offloader. Wires into the
+    # firmware queue + controller seams.
     SUBMIT_JOB = "submit_job"
     SUBMIT_JOB_CHUNK = "submit_job_chunk"
     SUBMIT_JOB_ACK = "submit_job_ack"
     JOB_STATE_CHANGED = "job_state_changed"
     JOB_OUTPUT = "job_output"
-    # 5d: offloader → receiver cooperative cancel. Carries the
+    # Offloader → receiver cooperative cancel. Carries the
     # offloader-local ``job_id`` from the original ``submit_job``
     # header; receiver resolves it to the matching
     # ``FirmwareJob`` via the :class:`JobFanout` correlation
@@ -261,7 +260,7 @@ class AppMessageType(StrEnum):
     # ``status="cancelled"`` is the confirmation the offloader
     # already has plumbing for.
     CANCEL_JOB = "cancel_job"
-    # 6a: offloader → receiver build-artifact fetch. The
+    # Offloader → receiver build-artifact fetch. The
     # offloader sends ``download_artifacts`` carrying the
     # offloader-supplied ``job_id`` from the original
     # ``submit_job`` header. The receiver resolves it to the
@@ -739,8 +738,8 @@ async def _receive_loop(session: PeerLinkSession, controller: RemoteBuildControl
     structured ``terminate``), or controller-driven session close
     (the registry's :meth:`PeerLinkSession.terminate` flips
     ``_closing`` so a CLOSE frame doesn't trigger a redundant
-    terminate). 5a-1 dispatched only ``ping`` / ``pong`` /
-    ``terminate``; 5c-2 adds ``submit_job`` / ``submit_job_chunk``
+    terminate). Dispatches ``ping`` / ``pong`` / ``terminate``
+    keepalive frames plus ``submit_job`` / ``submit_job_chunk``
     against the controller's :class:`SubmitJobReceiver`. Other
     types log at debug and are ignored.
     """
@@ -755,7 +754,7 @@ async def _receive_loop(session: PeerLinkSession, controller: RemoteBuildControl
             continue
         if msg_type == AppMessageType.PING.value:
             # Mirror the offloader's ping nonce so a peer that
-            # also runs heartbeat from its end (5a-2) gets pong
+            # also runs heartbeat from its end gets pong
             # parity without us defining a separate keepalive
             # protocol per direction.
             nonce = parsed.get("nonce")
@@ -794,7 +793,7 @@ async def _receive_loop(session: PeerLinkSession, controller: RemoteBuildControl
             await controller.handle_cancel_job(session, parsed)
             continue
         if msg_type == AppMessageType.DOWNLOAD_ARTIFACTS.value:
-            # 6a: offloader is requesting the built-firmware
+            # Offloader is requesting the built-firmware
             # artifact set for a previously-completed job. The
             # sender packs idedata.json + every flash image
             # listed in ``idedata.flash_images`` into a

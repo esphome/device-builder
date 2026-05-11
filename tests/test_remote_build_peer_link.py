@@ -1040,7 +1040,7 @@ async def test_e2e_garbage_msg1_payload_handled_gracefully(
 
 
 # ---------------------------------------------------------------------------
-# Phase 5a-1 — long-lived peer-link session: keep WS open after intent_response,
+# Long-lived peer-link session: keep WS open after intent_response,
 # encrypted ping/pong heartbeat, structured terminate close, controller-side
 # session registry.
 # ---------------------------------------------------------------------------
@@ -1076,7 +1076,7 @@ async def _drive_peer_link_session_open(
     assert _decode_intent_response(session, encrypted_response) == IntentResponse.OK
     # The receiver pushes a one-shot ``queue_status`` frame right
     # after registering the session (cold-connect signal for the
-    # 7a-3 install scheduler). Drain it here so callers asserting
+    # install scheduler). Drain it here so callers asserting
     # on subsequent application frames don't have to special-case
     # the initial push at every call site.
     initial_app_frame = await ws.receive_bytes()
@@ -1117,10 +1117,10 @@ async def test_e2e_peer_link_session_stays_open_after_intent_response(
 ) -> None:
     """The receiver doesn't close the WS after ``intent_response: ok`` for ``intent="peer_link"``.
 
-    Pins the foundational 5a-1 contract: a successful peer_link
-    auth keeps the session open for application messages
-    (5b-5d). Pre-5a-1 the receiver closed immediately; this test
-    catches a regression to that shape.
+    Pins the long-lived peer-link contract: a successful
+    ``peer_link`` auth keeps the session open for application
+    messages (heartbeat + submit_job + cancel_job + …). An
+    early-close regression would break every downstream flow.
     """
     client, controller, _ = peer_link_app
     initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
@@ -1149,11 +1149,10 @@ async def test_e2e_peer_link_session_responds_to_offloader_ping(
 ) -> None:
     """An offloader-side ``ping`` gets a ``pong`` echoing the same nonce.
 
-    The receiver is also sending its own pings (5a-1's heartbeat
-    loop), but the offloader-driven ping path is what the 5a-2
-    client side will rely on if it picks up bidirectional
-    keepalive — pin the parity now so 5a-2 doesn't have to
-    rediscover it.
+    The receiver is also sending its own pings (the heartbeat
+    loop), but the offloader-driven ping path is what the
+    client side relies on for bidirectional keepalive — pin
+    the parity here.
     """
     client, controller, _ = peer_link_app
     initiator_priv = X25519PrivateKey.generate().private_bytes_raw()
@@ -1607,7 +1606,7 @@ async def test_register_peer_link_session_kicks_existing(tmp_path: Path) -> None
 async def test_register_peer_link_session_pushes_initial_queue_status(tmp_path: Path) -> None:
     """A freshly-registered session gets a one-shot ``queue_status`` frame.
 
-    The cold-connect signal for the 7a-3 install scheduler: the
+    The cold-connect signal for the install scheduler: the
     transition-driven broadcast (``_on_firmware_queue_transition``)
     only fires when the receiver's local firmware queue mutates.
     Without the initial push, an offloader that pairs against a
@@ -2134,7 +2133,7 @@ async def test_run_peer_link_session_heartbeat_closures_route_to_session(
     await asyncio.wait_for(heartbeat_started.wait(), timeout=2.0)
     # ``register_peer_link_session`` now schedules a one-shot
     # ``queue_status`` push on session open (cold-connect signal
-    # for the 7a-3 install scheduler). Wait for that frame to
+    # for the install scheduler). Wait for that frame to
     # land in ``ws.sends`` and decrypt it so the initiator's
     # nonce counter advances; subsequent ping / terminate
     # decrypts on the same Noise session are then aligned.
@@ -2199,7 +2198,7 @@ async def test_run_peer_link_heartbeat_propagates_cancellation(
 
 
 # ---------------------------------------------------------------------------
-# Phase 5d: cancel_job receiver-side handler
+# cancel_job receiver-side handler
 # ---------------------------------------------------------------------------
 
 

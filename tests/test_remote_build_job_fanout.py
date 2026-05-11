@@ -1,12 +1,12 @@
 """
 Tests for the receiver-side ``JOB_*`` event fan-out to peer-link frames.
 
-Phase 5c-2b of issue #106. Pairs with the 5c-2a receiver-side
-``submit_job`` accept path: 5c-2a queues a :class:`FirmwareJob`
-with ``remote_peer`` + ``remote_job_id`` set; this module's
-:class:`JobFanout` subscribes to firmware ``JOB_*`` events and
-forwards remote-peer jobs as ``job_state_changed`` /
-``job_output`` frames over the submitting peer-link session.
+Pairs with the receiver-side ``submit_job`` accept path: the
+accept path queues a :class:`FirmwareJob` with ``remote_peer`` +
+``remote_job_id`` set; this module's :class:`JobFanout` subscribes
+to firmware ``JOB_*`` events and forwards remote-peer jobs as
+``job_state_changed`` / ``job_output`` frames over the submitting
+peer-link session.
 
 Driven against a real :class:`EventBus` so the listener
 attach / fire / detach flow runs end-to-end. Sessions are
@@ -443,7 +443,7 @@ def test_start_no_op_without_bus() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5d: reverse-lookup for cancel_job
+# Reverse-lookup for cancel_job
 # ---------------------------------------------------------------------------
 
 

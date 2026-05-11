@@ -34,12 +34,6 @@ Pairing model:
   the same ``/remote-build/peer-link`` endpoint without
   re-prompting the receiver-side user.
 
-Only ``StoredPeer`` + the peer-link Noise dispatch ship today;
-the legacy HTTPS+bearer receiver site (token CRUD,
-``StoredToken`` persistence, bearer auth middleware, first-use
-binding) was wound down before release. See issue #106 for the
-historical trail.
-
 Manual hosts have no version / fingerprint resolution yet;
 they land in ``list_hosts`` with empty ``server_version`` /
 ``esphome_version`` until pairing attempts the connection.
@@ -180,13 +174,12 @@ def _load_offloader_identities(
     """Load both offloader-side identities in one executor hop.
 
     The peer-link X25519 keypair drives the Noise XX handshake;
-    the dashboard cert carries the stable ``dashboard_id`` we
-    send in msg3 so the receiver's
-    ``StoredPeer`` row keys on it. The two are both lazy-create
-    on first read, both protected by per-process locks
-    in their respective helpers, and both involve disk I/O
-    (each is one file read + occasional first-call generation).
-    Bundling into a single sync helper means one
+    the dashboard identity carries the stable ``dashboard_id`` we
+    send in msg3 so the receiver's ``StoredPeer`` row keys on it.
+    The two are both lazy-create on first read, both protected by
+    per-process locks in their respective helpers, and both involve
+    disk I/O (each is one file read + occasional first-call
+    generation). Bundling into a single sync helper means one
     ``run_in_executor`` round-trip rather than two — matters
     less for the threadpool overhead than for the
     "two awaits where one would do" code shape; keeps the
@@ -546,7 +539,7 @@ def _peer_summary(peer: StoredPeer, *, status: PeerStatus, connected: bool) -> P
     ``connected`` is the snapshot-time read the caller passes
     in. The intended source is
     ``dashboard_id in controller._peer_link_sessions`` (the
-    RAM-canonical receiver-side session registry the 5a-2
+    RAM-canonical receiver-side session registry the peer-link
     handshake populates); the helper is module-level rather
     than a controller method, so the caller dereferences the
     registry and threads the bool through. PENDING callers
@@ -1110,8 +1103,8 @@ class RemoteBuildController:
         # Active long-lived peer-link sessions, keyed on the
         # offloader's ``dashboard_id``. Populated by
         # :meth:`register_peer_link_session` after a successful
-        # ``intent="peer_link"`` Noise handshake (5a-1) and
-        # cleared on session exit (peer close / heartbeat
+        # ``intent="peer_link"`` Noise handshake and cleared on
+        # session exit (peer close / heartbeat
         # timeout / shutdown). One entry per dashboard_id —
         # a duplicate connect kicks the older session via
         # ``TerminateReason.SUPERSEDED`` so a restarted
@@ -1187,7 +1180,7 @@ class RemoteBuildController:
         # Identities cached once at :meth:`start` so each
         # peer-link client can pick them up without an executor
         # hop on every spawn. ``_offloader_dashboard_id`` is the
-        # offloader's stable phase-3a identity sent in every
+        # offloader's stable ``dashboard_id`` sent in every
         # peer_link msg3; ``_offloader_peer_link_priv`` is the
         # X25519 keypair used for the Noise XX handshake. Both
         # are loaded by the existing ``_load_offloader_identities``
@@ -1349,15 +1342,14 @@ class RemoteBuildController:
                 config_dir=self._db.settings.config_dir,
                 firmware_controller=self._db.firmware,
             )
-            # 6a: stand up the receiver-side
-            # ``download_artifacts`` handler alongside the
-            # submit-job receiver. Same firmware-controller
-            # dependency; lifecycle bound to ``start`` /
-            # ``stop``.
+            # Stand up the receiver-side ``download_artifacts``
+            # handler alongside the submit-job receiver. Same
+            # firmware-controller dependency; lifecycle bound to
+            # ``start`` / ``stop``.
             self._artifacts_download_sender = ArtifactsDownloadSender(
                 firmware_controller=self._db.firmware,
             )
-            # 5c-2b: subscribe to firmware ``JOB_*`` events so
+            # Subscribe to firmware ``JOB_*`` events so
             # remote-peer jobs (those carrying
             # ``FirmwareJob.remote_peer``) fan out
             # ``job_state_changed`` / ``job_output`` frames over
@@ -1365,7 +1357,7 @@ class RemoteBuildController:
             # controller-bound: detached in :meth:`stop`.
             self._job_fanout = JobFanout(self)
             self._job_fanout.start()
-            # 6c: periodic TTL sweep over the remote-build
+            # Periodic TTL sweep over the remote-build
             # subtree. Lives alongside the other receiver-side
             # primitives since it reads ``firmware._jobs`` to
             # skip in-flight subtrees — gating on the same
@@ -1404,7 +1396,7 @@ class RemoteBuildController:
             for peer in peers_state.peers:
                 self._approved_peers[peer.dashboard_id] = peer
         # Load offloader-side identities once (X25519 peer-link
-        # priv + the dashboard's stable phase-3a id) so each
+        # priv + the dashboard's stable ``dashboard_id``) so each
         # peer-link client task can pick them up without a
         # per-spawn executor hop. Cold-start spawn for every
         # APPROVED pairing follows below.
@@ -1805,7 +1797,7 @@ class RemoteBuildController:
         # only fires when the receiver's local firmware queue
         # mutates — a cold-connected offloader that pairs before
         # the receiver builds anything would otherwise never
-        # observe an idle entry, and the 7a-3 install scheduler's
+        # observe an idle entry, and the install scheduler's
         # ``pick_build_path`` requires an entry in
         # ``_peer_queue_status`` to consider a pairing eligible
         # (the "no signal that the receiver can accept work"
@@ -1900,7 +1892,7 @@ class RemoteBuildController:
             # populated by the time we get here.
             if self._submit_job_receiver is not None:
                 self._submit_job_receiver.discard_session(session.dashboard_id)
-            # 6a: same shape — discard any in-flight artifacts
+            # Same shape — discard any in-flight artifacts
             # download for this session so the slot doesn't
             # outlive the session it was streaming over.
             if self._artifacts_download_sender is not None:
@@ -2050,7 +2042,7 @@ class RemoteBuildController:
         # listeners and every offloader-side bus listener
         # registered above.
         self._listeners.close()
-        # 5c-2b job fan-out maintains its own listener set
+        # The job fan-out maintains its own listener set
         # (firmware-controller's bus, scoped to ``JOB_*`` event
         # types). Detach via the helper so the controller's
         # listener-bookkeeping doesn't fan into one shared list.
@@ -2073,8 +2065,8 @@ class RemoteBuildController:
         if self._pair_status_listeners:
             await asyncio.gather(*self._pair_status_listeners.values(), return_exceptions=True)
             self._pair_status_listeners.clear()
-        # Cancel + drain offloader-side peer-link client tasks
-        # (5a-2). Each task's run loop sends a structured
+        # Cancel + drain offloader-side peer-link client tasks.
+        # Each task's run loop sends a structured
         # ``terminate{reason: client_stopped}`` to the receiver
         # in its ``CancelledError`` handler before unwinding, so
         # the receiver's session loop exits cleanly without
@@ -3193,8 +3185,8 @@ class RemoteBuildController:
             # shutdown callback.
             self._schedule_pairings_save()
             # APPROVED row → spawn the long-lived peer-link
-            # client (5a-2). Receiver already authenticated us
-            # via the pair_request; the client just opens a
+            # client. Receiver already authenticated us via the
+            # pair_request; the client just opens a
             # peer_link session against the same coordinates.
             self._spawn_peer_link_client(pairing)
             # The just-spawned handle drives the response: the

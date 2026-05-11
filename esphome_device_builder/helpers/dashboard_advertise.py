@@ -1,7 +1,7 @@
 """
 Publish the dashboard's own ``_esphomebuilder._tcp.local.`` service.
 
-Phase 1 of the remote-build offload feature (issue #106). Dashboards
+Part of the remote-build offload feature (issue #106). Dashboards
 that browse this service type can list every other dashboard reachable
 on the LAN — used by the eventual "Remote build" settings page on the
 offloader and by the ESPHome Desktop welcome screen's "we found a
@@ -24,16 +24,17 @@ browse response on its own:
   dashboard would compile against, so the version-mismatch warning
   can fire on the listing page rather than waiting for an upload
   to come back with a surprise build.
-* ``pin_sha256`` (optional) — the receiver's SPKI fingerprint
-  (lowercase hex). Peers cross-check the cert they observe on
-  connect against this TXT entry; the fingerprint is also what
-  pairing pins out-of-band. Omitted when the identity helper
-  hasn't run yet.
-* ``remote_build_port`` (optional) — the TLS port the receiver's
-  peer-link Noise WS listener is bound to. Carried in TXT so
-  paired peers connect to the right port even when the operator
-  has overridden ``--remote-build-port``. Omitted when the
-  receiver site isn't bound (default-off mode).
+* ``pin_sha256`` (optional) — SHA-256 of the receiver's X25519
+  peer-link public key (lowercase hex). Peers cross-check the
+  responder static key observed during the Noise XX handshake
+  against this TXT entry; the fingerprint is also what pairing
+  pins out-of-band. Omitted when the identity helper hasn't run
+  yet.
+* ``remote_build_port`` (optional) — the plain-TCP port the
+  receiver's peer-link Noise WS listener is bound to. Carried in
+  TXT so paired peers connect to the right port even when the
+  operator has overridden ``--remote-build-port``. Omitted when
+  the receiver site isn't bound (default-off mode).
 
 A friendly label and the host's mDNS name are *not* in TXT — both
 are already on the wire. python-zeroconf exposes the service
@@ -247,16 +248,16 @@ class DashboardAdvertiser:
         them off ``ServiceInfo.name`` / ``ServiceInfo.server`` for
         free.
 
-        ``pin_sha256`` is the receiver's SPKI fingerprint (lowercase
-        hex, RFC 7469-form input but hex-encoded for parity with TLS
-        UI display). When set, peers who browse the broadcast can
-        sanity-check the cert they observe on connect against this
-        TXT entry — a useful tampering tripwire on top of the
-        out-of-band-confirmed pin from pairing. ``None`` when the
-        identity helper hasn't run yet (pre-3a deployments, or when
-        the dashboard's own remote-build feature is disabled).
+        ``pin_sha256`` is SHA-256 of the receiver's X25519 peer-link
+        public key (lowercase hex). When set, peers who browse the
+        broadcast can sanity-check the responder static key observed
+        during the Noise XX handshake against this TXT entry — a
+        useful tampering tripwire on top of the out-of-band-confirmed
+        pin from pairing. ``None`` when the identity helper hasn't
+        run yet, or when the dashboard's own remote-build feature is
+        disabled.
 
-        ``remote_build_port`` is the TLS port the receiver's
+        ``remote_build_port`` is the plain-TCP port the receiver's
         peer-link Noise WS listener is bound to. Carried in TXT
         so paired peers can connect to the right port without
         re-typing it; the SRV record's port stays at the dashboard's

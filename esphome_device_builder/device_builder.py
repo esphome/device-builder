@@ -358,8 +358,8 @@ class DeviceBuilder:
             )
             await self._dashboard_advertiser.register(zeroconf)
 
-        # Phase 2 of the remote-build feature (issue #106): browse
-        # the same service type to surface peer dashboards.
+        # Remote-build peer browse (issue #106): browse the same
+        # service type to surface peer dashboards.
         # ``RemoteBuildController.start`` is itself a no-op when
         # zeroconf is unavailable — same fail-soft contract as the
         # advertise — so we don't gate it here. Started AFTER the
@@ -806,10 +806,10 @@ class DeviceBuilder:
         the Noise XX handshake fails without a matching pubkey, so
         binding the port grants nothing on its own. Loads the
         X25519 peer-link identity off disk via
-        :func:`get_or_create_peer_link_identity` (separate from the
-        3a Ed25519 cert; the cert is no longer involved on this
-        listener). Hops through ``run_in_executor`` because the
-        helper is sync-blocking by design.
+        :func:`get_or_create_peer_link_identity` — the sole
+        cryptographic identity used by this listener. Hops through
+        ``run_in_executor`` because the helper is sync-blocking by
+        design.
 
         **HA addon: default-off but operator-overridable.** The
         addon's docker container doesn't expose port 6055 to the
@@ -1066,13 +1066,11 @@ class DeviceBuilder:
         """
         Construct the runner and bind the peer-link Noise WS listener.
 
-        Loads the X25519 peer-link identity (separate from the
-        dashboard's Ed25519 cert; see PR #473) and binds a
+        Loads the X25519 peer-link identity and binds a
         plain-TCP TCPSite serving exactly one route: the WS upgrade
         at ``/remote-build/peer-link``. Noise XX provides
         confidentiality + mutual auth + forward secrecy at the
-        application layer, so there's no SSL context to manage and
-        no cert hot-swap when the dashboard cert rotates.
+        application layer, so there's no SSL context to manage.
 
         Returns ``(runner, identity, bound_port)`` on success; on
         any exception, cleans up the partial runner before

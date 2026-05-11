@@ -16,10 +16,10 @@ imports keep resolving after the package split. Submodules:
   (:class:`PeerLinkClient`, :func:`drive_initiator_round_trip`,
   :func:`preview_pair` / :func:`request_pair` /
   :func:`await_pair_status`).
-- ``submit_job`` — receiver-side ``submit_job`` accept path
-  (5c-2a): :class:`SubmitJobReceiver`, bundle assembly →
+- ``submit_job`` — receiver-side ``submit_job`` accept path:
+  :class:`SubmitJobReceiver`, bundle assembly →
   ``prepare_bundle_for_compile`` → ``FirmwareJob`` queue.
-- ``job_fanout`` — receiver-side fan-out (5c-2b) of firmware
+- ``job_fanout`` — receiver-side fan-out of firmware
   ``JOB_*`` events to ``job_state_changed`` / ``job_output``
   peer-link frames.
 

@@ -208,7 +208,7 @@ def make_remote_build_controller(
     coroutines passed through it actually run. Single-side tests
     that don't drive any background-scheduled work won't notice;
     the e2e harness needs the wiring because the receiver-side
-    fan-out (5c-2b ``JobFanout._dispatch``) hands its
+    fan-out (``JobFanout._dispatch``) hands its
     ``send_app_frame`` calls through this path, and a no-op
     background-task hook would silently drop every fan-out frame
     without ever raising on the unawaited coroutine.
@@ -531,7 +531,7 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(DeviceStateMonitor, "stop", AsyncMock())
     monkeypatch.setattr(DeviceMqttCoordinator, "reconcile", AsyncMock())
     monkeypatch.setattr(DeviceMqttCoordinator, "stop", AsyncMock())
-    # Phase 2 of the remote-build feature wires a second mDNS browser
+    # The remote-build feature wires a second mDNS browser
     # behind ``RemoteBuildController.start``. The lifecycle tests use
     # the same "stub start/stop on the class" trick to keep the
     # smoke test hermetic — the per-controller test file

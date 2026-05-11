@@ -1,14 +1,14 @@
 """
 Receiver-side ``submit_job`` flow for the remote-build peer-link.
 
-Phase 5c-2 of issue #106. Drives the post-handshake ``submit_job``
-header + ``submit_job_chunk`` stream from the peer-link receive
-loop into a queued :class:`FirmwareJob` carrying the offloader's
-``dashboard_id`` in :attr:`FirmwareJob.remote_peer`. The
-fan-out the other direction — pushing
-``job_state_changed`` / ``job_output`` frames over the
-submitting session — lands in the 5c-2b follow-up; this module
-ends at "ack the bundle and queue the job."
+Drives the post-handshake ``submit_job`` header +
+``submit_job_chunk`` stream from the peer-link receive loop into
+a queued :class:`FirmwareJob` carrying the offloader's
+``dashboard_id`` in :attr:`FirmwareJob.remote_peer`. This module
+ends at "ack the bundle and queue the job"; the lifecycle
+fan-out the other direction — pushing ``job_state_changed`` /
+``job_output`` frames over the submitting session — lives in
+:mod:`.job_fanout`.
 
 Flow:
 
@@ -511,7 +511,7 @@ class SubmitJobReceiver:
             return
         # Echo the offloader's ``job_id`` back on the ack so the
         # offloader can match the response to its submit; the
-        # receiver-side job id is threaded into the 5c-2b fan-out
+        # receiver-side job id is threaded into the fan-out
         # via :attr:`FirmwareJob.remote_peer` instead.
         await self._send_ack_accepted(session, job_id=pending.job_id)
 
@@ -555,7 +555,7 @@ class SubmitJobReceiver:
         terminate (extract / queue failures are receiver-side
         problems, not wire-level misbehaviour). The receiver-side
         job id is captured in :attr:`FirmwareJob.remote_peer` for
-        the 5c-2b fan-out path; the offloader echoes against its
+        the fan-out path; the offloader echoes against its
         own submit-tagged ``job_id`` rather than the receiver's
         local one.
 

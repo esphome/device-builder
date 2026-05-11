@@ -4,11 +4,9 @@ Tests for the dashboard identity helper.
 The helper bundles two persistent values: the X25519 peer-link
 key's ``pin_sha256`` (which paired offloaders pin against during
 the Noise handshake) and the stable ``dashboard_id`` correlation
-token in the metadata sidecar's ``_remote_build`` block. Phase
-4a-r2 retired the Ed25519 self-signed cert this helper previously
-owned; the X25519 key now drives both the actual peer-link
-authentication AND the displayed fingerprint. Coverage here pins
-that:
+token in the metadata sidecar's ``_remote_build`` block. The
+X25519 key drives both the actual peer-link authentication AND
+the displayed fingerprint. Coverage here pins that:
 
 * The compose path returns a struct whose ``pin_sha256`` matches
   the X25519 peer-link helper's output (i.e. no divergence

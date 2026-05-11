@@ -2402,7 +2402,7 @@ async def test_pair_status_listener_loop_backs_off_on_unexpected_status(
 
 
 # ---------------------------------------------------------------------------
-# Phase 5a-2 — PeerLinkClient long-lived offloader-side session.
+# PeerLinkClient long-lived offloader-side session.
 # ---------------------------------------------------------------------------
 
 
@@ -3506,7 +3506,7 @@ async def test_run_session_loops_on_dead_swallows_aiohttp_close_error(
 
 
 # ---------------------------------------------------------------------------
-# Phase 5a-2 — RemoteBuildController peer-link client task lifecycle.
+# RemoteBuildController peer-link client task lifecycle.
 # ---------------------------------------------------------------------------
 
 
@@ -3686,7 +3686,7 @@ async def test_stop_drains_peer_link_clients(
 
 
 # ---------------------------------------------------------------------------
-# Phase 5b: queue_status receive handling on the offloader-side client
+# queue_status receive handling on the offloader-side client
 # ---------------------------------------------------------------------------
 
 
@@ -3836,7 +3836,7 @@ async def test_run_session_loops_drops_malformed_queue_status(
 
 
 # ---------------------------------------------------------------------------
-# Phase 5c-3: offloader-side submit_job + ack/state/output dispatch
+# Offloader-side submit_job + ack/state/output dispatch
 # ---------------------------------------------------------------------------
 
 
@@ -4124,7 +4124,7 @@ async def test_submit_job_rejects_duplicate_job_id() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5c-3: controller WS command (remote_build/submit_job)
+# Controller WS command (remote_build/submit_job)
 # ---------------------------------------------------------------------------
 
 
@@ -4781,7 +4781,7 @@ async def test_controller_submit_job_no_session_during_send_maps_to_precondition
 
 
 # ---------------------------------------------------------------------------
-# Phase 5c-3: offloader-side in-flight remote-job cache
+# Offloader-side in-flight remote-job cache
 # ---------------------------------------------------------------------------
 
 
@@ -4866,7 +4866,7 @@ async def test_offloader_remote_jobs_cache_cleared_on_unpair(
 
 
 # ---------------------------------------------------------------------------
-# Phase 5d: cancel_job (offloader → receiver cooperative cancel)
+# cancel_job (offloader → receiver cooperative cancel)
 # ---------------------------------------------------------------------------
 
 

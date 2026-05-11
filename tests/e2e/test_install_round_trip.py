@@ -1,10 +1,10 @@
 """
-End-to-end: 7a-3 transparent install — submit_job + fan-out + download_artifacts on one session.
+End-to-end: transparent install — submit_job + fan-out + download_artifacts on one session.
 
-Phase 7a-3 (#568) wired the offloader-side ``firmware/install``
-through :func:`helpers.build_scheduler.pick_build_path` and
-extended :func:`remote_runner.run_remote_job` to run both
-sides of a transparent install on one paired session:
+#568 wired the offloader-side ``firmware/install`` through
+:func:`helpers.build_scheduler.pick_build_path` and extended
+:func:`remote_runner.run_remote_job` to run both sides of a
+transparent install on one paired session:
 
 * ``client.submit_job(target="compile")`` to dispatch the
   compile to the receiver;
@@ -20,7 +20,7 @@ Existing e2e tests cover each piece in isolation —
 ``test_submit_job_fanout.py`` (single ``JOB_STARTED`` →
 ``OFFLOADER_JOB_STATE_CHANGED``), ``test_download_artifacts.py``
 (download_artifacts round-trip from a pre-seeded receiver job).
-What 7a-3 introduced is the **combination**: the same paired
+What transparent install introduced is the **combination**: the same paired
 Noise session has to carry submit_job, then the lifecycle
 fan-out, then download_artifacts, all keyed on the same
 ``(offloader dashboard_id, offloader-side job_id)`` correlation
@@ -246,7 +246,7 @@ async def test_cold_connect_offloader_observes_initial_queue_status_then_picks_r
     broadcast ``queue_status`` on its own firmware queue
     transitions (``_on_firmware_queue_transition``). A
     cold-connected offloader that paired before the receiver
-    built anything never observed an idle entry, and the 7a-3
+    built anything never observed an idle entry, and the
     install scheduler's ``pick_build_path`` requires an entry
     in ``_peer_queue_status`` to consider a pairing eligible —
     so ``firmware/install`` silently fell back to LOCAL on
@@ -296,7 +296,7 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
     paired_instances: PairedInstances,
     tmp_path: Path,
 ) -> None:
-    """7a-3's transparent install: submit + fan-out + download on one Noise session.
+    """Transparent install: submit + fan-out + download on one Noise session.
 
     The full chain the offloader-side
     :func:`remote_runner.run_remote_job` runs end-to-end for an
@@ -486,7 +486,7 @@ def _drive_receiver_lifecycle(
     A regression on the slot-release ordering would surface
     here as the offloader's ``_peer_queue_status`` ending up
     ``running=True`` after the terminal — the cache state the
-    7a-3 install scheduler rejects on the next install.
+    install scheduler rejects on the next install.
     """
     firmware = paired_instances.receiver._db.firmware
     bus = paired_instances.receiver_bus
@@ -731,7 +731,7 @@ async def test_remote_clean_round_trip_lands_clean_job_and_fans_state_back(
 
     # Drive the receiver's queue lifecycle. The fan-out test
     # helper bakes in the slot-release-then-fire ordering the
-    # 7a-3 fix established; reusing it here proves CLEAN gets
+    # transparent-install fix established; reusing it here proves CLEAN gets
     # the same idle snapshot the COMPLETED path emits for
     # compile / install.
     _drive_receiver_lifecycle(paired_instances, receiver_job, terminal=EventType.JOB_COMPLETED)

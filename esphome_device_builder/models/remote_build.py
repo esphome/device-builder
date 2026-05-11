@@ -76,10 +76,10 @@ class PeerLinkIntent(StrEnum):
       design choice (c). Creates / refreshes a PENDING
       ``StoredPeer`` row and fires
       ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED``.
-    * ``PEER_LINK`` — establishes a peer-link session for an
-      already-APPROVED peer. Phase 5+ keeps the WS open for
+    * ``PEER_LINK`` — establishes a long-lived peer-link session
+      for an already-APPROVED peer. The WS stays open for
       application messages (bundle upload, build, firmware
-      download); part 4 just answers the handshake.
+      download).
     * ``PAIR_STATUS`` — informational poll for a previously-
       submitted pair_request's current state.
     """
@@ -804,9 +804,7 @@ class PeerQueueStatusSnapshotEntry(TypedDict):
     queue_depth: int
 
 
-# 5c-1: submit_job + bundle chunking + job lifecycle frames.
-# These describe the on-the-wire shape; controller wiring lands
-# in 5c-2 (receiver) and 5c-3 (offloader).
+# submit_job + bundle chunking + job lifecycle frames.
 class SubmitJobFrameData(TypedDict):
     """
     Application-frame payload for ``AppMessageType.SUBMIT_JOB``.
@@ -904,8 +902,7 @@ class JobStateChangedFrameData(TypedDict):
     ``running`` (the runner has the slot), ``completed`` /
     ``failed`` / ``cancelled`` (terminal). One frame per
     transition; the firmware controller's existing JOB_*
-    events drive the fan-out at the receiver-side wire layer
-    in 5c-2.
+    events drive the fan-out at the receiver-side wire layer.
 
     ``error_message`` is empty on non-terminal states and on
     ``completed``; populated on ``failed`` / ``cancelled``
@@ -1232,7 +1229,7 @@ class PeerSummary(DataClassORJSONMixin):
     receivers that pre-date the persisted ``peer_ip`` field.
 
     ``connected`` reports whether the receiver currently has
-    an active 5a-2 peer-link session for this peer
+    an active peer-link session for this peer
     (``dashboard_id`` membership in
     :attr:`RemoteBuildController._peer_link_sessions`). The
     field is computed at snapshot-build time from the
@@ -1867,9 +1864,9 @@ class RemoteBuildPeer(DataClassORJSONMixin):
     # hex SHA-256, the same value as
     # :attr:`StoredPairing.pin_sha256`) and peer-link Noise WS
     # port, both pulled out of the
-    # ``_esphomebuilder._tcp.local.`` TXT record. Distinct from
-    # the dashboard's 3a TLS cert SPKI fingerprint; the
-    # peer-link identity is its own X25519 keypair (see
+    # ``_esphomebuilder._tcp.local.`` TXT record. The peer-link
+    # identity is the dashboard's X25519 keypair persisted at
+    # ``<config_dir>/.device-builder-peer-link-key.bin`` (see
     # ``helpers/peer_link_identity.py``). The offloader uses
     # both to match a discovered broadcast against a stored
     # pairing's ``pin_sha256`` and dial the right peer-link
