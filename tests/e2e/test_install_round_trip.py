@@ -59,6 +59,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from esphome.core import CORE
 
 from esphome_device_builder.helpers.build_scheduler import (
     BuildPath,
@@ -168,26 +169,29 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
     """Lay down a real StorageJSON sidecar + idedata.json + per-image binaries.
 
     Models the on-disk layout the receiver-side compile
-    subprocess produces under the 7a-5 per-build isolation:
-    ``ESPHOME_DATA_DIR`` is pinned to
-    ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/<device>/``
+    subprocess produces: ``ESPHOME_DATA_DIR`` is pinned to
+    ``<CORE.data_dir>/.remote_builds/<dashboard_id>/.esphome``
     so esphome writes storage / idedata / build under that
-    one ``(dashboard_id, device)``-keyed subtree. Production
-    has the real ``esphome compile`` invocation produce these
-    files there; the e2e variant short-circuits the build.
+    one ``dashboard_id``-keyed directory shared across every
+    device an offloader submits. Production has the real
+    ``esphome compile`` invocation produce these files there;
+    the e2e variant short-circuits the build.
 
     The autouse ``_core_config_path_in_tmp`` fixture pins
     ``CORE.config_path`` to a sentinel inside *tmp_path*, so
-    :func:`helpers.storage_path.resolve_data_dir` resolves a
-    remote-build configuration to the per-build subtree under
-    ``tmp_path``. Mirror that exactly here.
+    ``CORE.data_dir`` resolves to ``tmp_path/.esphome`` (default
+    mode). :meth:`RemoteBuildPath.data_dir` anchors on
+    ``CORE.data_dir`` exactly the way the writer-side env
+    override does, so passing ``Path(CORE.data_dir)`` here lands
+    the test sidecars where the production read path will look
+    for them.
     """
     remote_build_path = parse_remote_build_path(configuration)
     assert remote_build_path is not None, (
         f"configuration {configuration!r} must be a remote-build path; "
         "the helper is e2e-specific and not meant for bare-basename inputs"
     )
-    data_dir = remote_build_path.data_dir(tmp_path)
+    data_dir = remote_build_path.data_dir(Path(CORE.data_dir))
     build_dir = data_dir / "build" / remote_build_path.device_name
     build_dir.mkdir(parents=True, exist_ok=True)
     images: dict[str, bytes] = {
