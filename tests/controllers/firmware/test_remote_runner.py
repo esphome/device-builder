@@ -1466,6 +1466,52 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
 
 
 @pytest.mark.asyncio
+async def test_fetch_and_run_local_upload_cancel_pre_spawn_skips_subprocess(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_extract_firmware: MagicMock,
+) -> None:
+    """
+    Cancel landing between extract + spawn skips the subprocess.
+
+    The wire round-trip (``download_artifacts``) and the
+    in-executor tarball extract have already happened by the
+    time the check fires — those couldn't be cancelled
+    cleanly anyway. The check guards the staging + spawn
+    phase: a cancel that arrived between the executor hop
+    and the spawn finalises the job locally without writing
+    the tmpdir or starting ``esphome upload``.
+
+    Unit-tested directly because the outer runner routes
+    most cancel races through ``_await_terminal``'s in-loop
+    check — this defensive gate is only reachable via the
+    helper's own entry. Pinning it here keeps the branch
+    alive against a future refactor that introduces an
+    ``await`` between ``_await_terminal`` and this helper.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
+
+    # Track spawn attempts: ``_tracked_subprocess`` is an
+    # async context manager on the controller; a successful
+    # cancel-pre-spawn skip means it's never invoked.
+    controller._tracked_subprocess = MagicMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("subprocess should not have spawned")
+    )
+
+    job = _make_remote_install_job()
+    controller._cancel_requested.add(job.job_id)
+
+    await remote_runner._fetch_and_run_local_upload(controller=controller, job=job, client=client)
+
+    assert job.status == JobStatus.CANCELLED
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
+    client.download_artifacts.assert_awaited_once()
+    patch_extract_firmware.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_remote_upload_runs_the_same_local_flash_chain_as_install(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,

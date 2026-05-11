@@ -35,7 +35,9 @@ from esphome_device_builder.controllers.remote_build.artifacts_download import (
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     PackedArtifacts,
     UnpackArtifactsError,
+    extract_firmware_bin,
     pack_build_artifacts,
+    read_artifacts_tarball,
     unpack_artifacts_response,
 )
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
@@ -706,3 +708,131 @@ def test_load_build_artifacts_rejects_non_dict_idedata(
 
     with pytest.raises(ValueError, match="not a JSON object"):
         load_build_artifacts("kitchen.yaml")
+
+
+# ---------------------------------------------------------------------------
+# extract_firmware_bin — runner-side single-image extractor (7a-3)
+# ---------------------------------------------------------------------------
+
+
+def _build_minimal_tarball(members: dict[str, bytes]) -> bytes:
+    """Build a gzipped tarball with *members* (basename → bytes)."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, payload in members.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(payload)
+            tar.addfile(info, io.BytesIO(payload))
+    return buf.getvalue()
+
+
+def test_extract_firmware_bin_returns_firmware_bytes() -> None:
+    """The happy path: a tarball with ``firmware.bin`` returns its payload."""
+    expected = b"\xe9\x08\x02\x20RUNTIME-FIRMWARE-BYTES"
+    tarball = _build_minimal_tarball(
+        {"idedata.json": b"{}", "firmware.bin": expected, "extra.bin": b"x"},
+    )
+
+    assert extract_firmware_bin(tarball) == expected
+
+
+def test_extract_firmware_bin_raises_when_firmware_missing() -> None:
+    """No ``firmware.bin`` in the tarball → ``UnpackArtifactsError``."""
+    tarball = _build_minimal_tarball(
+        {"idedata.json": b"{}", "bootloader.bin": b"boot"},
+    )
+
+    with pytest.raises(UnpackArtifactsError, match=r"firmware\.bin missing"):
+        extract_firmware_bin(tarball)
+
+
+def test_extract_firmware_bin_raises_when_firmware_is_a_directory() -> None:
+    """
+    A directory entry named ``firmware.bin`` surfaces as ``UnpackArtifactsError``.
+
+    Defensive — the receiver-side packer never writes a
+    directory, so this is a wire-shape-drift / hostile-peer
+    case. ``tar.extractfile()`` returns ``None`` for non-file
+    members, and we surface a typed error rather than reading
+    bytes from ``None``.
+    """
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name="firmware.bin")
+        info.type = tarfile.DIRTYPE
+        tar.addfile(info)
+    tarball = buf.getvalue()
+
+    with pytest.raises(UnpackArtifactsError, match="not a regular file"):
+        extract_firmware_bin(tarball)
+
+
+def test_extract_firmware_bin_raises_on_malformed_tarball() -> None:
+    """A non-gzipped / non-tar payload surfaces as ``UnpackArtifactsError``."""
+    with pytest.raises(UnpackArtifactsError, match="malformed tarball"):
+        extract_firmware_bin(b"this is not a gzipped tarball")
+
+
+def test_extract_firmware_bin_rejects_oversized_member() -> None:
+    """
+    A tarball declaring a firmware.bin larger than the cap fails fast.
+
+    Decompression-bomb defence: gzip can shrink huge zero-
+    filled / sparse data to a tiny on-the-wire payload. The
+    header-size gate trips before ``extractfile`` reads a
+    single byte.
+    """
+    # Build a tarball whose header declares a huge size but
+    # whose actual payload is tiny — mimic the
+    # "decompression-bomb" shape: a TarInfo with an inflated
+    # ``size`` field followed by the matching payload.
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        oversized_payload = b"\x00" * (FIRMWARE_MAX_TOTAL_BYTES + 1)
+        info = tarfile.TarInfo(name="firmware.bin")
+        info.size = len(oversized_payload)
+        tar.addfile(info, io.BytesIO(oversized_payload))
+    tarball = buf.getvalue()
+
+    with pytest.raises(UnpackArtifactsError, match="exceeding FIRMWARE_MAX_TOTAL_BYTES"):
+        extract_firmware_bin(tarball)
+
+
+# ---------------------------------------------------------------------------
+# read_artifacts_tarball — cumulative size cap (decompression-bomb defence)
+# ---------------------------------------------------------------------------
+
+
+def test_read_artifacts_tarball_rejects_cumulative_size_over_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Cumulative sum across members trips the cap even if every individual member fits.
+
+    The packer enforces the same per-call ceiling on the way
+    out, so a well-formed tarball never exceeds the cap. A
+    peer-controlled / malformed stream that declares N
+    just-under-cap members would still blow up the offloader
+    without this gate.
+    """
+    # Patch the cap to a tiny value so the test stays cheap.
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_tarball."
+        "FIRMWARE_MAX_TOTAL_BYTES",
+        128,
+    )
+    members = {
+        "idedata.json": b'{"extra": {}}',
+        "firmware.bin": b"x" * 64,
+        "bootloader.bin": b"x" * 64,
+    }
+    tarball = _build_minimal_tarball(members)
+
+    with pytest.raises(UnpackArtifactsError, match="cumulative size"):
+        read_artifacts_tarball(tarball)
+
+
+def test_read_artifacts_tarball_surfaces_malformed_tarball_as_unpack_error() -> None:
+    """A corrupt gzip / tar header → ``UnpackArtifactsError`` (not a tarfile traceback)."""
+    with pytest.raises(UnpackArtifactsError, match="is malformed"):
+        read_artifacts_tarball(b"definitely not a tarball")
