@@ -130,7 +130,10 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
         job_type: JobType,
         *,
         remote_peer: str = "",
+        remote_peer_label: str = "",
         remote_job_id: str = "",
+        device_name: str = "",
+        device_friendly_name: str = "",
         **_: Any,
     ) -> FirmwareJob:
         job = FirmwareJob(
@@ -139,7 +142,10 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
             job_type=job_type,
             status=JobStatus.QUEUED,
             remote_peer=remote_peer,
+            remote_peer_label=remote_peer_label,
             remote_job_id=remote_job_id,
+            device_name=device_name,
+            device_friendly_name=device_friendly_name,
         )
         created_jobs.append(job)
         return job
@@ -147,6 +153,14 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
     firmware = instances.receiver._db.firmware
     firmware._create_job = MagicMock(side_effect=_create_job)
     firmware._enqueue = AsyncMock(side_effect=lambda job: job)
+    # ``submit_job`` resolves the offloader's display label by
+    # going through ``self._firmware._db.remote_build.approved_peer_label``.
+    # The firmware controller is a MagicMock in this harness, so
+    # the ``_db.remote_build`` chain returns yet-another MagicMock;
+    # pin it to the real receiver-side controller so the label
+    # lookup at job-create time hits the actual approved-peer
+    # registry the pairing fixture populated.
+    firmware._db.remote_build = instances.receiver
     return created_jobs
 
 
@@ -290,3 +304,72 @@ async def test_submit_job_round_trip_then_fanout_to_offloader_bus(
     assert payload["job_id"] == "off-job-1"  # offloader's tag echoed back
     assert payload["status"] == "running"
     assert payload["pin_sha256"] == paired_instances.pin_sha256
+
+
+@pytest.mark.asyncio
+async def test_submit_job_round_trip_carries_display_strings_to_receiver_job(
+    paired_instances: PairedInstances,
+) -> None:
+    """``submit_job``'s display-string header lands on the receiver-side FirmwareJob.
+
+    Pins the wire contract from esphome/device-builder#587 end-to-end:
+    the offloader-side frontend has the device's display strings
+    (``device_name`` / ``device_friendly_name``) when it kicks the
+    install off and threads them through ``client.submit_job(...)``;
+    the receiver-side dispatch coerces them off the
+    ``SubmitJobFrameData`` header and lands them on the queued
+    :class:`FirmwareJob` so the receiver's own task-list dialog can
+    show "AC Float Monitor 32 (kitchen)" from "offloader" without
+    having to parse the YAML it just extracted. ``remote_peer_label``
+    rides through the same path; it isn't a wire-header field (the
+    receiver looks it up locally off its approved-peer registry at
+    job-create time), but it's part of the same display-string
+    triple a regression in any one of the three would break, so
+    pin all three here.
+
+    The unit tests cover each side in isolation
+    (``test_remote_build_submit_job.py``, ``test_remote_runner.py``);
+    this e2e wires them up over a real Noise session so a future
+    rebase that swaps the wire header's spelling, drops a field
+    from ``_coerce_display_field``'s coverage, or changes the
+    ``approved_peer_label`` lookup site lands on this test instead
+    of going silent until a frontend bug report.
+    """
+    await paired_instances.wait_until_session_opened()
+    created_jobs = _wire_receiver_firmware_recorder(paired_instances)
+
+    handle = paired_instances.offloader._peer_link_clients[paired_instances.pin_sha256]
+    ack = await handle.client.submit_job(
+        job_id="off-job-display",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=_build_real_bundle(),
+        device_name="kitchen",
+        device_friendly_name="AC Float Monitor 32",
+    )
+
+    assert ack["accepted"] is True
+    assert len(created_jobs) == 1
+    job = created_jobs[0]
+
+    # device_name / device_friendly_name flow off the SubmitJobFrameData
+    # header through ``_coerce_display_field`` onto the queued job.
+    assert job.device_name == "kitchen"
+    assert job.device_friendly_name == "AC Float Monitor 32"
+
+    # remote_peer_label isn't on the wire — the receiver looks it
+    # up at job-create time off its approved-peer registry, which
+    # was populated by the pair_request flow in the conftest. The
+    # pairing fixture stored "offloader" as the offloader-supplied
+    # label; assert against whatever the registry currently
+    # reports so a future fixture change doesn't pin a magic
+    # string here.
+    expected_label = paired_instances.receiver.approved_peer_label(
+        paired_instances.offloader_dashboard_id
+    )
+    assert expected_label, (
+        "test precondition: pairing fixture should leave the offloader "
+        "approved with a non-empty label so the receiver-side lookup "
+        "has something to find"
+    )
+    assert job.remote_peer_label == expected_label
