@@ -41,7 +41,6 @@ from ...helpers.subprocess import iter_lines_with_progress
 from ...models import (
     EventType,
     FirmwareJob,
-    JobProgressData,
     JobStatus,
     JobType,
     OffloaderJobOutputData,
@@ -516,22 +515,6 @@ async def _fetch_and_run_local_upload(
     yaml_path = await loop.run_in_executor(
         None, controller._db.settings.rel_path, job.configuration
     )
-
-    # Reset ``job.progress`` at the compile → upload seam.
-    # :func:`helpers._ingest_output_line` monotonically clamps:
-    # any line whose parsed percent isn't strictly greater than
-    # the running value gets dropped. The receiver-side compile
-    # streams linker / PIO ``(N%)`` lines through the fan-out
-    # that can push the gauge near 100; if we don't reset here,
-    # the local ``esphome upload``'s ``Uploading: [..] 5% / 10%
-    # / ...`` lines all fall below the compile's high-water and
-    # the progress bar appears frozen at the compile peak
-    # throughout the entire flash phase. Fire a 0% event so the
-    # frontend bar visibly resets at the phase transition rather
-    # than waiting for the first non-clamped upload percent to
-    # land.
-    job.progress = 0
-    bus.fire(EventType.JOB_PROGRESS, JobProgressData(job_id=job.job_id, progress=0))
 
     # ``tempfile.TemporaryDirectory`` ctor calls
     # :func:`os.mkdir` synchronously — blockbuster catches

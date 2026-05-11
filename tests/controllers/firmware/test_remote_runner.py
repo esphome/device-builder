@@ -1278,55 +1278,6 @@ def patch_extract_firmware(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_remote_install_resets_progress_between_compile_and_upload(
-    firmware_controller_factory: FirmwareControllerFactory,
-    patch_bundle: AsyncMock,
-    patch_extract_firmware: MagicMock,
-    tmp_path: Any,
-) -> None:
-    """The phase transition fires a ``JOB_PROGRESS{0}`` and clears ``job.progress``.
-
-    Pins the compile → upload seam reset:
-    :func:`helpers._ingest_output_line` monotonically clamps,
-    so a receiver-side compile that pushed the gauge near 100
-    via linker / PIO ``(N%)`` lines would suppress every
-    ``Uploading: [..] 5% / 10% / ...`` line from the local
-    flash subprocess (5 isn't > 95). Without an explicit reset
-    at the phase boundary, the progress bar appears frozen at
-    the compile peak for the entire upload duration. The
-    runner fires a 0% event at the start of
-    ``_fetch_and_run_local_upload`` so the frontend visibly
-    resets and subsequent upload percents advance the gauge.
-    """
-    controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
-    client = _make_client()
-    client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
-    _wire_remote_build(controller, client=client)
-    _wire_upload_subprocess(controller, exit_code=0)
-    job = _make_remote_install_job()
-    # Simulate the receiver-side compile having driven the
-    # gauge to 95% via a linker ``(95%)`` line before the
-    # phase transition; without the reset the upload's lower
-    # percents would all be silently clamped.
-    job.progress = 95
-
-    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
-    await _wait_until_dispatched(client)
-    _fire_state(controller, job_id=job.job_id, status="completed")
-    await asyncio.wait_for(runner, timeout=5.0)
-
-    # The phase-transition reset fired a 0% event; the
-    # captured stream carries it as the first JOB_PROGRESS
-    # event from the upload half. (The compile half doesn't
-    # appear here because we pre-seeded ``job.progress=95``
-    # without going through the bus.)
-    assert captured[EventType.JOB_PROGRESS]
-    assert captured[EventType.JOB_PROGRESS][0]["progress"] == 0
-    assert captured[EventType.JOB_PROGRESS][0]["job_id"] == job.job_id
-
-
-@pytest.mark.asyncio
 async def test_remote_install_completes_after_local_upload_succeeds(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
