@@ -736,12 +736,22 @@ async def test_remote_clean_round_trip_lands_clean_job_and_fans_state_back(
     # compile / install.
     _drive_receiver_lifecycle(paired_instances, receiver_job, terminal=EventType.JOB_COMPLETED)
 
-    # Two state changes landed on the offloader's bus: running
-    # then completed, both carrying the offloader-supplied
-    # ``job_id`` and the live pin_sha256. JOB_QUEUED doesn't
-    # produce a state-change fan-out (the fan-out fires from
-    # JOB_STARTED onward); two events is the right count.
-    await asyncio.wait_for(state_changes.received.wait(), timeout=2.0)
+    # Two state changes land on the offloader's bus: running then
+    # completed, both carrying the offloader-supplied ``job_id`` and
+    # the live pin_sha256. JOB_QUEUED doesn't produce a state-change
+    # fan-out (the fan-out fires from JOB_STARTED onward); two
+    # events is the right count. Poll until both have arrived rather
+    # than ``wait_for(received)`` once — the latter wakes on the
+    # first event, races the second one, and would flake on a
+    # slower CPU.
+    async def _wait_for_two_events() -> None:
+        while len(state_changes) < 2:
+            state_changes.received.clear()
+            if len(state_changes) >= 2:
+                return
+            await state_changes.received.wait()
+
+    await asyncio.wait_for(_wait_for_two_events(), timeout=2.0)
     assert len(state_changes) >= 2
     statuses = [payload["status"] for payload in state_changes]
     assert "running" in statuses
