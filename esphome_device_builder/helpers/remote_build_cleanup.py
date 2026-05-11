@@ -81,7 +81,15 @@ def sweep_remote_builds(
         now = time.time()
     cutoff = now - ttl_seconds
     root = config_dir / REMOTE_BUILDS_SUBDIR
-    if not root.is_dir():
+    # Skip if the root itself is a symlink — ``is_dir()`` would
+    # follow it and the sweep would walk into whatever directory
+    # the symlink targets, potentially deleting subtrees outside
+    # the canonical layout. The canonical writer (submit_job)
+    # creates this root as a real directory; a symlink here is
+    # operator-or-attacker-placed and outside trust scope.
+    # Defense-in-depth matching the symlink skips at the
+    # dashboard_dir and entry levels below.
+    if root.is_symlink() or not root.is_dir():
         return 0
 
     deleted = 0

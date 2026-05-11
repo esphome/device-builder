@@ -230,6 +230,38 @@ def test_sweep_does_not_unlink_bundle_when_subtree_still_exists(tmp_path: Path) 
     assert not key.bundle(tmp_path).exists()
 
 
+def test_sweep_skips_when_root_itself_is_symlink(tmp_path: Path) -> None:
+    """A symlink at the remote-builds root is skipped, not traversed.
+
+    Defense-in-depth: ``root.is_dir()`` follows symlinks; a
+    symlink at ``<config_dir>/.esphome/.remote_builds`` would
+    otherwise pass the check and the sweep would walk into
+    whatever directory the symlink targets, potentially
+    reclaiming subtrees outside the canonical layout. The
+    explicit ``is_symlink`` skip catches this.
+    """
+    now = 1_000_000.0
+    real_root = tmp_path / "elsewhere"
+    real_root.mkdir()
+    # Plant a populated subtree at the symlink TARGET to make
+    # sure the sweep wouldn't accidentally clean it up.
+    (real_root / "alpha").mkdir()
+    (real_root / "alpha" / "kitchen").mkdir()
+    (real_root / "alpha" / "kitchen" / "important.txt").write_text("hands off")
+    age_seconds = 3600
+    target_mtime = now - age_seconds
+    os.utime(real_root / "alpha" / "kitchen", (target_mtime, target_mtime))
+
+    # Make the remote-builds root a symlink pointing at the
+    # populated real_root.
+    (tmp_path / ".esphome").mkdir()
+    (tmp_path / ".esphome" / ".remote_builds").symlink_to(real_root)
+
+    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert deleted == 0
+    assert (real_root / "alpha" / "kitchen" / "important.txt").is_file()
+
+
 def test_sweep_skips_symlink_at_dashboard_level(tmp_path: Path) -> None:
     """A symlink at the ``<dashboard_id>/`` level is left untouched.
 
