@@ -41,8 +41,7 @@ from ...models import (
     EventType,
     FirmwareJob,
     JobLifecycleData,
-    JobOutputData,
-    JobProgressData,
+    JobSource,
     JobStatus,
     JobType,
     StreamEvent,
@@ -50,27 +49,26 @@ from ...models import (
 from ..config import _load_metadata, metadata_transaction
 from .constants import (
     _ERROR_PATTERNS,
-    _INFLIGHT_TRIM_KEEP,
     _JOBS_KEY,
     _MAX_AUX_TERMINAL_JOBS,
-    _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_PRIMARY_TERMINAL_JOBS,
     _PRIMARY_JOB_TYPES,
 )
 from .helpers import (
     _find_esphome_cmd,
+    _ingest_output_line,
     _is_no_module_named_esphome,
     _mark_job_terminal,
     _names_touched_by_job,
-    _parse_progress,
     _trim_job_output,
     _validate_port,
     _verify_esphome_importable,
 )
+from .remote_runner import run_remote_compile_job
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
-    from ...helpers.event_bus import Event
+    from ...helpers.event_bus import Event, EventBus
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -151,6 +149,27 @@ class FirmwareController:
         # when the subprocess exits so we can mark the job CANCELLED
         # rather than the default FAILED-on-non-zero-exit.
         self._cancel_requested: set[str] = set()
+        # Per-job ``asyncio.Event`` that the cancel handler signals
+        # so an in-flight runner can wake instantly instead of
+        # polling. Only the remote-source runner registers an event
+        # today (the local subprocess path's cancel landing is
+        # driven by SIGTERM on the spawned process). The remote
+        # runner adds an entry before parking on the terminal wait
+        # and clears it on exit.
+        self._cancel_events: dict[str, asyncio.Event] = {}
+
+    @property
+    def bus(self) -> EventBus:
+        """The event bus this controller fires lifecycle / output events on.
+
+        Shorthand for ``self._db.bus`` so collaborators
+        (notably ``remote_runner``) don't reach across two
+        underscore-prefixed attributes to get at the canonical
+        offloader-side bus. Read-only — the bus reference is
+        installed by :class:`DeviceBuilder` at construction
+        and doesn't move.
+        """
+        return self._db.bus
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -710,6 +729,13 @@ class FirmwareController:
                 msg = "Running job is not the active subprocess (state out of sync)"
                 raise RuntimeError(msg)
             self._cancel_requested.add(job_id)
+            # Wake any runner parked on its cancel event (the
+            # source-routed remote runner registers one; the
+            # local subprocess path doesn't need one because
+            # SIGTERM is the wake signal).
+            cancel_event = self._cancel_events.get(job_id)
+            if cancel_event is not None:
+                cancel_event.set()
             await self._terminate_current_process()
             return
 
@@ -858,6 +884,17 @@ class FirmwareController:
         await self._persist_jobs()
 
         try:
+            # Source-routed branch: REMOTE-source jobs dispatch via
+            # peer-link to a paired receiver instead of running a
+            # local subprocess. The receiver's ``OFFLOADER_JOB_*``
+            # fan-out events drive the same lifecycle / output /
+            # progress fires every local subscriber already
+            # consumes — follow_job and the firmware-tasks UI don't
+            # need to know whether the bytes are local or remote.
+            if job.source is JobSource.REMOTE:
+                await self._execute_remote_job(job)
+                return
+
             # Pre-flight: verify chip type for serial uploads
             if job.job_type in (JobType.UPLOAD, JobType.INSTALL):
                 await self._verify_chip(job)
@@ -910,23 +947,6 @@ class FirmwareController:
                         has_error_in_output = True
                         return
 
-            def _check_progress(text: str) -> None:
-                progress = _parse_progress(text)
-                if progress is None:
-                    return
-                # Monotonic clamp — output sometimes flips between
-                # phases (compile reports "100%", then flash starts at
-                # "0%"). For a single coarse bar we want the highest
-                # so far so the frontend doesn't appear to regress.
-                current = job.progress or 0
-                if progress > current:
-                    job.progress = progress
-                    progress_payload: JobProgressData = {
-                        "job_id": job.job_id,
-                        "progress": progress,
-                    }
-                    self._db.bus.fire(EventType.JOB_PROGRESS, progress_payload)
-
             async with self._tracked_subprocess(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -961,28 +981,22 @@ class FirmwareController:
                 # whether to append a new line or overwrite the last
                 # one.
                 async for line in iter_lines_with_progress(proc.stdout):
-                    job.output.append(line)
-                    # Bound mid-run memory growth. Without this, a
-                    # build that streams gigabytes of stderr (chatty
-                    # external_components fetch loop, esptool stuck on
-                    # a repeating error) holds every line in memory
-                    # until the subprocess exits — only the post-
-                    # completion ``_trim_job_output`` in the
-                    # ``finally`` block ever ran. Trim down to a
-                    # smaller keep size than the trigger so the next
-                    # ``cap - keep`` appends don't each pay an O(cap)
-                    # slice copy. Concretely with the current
-                    # constants: cap=4000, keep=2000, so 2000 lines
-                    # fit between trims.
-                    if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
-                        _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
-                    output_payload: JobOutputData = {
-                        "job_id": job.job_id,
-                        "line": line,
-                    }
-                    self._db.bus.fire(EventType.JOB_OUTPUT, output_payload)
+                    # Shared with the source-routed remote runner
+                    # (``remote_runner._on_output``). The helper
+                    # buffers + trims + fires ``JOB_OUTPUT`` and
+                    # advances ``JOB_PROGRESS`` on a parseable
+                    # percentage — same per-line bookkeeping
+                    # whether the build's bytes come from this
+                    # CPU or a paired receiver. ``_check_error``
+                    # stays inline because it mutates the
+                    # nonlocal ``has_error_in_output`` /
+                    # ``saw_no_esphome_module`` flags the
+                    # post-exit handler reads; remote builds
+                    # surface a structured ``failed`` status from
+                    # the receiver instead, so the stderr scrape
+                    # only matters here.
+                    _ingest_output_line(job, self._db.bus, line)
                     _check_error(line)
-                    _check_progress(line)
 
                 exit_code = await proc.wait()
                 job.exit_code = exit_code
@@ -1053,6 +1067,37 @@ class FirmwareController:
                 _trim_job_output(job)
                 self._prune_history()
             await self._persist_jobs()
+
+    async def _execute_remote_job(self, job: FirmwareJob) -> None:
+        """
+        Run a ``JobSource.REMOTE`` job by dispatching through peer-link.
+
+        Reads ``source_pin_sha256`` off *job*, looks up the live
+        :class:`PeerLinkClient` through the remote-build
+        controller, bundles the YAML via the ``esphome bundle``
+        subprocess, dispatches ``submit_job``, then translates
+        receiver-side ``OFFLOADER_JOB_OUTPUT`` /
+        ``OFFLOADER_JOB_STATE_CHANGED`` events into the same
+        local ``JOB_OUTPUT`` / ``JOB_PROGRESS`` /
+        ``JOB_<terminal>`` fires the local subprocess path emits.
+        ``follow_job`` and the firmware-tasks UI consume one
+        event stream regardless of which CPU compiled the bytes.
+
+        Scope is COMPILE-only — UPLOAD / INSTALL go through
+        7a-3 which adds a download-artifacts step on top to
+        pull the bytes back over peer-link before the local
+        flash phase. Anything else here lands as ``FAILED``
+        with an explanatory error.
+
+        Terminal states are mapped through the same helpers the
+        local path uses (``_mark_job_terminal`` /
+        ``_finalize_cancelled``), so the outer
+        ``_execute_job``'s ``finally`` runs the shared
+        ``_trim_job_output`` / ``_prune_history`` / persist
+        sequence regardless of which branch produced the
+        terminal status.
+        """
+        await run_remote_compile_job(self, job)
 
     @asynccontextmanager
     async def _tracked_subprocess(

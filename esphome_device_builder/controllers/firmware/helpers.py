@@ -16,22 +16,31 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
 from ...helpers.subprocess import run_subprocess_capture
 from ...models import (
     TERMINAL_JOB_STATUSES,
     ErrorCode,
+    EventType,
     FirmwareJob,
+    JobOutputData,
+    JobProgressData,
     JobStatus,
     JobType,
 )
 from .constants import (
+    _INFLIGHT_TRIM_KEEP,
+    _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_OUTPUT_LINES_RETAINED,
     _NO_ESPHOME_MODULE_MARKER,
     _OUTPUT_TRIM_NOTICE_PREFIX,
     _PROGRESS_PATTERNS,
 )
+
+if TYPE_CHECKING:
+    from ...helpers.event_bus import EventBus
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -288,3 +297,44 @@ async def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
     if result.returncode != 0 or "No module named" in output or "ModuleNotFoundError" in output:
         return False, output or f"exit {result.returncode}"
     return True, output
+
+
+def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
+    """
+    Append *line* to ``job.output`` and fire local follower events.
+
+    Shared bookkeeping for "one line of build output arrived" —
+    consumed by both the local subprocess streaming loop in
+    :meth:`FirmwareController._execute_job` and the remote-source
+    listener in :mod:`controllers.firmware.remote_runner`.
+
+    Steps:
+
+    1. Buffer the line on ``job.output``.
+    2. Trim down to ``_INFLIGHT_TRIM_KEEP`` if the in-flight
+       cap is hit, so a chatty build doesn't grow ``output``
+       without bound between terminal-event trims.
+    3. Fan it out as ``JOB_OUTPUT`` so live followers see it.
+    4. Parse a coarse 0-100 progress percentage; if it
+       advances the previous value, update the job and fire
+       ``JOB_PROGRESS``. Monotonic-clamp behaviour matches the
+       local subprocess path (esptool's "100%" followed by
+       PlatformIO's "0%" would otherwise look like a
+       regression to the progress-bar renderer).
+
+    Does **not** handle error-pattern detection — that's a
+    local-only concern (the remote path gets a structured
+    ``failed`` status from the receiver instead of having to
+    scrape stderr).
+    """
+    job.output.append(line)
+    if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
+        _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
+    out_payload: JobOutputData = {"job_id": job.job_id, "line": line}
+    bus.fire(EventType.JOB_OUTPUT, out_payload)
+    progress = _parse_progress(line)
+    if progress is None or progress <= (job.progress or 0):
+        return
+    job.progress = progress
+    prog_payload: JobProgressData = {"job_id": job.job_id, "progress": progress}
+    bus.fire(EventType.JOB_PROGRESS, prog_payload)

@@ -40,6 +40,9 @@ from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware import (
     controller as controller_module,
 )
+from esphome_device_builder.controllers.firmware import (
+    helpers as helpers_module,
+)
 from esphome_device_builder.controllers.firmware.constants import (
     _INFLIGHT_TRIM_KEEP,
     _MAX_OUTPUT_LINES_INFLIGHT,
@@ -73,6 +76,7 @@ def _wire_real_queue(controller: FirmwareController) -> None:
     controller._current_job = None
     controller._current_process = None
     controller._cancel_requested = set()
+    controller._cancel_events = {}
 
 
 def _fake_esphome(controller: FirmwareController, script: str) -> None:
@@ -706,7 +710,15 @@ async def test_compile_inflight_output_trims_when_cap_exceeded(
         else:
             real_trim(job, keep=keep)
 
+    # Patch both surfaces: the post-exit ``finally``-block call
+    # resolves through ``controller_module`` (the streaming-loop
+    # imports it directly), while the mid-run trim now lands via
+    # the shared ``_ingest_output_line`` helper in ``helpers.py``
+    # — which calls ``_trim_job_output`` from its own module
+    # scope. Without patching both, the mid-run branch escapes
+    # the spy and the regression check goes silent.
     monkeypatch.setattr(controller_module, "_trim_job_output", _spy_trim)
+    monkeypatch.setattr(helpers_module, "_trim_job_output", _spy_trim)
 
     excess = 200
     total = _MAX_OUTPUT_LINES_INFLIGHT + excess

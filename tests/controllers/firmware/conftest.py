@@ -170,6 +170,7 @@ def firmware_controller_factory(
             controller._current_job = None
             controller._current_process = None
             controller._cancel_requested = set()
+            controller._cancel_events = {}
             controller._terminate_current_process = AsyncMock()
 
         return controller
