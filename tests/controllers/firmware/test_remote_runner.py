@@ -268,14 +268,16 @@ async def _wait_for_wire_cancel(client: Any, *, timeout: float = 1.0) -> None:
     """
     Yield until the runner has translated a local cancel into a wire ``cancel_job``.
 
-    The runner's cancel handling is a 0.5s-cadence poll loop
-    (``await asyncio.wait(waiters, timeout=0.5)``), so the
-    wake-up latency between ``_cancel_requested.add(...)`` and
-    the ``cancel_job`` wire send is bounded by half a second.
-    Polling on :attr:`AsyncMock.await_count` with a 50 ms
-    granularity returns the instant the runner makes the
-    call, rather than always paying the full 0.6s of a
-    hard-coded sleep.
+    The runner parks on
+    ``asyncio.wait({terminal, session_lost, cancel_wait},
+    return_when=FIRST_COMPLETED)`` — fully event-driven, no
+    poll cadence — so as soon as
+    ``FirmwareController.cancel`` (or the test's
+    ``_request_remote_cancel`` mirror) signals the cancel
+    event, the runner wakes and dispatches
+    ``client.cancel_job``. Polling on
+    :attr:`AsyncMock.await_count` with a 50 ms granularity
+    returns the instant that wire send lands.
 
     Raises :class:`AssertionError` on timeout for the same
     reason :func:`_wait_until_dispatched` does — a regression
