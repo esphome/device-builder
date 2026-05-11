@@ -68,7 +68,7 @@ from .remote_runner import run_remote_compile_job
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
-    from ...helpers.event_bus import Event
+    from ...helpers.event_bus import Event, EventBus
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -149,6 +149,19 @@ class FirmwareController:
         # when the subprocess exits so we can mark the job CANCELLED
         # rather than the default FAILED-on-non-zero-exit.
         self._cancel_requested: set[str] = set()
+
+    @property
+    def bus(self) -> EventBus:
+        """The event bus this controller fires lifecycle / output events on.
+
+        Shorthand for ``self._db.bus`` so collaborators
+        (notably ``remote_runner``) don't reach across two
+        underscore-prefixed attributes to get at the canonical
+        offloader-side bus. Read-only — the bus reference is
+        installed by :class:`DeviceBuilder` at construction
+        and doesn't move.
+        """
+        return self._db.bus
 
     # ------------------------------------------------------------------
     # Lifecycle

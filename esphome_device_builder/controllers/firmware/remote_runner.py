@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
 from ...helpers.config_bundle import BundleBuildError, build_yaml_bundle
@@ -41,6 +41,7 @@ from ...models import (
     JobType,
     OffloaderJobOutputData,
     OffloaderJobStateChangedData,
+    OffloaderPeerLinkClosedData,
 )
 from ..remote_build.peer_link_client import (
     PeerLinkNoSessionError,
@@ -92,11 +93,18 @@ async def run_remote_compile_job(
         )
         return
 
-    bus = controller._db.bus
+    bus = controller.bus
     pin = job.source_pin_sha256
     target_job_id = job.job_id
     loop = asyncio.get_running_loop()
     terminal: asyncio.Future[OffloaderJobStateChangedData] = loop.create_future()
+    # Set when the peer-link session backing this job's
+    # receiver closes. Distinct from ``terminal`` because the
+    # receiver hasn't given us a structured terminal status —
+    # we have to synthesise the lost-session failure on the
+    # offloader side. ``_await_terminal`` waits on whichever
+    # fires first.
+    session_lost: asyncio.Future[OffloaderPeerLinkClosedData] = loop.create_future()
 
     def _on_output(event: Event[OffloaderJobOutputData]) -> None:
         data = event.data
@@ -111,15 +119,23 @@ async def run_remote_compile_job(
         if data["status"] in _TERMINAL_WIRE_STATUSES and not terminal.done():
             terminal.set_result(data)
 
+    def _on_session_closed(event: Event[OffloaderPeerLinkClosedData]) -> None:
+        data = event.data
+        if data["pin_sha256"] != pin or session_lost.done():
+            return
+        session_lost.set_result(data)
+
     with (
         bus.listening([EventType.OFFLOADER_JOB_OUTPUT], _on_output),
         bus.listening([EventType.OFFLOADER_JOB_STATE_CHANGED], _on_state),
+        bus.listening([EventType.OFFLOADER_PEER_LINK_CLOSED], _on_session_closed),
     ):
         try:
             await _dispatch_and_drive(
                 controller=controller,
                 job=job,
                 terminal=terminal,
+                session_lost=session_lost,
             )
         except asyncio.CancelledError:
             # Runner-task shutdown (controller stop). Mirror the
@@ -136,6 +152,7 @@ async def _dispatch_and_drive(
     controller: FirmwareController,
     job: FirmwareJob,
     terminal: asyncio.Future[OffloaderJobStateChangedData],
+    session_lost: asyncio.Future[OffloaderPeerLinkClosedData],
 ) -> None:
     """Build the bundle, submit, then wait for the receiver's terminal frame.
 
@@ -210,7 +227,12 @@ async def _dispatch_and_drive(
         )
         return
 
-    await _await_terminal(controller=controller, job=job, terminal=terminal)
+    await _await_terminal(
+        controller=controller,
+        job=job,
+        terminal=terminal,
+        session_lost=session_lost,
+    )
 
 
 async def _await_terminal(
@@ -218,6 +240,7 @@ async def _await_terminal(
     controller: FirmwareController,
     job: FirmwareJob,
     terminal: asyncio.Future[OffloaderJobStateChangedData],
+    session_lost: asyncio.Future[OffloaderPeerLinkClosedData],
 ) -> None:
     """Wait for the receiver's terminal state, translating local cancel to the wire.
 
@@ -228,15 +251,41 @@ async def _await_terminal(
     ``job_state_changed{status: cancelled}`` is the
     confirmation — we wait for it on the same future the
     happy path uses.
+
+    Also watches *session_lost*: if the peer-link session
+    backing this receiver closes while we're waiting,
+    finalise locally rather than wait forever for a frame
+    that will never arrive (the receiver may have crashed,
+    or the network may have dropped between accept and
+    completion). The runner cooperates with whichever of
+    *terminal* / *session_lost* / a local cancel arrives
+    first.
     """
     cancel_sent = False
-    bus = controller._db.bus
+    bus = controller.bus
+    # ``asyncio.wait`` is invariant on its element type; the two
+    # futures carry different TypedDict payloads, so widen to
+    # ``Any`` at the call so mypy doesn't complain about the
+    # mixed bag. The branches below each narrow back at the
+    # ``.result()`` call site.
+    waiters: list[asyncio.Future[Any]] = [terminal, session_lost]
     while not terminal.done():
+        if session_lost.done():
+            closed = session_lost.result()
+            reason = closed["reason"]
+            detail = closed["error_detail"]
+            text = f"{reason}: {detail}" if detail else reason
+            _fail_locally(
+                controller,
+                job,
+                error=f"remote build: peer-link session lost ({text})",
+            )
+            return
         if job.job_id in controller._cancel_requested and not cancel_sent:
             cancel_sent = True
             if not await _send_cancel_or_finalise(controller, job):
                 return
-        await asyncio.wait([terminal], timeout=0.5)
+        await asyncio.wait(waiters, timeout=0.5)
 
     data = terminal.result()
     if job.job_id in controller._cancel_requested:
@@ -294,24 +343,20 @@ async def _send_cancel_or_finalise(
         client = remote_build._lookup_open_peer_link_client(
             job.source_pin_sha256, label="firmware_remote_cancel"
         )
-    except CommandError as exc:
+        await client.cancel_job(job_id=job.job_id)
+    except (CommandError, PeerLinkNoSessionError) as exc:
+        # ``CommandError`` from the lookup means the receiver
+        # is unpaired / mid-reconnect; ``PeerLinkNoSessionError``
+        # from the send means the session dropped between the
+        # lookup and the wire write. Both translate the user's
+        # Stop click into a local CANCELLED finalise — without
+        # this fallback the cancel sits forever waiting for a
+        # confirmation frame that will never arrive.
+        detail = exc.message if isinstance(exc, CommandError) else str(exc)
         _LOGGER.info(
             "remote cancel for job %s: peer-link unavailable (%s); finalising locally",
             job.job_id,
-            exc.message,
-        )
-        controller._finalize_cancelled(job)
-        return False
-    try:
-        await client.cancel_job(job_id=job.job_id)
-    except PeerLinkNoSessionError as exc:
-        # Session dropped between lookup and send. Finalise
-        # locally so the user's Stop click doesn't hang on a
-        # frame that will never arrive.
-        _LOGGER.info(
-            "remote cancel for job %s: session gone (%s); finalising locally",
-            job.job_id,
-            exc,
+            detail,
         )
         controller._finalize_cancelled(job)
         return False
@@ -326,15 +371,28 @@ def _fail_locally(
 ) -> None:
     """Mark *job* FAILED with *error* and fire ``JOB_FAILED`` on the local bus.
 
-    Centralises the three-line "remote path can't proceed,
-    finalise as failed" sequence so every early-exit failure
-    branch above stays one line at the call site. The text
-    rides into ``job.error`` so a frontend that already
-    renders ``error`` for local failures shows the remote
-    failure with no special-case code.
+    Centralises the "remote path can't proceed, finalise
+    terminally" sequence so every early-exit failure branch
+    above stays one line at the call site. The text rides
+    into ``job.error`` so a frontend that already renders
+    ``error`` for local failures shows the remote failure
+    with no special-case code.
+
+    Cancel intent wins: if the user already flipped
+    ``_cancel_requested`` for this job (Stop click landed
+    during bundle build / lookup / dispatch / session-lost
+    detection — anywhere before the receiver could emit a
+    terminal frame), finalise as CANCELLED instead. Mirrors
+    the local subprocess path's contract — a Stop that
+    happened to race a failure should not show up as a red
+    error badge.
     """
+    if job.job_id in controller._cancel_requested:
+        controller._finalize_cancelled(job)
+        _LOGGER.info("Remote job %s cancelled (failure path: %s)", job.job_id, error)
+        return
     job.error = error
     _mark_job_terminal(job, JobStatus.FAILED)
     payload: JobLifecycleData = {"job": job}
-    controller._db.bus.fire(EventType.JOB_FAILED, payload)
+    controller.bus.fire(EventType.JOB_FAILED, payload)
     _LOGGER.warning("Remote job %s failed: %s", job.job_id, error)
