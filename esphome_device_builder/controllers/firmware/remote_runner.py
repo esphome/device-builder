@@ -105,6 +105,14 @@ async def run_remote_compile_job(
     # offloader side. ``_await_terminal`` waits on whichever
     # fires first.
     session_lost: asyncio.Future[OffloaderPeerLinkClosedData] = loop.create_future()
+    # Set by ``FirmwareController.cancel`` when the user clicks
+    # Stop. Registering it on the controller lets the cancel
+    # handler signal the parked runner instantly instead of
+    # waiting for a polling cadence — the runner parks on
+    # ``asyncio.wait({terminal, session_lost, cancel_event_task})``
+    # and wakes on whichever fires first.
+    cancel_event = asyncio.Event()
+    controller._cancel_events[job.job_id] = cancel_event
 
     def _is_ours(data: OffloaderJobOutputData | OffloaderJobStateChangedData) -> bool:
         """Return True if *data* belongs to this runner's (pin, job_id) pair."""
@@ -132,26 +140,33 @@ async def run_remote_compile_job(
             return
         session_lost.set_result(data)
 
-    with (
-        bus.listening([EventType.OFFLOADER_JOB_OUTPUT], _on_output),
-        bus.listening([EventType.OFFLOADER_JOB_STATE_CHANGED], _on_state),
-        bus.listening([EventType.OFFLOADER_PEER_LINK_CLOSED], _on_session_closed),
-    ):
-        try:
-            await _dispatch_and_drive(
-                controller=controller,
-                job=job,
-                terminal=terminal,
-                session_lost=session_lost,
-            )
-        except asyncio.CancelledError:
-            # Runner-task shutdown (controller stop). Mirror the
-            # local subprocess path's contract: finalise the job
-            # as CANCELLED so subscribers see a terminal event,
-            # then re-raise to let the outer runner unwind.
-            controller._finalize_cancelled(job)
-            _LOGGER.info("Remote job %s cancelled (runner shutdown)", job.job_id)
-            raise
+    try:
+        with (
+            bus.listening([EventType.OFFLOADER_JOB_OUTPUT], _on_output),
+            bus.listening([EventType.OFFLOADER_JOB_STATE_CHANGED], _on_state),
+            bus.listening([EventType.OFFLOADER_PEER_LINK_CLOSED], _on_session_closed),
+        ):
+            try:
+                await _dispatch_and_drive(
+                    controller=controller,
+                    job=job,
+                    terminal=terminal,
+                    session_lost=session_lost,
+                    cancel_event=cancel_event,
+                )
+            except asyncio.CancelledError:
+                # Runner-task shutdown (controller stop). Mirror the
+                # local subprocess path's contract: finalise the job
+                # as CANCELLED so subscribers see a terminal event,
+                # then re-raise to let the outer runner unwind.
+                controller._finalize_cancelled(job)
+                _LOGGER.info("Remote job %s cancelled (runner shutdown)", job.job_id)
+                raise
+    finally:
+        # Clean up the registration so a future job reusing the
+        # id (theoretical — uuid4 collision aside) doesn't
+        # signal a stale event.
+        controller._cancel_events.pop(job.job_id, None)
 
 
 async def _dispatch_and_drive(
@@ -160,6 +175,7 @@ async def _dispatch_and_drive(
     job: FirmwareJob,
     terminal: asyncio.Future[OffloaderJobStateChangedData],
     session_lost: asyncio.Future[OffloaderPeerLinkClosedData],
+    cancel_event: asyncio.Event,
 ) -> None:
     """Build the bundle, submit, then wait for the receiver's terminal frame.
 
@@ -239,6 +255,7 @@ async def _dispatch_and_drive(
         job=job,
         terminal=terminal,
         session_lost=session_lost,
+        cancel_event=cancel_event,
     )
 
 
@@ -248,51 +265,60 @@ async def _await_terminal(
     job: FirmwareJob,
     terminal: asyncio.Future[OffloaderJobStateChangedData],
     session_lost: asyncio.Future[OffloaderPeerLinkClosedData],
+    cancel_event: asyncio.Event,
 ) -> None:
-    """Wait for the receiver's terminal state, translating local cancel to the wire.
+    """
+    Wait for the receiver's terminal state, translating local cancel to the wire.
 
-    Polls a short ``asyncio.wait`` window so a
-    :attr:`FirmwareController._cancel_requested` flip lands
-    on the wire promptly without dedicating a separate task
-    to watch it. The receiver's resulting
-    ``job_state_changed{status: cancelled}`` is the
-    confirmation — we wait for it on the same future the
-    happy path uses.
+    Parks on ``asyncio.wait({terminal, session_lost,
+    cancel_event.wait()}, return_when=FIRST_COMPLETED)`` —
+    event-driven, no polling cadence. The cancel handler
+    (``FirmwareController.cancel``) signals *cancel_event*
+    when the user clicks Stop, so the runner wakes
+    instantly instead of waiting up to half a second for a
+    poll iteration. ``session_lost`` is the synthetic
+    failure path the offloader uses when the peer-link
+    session closes before the receiver can emit a terminal
+    frame; without it the wait would deadlock on a dead
+    receiver.
 
-    Also watches *session_lost*: if the peer-link session
-    backing this receiver closes while we're waiting,
-    finalise locally rather than wait forever for a frame
-    that will never arrive (the receiver may have crashed,
-    or the network may have dropped between accept and
-    completion). The runner cooperates with whichever of
-    *terminal* / *session_lost* / a local cancel arrives
-    first.
+    The runner cooperates with whichever of *terminal* /
+    *session_lost* / *cancel_event* fires first; the
+    branches below decide the final job status.
     """
     cancel_sent = False
     bus = controller.bus
-    # ``asyncio.wait`` is invariant on its element type; the two
-    # futures carry different TypedDict payloads, so widen to
-    # ``Any`` at the call so mypy doesn't complain about the
-    # mixed bag. The branches below each narrow back at the
-    # ``.result()`` call site.
-    waiters: list[asyncio.Future[Any]] = [terminal, session_lost]
-    while not terminal.done():
-        if session_lost.done():
-            closed = session_lost.result()
-            reason = closed["reason"]
-            detail = closed["error_detail"]
-            text = f"{reason}: {detail}" if detail else reason
-            _fail_locally(
-                controller,
-                job,
-                error=f"remote build: peer-link session lost ({text})",
-            )
-            return
-        if job.job_id in controller._cancel_requested and not cancel_sent:
-            cancel_sent = True
-            if not await _send_cancel_or_finalise(controller, job):
+    # ``asyncio.wait`` is invariant on its element type; the
+    # heterogeneous awaitables (two TypedDict futures + one
+    # Event-wait coroutine wrapped as a Task) are widened to
+    # ``Any`` at the call so mypy doesn't reject the mix.
+    cancel_wait = asyncio.get_running_loop().create_task(cancel_event.wait())
+    waiters: list[asyncio.Future[Any]] = [terminal, session_lost, cancel_wait]
+    try:
+        while not terminal.done():
+            if session_lost.done():
+                closed = session_lost.result()
+                reason = closed["reason"]
+                detail = closed["error_detail"]
+                text = f"{reason}: {detail}" if detail else reason
+                _fail_locally(
+                    controller,
+                    job,
+                    error=f"remote build: peer-link session lost ({text})",
+                )
                 return
-        await asyncio.wait(waiters, timeout=0.5)
+            if cancel_event.is_set() and not cancel_sent:
+                cancel_sent = True
+                if not await _send_cancel_or_finalise(controller, job):
+                    return
+                # After dispatching the wire cancel we only care
+                # about ``terminal`` / ``session_lost`` — the
+                # cancel-event signal has already done its job.
+                waiters = [terminal, session_lost]
+            await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        if not cancel_wait.done():
+            cancel_wait.cancel()
 
     data = terminal.result()
     if job.job_id in controller._cancel_requested:

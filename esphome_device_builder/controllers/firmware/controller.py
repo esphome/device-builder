@@ -149,6 +149,14 @@ class FirmwareController:
         # when the subprocess exits so we can mark the job CANCELLED
         # rather than the default FAILED-on-non-zero-exit.
         self._cancel_requested: set[str] = set()
+        # Per-job ``asyncio.Event`` that the cancel handler signals
+        # so an in-flight runner can wake instantly instead of
+        # polling. Only the remote-source runner registers an event
+        # today (the local subprocess path's cancel landing is
+        # driven by SIGTERM on the spawned process). The remote
+        # runner adds an entry before parking on the terminal wait
+        # and clears it on exit.
+        self._cancel_events: dict[str, asyncio.Event] = {}
 
     @property
     def bus(self) -> EventBus:
@@ -696,6 +704,13 @@ class FirmwareController:
                 msg = "Running job is not the active subprocess (state out of sync)"
                 raise RuntimeError(msg)
             self._cancel_requested.add(job_id)
+            # Wake any runner parked on its cancel event (the
+            # source-routed remote runner registers one; the
+            # local subprocess path doesn't need one because
+            # SIGTERM is the wake signal).
+            cancel_event = self._cancel_events.get(job_id)
+            if cancel_event is not None:
+                cancel_event.set()
             await self._terminate_current_process()
             return
 

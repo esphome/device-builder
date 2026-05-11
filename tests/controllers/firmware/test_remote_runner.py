@@ -66,21 +66,26 @@ def _wire_remote_build(
     *,
     client: Any | None = None,
     lookup_error: Exception | None = None,
-) -> Any:
+) -> tuple[Any, Any]:
     """Attach a stub ``_db.remote_build`` with a configurable lookup.
 
-    Returns the stub remote-build object so the test can assert on
-    its mock attributes. Either *client* is returned by every
-    lookup call, or *lookup_error* is raised — the runner's
-    receiver-unreachable branch consumes the latter.
+    Returns ``(remote_build, client)`` so the caller can both
+    assert on the remote-build mock and reference the client
+    for runner-state sync (``_wait_until_dispatched`` /
+    ``_wait_for_wire_cancel`` poll on the client's mock
+    counters). When *lookup_error* is passed the returned
+    client is ``None`` — there's nothing to dispatch to and
+    no submit-side sync to wait for.
     """
     remote_build = MagicMock()
     if lookup_error is not None:
         remote_build._lookup_open_peer_link_client.side_effect = lookup_error
-    else:
-        remote_build._lookup_open_peer_link_client.return_value = client or _make_client()
+        controller._db.remote_build = remote_build
+        return remote_build, None
+    client = client or _make_client()
+    remote_build._lookup_open_peer_link_client.return_value = client
     controller._db.remote_build = remote_build
-    return remote_build
+    return remote_build, client
 
 
 def _make_client(
@@ -207,6 +212,85 @@ def _fire_output(
     )
 
 
+def _request_remote_cancel(controller: Any, job: FirmwareJob) -> None:
+    """
+    Drive the cancel from a test the way ``FirmwareController.cancel`` does.
+
+    The runner used to poll ``_cancel_requested`` every 0.5s
+    so a test that flipped the set on its own would wake the
+    runner inside one poll iteration. The event-driven shape
+    means the runner parks on ``cancel_event`` instead — so a
+    bare ``_cancel_requested.add`` is no longer enough. Tests
+    use this helper to flip both, mirroring the production
+    cancel handler at :meth:`FirmwareController.cancel`. Going
+    through the helper (rather than calling ``controller.cancel``
+    directly) keeps the test focused on the runner under test
+    without bringing in the cancel handler's QUEUED-job and
+    ``_terminate_current_process`` branches that don't apply
+    on the remote path.
+    """
+    controller._cancel_requested.add(job.job_id)
+    event = controller._cancel_events.get(job.job_id)
+    if event is not None:
+        event.set()
+
+
+async def _wait_until_dispatched(client: Any, *, timeout: float = 1.0) -> None:
+    """
+    Yield until the runner has finished its dispatch phase.
+
+    Polls on :attr:`AsyncMock.await_count` for ``submit_job``
+    — the count increments only after the mock's awaited
+    coroutine has resolved, so this returns the instant the
+    runner moves past ``await client.submit_job(...)`` and
+    into ``_await_terminal``'s wait loop. Replaces fixed
+    ``for _ in range(N): await asyncio.sleep(0)`` constructs
+    that broke when residual coroutines from a prior test
+    left the loop in a different state than the runner
+    expected (the park-point depends on how many awaits the
+    runner has yielded through, and the number drifts across
+    refactors).
+
+    Raises :class:`AssertionError` on timeout so a runner
+    regression that never reaches the submit shows up as a
+    clear test failure rather than a hung pytest run.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while client.submit_job.await_count == 0:
+        if loop.time() >= deadline:
+            msg = f"submit_job not awaited within {timeout}s"
+            raise AssertionError(msg)
+        await asyncio.sleep(0)
+
+
+async def _wait_for_wire_cancel(client: Any, *, timeout: float = 1.0) -> None:
+    """
+    Yield until the runner has translated a local cancel into a wire ``cancel_job``.
+
+    The runner's cancel handling is a 0.5s-cadence poll loop
+    (``await asyncio.wait(waiters, timeout=0.5)``), so the
+    wake-up latency between ``_cancel_requested.add(...)`` and
+    the ``cancel_job`` wire send is bounded by half a second.
+    Polling on :attr:`AsyncMock.await_count` with a 50 ms
+    granularity returns the instant the runner makes the
+    call, rather than always paying the full 0.6s of a
+    hard-coded sleep.
+
+    Raises :class:`AssertionError` on timeout for the same
+    reason :func:`_wait_until_dispatched` does — a regression
+    that never sends the wire cancel should be a clean fail,
+    not a hang.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while client.cancel_job.await_count == 0:
+        if loop.time() >= deadline:
+            msg = f"cancel_job not awaited within {timeout}s"
+            raise AssertionError(msg)
+        await asyncio.sleep(0.05)
+
+
 def _fire_session_closed(
     controller: Any,
     *,
@@ -256,8 +340,7 @@ async def test_remote_compile_translates_output_and_completes(
     # Yield until the runner is parked waiting on the terminal future.
     # Two ticks: one to let the bundle build await resolve, one to let
     # the submit_job await resolve, then we can fire wire events.
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
 
     _fire_output(controller, job_id=job.job_id, line="Reading configuration\n")
     _fire_output(controller, job_id=job.job_id, line="Compile finished\n")
@@ -297,12 +380,11 @@ async def test_remote_compile_progress_translates_to_local_progress_event(
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
-    _wire_remote_build(controller)
+    _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
 
     _fire_output(controller, job_id=job.job_id, line="[ 47%] Compiling .pio/build/foo.o\n")
     _fire_state(controller, job_id=job.job_id, status="completed")
@@ -333,12 +415,11 @@ async def test_remote_compile_ignores_events_for_other_jobs(
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
-    _wire_remote_build(controller)
+    _, client = _wire_remote_build(controller)
     job = _make_remote_job(job_id="ours")
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
 
     # Stray traffic from a sibling job — must not appear in our captures
     # and must not terminate our runner.
@@ -368,12 +449,11 @@ async def test_remote_compile_failed_status_fires_job_failed(
     """A receiver ``failed`` terminal lands as local ``JOB_FAILED`` with the error text."""
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
-    _wire_remote_build(controller)
+    _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
     _fire_state(
         controller,
         job_id=job.job_id,
@@ -482,12 +562,11 @@ async def test_remote_compile_local_cancel_translates_to_wire_cancel_job(
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
 
-    controller._cancel_requested.add(job.job_id)
+    _request_remote_cancel(controller, job)
     # The poll cadence is 0.5s; wait at most one tick + headroom.
-    await asyncio.sleep(0.6)
+    await _wait_for_wire_cancel(client)
     client.cancel_job.assert_awaited_once_with(job_id=job.job_id)
 
     _fire_state(controller, job_id=job.job_id, status="cancelled")
@@ -523,14 +602,13 @@ async def test_remote_compile_cancel_beats_receiver_completed(
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
 
     # Register the cancel, then fire ``completed`` (instead of
     # ``cancelled``) — the receiver finished before our cancel
     # frame could arrive on its side.
-    controller._cancel_requested.add(job.job_id)
-    await asyncio.sleep(0.6)
+    _request_remote_cancel(controller, job)
+    await _wait_for_wire_cancel(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=2.0)
 
@@ -556,12 +634,11 @@ async def test_remote_compile_receiver_initiated_cancel_finalises_as_cancelled(
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
-    _wire_remote_build(controller)
+    _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="cancelled")
     await asyncio.wait_for(runner, timeout=2.0)
 
@@ -594,7 +671,7 @@ async def test_remote_compile_cancel_during_bundle_build_finalises_as_cancelled(
     # build — and the bundle build itself fails (configuration
     # not on disk). Combined, the runner's failure path should
     # route through the cancel-aware branch.
-    controller._cancel_requested.add(job.job_id)
+    _request_remote_cancel(controller, job)
     monkeypatch.setattr(
         remote_runner, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError)
     )
@@ -749,8 +826,7 @@ async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
 
     _fire_session_closed(
         controller,
@@ -796,9 +872,8 @@ async def test_remote_compile_cancel_translation_handles_missing_session(
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
-    controller._cancel_requested.add(job.job_id)
+    await _wait_until_dispatched(initial_client)
+    _request_remote_cancel(controller, job)
     await asyncio.wait_for(runner, timeout=2.0)
 
     assert job.status == JobStatus.CANCELLED
@@ -819,9 +894,8 @@ async def test_remote_compile_cancel_translation_handles_session_drop_on_send(
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
-    controller._cancel_requested.add(job.job_id)
+    await _wait_until_dispatched(client)
+    _request_remote_cancel(controller, job)
     await asyncio.wait_for(runner, timeout=2.0)
 
     assert job.status == JobStatus.CANCELLED
@@ -849,12 +923,11 @@ async def test_remote_compile_runner_task_cancelled_finalises_as_cancelled(
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
-    _wire_remote_build(controller)
+    _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
 
     runner.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -890,12 +963,11 @@ async def test_execute_job_routes_remote_source_through_remote_runner(
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
-    _wire_remote_build(controller)
+    _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
     runner = asyncio.create_task(controller._execute_job(job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=2.0)
 
@@ -932,8 +1004,7 @@ async def test_submit_job_ack_echoes_caller_job_id(
     job = _make_remote_job(job_id="unique-echo-1234")
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
     await asyncio.wait_for(runner, timeout=2.0)
 
@@ -964,12 +1035,11 @@ async def test_remote_compile_ignores_session_closed_for_other_pin(
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
-    _wire_remote_build(controller)
+    _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    for _ in range(4):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
 
     # Different pin — the listener must filter this out.
     _fire_session_closed(controller, pin="b" * 64, reason="transport_error")
@@ -1005,26 +1075,16 @@ async def test_remote_compile_cancel_after_remote_build_torn_down_finalises_loca
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
-    remote_build = _wire_remote_build(controller)
+    _, client = _wire_remote_build(controller)
     job = _make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
-    # Wait until the runner is past ``submit_job`` and parked
-    # in the terminal wait. Polling for ``cancel_job`` would
-    # be wrong here (cancel hasn't fired yet); instead pin on
-    # the runner having called the initial lookup, which is
-    # the last sync event before ``_await_terminal`` parks.
-    while remote_build._lookup_open_peer_link_client.call_count == 0:
-        await asyncio.sleep(0)
-    # Couple more turns to let the submit ack resolve and the
-    # ``asyncio.wait`` get scheduled.
-    for _ in range(2):
-        await asyncio.sleep(0)
+    await _wait_until_dispatched(client)
 
     # Simulate the receiver-controller teardown race: clear
     # ``remote_build`` mid-flight, then register the cancel.
     controller._db.remote_build = None
-    controller._cancel_requested.add(job.job_id)
+    _request_remote_cancel(controller, job)
 
     await asyncio.wait_for(runner, timeout=2.0)
 

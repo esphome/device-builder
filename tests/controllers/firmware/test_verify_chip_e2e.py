@@ -87,6 +87,7 @@ def _wire_real_queue(controller: FirmwareController) -> None:
     controller._current_job = None
     controller._current_process = None
     controller._cancel_requested = set()
+    controller._cancel_events = {}
 
 
 def _seed_yaml(tmp_path: Path, name: str = "kitchen.yaml") -> None:
