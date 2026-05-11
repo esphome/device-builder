@@ -324,6 +324,24 @@ async def _verify_esphome_importable(cmd: list[str]) -> tuple[bool, str]:
     return True, output
 
 
+def _fire_job_progress(job: FirmwareJob, bus: EventBus, progress: int) -> None:
+    """
+    Stamp ``job.progress`` and fan out :attr:`EventType.JOB_PROGRESS`.
+
+    The "set the field, fire the event" pair is invariant across
+    every callsite — the only thing that differs is whether the
+    caller has already gated the new value against the previous
+    one (the streaming ingest does; the compile → upload phase
+    transition deliberately doesn't, since the whole point there
+    is to drop the gauge back to zero). The helper carries no
+    clamp of its own so the gating policy stays at the callsite
+    where it's readable.
+    """
+    job.progress = progress
+    payload: JobProgressData = {"job_id": job.job_id, "progress": progress}
+    bus.fire(EventType.JOB_PROGRESS, payload)
+
+
 def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     """
     Append *line* to ``job.output`` and fire local follower events.
@@ -342,10 +360,13 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     3. Fan it out as ``JOB_OUTPUT`` so live followers see it.
     4. Parse a coarse 0-100 progress percentage; if it
        advances the previous value, update the job and fire
-       ``JOB_PROGRESS``. Monotonic-clamp behaviour matches the
-       local subprocess path (esptool's "100%" followed by
-       PlatformIO's "0%" would otherwise look like a
-       regression to the progress-bar renderer).
+       ``JOB_PROGRESS`` via :func:`_fire_job_progress`.
+       Monotonic-clamp behaviour matches the local subprocess
+       path (esptool's "100%" followed by PlatformIO's "0%"
+       would otherwise look like a regression to the
+       progress-bar renderer). Explicit phase transitions
+       (compile → upload) call the helper directly to bypass
+       the clamp and reset the gauge.
 
     Does **not** handle error-pattern detection — that's a
     local-only concern (the remote path gets a structured
@@ -360,6 +381,4 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     progress = _parse_progress(line)
     if progress is None or progress <= (job.progress or 0):
         return
-    job.progress = progress
-    prog_payload: JobProgressData = {"job_id": job.job_id, "progress": progress}
-    bus.fire(EventType.JOB_PROGRESS, prog_payload)
+    _fire_job_progress(job, bus, progress)

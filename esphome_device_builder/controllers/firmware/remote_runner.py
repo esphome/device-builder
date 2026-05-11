@@ -55,7 +55,7 @@ from ..remote_build.peer_link_client import (
     SubmitJobTimeoutError,
 )
 from .constants import ESPHOME_SUBPROCESS_ENV
-from .helpers import _ingest_output_line
+from .helpers import _fire_job_progress, _ingest_output_line
 
 if TYPE_CHECKING:
     from ...helpers.event_bus import Event, EventBus
@@ -515,6 +515,21 @@ async def _fetch_and_run_local_upload(
     yaml_path = await loop.run_in_executor(
         None, controller._db.settings.rel_path, job.configuration
     )
+
+    # Reset the gauge at the compile → upload seam.
+    # :func:`helpers._ingest_output_line` monotonically clamps:
+    # any parsed percent that isn't strictly greater than
+    # ``job.progress`` is dropped. The receiver-side compile
+    # streams PIO / linker ``(N%)`` lines through the same
+    # ingest and can push the gauge near 100; without this
+    # reset every ``Uploading: [..] 5% / 10% / ...`` line the
+    # local flash subprocess emits would fall below the
+    # compile's high-water and the progress bar would appear
+    # frozen at the compile peak for the entire upload phase.
+    # Firing through :func:`_fire_job_progress` (no clamp)
+    # rather than the ingest path keeps the reset explicit at
+    # this phase boundary.
+    _fire_job_progress(job, bus, 0)
 
     # ``tempfile.TemporaryDirectory`` ctor calls
     # :func:`os.mkdir` synchronously — blockbuster catches
