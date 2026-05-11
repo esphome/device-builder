@@ -276,9 +276,11 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     await ws.prepare(request)
 
     # Register on the per-app weak set so the shutdown closer can
-    # reach this WS without us holding a strong reference. The set
-    # is created in :meth:`DeviceBuilder.create_app`; ``setdefault``
-    # is defensive for test paths that hand-build an app skeleton.
+    # reach this WS without us holding a strong reference.
+    # ``setdefault`` lazily creates the set on the first connect;
+    # the matching ``on_shutdown`` handler is appended in
+    # :meth:`DeviceBuilder.create_app` so the closer is in place
+    # before any WS handler is allowed to run.
     active = request.app.setdefault(WEBSOCKETS_KEY, weakref.WeakSet())
     active.add(ws)
 
@@ -357,9 +359,9 @@ async def close_active_websockets(app: web.Application) -> None:
     active = app.get(WEBSOCKETS_KEY)
     if not active:
         return
+    # Snapshot the WeakSet — a peer disconnect mid-iteration would
+    # otherwise mutate the underlying container while we walk it.
     sockets = list(active)
-    if not sockets:
-        return
     _LOGGER.debug("Closing %d active WebSocket(s) on shutdown", len(sockets))
     await asyncio.gather(
         *(_safe_close(ws) for ws in sockets),

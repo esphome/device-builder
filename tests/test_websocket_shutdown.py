@@ -20,6 +20,7 @@ drop it and reintroduce the slow-shutdown symptom.
 from __future__ import annotations
 
 import asyncio
+import gc
 import inspect
 import weakref
 from typing import Any
@@ -86,9 +87,13 @@ async def test_close_active_websockets_closes_open_connections(
     """``close_active_websockets`` actually unblocks the WS handler.
 
     Open a WS, kick the closer manually, verify (a) the client
-    sees a CLOSE message with ``GOING_AWAY`` and (b) the server's
-    handler task completes promptly (under a generous 2s bound;
-    pre-fix this took up to 60s).
+    sees a CLOSE message with ``GOING_AWAY`` and (b) the
+    server-side WS leaves the app's active set promptly — the
+    weak-set entry is reclaimed only after the handler frame
+    exits, so an empty set proves the per-connection task
+    unwound. Pre-fix this took up to 60s; the 2s bound is
+    generous against the ~0.3s the explicit close actually
+    needs.
     """
     app = _bare_app()
     client = await aiohttp_client(app)
@@ -102,6 +107,21 @@ async def test_close_active_websockets_closes_open_connections(
         msg = await ws.receive(timeout=2.0)
         assert msg.type == web.WSMsgType.CLOSE
         assert msg.data == WSCloseCode.GOING_AWAY
+
+    # Once the client's context manager has unwound, the handler
+    # frame should be gone and the WeakSet entry reclaimable. Yield
+    # control + force a GC pass so the assertion isn't racing the
+    # event loop's per-task post-cleanup hook (each WS handler runs
+    # as its own asyncio task; the frame and its locals only
+    # release when the task object itself is GC'd). 2s upper bound:
+    # without the explicit close the handler would still be alive
+    # at this point, well past any aiohttp-internal latency.
+    deadline = asyncio.get_event_loop().time() + 2.0
+    active = app[WEBSOCKETS_KEY]
+    while len(active) and asyncio.get_event_loop().time() < deadline:
+        gc.collect()
+        await asyncio.sleep(0.01)
+    assert len(active) == 0, "WS handler frame still alive after close"
 
 
 async def test_app_shutdown_runs_the_closer(
