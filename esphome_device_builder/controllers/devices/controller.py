@@ -2319,43 +2319,24 @@ class DevicesController:
         return self._scanner.devices
 
     def _fire_device_updated(self, device: Device) -> None:
-        """Fire ``DEVICE_UPDATED`` for *device*.
-
-        Every per-field monitor callback (``_on_ip_change``,
-        ``_on_version_change``, ``_on_mac_address_change``,
-        ``_on_api_encryption_change``, ``_on_config_hash_change``)
-        ends with the same broadcast. Centralising the construction
-        keeps the event-payload shape (``DeviceEventData(device=device)``)
-        in one place so a future field on the payload doesn't have
-        to land in five call sites.
-        """
+        """Broadcast ``DEVICE_UPDATED`` for *device* on the event bus."""
         self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
 
     @staticmethod
     async def _write_yaml_atomic_async(path: Path, content: str) -> None:
         """Atomically write *content* to *path* off the executor.
 
-        Wraps :func:`esphome.helpers.write_file` on the default
-        executor. Callers use this rather than ``Path.write_text``
-        because the latter is non-atomic (truncates before write,
-        so a mid-write crash leaves the user with an empty YAML);
-        the helper stages a same-FS tempfile and atomic-renames
-        into place. See ``CLAUDE.md`` > "Things that have bitten
-        us before" for the full ``Path.write_text`` non-atomicity
-        story.
+        Use this for any user-editable YAML write so a mid-write
+        crash can't leave the file empty or half-written;
+        ``Path.write_text`` truncates before writing and isn't
+        safe for those paths.
         """
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, atomic_write_file, path, content)
 
     @staticmethod
     async def _read_yaml_async(path: Path) -> str:
-        """Read *path* as UTF-8 text off the executor.
-
-        Mirror of :meth:`_write_yaml_atomic_async`; pairs the
-        read side of the YAML I/O so call sites doing
-        read-modify-write don't have to spell out the
-        ``get_running_loop`` / ``run_in_executor`` dance twice.
-        """
+        """Read *path* as UTF-8 text off the executor."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, path.read_text, "utf-8")
 
