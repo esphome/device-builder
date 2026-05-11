@@ -80,13 +80,37 @@ def test_build_mdns_hostname_combines_hostname_and_dashboard_id(
     uses: a human-recognisable hostname prefix plus a stable
     per-install identifier suffix, so two machines named ``mac``
     on the same LAN advertise distinct mDNS hostnames. The
-    suffix is exactly 8 characters of the dashboard_id (~48
-    bits of entropy, ~16M concurrent dashboards before a
-    birthday-collision).
+    suffix is *up to* :data:`_DASHBOARD_ID_SUFFIX_CHARS` (8)
+    characters of the dashboard_id; a hyphen-derived character
+    at the truncation boundary lands on a 7-char suffix in ~6%
+    of installs after the trailing-hyphen strip. Sample below
+    picks a dashboard_id whose first 8 chars are all
+    base64url-alphanumerics so the assertion checks the 8-char
+    happy path; another test covers the boundary-strip case.
     """
     monkeypatch.setattr(socket, "gethostname", lambda: "mac")
     assert (
-        build_mdns_hostname(dashboard_id="jWyWNVe-rwl0qjPYTzGV70RyMnDsqaTH") == "mac-jwywnve.local"
+        build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH") == "mac-jwywnver.local"
+    )
+
+
+def test_build_mdns_hostname_suffix_strips_trailing_hyphen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dashboard_id with ``_`` or ``-`` at position 8 yields a 7-char suffix.
+
+    ``secrets.token_urlsafe`` produces base64url; the alphabet
+    maps ``_`` → ``-`` after sanitisation, and a ``-`` at the
+    truncation boundary would leave a trailing-hyphen label.
+    The implementation strips trailing hyphens to keep the
+    label strictly RFC 1123-compliant, so the suffix can be
+    one short of the cap. Entropy claim still holds (~42 bits
+    for 7 base64url chars).
+    """
+    monkeypatch.setattr(socket, "gethostname", lambda: "mac")
+    # Underscore at position 8 → sanitises to ``-`` → trailing-strip → 7-char suffix.
+    assert (
+        build_mdns_hostname(dashboard_id="jWyWNVe_rwl0qjPYTzGV70RyMnDsqaTH") == "mac-jwywnve.local"
     )
 
 
@@ -101,12 +125,12 @@ def test_build_mdns_hostname_strips_fqdn_and_lowercases(
     search domain) had been leaking the ``.koston.org`` FQDN into
     the SRV target. The helper takes only the leftmost label and
     lowercases it, so any of these shapes lands at the same
-    ``mac-jwywnve.local``.
+    ``mac-jwywnver.local``.
     """
     for raw in ("Mac.koston.org", "Mac", "MAC.lan", "macbook-pro.local"):
         monkeypatch.setattr(socket, "gethostname", lambda r=raw: r)
-        result = build_mdns_hostname(dashboard_id="jWyWNVe-rwl0qjPYTzGV70RyMnDsqaTH")
-        assert result.endswith("-jwywnve.local")
+        result = build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
+        assert result.endswith("-jwywnver.local")
         assert "koston.org" not in result
         assert result.lower() == result
 
@@ -131,14 +155,14 @@ def test_build_mdns_hostname_caps_long_hostname_prefix(
         "gethostname",
         lambda: "veryveryveryverylonglonglonglonglonglonglonglong",
     )
-    result = build_mdns_hostname(dashboard_id="jWyWNVe-rwl0qjPYTzGV70RyMnDsqaTH")
+    result = build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
     label = result.removesuffix(".local")
     # Each DNS label must be ≤63 octets per RFC 1035; the
     # implementation caps at 32 chars + 1 hyphen + 8 chars = 41.
     assert len(label) <= 63
-    assert label.endswith("-jwywnve")
+    assert label.endswith("-jwywnver")
     # Prefix is bounded by the cap, not arbitrary.
-    assert len(label) - len("-jwywnve") <= 32
+    assert len(label) - len("-jwywnver") <= 32
 
 
 def test_build_mdns_hostname_falls_back_when_hostname_blank(
@@ -147,8 +171,8 @@ def test_build_mdns_hostname_falls_back_when_hostname_blank(
     """No hostname → ``dashboard-{short_id}.local`` so we still advertise an identifier."""
     monkeypatch.setattr(socket, "gethostname", lambda: "")
     assert (
-        build_mdns_hostname(dashboard_id="jWyWNVe-rwl0qjPYTzGV70RyMnDsqaTH")
-        == "dashboard-jwywnve.local"
+        build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
+        == "dashboard-jwywnver.local"
     )
 
 
@@ -186,7 +210,8 @@ def test_build_mdns_hostname_does_not_use_getfqdn(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(socket, "getfqdn", _boom)
     assert (
-        build_mdns_hostname(dashboard_id="jWyWNVe-rwl0qjPYTzGV70RyMnDsqaTH") == "host-jwywnve.local"
+        build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
+        == "host-jwywnver.local"
     )
 
 

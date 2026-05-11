@@ -356,11 +356,13 @@ class DeviceBuilder:
             # ({short_hostname}-{short_dashboard_id}.local) so two
             # machines named ``mac`` on the same LAN advertise
             # distinct targets, and the system's FQDN
-            # (``mac.koston.org``) can't leak through. Loaded
-            # synchronously off disk via the identity helper's
-            # cached read; the same value seeds the peer-link Noise
-            # handshake's identity, so it's already deterministic
-            # across restarts.
+            # (``mac.koston.org``) can't leak through. Loaded off
+            # disk via the identity helper; each call runs a locked
+            # read/transaction against the metadata sidecar plus the
+            # X25519 keypair file (idempotent, persistent across
+            # restarts, no in-memory cache). Same value that seeds
+            # the peer-link Noise handshake's identity, so the SRV
+            # target stays stable through identity rotations.
             dashboard_identity = await self.loop.run_in_executor(
                 None, get_or_create_dashboard_identity, self.settings.config_dir
             )

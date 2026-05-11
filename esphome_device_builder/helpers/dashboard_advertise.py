@@ -57,6 +57,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import re
 import socket
 from typing import TYPE_CHECKING
 
@@ -233,8 +234,14 @@ def build_mdns_hostname(*, dashboard_id: str = "") -> str:
 
     ``dashboard_id`` is the 32-char base64url string from
     :func:`secrets.token_urlsafe`; the helper sanitises it to a
-    strict RFC 1123 label (``[a-z0-9-]+``) and takes the first
-    :data:`_DASHBOARD_ID_SUFFIX_CHARS` characters.
+    strict RFC 1123 label (``[a-z0-9-]+``) and takes **up to** the
+    first :data:`_DASHBOARD_ID_SUFFIX_CHARS` characters. Trailing
+    hyphens left by the truncation get stripped (the underlying
+    base64url alphabet maps ``_`` → ``-``, so the 8th character
+    can occasionally land on a hyphen-derived position; ~6% of
+    suffixes end up 7 chars rather than 8). Entropy claim holds
+    either way: 7 chars of base64url is ~42 bits, ~4M concurrent
+    dashboards before a birthday collision risk.
 
     Fallback shapes (in order of preference):
 
@@ -264,17 +271,28 @@ def build_mdns_hostname(*, dashboard_id: str = "") -> str:
     return ""
 
 
+_DNS_LABEL_DISALLOWED_RE = re.compile(r"[^a-z0-9_-]")
+
+
 def _sanitize_dns_label(raw: str) -> str:
     """Strip *raw* to an RFC 1123 hostname label (``[a-z0-9-]``).
 
-    Lowercases, replaces underscores with hyphens, drops anything
-    else. Caller is responsible for trimming the result to the
-    63-octet per-label cap (RFC 1035 §2.3.4) and stripping any
-    boundary hyphens left by truncation.
+    Lowercases, drops anything outside ``[a-z0-9_-]``, then maps
+    the surviving underscores to hyphens (the base64url alphabet
+    used by :func:`secrets.token_urlsafe` carries ``_``;
+    python-zeroconf won't publish it in a hostname label).
+    Anchoring the character class to ASCII ``a-z`` (not the
+    Unicode-aware regex word class or :meth:`str.isalnum`) keeps
+    non-ASCII letters out of the wire shape: a strict RFC 1123
+    label can't carry them, and a host whose ``socket.gethostname()``
+    returns e.g. ``café`` would otherwise produce a label
+    python-zeroconf refuses to publish.
+
+    Caller is responsible for trimming the result to the 63-octet
+    per-label cap (RFC 1035 §2.3.4) and stripping any boundary
+    hyphens left by truncation.
     """
-    return "".join(
-        c if c.isalnum() or c == "-" else "-" if c == "_" else "" for c in raw.strip().lower()
-    )
+    return _DNS_LABEL_DISALLOWED_RE.sub("", raw.strip().lower()).replace("_", "-")
 
 
 class DashboardAdvertiser:
@@ -314,13 +332,14 @@ class DashboardAdvertiser:
         ``hostname`` lands in the SRV record's target. When
         ``dashboard_id`` is provided (the production path) the SRV
         target is composed as ``{short_hostname}-{short_dashboard_id}.local``
-        via :func:`_compose_mdns_hostname` for collision-free
+        via :func:`build_mdns_hostname` for collision-free
         per-install identification. When ``hostname`` is passed
         explicitly it overrides that composition (tests +
-        belt-and-braces). When neither is set, falls back to
-        :func:`_default_hostname` (system hostname's leftmost
-        label, lowercased + ``.local`` appended — same
-        normalisation as a single-dashboard LAN).
+        belt-and-braces). When neither is set, the call still
+        routes through :func:`build_mdns_hostname` which falls
+        through to ``{short_hostname}.local`` from the system
+        hostname alone, or to ``""`` if even that is unavailable
+        (caller fails soft and skips the advertise).
 
         Neither name nor hostname is duplicated in TXT — peers
         read them off ``ServiceInfo.name`` / ``ServiceInfo.server``
@@ -479,13 +498,13 @@ class DashboardAdvertiser:
         if self._remote_build_port is not None:
             properties["remote_build_port"] = str(self._remote_build_port)
         # ``server`` is the SRV record's target. Zeroconf appends
-        # ``.local.`` if missing; pass the FQDN through as-is so a
-        # host already advertising e.g. ``desktop.local`` keeps the
+        # ``.local.`` if missing; pass it through as-is so a host
+        # already advertising e.g. ``mac-jwywnve.local`` keeps the
         # same answer it does for every other service. When
-        # ``_default_hostname`` returned ``""`` (rare — minimal
-        # containers / blank ``gethostname``), fall back to the
-        # friendly name + ``.local`` so the SRV target is a valid
-        # name rather than the bare ``.``.
+        # :func:`build_mdns_hostname` returned ``""`` (rare — both
+        # ``gethostname`` AND ``dashboard_id`` were unavailable),
+        # fall back to the friendly name + ``.local`` so the SRV
+        # target is a valid name rather than the bare ``.``.
         host = self._hostname or f"{self._name}.local"
         server = host if host.endswith(".") else f"{host}."
         # Publishing the host's addresses explicitly avoids relying
