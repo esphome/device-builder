@@ -59,6 +59,7 @@ from ...helpers.peer_link_noise import (
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
+from ...helpers.peer_link_resolver import make_peer_link_http_session
 from ...models import (
     PAIRING_VERSION_MAX_LEN,
     ArtifactsChunkFrameData,
@@ -91,6 +92,8 @@ from .peer_link import (
 )
 
 if TYPE_CHECKING:
+    from aiohttp.resolver import AbstractResolver
+
     from ...helpers.event_bus import EventBus
 
 _LOGGER = logging.getLogger(__name__)
@@ -305,6 +308,7 @@ async def drive_initiator_round_trip(
     intent: PeerLinkIntent,
     msg3_payload: bytes = b"",
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+    resolver: AbstractResolver | None = None,
 ) -> InitiatorRoundTrip:
     """Run one Noise XX round-trip from the initiator side.
 
@@ -360,7 +364,7 @@ async def drive_initiator_round_trip(
     try:
         url = _build_ws_url(hostname, port)
         async with (
-            aiohttp.ClientSession(timeout=timeout) as http,
+            make_peer_link_http_session(timeout=timeout, resolver=resolver) as http,
             http.ws_connect(url, max_msg_size=_CONTROL_RESPONSE_MAX_BYTES) as ws,
         ):
             response_ct = await _drive_initiator_handshake_and_read_response(
@@ -412,6 +416,7 @@ async def preview_pair(
     hostname: str,
     port: int,
     identity_priv: bytes,
+    resolver: AbstractResolver | None = None,
 ) -> str:
     """Run an ``intent="preview"`` round-trip; return the receiver's pin_sha256.
 
@@ -431,6 +436,7 @@ async def preview_pair(
         port=port,
         identity_priv=identity_priv,
         intent=PeerLinkIntent.PREVIEW,
+        resolver=resolver,
     )
     if rt.intent_response != IntentResponse.OK.value:
         msg = f"peer-link preview rejected with intent_response={rt.intent_response!r}"
@@ -475,6 +481,7 @@ async def request_pair(
     identity_priv: bytes,
     label: str,
     dashboard_id: str,
+    resolver: AbstractResolver | None = None,
 ) -> RequestPairResult:
     """Run an ``intent="pair_request"`` round-trip; return the receiver's response.
 
@@ -511,6 +518,7 @@ async def request_pair(
         identity_priv=identity_priv,
         intent=PeerLinkIntent.PAIR_REQUEST,
         msg3_payload=msg3_payload,
+        resolver=resolver,
     )
     try:
         status = IntentResponse(rt.intent_response)
@@ -568,6 +576,7 @@ async def await_pair_status(
     port: int,
     identity_priv: bytes,
     dashboard_id: str,
+    resolver: AbstractResolver | None = None,
 ) -> PairStatusResult:
     """Run an ``intent="pair_status"`` long-poll round-trip.
 
@@ -624,6 +633,7 @@ async def await_pair_status(
         intent=PeerLinkIntent.PAIR_STATUS,
         msg3_payload=msg3_payload,
         timeout_seconds=_PAIR_STATUS_TIMEOUT_SECONDS,
+        resolver=resolver,
     )
     try:
         status = IntentResponse(rt.intent_response)
@@ -922,11 +932,20 @@ class PeerLinkClient:
         pin_sha256: str,
         receiver_label: str,
         bus: EventBus,
+        resolver: AbstractResolver | None = None,
     ) -> None:
         self._hostname = receiver_hostname
         self._port = receiver_port
         self._identity_priv = identity_priv
         self._dashboard_id = dashboard_id
+        # Shared :class:`aiohttp` resolver wired to the
+        # dashboard's :class:`AsyncZeroconf` so ``.local``
+        # receiver hostnames resolve through mDNS instead of the
+        # OS resolver (which often doesn't have mDNS plumbed).
+        # ``None`` falls back to ``aiohttp``'s default resolver,
+        # which is the only viable shape for unit tests that
+        # don't construct a real Zeroconf.
+        self._resolver = resolver
         # Pinned receiver pubkey from the OOB-verified pair flow,
         # captured during ``preview_pair`` and stored on
         # :class:`StoredPairing.static_x25519_pub`. Compared
@@ -1498,7 +1517,7 @@ class PeerLinkClient:
         timeout = aiohttp.ClientTimeout(total=None, sock_connect=_DEFAULT_TIMEOUT_SECONDS)
         try:
             async with (
-                aiohttp.ClientSession(timeout=timeout) as http,
+                make_peer_link_http_session(timeout=timeout, resolver=self._resolver) as http,
                 http.ws_connect(url, max_msg_size=APP_FRAME_MAX_BYTES) as ws,
             ):
                 session = PeerLinkNoiseSession.initiator(self._identity_priv)

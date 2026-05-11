@@ -14,6 +14,12 @@ classifiers = [
 dependencies = [
   "esphome-device-builder-frontend==0.1.69",
   "aiohttp>=3.9.0",
+  # Provides an ``aiohttp.AsyncResolver`` that resolves ``.local``
+  # hostnames through an injected ``AsyncZeroconf`` (the same
+  # instance the device-state monitor already owns), so the
+  # outbound peer-link client doesn't depend on the host OS
+  # having a working mDNS responder wired into ``getaddrinfo``.
+  "aiohttp-asyncmdnsresolver>=0.1.1",
   "colorlog>=6.8.0",
   "cryptography>=42.0.2",
   "mashumaro>=3.13",

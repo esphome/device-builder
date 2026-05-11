@@ -88,6 +88,7 @@ from ...helpers.json import dumps as json_dumps
 from ...helpers.json import loads as json_loads
 from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
+from ...helpers.peer_link_resolver import PeerLinkDNSResolver, make_peer_link_resolver
 from ...helpers.remote_build_cleanup import sweep_remote_builds
 from ...helpers.remote_build_layout import parse_from_configuration
 from ...helpers.storage import ShutdownCallback, Store
@@ -985,6 +986,20 @@ class RemoteBuildController:
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
         self._browser: AsyncServiceBrowser | None = None
+        # Shared ``aiohttp`` resolver wired to the dashboard's
+        # :class:`AsyncEsphomeZeroconf` so outbound peer-link
+        # connects resolve ``*.local`` receiver hostnames through
+        # mDNS rather than the host OS's ``getaddrinfo``. Built
+        # in :meth:`start` once the device-state monitor's
+        # zeroconf is available; cleared in :meth:`stop`. Stays
+        # ``None`` when the shared zeroconf isn't up (HA-addon
+        # mode without an explicit ``ports:`` override, or any
+        # path where zeroconf failed to start) — call sites fall
+        # back to ``aiohttp``'s default OS resolver, which
+        # preserves the pre-mDNS-resolver behaviour for the
+        # subset of deployments that already had working mDNS in
+        # the OS.
+        self._peer_link_resolver: PeerLinkDNSResolver | None = None
         self._peers: dict[str, RemoteBuildPeer] = {}
         # Strong refs for fire-and-forget resolve tasks so the
         # garbage collector can't reap them mid-await.
@@ -1414,6 +1429,15 @@ class RemoteBuildController:
         )
         self._offloader_peer_link_priv = peer_link_identity.private_bytes
         self._offloader_dashboard_id = dashboard_identity.dashboard_id
+        # Wire the shared mDNS-aware aiohttp resolver before
+        # spawning peer-link clients so each client picks it up
+        # at construction. The device-state monitor owns the
+        # underlying :class:`AsyncZeroconf`; if it isn't up yet
+        # (or failed to start in HA-addon mode), the resolver
+        # stays ``None`` and outbound connects fall through to
+        # ``aiohttp``'s default OS resolver — same fail-soft
+        # contract as :meth:`_start_discovery` below.
+        self._setup_peer_link_resolver()
         # Spawn one peer-link client task per APPROVED pairing
         # already in the dict. Each task drives the connect →
         # handshake → receive loop with auto-reconnect; the
@@ -1527,6 +1551,27 @@ class RemoteBuildController:
             )
         )
         self._start_discovery()
+
+    def _setup_peer_link_resolver(self) -> None:
+        """
+        Build the shared mDNS-aware aiohttp resolver if zeroconf is up.
+
+        Reads the same ``self._db.devices.zeroconf`` reference
+        the discovery browser uses, so resolver-availability
+        and browser-availability are bound together — either
+        both run or both stay off. Stores the resolver on
+        :attr:`_peer_link_resolver`; leaves it ``None`` when
+        the shared zeroconf isn't available (devices controller
+        not constructed, monitor failed to bind, HA-addon mode
+        without zeroconf). Fail-soft: the next ``aiohttp``
+        connect falls back to the OS resolver in that case.
+        """
+        if self._db.devices is None:
+            return
+        zeroconf = self._db.devices.zeroconf
+        if zeroconf is None:
+            return
+        self._peer_link_resolver = make_peer_link_resolver(zeroconf)
 
     def _start_discovery(self) -> None:
         """
@@ -2139,6 +2184,34 @@ class RemoteBuildController:
         # ``subscribe_events`` initial_state. Symmetric with the
         # offloader-side ``_pairings.clear()`` above.
         self._approved_peers.clear()
+        await self._close_peer_link_resolver()
+
+    async def _close_peer_link_resolver(self) -> None:
+        """
+        Release the shared mDNS-aware aiohttp resolver, if any.
+
+        Extracted from :meth:`stop` so the teardown branch lives
+        next to :meth:`_setup_peer_link_resolver` (the matching
+        bring-up step) instead of bloating ``stop``'s branch
+        count. Safe to call multiple times: the resolver
+        reference is cleared after the first call so any later
+        invocation is a no-op.
+
+        ``real_close`` releases the underlying ``aiodns``
+        resources; the borrowed :class:`AsyncZeroconf` belongs
+        to the device-state monitor and is closed separately on
+        its stop path. The :meth:`stop` caller already drained
+        every :class:`PeerLinkClient` before reaching this
+        method, so no live ``aiohttp`` connector is still
+        holding the resolver.
+        """
+        if self._peer_link_resolver is None:
+            return
+        try:
+            await self._peer_link_resolver.real_close()
+        except Exception:
+            _LOGGER.debug("peer-link resolver close failed", exc_info=True)
+        self._peer_link_resolver = None
 
     # ------------------------------------------------------------------
     # mDNS plumbing
@@ -2412,6 +2485,7 @@ class RemoteBuildController:
                 hostname=new_hostname,
                 port=new_port,
                 identity_priv=self._offloader_peer_link_priv,
+                resolver=self._peer_link_resolver,
             )
         except PeerLinkClientError as exc:
             return _RebindProbeResult(_RebindProbeOutcome.UNREACHABLE, transport_error=exc)
@@ -3007,6 +3081,7 @@ class RemoteBuildController:
                 hostname=clean_host,
                 port=clean_port,
                 identity_priv=identity.private_bytes,
+                resolver=self._peer_link_resolver,
             )
         except PeerLinkClientError as exc:
             raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
@@ -3126,6 +3201,7 @@ class RemoteBuildController:
                 identity_priv=peer_link_identity.private_bytes,
                 label=clean_offloader_label,
                 dashboard_id=dashboard_identity.dashboard_id,
+                resolver=self._peer_link_resolver,
             )
         except PeerLinkClientError as exc:
             raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
@@ -4061,6 +4137,7 @@ class RemoteBuildController:
             pin_sha256=pairing.pin_sha256,
             receiver_label=pairing.label,
             bus=self._db.bus,
+            resolver=self._peer_link_resolver,
         )
         task = asyncio.create_task(
             client.run(),
@@ -4148,6 +4225,7 @@ class RemoteBuildController:
                         port=pairing.receiver_port,
                         identity_priv=peer_link_identity.private_bytes,
                         dashboard_id=dashboard_identity.dashboard_id,
+                        resolver=self._peer_link_resolver,
                     )
                 except PeerLinkClientError as exc:
                     _LOGGER.debug(
