@@ -639,11 +639,10 @@ def _settings_from_raw(raw: Any) -> RemoteBuildSettings:
     on older ``.device-builder.json`` files are silently
     dropped — mashumaro's ``DataClassORJSONMixin`` ignores
     unknown keys by default. The ``tokens`` field went with
-    the dormant bearer machinery (phase 4a-r2);
-    ``manual_hosts`` was removed once the pair dialog started
-    typing hostnames straight into ``request_pair``; ``peers``
-    moved to its own per-file ``Store`` at
-    ``.receiver_peers.json``.
+    the pre-Noise bearer machinery; ``manual_hosts`` was
+    removed once the pair dialog started typing hostnames
+    straight into ``request_pair``; ``peers`` moved to its
+    own per-file ``Store`` at ``.receiver_peers.json``.
     """
     if not isinstance(raw, dict):
         _LOGGER.warning(

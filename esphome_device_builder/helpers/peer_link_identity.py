@@ -13,13 +13,13 @@ is derived from the private key via :mod:`cryptography`'s
 half is recomputed each load rather than persisted, so a corrupted
 public-key file can't desync from the private half.
 
-This identity is **separate** from the phase-3a Ed25519 cert
+This identity is **separate** from the dashboard's Ed25519 cert
 keypair (``.device-builder-key.pem``). The cert remains the
 dashboard's TLS identity for any externally-fronted HTTPS use;
 the X25519 keypair here is the dashboard's identity for
 :class:`~esphome_device_builder.helpers.peer_link_noise.PeerLinkNoiseSession`
-(the Noise XX peer-link channel from phase 4a). The two have
-independent rotation lifecycles.
+(the Noise XX peer-link channel). The two have independent
+rotation lifecycles.
 
 Generation is one ``X25519PrivateKey.generate()`` call plus a
 single atomic file write. Sync and blocking; async callers must

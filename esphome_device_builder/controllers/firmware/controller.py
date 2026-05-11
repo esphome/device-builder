@@ -210,8 +210,8 @@ class FirmwareController:
         fields aren't strictly redundant — the
         ``running=False, queue_depth>0`` window exists between
         ``await _queue.put(job)`` and the runner's ``_queue.get()``
-        landing the same item, so a phase-7 scheduler that reads
-        only ``running`` would misclassify a fully-loaded receiver
+        landing the same item, so a scheduler that reads only
+        ``running`` would misclassify a fully-loaded receiver
         as accepting more work.
         """
         running = self._current_job is not None
@@ -1669,7 +1669,7 @@ class FirmwareController:
 
         ``remote_peer`` is the offloader's ``dashboard_id`` when
         this job came in via the peer-link ``submit_job`` flow
-        (issue #106 phase 5c), empty otherwise. ``remote_job_id``
+        (issue #106), empty otherwise. ``remote_job_id``
         is the offloader's submit-tagged ``job_id`` from the
         same flow; the receiver-side ``job_id`` above is
         generated independently so the two id-spaces don't

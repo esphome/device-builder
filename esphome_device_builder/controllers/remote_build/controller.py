@@ -17,7 +17,7 @@ dashboard restart for the listener state to follow. The 3c
 Settings UI surfaces this constraint; a future PR can wire
 the start / stop hooks if interactive toggling matters.
 
-Pairing model (phase 4a-r1):
+Pairing model:
 
 * Receiver-side state is a list of :class:`StoredPeer` rows
   keyed on ``dashboard_id``, with X25519 ``pin_sha256`` +
@@ -34,13 +34,11 @@ Pairing model (phase 4a-r1):
   the same ``/remote-build/peer-link`` endpoint without
   re-prompting the receiver-side user.
 
-The HTTPS+bearer receiver site that shipped in phases 3b1-3c
-(token CRUD, ``StoredToken`` persistence, bearer auth
-middleware, first-use binding) was wound down across phases
-4a-r1 (listener body swap to Noise WS) and 4a-r2 (helper
-deletion); only ``StoredPeer`` + the peer-link Noise dispatch
-ship in production today. See issue #106 for the historical
-trail.
+Only ``StoredPeer`` + the peer-link Noise dispatch ship today;
+the legacy HTTPS+bearer receiver site (token CRUD,
+``StoredToken`` persistence, bearer auth middleware, first-use
+binding) was wound down before release. See issue #106 for the
+historical trail.
 
 Manual hosts have no version / fingerprint resolution yet;
 they land in ``list_hosts`` with empty ``server_version`` /
@@ -182,8 +180,8 @@ def _load_offloader_identities(
     """Load both offloader-side identities in one executor hop.
 
     The peer-link X25519 keypair drives the Noise XX handshake;
-    the dashboard cert (phase 3a) carries the stable
-    ``dashboard_id`` we send in msg3 so the receiver's
+    the dashboard cert carries the stable ``dashboard_id`` we
+    send in msg3 so the receiver's
     ``StoredPeer`` row keys on it. The two are both lazy-create
     on first read, both protected by per-process locks
     in their respective helpers, and both involve disk I/O
@@ -328,8 +326,8 @@ def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPee
     # ``pin_sha256`` and ``remote_build_port`` are emitted by the
     # advertiser only when the peer-link listener is bound (see
     # :class:`DashboardAdvertiser`). The offloader-side mDNS
-    # auto-rebind path (4a-o part 7) reads both: pin to match a
-    # broadcast against a stored pairing, port to dial the
+    # auto-rebind path reads both: pin to match a broadcast
+    # against a stored pairing, port to dial the
     # peer-link Noise WS on the new endpoint. ``""`` / ``0`` for
     # receivers that haven't published them; the rebind path
     # silently skips those rows.
@@ -393,13 +391,13 @@ class _PairLabelField(StrEnum):
 class _RebindProbeOutcome(StrEnum):
     """Typed outcome of :meth:`RemoteBuildController._probe_pairing_endpoint`.
 
-    The probe is shared between mDNS-driven auto-rebind (4a-o
-    part 7) and user-driven manual edit (8b); each caller maps
-    the outcome onto its own surface (silent log + cooldown for
-    auto, typed :class:`CommandError` for the WS-driven user
-    path). The enum factors out the four distinct probe
-    failure modes so the surface mapping lives at the call site
-    instead of in a per-caller bespoke probe body.
+    The probe is shared between mDNS-driven auto-rebind and
+    user-driven manual edit; each caller maps the outcome onto
+    its own surface (silent log + cooldown for auto, typed
+    :class:`CommandError` for the WS-driven user path). The
+    enum factors out the four distinct probe failure modes so
+    the surface mapping lives at the call site instead of in a
+    per-caller bespoke probe body.
     """
 
     OK = "ok"
@@ -505,9 +503,9 @@ def _validate_hostname(
     so ``Desktop.local`` and ``desktop.local`` should be the same
     entry. The stored form is the trimmed, lowercased string (so
     two adds with different casing collapse to one entry rather
-    than registering twice). Phase 4 attempts the actual
-    connection (and discovers DNS / TLS validity); phase 2b
-    deliberately doesn't pre-flight an "is this resolvable now?"
+    than registering twice). The actual connection runs when
+    pairing attempts it (and discovers DNS / TLS validity); we
+    deliberately don't pre-flight an "is this resolvable now?"
     check, which would fail on offline laptops adding a peer
     for later.
     """
@@ -748,12 +746,12 @@ _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
 )
 
 
-# Required fields on inbound ``cancel_job`` peer-link frames
-# (5d). The frame is offloader → receiver direction; the
-# receiver's :meth:`RemoteBuildController.handle_cancel_job`
-# validates this shape before reaching into the
-# :class:`JobFanout` correlation cache. Same defensive idiom
-# the 5c-2 / 5c-3 dispatchers use.
+# Required fields on inbound ``cancel_job`` peer-link frames.
+# The frame is offloader → receiver direction; the receiver's
+# :meth:`RemoteBuildController.handle_cancel_job` validates
+# this shape before reaching into the :class:`JobFanout`
+# correlation cache. Same defensive idiom the ``submit_job``
+# dispatchers use.
 _CANCEL_JOB_SCHEMA = frame_schema({"job_id": str})
 
 
@@ -910,9 +908,9 @@ _PAIRINGS_SAVE_DELAY_SECONDS = 1.0
 # :data:`DEFAULT_CLEANUP_TTL_SECONDS`).
 _CLEANUP_SWEEP_INTERVAL_SECONDS = 60 * 60
 
-# Sliding window enforced per-pin between mDNS rebind probes
-# (4a-o part 7). Doubles as the in-flight guard (set when
-# scheduling, cleared only on probe success) and the
+# Sliding window enforced per-pin between mDNS rebind probes.
+# Doubles as the in-flight guard (set when scheduling, cleared
+# only on probe success) and the
 # retry-throttle (failure leaves the entry in place until the
 # window elapses, so a permanently-unreachable host doesn't
 # trigger one probe per mDNS Updated burst). 30 s is plenty
@@ -991,8 +989,8 @@ class RemoteBuildController:
         # Strong refs for fire-and-forget resolve tasks so the
         # garbage collector can't reap them mid-await.
         self._tasks: set[asyncio.Task[None]] = set()
-        # mDNS auto-rebind probe slot per pin (4a-o part 7),
-        # mapping ``pin_sha256`` to the monotonic timestamp at
+        # mDNS auto-rebind probe slot per pin, mapping
+        # ``pin_sha256`` to the monotonic timestamp at
         # which another probe is allowed. Doubles as the
         # in-flight guard (set on schedule) and the
         # retry-throttle (failure leaves it in place until the
@@ -1072,10 +1070,10 @@ class RemoteBuildController:
         # ``subscribe_pairings`` channel needed.
         #
         # Keyed on ``pin_sha256`` to match the unified
-        # ``_pairings`` dict (4a-o part 6 — re-keyed offloader
-        # state from ``(host, port)`` to pin so a receiver
-        # rename is a one-line value mutation rather than a
-        # multi-dict atomic remap).
+        # ``_pairings`` dict (offloader state is keyed on pin
+        # rather than ``(host, port)`` so a receiver rename
+        # is a one-line value mutation rather than a multi-
+        # dict atomic remap).
         self._pair_status_listeners: dict[str, asyncio.Task[None]] = {}
         # PENDING StoredPeer rows live here, keyed on dashboard_id.
         # Never persisted — the per-file ``_peers_store``
@@ -1120,7 +1118,7 @@ class RemoteBuildController:
         # offloader takes over its previous slot rather than
         # doubling. Drained in :meth:`stop`.
         self._peer_link_sessions: dict[str, PeerLinkSession] = {}
-        # Receiver-side ``submit_job`` flow handler (5c-2).
+        # Receiver-side ``submit_job`` flow handler.
         # Holds per-session in-flight bundle reception state and
         # drives the receiver's accept path
         # (assemble → write tarball → extract → queue
@@ -1133,7 +1131,7 @@ class RemoteBuildController:
         # after ``start``, so the not-yet-installed window is
         # never reachable on a healthy code path.
         self._submit_job_receiver: SubmitJobReceiver | None = None
-        # Receiver-side ``download_artifacts`` flow handler (6a).
+        # Receiver-side ``download_artifacts`` flow handler.
         # Same lifecycle as :attr:`_submit_job_receiver`:
         # constructed in :meth:`start` once the firmware
         # controller is available, accessed by the peer-link
@@ -1146,13 +1144,12 @@ class RemoteBuildController:
         # ``start``).
         self._artifacts_download_sender: ArtifactsDownloadSender | None = None
         # Receiver-side fan-out from firmware ``JOB_*`` events to
-        # ``job_state_changed`` / ``job_output`` peer-link frames
-        # (5c-2b). Subscribes in :meth:`start`, detaches in
-        # :meth:`stop`. Filters firmware events by
-        # ``FirmwareJob.remote_peer`` so only remote-peer jobs
-        # (queued by 5c-2a's submit path) fan out — local
-        # operator-driven compiles never reach a peer-link
-        # session.
+        # ``job_state_changed`` / ``job_output`` peer-link frames.
+        # Subscribes in :meth:`start`, detaches in :meth:`stop`.
+        # Filters firmware events by ``FirmwareJob.remote_peer``
+        # so only remote-peer jobs (queued by the submit path)
+        # fan out — local operator-driven compiles never reach a
+        # peer-link session.
         self._job_fanout: JobFanout | None = None
         # Offloader-side long-lived peer-link clients, one per
         # APPROVED ``StoredPairing``, keyed on the receiver's
@@ -1165,8 +1162,8 @@ class RemoteBuildController:
         # the connect-handshake-park-reconnect loop in
         # :meth:`PeerLinkClient.run`. The client object is
         # retained alongside its task so the
-        # ``remote_build/submit_job`` WS command (5c-3) can
-        # reach :meth:`PeerLinkClient.submit_job` to drive a
+        # ``remote_build/submit_job`` WS command can reach
+        # :meth:`PeerLinkClient.submit_job` to drive a
         # bundle through the live session — the task itself
         # exposes only ``cancel`` / ``done``, not the per-flow
         # send API.
@@ -1223,8 +1220,8 @@ class RemoteBuildController:
         # :meth:`build_scheduler_snapshot` on every install.
         self._remote_builds_enabled: bool = True
         # RAM-only offloader-side pair alerts. Keyed on
-        # ``pin_sha256`` to match ``_pairings`` (4a-o part 6).
-        # Populated by ``_apply_pair_status_result`` when a
+        # ``pin_sha256`` to match ``_pairings``. Populated by
+        # ``_apply_pair_status_result`` when a
         # pair-status round-trip detects a pin drift
         # (pin_mismatch) or a receiver-side rejection
         # (peer_revoked); cleared only by the two resolution
@@ -1238,7 +1235,7 @@ class RemoteBuildController:
         # Never persisted: the alert describes a transient
         # detection, and a process restart with the row still
         # gone leaves nothing for the listener to re-detect
-        # against; phase 5+ peer-link sessions re-trigger the
+        # against; live peer-link sessions re-trigger the
         # underlying condition the next time the row is *used*.
         # ``subscribe_events.initial_state.offloader_alerts``
         # carries the snapshot so a tab subscribing AFTER the
@@ -1247,8 +1244,8 @@ class RemoteBuildController:
         self._offloader_alerts: dict[str, OffloaderAlertSnapshotEntry] = {}
         # RAM-only offloader-side cache of the most recent
         # ``queue_status`` snapshot received from each paired
-        # receiver, keyed on ``pin_sha256`` (4a-o part 6 —
-        # mirrors ``_pairings`` keying). Updated on every
+        # receiver, keyed on ``pin_sha256`` (mirrors
+        # ``_pairings`` keying). Updated on every
         # inbound ``OFFLOADER_QUEUE_STATUS_CHANGED`` (the
         # :class:`PeerLinkClient` receive loop fires the event
         # after parsing a wire frame). Surfaced through
@@ -1339,7 +1336,7 @@ class RemoteBuildController:
         fail-soft; same contract as
         :class:`DashboardAdvertiser`.
         """
-        # Stand up the receiver-side ``submit_job`` handler (5c-2)
+        # Stand up the receiver-side ``submit_job`` handler
         # before the peer-link listener can possibly fire its
         # first SUBMIT_JOB dispatch. The handler has no work to
         # do on cold start beyond holding its empty in-flight
@@ -1920,7 +1917,7 @@ class RemoteBuildController:
                 )
 
     async def handle_cancel_job(self, session: PeerLinkSession, frame: dict[str, Any]) -> None:
-        """Receiver-side dispatch for inbound ``cancel_job`` frames (5d).
+        """Receiver-side dispatch for inbound ``cancel_job`` frames.
 
         Resolves the offloader-supplied ``job_id`` to the
         receiver-local :class:`FirmwareJob` via
@@ -1991,7 +1988,7 @@ class RemoteBuildController:
             )
 
     def get_submit_job_receiver(self) -> SubmitJobReceiver:
-        """Receiver-side ``submit_job`` flow handler (5c-2).
+        """Receiver-side ``submit_job`` flow handler.
 
         Accessor used by
         :func:`controllers.remote_build_peer_link._receive_loop`
@@ -2017,7 +2014,7 @@ class RemoteBuildController:
         return self._submit_job_receiver
 
     def get_artifacts_download_sender(self) -> ArtifactsDownloadSender:
-        """Receiver-side ``download_artifacts`` flow handler (6a).
+        """Receiver-side ``download_artifacts`` flow handler.
 
         Same shape as :meth:`get_submit_job_receiver`: accessed
         by :func:`controllers.remote_build.peer_link._receive_loop`
@@ -2229,8 +2226,8 @@ class RemoteBuildController:
             return
         self._peers[name] = peer
         self._db.bus.fire(EventType.REMOTE_BUILD_HOST_ADDED, peer.to_dict())
-        # mDNS auto-rebind (4a-o part 7). Same callback that fires
-        # the discovered-hosts event also drives the per-pairing
+        # mDNS auto-rebind. Same callback that fires the
+        # discovered-hosts event also drives the per-pairing
         # rebind: if this broadcast carries a ``pin_sha256`` we
         # have a stored pairing for AND its ``(host, port)``
         # differs from what we have on disk, kick off a
@@ -2280,8 +2277,8 @@ class RemoteBuildController:
 
         Distinct from :meth:`DeviceBuilder.create_background_task`
         because the controller's :meth:`stop` gathers
-        :attr:`_tasks` separately (4a-o subsystem teardown
-        ordering); mixing the two sets would change shutdown
+        :attr:`_tasks` separately for ordered subsystem
+        teardown; mixing the two sets would change shutdown
         semantics.
         """
         task = asyncio.create_task(coro, name=name)
@@ -2290,7 +2287,7 @@ class RemoteBuildController:
         return task
 
     async def _run_cleanup_loop(self) -> None:
-        """Sweep cold remote-build subtrees on a periodic tick (6c).
+        """Sweep cold remote-build subtrees on a periodic tick.
 
         Reads the operator-configured TTL off
         :attr:`RemoteBuildSettings.cleanup_ttl_seconds`,
@@ -2464,11 +2461,11 @@ class RemoteBuildController:
           so subscribed frontends update display fields without
           a snapshot read.
 
-        Used by :meth:`_probe_and_rebind_endpoint` today; the
-        eventual phase 8b "manually edit a paired sender's
-        hostname/port" surface lands on the same epilogue
-        (different validate-and-mutate prologue, identical
-        respawn-and-announce shape).
+        Used by :meth:`_probe_and_rebind_endpoint`; a future
+        "manually edit a paired sender's hostname/port" surface
+        would land on the same epilogue (different validate-
+        and-mutate prologue, identical respawn-and-announce
+        shape).
         """
         self._cancel_peer_link_client(pairing.pin_sha256)
         self._spawn_peer_link_client(pairing)
@@ -2479,7 +2476,7 @@ class RemoteBuildController:
         )
 
     # ------------------------------------------------------------------
-    # mDNS auto-rebind (4a-o part 7)
+    # mDNS auto-rebind
     # ------------------------------------------------------------------
 
     def _maybe_schedule_rebind_probe(self, peer: RemoteBuildPeer) -> None:
@@ -2835,8 +2832,8 @@ class RemoteBuildController:
         return view
 
     # ------------------------------------------------------------------
-    # Offloader-side settings (phase 7b) — the master "Remote builds
-    # enabled" toggle + per-pairing enable switch. These configure the
+    # Offloader-side settings — the master "Remote builds enabled"
+    # toggle + per-pairing enable switch. These configure the
     # ``pick_build_path`` scheduler that ``firmware/install`` routes
     # through. Mutations persist via the existing
     # ``_pairings_store`` (the master toggle lives on
@@ -2851,7 +2848,7 @@ class RemoteBuildController:
 
         Bundles the master ``remote_builds_enabled`` toggle
         with the projected :class:`PairingSummary` list so the
-        7b Settings UI's first paint reads everything it needs
+        Settings UI's first paint reads everything it needs
         from one round-trip. Subsequent live updates flow
         through ``OFFLOADER_REMOTE_BUILDS_TOGGLED`` /
         ``OFFLOADER_PAIRING_ENABLED_CHANGED`` /
@@ -2961,8 +2958,8 @@ class RemoteBuildController:
         return self._pairing_summary_for(pairing)
 
     # ------------------------------------------------------------------
-    # Offloader-side pair flow (phase 4a-o) — initiator commands that
-    # open Noise XX WebSockets to a receiver's peer-link endpoint. The
+    # Offloader-side pair flow — initiator commands that open Noise XX
+    # WebSockets to a receiver's peer-link endpoint. The
     # wire-shape driver lives in
     # :mod:`controllers.remote_build_peer_link_client`; the WS command
     # here owns input validation, identity loading, and error mapping.
@@ -2978,7 +2975,7 @@ class RemoteBuildController:
         renders the returned ``pin_sha256`` for the user to
         OOB-verify against the receiver's "Build server"
         Settings card; only after that confirmation does the
-        offloader call ``request_pair`` (phase 4a-o part 3).
+        offloader call ``request_pair``.
 
         Args:
             hostname: Receiver's hostname / IP (validated as for
@@ -3243,9 +3240,9 @@ class RemoteBuildController:
         receiver's ownership concern. The next ``intent="peer_link"``
         from this offloader will return ``REJECTED`` because the
         offloader's local row is gone, but the receiver-side row
-        won't auto-clean — phase 8's re-auth wizard surfaces the
-        "stale on receiver, removed locally" case as a UI affordance
-        for the receiver-side admin to clean up.
+        won't auto-clean — a future re-auth wizard would surface
+        the "stale on receiver, removed locally" case as a UI
+        affordance for the receiver-side admin to clean up.
 
         If a pair-status listener task is in flight for this row
         (admin hadn't clicked Accept/Reject yet), it gets cancelled
@@ -3651,7 +3648,7 @@ class RemoteBuildController:
         job_id: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Fetch the build's flash-artifact set for *job_id* from the paired receiver (6a).
+        """Fetch the build's flash-artifact set for *job_id* from the paired receiver.
 
         Sends ``download_artifacts{job_id}`` over the open
         peer-link to *pin_sha256*, parks on the assembled-bytes
@@ -3659,9 +3656,9 @@ class RemoteBuildController:
         ``artifacts_start`` / ``artifacts_chunk`` /
         ``artifacts_end`` frames land, then unpacks the
         SHA-256-verified gzipped tarball into a structured
-        response the offloader's frontend (6b) can hand
-        directly to its install paths (Web Serial / network
-        OTA / download-to-disk).
+        response the offloader's frontend can hand directly to
+        its install paths (Web Serial / network OTA /
+        download-to-disk).
 
         Validation gates (cheapest first, so user-input errors
         short-circuit before any wire work):
@@ -3742,7 +3739,7 @@ class RemoteBuildController:
         job_id: str,
         **kwargs: Any,
     ) -> dict[str, bool]:
-        """Send a ``cancel_job`` frame to the receiver behind *pin_sha256* (5d).
+        """Send a ``cancel_job`` frame to the receiver behind *pin_sha256*.
 
         Cooperative cancellation for a previously-submitted
         remote-driven job. *job_id* is the offloader-local id
@@ -3854,9 +3851,9 @@ class RemoteBuildController:
         time) — flagged here so the surface choice is a
         deliberate move, not a silent assumption.
 
-        ``remote_builds_enabled`` reads :attr:`_remote_builds_enabled`
-        (7b), the master switch the offloader Settings UI
-        flips through ``set_offloader_settings``. ``False``
+        ``remote_builds_enabled`` reads :attr:`_remote_builds_enabled`,
+        the master switch the offloader Settings UI flips
+        through ``set_offloader_settings``. ``False``
         gates every install to LOCAL without tearing down the
         peer-link sessions — the Send-builds power-user dialog
         and the receiver-side housekeeping (queue_status push,
@@ -3995,9 +3992,9 @@ class RemoteBuildController:
         )
 
     # ------------------------------------------------------------------
-    # Pair-status listeners (phase 4a-o part 4) — one task per PENDING
-    # StoredPairing, each holding an open Noise WS to its receiver
-    # with ``intent="pair_status"``. Receiver-side responder waits on
+    # Pair-status listeners — one task per PENDING StoredPairing, each
+    # holding an open Noise WS to its receiver with
+    # ``intent="pair_status"``. Receiver-side responder waits on
     # its own bus event for an admin click and pushes the response
     # back, so the offloader sees the flip with sub-second latency
     # without polling.
@@ -4335,8 +4332,7 @@ class RemoteBuildController:
         Mirrors :meth:`_fire_pair_status_changed` (receiver-side)
         for shape; both methods are the named-intent boundary
         between controller logic and the bus payload format.
-        ``pin_sha256`` is the canonical row identifier (4a-o
-        part 6 — re-keyed offloader state on pin); receiver
+        ``pin_sha256`` is the canonical row identifier; receiver
         coords stay on the payload as display fields.
         """
         payload: OffloaderPairStatusChangedData = {
@@ -4396,8 +4392,8 @@ class RemoteBuildController:
         to "the receiver isn't going to talk to us"; the alert
         copy stays generic. Fires alongside
         ``status="removed"``. ``pin_sha256`` is the canonical
-        row identifier (4a-o part 6); receiver coords stay on
-        the payload as display fields.
+        row identifier; receiver coords stay on the payload as
+        display fields.
         """
         payload: OffloaderPairPeerRevokedData = {
             "receiver_hostname": receiver_hostname,
@@ -4408,10 +4404,10 @@ class RemoteBuildController:
         self._db.bus.fire(EventType.OFFLOADER_PAIR_PEER_REVOKED, payload)
 
     # ------------------------------------------------------------------
-    # Identity (phase 3c1) — surface the receiver's own dashboard_id +
-    # cert pin to the Settings UI without making it reach into the
-    # cert PEM directly. Rotation lives next door so the "rotate"
-    # button can land in the same controller.
+    # Identity — surface the receiver's own dashboard_id + cert pin to
+    # the Settings UI without making it reach into the cert PEM
+    # directly. Rotation lives next door so the "rotate" button can
+    # land in the same controller.
     # ------------------------------------------------------------------
 
     @api_command("remote_build/get_identity")
@@ -4515,11 +4511,10 @@ class RemoteBuildController:
             self._rotation_in_flight = False
 
     # ------------------------------------------------------------------
-    # Peer CRUD (phase 4a-r1 part 3) — receiver-UI surface for the
-    # Pairing requests inbox and the approved-peers list. The peer-link
-    # listener (phase 4a-r1 part 4) is the actual creator of PENDING
-    # rows; these commands are the receiver-side admin's UI surface for
-    # acting on them.
+    # Peer CRUD — receiver-UI surface for the Pairing requests inbox
+    # and the approved-peers list. The peer-link listener is the
+    # actual creator of PENDING rows; these commands are the
+    # receiver-side admin's UI surface for acting on them.
     # ------------------------------------------------------------------
 
     @api_command("remote_build/approve_peer")
@@ -4578,7 +4573,7 @@ class RemoteBuildController:
           fires the same
           :attr:`EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED`
           ``status="removed"`` event so the offloader can
-          surface a ``peer_revoked`` UI alert (phase 4b-3).
+          surface a ``peer_revoked`` UI alert.
 
         ``NOT_FOUND`` if neither dict has a row.
         """
@@ -4627,10 +4622,10 @@ class RemoteBuildController:
         return self._to_view(settings)
 
     # ------------------------------------------------------------------
-    # Peer-link Noise WS dispatch helpers (phase 4a-r1 part 4) — called
-    # by the post-handshake intent dispatcher in
-    # :mod:`controllers.remote_build_peer_link`. These methods own the
-    # storage / event-firing side; the dispatcher owns the wire side.
+    # Peer-link Noise WS dispatch helpers — called by the post-handshake
+    # intent dispatcher in :mod:`controllers.remote_build_peer_link`.
+    # These methods own the storage / event-firing side; the dispatcher
+    # owns the wire side.
     # ------------------------------------------------------------------
 
     async def record_pair_request(
@@ -4813,7 +4808,7 @@ class RemoteBuildController:
         * :attr:`IntentResponse.OK` — peer is APPROVED and the
           handshake's pubkey hash matches the stored
           ``pin_sha256``. Caller can keep the WS open for
-          application messages (phase 5+).
+          application messages.
         * :attr:`IntentResponse.PENDING` — peer's row exists in
           the receiver's in-memory PENDING dict (admin hasn't
           clicked Accept yet). The offloader's frontend reflects
@@ -4957,10 +4952,10 @@ class RemoteBuildController:
         return approved_response
 
     # ------------------------------------------------------------------
-    # Pairing window (phase 4a-r1 part 3) — in-process deadline that
-    # gates ``intent="pair_request"`` Noise frames at the listener
-    # (phase 4a-r1 part 4 consumes :meth:`is_pairing_window_open`).
-    # See issue #106 design choice (c).
+    # Pairing window — in-process deadline that gates
+    # ``intent="pair_request"`` Noise frames at the listener (the
+    # listener consumes :meth:`is_pairing_window_open`). See issue
+    # #106 design choice (c).
     # ------------------------------------------------------------------
 
     @api_command("remote_build/set_pairing_window")
@@ -5044,8 +5039,8 @@ class RemoteBuildController:
         """
         Return whether the pairing window is currently open.
 
-        Consumed by the peer-link listener (phase 4a-r1 part 4) to
-        gate ``intent="pair_request"`` Noise frames. A closed window
+        Consumed by the peer-link listener to gate
+        ``intent="pair_request"`` Noise frames. A closed window
         rejects the frame with ``intent_response=no_pairing_window``
         and closes the WS without creating a row.
         """

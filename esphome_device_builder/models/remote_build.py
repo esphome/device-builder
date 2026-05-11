@@ -52,7 +52,7 @@ class PeerStatus(StrEnum):
     No explicit ``REJECTED`` terminal state — a rejected request
     deletes the row. If the same offloader retries, it lands as
     a fresh pending row and the admin chooses again. Avoids the
-    bookkeeping a rejected-list would need; phase 8's re-auth
+    bookkeeping a rejected-list would need; a future re-auth
     wizard can revisit if blocklisting becomes useful.
     """
 
@@ -106,7 +106,7 @@ class IntentResponse(StrEnum):
     * ``OK`` — success on ``intent="preview"`` (handshake captured
       pubkey, nothing else needed) or on ``intent="peer_link"``
       from an APPROVED peer (caller can keep the WS open for
-      application messages in phase 5+).
+      application messages).
     * ``APPROVED`` — ``intent="pair_status"`` poll observing an
       APPROVED row, or ``intent="pair_request"`` from a peer
       that's already APPROVED (we don't demote them; the offloader
@@ -237,11 +237,10 @@ class OffloaderPairStatusChangedData(TypedDict):
     ``subscribe_events`` stream — no separate subscription
     channel.
 
-    Carries ``pin_sha256`` as the canonical identifier (4a-o
-    part 6 re-keyed offloader-side state on pin instead of
-    ``(hostname, port)``); receiver coords stay on the payload
-    as display fields the frontend can show without a
-    follow-up lookup.
+    Carries ``pin_sha256`` as the canonical identifier (offloader-
+    side state is keyed on pin, not ``(hostname, port)``); receiver
+    coords stay on the payload as display fields the frontend can
+    show without a follow-up lookup.
     """
 
     receiver_hostname: str
@@ -339,12 +338,11 @@ class OffloaderPairAlertDismissedData(TypedDict):
     on the global ``subscribe_events`` stream sync their local
     alerts list without re-fetching the snapshot.
 
-    Carries ``pin_sha256`` as the canonical row identifier (4a-o
-    part 6 re-keyed `_offloader_alerts` on pin); receiver
-    coordinates stay on the payload as display fields. No
-    discriminator on *which* resolution path got us here — the
-    user-facing outcome (the alert disappears) is the same
-    either way.
+    Carries ``pin_sha256`` as the canonical row identifier
+    (``_offloader_alerts`` is keyed on pin); receiver coordinates
+    stay on the payload as display fields. No discriminator on
+    *which* resolution path got us here — the user-facing outcome
+    (the alert disappears) is the same either way.
     """
 
     receiver_hostname: str
@@ -423,19 +421,18 @@ class OffloaderPairPeerRevokedData(TypedDict):
 
     Fires *alongside* ``OFFLOADER_PAIR_STATUS_CHANGED
     status="removed"``; the distinct event lets the frontend's
-    4b-4 alert plumbing reshape surface a different CTA
-    ("contact the receiver admin") versus a pin-mismatch alert
-    ("re-pair right now to pick up the new identity"). The
-    operator action differs.
+    alert plumbing surface a different CTA ("contact the receiver
+    admin") versus a pin-mismatch alert ("re-pair right now to
+    pick up the new identity"). The operator action differs.
 
     The ``receiver_label`` is carried so the alert can name the
     row even after the pairings list has dropped it.
-    ``pin_sha256`` carries the row's primary key (4a-o part 6
-    re-keyed offloader-side state on pin) so the controller's
-    listener has a direct lookup. No extra diagnostic detail;
-    the receiver doesn't tell us *why* REJECTED, and the
-    offloader can't distinguish admin-Reject from window-close
-    from row-never-existed at this layer.
+    ``pin_sha256`` carries the row's primary key (offloader-side
+    state is keyed on pin) so the controller's listener has a
+    direct lookup. No extra diagnostic detail; the receiver
+    doesn't tell us *why* REJECTED, and the offloader can't
+    distinguish admin-Reject from window-close from
+    row-never-existed at this layer.
     """
 
     receiver_hostname: str
@@ -506,10 +503,9 @@ class OffloaderPeerLinkOpenedData(TypedDict):
     offloader's frontend Settings UI) update the
     per-receiver "connected" indicator on this event.
 
-    ``pin_sha256`` is the canonical offloader-side row key
-    (4a-o part 6 re-keyed offloader state on pin); receiver
-    coords stay on the payload as display fields the frontend
-    can render without a follow-up lookup.
+    ``pin_sha256`` is the canonical offloader-side row key;
+    receiver coords stay on the payload as display fields the
+    frontend can render without a follow-up lookup.
 
     ``esphome_version`` is the receiver's
     :data:`esphome.const.__version__` lifted off the
@@ -561,9 +557,8 @@ class OffloaderPeerLinkClosedData(TypedDict):
     61] Connection refused" instead of just the
     ``transport_error`` category.
 
-    ``pin_sha256`` is the canonical offloader-side row key
-    (4a-o part 6 re-keyed offloader state on pin); receiver
-    coords stay on the payload as display fields.
+    ``pin_sha256`` is the canonical offloader-side row key;
+    receiver coords stay on the payload as display fields.
     """
 
     receiver_hostname: str
@@ -623,9 +618,9 @@ class QueueStatusFrameData(TypedDict):
     The three fields aren't strictly redundant: the
     ``running=False, queue_depth>0`` window exists between
     ``await _queue.put(job)`` and the runner's ``_queue.get()``
-    landing the same item, so a phase-7 scheduler that reads
-    only ``running`` would misclassify a fully-loaded receiver
-    as accepting more work. ``idle`` and ``running`` carry both
+    landing the same item, so a scheduler that reads only
+    ``running`` would misclassify a fully-loaded receiver as
+    accepting more work. ``idle`` and ``running`` carry both
     edges so the consumer can render any of "available",
     "busy", "queued" without re-deriving.
     """
@@ -645,13 +640,11 @@ class OffloaderQueueStatusChangedData(TypedDict):
     ``queue_status`` application frame from a paired receiver.
     The remote-build controller listens, updates its
     RAM-only ``_peer_queue_status`` cache (keyed on
-    ``pin_sha256`` since 4a-o part 6), and re-broadcasts via
-    the global ``subscribe_events`` stream so frontend clients
-    can render per-peer queue depth without polling. Phase-5b
-    is the first real application message exercising the 5a
-    peer-link foundation end-to-end; the scheduler in phase 7
-    reads the same cache to pick the least-busy peer on each
-    new offload.
+    ``pin_sha256``), and re-broadcasts via the global
+    ``subscribe_events`` stream so frontend clients can render
+    per-peer queue depth without polling. The scheduler reads
+    the same cache to pick the least-busy peer on each new
+    offload.
     """
 
     receiver_hostname: str
@@ -725,13 +718,12 @@ class OffloaderRemoteBuildsToggledData(TypedDict):
 
     Fires from :meth:`RemoteBuildController.set_offloader_settings`
     when the operator flips the master "Remote builds enabled"
-    switch on the offloader Settings UI (7b). Subscribers are
-    the 7b Settings UI on every connected tab — one toggle on
-    one tab should flip the switch state on every other open
-    tab without a refresh. The scheduler doesn't need this
-    event because it reads
-    :attr:`RemoteBuildController._remote_builds_enabled` on
-    every install via :meth:`build_scheduler_snapshot`; the
+    switch on the offloader Settings UI. Subscribers are the
+    Settings UI on every connected tab — one toggle on one tab
+    should flip the switch state on every other open tab without
+    a refresh. The scheduler doesn't need this event because it
+    reads :attr:`RemoteBuildController._remote_builds_enabled`
+    on every install via :meth:`build_scheduler_snapshot`; the
     event is purely cross-tab UI sync.
     """
 
@@ -744,15 +736,13 @@ class OffloaderPairingEnabledChangedData(TypedDict):
 
     Fires from :meth:`RemoteBuildController.set_pairing_enabled`
     when the operator flips an individual paired-receiver
-    enable switch on the offloader Settings UI (7b).
-    Subscribers update the matching row's switch state. The
-    scheduler reads :attr:`StoredPairing.enabled` directly
-    off the in-RAM ``_pairings`` dict via the snapshot, so no
-    scheduler-side listener is needed; the event is the
-    cross-tab UI sync seam.
+    enable switch on the offloader Settings UI. Subscribers
+    update the matching row's switch state. The scheduler reads
+    :attr:`StoredPairing.enabled` directly off the in-RAM
+    ``_pairings`` dict via the snapshot, so no scheduler-side
+    listener is needed; the event is the cross-tab UI sync seam.
 
-    ``pin_sha256`` is the canonical row key (4a-o part 6
-    re-keyed offloader state on pin); receivers
+    ``pin_sha256`` is the canonical row key; receivers
     ``(hostname, port)`` aren't on the payload — frontends
     that need them join through their own
     :class:`PairingSummary` snapshot.
@@ -972,8 +962,8 @@ class DownloadArtifactsFrameData(TypedDict):
     Application-frame payload for ``AppMessageType.DOWNLOAD_ARTIFACTS``.
 
     Offloader → receiver request to fetch the build-artifact
-    bundle for a previously-completed remote build (phase 6a).
-    ``job_id`` is the offloader-supplied id from the original
+    bundle for a previously-completed remote build. ``job_id``
+    is the offloader-supplied id from the original
     ``submit_job`` header — the value the receiver stashed as
     :attr:`FirmwareJob.remote_job_id`. The receiver resolves
     it to the local :class:`FirmwareJob` by walking
@@ -1011,8 +1001,8 @@ class ArtifactsStartFrameData(TypedDict):
 
     Receiver-pushed header announcing a build-artifact
     tarball stream for the offloader's previously-requested
-    ``download_artifacts`` (phase 6a). Carries
-    ``total_bytes`` so the offloader can pre-size the
+    ``download_artifacts``. Carries ``total_bytes`` so the
+    offloader can pre-size the
     assembly buffer + reject a mismatched stream cleanly;
     ``num_chunks`` matches the chunk count the receiver will
     actually send (assembler validates against this on every
@@ -1053,8 +1043,8 @@ class ArtifactsChunkFrameData(TypedDict):
     """
     Application-frame payload for ``AppMessageType.ARTIFACTS_CHUNK``.
 
-    One slice of the build-artifact tarball (phase 6a). Same
-    wire shape as :class:`SubmitJobChunkFrameData` but for
+    One slice of the build-artifact tarball. Same wire shape
+    as :class:`SubmitJobChunkFrameData` but for
     the reverse direction — bytes are base64-encoded inside
     the JSON envelope so the dispatch seam stays uniform
     across the bundle-upload and artifacts-download flows.
@@ -1079,7 +1069,7 @@ class ArtifactsEndFrameData(TypedDict):
     Application-frame payload for ``AppMessageType.ARTIFACTS_END``.
 
     Receiver's terminator frame for a ``download_artifacts``
-    request (phase 6a). Doubles as the success/failure ack:
+    request. Doubles as the success/failure ack:
 
     * **Success path** — fires after the last chunk
       (``is_last=true``) has been sent; ``accepted=true``,
@@ -1110,8 +1100,8 @@ class CancelJobFrameData(TypedDict):
     Application-frame payload for ``AppMessageType.CANCEL_JOB``.
 
     Offloader → receiver cooperative cancel for a previously-
-    submitted job (phase 5d). ``job_id`` is the
-    offloader-supplied id from the original ``submit_job``
+    submitted job. ``job_id`` is the offloader-supplied id from
+    the original ``submit_job``
     header — i.e. the value the offloader generated and the
     receiver stashed as :attr:`FirmwareJob.remote_job_id`. The
     receiver resolves the offloader-side id back to its local
@@ -1159,10 +1149,10 @@ class StoredPeer(DataClassORJSONMixin):
     hex SHA-256, used for log lines / event payloads / wire
     fields where we already have a hex-pin convention.
 
-    ``dashboard_id`` is the offloader's stable identity from
-    phase 3a; sent in the pair_request payload so the admin UI
-    has a friendly identifier (the X25519 pubkey alone doesn't
-    carry one). Primary key for the receiver WS surface
+    ``dashboard_id`` is the offloader's stable identity; sent
+    in the pair_request payload so the admin UI has a friendly
+    identifier (the X25519 pubkey alone doesn't carry one).
+    Primary key for the receiver WS surface
     (``approve_peer({dashboard_id})`` etc.) so a future X25519
     keypair rotation on the offloader's side doesn't change the
     user-facing handle.
@@ -1397,8 +1387,8 @@ _PAIRING_VALIDATOR = vol.Schema(
         # existed); pick_build_path's version-compat gate
         # accepts empty as "unknown, fall through to compat".
         vol.Required("esphome_version"): vol.All(str, vol.Length(max=PAIRING_VERSION_MAX_LEN)),
-        # Per-pairing master toggle (7b). The 7b Settings UI
-        # exposes one switch per paired build server; when
+        # Per-pairing master toggle. The Settings UI exposes
+        # one switch per paired build server; when
         # ``False`` the scheduler skips this row entirely (the
         # operator wants this receiver paired but doesn't want
         # transparent install to route here). ``not_bool`` not
@@ -1614,18 +1604,18 @@ class RemoteBuildSettings(DataClassORJSONMixin):
 
     Stored in ``.device-builder.json`` under the ``_remote_build``
     top-level key. Carries the master ``enabled`` toggle and the
-    6c TTL sweep's ``cleanup_ttl_seconds`` knob. APPROVED
+    TTL sweep's ``cleanup_ttl_seconds`` knob. APPROVED
     :class:`StoredPeer` rows live in their own per-file
     :class:`~helpers.storage.Store` at
     ``<config_dir>/.receiver_peers.json`` (mirrors the offloader-
     side :class:`OffloaderRemoteBuildSettings` shape) so reads
     short-circuit through RAM and don't race a write in flight.
-    Legacy ``peers`` and ``manual_hosts`` entries on older
-    sidecars are silently ignored at load time — the
-    ``manual_hosts`` flow was removed once the pair dialog
-    started typing hostnames straight into ``request_pair``, and
-    the ``tokens`` list (hash-only bearer tokens) went with the
-    dormant bearer machinery in phase 4a-r2.
+    Legacy ``peers``, ``manual_hosts``, and ``tokens`` entries on
+    older sidecars are silently ignored at load time — the
+    ``manual_hosts`` flow was removed once the pair dialog started
+    typing hostnames straight into ``request_pair``, and the
+    ``tokens`` list (hash-only bearer tokens) went with the
+    pre-Noise bearer machinery.
 
     ``enabled`` is the master gate the dashboard checks before
     binding the receiver site. Defaults to ``True`` so fresh
@@ -1771,10 +1761,10 @@ class OffloaderRemoteBuildSettings(DataClassORJSONMixin):
     "split offloader / receiver into separate processes" refactor
     only has to move one file.
 
-    ``pairings`` carries phase-4a-o :class:`StoredPairing`
-    rows: the offloader's pinned receivers.
+    ``pairings`` carries :class:`StoredPairing` rows: the
+    offloader's pinned receivers.
 
-    ``remote_builds_enabled`` (7b) is the master switch the
+    ``remote_builds_enabled`` is the master switch the
     scheduler reads. When ``False`` the transparent install
     flow short-circuits to LOCAL for every device — paired
     receivers stay paired and the peer-link sessions stay
@@ -1801,7 +1791,7 @@ class OffloaderRemoteBuildSettingsView(DataClassORJSONMixin):
     ``static_x25519_pub``); same projection-seam pattern as
     :class:`RemoteBuildSettingsView`.
 
-    ``remote_builds_enabled`` (7b) mirrors the storage-shape
+    ``remote_builds_enabled`` mirrors the storage-shape
     master toggle so the frontend's "Remote builds enabled"
     switch can read its initial state from the same
     ``get_offloader_settings`` round-trip that already
@@ -1863,10 +1853,7 @@ class RemoteBuildPeer(DataClassORJSONMixin):
       than truncating to ``"192"``. ``hostname`` is the same
       user-entered string, ``port`` is the user-entered port,
       ``addresses`` is empty, and version fields are blank until
-      phase 4 attempts the connection.
-
-    Phase 2 stops at discovery + manual entry; pairing / connection
-    / fingerprint pinning lands in later phases.
+      a pairing attempt runs the connection.
     """
 
     name: str
@@ -1886,8 +1873,8 @@ class RemoteBuildPeer(DataClassORJSONMixin):
     # ``helpers/peer_link_identity.py``). The offloader uses
     # both to match a discovered broadcast against a stored
     # pairing's ``pin_sha256`` and dial the right peer-link
-    # port for the auto-rebind probe (4a-o part 7). Empty
-    # string / 0 for: receivers that haven't bound the
+    # port for the auto-rebind probe. Empty string / 0 for:
+    # receivers that haven't bound the
     # peer-link listener (default-off mode), and ``MANUAL``
     # rows (which never go through the mDNS resolve path; the
     # user typed the hostname/port and the pair flow captures

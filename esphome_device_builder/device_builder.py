@@ -269,9 +269,8 @@ class DeviceBuilder:
 
         self._ingress_runner: web.AppRunner | None = None
         # Peer-link Noise WS receiver site for
-        # ``/remote-build/peer-link`` (issue #106 phase 4a-r1).
-        # Bound only when ``RemoteBuildSettings.enabled`` is true;
-        # ``None`` otherwise.
+        # ``/remote-build/peer-link`` (issue #106). Bound only when
+        # ``RemoteBuildSettings.enabled`` is true; ``None`` otherwise.
         self._remote_build_runner: web.AppRunner | None = None
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity``
@@ -610,27 +609,26 @@ class DeviceBuilder:
                 # ``OFFLOADER_PAIR_ALERT_DISMISSED`` events drive
                 # subsequent mutations.
                 initial["offloader_alerts"] = list(self.remote_build.offloader_alerts_snapshot())
-                # Offloader-side per-peer queue-status snapshot
-                # (phase 5b). RAM-only on the controller;
-                # populated by inbound ``queue_status`` frames
-                # from each paired receiver. Late-subscribers
-                # pick up the most recent value the offloader
-                # has observed for each peer without waiting on
-                # the next live ``OFFLOADER_QUEUE_STATUS_CHANGED``.
+                # Offloader-side per-peer queue-status snapshot.
+                # RAM-only on the controller; populated by inbound
+                # ``queue_status`` frames from each paired
+                # receiver. Late-subscribers pick up the most
+                # recent value the offloader has observed for each
+                # peer without waiting on the next live
+                # ``OFFLOADER_QUEUE_STATUS_CHANGED``.
                 initial["peer_queue_status"] = list(self.remote_build.peer_queue_status_snapshot())
-                # Offloader-side in-flight remote-job snapshot
-                # (phase 5c-3). RAM-only on the controller;
-                # populated by inbound ``job_state_changed``
-                # frames the offloader received for jobs we
-                # submitted. Terminal entries are dropped on
-                # transition so the snapshot only carries
-                # actively-running rows. A tab subscribing
+                # Offloader-side in-flight remote-job snapshot.
+                # RAM-only on the controller; populated by inbound
+                # ``job_state_changed`` frames the offloader
+                # received for jobs we submitted. Terminal entries
+                # are dropped on transition so the snapshot only
+                # carries actively-running rows. A tab subscribing
                 # AFTER ``running`` lands sees the job alive
                 # without waiting for the next event.
                 initial["remote_jobs"] = [
                     dict(entry) for entry in self.remote_build.offloader_remote_jobs_snapshot()
                 ]
-                # 7b master toggle. The Settings UI reads the
+                # Master toggle. The Settings UI reads the
                 # initial switch state from here; live updates
                 # flow through ``OFFLOADER_REMOTE_BUILDS_TOGGLED``
                 # events on the same ``subscribe_events``
@@ -1068,19 +1066,13 @@ class DeviceBuilder:
         """
         Construct the runner and bind the peer-link Noise WS listener.
 
-        Loads the X25519 peer-link identity (separate from the 3a
-        Ed25519 cert; see PR #473) and binds a plain-TCP TCPSite
-        serving exactly one route: the WS upgrade at
-        ``/remote-build/peer-link``. Noise XX provides
+        Loads the X25519 peer-link identity (separate from the
+        dashboard's Ed25519 cert; see PR #473) and binds a
+        plain-TCP TCPSite serving exactly one route: the WS upgrade
+        at ``/remote-build/peer-link``. Noise XX provides
         confidentiality + mutual auth + forward secrecy at the
         application layer, so there's no SSL context to manage and
-        no cert hot-swap when the 3a cert rotates.
-
-        Phases 3b1-3c shipped this same listener as HTTPS+bearer;
-        phase 4a-r1 part 4 swaps the body to plain-TCP / Noise WS
-        on the same port + flag + constant + runner slot. The
-        bearer machinery (token CRUD, auth middleware, models) is
-        now dormant and gets deleted in 4a-r2.
+        no cert hot-swap when the dashboard cert rotates.
 
         Returns ``(runner, identity, bound_port)`` on success; on
         any exception, cleans up the partial runner before

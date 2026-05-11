@@ -76,7 +76,7 @@ _NO_ESPHOME_MODULE_MARKER = "No module named 'esphome'"
 #     Anchored to the ``Uploading:`` prefix.
 # Force ANSI colour through even when stdout isn't a TTY. The local
 # subprocess path and the source-routed remote runner's local upload
-# step (7a-3) share this — both spawn an ``esphome`` subprocess whose
+# step share this — both spawn an ``esphome`` subprocess whose
 # output the dashboard pipes verbatim to the firmware-tasks UI, so a
 # divergence between the two would produce visually-different streams
 # for jobs subscribers can't tell apart by source. Pulling the dict

@@ -1926,7 +1926,7 @@ async def test_receive_loop_routes_cancel_job_to_controller(tmp_path: Path) -> N
 
 @pytest.mark.asyncio
 async def test_receive_loop_routes_download_artifacts_to_sender(tmp_path: Path) -> None:
-    """A ``download_artifacts`` Noise frame routes through the artifacts-download sender (6a)."""
+    """A ``download_artifacts`` Noise frame routes through the artifacts-download sender."""
     initiator, responder = _noise_pair()
     session, ws = _make_unit_session(responder)
     payload = {"type": "download_artifacts", "job_id": "remote-7"}

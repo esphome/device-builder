@@ -282,7 +282,7 @@ class AppMessageType(StrEnum):
     # partitions.bin + firmware.bin + idedata.json in one
     # atomic transport with a single SHA-256, and the wire
     # format doesn't grow when a future platform adds another
-    # required output. See phase 6a in #106.
+    # required output. See issue #106.
     DOWNLOAD_ARTIFACTS = "download_artifacts"
     ARTIFACTS_START = "artifacts_start"
     ARTIFACTS_CHUNK = "artifacts_chunk"

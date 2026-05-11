@@ -1,8 +1,8 @@
 """
 Tests for the bundle chunking + reassembly helpers from ``peer_link_bundle``.
 
-Shared between the receiver-side dispatch (5c-2) and offloader-side
-``submit_job`` flow (5c-3). Pure helpers; no controller / WS state. The wire
+Shared between the receiver-side dispatch and offloader-side
+``submit_job`` flow. Pure helpers; no controller / WS state. The wire
 format is exercised end-to-end (chunk → encode → decode → assemble → finalise)
 so a contract drift in either direction surfaces here before it lands at the
 channel layer.

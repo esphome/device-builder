@@ -1,5 +1,5 @@
 """
-Offloader-side peer-link Noise WS client (issue #106 phase 4a-o part 2).
+Offloader-side peer-link Noise WS client (issue #106).
 
 Initiator counterpart of
 :mod:`controllers.remote_build_peer_link`'s responder. Opens a
@@ -21,12 +21,12 @@ one place.
 The wire-flow shape — TCP connect, 3 Noise XX messages, post-
 handshake transport frame, error mapping — is identical across
 every initiator-side intent the offloader needs (``preview``,
-``pair_request``, ``pair_status``, eventually ``peer_link``);
-only the msg3 payload and which response codes count as success
-differ. :func:`drive_initiator_round_trip` owns the shared flow;
-each public ``preview_pair`` / ``request_pair`` / ``await_pair_status``
-function (parts 2-4 of phase 4a-o) is a thin wrapper that
-provides the intent + msg3 payload + accepted-response set.
+``pair_request``, ``pair_status``, ``peer_link``); only the
+msg3 payload and which response codes count as success differ.
+:func:`drive_initiator_round_trip` owns the shared flow; each
+public ``preview_pair`` / ``request_pair`` /
+``await_pair_status`` function is a thin wrapper that provides
+the intent + msg3 payload + accepted-response set.
 """
 
 from __future__ import annotations
@@ -151,15 +151,15 @@ _PAIR_STATUS_TIMEOUT_SECONDS = 3600.0
 # max while still giving aiohttp a reasonable header-and-frame
 # slack.
 #
-# This cap explicitly does NOT apply to the future firmware-bytes
-# ``peer_link`` intent (issue #106 phase 4c onward). That payload
-# is megabytes of compiled firmware and will use a separate
-# streaming driver — Noise has a hard 65535-byte ciphertext frame
-# limit, so the firmware path will read many small frames and
-# stream them to disk, not a single ``receive_bytes()`` call.
-# When that driver lands, it gets its own ``max_msg_size``
-# tuned to one Noise frame (~64 KiB + slack); this constant
-# stays scoped to the JSON status responses.
+# This cap explicitly does NOT apply to the firmware-bytes
+# ``peer_link`` intent (issue #106). That payload is megabytes
+# of compiled firmware and uses a separate streaming driver —
+# Noise has a hard 65535-byte ciphertext frame limit, so the
+# firmware path reads many small frames and streams them to
+# disk rather than a single ``receive_bytes()`` call. The
+# streaming driver tunes its own ``max_msg_size`` to one Noise
+# frame (~64 KiB + slack); this constant stays scoped to the
+# JSON status responses.
 _CONTROL_RESPONSE_MAX_BYTES = 64 * 1024
 
 
@@ -199,8 +199,7 @@ def _extract_receiver_esphome_version(response: dict[str, Any]) -> str:
     payload (see :func:`controllers.remote_build.peer_link._send_response`)
     so the offloader can land it on
     :attr:`StoredPairing.esphome_version` and pick_build_path's
-    deferred version-compat gate (7a-2) can read it without an
-    extra round-trip.
+    version-compat gate can read it without an extra round-trip.
 
     Returns:
         The receiver's ``esphome.const.__version__`` as a string,
@@ -425,7 +424,7 @@ async def preview_pair(
     The frontend renders the returned ``pin_sha256`` for the
     user to OOB-verify against the receiver's "Build server"
     Settings card; only after that confirmation does the
-    offloader call ``request_pair`` (phase 4a-o part 3).
+    offloader call ``request_pair``.
     """
     rt = await drive_initiator_round_trip(
         hostname=hostname,
@@ -756,9 +755,9 @@ class PeerLinkNoSessionError(RuntimeError):
 
     Used by every :class:`PeerLinkClient` sender that requires
     the post-handshake dispatch loop to be parked:
-    :meth:`PeerLinkClient.submit_job` (phase 5c-3) and
-    :meth:`PeerLinkClient.cancel_job` (phase 5d). The check
-    funnels through :meth:`PeerLinkClient._require_open_channel`,
+    :meth:`PeerLinkClient.submit_job` and
+    :meth:`PeerLinkClient.cancel_job`. The check funnels through
+    :meth:`PeerLinkClient._require_open_channel`,
     so a future application-message sender that calls
     ``_require_open_channel`` inherits the same exception
     automatically.
@@ -938,8 +937,8 @@ class PeerLinkClient:
         # SHA-256 of the same pubkey, carried on every event the
         # client fires so the controller's listener can key into
         # ``_open_peer_links`` / ``_offloader_alerts`` /
-        # ``_peer_queue_status`` (4a-o part 6 — pin-keyed
-        # offloader state). ``receiver_label`` is carried so
+        # ``_peer_queue_status`` (pin-keyed offloader state).
+        # ``receiver_label`` is carried so
         # the pin-mismatch alert can name the row at firing time.
         self._pinned_static_x25519_pub = pinned_static_x25519_pub
         self._pin_sha256 = pin_sha256
@@ -998,7 +997,7 @@ class PeerLinkClient:
         # successful reconnect. Empty on a never-connected pairing
         # where the client task hasn't completed its first attempt.
         self._last_connect_error: str = ""
-        # Per-job download state for ``download_artifacts`` (6a).
+        # Per-job download state for ``download_artifacts``.
         # Populated by :meth:`download_artifacts` before the
         # request goes out, drained by the receive loop's
         # ``artifacts_start`` / ``artifacts_chunk`` /
@@ -1046,9 +1045,9 @@ class PeerLinkClient:
           — a newer offloader instance with the same
           ``dashboard_id`` has taken our slot. Reconnecting
           would collide with that instance.
-        * Pin-mismatch on the post-handshake pin-check (4a-o
-          part 5) — ``session.remote_static_pub`` didn't match
-          the OOB-confirmed pubkey, so we're talking to a
+        * Pin-mismatch on the post-handshake pin-check —
+          ``session.remote_static_pub`` didn't match the
+          OOB-confirmed pubkey, so we're talking to a
           rotated-but-legitimate receiver or to an attacker.
           Either way the operator's resolution (re-pair to
           confirm the new identity, or unpair) is the only
@@ -1176,7 +1175,7 @@ class PeerLinkClient:
             self._submit_job_acks.pop(job_id, None)
 
     async def cancel_job(self, *, job_id: str) -> bool:
-        """Send a ``cancel_job`` frame for *job_id* over the live session (5d).
+        """Send a ``cancel_job`` frame for *job_id* over the live session.
 
         Fire-and-forget — the receiver's :class:`JobFanout`
         will fan out the resulting ``JOB_CANCELLED`` event as a
@@ -1202,7 +1201,7 @@ class PeerLinkClient:
         return await channel.send_frame(cast(dict[str, Any], frame))
 
     async def download_artifacts(self, *, job_id: str) -> DownloadArtifactsResult:
-        """Fetch the build-artifact tarball for *job_id* from the paired receiver (6a).
+        """Fetch the build-artifact tarball for *job_id* from the paired receiver.
 
         Sends ``download_artifacts{job_id}``, parks on a per-
         job future the receive-loop dispatch fills as

@@ -197,7 +197,7 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
       receiver yet; using them silently would route bytes to a
       not-yet-trusted peer.
     * **Per-pairing enabled toggle.** :attr:`StoredPairing.enabled`
-      gates the row independently of status / connection (7b).
+      gates the row independently of status / connection.
       The operator may have a paired receiver they want to keep
       reachable via the Send-builds power-user surface but
       *not* receive transparent install routing — e.g. a build

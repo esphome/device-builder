@@ -248,7 +248,7 @@ async def cancel_and_drain(task: asyncio.Task[Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# submit_job test helpers (5c-2)
+# submit_job test helpers
 #
 # Bundle construction + wire-frame builders shared between the
 # unit tests in ``test_remote_build_submit_job.py`` and the

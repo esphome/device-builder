@@ -1,5 +1,5 @@
 """
-Tests for the receiver-side TTL cleanup sweep (issue #106 phase 6c).
+Tests for the receiver-side TTL cleanup sweep (issue #106).
 
 Drives the helper directly against real on-disk subtrees + bundle
 tarballs constructed under :class:`tmp_path`; the controller's

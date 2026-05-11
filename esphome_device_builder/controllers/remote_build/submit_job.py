@@ -91,8 +91,8 @@ _LOGGER = logging.getLogger(__name__)
 # bundle problems): these cover the receiver-side dispatch path
 # where the bundle assembled cleanly but something else went
 # wrong (path traversal, extraction failure, queue rejection).
-# The offloader's submitter (5c-3) maps these to user-facing
-# error messages.
+# The offloader's submitter maps these to user-facing error
+# messages.
 _REASON_DUPLICATE_SUBMIT = "duplicate_submit"
 _REASON_INVALID_HEADER = "invalid_header"
 _REASON_INVALID_CHUNK = "invalid_chunk"

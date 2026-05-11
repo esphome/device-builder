@@ -1,5 +1,5 @@
 """
-Tests for the offloader-side peer-link Noise WS client (phase 4a-o part 2).
+Tests for the offloader-side peer-link Noise WS client.
 
 Two layers:
 
@@ -960,7 +960,7 @@ async def test_unpair_drops_pending_dict_entry_and_cancels_listener(
     assert result == {"removed": True}
     assert "a" * 64 not in offloader._pairings
     # ``unpair`` popped the listener entry from the registry —
-    # the row is gone from the pin-keyed dict (4a-o part 6).
+    # the row is gone from the pin-keyed dict.
     assert "a" * 64 not in offloader._pair_status_listeners
     # The captured task reference was cancelled by ``unpair``'s
     # ``_cancel_pair_status_listener``; drain via ``gather`` so
@@ -3142,8 +3142,8 @@ async def test_peer_link_client_pin_mismatch_aborts_and_orphans(
 ) -> None:
     """A pinned pubkey that doesn't match the receiver's actual key aborts the connect.
 
-    Pin-check (4a-o part 5) — the offloader's outbound
-    ``peer_link`` handshake must compare ``session.remote_static_pub``
+    Pin-check — the offloader's outbound ``peer_link``
+    handshake must compare ``session.remote_static_pub``
     against the value OOB-confirmed during preview. Drives a
     real handshake against the receiver but passes the WRONG
     ``pinned_static_x25519_pub``: the server's static key is
@@ -4972,7 +4972,7 @@ async def test_controller_cancel_job_no_session_raises_precondition_failed(
 
 
 # ---------------------------------------------------------------------------
-# PeerLinkClient.download_artifacts — flow tests (issue #106 phase 6a)
+# PeerLinkClient.download_artifacts — flow tests (issue #106)
 # ---------------------------------------------------------------------------
 
 
@@ -5378,7 +5378,7 @@ async def test_dispatch_artifacts_end_finalise_failure_resolves_with_error() -> 
 
 
 # ---------------------------------------------------------------------------
-# remote_build/download_artifacts WS command (issue #106 phase 6a)
+# remote_build/download_artifacts WS command (issue #106)
 # ---------------------------------------------------------------------------
 
 

@@ -1,8 +1,8 @@
 """Tests for :mod:`helpers.build_artifacts`.
 
 Pins the disk-walking discovery layer the receiver-side
-``download_artifacts`` flow (phase 6a, issue #106) leans on,
-plus the ``firmware.bin`` flash-offset platform-detection that
+``download_artifacts`` flow (issue #106) leans on, plus the
+``firmware.bin`` flash-offset platform-detection that
 keeps the offloader from having to reimplement upstream
 esphome's ``CORE.is_esp32`` decision.
 """

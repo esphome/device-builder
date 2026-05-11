@@ -22,8 +22,8 @@ browse response on its own:
   peer can flag a release-skew warning before pairing.
 * ``esphome_version`` — the ``esphome`` library version this
   dashboard would compile against, so the version-mismatch warning
-  in phase 7 can fire on the listing page rather than waiting for
-  an upload to come back with a surprise build.
+  can fire on the listing page rather than waiting for an upload
+  to come back with a surprise build.
 * ``pin_sha256`` (optional) — the receiver's SPKI fingerprint
   (lowercase hex). Peers cross-check the cert they observe on
   connect against this TXT entry; the fingerprint is also what

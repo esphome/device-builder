@@ -9,10 +9,8 @@ ephemeral binds; warn on HA-addon mode; rebuild the listener
 (now serving the peer-link Noise WS at
 ``/remote-build/peer-link``) on identity rotation.
 
-The pre-pivot HTTPS+bearer auth tests that used to live here
-were deleted in phase 4a-r2 along with the bearer machinery
-they covered. Pin-vs-handshake verification is the pairing
-flow's job (``test_remote_build_peer_link.py``).
+Pin-vs-handshake verification is the pairing flow's job
+(``test_remote_build_peer_link.py``).
 """
 
 from __future__ import annotations

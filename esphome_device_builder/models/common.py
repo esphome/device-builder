@@ -77,27 +77,24 @@ class EventType(StrEnum):
     # Receiver rotated its TLS keypair via
     # ``remote_build/rotate_identity``. Payload carries
     # ``{dashboard_id, pin_sha256}``: subscribers (the offloader-
-    # side peer-link in phase 4+, the receiver Settings UI in
-    # 3c2) can refresh their cached pin without polling
-    # ``get_identity``. The event fires after the on-disk
-    # rotation succeeds; the listener rebuild may still
-    # fail-soft, in which case the rotater's ``IdentityView``
-    # response carries ``listener_bound=False`` while the event
-    # itself reflects only that the cert + key on disk
-    # changed.
+    # side peer-link, the receiver Settings UI) can refresh
+    # their cached pin without polling ``get_identity``. The
+    # event fires after the on-disk rotation succeeds; the
+    # listener rebuild may still fail-soft, in which case the
+    # rotater's ``IdentityView`` response carries
+    # ``listener_bound=False`` while the event itself reflects
+    # only that the cert + key on disk changed.
     REMOTE_BUILD_IDENTITY_ROTATED = "remote_build_identity_rotated"
 
     # A pair_request Noise frame landed for a previously-unknown
-    # peer while the receiver's pairing window was open (phase 4
-    # auth flow; see issue #106 design choice (b)/(c)). Payload:
+    # peer while the receiver's pairing window was open (see
+    # issue #106 design choice (b)/(c)). Payload:
     # ``{dashboard_id, pin_sha256, label, peer_ip}``. The receiver
     # Settings UI surfaces this in the Pairing requests inbox.
     # Fires only when the pairing window is open; closed-window
     # pair_requests are rejected at the listener with
     # ``intent_response=no_pairing_window`` and don't create a
-    # row. The listener (part 4) is the actual emitter; this
-    # entry is added in part 3 alongside the receiver-UI WS
-    # commands so the model surface lands together.
+    # row. The peer-link listener is the actual emitter.
     REMOTE_BUILD_PAIR_REQUEST_RECEIVED = "remote_build_pair_request_received"
 
     # A peer entry's status changed. Payload:
@@ -152,7 +149,7 @@ class EventType(StrEnum):
     # one against the new coordinates by the time this fires;
     # frontends update the row's display fields off the new
     # ``receiver_hostname`` / ``receiver_port`` without a
-    # re-fetch (4a-o part 7).
+    # re-fetch.
     OFFLOADER_PAIR_ENDPOINT_REBOUND = "offloader_pair_endpoint_rebound"
 
     # Pairing window opened, extended, or closed. Payload:
@@ -317,9 +314,7 @@ class EventType(StrEnum):
     # ``(host, port)``), and re-broadcasts via the global
     # ``subscribe_events`` stream so frontend clients can
     # render the per-peer queue depth live without polling.
-    # Phase 5b is the first real application message exercising
-    # the dispatch loop end-to-end against the 5a foundation;
-    # the scheduler in phase 7 reads the same cache.
+    # The scheduler reads the same cache.
     OFFLOADER_QUEUE_STATUS_CHANGED = "offloader_queue_status_changed"
 
     # Offloader-side: a paired receiver pushed a

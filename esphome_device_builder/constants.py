@@ -36,11 +36,8 @@ DEFAULT_INGRESS_PORT = 8099
 # surface, and so paired peers can resolve "the remote-build URL"
 # off the mDNS SRV record without ambiguity.
 #
-# Transport changed across phases (the port number didn't): phases
-# 3b1-3c shipped HTTPS + bearer auth; phase 4a-r1 part 4 swaps the
-# bind to plain TCP serving a Noise XX WebSocket at
-# ``/remote-build/peer-link`` (Noise provides confidentiality +
-# mutual auth + forward secrecy at the application layer, so no
-# SSLContext to manage). The constant survives unchanged because
-# pre-release has no installed base of port-config to migrate.
+# The bind serves a Noise XX WebSocket at ``/remote-build/peer-link``
+# over plain TCP — Noise provides confidentiality + mutual auth +
+# forward secrecy at the application layer, so there's no SSLContext
+# to manage.
 DEFAULT_REMOTE_BUILD_PORT = 6055

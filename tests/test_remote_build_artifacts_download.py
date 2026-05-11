@@ -1,5 +1,5 @@
 """
-Tests for the receiver-side ``download_artifacts`` flow (issue #106 phase 6a).
+Tests for the receiver-side ``download_artifacts`` flow (issue #106).
 
 Two layers, mirroring :mod:`tests.test_remote_build_submit_job`'s
 shape so the seam between this module's unit tests and the e2e
@@ -753,7 +753,7 @@ def test_load_build_artifacts_rejects_non_dict_idedata(
 
 
 # ---------------------------------------------------------------------------
-# extract_firmware_bin — runner-side single-image extractor (7a-3)
+# extract_firmware_bin — runner-side single-image extractor
 # ---------------------------------------------------------------------------
 
 

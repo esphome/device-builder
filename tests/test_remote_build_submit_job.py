@@ -1,5 +1,5 @@
 """
-Tests for the receiver-side ``submit_job`` flow (issue #106 phase 5c-2).
+Tests for the receiver-side ``submit_job`` flow (issue #106).
 
 Two layers, mirroring :mod:`tests.test_remote_build_peer_link`'s
 shape so the seam between this module's unit tests and the

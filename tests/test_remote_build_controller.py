@@ -295,7 +295,7 @@ def test_upsert_host_drops_self_endpoint(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# mDNS auto-rebind (4a-o part 7)
+# mDNS auto-rebind
 # ---------------------------------------------------------------------------
 
 
@@ -1608,7 +1608,7 @@ def test_validate_port_rejects_out_of_range(port: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Identity (phase 3c1) — get_identity / rotate_identity
+# Identity — get_identity / rotate_identity
 # ---------------------------------------------------------------------------
 
 
@@ -3209,7 +3209,7 @@ async def test_lookup_peer_for_status_long_poll_ignores_other_dashboard_ids(
 
 
 # ---------------------------------------------------------------------------
-# Offloader-side pair-flow helpers (phase 4a-o part 3)
+# Offloader-side pair-flow helpers
 # ---------------------------------------------------------------------------
 
 
@@ -3609,7 +3609,7 @@ async def test_broadcast_queue_status_continues_past_failed_session(
 def test_on_offloader_pair_pin_mismatch_caches_alert(tmp_path: Path) -> None:
     """``OFFLOADER_PAIR_PIN_MISMATCH`` listener caches the alert in ``_offloader_alerts``.
 
-    The peer-link path's pin-check (4a-o part 5) fires
+    The peer-link path's pin-check fires
     ``OFFLOADER_PAIR_PIN_MISMATCH`` from the
     :class:`PeerLinkClient` when ``session.remote_static_pub``
     drifts from the pinned pubkey. The controller listens and

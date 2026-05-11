@@ -4,9 +4,9 @@ Locate + collect a build's flash artifacts on the dashboard's filesystem.
 Wraps ESPHome's per-build manifest (``idedata.json``) into a
 typed accessor that surfaces just the "files to flash" view
 the dashboard needs. Used by the remote-build receiver-side
-download path (phase 6a) to pack the artifacts into a
-tarball, and by future install-related flows that need to
-enumerate the same set without re-running platformio.
+download path to pack the artifacts into a tarball, and by
+future install-related flows that need to enumerate the same
+set without re-running platformio.
 
 Background:
 

@@ -62,10 +62,10 @@ BUNDLE_CHUNK_SIZE_BYTES = 32 * 1024
 # tree can push to a few hundred KiB. 4 MiB is well above the
 # realistic ceiling but small enough that a misbehaving
 # offloader can't pin gigabytes of memory pretending to send
-# a bundle. 5c-2 may revise based on production bundle sizes.
+# a bundle. May be revisited based on production bundle sizes.
 BUNDLE_MAX_TOTAL_BYTES = 4 * 1024 * 1024
 
-# Hard cap on the assembled firmware binary (phase 6a). Typical
+# Hard cap on the assembled firmware binary. Typical
 # ESP32 firmware is 800 KiB - 1.5 MiB; ESP32-S3 with PSRAM
 # can reach ~4 MiB; future variants may grow further. 16 MiB
 # is well above the realistic ceiling but bounded enough that
@@ -81,7 +81,7 @@ class BundleAssemblerErrorCode(StrEnum):
     Reason a :class:`BundleAssembler` rejected a chunk.
 
     Surfaced on :class:`BundleAssemblerError` so the receiver-
-    side dispatch (5c-2) can map to a typed
+    side dispatch can map to a typed
     :class:`SubmitJobAckFrameData.reason` and a matching
     ``terminate{reason: malformed_frame}`` close.
     """

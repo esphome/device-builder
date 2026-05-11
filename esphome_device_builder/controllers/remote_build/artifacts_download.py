@@ -128,7 +128,7 @@ class _InflightDownload:
 
 
 class ArtifactsDownloadSender:
-    """Drives the receiver side of a ``download_artifacts`` flow (6a).
+    """Drives the receiver side of a ``download_artifacts`` flow.
 
     One instance per :class:`RemoteBuildController` (created
     in :meth:`RemoteBuildController.start` alongside the

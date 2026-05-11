@@ -215,7 +215,7 @@ async def test_install_registers_job_in_jobs_map(
 
 
 # ---------------------------------------------------------------------------
-# Scheduler integration (7a-3) — install routes through pick_build_path
+# Scheduler integration — install routes through pick_build_path
 # ---------------------------------------------------------------------------
 
 

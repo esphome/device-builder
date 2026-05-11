@@ -2,9 +2,9 @@
 Build a self-contained ESPHome bundle from a YAML on disk.
 
 Wraps the ``esphome bundle <yaml> -o <tarball>`` CLI for the
-offloader-side ``submit_job`` flow (issue #106 phase 5c-3):
-the WS handler hands a YAML path, this module returns the
-gzipped-tar bytes ready for chunking onto the peer-link.
+offloader-side ``submit_job`` flow (issue #106): the WS
+handler hands a YAML path, this module returns the gzipped-
+tar bytes ready for chunking onto the peer-link.
 
 Subprocess rather than in-process
 :class:`esphome.bundle.ConfigBundleCreator` so the bundle
