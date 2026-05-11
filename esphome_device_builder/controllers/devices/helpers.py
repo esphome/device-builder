@@ -190,11 +190,21 @@ def _validate_archive_configuration(configuration: str) -> None:
 
     Defense-in-depth at the public-command boundary for archive /
     unarchive / delete_archived. Each helper builds paths from the
-    user-supplied filename (``<config_dir>/archive/<configuration>``,
-    ``resolve_storage_path(configuration)`` -> ``data_dir/storage/<configuration>.json``)
-    that don't all flow through ``Settings.rel_path`` — a value
-    containing path separators or ``..`` segments could resolve
-    outside the intended directory and be unlinked / overwritten.
+    user-supplied filename (``<config_dir>/archive/<configuration>``
+    — used directly without ``Path.name`` collapse — and
+    ``resolve_storage_path(configuration)`` which keys on
+    ``Path(configuration).name`` so it lands at
+    ``data_dir/storage/<basename>.json``). The archive path joins
+    the raw value; a configuration containing path separators or
+    ``..`` segments would resolve outside ``<config_dir>/archive``
+    and let the caller unlink / overwrite an arbitrary file. The
+    storage path is basename-collapsed by ``resolve_storage_path``
+    so the traversal can't escape ``data_dir/storage`` directly,
+    but a value like ``../etc/passwd`` would still collapse to
+    ``passwd.json`` and let a malicious caller target an
+    attacker-named sidecar inside ``data_dir/storage`` (e.g.
+    after writing a file there via another vector). Rejecting
+    non-basename inputs closes both gaps at the WS boundary.
 
     Reject anything where ``Path(value).name != value`` (catches
     ``../foo``, ``sub/foo``, backslash-separated paths on Windows),
