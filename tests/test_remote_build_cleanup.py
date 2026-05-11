@@ -246,10 +246,13 @@ def test_sweep_skips_symlink_at_dashboard_level(tmp_path: Path) -> None:
     link.symlink_to(real_dir)
 
     sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
-    # The symlink itself may or may not be removed by the
-    # ``rmdir`` parent-prune (rmdir refuses non-empty); the
-    # important assertion is that the target's contents are
-    # intact.
+    # The symlink stays in place because the dashboard-level
+    # ``is_symlink()`` skip in ``sweep_remote_builds`` does
+    # ``continue`` before reaching ``_prune_empty_dir``; the
+    # load-bearing assertion is that the target's contents are
+    # intact (the sweep didn't walk through the symlink and
+    # delete anything on the other side).
+    assert link.is_symlink()
     assert (real_dir / "important.txt").is_file()
 
 

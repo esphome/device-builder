@@ -216,10 +216,17 @@ def _reclaim_orphan_bundle(
     if not device_name:
         return
     sibling_subtree = dashboard_dir / device_name
-    # ``exists`` follows symlinks; ``is_symlink`` catches the
-    # case where the sibling is a symlink (broken or not) — we
-    # don't want to treat a symlink as "subtree present" because
-    # it could resolve outside the canonical layout.
+    # Treat anything at the sibling position — real dir, real
+    # file, broken symlink, live symlink to anywhere — as a
+    # signal that this bundle is NOT an orphan we should
+    # reclaim. ``exists`` covers real entries (following live
+    # symlinks); the explicit ``is_symlink`` arm covers broken
+    # symlinks too (``exists`` returns False for those). The
+    # safe stance is "leak the tarball" rather than "make a
+    # delete decision based on a symlink we don't control":
+    # the canonical writer never creates symlinks under the
+    # remote-builds root, so anything at this position is
+    # operator-or-attacker-placed and outside our trust scope.
     if sibling_subtree.exists() or sibling_subtree.is_symlink():
         return
     key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=device_name)
