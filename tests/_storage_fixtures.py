@@ -81,8 +81,15 @@ def write_storage_json(
     """
     storage_dir = (data_dir or tmp_path / ".esphome") / "storage"
     storage_dir.mkdir(parents=True, exist_ok=True)
-    key = Path(configuration).name if data_dir is not None else configuration
-    sidecar = storage_dir / f"{key}.json"
+    # Key on the basename for both code paths — mirrors esphome's
+    # ``CORE.config_filename`` (which is ``Path(config_path).name``)
+    # so the sidecar lands at ``storage/<basename>.json`` regardless
+    # of whether the caller passed a bare ``kitchen.yaml`` or a
+    # nested ``.esphome/.remote_builds/<id>/kitchen/kitchen.yaml``.
+    # Without this, a non-basename configuration would try to write
+    # to ``storage/<segments>/<base>.json`` and fail on the absent
+    # intermediate dir.
+    sidecar = storage_dir / f"{Path(configuration).name}.json"
 
     stem = Path(configuration).stem
     payload = dict(_STORAGE_DEFAULTS)
