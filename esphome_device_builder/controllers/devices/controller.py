@@ -1193,18 +1193,11 @@ class DevicesController:
             configuration, new_content, action="update friendly name"
         )
 
-        # Atomic write — ``Path.write_text`` truncates the
-        # destination before writing, so a crash mid-write leaves
-        # a partial / corrupt YAML. ``esphome.helpers.write_file``
-        # already implements the canonical
-        # "stage-in-sibling-tempfile + atomic rename" pattern
-        # (NamedTemporaryFile in the destination directory so the
-        # rename stays within one filesystem, then ``shutil.move``
-        # which uses ``os.rename`` for same-FS targets). Lean on
-        # that helper here so this code path matches everywhere
-        # else in the upstream codebase that writes user-editable
-        # YAML.
-        await loop.run_in_executor(None, atomic_write_file, config_path, new_content)
+        # Routed through :meth:`_write_yaml_atomic_async`; the
+        # helper's docstring covers the canonical "stage-tempfile
+        # + atomic rename" rationale we lean on here for the
+        # user-editable YAML path.
+        await self._write_yaml_atomic_async(config_path, new_content)
         await self._scanner.scan()
         return {"configuration": configuration, "rewritten": True}
 
@@ -1471,21 +1464,17 @@ class DevicesController:
     @api_command("devices/get_config")
     async def get_config(self, *, configuration: str, **kwargs: Any) -> str:
         """Read device config YAML."""
-        path = self._db.settings.rel_path(configuration)
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, path.read_text, "utf-8")
+        return await self._read_yaml_async(self._db.settings.rel_path(configuration))
 
     @api_command("devices/update_config")
     async def update_config(self, *, configuration: str, content: str, **kwargs: Any) -> None:
-        """Write device config YAML."""
-        path = self._db.settings.rel_path(configuration)
-        loop = asyncio.get_running_loop()
-        # Atomic write — the YAML editor's "Save" button lands
-        # here, so a non-atomic write would lose the user's
-        # config on a mid-write crash. See ``CLAUDE.md`` >
-        # "Things that have bitten us before" for the full
-        # ``Path.write_text`` non-atomicity story.
-        await loop.run_in_executor(None, atomic_write_file, path, content)
+        """Write device config YAML.
+
+        Routed through :meth:`_write_yaml_atomic_async` because the YAML
+        editor's "Save" button lands here; a non-atomic write would
+        lose the user's config on a mid-write crash.
+        """
+        await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
         await self._scanner.scan()
         # Refresh ``StorageJSON`` so address / loaded_integrations /
         # config_hash etc. reflect the new YAML without waiting for a
@@ -1903,8 +1892,7 @@ class DevicesController:
                 raise ValueError(msg)
 
         config_path = self._db.settings.rel_path(configuration)
-        loop = asyncio.get_running_loop()
-        existing = await loop.run_in_executor(None, config_path.read_text, "utf-8")
+        existing = await self._read_yaml_async(config_path)
         # Honour each field's ``depends_on_component`` gate against
         # what's actually in the device YAML — drops MQTT-only options
         # (``availability:``, ``state_topic:``, ...) when the device
@@ -1914,7 +1902,7 @@ class DevicesController:
         new_yaml = merge_component_yaml(existing, component, fields)
         # Atomic write — wizard-driven add-component should not be
         # able to corrupt the source YAML on a mid-write crash.
-        await loop.run_in_executor(None, atomic_write_file, config_path, new_yaml)
+        await self._write_yaml_atomic_async(config_path, new_yaml)
         await self._scanner.scan()
 
         return AddComponentResponse(yaml=new_yaml)
@@ -2330,6 +2318,28 @@ class DevicesController:
         """Bridge for the state monitor (``self._scanner.devices`` is a property)."""
         return self._scanner.devices
 
+    def _fire_device_updated(self, device: Device) -> None:
+        """Broadcast ``DEVICE_UPDATED`` for *device* on the event bus."""
+        self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+
+    @staticmethod
+    async def _write_yaml_atomic_async(path: Path, content: str) -> None:
+        """Atomically write *content* to *path* off the executor.
+
+        Use this for any user-editable YAML write so a mid-write
+        crash can't leave the file empty or half-written;
+        ``Path.write_text`` truncates before writing and isn't
+        safe for those paths.
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, atomic_write_file, path, content)
+
+    @staticmethod
+    async def _read_yaml_async(path: Path) -> str:
+        """Read *path* as UTF-8 text off the executor."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, path.read_text, "utf-8")
+
     def _resolve_device_metadata(self, config_dir: Path, filename: str) -> DeviceFileMetadata:
         """
         Resolve a device's persisted ``board_id`` / ``ip`` / config hash / MAC.
@@ -2634,7 +2644,7 @@ class DevicesController:
                 self._db.create_background_task(
                     self._persist_device_ip_async(device.configuration, ip)
                 )
-            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+            self._fire_device_updated(device)
 
     async def _persist_device_ip_async(self, configuration: str, ip: str) -> None:
         """Save *ip* to the device-builder metadata sidecar."""
@@ -2688,7 +2698,7 @@ class DevicesController:
                 old_version or "?",
                 version,
             )
-            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+            self._fire_device_updated(device)
 
     def _on_mac_address_change(self, name: str, mac: str) -> None:
         """
@@ -2723,7 +2733,7 @@ class DevicesController:
             self._db.create_background_task(
                 self._persist_device_metadata_async(device.configuration, mac_address=mac)
             )
-            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+            self._fire_device_updated(device)
 
     def _on_api_encryption_change(self, name: str, encryption: str) -> None:
         r"""
@@ -2759,7 +2769,7 @@ class DevicesController:
             device.api_encryption_active = encryption
             if wire_promotes_encrypted:
                 device.api_encrypted = True
-            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+            self._fire_device_updated(device)
 
     def _on_config_hash_change(self, name: str, config_hash: str) -> None:
         """
@@ -2790,7 +2800,7 @@ class DevicesController:
                 old_hash or "?",
                 config_hash,
             )
-            self._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+            self._fire_device_updated(device)
 
     def _on_importable_added(self, device: AdoptableDevice) -> None:
         """Stash a newly-discovered importable device and notify subscribers."""
