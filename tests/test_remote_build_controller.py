@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import secrets as _secrets
 from pathlib import Path
 from typing import Any
@@ -44,11 +45,13 @@ from esphome_device_builder.controllers.remote_build.controller import (
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
 from esphome_device_builder.helpers.event_bus import EventBus
+from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
     ErrorCode,
     EventType,
     IdentityView,
     IntentResponse,
+    JobStatus,
     OffloaderRemoteBuildSettings,
     PairingSummary,
     PeerStatus,
@@ -1222,6 +1225,62 @@ async def test_set_settings_rejects_non_bool(tmp_path: Path) -> None:
     # No write happened — disk still at default.
     settings = await controller.get_settings()
     assert settings.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_set_settings_round_trips_cleanup_ttl(tmp_path: Path) -> None:
+    """``cleanup_ttl_seconds`` persists alongside ``enabled``."""
+    controller = _make_controller(config_dir=tmp_path)
+    written = await controller.set_settings(enabled=True, cleanup_ttl_seconds=7200)
+    assert written.cleanup_ttl_seconds == 7200
+    read = await controller.get_settings()
+    assert read.cleanup_ttl_seconds == 7200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        True,  # bool is an int subclass but not what the operator meant
+        "86400",  # string
+        86400.0,  # float
+    ],
+)
+async def test_set_settings_rejects_non_int_cleanup_ttl(tmp_path: Path, bad_value: object) -> None:
+    """Non-integer ``cleanup_ttl_seconds`` raises ``INVALID_ARGS``.
+
+    The ``not_bool``-style isinstance gate prevents ``True``
+    slipping through as ``int`` (Python's ``isinstance(True,
+    int)`` is True) and surfacing a confusing OUT_OF_RANGE
+    rather than the "wrong type" the operator hit.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.set_settings(
+            enabled=True,
+            cleanup_ttl_seconds=bad_value,  # type: ignore[arg-type]
+        )
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "out_of_range",
+    [
+        0,
+        60,  # below MIN_CLEANUP_TTL_SECONDS (1h)
+        30 * 24 * 60 * 60 + 1,  # one past MAX_CLEANUP_TTL_SECONDS (30d)
+        -1,
+    ],
+)
+async def test_set_settings_rejects_out_of_range_cleanup_ttl(
+    tmp_path: Path, out_of_range: int
+) -> None:
+    """Out-of-range ``cleanup_ttl_seconds`` raises ``INVALID_ARGS``."""
+    controller = _make_controller(config_dir=tmp_path)
+    with pytest.raises(CommandError) as exc:
+        await controller.set_settings(enabled=True, cleanup_ttl_seconds=out_of_range)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
 # ---------------------------------------------------------------------------
@@ -3518,3 +3577,169 @@ def test_get_artifacts_download_sender_returns_installed_sender(tmp_path: Path) 
     controller._artifacts_download_sender = installed
 
     assert controller.get_artifacts_download_sender() is installed
+
+
+@pytest.mark.asyncio
+async def test_run_cleanup_loop_reclaims_cold_subtree_and_skips_in_flight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One cycle of ``_run_cleanup_loop`` deletes a cold subtree + leaves in-flight.
+
+    Pins the controller-side body of the cleanup loop end-to-end:
+    settings load → in-flight key derivation off ``firmware._jobs``
+    → executor hand-off to :func:`sweep_remote_builds` → log on
+    non-zero deletes. Drives a single iteration by patching
+    ``asyncio.sleep`` to raise :class:`asyncio.CancelledError`
+    on the second call (after the sweep cycle completes), which
+    propagates out of the loop and back to the test body.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    # Wire a real firmware mock with two jobs: one in-flight,
+    # one terminal. The cleanup loop should keep the in-flight
+    # one's subtree.
+    in_flight_job = MagicMock()
+    in_flight_job.status = JobStatus.RUNNING
+    in_flight_job.remote_peer = "alpha"
+    in_flight_job.configuration = ".esphome/.remote_builds/alpha/in_flight/kitchen.yaml"
+    terminal_job = MagicMock()
+    terminal_job.status = JobStatus.COMPLETED
+    terminal_job.remote_peer = "alpha"
+    terminal_job.configuration = ".esphome/.remote_builds/alpha/terminal/kitchen.yaml"
+    firmware = MagicMock()
+    firmware._jobs = {"a": in_flight_job, "b": terminal_job}
+    controller._db.firmware = firmware
+
+    # Lay down two subtrees, both past TTL. Only the
+    # non-in-flight one should be reclaimed.
+    now = 1_000_000.0
+    in_flight = RemoteBuildPath(dashboard_id="alpha", device_name="in_flight")
+    cold = RemoteBuildPath(dashboard_id="alpha", device_name="cold")
+    for key in (in_flight, cold):
+        sub = key.subtree(tmp_path)
+        sub.mkdir(parents=True)
+        (sub / "kitchen.yaml").write_bytes(b"esphome:\n  name: kitchen\n")
+        os.utime(sub, (now - 86401, now - 86401))
+
+    # Drive one iteration: first sleep returns; second raises
+    # to unwind the loop.
+    sleep_calls = 0
+
+    async def _short_sleep(_seconds: float) -> None:
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls >= 2:
+            raise asyncio.CancelledError
+        # First call: fall through immediately so the cycle
+        # body runs without waiting an hour.
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.controller.asyncio.sleep",
+        _short_sleep,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await controller._run_cleanup_loop()
+
+    # In-flight subtree survives the cycle; the cold one's gone.
+    assert in_flight.subtree(tmp_path).is_dir()
+    assert not cold.subtree(tmp_path).exists()
+
+
+@pytest.mark.asyncio
+async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A per-cycle exception is caught + logged; the loop survives to the next sleep.
+
+    Pins the ``except Exception`` arm in the cleanup loop:
+    cleanup is best-effort hygiene, a single bad cycle (sweep
+    raising unexpectedly, settings load failing) shouldn't kill
+    the loop and leave the receiver accumulating cold subtrees
+    forever. Drives the loop through two cycles: the first
+    raises mid-sweep, the second proceeds normally.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.firmware = MagicMock()
+    controller._db.firmware._jobs = {}
+
+    sweep_calls = 0
+
+    def _flaky_sweep(*_args: object, **_kwargs: object) -> int:
+        nonlocal sweep_calls
+        sweep_calls += 1
+        if sweep_calls == 1:
+            raise RuntimeError("simulated cycle failure")
+        return 0
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.controller.sweep_remote_builds",
+        _flaky_sweep,
+    )
+
+    sleep_calls = 0
+
+    async def _short_sleep(_seconds: float) -> None:
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls >= 3:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.controller.asyncio.sleep",
+        _short_sleep,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await controller._run_cleanup_loop()
+
+    # Two cycles ran (despite the first raising) — proves the
+    # loop body recovers from per-cycle exceptions.
+    assert sweep_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_run_cleanup_loop_short_circuits_when_firmware_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A nil ``_db.firmware`` short-circuits the cycle without raising.
+
+    The spawn site already gates on
+    ``self._db.firmware is not None``, but the re-check in the
+    loop body narrows the type for mypy AND survives a future
+    controller reshape that decouples spawn from start. Test
+    the re-check arm directly with firmware set to None on
+    an already-spawned loop.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.firmware = None
+
+    sweep_calls = 0
+
+    def _record_sweep(*_args: object, **_kwargs: object) -> int:
+        nonlocal sweep_calls
+        sweep_calls += 1
+        return 0
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.controller.sweep_remote_builds",
+        _record_sweep,
+    )
+
+    sleep_calls = 0
+
+    async def _short_sleep(_seconds: float) -> None:
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls >= 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.controller.asyncio.sleep",
+        _short_sleep,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await controller._run_cleanup_loop()
+
+    # Sweep never ran because the firmware-None gate kicked in.
+    assert sweep_calls == 0

@@ -11,10 +11,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.helpers.remote_build_cleanup import sweep_remote_builds
+from esphome_device_builder.helpers.remote_build_cleanup import (
+    _is_cold,
+    _safe_iterdir,
+    sweep_remote_builds,
+)
 from esphome_device_builder.helpers.remote_build_layout import (
     REMOTE_BUILDS_SUBDIR,
     RemoteBuildPath,
@@ -290,6 +295,91 @@ def test_sweep_leaves_bare_dot_tar_gz_alone(tmp_path: Path) -> None:
 
     sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert weird.is_file()
+
+
+def test_safe_iterdir_returns_empty_on_oserror() -> None:
+    """``_safe_iterdir`` swallows OSError and returns an empty list.
+
+    The sweep's outer + inner loops both pass this helper's
+    return value to ``for ... in ...``; a propagated OSError
+    here would unwind the whole sweep and the controller's
+    cleanup loop would log the per-cycle exception. Pin the
+    log-and-fallthrough contract directly.
+    """
+    fake_dir = MagicMock(spec=Path)
+    fake_dir.iterdir.side_effect = PermissionError("simulated denied")
+    assert _safe_iterdir(fake_dir) == []
+
+
+def test_is_cold_returns_false_on_stat_error() -> None:
+    """``_is_cold`` treats a stat failure as "not cold" — skip rather than guess.
+
+    Pins the defensive arm: a stat that raises (broken symlink
+    resolution mid-walk, race against rmtree, permission flip)
+    returns ``False`` so the sweep doesn't try to delete a
+    subtree it can't measure.
+    """
+    fake_subtree = MagicMock(spec=Path)
+    fake_subtree.stat.side_effect = PermissionError("simulated stat denied")
+    assert _is_cold(fake_subtree, cutoff=0) is False
+
+
+def test_sweep_logs_sibling_unlink_failure_but_still_counts_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sibling-bundle unlink raising doesn't unwind the subtree delete.
+
+    Pins the docstring contract: the subtree is the load-bearing
+    reclamation; the bundle is a tiny cache file. A failed
+    bundle unlink logs at warning but the sweep returns the
+    subtree as "deleted" so the operator-facing count reflects
+    actual disk reclaimed.
+    """
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(tmp_path, key, age_seconds=3600, now=now)
+    real_unlink = Path.unlink
+
+    def _flaky_unlink(self: Path, *args: object, **kwargs: object) -> object:
+        if self == key.bundle(tmp_path):
+            raise PermissionError("simulated denied")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", _flaky_unlink)
+
+    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert deleted == 1
+    assert not key.subtree(tmp_path).exists()
+    # Bundle unlink failed → bundle still on disk; the next
+    # sweep will retry it via the orphan-bundle branch.
+    assert key.bundle(tmp_path).is_file()
+
+
+def test_sweep_logs_orphan_unlink_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An orphan bundle whose unlink raises is logged + the sweep continues.
+
+    Pins ``_reclaim_orphan_bundle``'s defensive arm: a
+    PermissionError on the unlink doesn't unwind the sweep.
+    """
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    bundle = key.bundle(tmp_path)
+    bundle.parent.mkdir(parents=True, exist_ok=True)
+    bundle.write_bytes(b"orphan")
+    os.utime(bundle, (now - 3600, now - 3600))
+
+    real_unlink = Path.unlink
+
+    def _flaky_unlink(self: Path, *args: object, **kwargs: object) -> object:
+        if self == bundle:
+            raise PermissionError("simulated denied")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", _flaky_unlink)
+
+    # Should not raise.
+    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert bundle.is_file()
 
 
 def test_sweep_continues_after_subtree_rmtree_failure(
