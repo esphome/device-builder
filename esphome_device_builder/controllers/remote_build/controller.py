@@ -54,8 +54,6 @@ import logging
 import time
 from collections.abc import Callable, Coroutine, Hashable, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass as _dataclass
-from enum import StrEnum
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -128,6 +126,12 @@ from ..config import (
     remote_build_settings_transaction,
 )
 from ._mdns import endpoints_equal, peer_from_service_info
+from ._models import (
+    EDIT_PAIRING_PROBE_ERRORS,
+    PeerLinkClientHandle,
+    RebindProbeOutcome,
+    RebindProbeResult,
+)
 from ._storage_codecs import (
     OFFLOADER_PAIRINGS_FILE,
     RECEIVER_PEERS_FILE,
@@ -222,119 +226,6 @@ _RESOLVE_TIMEOUT_MS = 3000
 # pin without rushing" against "short enough that an idle tab
 # isn't an attack surface". See issue #106 design choice (c).
 _PAIRING_WINDOW_DURATION_SECONDS = 300.0
-
-
-@_dataclass(frozen=True)
-class _PeerLinkClientHandle:
-    """Bundle a :class:`PeerLinkClient` with its run task.
-
-    The client exposes the per-session API
-    (:meth:`PeerLinkClient.submit_job`,
-    :attr:`PeerLinkClient.is_session_open`); the task carries
-    the cancellation handle the controller's lifecycle wiring
-    needs (cancel on unpair, drain in :meth:`stop`). Held in
-    :attr:`RemoteBuildController._peer_link_clients` so a single
-    lookup yields both, instead of two parallel dicts that
-    could drift.
-    """
-
-    client: PeerLinkClient
-    task: asyncio.Task[None]
-
-
-@_dataclass
-class _PairRequestOutcome:
-    """
-    Out-param for ``record_pair_request``'s settings mutator.
-
-    The mutator runs inside a sync transaction (``_modify_settings``
-    drives it on the disk-write hop) and needs to communicate back
-    to the async caller whether the row was created / refreshed /
-    already-APPROVED / pin-mismatched. A dataclass beats a
-    ``nonlocal`` because the data flow is explicit at the call
-    site — a reader can grep for ``_PairRequestOutcome`` and find
-    the contract — and future fields (an event payload, metrics)
-    can be added without nonlocal-ing each new variable.
-    """
-
-    response: IntentResponse | None = None
-
-
-class _RebindProbeOutcome(StrEnum):
-    """Typed outcome of :meth:`RemoteBuildController._probe_pairing_endpoint`.
-
-    The probe is shared between mDNS-driven auto-rebind and
-    user-driven manual edit; each caller maps the outcome onto
-    its own surface (silent log + cooldown for auto, typed
-    :class:`CommandError` for the WS-driven user path). The
-    enum factors out the four distinct probe failure modes so
-    the surface mapping lives at the call site instead of in a
-    per-caller bespoke probe body.
-    """
-
-    OK = "ok"
-    UNREACHABLE = "unreachable"
-    PIN_MISMATCH = "pin_mismatch"
-    PAIRING_REPLACED = "pairing_replaced"
-    STATUS_CHANGED = "status_changed"
-
-
-@_dataclass(frozen=True, slots=True)
-class _RebindProbeResult:
-    """Result of :meth:`RemoteBuildController._probe_pairing_endpoint`.
-
-    *observed_pin* is populated only on
-    :attr:`_RebindProbeOutcome.PIN_MISMATCH` (so the caller's
-    error surface can name which identity answered at the
-    candidate endpoint); *transport_error* is populated only
-    on :attr:`_RebindProbeOutcome.UNREACHABLE` (the
-    :class:`PeerLinkClientError` instance, kept as the
-    exception itself so the auto-rebind path's debug log can
-    pass it as ``exc_info=`` to preserve the traceback while
-    the user-driven path can ``str()`` it for the
-    :class:`CommandError` message).
-    """
-
-    outcome: _RebindProbeOutcome
-    observed_pin: str = ""
-    transport_error: PeerLinkClientError | None = None
-
-
-# Dispatch table mapping a non-OK probe outcome to the typed
-# :class:`CommandError` shape :meth:`edit_pairing_endpoint`
-# raises for it. Each entry is ``(error_code, message_template)``;
-# the template uses ``str.format`` with the keyword args
-# ``host`` / ``port`` / ``pin`` / ``observed`` / ``error`` (all
-# pre-formatted at call time so the templates stay declarative).
-# Keeps the four probe-failure raise sites in
-# :meth:`edit_pairing_endpoint` collapsed to one ``raise`` instead
-# of four near-identical ``if … raise`` blocks.
-_EDIT_PAIRING_PROBE_ERRORS: dict[_RebindProbeOutcome, tuple[ErrorCode, str]] = {
-    _RebindProbeOutcome.UNREACHABLE: (
-        ErrorCode.UNAVAILABLE,
-        "edit_pairing_endpoint: {host}:{port} unreachable: {error}",
-    ),
-    _RebindProbeOutcome.PIN_MISMATCH: (
-        # Different identity at the new coords. Leaves the
-        # stored pairing untouched — the user's existing trust
-        # is keyed on the original pin; substituting a fresh
-        # pubkey under that trust is the case 8a's re-auth
-        # wizard exists specifically to gate. The message
-        # carries both observed and stored pin so the dialog
-        # can render the "different identity at this endpoint"
-        # copy and route the user to re-pair.
-        ErrorCode.PRECONDITION_FAILED,
-        "edit_pairing_endpoint: {host}:{port} answers with pin {observed!r}, not stored {pin!r}",
-    ),
-    _RebindProbeOutcome.PAIRING_REPLACED: (
-        ErrorCode.NOT_FOUND,
-        "edit_pairing_endpoint: pairing for pin_sha256={pin!r} changed during probe; please retry",
-    ),
-    _RebindProbeOutcome.STATUS_CHANGED: (
-        ErrorCode.PRECONDITION_FAILED,
-        "edit_pairing_endpoint: pairing status changed during probe",
-    ),
-}
 
 
 # Terminal ``status`` values on
@@ -603,7 +494,7 @@ class RemoteBuildController:
         # bundle through the live session — the task itself
         # exposes only ``cancel`` / ``done``, not the per-flow
         # send API.
-        self._peer_link_clients: dict[str, _PeerLinkClientHandle] = {}
+        self._peer_link_clients: dict[str, PeerLinkClientHandle] = {}
         # RAM-only set of ``pin_sha256`` strings whose
         # offloader-side peer-link sessions are currently open.
         # Mutated by listeners on ``OFFLOADER_PEER_LINK_OPENED``
@@ -1908,7 +1799,7 @@ class RemoteBuildController:
         pairing: StoredPairing,
         new_hostname: str,
         new_port: int,
-    ) -> _RebindProbeResult:
+    ) -> RebindProbeResult:
         """Probe + identity-verify a candidate endpoint without mutating state.
 
         Caller-agnostic primitive shared by
@@ -1926,18 +1817,18 @@ class RemoteBuildController:
         * **Reachability check** — TCP connect + Noise handshake
           completing means the new endpoint is up. Any connect /
           timeout / decode error returns
-          :attr:`_RebindProbeOutcome.UNREACHABLE`.
+          :attr:`RebindProbeOutcome.UNREACHABLE`.
         * **Identity verification** — Noise XX binds the
           responder's static X25519 pubkey into the handshake
           transcript. A mismatch against the stored pin returns
-          :attr:`_RebindProbeOutcome.PIN_MISMATCH`.
+          :attr:`RebindProbeOutcome.PIN_MISMATCH`.
         * **Race-safe re-check** — the dict entry may have
           been replaced by a concurrent ``unpair`` / ``request_pair``
           while the probe was in flight. Identity-equality check
           on the captured ``pairing`` reference returns
-          :attr:`_RebindProbeOutcome.PAIRING_REPLACED` if the
+          :attr:`RebindProbeOutcome.PAIRING_REPLACED` if the
           dict no longer points at the same object, or
-          :attr:`_RebindProbeOutcome.STATUS_CHANGED` if the
+          :attr:`RebindProbeOutcome.STATUS_CHANGED` if the
           row's ``status`` flipped away from APPROVED.
 
         Callers pre-check ``self._offloader_peer_link_priv is
@@ -1953,15 +1844,15 @@ class RemoteBuildController:
                 resolver=self._peer_link_resolver,
             )
         except PeerLinkClientError as exc:
-            return _RebindProbeResult(_RebindProbeOutcome.UNREACHABLE, transport_error=exc)
+            return RebindProbeResult(RebindProbeOutcome.UNREACHABLE, transport_error=exc)
         if observed_pin != pairing.pin_sha256:
-            return _RebindProbeResult(_RebindProbeOutcome.PIN_MISMATCH, observed_pin=observed_pin)
+            return RebindProbeResult(RebindProbeOutcome.PIN_MISMATCH, observed_pin=observed_pin)
         current = self._pairings.get(pairing.pin_sha256)
         if current is not pairing:
-            return _RebindProbeResult(_RebindProbeOutcome.PAIRING_REPLACED)
+            return RebindProbeResult(RebindProbeOutcome.PAIRING_REPLACED)
         if current.status is not PeerStatus.APPROVED:
-            return _RebindProbeResult(_RebindProbeOutcome.STATUS_CHANGED)
-        return _RebindProbeResult(_RebindProbeOutcome.OK)
+            return RebindProbeResult(RebindProbeOutcome.STATUS_CHANGED)
+        return RebindProbeResult(RebindProbeOutcome.OK)
 
     def _commit_endpoint_rebind(self, pairing: StoredPairing, *, hostname: str, port: int) -> None:
         """Mutate *pairing* to (*hostname*, *port*) and run the rebind epilogue.
@@ -2093,7 +1984,7 @@ class RemoteBuildController:
             result = await self._probe_pairing_endpoint(
                 pairing=pairing, new_hostname=new_hostname, new_port=new_port
             )
-            if result.outcome is _RebindProbeOutcome.UNREACHABLE:
+            if result.outcome is RebindProbeOutcome.UNREACHABLE:
                 # Pass the captured ``PeerLinkClientError`` as
                 # ``exc_info=`` so the debug log carries the
                 # full traceback for diagnosing handshake /
@@ -2108,7 +1999,7 @@ class RemoteBuildController:
                     exc_info=result.transport_error,
                 )
                 return
-            if result.outcome is _RebindProbeOutcome.PIN_MISMATCH:
+            if result.outcome is RebindProbeOutcome.PIN_MISMATCH:
                 _LOGGER.warning(
                     "rebind probe %s -> %s:%d observed pin %s; ignoring (spoof or rotation)",
                     pin,
@@ -2117,7 +2008,7 @@ class RemoteBuildController:
                     result.observed_pin,
                 )
                 return
-            if result.outcome is not _RebindProbeOutcome.OK:
+            if result.outcome is not RebindProbeOutcome.OK:
                 # PAIRING_REPLACED / STATUS_CHANGED — silent skip;
                 # cooldown stays in place so a burst of mDNS
                 # Updated callbacks doesn't re-fire the probe
@@ -2956,15 +2847,15 @@ class RemoteBuildController:
         result = await self._probe_pairing_endpoint(
             pairing=pairing, new_hostname=clean_host, new_port=clean_port
         )
-        if result.outcome is not _RebindProbeOutcome.OK:
+        if result.outcome is not RebindProbeOutcome.OK:
             # Table-driven dispatch: every non-OK probe outcome
             # maps to a typed :class:`CommandError` via
-            # :data:`_EDIT_PAIRING_PROBE_ERRORS`. Templates take
+            # :data:`EDIT_PAIRING_PROBE_ERRORS`. Templates take
             # all five format keys; unused ones are ignored by
             # :meth:`str.format`. Keeps the rationale for each
             # failure mode at the table site instead of buried
             # in a four-branch chain.
-            code, template = _EDIT_PAIRING_PROBE_ERRORS[result.outcome]
+            code, template = EDIT_PAIRING_PROBE_ERRORS[result.outcome]
             raise CommandError(
                 code,
                 template.format(
@@ -3603,7 +3494,7 @@ class RemoteBuildController:
             client.run(),
             name=f"peer-link-client-{pairing.receiver_hostname}:{pairing.receiver_port}",
         )
-        self._peer_link_clients[key] = _PeerLinkClientHandle(client=client, task=task)
+        self._peer_link_clients[key] = PeerLinkClientHandle(client=client, task=task)
 
     def _cancel_peer_link_client(self, pin_sha256: str) -> None:
         """Cancel the peer-link client for *pin_sha256*. No-op if none running."""

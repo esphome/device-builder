@@ -36,6 +36,7 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from noise.exceptions import NoiseInvalidMessage
 
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
+from esphome_device_builder.controllers.remote_build import _models as rb_models
 from esphome_device_builder.controllers.remote_build import controller as rb
 from esphome_device_builder.controllers.remote_build import (
     peer_link_client as remote_build_peer_link_client,
@@ -4163,7 +4164,7 @@ def _seed_open_peer_link_client(
         await park.wait()
 
     task: asyncio.Task[None] = asyncio.create_task(_park())
-    offloader._peer_link_clients[pairing.pin_sha256] = rb._PeerLinkClientHandle(
+    offloader._peer_link_clients[pairing.pin_sha256] = rb_models.PeerLinkClientHandle(
         client=client, task=task
     )
     # Caller is responsible for cancelling ``task`` at end-of-test.
@@ -4661,7 +4662,7 @@ async def test_controller_submit_job_orphaned_client_raises_precondition_failed(
     finished_task = asyncio.create_task(_exit_immediately())
     await asyncio.sleep(0)
     assert finished_task.done()
-    offloader._peer_link_clients[pairing.pin_sha256] = rb._PeerLinkClientHandle(
+    offloader._peer_link_clients[pairing.pin_sha256] = rb_models.PeerLinkClientHandle(
         client=client, task=finished_task
     )
 
@@ -4711,7 +4712,7 @@ async def test_controller_submit_job_session_closed_branch_in_lookup(
         await park.wait()
 
     task: asyncio.Task[None] = asyncio.create_task(_park())
-    offloader._peer_link_clients[pairing.pin_sha256] = rb._PeerLinkClientHandle(
+    offloader._peer_link_clients[pairing.pin_sha256] = rb_models.PeerLinkClientHandle(
         client=client, task=task
     )
 
