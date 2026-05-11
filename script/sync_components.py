@@ -579,14 +579,28 @@ _DOC_PREFIX_TYPES: dict[str, str] = {
 # ``"5min"``, ``"1h30s"``. This regex matches that shape.
 _TIME_PERIOD_DEFAULT = re.compile(r"^\d+(\.\d+)?\s*(ms|us|ns|s|min|h|d)(\d+\s*\w+)*$")
 
-# On-the-wire spelling of the schema's UI-hint enum (mirrors
-# upstream esphome's ``cv.Visibility`` ``StrEnum`` values from
-# esphome/esphome#16267). The dumper emits these strings; the
-# catalog consumer compares against them. Two-tier strictness:
-# ``YAML_ONLY`` is strictly stronger than ``ADVANCED``, which is
-# strictly stronger than no setting at all.
-_VISIBILITY_ADVANCED = "advanced"
-_VISIBILITY_YAML_ONLY = "yaml_only"
+
+class Visibility(StrEnum):
+    """Consumer-side mirror of upstream esphome's ``cv.Visibility``.
+
+    Upstream (esphome/esphome#16267, 2026.5.0b1) models the
+    schema-author UI hint as a ``StrEnum`` and dumps the string
+    form (``"advanced"`` / ``"yaml_only"``) onto each field. The
+    key is absent when the author didn't mark the field. Mirror
+    that as a ``StrEnum`` here so the consumer compares against
+    a typed value rather than bare string literals; the enum
+    member's string value is what the dumper emits, so
+    ``raw["visibility"] == Visibility.ADVANCED`` works directly.
+
+    Two-tier strictness ordering: ``YAML_ONLY`` is strictly
+    stronger than ``ADVANCED``, which is strictly stronger than
+    no setting at all. The cascade pass below relies on that
+    ordering.
+    """
+
+    ADVANCED = "advanced"
+    YAML_ONLY = "yaml_only"
+
 
 # Base entity / framework fields that always render under "Advanced" by
 # default — valid but rarely tweaked. Same set as the previous sync.
@@ -1925,10 +1939,10 @@ def _convert_field(key: str, raw: dict, schema_dir: Path) -> dict | None:  # noq
     # pass walks the resulting tree and pushes parent strictness
     # down where descendants would otherwise be more visible.
     schema_visibility = raw.get("visibility")
-    advanced = schema_visibility == _VISIBILITY_ADVANCED or _classify_advanced(
+    advanced = schema_visibility == Visibility.ADVANCED or _classify_advanced(
         key, required=required, is_structural=is_structural
     )
-    yaml_only = schema_visibility == _VISIBILITY_YAML_ONLY
+    yaml_only = schema_visibility == Visibility.YAML_ONLY
 
     default_value, gated_component = _extract_default(raw, key=key)
     entry: dict[str, Any] = {
