@@ -65,6 +65,7 @@ Repository = "https://github.com/esphome/device-builder"
 
 [project.scripts]
 esphome-device-builder = "esphome_device_builder.__main__:main"
+esphome-device-builder-discover = "esphome_device_builder.discover:main"
 
 [tool.setuptools]
 include-package-data = true
@@ -129,6 +130,8 @@ select = [
 # CLI scripts: noisy print is fine, late imports gate optional esphome introspection
 # behind try/except ImportError, and several subprocess invocations are inherent.
 "script/*" = ["T20", "S108", "S310", "S110", "S603", "S607", "E501", "PLC0415"]
+# Discovery CLI: prints are the entire UX (mirrors aioesphomeapi-discover).
+"esphome_device_builder/discover.py" = ["T20"]
 "tests/*" = ["S105", "S106"] # hardcoded test credentials
 # GitHub Action helpers: prints are CI-log diagnostics, lazy imports keep the
 # module importable for unit tests without PyGithub installed, and the temp
