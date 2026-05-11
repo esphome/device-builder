@@ -260,11 +260,26 @@ def extract_firmware_bin(tarball_bytes: bytes) -> bytes:
             except KeyError as exc:
                 msg = "firmware.bin missing from receiver's tarball"
                 raise UnpackArtifactsError(msg) from exc
-            _check_member_size(member, total_so_far=0)
-            payload = tar.extractfile(member)
-            if payload is None:
-                msg = "firmware.bin in tarball is not a regular file"
+            # ``isfile()`` rejects symlinks / hardlinks /
+            # device nodes / FIFOs / directories — anything
+            # that isn't a plain file entry. Load-bearing
+            # against a hostile peer: ``tarfile.extractfile()``
+            # follows symlinks + hardlinks transparently and
+            # returns a readable stream for them, so reading
+            # ``firmware.bin`` without this gate would
+            # silently flash whatever the link target resolved
+            # to on the receiver's filesystem. Matches
+            # :func:`_read_tarball_member`'s gate on the
+            # general-purpose unpack path.
+            if not member.isfile():
+                msg = f"firmware.bin in tarball is not a regular file ({member.type!r})"
                 raise UnpackArtifactsError(msg)
+            _check_member_size(member, total_so_far=0)
+            # ``isfile() == True`` is the stdlib contract for
+            # ``extractfile()`` returning a readable stream;
+            # the cast is safe because we've already gated on
+            # ``isfile()`` above.
+            payload = cast(io.BufferedReader, tar.extractfile(member))
             bytes_payload: bytes = payload.read()
             return bytes_payload
     except tarfile.TarError as exc:

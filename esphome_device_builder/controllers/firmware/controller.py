@@ -1099,19 +1099,34 @@ class FirmwareController:
         Reads ``source_pin_sha256`` off *job*, looks up the live
         :class:`PeerLinkClient` through the remote-build
         controller, bundles the YAML via the ``esphome bundle``
-        subprocess, dispatches ``submit_job``, then translates
-        receiver-side ``OFFLOADER_JOB_OUTPUT`` /
+        subprocess, dispatches ``submit_job(target="compile")``,
+        then translates receiver-side ``OFFLOADER_JOB_OUTPUT`` /
         ``OFFLOADER_JOB_STATE_CHANGED`` events into the same
         local ``JOB_OUTPUT`` / ``JOB_PROGRESS`` /
         ``JOB_<terminal>`` fires the local subprocess path emits.
         ``follow_job`` and the firmware-tasks UI consume one
         event stream regardless of which CPU compiled the bytes.
 
-        Scope is COMPILE-only — UPLOAD / INSTALL go through
-        7a-3 which adds a download-artifacts step on top to
-        pull the bytes back over peer-link before the local
-        flash phase. Anything else here lands as ``FAILED``
-        with an explanatory error.
+        Dispatches by ``job.job_type``:
+
+        * :attr:`JobType.COMPILE` — wait for the receiver's
+          terminal frame, finalise based on the wire status.
+        * :attr:`JobType.UPLOAD` / :attr:`JobType.INSTALL` —
+          same compile dispatch (per § Transparent install
+          flow's load-bearing "receiver only ever compiles"
+          policy), but on receiver-completed pull the
+          artifacts back via ``download_artifacts`` and run a
+          local ``esphome upload --file <staged>`` subprocess
+          to flash the device. The local flash step shares the
+          ``_tracked_subprocess`` plumbing the LOCAL path uses
+          so cancel SIGTERM lands on the upload chain the same
+          way.
+
+        Other job types (``CLEAN`` / ``RENAME`` /
+        ``RESET_BUILD_ENV``) are rejected at the runner's top
+        because the receiver-side ``submit_job`` contract is
+        compile-only — these don't have a corresponding wire
+        flow.
 
         Terminal states are mapped through the same helpers the
         local path uses (``_mark_job_terminal`` /

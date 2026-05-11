@@ -3583,13 +3583,29 @@ class RemoteBuildController:
         (``Mapping[str, StoredPairing]`` + ``frozenset[str]`` +
         ``Mapping[str, PeerQueueStatusSnapshotEntry]``) forces
         the caller into read-only iteration: a concurrent
-        mutation on the controller's underlying dicts during a
-        long-running install (a fresh pairing landing on a
-        different event-loop tick) doesn't poison the snapshot
-        the scheduler is walking. Shallow copies are enough
-        because :class:`StoredPairing` is a frozen dataclass —
-        any future mutation of an existing row goes through a
-        replace, not an in-place edit.
+        mutation on the controller's underlying *mapping*
+        membership during a long-running install (a fresh
+        pairing landing on a different event-loop tick)
+        doesn't poison the snapshot the scheduler is walking.
+
+        The shallow copy doesn't extend to the
+        :class:`StoredPairing` rows themselves —
+        ``StoredPairing`` is a mutable ``@dataclass`` and is
+        edited in place elsewhere
+        (e.g. ``_apply_pair_status_result`` updates
+        ``esphome_version`` on an existing row;
+        ``_commit_endpoint_rebind`` rewrites the hostname /
+        port pair). The scheduler today is the only consumer,
+        runs sync on the same event-loop tick as the install
+        handler, and reads the four scalar fields
+        (``status`` / ``paired_at`` / ``pin_sha256`` /
+        ``esphome_version``) that aren't being mutated by any
+        in-flight call. If a future consumer needs a deep
+        snapshot stable across awaits, the right shape is
+        ``BuildSchedulerInputs.pairings: Mapping[str,
+        PairingSummary]`` (frozen-by-projection at construction
+        time) — flagged here so the surface choice is a
+        deliberate move, not a silent assumption.
 
         ``remote_builds_enabled`` is hardcoded to ``True`` for
         7a-3 — the master "remote builds enabled" toggle in

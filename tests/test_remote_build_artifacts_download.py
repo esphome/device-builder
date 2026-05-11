@@ -752,14 +752,37 @@ def test_extract_firmware_bin_raises_when_firmware_is_a_directory() -> None:
 
     Defensive — the receiver-side packer never writes a
     directory, so this is a wire-shape-drift / hostile-peer
-    case. ``tar.extractfile()`` returns ``None`` for non-file
-    members, and we surface a typed error rather than reading
-    bytes from ``None``.
+    case. ``isfile()`` rejects non-regular members before we
+    read any bytes.
     """
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         info = tarfile.TarInfo(name="firmware.bin")
         info.type = tarfile.DIRTYPE
+        tar.addfile(info)
+    tarball = buf.getvalue()
+
+    with pytest.raises(UnpackArtifactsError, match="not a regular file"):
+        extract_firmware_bin(tarball)
+
+
+def test_extract_firmware_bin_raises_when_firmware_is_a_symlink() -> None:
+    """
+    A symlink entry named ``firmware.bin`` surfaces as ``UnpackArtifactsError``.
+
+    Defence against a hostile peer: ``tarfile.extractfile()``
+    follows symlinks transparently and returns a readable
+    stream pointing at whatever the link target resolves to
+    on the receiver's filesystem. An ``is None`` guard alone
+    would let the bytes through; the explicit
+    ``member.isfile()`` check rejects every non-regular type
+    before the read.
+    """
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        info = tarfile.TarInfo(name="firmware.bin")
+        info.type = tarfile.SYMTYPE
+        info.linkname = "../../../etc/passwd"
         tar.addfile(info)
     tarball = buf.getvalue()
 
