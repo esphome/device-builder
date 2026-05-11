@@ -1655,6 +1655,39 @@ async def test_register_peer_link_session_skips_initial_queue_status_when_firmwa
     session.send_app_frame.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_register_peer_link_session_swallows_snapshot_exception(tmp_path: Path) -> None:
+    """A ``queue_status_snapshot`` raise mustn't poison session registration.
+
+    Best-effort contract: the initial push is a cold-connect
+    optimisation, not a load-bearing step. A raise from
+    ``firmware.queue_status_snapshot`` (mock contract drift,
+    unexpected internal error, etc.) gets logged and swallowed
+    so the session still registers cleanly; the transition-
+    driven broadcast catches the offloader up on the next
+    queue change. Mirrors the swallow-and-log stance of
+    :meth:`_broadcast_queue_status` for per-session sends.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    controller._db.bus = MagicMock()
+    controller._db.firmware = MagicMock()
+    controller._db.firmware.queue_status_snapshot = MagicMock(side_effect=RuntimeError("boom"))
+
+    session = MagicMock(spec=PeerLinkSession)
+    session.dashboard_id = "alpha"
+    session.send_app_frame = AsyncMock()
+
+    # Must not raise — register completes cleanly even on a bad
+    # snapshot read.
+    await controller.register_peer_link_session(session)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    # Push skipped, but the session is registered.
+    session.send_app_frame.assert_not_called()
+    assert controller._peer_link_sessions["alpha"] is session
+
+
 def test_unregister_peer_link_session_no_op_when_replaced(tmp_path: Path) -> None:
     """Unregistering a session that has already been replaced doesn't evict the new one."""
     controller = _make_controller(config_dir=tmp_path)
