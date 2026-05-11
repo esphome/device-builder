@@ -318,9 +318,33 @@ class FirmwareController:
         user retry once the build settles instead. Two clean jobs
         for the same configuration still supersede each other (the
         second one is the user's intent regardless). The supersede
-        check applies only to the LOCAL job; remote clean jobs key
-        on ``(configuration, source_pin_sha256)`` and are independent
-        of in-flight local work.
+        check applies only to the LOCAL job; the fan-out's per-peer
+        REMOTE jobs enqueue with ``supersede=False`` so they don't
+        cancel siblings or the just-queued local clean. See
+        :meth:`_enqueue`'s docstring for the carve-out rationale.
+
+        The WS reply returns only the LOCAL clean — that's what the
+        operator's ``firmware/clean`` call awaits. Per-peer REMOTE
+        clean jobs surface through the existing
+        ``subscribe_events`` firmware-jobs stream the dashboard
+        already consumes for in-flight job lists, so the operator
+        sees N+1 rows in the firmware-tasks panel without the
+        handler needing to thread them through the WS reply
+        shape. Don't "fix" this to return a list — the WS contract
+        is "the handler returns the job the operator's click
+        produced"; the fan-out is incidental.
+
+        Multi-offloader fleets: a clean from offloader A and a
+        concurrent compile from offloader B against the same
+        receiver are safe by construction. Each offloader gets its
+        own ``ESPHOME_DATA_DIR`` subtree
+        (``<receiver_data_dir>/.remote_builds/<dashboard_id>/.esphome``),
+        so A's clean only wipes A's per-offloader build dir; B's
+        compile artefacts under B's subtree are untouched. The
+        receiver-side single-flight queue serializes the actual
+        subprocess invocations regardless, but the per-offloader
+        isolation is what makes the cross-offloader race a
+        non-issue at the filesystem level.
         """
         await self._validate_configuration_boundary(configuration)
         if blocker := self._active_build_for(configuration):
@@ -358,13 +382,10 @@ class FirmwareController:
         if remote_build is None:
             return
         snapshot = remote_build.build_scheduler_snapshot()
-        # Iterate a list-snapshot of pairings.values() — the dict
-        # itself is mutable and a concurrent unpair on the same
-        # loop tick would otherwise raise ``RuntimeError: dictionary
-        # changed size during iteration``. The snapshot already
-        # ``dict(self._pairings)``-copies on construction, so this
-        # is a cheap safety belt.
-        for pairing in list(snapshot.pairings.values()):
+        # ``build_scheduler_snapshot`` ``dict(self._pairings)``-copies
+        # on construction, so iteration is already isolated from a
+        # concurrent unpair landing on a different loop tick.
+        for pairing in snapshot.pairings.values():
             if pairing.status is not PeerStatus.APPROVED:
                 continue
             if pairing.pin_sha256 not in snapshot.open_peer_links:
