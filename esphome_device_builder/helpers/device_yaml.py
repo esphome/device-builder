@@ -370,10 +370,24 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
     # ``Esp32Variant`` are ``StrEnum``) and bare-string inputs from
     # tests that mock the catalog entry without going through the
     # enum constructors.
+    #
+    # Variant is uppercased because the upstream
+    # ``esphome.components.wifi.has_native_wifi`` dispatcher
+    # compares against ``NO_WIFI_VARIANTS`` literal-equality and
+    # that list is built from ``const.VARIANT_*`` (uppercase,
+    # ``"ESP32H2"`` / ``"ESP32P4"``) — the dashboard's
+    # ``Esp32Variant`` StrEnum carries the lowercase form
+    # (``"esp32h2"``), so passing it through verbatim falsely
+    # tells the dispatcher H2 / P4 have Wi-Fi and the wizard
+    # emits ``wifi:`` / ``api:`` / ``ota:`` blocks the
+    # downstream compile then rejects. Our pre-#16300 fallback
+    # at ``_fallback_has_native_wifi`` already normalises to
+    # lowercase on both sides; the upstream path needs the
+    # symmetric uppercase normalisation here.
     return _has_native_wifi(
         platform=str(esphome_cfg.platform) if esphome_cfg.platform else "",
         board=esphome_cfg.board,
-        variant=str(esphome_cfg.variant) if esphome_cfg.variant else None,
+        variant=str(esphome_cfg.variant).upper() if esphome_cfg.variant else None,
     )
 
 

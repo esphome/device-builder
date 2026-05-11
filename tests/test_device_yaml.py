@@ -1049,8 +1049,13 @@ def test_infer_native_wifi_routes_through_module_alias(
     assert device_yaml._infer_native_wifi(esp32_board) is False
     assert device_yaml._infer_native_wifi(rp2040_board) is False
 
+    # Variant is uppercased because the upstream
+    # ``has_native_wifi`` dispatcher compares against the
+    # uppercase ``NO_WIFI_VARIANTS`` literal. See the comment
+    # in ``_infer_native_wifi`` for the case-normalisation
+    # rationale.
     assert calls == [
-        {"platform": "esp32", "board": "", "variant": "esp32c3"},
+        {"platform": "esp32", "board": "", "variant": "ESP32C3"},
         {"platform": "rp2040", "board": "rpipicow", "variant": None},
     ]
 
