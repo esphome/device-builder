@@ -25,7 +25,7 @@ from ._storage_fixtures import write_storage_json
 def _write_idedata(tmp_path: Path, name: str, payload: object) -> Path:
     """Write ``<tmp_path>/.esphome/idedata/<name>.json`` with *payload*.
 
-    Mirrors :func:`_resolve_idedata_path`'s lookup so
+    Mirrors :func:`helpers.storage_path.resolve_idedata_path`'s lookup so
     :func:`load_build_artifacts` finds it.
     """
     idedata_dir = tmp_path / ".esphome" / "idedata"

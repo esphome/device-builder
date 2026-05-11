@@ -827,12 +827,15 @@ class FirmwareController:
         Returns ``[{title, file}]`` — the file names can be passed to
         ``firmware/download`` to retrieve the binary content.
         """
-        # ``ext_storage_path`` resolves to ``<data_dir>/storage/...``
-        # outside the config dir AND does no traversal sanitisation
-        # of its own (upstream definition is just
-        # ``CORE.data_dir / "storage" / f"{config_filename}.json"``),
-        # so the validator below is the only gate that keeps a
-        # traversal payload out of the inner closure. Do not reorder.
+        # ``resolve_storage_path`` collapses to
+        # ``<data_dir>/storage/<Path(configuration).name>.json`` —
+        # the basename collapse defangs separators in the
+        # configuration but a traversal-shaped *configuration*
+        # would still escape the config dir before reaching the
+        # closure (e.g. opening a sidecar at an attacker-controlled
+        # path under ``<data_dir>/storage``). The validator below
+        # is the gate that keeps any traversal payload out of the
+        # inner closure entirely. Do not reorder.
         await self._validate_configuration_boundary(configuration)
         loop = asyncio.get_running_loop()
 
@@ -866,15 +869,14 @@ class FirmwareController:
         base64-encoded bytes. For Web Serial flashing the frontend
         decodes the base64 itself.
         """
-        # See ``get_binaries`` — ``ext_storage_path`` skips the config
-        # dir entirely, so we re-validate at the WS boundary.
-        # ``ext_storage_path`` itself does NOT path-sanitise — its
-        # upstream definition is literally
-        # ``CORE.data_dir / "storage" / f"{config_filename}.json"``,
-        # so a traversal-shaped configuration would escape the
-        # storage tree if it ever reached the inner closure. The
-        # ``_validate_configuration_boundary`` line above is the only
-        # gate; do not reorder. Coverage:
+        # See ``get_binaries`` — ``resolve_storage_path`` collapses
+        # to ``<data_dir>/storage/<Path(configuration).name>.json``,
+        # but a traversal-shaped *configuration* could still resolve
+        # to an attacker-controlled basename inside the storage
+        # tree (e.g. by stripping segments down to a sensitive
+        # leaf), so we re-validate at the WS boundary.
+        # ``_validate_configuration_boundary`` is the only gate;
+        # do not reorder. Coverage:
         # ``test_download.py::test_download_validator_runs_before_ext_storage_path``.
         await self._validate_configuration_boundary(configuration)
         loop = asyncio.get_running_loop()
@@ -1437,8 +1439,8 @@ class FirmwareController:
         silent ``build_dir_missing`` rejects on every paired
         offloader's ``firmware/install``. The writer-side env
         override and the reader-side
-        :func:`helpers.build_artifacts._resolve_data_dir` resolve
-        to the same path because both route the configuration
+        :func:`helpers.storage_path.resolve_data_dir` resolve to
+        the same path because both route the configuration
         through the layout helper. The 6c TTL sweep walks
         :meth:`RemoteBuildPath.subtree` so the whole per-build
         state reclaims in one ``shutil.rmtree``.

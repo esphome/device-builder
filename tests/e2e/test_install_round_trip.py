@@ -178,9 +178,9 @@ def _write_build_artifacts_on_disk(tmp_path: Path, *, configuration: str) -> dic
 
     The autouse ``_core_config_path_in_tmp`` fixture pins
     ``CORE.config_path`` to a sentinel inside *tmp_path*, so
-    :func:`helpers.build_artifacts._resolve_data_dir` resolves
-    a remote-build configuration to the per-build subtree
-    under ``tmp_path``. Mirror that exactly here.
+    :func:`helpers.storage_path.resolve_data_dir` resolves a
+    remote-build configuration to the per-build subtree under
+    ``tmp_path``. Mirror that exactly here.
     """
     remote_build_path = parse_remote_build_path(configuration)
     assert remote_build_path is not None, (
