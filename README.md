@@ -205,12 +205,13 @@ beneath **Known dashboards**. Open the receiving dashboard's
 discovered-dashboard flow above), then click **Pair with a build
 server** on the sending side, type the receiver's hostname and
 port, and submit; the pairing flow runs identically to the
-discovered-dashboard case from there. The peer-link is a WebSocket served at
-`/remote-build/peer-link` over TCP port 6055 by default; if a
-reverse proxy or firewall sits between the two dashboards it
-needs to allow WebSocket upgrades on that path. The wire is
-Noise-encrypted regardless of how you reach it, and the
-emoji-fingerprint comparison still gates pairing the same way.
+discovered-dashboard case from there. The peer-link is a
+WebSocket served at `/remote-build/peer-link` over TCP port
+6055 by default; if a reverse proxy or firewall sits between
+the two dashboards it needs to allow WebSocket upgrades on
+that path. The wire is Noise-encrypted regardless of how you
+reach it, and the emoji-fingerprint comparison still gates
+pairing the same way.
 
 ### Known limitations
 
