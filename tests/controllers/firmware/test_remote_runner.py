@@ -1056,6 +1056,58 @@ async def test_remote_compile_ignores_session_closed_for_other_pin(
 
 
 @pytest.mark.asyncio
+async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """
+    The ``firmware/cancel`` WS handler signals the runner's cancel event.
+
+    Pins the wiring on the controller side: the cancel
+    handler must look up
+    ``self._cancel_events[job_id]`` and call ``set()`` so a
+    runner parked on
+    ``asyncio.wait({..., cancel_wait})`` wakes immediately.
+    Without that signal the runner would deadlock until the
+    receiver pushed a terminal frame (or, before the
+    event-driven refactor, until the next 0.5 s poll tick).
+    Drives through ``controller.cancel(job_id=...)`` —
+    rather than the ``_request_remote_cancel`` test helper —
+    so the regression test is honest about the production
+    code path.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = _make_remote_job()
+
+    # The WS cancel handler refuses non-existent jobs and the
+    # ``_current_job`` mismatch is a hard error — wire both so
+    # the handler's ``RUNNING`` branch runs.
+    controller._jobs[job.job_id] = job
+    job.status = JobStatus.RUNNING
+    controller._current_job = job
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    await _wait_until_dispatched(client)
+
+    # Drive through the real handler — the cancel-event
+    # signal is its only job for the REMOTE path (the
+    # ``_terminate_current_process`` call is a no-op because
+    # ``_current_process`` is None).
+    await controller.cancel(job_id=job.job_id)
+    await _wait_for_wire_cancel(client)
+    client.cancel_job.assert_awaited_once_with(job_id=job.job_id)
+
+    _fire_state(controller, job_id=job.job_id, status="cancelled")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.CANCELLED
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
+
+
+@pytest.mark.asyncio
 async def test_remote_compile_cancel_after_remote_build_torn_down_finalises_locally(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
