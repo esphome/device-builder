@@ -16,16 +16,21 @@ pinning:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import asyncio
+import logging
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from zeroconf import IPVersion, ServiceStateChange
 
 from esphome_device_builder.discover import (
+    _COLUMN_NAMES,
     _UNKNOWN,
     _decode,
     _on_service_state_change,
+    _run,
     _truncate_pin,
+    main,
 )
 
 
@@ -133,3 +138,123 @@ def test_on_service_state_change_prints_offline_on_removal(
     captured = capsys.readouterr().out
     assert "OFFLINE" in captured
     assert "build-server" in captured
+
+
+@pytest.mark.asyncio
+async def test_run_prints_header_then_awaits_then_cleans_up(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``_run`` prints the column header + divider, then parks on the event.
+
+    Drives the orchestration function with mocked
+    :class:`AsyncZeroconf` and :class:`AsyncServiceBrowser` so
+    the test doesn't open a real mDNS socket. Spawns ``_run`` as
+    a task, gives it a turn of the loop to print the header and
+    park on ``asyncio.Event().wait()``, then cancels — the
+    ``finally`` block runs and we assert both the wire-shape
+    setup (browser handlers, service type, cleanup awaits) and
+    the printed header.
+    """
+    fake_aiozc = MagicMock()
+    fake_aiozc.zeroconf = MagicMock()
+    fake_aiozc.async_close = AsyncMock()
+    fake_browser = MagicMock()
+    fake_browser.async_cancel = AsyncMock()
+
+    with (
+        patch(
+            "esphome_device_builder.discover.AsyncZeroconf",
+            return_value=fake_aiozc,
+        ),
+        patch(
+            "esphome_device_builder.discover.AsyncServiceBrowser",
+            return_value=fake_browser,
+        ) as browser_ctor,
+    ):
+        runner = asyncio.create_task(_run(["esphome-device-builder-discover"]))
+        # One loop turn lets ``_run`` print the header and reach
+        # the ``asyncio.Event().wait()`` await. ``sleep(0)`` is
+        # enough because ``AsyncZeroconf()`` / ``AsyncServiceBrowser()``
+        # are sync constructors and the only awaitable before the
+        # park is the event itself.
+        await asyncio.sleep(0)
+        runner.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await runner
+
+    # Browser registered against the dashboard service type with
+    # our handler. The handler-array shape is what python-zeroconf
+    # expects; an empty / wrong-shape handler list would silently
+    # drop every browse event.
+    browser_ctor.assert_called_once()
+    args, kwargs = browser_ctor.call_args
+    assert args[1] == "_esphomebuilder._tcp.local."
+    assert len(kwargs["handlers"]) == 1
+
+    # Cleanup ran on cancel.
+    fake_browser.async_cancel.assert_awaited_once()
+    fake_aiozc.async_close.assert_awaited_once()
+
+    captured = capsys.readouterr().out
+    # Every column name lands on the printed header.
+    for column in _COLUMN_NAMES:
+        assert column in captured
+    # Divider row is the second line.
+    assert "-" * 60 in captured
+
+
+@pytest.mark.asyncio
+async def test_run_verbose_flag_enables_debug_logging() -> None:
+    """``-v`` flag flips the root + zeroconf loggers to DEBUG.
+
+    Pin the contract that ``--verbose`` does what the help text
+    says: noisy logs for debugging discovery problems. A
+    regression that quietly drops the verbose-aware branch
+    would surface here.
+    """
+    fake_aiozc = MagicMock()
+    fake_aiozc.zeroconf = MagicMock()
+    fake_aiozc.async_close = AsyncMock()
+    fake_browser = MagicMock()
+    fake_browser.async_cancel = AsyncMock()
+
+    with (
+        patch("esphome_device_builder.discover.AsyncZeroconf", return_value=fake_aiozc),
+        patch("esphome_device_builder.discover.AsyncServiceBrowser", return_value=fake_browser),
+    ):
+        runner = asyncio.create_task(_run(["esphome-device-builder-discover", "-v"]))
+        await asyncio.sleep(0)
+        runner.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await runner
+
+    assert logging.getLogger("zeroconf").level == logging.DEBUG
+
+
+def test_main_suppresses_keyboard_interrupt() -> None:
+    """Ctrl-C exits cleanly rather than dumping a traceback.
+
+    ``contextlib.suppress(KeyboardInterrupt)`` is the user-facing
+    contract that Ctrl-C is the documented way to stop the
+    browse. Without the suppression, the shell would see a
+    traceback on every clean exit.
+    """
+    with patch(
+        "esphome_device_builder.discover.asyncio.run",
+        side_effect=KeyboardInterrupt,
+    ):
+        # Doesn't raise — the ``contextlib.suppress`` swallows it.
+        main()
+
+
+def test_main_runs_to_completion_when_inner_returns() -> None:
+    """When ``asyncio.run`` returns cleanly, ``main`` returns cleanly.
+
+    The orchestration's happy path: ``_run`` finishes (e.g. the
+    parked event was set externally — which production never
+    does, but the contract is that ``main`` doesn't add error
+    paths beyond the Ctrl-C suppression).
+    """
+    with patch("esphome_device_builder.discover.asyncio.run", return_value=None) as mock_run:
+        main()
+    mock_run.assert_called_once()

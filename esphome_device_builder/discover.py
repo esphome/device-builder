@@ -157,6 +157,6 @@ def main() -> None:
         asyncio.run(_run(sys.argv))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()
     sys.exit(0)
