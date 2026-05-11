@@ -1640,10 +1640,17 @@ class FirmwareController:
         symmetric to ``source_label`` on the offloader side.
 
         ``device_name`` / ``device_friendly_name`` are the
-        ``esphome.name`` / ``esphome.friendly_name`` parsed from
-        the bundled YAML on receiver-side remote-build jobs.
-        Empty for locally-submitted jobs (the dashboard's own
-        Device list already carries the friendly name).
+        ``esphome.name`` / ``esphome.friendly_name`` the
+        offloader sends on the :class:`SubmitJobFrameData`
+        header — the offloader already has both off its local
+        Device scanner at install time, so the receiver doesn't
+        re-parse the bundled YAML. Peer-controlled at the wire
+        boundary; the receive-side handler
+        (:meth:`SubmitJobReceiver.handle_submit_job`) coerces +
+        length-caps them via ``_coerce_display_field`` before
+        passing them here. Empty for locally-submitted jobs
+        (the dashboard's own Device list already carries the
+        friendly name).
 
         ``source`` / ``source_pin_sha256`` / ``source_label`` are
         the offloader-side dispatch-origin fields (7a-2a):

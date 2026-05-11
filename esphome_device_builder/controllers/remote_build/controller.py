@@ -2686,6 +2686,27 @@ class RemoteBuildController:
             for p in self._approved_peers.values()
         ]
 
+    def approved_peer_label(self, dashboard_id: str) -> str:
+        """Return the APPROVED peer's display label, or ``""`` if not found.
+
+        Public-by-convention accessor over the private
+        ``_approved_peers`` dict so external consumers don't
+        couple to the registry's internal layout. Read-only
+        snapshot: returns the label as it stands right now;
+        callers that need a time-of-event snapshot (e.g. the
+        receiver-side ``submit_job`` flow stamping
+        :attr:`FirmwareJob.remote_peer_label`) call this at the
+        decisive moment rather than holding a long-lived
+        reference.
+
+        A future refactor of the peer registry (e.g. moving
+        APPROVED rows into a per-file ``Store`` like
+        ``_pairings``) only has to keep this accessor's
+        contract; the call sites stay unchanged.
+        """
+        peer = self._approved_peers.get(dashboard_id)
+        return peer.label if peer is not None else ""
+
     def peers_snapshot(self) -> list[PeerSummary]:
         """
         Return the in-memory peers snapshot (PENDING + APPROVED).

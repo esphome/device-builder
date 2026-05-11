@@ -1904,6 +1904,41 @@ def test_peers_snapshot_returns_empty_when_none_stored(tmp_path: Path) -> None:
     assert controller.peers_snapshot() == []
 
 
+def test_approved_peer_label_returns_label_for_known_peer(tmp_path: Path) -> None:
+    """Public accessor returns the APPROVED peer's label."""
+    controller = _make_controller(config_dir=tmp_path)
+    _seed_peer(controller, _stored_peer(dashboard_id="alpha", label="MacBook Pro"))
+
+    assert controller.approved_peer_label("alpha") == "MacBook Pro"
+
+
+def test_approved_peer_label_returns_empty_for_unknown_peer(tmp_path: Path) -> None:
+    """Public accessor returns ``""`` rather than raising on a miss.
+
+    Empty is the correct fallback because the only caller —
+    the receiver-side ``submit_job`` flow — uses the label as
+    UI plumbing. A miss is a legitimate state (PENDING peers
+    aren't in ``_approved_peers``, and a peer can be removed
+    between the offloader's submit and the receiver's stamp).
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    assert controller.approved_peer_label("unknown") == ""
+
+
+def test_approved_peer_label_ignores_pending_peers(tmp_path: Path) -> None:
+    """PENDING peers live in ``_pending_peers``, not ``_approved_peers``.
+
+    The accessor reads only the APPROVED dict; a PENDING peer
+    whose ``submit_job`` somehow reached the receiver (it
+    shouldn't, but the gate is in another module) should not
+    contribute a label.
+    """
+    controller = _make_controller(config_dir=tmp_path)
+    _seed_pending_peer(controller, _stored_peer(dashboard_id="alpha", label="Pending Lap"))
+
+    assert controller.approved_peer_label("alpha") == ""
+
+
 def test_peers_snapshot_returns_summary_for_each_row(tmp_path: Path) -> None:
     """``peers_snapshot`` merges in-memory PENDING + APPROVED rows from RAM."""
     controller = _make_controller(config_dir=tmp_path)

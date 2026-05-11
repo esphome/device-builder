@@ -27,7 +27,9 @@ import pytest
 from esphome.bundle import EsphomeError
 
 from esphome_device_builder.controllers.remote_build.submit_job import (
+    _DEVICE_DISPLAY_FIELD_MAX_LEN,
     SubmitJobReceiver,
+    _coerce_display_field,
     _validate_configuration_filename,
 )
 from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_CHUNK_SIZE_BYTES
@@ -125,6 +127,50 @@ def _ack_payload(session: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("kitchen", "kitchen"),
+        ("AC Float Monitor 32", "AC Float Monitor 32"),
+        ("", ""),
+        # Non-strings coerce to empty — the schema gate leaves
+        # these NotRequired fields untyped at the wire boundary,
+        # so a malicious / buggy offloader could land a non-str.
+        (None, ""),
+        (12345, ""),
+        ({"injected": "dict"}, ""),
+        (["a", "b"], ""),
+        # Oversized strings coerce to empty rather than truncate;
+        # the display surface treats empty as "fall back to the
+        # configuration path", which is a clear UI signal vs. a
+        # silently-truncated half-name.
+        ("x" * (_DEVICE_DISPLAY_FIELD_MAX_LEN + 1), ""),
+    ],
+)
+def test_coerce_display_field_rejects_unsafe_values(raw: Any, expected: str) -> None:
+    """Peer-controlled display strings are type-checked + length-capped.
+
+    The ``NotRequired`` ``device_name`` / ``device_friendly_name``
+    fields on the wire bypass the schema gate (which only
+    validates required keys), so the coerce helper is the gate
+    that keeps non-strings and oversized strings out of the
+    :class:`FirmwareJob` we replay through the firmware-tasks
+    WS stream.
+    """
+    assert _coerce_display_field(raw) == expected
+
+
+def test_coerce_display_field_accepts_string_at_cap() -> None:
+    """A string exactly at the cap passes through unchanged.
+
+    Boundary check — the cap is inclusive (``>`` not ``>=``)
+    so a value of exactly :data:`_DEVICE_DISPLAY_FIELD_MAX_LEN`
+    characters is the longest legitimate input.
+    """
+    at_cap = "y" * _DEVICE_DISPLAY_FIELD_MAX_LEN
+    assert _coerce_display_field(at_cap) == at_cap
 
 
 @pytest.mark.parametrize(
@@ -530,8 +576,8 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
       wire header (the offloader knows both from its local
       Device list at install time, so the receiver doesn't
       re-parse the bundled YAML).
-    * ``remote_peer_label`` is snapshotted from the receiver's
-      ``_approved_peers[dashboard_id].label`` at submit time —
+    * ``remote_peer_label`` is snapshotted at submit time via
+      :meth:`RemoteBuildController.approved_peer_label` —
       symmetric to ``source_label`` on the offloader side.
 
     A regression that drops any of the three would leave the
@@ -540,14 +586,12 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
     path instead of "AC Float Monitor 32 / from MacBook Pro".
     """
     firmware = _make_firmware_controller()
-    # Wire the receiver's peer lookup: ``submit_job._handle_complete``
-    # walks ``self._firmware._db.remote_build._approved_peers`` so
-    # stub the chain. Production initialises this in
-    # ``RemoteBuildController.start``.
+    # Wire the receiver's peer-label lookup. The receiver
+    # routes through :meth:`RemoteBuildController.approved_peer_label`
+    # so stub that accessor directly rather than seeding the
+    # private ``_approved_peers`` dict.
     firmware._db = MagicMock()
-    fake_peer = MagicMock()
-    fake_peer.label = "MacBook Pro"
-    firmware._db.remote_build._approved_peers = {"alpha-dashboard": fake_peer}
+    firmware._db.remote_build.approved_peer_label.return_value = "MacBook Pro"
 
     receiver = _make_receiver(tmp_path, firmware)
     session = _make_session(dashboard_id="alpha-dashboard")
@@ -588,6 +632,64 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
 
 
 @pytest.mark.asyncio
+async def test_submit_job_malformed_display_fields_coerce_to_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Non-string / oversized peer-supplied display fields land as empty.
+
+    A malicious offloader could put a non-``str`` or a multi-
+    megabyte string on the ``NotRequired`` display fields (the
+    schema gate doesn't type-check them). The receiver must
+    coerce to empty so the malformed value doesn't reach the
+    :class:`FirmwareJob` and the firmware-tasks WS stream.
+    Pairs with ``test_coerce_display_field_rejects_unsafe_values``
+    which covers the helper in isolation; this test pins the
+    end-to-end behaviour through the receive loop.
+    """
+    firmware = _make_firmware_controller()
+    firmware._db = MagicMock()
+    firmware._db.remote_build.approved_peer_label.return_value = ""
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session(dashboard_id="alpha-dashboard")
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+    expected_yaml = (
+        tmp_path / ".esphome" / ".remote_builds" / "alpha-dashboard" / "kitchen" / "kitchen.yaml"
+    )
+
+    def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        expected_yaml.parent.mkdir(parents=True, exist_ok=True)
+        expected_yaml.write_bytes(b"esphome:\n  name: kitchen\n")
+        return expected_yaml
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.submit_job.prepare_bundle_for_compile",
+        _stub_prepare,
+    )
+
+    # Header with a non-string ``device_name`` and an oversized
+    # ``device_friendly_name``. ``cast`` so mypy doesn't complain;
+    # the wire boundary itself is untyped at this point.
+    header, chunks = make_submit_job_frames(
+        job_id="off-job-1",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle=bundle,
+    )
+    header["device_name"] = 12345  # type: ignore[typeddict-item]
+    header["device_friendly_name"] = "x" * 99_999
+
+    await receiver.handle_submit_job(session, cast(SubmitJobFrameData, header))
+    for chunk in chunks:
+        await receiver.handle_submit_job_chunk(session, cast(SubmitJobChunkFrameData, chunk))
+
+    assert _ack_payload(session)["accepted"] is True
+    job = firmware.created_jobs[0]
+    assert job.device_name == ""
+    assert job.device_friendly_name == ""
+
+
+@pytest.mark.asyncio
 async def test_submit_job_missing_display_fields_falls_through_to_empty_strings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -601,7 +703,7 @@ async def test_submit_job_missing_display_fields_falls_through_to_empty_strings(
     """
     firmware = _make_firmware_controller()
     firmware._db = MagicMock()
-    firmware._db.remote_build._approved_peers = {}  # no peer label either
+    firmware._db.remote_build.approved_peer_label.return_value = ""
     receiver = _make_receiver(tmp_path, firmware)
     session = _make_session(dashboard_id="alpha-dashboard")
     bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")

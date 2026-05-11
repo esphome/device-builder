@@ -102,6 +102,19 @@ _REASON_CHUNK_DECODE_FAILED = "chunk_decode_failed"
 _REASON_EXTRACT_FAILED = "extract_failed"
 _REASON_QUEUE_REJECTED = "queue_rejected"
 
+# Cap on the peer-controlled display strings the header carries
+# (``device_name`` / ``device_friendly_name``). The schema gate
+# leaves these fields untyped, so a malicious / buggy offloader
+# could ship a non-string or a multi-megabyte string that we'd
+# end up stamping onto :class:`FirmwareJob` and replaying through
+# the firmware-tasks WS stream. 256 chars is twice
+# :data:`StoredPairing._MAX_LABEL_LEN` (128) and well above the
+# longest reasonable device / friendly name anyone would write
+# in YAML — values above the cap get truncated to empty rather
+# than rejected, since the field is display-only and an empty
+# title gracefully falls back to the configuration path.
+_DEVICE_DISPLAY_FIELD_MAX_LEN = 256
+
 # Shape contracts for the two peer-controlled wire frames.
 # :func:`parse_app_frame` already confirms inbound bytes parse
 # to a ``dict[str, Any]``, but a malicious / buggy offloader
@@ -175,6 +188,38 @@ _RECOVERABLE_ASSEMBLER_ERRORS: frozenset[BundleAssemblerErrorCode] = frozenset(
 # defence-in-depth gate that catches anything an exotic filename
 # would slip past this.
 _FORBIDDEN_FILENAME_CHARS: frozenset[str] = frozenset({"/", "\\", "\x00"})
+
+
+def _coerce_display_field(value: Any) -> str:
+    """Coerce a peer-supplied display string to a safe, bounded ``str``.
+
+    The ``NotRequired`` ``device_name`` / ``device_friendly_name``
+    fields on :class:`SubmitJobFrameData` bypass the schema gate
+    (the gate validates a known-keys subset; extras pass
+    through), so a non-``str`` value or a multi-megabyte string
+    from a malicious / buggy offloader would otherwise reach
+    the in-flight :class:`_PendingSubmit` and land on the
+    :class:`FirmwareJob` we replay through the firmware-tasks
+    WS stream. Soft-coerce rather than reject:
+
+    * Non-``str`` → ``""``. The display surface treats empty as
+      "fall back to the configuration path" — a clear UI signal
+      vs. a hard reject the operator can't recover from.
+    * Length > :data:`_DEVICE_DISPLAY_FIELD_MAX_LEN` → ``""``,
+      same rationale. The cap is well above any legitimate
+      device / friendly name; values past it are signalling
+      abuse, not a long but legitimate string.
+
+    The display fields are UI plumbing, not load-bearing for the
+    build (the path-level gates in
+    :func:`_validate_configuration_filename` are what keep the
+    extract step safe). Empty fallback is the safe default.
+    """
+    if not isinstance(value, str):
+        return ""
+    if len(value) > _DEVICE_DISPLAY_FIELD_MAX_LEN:
+        return ""
+    return value
 
 
 def _validate_configuration_filename(filename: str) -> str | None:
@@ -363,13 +408,16 @@ class SubmitJobReceiver:
             configuration_filename=frame["configuration_filename"],
             target=target,
             assembler=assembler,
-            # Pull display strings off the header. ``.get`` keeps
-            # backwards-compat with older offloaders that don't
-            # send the NotRequired fields; defaults to empty
-            # strings the receiver-side title surface treats as
-            # "fall back to the configuration path".
-            device_name=frame.get("device_name", ""),
-            device_friendly_name=frame.get("device_friendly_name", ""),
+            # Coerce + cap the peer-controlled display strings.
+            # The schema gate leaves these ``NotRequired`` fields
+            # untyped at the wire boundary, so a non-string or an
+            # oversized string would otherwise reach the
+            # :class:`FirmwareJob` and the WS stream. Soft-coerce
+            # to ``""`` rather than rejecting the submit — the
+            # display fields are UI plumbing, not load-bearing
+            # for the build.
+            device_name=_coerce_display_field(frame.get("device_name")),
+            device_friendly_name=_coerce_display_field(frame.get("device_friendly_name")),
         )
 
     async def handle_submit_job_chunk(
@@ -569,16 +617,16 @@ class SubmitJobReceiver:
         # Snapshot the offloader's display label so the
         # firmware-tasks UI can render "from {label}" without
         # re-looking-up the (potentially since-renamed) peer.
-        # ``_db.remote_build`` is the controller this receiver
-        # lives inside; the indirection through the firmware
-        # controller stays consistent with how other receiver-
-        # side helpers reach back to peer metadata.
+        # Goes through :meth:`RemoteBuildController.approved_peer_label`
+        # so the receiver doesn't couple to the private
+        # ``_approved_peers`` layout — a future refactor of the
+        # peer registry (e.g. moving APPROVED rows into a per-
+        # file ``Store`` like ``_pairings``) only has to keep
+        # the accessor's contract.
         remote_peer_label = ""
         remote_build = self._firmware._db.remote_build
         if remote_build is not None:
-            peer = remote_build._approved_peers.get(session.dashboard_id)
-            if peer is not None:
-                remote_peer_label = peer.label
+            remote_peer_label = remote_build.approved_peer_label(session.dashboard_id)
 
         try:
             job = self._firmware._create_job(
