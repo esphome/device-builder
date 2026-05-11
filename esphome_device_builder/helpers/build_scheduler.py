@@ -206,17 +206,33 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
       orphaned via ``pin_mismatch`` / ``superseded``) doesn't
       qualify; the design doc's "silent fallback to local"
       stance is what falls out here.
-    * **Idle queue.** ``inputs.peer_queue_status`` carries the
-      most recent 5b ``queue_status`` snapshot per pin. A busy
-      receiver isn't a candidate today — first-cut policy is
-      "idle or fall back to local"; future iterations may
-      queue work onto a non-idle pairing if every candidate is
-      busy and the local fallback is more expensive than
-      waiting (cf. design doc edge case 4 — local cache hot).
-      Missing entry (no snapshot received yet) also disqualifies
-      the pairing: we have no signal that the receiver can
-      actually accept work, so falling through to local is the
-      safe move.
+    The pick is **two-tier**:
+
+    1. **First pass — idle preference.** Walk pairings in
+       oldest-``paired_at`` order; pick the first APPROVED +
+       connected pairing whose ``queue_status`` snapshot
+       reports ``idle=True``. This fans new installs out
+       across multiple idle remotes (request 1 lands on
+       remote A, A's snapshot flips to running, request 2
+       lands on the next idle remote B) so the fleet's
+       compile capacity is actually used.
+    2. **Second pass — busy fallback.** If no idle candidate
+       qualified, walk again and pick the first
+       APPROVED + connected pairing regardless of queue
+       state (busy or missing snapshot). The receiver runs
+       its own firmware queue, so the dispatch lands behind
+       whatever's currently building and runs when the
+       queue drains. Silent fallback to LOCAL here used to
+       split the fleet across two compile contexts (warm
+       receiver toolchain vs cold local) and re-flash from
+       a different build than the first Install — confusing
+       and surprising for the user who didn't pick a build
+       location.
+
+    Falls back to LOCAL only when **no** APPROVED + connected
+    pairing exists. A future per-install "Force local"
+    override link in the install dialog is the user-facing
+    way to opt out when the scheduler picks REMOTE.
 
     The status gate uses ``is PeerStatus.APPROVED`` rather than
     a negative match against the current PENDING enum value, so
@@ -251,21 +267,31 @@ def pick_build_path(inputs: BuildSchedulerInputs) -> BuildPathDecision:
         inputs.pairings.items(),
         key=lambda item: (item[1].paired_at, item[0]),
     )
-    for pin_sha256, pairing in ordered:
-        if pairing.status is not PeerStatus.APPROVED:
-            continue
-        if not pairing.enabled:
-            # 7b per-pairing toggle off — operator wants this
-            # receiver paired (Send-builds power-user surface
-            # still works) but doesn't want transparent
-            # install to route here.
-            continue
-        if pin_sha256 not in inputs.open_peer_links:
-            continue
+    # Collect eligible pairings once so both passes walk the
+    # same filtered set. Filtering here (rather than inside
+    # each pass) keeps the eligible-set definition in one
+    # place — a future PeerStatus addition or peer-link gate
+    # added below lands once. ``pairing.enabled`` is the 7b
+    # per-pairing toggle: operator wants this receiver paired
+    # (Send-builds power-user surface still works) but doesn't
+    # want transparent install to route here.
+    eligible: list[tuple[str, StoredPairing]] = [
+        (pin_sha256, pairing)
+        for pin_sha256, pairing in ordered
+        if pairing.status is PeerStatus.APPROVED
+        and pairing.enabled
+        and pin_sha256 in inputs.open_peer_links
+    ]
+    # First pass: pick the oldest idle pairing so multiple
+    # concurrent installs fan out across all idle remotes
+    # before any of them queue.
+    for pin_sha256, _pairing in eligible:
         snapshot = inputs.peer_queue_status.get(pin_sha256)
-        if snapshot is None:
-            continue
-        if not snapshot["idle"]:
-            continue
+        if snapshot is not None and snapshot["idle"]:
+            return BuildPathDecision.remote(pin_sha256)
+    # Second pass: no idle candidate; queue on the oldest
+    # busy receiver rather than falling back to LOCAL.
+    if eligible:
+        pin_sha256, _pairing = eligible[0]
         return BuildPathDecision.remote(pin_sha256)
     return BuildPathDecision.local()

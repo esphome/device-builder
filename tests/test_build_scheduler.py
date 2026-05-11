@@ -189,8 +189,21 @@ def test_approved_but_session_not_open_skipped() -> None:
     assert decision == BuildPathDecision.local()
 
 
-def test_approved_open_but_busy_skipped() -> None:
-    """A connected receiver currently running a job → not eligible."""
+def test_approved_open_busy_still_returns_remote() -> None:
+    """A connected receiver currently running a job → still REMOTE.
+
+    The receiver runs its own firmware queue; a remote
+    dispatch lands behind whatever's currently building and
+    runs when the queue drains. Silent fallback to LOCAL
+    here used to split the fleet across two compile contexts
+    (warm receiver toolchain vs cold local) and re-flash from
+    a different build than the first Install — confusing and
+    surprising for the user who didn't pick a build location.
+    The scheduler now ignores the idle / running / depth
+    signal; that snapshot is informational (UI-only) and a
+    future per-install "Force local" override link is the
+    user-facing way to opt out.
+    """
     pin = "a" * 64
     decision = pick_build_path(
         _inputs(
@@ -201,20 +214,19 @@ def test_approved_open_but_busy_skipped() -> None:
             },
         )
     )
-    assert decision == BuildPathDecision.local()
+    assert decision == BuildPathDecision.remote(pin)
 
 
-def test_approved_open_but_missing_queue_snapshot_skipped() -> None:
-    """A connected receiver with no queue snapshot yet → not eligible.
+def test_approved_open_missing_queue_snapshot_still_returns_remote() -> None:
+    """No queue snapshot yet → still REMOTE.
 
     The first 5b ``queue_status`` push fires immediately on
     session open, but there's a tiny window between
     ``OFFLOADER_PEER_LINK_OPENED`` and the first snapshot
-    arriving. During that window the receiver could be busy
-    with the queue we haven't been told about yet; routing
-    blind would risk dispatching onto a saturated peer. The
-    safer move is "treat unknown as busy" and fall back to
-    local.
+    arriving. Pre-policy-change the scheduler treated the
+    unknown window as busy and fell back to LOCAL; now the
+    receiver's queue absorbs the dispatch regardless of
+    snapshot state, so the window stops affecting routing.
     """
     pin = "a" * 64
     decision = pick_build_path(
@@ -224,7 +236,7 @@ def test_approved_open_but_missing_queue_snapshot_skipped() -> None:
             # No queue snapshot received yet.
         )
     )
-    assert decision == BuildPathDecision.local()
+    assert decision == BuildPathDecision.remote(pin)
 
 
 # ---------------------------------------------------------------------------
@@ -281,26 +293,6 @@ def test_picks_oldest_eligible_pairing() -> None:
         )
     )
     assert decision == BuildPathDecision.remote(pin_a)
-
-
-def test_skips_busy_candidate_picks_next() -> None:
-    """A busy first candidate falls through to the next eligible entry."""
-    pin_a = "a" * 64
-    pin_b = "b" * 64
-    decision = pick_build_path(
-        _inputs(
-            pairings={
-                pin_a: _stub_pairing(pin_sha256=pin_a, paired_at=1.0),
-                pin_b: _stub_pairing(pin_sha256=pin_b, paired_at=2.0),
-            },
-            open_peer_links={pin_a, pin_b},
-            peer_queue_status={
-                pin_a: _stub_queue_status(pin_sha256=pin_a, idle=False, running=True),
-                pin_b: _stub_queue_status(pin_sha256=pin_b),
-            },
-        )
-    )
-    assert decision == BuildPathDecision.remote(pin_b)
 
 
 def test_skips_disconnected_picks_next() -> None:
@@ -390,15 +382,18 @@ def test_skips_pending_picks_next_approved() -> None:
     assert decision == BuildPathDecision.remote(pin_b)
 
 
-def test_all_candidates_busy_returns_local() -> None:
-    """Every paired receiver is busy → LOCAL.
+def test_all_candidates_busy_picks_oldest_to_queue_remote() -> None:
+    """Every paired receiver is busy → REMOTE on oldest paired_at.
 
-    Pins the loop-exhaustion exit: the prior multi-candidate
-    tests verify a single failing candidate falls through to a
-    sibling, but exhausting *every* candidate has to land at
-    LOCAL (not stick on the last sibling in the chain). Pins
-    the design doc's "silent fallback to local" stance for
-    the saturation case explicitly.
+    Pins the two-tier policy: when no idle candidate
+    qualifies the second pass picks the oldest connected
+    APPROVED pairing and queues the dispatch behind whatever's
+    currently building. Receiver-side firmware queues drain
+    the backlog; silent fallback to LOCAL here used to split
+    the fleet across two compile contexts (warm receiver
+    toolchain vs cold local) and re-flash from a different
+    build than the first Install — confusing for the user
+    who didn't pick a build location.
     """
     pin_a = "a" * 64
     pin_b = "b" * 64
@@ -415,7 +410,65 @@ def test_all_candidates_busy_returns_local() -> None:
             },
         )
     )
-    assert decision == BuildPathDecision.local()
+    assert decision == BuildPathDecision.remote(pin_a)
+
+
+def test_no_idle_candidate_with_some_missing_snapshots_picks_oldest_to_queue() -> None:
+    """No snapshot + busy snapshot → REMOTE on oldest paired_at.
+
+    The first-pass idle preference requires an explicit
+    ``idle=True`` snapshot. A pairing whose snapshot hasn't
+    arrived yet (just-connected window) is *not* treated as
+    idle by the first pass. The second pass then queues on
+    the oldest pairing regardless. Pins that "snapshot
+    missing" doesn't crash or short-circuit to LOCAL — it
+    just routes through the second-pass queue-anyway branch.
+    """
+    pin_a = "a" * 64
+    pin_b = "b" * 64
+    decision = pick_build_path(
+        _inputs(
+            pairings={
+                pin_a: _stub_pairing(pin_sha256=pin_a, paired_at=1.0),
+                pin_b: _stub_pairing(pin_sha256=pin_b, paired_at=2.0),
+            },
+            open_peer_links={pin_a, pin_b},
+            peer_queue_status={
+                # A has no snapshot at all; B is busy. First
+                # pass finds neither idle; second pass picks
+                # the oldest (A).
+                pin_b: _stub_queue_status(pin_sha256=pin_b, idle=False, running=True),
+            },
+        )
+    )
+    assert decision == BuildPathDecision.remote(pin_a)
+
+
+def test_first_busy_oldest_then_idle_younger_prefers_idle() -> None:
+    """Idle younger pairing beats busy oldest in the first pass.
+
+    Pins the fan-out-on-idle goal: given a busy oldest A and
+    an idle younger B, the first pass picks B so concurrent
+    installs spread across the idle remotes before any of
+    them queue. The "second pass" (busy fallback) only fires
+    when *no* idle candidate exists.
+    """
+    pin_a = "a" * 64
+    pin_b = "b" * 64
+    decision = pick_build_path(
+        _inputs(
+            pairings={
+                pin_a: _stub_pairing(pin_sha256=pin_a, paired_at=1.0),
+                pin_b: _stub_pairing(pin_sha256=pin_b, paired_at=2.0),
+            },
+            open_peer_links={pin_a, pin_b},
+            peer_queue_status={
+                pin_a: _stub_queue_status(pin_sha256=pin_a, idle=False, running=True),
+                pin_b: _stub_queue_status(pin_sha256=pin_b),
+            },
+        )
+    )
+    assert decision == BuildPathDecision.remote(pin_b)
 
 
 def test_all_candidates_disconnected_returns_local() -> None:

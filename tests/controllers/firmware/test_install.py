@@ -331,27 +331,33 @@ async def test_install_routes_to_remote_when_pairing_is_idle_and_connected(
 
 
 @pytest.mark.asyncio
-async def test_install_falls_back_to_local_when_receiver_is_busy(
+async def test_install_still_routes_remote_when_receiver_is_busy(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """A paired receiver that isn't idle falls back to LOCAL (silent fallback).
+    """A busy paired receiver still wins REMOTE — receiver queues the dispatch.
 
-    The scheduler's first-cut policy is "idle or local"; a
-    busy receiver doesn't queue work today. The install
-    handler honours that silently — the user doesn't see a
-    "remote build server busy" message, the install just
-    runs locally.
+    The scheduler's two-tier pick prefers idle pairings first
+    but falls through to busy ones (rather than LOCAL) when
+    no idle candidate exists. Receiver-side firmware queues
+    drain the backlog; silent fallback to LOCAL here used to
+    split the fleet across two compile contexts (warm
+    receiver toolchain vs cold local) and re-flash from a
+    different build than the first Install. A future
+    per-install "Force local" override link in the install
+    dialog is the user-facing opt-out.
     """
     controller = firmware_controller_factory(with_queue=True)
     pairing = _make_pairing()
     # APPROVED + connected, but ``idle_pins`` is empty so the
-    # snapshot has no queue entry → scheduler skips.
+    # first-pass idle preference skips it. Second pass picks
+    # the same (only) pairing and queues on the receiver.
     _stub_remote_build(controller, pairings=[pairing], open_pins=frozenset({_PIN}))
     (tmp_path / "kitchen.yaml").write_text("")
 
     job = await controller.install(configuration="kitchen.yaml")
 
-    assert job.source is JobSource.LOCAL
+    assert job.source is JobSource.REMOTE
+    assert job.source_pin_sha256 == _PIN
 
 
 @pytest.mark.asyncio
