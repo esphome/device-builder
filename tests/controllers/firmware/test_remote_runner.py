@@ -904,6 +904,19 @@ async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     assert "transport_error" in job.error
     assert "ConnectionResetError" in job.error
     assert len(captured[EventType.JOB_FAILED]) == 1
+    # A synthetic output line names the cause in the live log
+    # stream too so the install dialog's main scroll buffer
+    # ends with a clear "build server lost connection" message
+    # right above the red "Install failed." banner — without it,
+    # the operator sees the last (half-rendered) compile line
+    # and no indication that the receiver dropped.
+    output_lines = [data["line"] for data in captured[EventType.JOB_OUTPUT]]
+    assert any(
+        "remote build server lost connection" in line
+        and "transport_error" in line
+        and "build was aborted" in line
+        for line in output_lines
+    ), output_lines
 
 
 @pytest.mark.asyncio

@@ -393,6 +393,22 @@ async def _await_terminal(
                 reason = closed["reason"]
                 detail = closed["error_detail"]
                 text = f"{reason}: {detail}" if detail else reason
+                # Push a synthetic output line BEFORE firing
+                # JOB_FAILED so the live log stream ends with a
+                # clear explanation of what cut the build off,
+                # not the half-rendered compile line the receiver
+                # had streamed before the link dropped.
+                # ``job.error`` carries the same text for the
+                # error banner; the log line makes the cause
+                # visible in the dialog's main scroll buffer
+                # without requiring the user to read the (often
+                # truncated) red error toast.
+                _ingest_output_line(
+                    job,
+                    controller.bus,
+                    f"\n*** remote build server lost connection ({text}); "
+                    "the build was aborted ***\n",
+                )
                 _fail_locally(
                     controller,
                     job,
