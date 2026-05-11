@@ -72,7 +72,7 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: str, port: int) -> None:
+    def fake_run_app(app, *, host: str, port: int, **_: object) -> None:
         captured["host"] = host
         captured["port"] = port
         captured["trusted"] = bool(app.get("trusted_site"))
@@ -146,7 +146,7 @@ def test_ha_addon_with_password_binds_public_site_normally(
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: str, port: int) -> None:
+    def fake_run_app(app, *, host: str, port: int, **_: object) -> None:
         captured["host"] = host
         captured["port"] = port
         captured["trusted"] = bool(app.get("trusted_site"))
@@ -171,7 +171,7 @@ def test_non_ha_addon_binds_public_site_normally(make_settings: MakeSettingsFact
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: str, port: int) -> None:
+    def fake_run_app(app, *, host: str, port: int, **_: object) -> None:
         captured["host"] = host
         captured["port"] = port
 

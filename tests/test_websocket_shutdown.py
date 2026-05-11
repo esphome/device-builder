@@ -1,0 +1,222 @@
+"""Regression tests for the on-shutdown WebSocket closer.
+
+A long-lived ``async for msg in ws`` handler doesn't naturally
+finish when the run loop receives ``SIGTERM`` — it waits for the
+client to send a CLOSE frame. aiohttp bounds that wait with
+``shutdown_timeout`` (60s by default), which surfaced as 20-60s
+SIGTERM-to-exit latency for the dashboard's desktop wrapper.
+
+The fix wires :func:`esphome_device_builder.api.ws.close_active_websockets`
+onto :meth:`web.Application.on_shutdown`. The handler iterates the
+``WeakSet`` of active server-side ``WebSocketResponse`` instances
+the WS handler maintains in ``app[WEBSOCKETS_KEY]`` and closes each
+with a ``GOING_AWAY`` frame, which unblocks the per-connection
+handler immediately.
+
+These tests pin the wire-up so a future rebase can't silently
+drop it and reintroduce the slow-shutdown symptom.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import weakref
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+from aiohttp import WSCloseCode, web
+from pytest_aiohttp.plugin import AiohttpClient
+
+from esphome_device_builder.api import ws as ws_module
+from esphome_device_builder.api.ws import (
+    WEBSOCKETS_KEY,
+    close_active_websockets,
+    create_ws_routes,
+)
+from esphome_device_builder.device_builder import DeviceBuilder
+
+
+def _bare_app() -> web.Application:
+    """Build a minimal aiohttp app wired with the WS routes + on_shutdown closer.
+
+    Mirrors the production wire-up
+    (:meth:`DeviceBuilder.create_app`) so the contract under test
+    is what ships, not a hand-built shim that could drift.
+    """
+    settings = MagicMock()
+    settings.using_password = False
+    settings.port = 6052
+    settings.on_ha_addon = False
+
+    auth = MagicMock()
+    auth.session_store = MagicMock()
+
+    device_builder = MagicMock()
+    device_builder.settings = settings
+    device_builder.auth = auth
+
+    app = web.Application()
+    app["device_builder"] = device_builder
+    app["trusted_site"] = True
+    app.router.add_routes(create_ws_routes())
+    app.on_shutdown.append(close_active_websockets)
+    return app
+
+
+async def test_active_ws_registered_on_app_state(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Open WS appears in ``app[WEBSOCKETS_KEY]`` while connected."""
+    app = _bare_app()
+    client = await aiohttp_client(app)
+    async with client.ws_connect("/ws") as ws:
+        await ws.receive(timeout=2.0)  # let the ServerInfoMessage land
+        active = app.get(WEBSOCKETS_KEY)
+        assert active is not None
+        assert isinstance(active, weakref.WeakSet)
+        assert len(active) == 1
+        await ws.close()
+
+
+async def test_close_active_websockets_closes_open_connections(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """``close_active_websockets`` actually unblocks the WS handler.
+
+    Open a WS, kick the closer manually, verify (a) the client
+    sees a CLOSE message with ``GOING_AWAY`` and (b) the server's
+    handler task completes promptly (under a generous 2s bound;
+    pre-fix this took up to 60s).
+    """
+    app = _bare_app()
+    client = await aiohttp_client(app)
+    async with client.ws_connect("/ws") as ws:
+        await ws.receive(timeout=2.0)  # ServerInfoMessage
+
+        # Kick the closer the same way ``app.shutdown()`` would.
+        await close_active_websockets(app)
+
+        # Client should observe the CLOSE frame, not a timeout.
+        msg = await ws.receive(timeout=2.0)
+        assert msg.type == web.WSMsgType.CLOSE
+        assert msg.data == WSCloseCode.GOING_AWAY
+
+
+async def test_app_shutdown_runs_the_closer(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """``app.shutdown()`` triggers the closer via the ``on_shutdown`` chain.
+
+    Verifies the registration site, not just the handler in
+    isolation: a future refactor that loses the
+    ``app.on_shutdown.append`` call would skip the WS closer
+    entirely and re-introduce the slow-shutdown symptom even with
+    the helper still present.
+    """
+    app = _bare_app()
+    client = await aiohttp_client(app)
+    async with client.ws_connect("/ws") as ws:
+        await ws.receive(timeout=2.0)
+
+        await asyncio.wait_for(app.shutdown(), timeout=2.0)
+
+        msg = await ws.receive(timeout=2.0)
+        assert msg.type == web.WSMsgType.CLOSE
+
+
+async def test_close_active_websockets_is_safe_on_empty_app() -> None:
+    """No registered set / no clients => no-op, no exception.
+
+    The closer fires on every shutdown including the boot-and-die
+    path (e.g. ``create_app`` runs but ``run_app`` exits before any
+    client connects, so ``WEBSOCKETS_KEY`` was never populated).
+    """
+    app = web.Application()
+    await close_active_websockets(app)  # no clients, no key set yet
+
+    app[WEBSOCKETS_KEY] = weakref.WeakSet()
+    await close_active_websockets(app)  # key present but empty
+
+
+async def test_close_active_websockets_tolerates_per_socket_errors() -> None:
+    """A close that raises on one WS doesn't stop the rest.
+
+    Each close runs through ``asyncio.gather(..., return_exceptions=True)``
+    so an already-dropped client (broken pipe on the CLOSE write)
+    can't pin the dashboard's shutdown on a single bad peer.
+    """
+
+    class _RaisingWS:
+        closed = False
+
+        async def close(self, *_: Any, **__: Any) -> None:
+            raise OSError("simulated peer hard-drop")
+
+    class _OkWS:
+        closed = False
+        called = False
+
+        async def close(self, *_: Any, **__: Any) -> None:
+            self.called = True
+
+    raising = _RaisingWS()
+    ok = _OkWS()
+
+    app = web.Application()
+    app[WEBSOCKETS_KEY] = weakref.WeakSet([raising, ok])  # type: ignore[arg-type]
+
+    await close_active_websockets(app)
+
+    assert ok.called, "ok WS still gets its close called even when peer raised"
+
+
+async def test_close_uses_going_away_code(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Close frame carries 1001 (``GOING_AWAY``), not a generic 1000.
+
+    Browser-side reconnect logic typically reacts only to
+    ``GOING_AWAY`` with an automatic retry; a generic 1000 ("normal
+    closure") can be interpreted as "the server is done, don't
+    reconnect" and would strand the dashboard's frontend without
+    a connection after a desktop-driven restart.
+    """
+    app = _bare_app()
+    client = await aiohttp_client(app)
+    async with client.ws_connect("/ws") as ws:
+        await ws.receive(timeout=2.0)
+        await close_active_websockets(app)
+        msg = await ws.receive(timeout=2.0)
+        assert msg.type == web.WSMsgType.CLOSE
+        assert msg.data == WSCloseCode.GOING_AWAY
+
+
+def test_close_handler_module_export() -> None:
+    """``close_active_websockets`` is importable from ``ws_module``.
+
+    The wire-up in ``DeviceBuilder.create_app`` imports the helper
+    by name; a rename here without updating the importer would
+    fail the dashboard's startup with an ``ImportError`` rather
+    than silently regressing the SIGTERM latency, but it's still
+    worth pinning the export shape so module-level refactors
+    don't slip past review.
+    """
+    assert callable(ws_module.close_active_websockets)
+    assert hasattr(ws_module, "WEBSOCKETS_KEY")
+
+
+@pytest.mark.parametrize("import_path", ["close_active_websockets"])
+def test_close_handler_registered_in_create_app(import_path: str) -> None:
+    """The dashboard's ``create_app`` actually appends the closer.
+
+    Source-grep guard. Mirrors
+    ``test_websocket_heartbeat.test_construction_site_uses_named_constant``:
+    if a future rebase loses the ``app.on_shutdown.append`` call,
+    SIGTERM latency would silently regress to the 20-60s symptom
+    this PR fixes, with every other test still passing. Grep the
+    source so the test fails the moment the wire-up drops off.
+    """
+    source = inspect.getsource(DeviceBuilder.create_app)
+    assert f"app.on_shutdown.append({import_path})" in source

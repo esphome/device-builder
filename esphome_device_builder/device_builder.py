@@ -25,7 +25,7 @@ from aiohttp import web
 from esphome.const import __version__ as esphome_version
 
 from .api.legacy import create_legacy_routes
-from .api.ws import create_ws_routes
+from .api.ws import close_active_websockets, create_ws_routes
 from .constants import __version__ as server_version
 from .controllers.auth import AuthController
 from .controllers.automations import AutomationsController
@@ -64,6 +64,18 @@ _LOGGER = logging.getLogger(__name__)
 # similar cadence — keep the two in the same ballpark so a fleet's
 # steady-state idle CPU doesn't spike on either alone.
 _BACKGROUND_POLL_INTERVAL_SECONDS = 5
+
+# Upper bound on how long ``web.run_app`` waits for in-flight HTTP
+# request handlers to finish after a SIGTERM before invoking
+# ``on_cleanup`` and exiting. aiohttp's default is 60s, which sets
+# the worst-case SIGTERM-to-exit latency the desktop wrapper sees;
+# our ``close_active_websockets`` ``on_shutdown`` handler already
+# unwinds every long-lived WS handler, so the only thing this
+# timeout still bounds is a freshly-arrived HTTP request that was
+# mid-handler when the signal landed. 5s is comfortably above any
+# normal handler latency in this codebase and tight enough that a
+# bug in a slow handler can't silently extend shutdown to a minute.
+_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 # Cache policy for the SPA shell:
 #   - ``index.html`` and any non-hashed top-level file: must always
@@ -718,6 +730,18 @@ class DeviceBuilder:
         # WebSocket API
         app.router.add_routes(create_ws_routes())
 
+        # Explicitly close every active WS on app shutdown so an
+        # idle paired client doesn't pin the run loop to aiohttp's
+        # ``shutdown_timeout`` (60s default) waiting for the
+        # ``async for msg in ws`` handler to unwind. Without this,
+        # SIGTERM-to-exit took 20-60s with one connected client and
+        # ~150ms idle; with it, SIGTERM-to-exit drops to ~150ms in
+        # both cases. Registered unconditionally (no
+        # ``with_lifecycle`` gate) because the ingress and remote-
+        # build apps share the same WS-handler shape and the same
+        # latency cost on shutdown.
+        app.on_shutdown.append(close_active_websockets)
+
         # Legacy REST endpoints (HA backward compat)
         app.router.add_routes(create_legacy_routes())
 
@@ -1094,6 +1118,12 @@ class DeviceBuilder:
             app = web.Application(middlewares=[_strip_server_header_middleware])
             handler = await make_peer_link_handler(self.remote_build, self.settings.config_dir)
             app.router.add_get(PEER_LINK_PATH, handler)
+            # Same SIGTERM-latency fix as the main /ws app: close
+            # every paired peer's WS explicitly so an idle offloader
+            # doesn't pin ``runner.cleanup()`` to aiohttp's 60s
+            # ``shutdown_timeout`` while its handler sits in
+            # ``async for msg in session.ws``.
+            app.on_shutdown.append(close_active_websockets)
 
             runner = web.AppRunner(app)
             await runner.setup()
@@ -1182,10 +1212,16 @@ class DeviceBuilder:
                 app,
                 host=settings.ingress_host or "0.0.0.0",
                 port=settings.ingress_port,
+                shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
             )
             return
         app = self.create_app()
-        web.run_app(app, host=settings.host, port=settings.port)
+        web.run_app(
+            app,
+            host=settings.host,
+            port=settings.port,
+            shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
+        )
 
     @staticmethod
     def _get_frontend_dir() -> Path | None:

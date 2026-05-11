@@ -56,6 +56,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -66,6 +67,7 @@ import aiohttp
 from aiohttp import WSMsgType, web
 from esphome.const import __version__ as esphome_version
 
+from ...api.ws import WEBSOCKETS_KEY
 from ...helpers import json as _json
 from ...helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
@@ -316,6 +318,16 @@ async def make_peer_link_handler(
     async def handler(request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
+        # Register on the peer-link app's WS set so the shared
+        # ``close_active_websockets`` shutdown hook can unblock this
+        # handler instead of pinning ``runner.cleanup()`` to
+        # aiohttp's 60s ``shutdown_timeout`` while an idle paired
+        # offloader sits in ``async for msg in ws``. Mirrors the
+        # main /ws handler's registration; ``setdefault`` is
+        # defensive for the test path that hand-builds an app
+        # skeleton without going through ``make_peer_link_app``.
+        active = request.app.setdefault(WEBSOCKETS_KEY, weakref.WeakSet())
+        active.add(ws)
         peer_ip = request.remote or ""
         try:
             await _drive_peer_link_session(controller, ws, peer_ip, identity_priv)

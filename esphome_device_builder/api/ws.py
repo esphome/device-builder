@@ -9,10 +9,11 @@ import asyncio
 import contextlib
 import ipaddress
 import logging
+import weakref
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlsplit
 
-from aiohttp import WSMsgType, web
+from aiohttp import WSCloseCode, WSMsgType, web
 from esphome.const import __version__ as esphome_version
 
 from ..constants import __version__
@@ -45,6 +46,28 @@ _PRE_AUTH_COMMANDS = frozenset({"auth", "auth/login"})
 # data until the user reloads. 30s matches the legacy Tornado
 # dashboard's ``websocket_ping_interval``.
 _WS_HEARTBEAT_SECONDS = 30.0
+
+# ``app[WEBSOCKETS_KEY]`` holds a ``WeakSet`` of active server-side
+# ``WebSocketResponse`` instances. Populated by
+# :func:`websocket_handler` on connection accept, drained on
+# disconnect; :func:`close_active_websockets` iterates it to close
+# any still-open WS with a ``GOING_AWAY`` frame on app shutdown.
+#
+# Why this matters for SIGTERM-to-exit latency: aiohttp's run loop
+# waits up to ``shutdown_timeout`` seconds (60s default) for live
+# request handlers to finish before invoking ``on_cleanup`` and
+# letting the process exit. A WS handler sitting in
+# ``async for msg in ws`` doesn't finish until the *client* closes
+# its end, so an idle paired connection silently extends that wait
+# to the full timeout. Closing each WS explicitly in ``on_shutdown``
+# lets the per-connection handler unwind in the millisecond range
+# and SIGTERM-to-exit drops back to ~100ms.
+#
+# ``WeakSet`` lets registration outlive a code path that misses an
+# explicit unregister (e.g. an exception between the ``add`` call
+# and the cleanup ``finally``); GC reclaims the WS when its handler
+# frame is gone, so a missed unregister doesn't leak entries.
+WEBSOCKETS_KEY = "_active_websockets"
 
 
 class WebSocketClient:
@@ -252,6 +275,13 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     ws = web.WebSocketResponse(heartbeat=_WS_HEARTBEAT_SECONDS)
     await ws.prepare(request)
 
+    # Register on the per-app weak set so the shutdown closer can
+    # reach this WS without us holding a strong reference. The set
+    # is created in :meth:`DeviceBuilder.create_app`; ``setdefault``
+    # is defensive for test paths that hand-build an app skeleton.
+    active = request.app.setdefault(WEBSOCKETS_KEY, weakref.WeakSet())
+    active.add(ws)
+
     pre_authenticated = trusted_site or not settings.using_password
     token: str | None = None
 
@@ -307,6 +337,40 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         _LOGGER.debug("WebSocket client disconnected")
 
     return ws
+
+
+async def close_active_websockets(app: web.Application) -> None:
+    """Close every active WebSocket on the *app* with a ``GOING_AWAY`` frame.
+
+    Wired up as an ``app.on_shutdown`` handler in
+    :meth:`DeviceBuilder.create_app`. Iterates a snapshot of the
+    weak set so concurrent unregistration during the close doesn't
+    mutate the iterator. Closes run concurrently because each
+    ``ws.close()`` waits on a network round trip with the peer and
+    serialising them would re-introduce the per-connection
+    shutdown latency this helper exists to eliminate.
+
+    Each close is independently shielded from exceptions: a peer
+    that's already half-closed (or hard-dropped the TCP without
+    sending FIN) shouldn't stop us from closing the rest.
+    """
+    active = app.get(WEBSOCKETS_KEY)
+    if not active:
+        return
+    sockets = list(active)
+    if not sockets:
+        return
+    _LOGGER.debug("Closing %d active WebSocket(s) on shutdown", len(sockets))
+    await asyncio.gather(
+        *(_safe_close(ws) for ws in sockets),
+        return_exceptions=True,
+    )
+
+
+async def _safe_close(ws: web.WebSocketResponse) -> None:
+    """Close *ws* with ``GOING_AWAY``, swallowing per-socket errors."""
+    with contextlib.suppress(Exception):
+        await ws.close(code=WSCloseCode.GOING_AWAY, message=b"Server shutting down")
 
 
 def create_ws_routes() -> web.RouteTableDef:
