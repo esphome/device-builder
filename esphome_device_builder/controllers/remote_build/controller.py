@@ -52,7 +52,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Coroutine, Hashable, Iterator
+from collections.abc import Callable, Coroutine, Hashable, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass as _dataclass
 from enum import StrEnum
@@ -757,6 +757,21 @@ def _validate_submit_job_target(raw: object) -> Literal["compile", "upload"]:
     return cast(Literal["compile", "upload"], raw)
 
 
+def _validate_bool(raw: object, *, command: str, field: str) -> bool:
+    """Strict-bool validation for a WS-command argument.
+
+    Rejects non-``bool`` values rather than coercing — a string
+    ``"false"`` is truthy under ``bool()`` and would persist the
+    opposite of the operator's intent on a security-relevant
+    switch. The diagnostic names *command* and *field* so the
+    frontend can pin the inline error to the right input.
+    """
+    if not isinstance(raw, bool):
+        msg = f"{command}: {field!r} must be a boolean"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return raw
+
+
 # Maps non-success ``IntentResponse`` values from a peer-link
 # round-trip to the typed :class:`CommandError` the frontend
 # branches on. Used by ``request_pair`` to surface the receiver's
@@ -1415,10 +1430,7 @@ class RemoteBuildController:
         # peer-link client task can pick them up without a
         # per-spawn executor hop. Cold-start spawn for every
         # APPROVED pairing follows below.
-        loop = asyncio.get_running_loop()
-        peer_link_identity, dashboard_identity = await loop.run_in_executor(
-            None, _load_offloader_identities, self._db.settings.config_dir
-        )
+        peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
         self._offloader_peer_link_priv = peer_link_identity.private_bytes
         self._offloader_dashboard_id = dashboard_identity.dashboard_id
         # Wire the shared mDNS-aware aiohttp resolver before
@@ -1543,6 +1555,38 @@ class RemoteBuildController:
             )
         )
         self._start_discovery()
+
+    async def _load_offloader_identities_async(
+        self,
+    ) -> tuple[PeerLinkIdentity, DashboardIdentity]:
+        """Read both offloader-side identities off the executor.
+
+        WS-command handlers and the pair-status listener
+        deliberately re-read from disk on every call rather than
+        using the :meth:`start`-time cache on
+        :attr:`_offloader_peer_link_priv` /
+        :attr:`_offloader_dashboard_id` — :meth:`rotate_identity`
+        rewrites the keypair file without updating the cache,
+        so caching would sign post-rotation calls with the old
+        key.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, _load_offloader_identities, self._db.settings.config_dir
+        )
+
+    async def _load_settings_async(self) -> RemoteBuildSettings:
+        """Read the receiver-side settings sidecar off the executor.
+
+        Carries the ``enabled`` master toggle +
+        ``cleanup_ttl_seconds`` knobs, which aren't mirrored in
+        RAM (the RAM-canonical state is :attr:`_approved_peers`
+        / :attr:`_pairings`).
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, load_remote_build_settings, self._db.settings.config_dir
+        )
 
     def _setup_peer_link_resolver(self) -> None:
         """
@@ -2107,36 +2151,24 @@ class RemoteBuildController:
         if self._job_fanout is not None:
             self._job_fanout.stop()
             self._job_fanout = None
-        for task in self._tasks:
-            task.cancel()
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
-            self._tasks.clear()
+        await self._drain_tasks(self._tasks)
+        self._tasks.clear()
         # Cancel + drain offloader-side pair-status listener tasks
         # so they don't leak past controller shutdown. Each
         # listener self-removes from ``_pair_status_listeners``
         # via its ``finally`` clause; the dict-clear at the end
         # is belt-and-braces in case a task crashed before
         # reaching its finally.
-        for task in self._pair_status_listeners.values():
-            task.cancel()
-        if self._pair_status_listeners:
-            await asyncio.gather(*self._pair_status_listeners.values(), return_exceptions=True)
-            self._pair_status_listeners.clear()
+        await self._drain_tasks(self._pair_status_listeners.values())
+        self._pair_status_listeners.clear()
         # Cancel + drain offloader-side peer-link client tasks.
         # Each task's run loop sends a structured
         # ``terminate{reason: client_stopped}`` to the receiver
         # in its ``CancelledError`` handler before unwinding, so
         # the receiver's session loop exits cleanly without
         # waiting for its heartbeat to time out.
-        for handle in self._peer_link_clients.values():
-            handle.task.cancel()
-        if self._peer_link_clients:
-            await asyncio.gather(
-                *(h.task for h in self._peer_link_clients.values()),
-                return_exceptions=True,
-            )
-            self._peer_link_clients.clear()
+        await self._drain_tasks(h.task for h in self._peer_link_clients.values())
+        self._peer_link_clients.clear()
         if self._pairing_window_handle is not None:
             self._pairing_window_handle.cancel()
             self._pairing_window_handle = None
@@ -2190,6 +2222,21 @@ class RemoteBuildController:
         # offloader-side ``_pairings.clear()`` above.
         self._approved_peers.clear()
         await self._close_peer_link_resolver()
+
+    @staticmethod
+    async def _drain_tasks(tasks: Iterable[asyncio.Task[Any]]) -> None:
+        """Cancel and await every task in *tasks*, swallowing exceptions.
+
+        Snapshots *tasks* to a list so the caller's post-drain
+        ``clear`` doesn't pull tasks out from under the gather.
+        Caller owns clearing the source collection.
+        """
+        tasks_list = list(tasks)
+        if not tasks_list:
+            return
+        for task in tasks_list:
+            task.cancel()
+        await asyncio.gather(*tasks_list, return_exceptions=True)
 
     async def _close_peer_link_resolver(self) -> None:
         """
@@ -2401,7 +2448,7 @@ class RemoteBuildController:
                 firmware = self._db.firmware
                 if firmware is None:
                     continue
-                settings = await loop.run_in_executor(None, load_remote_build_settings, config_dir)
+                settings = await self._load_settings_async()
                 # ``active_remote_peer_jobs`` is the public seam
                 # on the firmware controller (status-and-remote_peer
                 # filtered); reaching directly into ``_jobs`` here
@@ -2720,11 +2767,7 @@ class RemoteBuildController:
     @api_command("remote_build/get_settings")
     async def get_settings(self, **kwargs: Any) -> RemoteBuildSettingsView:
         """Return the receiver-side remote-build settings (wire view)."""
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
-        )
-        return self._to_view(settings)
+        return self._to_view(await self._load_settings_async())
 
     def _to_view(self, settings: RemoteBuildSettings) -> RemoteBuildSettingsView:
         """Project receiver settings to wire view, merging in-memory peers.
@@ -2920,6 +2963,18 @@ class RemoteBuildController:
     # list), so a single debounced save covers both kinds of edit.
     # ------------------------------------------------------------------
 
+    def _offloader_settings_view(self) -> OffloaderRemoteBuildSettingsView:
+        """Project the in-RAM offloader-side state to its wire view.
+
+        Pure sync RAM read off :attr:`_pairings` +
+        :attr:`_remote_builds_enabled`, which are canonical
+        after :meth:`start` seeds them from disk.
+        """
+        return OffloaderRemoteBuildSettingsView(
+            pairings=self.pairings_snapshot(),
+            remote_builds_enabled=self._remote_builds_enabled,
+        )
+
     @api_command("remote_build/get_offloader_settings")
     async def get_offloader_settings(self, **kwargs: Any) -> OffloaderRemoteBuildSettingsView:
         """
@@ -2933,16 +2988,8 @@ class RemoteBuildController:
         ``OFFLOADER_PAIRING_ENABLED_CHANGED`` /
         ``OFFLOADER_PAIR_STATUS_CHANGED`` events on the global
         ``subscribe_events`` stream — no polling.
-
-        Pure synchronous RAM read; no executor hop. The
-        in-RAM ``_pairings`` dict + ``_remote_builds_enabled``
-        flag are the canonical sources of truth after
-        :meth:`start` seeded them from disk.
         """
-        return OffloaderRemoteBuildSettingsView(
-            pairings=self.pairings_snapshot(),
-            remote_builds_enabled=self._remote_builds_enabled,
-        )
+        return self._offloader_settings_view()
 
     @api_command("remote_build/set_offloader_settings")
     async def set_offloader_settings(
@@ -2974,19 +3021,17 @@ class RemoteBuildController:
         ``_pairings_store`` (the master toggle lives on the
         same on-disk shape as the pairings list).
         """
-        if not isinstance(remote_builds_enabled, bool):
-            msg = "remote_build/set_offloader_settings: 'remote_builds_enabled' must be a boolean"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-        self._remote_builds_enabled = remote_builds_enabled
+        self._remote_builds_enabled = _validate_bool(
+            remote_builds_enabled,
+            command="remote_build/set_offloader_settings",
+            field="remote_builds_enabled",
+        )
         toggled: OffloaderRemoteBuildsToggledData = {
             "remote_builds_enabled": remote_builds_enabled,
         }
         self._db.bus.fire(EventType.OFFLOADER_REMOTE_BUILDS_TOGGLED, toggled)
         self._schedule_pairings_save()
-        return OffloaderRemoteBuildSettingsView(
-            pairings=self.pairings_snapshot(),
-            remote_builds_enabled=self._remote_builds_enabled,
-        )
+        return self._offloader_settings_view()
 
     @api_command("remote_build/set_pairing_enabled")
     async def set_pairing_enabled(
@@ -3020,17 +3065,17 @@ class RemoteBuildController:
         pairings store so the choice survives restart.
         """
         clean_pin = _validate_pin_sha256(pin_sha256)
-        if not isinstance(enabled, bool):
-            msg = "remote_build/set_pairing_enabled: 'enabled' must be a boolean"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        clean_enabled = _validate_bool(
+            enabled, command="remote_build/set_pairing_enabled", field="enabled"
+        )
         pairing = self._pairings.get(clean_pin)
         if pairing is None:
             msg = f"remote_build/set_pairing_enabled: no pairing for pin_sha256={clean_pin!r}"
             raise CommandError(ErrorCode.NOT_FOUND, msg)
-        pairing.enabled = enabled
+        pairing.enabled = clean_enabled
         payload: OffloaderPairingEnabledChangedData = {
             "pin_sha256": clean_pin,
-            "enabled": enabled,
+            "enabled": clean_enabled,
         }
         self._db.bus.fire(EventType.OFFLOADER_PAIRING_ENABLED_CHANGED, payload)
         self._schedule_pairings_save()
@@ -3194,10 +3239,7 @@ class RemoteBuildController:
         clean_offloader_label = _validate_pair_label(
             offloader_label, field=_PairLabelField.OFFLOADER_LABEL
         )
-        loop = asyncio.get_running_loop()
-        peer_link_identity, dashboard_identity = await loop.run_in_executor(
-            None, _load_offloader_identities, self._db.settings.config_dir
-        )
+        peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
 
         try:
             result = await peer_link_request_pair(
@@ -4217,11 +4259,7 @@ class RemoteBuildController:
         error, sleeps :data:`_PAIR_STATUS_RECONNECT_BACKOFF_SECONDS`
         and reconnects.
         """
-        config_dir = self._db.settings.config_dir
-        loop = asyncio.get_running_loop()
-        peer_link_identity, dashboard_identity = await loop.run_in_executor(
-            None, _load_offloader_identities, config_dir
-        )
+        peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
         try:
             while True:
                 try:
@@ -4698,11 +4736,7 @@ class RemoteBuildController:
         ``manual_hosts`` fields still come from the metadata
         sidecar.
         """
-        loop = asyncio.get_running_loop()
-        settings = await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
-        )
-        return self._to_view(settings)
+        return self._to_view(await self._load_settings_async())
 
     # ------------------------------------------------------------------
     # Peer-link Noise WS dispatch helpers — called by the post-handshake
