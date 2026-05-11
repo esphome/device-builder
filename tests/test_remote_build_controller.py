@@ -27,22 +27,26 @@ from zeroconf.asyncio import AsyncZeroconf
 
 from esphome_device_builder.controllers.remote_build import RemoteBuildController
 from esphome_device_builder.controllers.remote_build import controller as rb
+from esphome_device_builder.controllers.remote_build._mdns import (
+    decode_txt_value,
+    peer_from_service_info,
+)
+from esphome_device_builder.controllers.remote_build._storage_codecs import (
+    decode_pairings,
+    encode_pairings,
+)
+from esphome_device_builder.controllers.remote_build._summaries import pairing_summary
+from esphome_device_builder.controllers.remote_build._validators import (
+    PairLabelField,
+    enforce_pin_match,
+    intent_response_to_command_error,
+    validate_hostname,
+    validate_pair_label,
+    validate_pin_sha256,
+    validate_port,
+)
 from esphome_device_builder.controllers.remote_build.artifacts_download import (
     ArtifactsDownloadSender,
-)
-from esphome_device_builder.controllers.remote_build.controller import (
-    _decode_pairings,
-    _decode_txt_value,
-    _encode_pairings,
-    _enforce_pin_match,
-    _intent_response_to_command_error,
-    _pairing_summary,
-    _PairLabelField,
-    _peer_from_service_info,
-    _validate_hostname,
-    _validate_pair_label,
-    _validate_pin_sha256,
-    _validate_port,
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
@@ -145,20 +149,20 @@ async def _seed_metadata(config_dir: Any, remote_build: dict) -> None:
 
 
 def test_decode_txt_value_handles_none() -> None:
-    assert _decode_txt_value(None) == ""
+    assert decode_txt_value(None) == ""
 
 
 def test_decode_txt_value_handles_empty_bytes() -> None:
-    assert _decode_txt_value(b"") == ""
+    assert decode_txt_value(b"") == ""
 
 
 def test_decode_txt_value_decodes_utf8() -> None:
-    assert _decode_txt_value(b"2026.5.0") == "2026.5.0"
+    assert decode_txt_value(b"2026.5.0") == "2026.5.0"
 
 
 def test_decode_txt_value_falls_back_on_invalid_utf8() -> None:
     """A non-utf8 TXT value yields ``""`` instead of raising."""
-    assert _decode_txt_value(b"\xff\xff") == ""
+    assert decode_txt_value(b"\xff\xff") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +173,7 @@ def test_decode_txt_value_falls_back_on_invalid_utf8() -> None:
 def test_peer_from_service_info_extracts_instance_label() -> None:
     """The peer's ``name`` is the leftmost label of the service-instance name."""
     info = _fake_service_info(name="desktop")
-    peer = _peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
+    peer = peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
     assert peer.name == "desktop"
     assert peer.hostname == "desktop.local."
     assert peer.port == 6052
@@ -179,7 +183,7 @@ def test_peer_from_service_info_extracts_instance_label() -> None:
 
 def test_peer_from_service_info_carries_all_addresses() -> None:
     info = _fake_service_info(addresses=["192.168.1.10", "fdc8::1"])
-    peer = _peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
+    peer = peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
     assert peer.addresses == ["192.168.1.10", "fdc8::1"]
 
 
@@ -194,7 +198,7 @@ def test_peer_from_service_info_preserves_ipv6_scope() -> None:
     so a future refactor can't quietly switch back.
     """
     info = _fake_service_info(addresses=["fe80::1%en0", "192.168.1.10"])
-    peer = _peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
+    peer = peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
     assert "fe80::1%en0" in peer.addresses
     assert "192.168.1.10" in peer.addresses
 
@@ -203,7 +207,7 @@ def test_peer_from_service_info_handles_missing_txt_keys() -> None:
     """A peer that didn't broadcast version TXT yields empty version strings."""
     info = _fake_service_info()
     info.properties = {}
-    peer = _peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
+    peer = peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
     assert peer.server_version == ""
     assert peer.esphome_version == ""
 
@@ -1044,7 +1048,7 @@ def test_peer_from_service_info_parses_pin_and_remote_build_port() -> None:
     }
     info.parsed_scoped_addresses = MagicMock(return_value=["10.0.0.42"])
 
-    peer = _peer_from_service_info(f"green.{SERVICE_TYPE}", info)
+    peer = peer_from_service_info(f"green.{SERVICE_TYPE}", info)
 
     assert peer.pin_sha256 == "a" * 64
     assert peer.remote_build_port == 6058
@@ -1084,7 +1088,7 @@ def test_peer_from_service_info_clamps_invalid_remote_build_port(raw: bytes) -> 
     }
     info.parsed_scoped_addresses = MagicMock(return_value=[])
 
-    peer = _peer_from_service_info(f"green.{SERVICE_TYPE}", info)
+    peer = peer_from_service_info(f"green.{SERVICE_TYPE}", info)
 
     assert peer.remote_build_port == 0
 
@@ -1646,18 +1650,18 @@ async def test_stop_drains_resolve_tasks(tmp_path: Path) -> None:
 
 def test_validate_hostname_lowercases_and_strips() -> None:
     """RFC 1035 §2.3.3: hostnames are case-insensitive."""
-    assert _validate_hostname("  Desktop.Local  ") == "desktop.local"
+    assert validate_hostname("  Desktop.Local  ") == "desktop.local"
 
 
 def test_validate_hostname_rejects_non_string() -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_hostname(42)  # type: ignore[arg-type]
+        validate_hostname(42)  # type: ignore[arg-type]
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
 def test_validate_hostname_rejects_empty() -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_hostname("   ")
+        validate_hostname("   ")
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
@@ -1669,7 +1673,7 @@ def test_validate_hostname_rejects_oversize() -> None:
     misbehaving frontend can surface a useful diagnostic to the user.
     """
     with pytest.raises(CommandError) as exc:
-        _validate_hostname("a" * 256)
+        validate_hostname("a" * 256)
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert "255 characters" in str(exc.value)
 
@@ -1698,7 +1702,7 @@ def test_validate_hostname_rejects_url_injection_shapes(bad_host: str) -> None:
     your input" diagnostic.
     """
     with pytest.raises(CommandError) as exc:
-        _validate_hostname(bad_host)
+        validate_hostname(bad_host)
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
@@ -1712,31 +1716,31 @@ def test_validate_hostname_accepts_ipv6_literal() -> None:
     the difference because ``::1`` parses as a valid IPv6 and
     ``host:8080`` doesn't.
     """
-    assert _validate_hostname("::1") == "::1"
-    assert _validate_hostname("fe80::1") == "fe80::1"
+    assert validate_hostname("::1") == "::1"
+    assert validate_hostname("fe80::1") == "fe80::1"
 
 
 def test_validate_port_accepts_typical() -> None:
-    assert _validate_port(6052) == 6052
+    assert validate_port(6052) == 6052
 
 
 def test_validate_port_rejects_non_int() -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_port("6052")  # type: ignore[arg-type]
+        validate_port("6052")  # type: ignore[arg-type]
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
 def test_validate_port_rejects_bool() -> None:
     """``isinstance(True, int)`` is true, but coercing to 1 is a footgun."""
     with pytest.raises(CommandError) as exc:
-        _validate_port(True)  # type: ignore[arg-type]
+        validate_port(True)  # type: ignore[arg-type]
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
 @pytest.mark.parametrize("port", [0, -1, 65536, 100000])
 def test_validate_port_rejects_out_of_range(port: int) -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_port(port)
+        validate_port(port)
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
@@ -3376,12 +3380,12 @@ def _valid_stored_pairing(
 
 
 def test_validate_pin_sha256_accepts_canonical() -> None:
-    assert _validate_pin_sha256("a" * 64) == "a" * 64
-    assert _validate_pin_sha256("0123456789abcdef" * 4) == "0123456789abcdef" * 4
+    assert validate_pin_sha256("a" * 64) == "a" * 64
+    assert validate_pin_sha256("0123456789abcdef" * 4) == "0123456789abcdef" * 4
 
 
 def test_validate_pin_sha256_strips_whitespace() -> None:
-    assert _validate_pin_sha256("  " + "a" * 64 + "  ") == "a" * 64
+    assert validate_pin_sha256("  " + "a" * 64 + "  ") == "a" * 64
 
 
 @pytest.mark.parametrize(
@@ -3395,13 +3399,13 @@ def test_validate_pin_sha256_strips_whitespace() -> None:
 )
 def test_validate_pin_sha256_rejects_invalid_shapes(bad: str) -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_pin_sha256(bad)
+        validate_pin_sha256(bad)
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
 def test_validate_pin_sha256_rejects_non_string() -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_pin_sha256(123)  # type: ignore[arg-type]
+        validate_pin_sha256(123)  # type: ignore[arg-type]
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
@@ -3409,24 +3413,24 @@ def test_validate_pin_sha256_rejects_non_string() -> None:
 
 
 def test_validate_pair_label_strips_and_returns() -> None:
-    assert _validate_pair_label("  Kitchen  ", field=_PairLabelField.RECEIVER_LABEL) == "Kitchen"
+    assert validate_pair_label("  Kitchen  ", field=PairLabelField.RECEIVER_LABEL) == "Kitchen"
 
 
 def test_validate_pair_label_accepts_empty() -> None:
     """Empty label is fine; user may not have named the receiver."""
-    assert _validate_pair_label("", field=_PairLabelField.RECEIVER_LABEL) == ""
+    assert validate_pair_label("", field=PairLabelField.RECEIVER_LABEL) == ""
 
 
 def test_validate_pair_label_rejects_oversize() -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_pair_label("x" * 129, field=_PairLabelField.OFFLOADER_LABEL)
+        validate_pair_label("x" * 129, field=PairLabelField.OFFLOADER_LABEL)
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert "offloader_label" in str(exc.value)
 
 
 def test_validate_pair_label_rejects_non_string() -> None:
     with pytest.raises(CommandError) as exc:
-        _validate_pair_label(42, field=_PairLabelField.RECEIVER_LABEL)  # type: ignore[arg-type]
+        validate_pair_label(42, field=PairLabelField.RECEIVER_LABEL)  # type: ignore[arg-type]
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert "receiver_label" in str(exc.value)
 
@@ -3452,15 +3456,15 @@ def test_validate_pair_label_rejects_control_characters(payload: str) -> None:
     tool.
     """
     with pytest.raises(CommandError) as exc:
-        _validate_pair_label(payload, field=_PairLabelField.OFFLOADER_LABEL)
+        validate_pair_label(payload, field=PairLabelField.OFFLOADER_LABEL)
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert "printable" in str(exc.value)
 
 
 def test_validate_pair_label_accepts_non_ascii_printables() -> None:
     """Non-ASCII printables (CJK, accented Latin, emoji) round-trip cleanly."""
-    assert _validate_pair_label("キッチン", field=_PairLabelField.RECEIVER_LABEL) == "キッチン"
-    assert _validate_pair_label("café 🚀", field=_PairLabelField.RECEIVER_LABEL) == "café 🚀"
+    assert validate_pair_label("キッチン", field=PairLabelField.RECEIVER_LABEL) == "キッチン"
+    assert validate_pair_label("café 🚀", field=PairLabelField.RECEIVER_LABEL) == "café 🚀"
 
 
 # --- _intent_response_to_command_error ---
@@ -3468,19 +3472,19 @@ def test_validate_pair_label_accepts_non_ascii_printables() -> None:
 
 def test_intent_response_to_command_error_pending_returns_none() -> None:
     """Success values aren't translated; the caller branches on them for persistence."""
-    assert _intent_response_to_command_error(IntentResponse.PENDING) is None
-    assert _intent_response_to_command_error(IntentResponse.APPROVED) is None
-    assert _intent_response_to_command_error(IntentResponse.OK) is None
+    assert intent_response_to_command_error(IntentResponse.PENDING) is None
+    assert intent_response_to_command_error(IntentResponse.APPROVED) is None
+    assert intent_response_to_command_error(IntentResponse.OK) is None
 
 
 def test_intent_response_to_command_error_no_pairing_window() -> None:
-    err = _intent_response_to_command_error(IntentResponse.NO_PAIRING_WINDOW)
+    err = intent_response_to_command_error(IntentResponse.NO_PAIRING_WINDOW)
     assert err is not None
     assert err.code == ErrorCode.NO_PAIRING_WINDOW
 
 
 def test_intent_response_to_command_error_rejected() -> None:
-    err = _intent_response_to_command_error(IntentResponse.REJECTED)
+    err = intent_response_to_command_error(IntentResponse.REJECTED)
     assert err is not None
     assert err.code == ErrorCode.PRECONDITION_FAILED
 
@@ -3490,7 +3494,7 @@ def test_intent_response_to_command_error_rejected() -> None:
 
 def test_enforce_pin_match_passes_on_match() -> None:
     """No exception raised when expected and observed pins agree."""
-    _enforce_pin_match(expected="a" * 64, observed="a" * 64)
+    enforce_pin_match(expected="a" * 64, observed="a" * 64)
 
 
 def test_enforce_pin_match_raises_precondition_failed_on_drift() -> None:
@@ -3502,7 +3506,7 @@ def test_enforce_pin_match_raises_precondition_failed_on_drift() -> None:
     can't slip the mismatch past a quick visual scan.
     """
     with pytest.raises(CommandError) as exc:
-        _enforce_pin_match(expected="a" * 64, observed="b" * 64)
+        enforce_pin_match(expected="a" * 64, observed="b" * 64)
     assert exc.value.code == ErrorCode.PRECONDITION_FAILED
     # Full digest is shown for both expected and observed.
     assert "expected " + "a" * 64 in str(exc.value)
@@ -3515,7 +3519,7 @@ def test_enforce_pin_match_raises_precondition_failed_on_drift() -> None:
 def test_pairing_summary_drops_static_pubkey() -> None:
     """Wire view drops ``static_x25519_pub`` so the raw pubkey stays server-side."""
     pairing = _valid_stored_pairing(status=PeerStatus.PENDING)
-    summary = _pairing_summary(pairing, connected=False)
+    summary = pairing_summary(pairing, connected=False)
     assert isinstance(summary, PairingSummary)
     assert summary.receiver_hostname == "build.local"
     assert summary.pin_sha256 == "a" * 64
@@ -3532,8 +3536,8 @@ def test_pairing_summary_drops_static_pubkey() -> None:
 def test_encode_decode_pairings_round_trip() -> None:
     """Encoded bytes round-trip back through the decoder unchanged."""
     settings = OffloaderRemoteBuildSettings(pairings=[_valid_stored_pairing()])
-    payload = _encode_pairings(settings)
-    decoded = _decode_pairings(payload)
+    payload = encode_pairings(settings)
+    decoded = decode_pairings(payload)
     assert decoded == settings
 
 
@@ -3550,7 +3554,7 @@ def test_decode_pairings_recovers_to_empty_on_garbage(
     pairings vanished.
     """
     with caplog.at_level("ERROR"):
-        result = _decode_pairings(b"this is not json {{{")
+        result = decode_pairings(b"this is not json {{{")
     assert result == OffloaderRemoteBuildSettings()
     assert any("Corrupt offloader pairings file" in r.message for r in caplog.records), (
         "expected corruption-recovery log line"
@@ -3568,7 +3572,7 @@ def test_decode_pairings_recovers_to_empty_on_schema_drift(
     downgraded dashboard read).
     """
     with caplog.at_level("ERROR"):
-        result = _decode_pairings(b'["unexpected", "list", "shape"]')
+        result = decode_pairings(b'["unexpected", "list", "shape"]')
     assert result == OffloaderRemoteBuildSettings()
     assert any("Corrupt offloader pairings file" in r.message for r in caplog.records)
 
@@ -3600,7 +3604,7 @@ def test_decode_pairings_back_compat_missing_enabled_defaults_true() -> None:
             ]
         }
     ).encode()
-    decoded = _decode_pairings(legacy_payload)
+    decoded = decode_pairings(legacy_payload)
     assert decoded.remote_builds_enabled is True
     assert len(decoded.pairings) == 1
     assert decoded.pairings[0].enabled is True

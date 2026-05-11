@@ -61,25 +61,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import uuid4
 
-from esphome.const import __version__ as esphome_version
-from yarl import URL
-from zeroconf import IPVersion, ServiceStateChange
+from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
-from ...constants import __version__ as server_version
 from ...helpers import dashboard_identity as _dashboard_identity_helper
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_advertise import SERVICE_TYPE
-from ...helpers.dashboard_identity import (
-    DASHBOARD_ID_MAX_CHARS,
-    DASHBOARD_ID_PATTERN,
-    get_or_create_identity,
-)
+from ...helpers.dashboard_identity import get_or_create_identity
 from ...helpers.event_bus import Event
 from ...helpers.hostname import normalize_hostname
-from ...helpers.json import dumps as json_dumps
-from ...helpers.json import loads as json_loads
 from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.peer_link_identity import get_or_create_peer_link_identity
 from ...helpers.peer_link_resolver import PeerLinkDNSResolver, make_peer_link_resolver
@@ -127,7 +118,6 @@ from ...models import (
     RemoteBuildPairRequestReceivedData,
     RemoteBuildPairStatusChangedData,
     RemoteBuildPeer,
-    RemoteBuildPeerSource,
     RemoteBuildSettings,
     RemoteBuildSettingsView,
     StoredPairing,
@@ -136,6 +126,30 @@ from ...models import (
 from ..config import (
     load_remote_build_settings,
     remote_build_settings_transaction,
+)
+from ._mdns import endpoints_equal, peer_from_service_info
+from ._storage_codecs import (
+    OFFLOADER_PAIRINGS_FILE,
+    RECEIVER_PEERS_FILE,
+    decode_pairings,
+    decode_peers,
+    encode_pairings,
+    encode_peers,
+)
+from ._summaries import identity_view, pairing_summary, peer_summary
+from ._validators import (
+    HostFieldContext,
+    PairLabelField,
+    download_artifacts_error_to_command_error,
+    enforce_pin_match,
+    intent_response_to_command_error,
+    validate_bool,
+    validate_dashboard_id,
+    validate_hostname,
+    validate_pair_label,
+    validate_pin_sha256,
+    validate_port,
+    validate_submit_job_target,
 )
 from .artifacts_download import ArtifactsDownloadSender
 from .artifacts_tarball import UnpackArtifactsError, unpack_artifacts_response
@@ -246,142 +260,6 @@ class _PairRequestOutcome:
     response: IntentResponse | None = None
 
 
-def _decode_txt_value(raw: bytes | None) -> str:
-    """Decode a TXT value as UTF-8, falling back to the empty string."""
-    if not raw:
-        return ""
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return ""
-
-
-def _endpoints_equal(host_a: str, port_a: int, host_b: str, port_b: int) -> bool:
-    """Case- and trailing-dot-insensitive equality on ``(host, port)`` pairs.
-
-    Two paths in this controller compare an mDNS-resolved
-    endpoint against another stored endpoint (the dashboard's
-    own advertise via :meth:`_is_self_endpoint`, and a stored
-    pairing's coordinates via :meth:`_maybe_schedule_rebind_probe`).
-    Both want hostname comparison through
-    :func:`normalize_hostname` so trailing-dot / case
-    differences between the SRV target form and the stored form
-    don't show up as spurious mismatches; this helper centralises
-    the shape so the two call sites stay in lockstep on the
-    normalisation rules.
-    """
-    return port_a == port_b and normalize_hostname(host_a) == normalize_hostname(host_b)
-
-
-def _decode_txt_port(raw: bytes | None) -> int:
-    """Decode a TCP port from a TXT value; fall back to 0 on absent / malformed / out-of-range.
-
-    Defensive: a corrupted / non-numeric / out-of-range TXT
-    entry shouldn't raise into the browser callback (which
-    would abort the resolve task and silently lose the peer),
-    and shouldn't trigger spurious rebind probes for a port
-    we couldn't dial anyway. Negative integers and values
-    outside the IANA ``1..65535`` range collapse to the same
-    "not advertised" 0 sentinel TXT-absent rows already
-    produce, so downstream sites that gate on a real port
-    cover absence, malformation, and spoof attempts in one
-    check.
-    """
-    decoded = _decode_txt_value(raw)
-    if not decoded:
-        return 0
-    try:
-        port = int(decoded)
-    except ValueError:
-        return 0
-    if not 1 <= port <= 65535:
-        return 0
-    return port
-
-
-def _peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPeer:
-    """
-    Build a :class:`RemoteBuildPeer` from a resolved ``AsyncServiceInfo``.
-
-    Keeps the parsing in one place so ``_apply_service_info`` and
-    the cache-hit branch produce identical shapes.
-
-    Uses ``parsed_scoped_addresses(IPVersion.All)`` rather than
-    ``parsed_addresses()`` so IPv6 link-local entries keep their
-    ``%<interface>`` scope suffix. Without the scope, an
-    ``fe80::xxx`` address parses but isn't connectable; the OS
-    needs to know which interface to send the packet out on.
-    Mirrors the choice already made in
-    :class:`DeviceStateMonitor` (line 901).
-    """
-    properties = info.properties or {}
-    server_version = _decode_txt_value(properties.get(b"server_version"))
-    esphome_version = _decode_txt_value(properties.get(b"esphome_version"))
-    # ``pin_sha256`` and ``remote_build_port`` are emitted by the
-    # advertiser only when the peer-link listener is bound (see
-    # :class:`DashboardAdvertiser`). The offloader-side mDNS
-    # auto-rebind path reads both: pin to match a broadcast
-    # against a stored pairing, port to dial the
-    # peer-link Noise WS on the new endpoint. ``""`` / ``0`` for
-    # receivers that haven't published them; the rebind path
-    # silently skips those rows.
-    pin_sha256 = _decode_txt_value(properties.get(b"pin_sha256"))
-    remote_build_port = _decode_txt_port(properties.get(b"remote_build_port"))
-    # ``info.name`` comes back as ``<instance>.<service_type>``; we
-    # only want the leftmost label as the friendly name.
-    instance = (info.name or name).split(".", 1)[0]
-    server = info.server or ""
-    return RemoteBuildPeer(
-        name=instance,
-        hostname=server,
-        port=info.port or 0,
-        source=RemoteBuildPeerSource.MDNS,
-        addresses=info.parsed_scoped_addresses(IPVersion.All) or [],
-        server_version=server_version,
-        esphome_version=esphome_version,
-        pin_sha256=pin_sha256,
-        remote_build_port=remote_build_port,
-    )
-
-
-_HOSTNAME_MAX_CHARS = 255  # RFC 1035 §2.3.4 caps a FQDN at 253; round up to 255.
-
-
-class _HostFieldContext(StrEnum):
-    """Error-message prefix for the shared host / port validators.
-
-    The same ``_validate_hostname`` / ``_validate_port`` pair
-    gates the offloader-side ``preview_pair`` / ``request_pair``
-    flow and any future receiver-side host-input surface.
-    Hardcoding a single prefix in the error messages would leak
-    misleading diagnostics into the WS layer; pick the right
-    prefix at the call site instead.
-
-    StrEnum values are the message prefix verbatim; new call sites
-    that want a distinct user-facing string add a new enum member
-    rather than passing a free-form string (so the prefixes are
-    grep-able and don't drift).
-    """
-
-    RECEIVER = "receiver"
-
-
-class _PairLabelField(StrEnum):
-    """Wire arg name for ``_validate_pair_label`` error messages.
-
-    ``request_pair`` takes two distinct labels — ``receiver_label``
-    for local storage and ``offloader_label`` sent to the receiver
-    in msg3 — and a validation failure must name the failing arg so
-    the frontend can pin the inline error to the right input. StrEnum
-    values are the wire arg name verbatim; new call sites add a new
-    enum member rather than passing a free-form string (mirrors
-    :class:`_HostFieldContext`).
-    """
-
-    RECEIVER_LABEL = "receiver_label"
-    OFFLOADER_LABEL = "offloader_label"
-
-
 class _RebindProbeOutcome(StrEnum):
     """Typed outcome of :meth:`RemoteBuildController._probe_pairing_endpoint`.
 
@@ -459,276 +337,6 @@ _EDIT_PAIRING_PROBE_ERRORS: dict[_RebindProbeOutcome, tuple[ErrorCode, str]] = {
 }
 
 
-def _validate_hostname(
-    raw: object, *, context: _HostFieldContext = _HostFieldContext.RECEIVER
-) -> str:
-    """
-    Normalise a user-entered hostname to its canonical lowercase form.
-
-    Rejects non-string and empty / whitespace-only input with
-    :class:`CommandError(INVALID_ARGS)`. Caps length at
-    :data:`_HOSTNAME_MAX_CHARS` (RFC 1035 §2.3.4 caps a fully-
-    qualified domain name at 253 characters; we accept up to 255
-    to leave room for trailing-dot variations). The cap stops a
-    misbehaving frontend from bloating the on-disk pairings file
-    (and, for the offloader-side pairing pool, the
-    ``initial_state`` snapshot served on every
-    ``subscribe_events`` subscription) with a megabyte-string
-    masquerading as a hostname.
-
-    Defers the URL-validity check to :class:`yarl.URL.build` so
-    the WS-command validator and the offloader's
-    ``_build_ws_url`` (in
-    :mod:`controllers.remote_build_peer_link_client`) share a
-    single source of truth on what constitutes a host. yarl
-    rejects ``/``, ``?``, ``#``, ``@``, embedded ``:port``, and
-    other URL-injection shapes that would otherwise let a
-    pathological hostname smuggle path / query / fragment /
-    userinfo into the rendered URL. Without this layered check
-    the offloader's ``preview_pair`` would have to catch the
-    ``ValueError`` from ``URL.build`` at request time and map
-    it to ``UNAVAILABLE``; surfacing the same shape as
-    ``INVALID_ARGS`` here means the frontend gets a "fix your
-    input" diagnostic rather than a "transient remote
-    failure" toast.
-
-    Lowercase normalisation matches the duplicate-check
-    semantics; hostnames are case-insensitive per RFC 1035 §2.3.3,
-    so ``Desktop.local`` and ``desktop.local`` should be the same
-    entry. The stored form is the trimmed, lowercased string (so
-    two adds with different casing collapse to one entry rather
-    than registering twice). The actual connection runs when
-    pairing attempts it (and discovers DNS / TLS validity); we
-    deliberately don't pre-flight an "is this resolvable now?"
-    check, which would fail on offline laptops adding a peer
-    for later.
-    """
-    if not isinstance(raw, str):
-        msg = f"{context}: 'hostname' must be a string"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    trimmed = raw.strip().lower()
-    if not trimmed:
-        msg = f"{context}: 'hostname' must not be empty"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    if len(trimmed) > _HOSTNAME_MAX_CHARS:
-        msg = f"{context}: 'hostname' must be at most {_HOSTNAME_MAX_CHARS} characters"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    # The ``port=80, path="/"`` are sentinels for the build call
-    # — only the host arg is being validated. yarl's host parser
-    # is the same one ``_build_ws_url`` will use later, so any
-    # input that passes here is guaranteed to round-trip
-    # through the URL builder without raising.
-    try:
-        URL.build(scheme="ws", host=trimmed, port=80, path="/")
-    except ValueError as exc:
-        msg = f"{context}: 'hostname' is not a valid host: {exc}"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
-    return trimmed
-
-
-def _peer_summary(peer: StoredPeer, *, status: PeerStatus, connected: bool) -> PeerSummary:
-    """Project a :class:`StoredPeer` to wire :class:`PeerSummary`.
-
-    Drops the raw ``static_x25519_pub`` bytes; ``pin_sha256`` is
-    the wire-friendly form UIs render for OOB-verification, and
-    the pubkey is only needed server-side to look up the peer
-    against an incoming Noise handshake. ``status`` is supplied
-    by the caller because :class:`StoredPeer` itself doesn't
-    carry one — pending peers live in the controller's in-memory
-    dict and persisted peers are implicitly approved.
-
-    ``connected`` is the snapshot-time read the caller passes
-    in. The intended source is
-    ``dashboard_id in controller._peer_link_sessions`` (the
-    RAM-canonical receiver-side session registry the peer-link
-    handshake populates); the helper is module-level rather
-    than a controller method, so the caller dereferences the
-    registry and threads the bool through. PENDING callers
-    always pass ``False``; the structural invariant is
-    enforced by the
-    :meth:`RemoteBuildController.lookup_peer_for_session`
-    gate, but the parameter is explicit so a future code path
-    that legitimately tracks connection state on a non-APPROVED
-    row doesn't inherit the hardcoded default silently.
-    """
-    return PeerSummary(
-        dashboard_id=peer.dashboard_id,
-        pin_sha256=peer.pin_sha256,
-        label=peer.label,
-        paired_at=peer.paired_at,
-        status=status,
-        peer_ip=peer.peer_ip,
-        connected=connected,
-    )
-
-
-def _pairing_summary(
-    pairing: StoredPairing,
-    *,
-    connected: bool,
-    connecting: bool = False,
-    last_connect_error: str = "",
-) -> PairingSummary:
-    """Project a :class:`StoredPairing` to wire :class:`PairingSummary`.
-
-    Mirror of :func:`_peer_summary` for the offloader side. Drops
-    the raw ``static_x25519_pub`` bytes. ``status`` reads off the
-    row — the unified in-RAM ``_pairings`` dict carries both
-    PENDING and APPROVED rows, with the disk filter stripping
-    PENDING at serialise time.
-
-    ``connected``, ``connecting``, and ``last_connect_error``
-    are the snapshot-time reads the caller passes in. Intended
-    sources:
-
-    * ``connected``: ``pairing.pin_sha256 in
-      controller._open_peer_links``, the RAM-canonical set the
-      controller maintains from :class:`PeerLinkClient`-fired
-      :attr:`EventType.OFFLOADER_PEER_LINK_OPENED` /
-      :attr:`EventType.OFFLOADER_PEER_LINK_CLOSED` events.
-    * ``connecting`` / ``last_connect_error``: the matching
-      :class:`PeerLinkClient`'s :attr:`~PeerLinkClient.is_connecting` /
-      :attr:`~PeerLinkClient.last_connect_error` properties,
-      looked up via ``controller._peer_link_clients[pin_sha256]``.
-
-    The helper is module-level so the registries aren't
-    reachable from here directly; the caller dereferences and
-    threads the values through. PENDING callers pass
-    ``connected=False`` and let ``connecting`` /
-    ``last_connect_error`` take their defaults — the offloader
-    doesn't spawn a peer-link client until the receiver flips
-    the row to APPROVED.
-    """
-    return PairingSummary(
-        receiver_hostname=pairing.receiver_hostname,
-        receiver_port=pairing.receiver_port,
-        pin_sha256=pairing.pin_sha256,
-        label=pairing.label,
-        paired_at=pairing.paired_at,
-        status=pairing.status,
-        connected=connected,
-        connecting=connecting,
-        last_connect_error=last_connect_error,
-        esphome_version=pairing.esphome_version,
-        enabled=pairing.enabled,
-    )
-
-
-_PIN_SHA256_LEN = 64  # 32-byte SHA-256 → 64 lowercase-hex chars
-_PAIR_LABEL_MAX_CHARS = 128  # mirrors :data:`_PEER_LABEL_MAX_CHARS` on the receiver
-
-
-# Mapping from receiver-reported reject reasons (carried on
-# ``artifacts_end{accepted: false}``) to the
-# :class:`ErrorCode` the WS layer surfaces. Receiver-side
-# constants live in :mod:`controllers.remote_build.artifacts_download`;
-# the wire string is the canonical seam, not a shared
-# enum, because it crosses the trust boundary as user-
-# controlled JSON. Unknown reasons fall through to
-# ``UNAVAILABLE`` (better safe than asserting on a
-# stranger's wire format).
-_DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE: dict[str, ErrorCode] = {
-    "unknown_job": ErrorCode.NOT_FOUND,
-    "build_dir_missing": ErrorCode.NOT_FOUND,
-    "job_not_completed": ErrorCode.PRECONDITION_FAILED,
-    "duplicate_download": ErrorCode.PRECONDITION_FAILED,
-    "pack_failed": ErrorCode.UNAVAILABLE,
-}
-
-
-def _download_artifacts_error_to_command_error(exc: DownloadArtifactsError) -> CommandError:
-    """Map the receiver's structured reject reason to a typed :class:`CommandError`.
-
-    Used by the ``remote_build/download_artifacts`` WS command
-    after :meth:`PeerLinkClient.download_artifacts` raises. The
-    error's ``reason`` attribute carries the receiver's
-    ``artifacts_end{accepted: false, reason}`` value verbatim;
-    this helper translates it into the matching
-    :class:`ErrorCode` and forwards the human-readable message.
-    Unknown reasons map to ``UNAVAILABLE`` — same shape as a
-    transient transport failure, since "the receiver sent a
-    reason we don't recognise" is most likely a version-skew
-    issue we want to surface as retry-eligible rather than a
-    permanent precondition failure.
-    """
-    code = _DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE.get(exc.reason, ErrorCode.UNAVAILABLE)
-    return CommandError(code, str(exc))
-
-
-def _validate_pin_sha256(raw: object) -> str:
-    """Validate a wire ``pin_sha256`` value as 64 lowercase-hex chars.
-
-    Same alphabet and length the storage seam enforces in
-    :class:`StoredPairing` (and the receiver's :class:`StoredPeer`),
-    just at the WS-command boundary so a bad pin gets rejected as
-    ``INVALID_ARGS`` before the offloader opens a Noise WS only to
-    fail the TOCTOU check post-handshake.
-    """
-    if not isinstance(raw, str):
-        msg = "pin_sha256 must be a string"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    cleaned = raw.strip()
-    if (
-        len(cleaned) != _PIN_SHA256_LEN
-        or not cleaned.isascii()
-        or any(c not in "0123456789abcdef" for c in cleaned)
-    ):
-        msg = f"pin_sha256 must be {_PIN_SHA256_LEN} lowercase-hex characters"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return cleaned
-
-
-def _validate_pair_label(raw: object, *, field: _PairLabelField) -> str:
-    """Validate a user-supplied pair-flow label.
-
-    Capped at 128 chars to match
-    :data:`controllers.remote_build_peer_link._PEER_LABEL_MAX_CHARS`
-    (the receiver's truncation cap on the same field), so a
-    label that round-trips through pair_request lands in both
-    sides' tables with identical content. Empty labels are
-    allowed; the user may legitimately not name the receiver
-    yet, and the frontend can render a placeholder.
-
-    Rejects strings containing C0 / C1 control chars (incl. null
-    bytes, ANSI escapes, newlines, DEL) via :meth:`str.isprintable`.
-    The ``offloader_label`` transits to the receiver-side admin
-    UI's pairing-requests inbox; refusing control chars here is
-    defense-in-depth against ANSI / bidi-override / null-byte
-    injection attacks against an admin terminal or log reader
-    (the load-bearing fix is on the receiver side, but symmetric
-    rejection here catches honest typos and a future
-    direct-driver caller that bypasses the receiver's normaliser).
-    Non-ASCII printables (CJK, accented Latin, emoji) pass —
-    :meth:`str.isprintable` only excludes the C0/C1 control sets
-    plus surrogates, which is the right cut for a name field.
-
-    *field* names the failing arg in the diagnostic via
-    :class:`_PairLabelField` so the frontend can pin the inline
-    error to the right input.
-    """
-    if not isinstance(raw, str):
-        msg = f"{field} must be a string"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    cleaned = raw.strip()
-    if len(cleaned) > _PAIR_LABEL_MAX_CHARS:
-        msg = f"{field} must be at most {_PAIR_LABEL_MAX_CHARS} characters"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    if not cleaned.isprintable():
-        msg = f"{field} must contain only printable characters"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return cleaned
-
-
-# Allowed values of ``submit_job``'s ``target`` arg. Wire-side
-# the receiver enforces the same set
-# (:data:`controllers.remote_build.submit_job._TARGET_TO_JOB_TYPE`);
-# rejecting unknown targets here means a typo lands as a clean
-# ``INVALID_ARGS`` for the frontend to render inline rather than a
-# ``submit_job_ack{accepted: false, reason: "invalid_header"}``
-# only after the bundle's been built and shipped.
-_SUBMIT_JOB_VALID_TARGETS: frozenset[str] = frozenset({"compile", "upload"})
-
-
 # Terminal ``status`` values on
 # :class:`OffloaderJobStateChangedData` — drives the
 # offloader-side remote-job cache's drop-on-terminal logic so
@@ -747,149 +355,6 @@ _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
 # correlation cache. Same defensive idiom the ``submit_job``
 # dispatchers use.
 _CANCEL_JOB_SCHEMA = frame_schema({"job_id": str})
-
-
-def _validate_submit_job_target(raw: object) -> Literal["compile", "upload"]:
-    """Validate the WS *target* arg for ``remote_build/submit_job``."""
-    if not isinstance(raw, str) or raw not in _SUBMIT_JOB_VALID_TARGETS:
-        msg = f"target must be one of {sorted(_SUBMIT_JOB_VALID_TARGETS)}; got {raw!r}"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return cast(Literal["compile", "upload"], raw)
-
-
-def _validate_bool(raw: object, *, command: str, field: str) -> bool:
-    """Strict-bool validation for a WS-command argument.
-
-    Rejects non-``bool`` values rather than coercing — a string
-    ``"false"`` is truthy under ``bool()`` and would persist the
-    opposite of the operator's intent on a security-relevant
-    switch. The diagnostic names *command* and *field* so the
-    frontend can pin the inline error to the right input.
-    """
-    if not isinstance(raw, bool):
-        msg = f"{command}: {field!r} must be a boolean"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return raw
-
-
-# Maps non-success ``IntentResponse`` values from a peer-link
-# round-trip to the typed :class:`CommandError` the frontend
-# branches on. Used by ``request_pair`` to surface the receiver's
-# decision (the offloader-side pair-status listener task handles
-# its own ``IntentResponse`` branches inline rather than going
-# through CommandError, so this map only covers the WS-command
-# request_pair path).
-_INTENT_RESPONSE_ERRORS: dict[IntentResponse, tuple[ErrorCode, str]] = {
-    IntentResponse.NO_PAIRING_WINDOW: (
-        ErrorCode.NO_PAIRING_WINDOW,
-        "receiver pairing window closed; ask the receiver-side admin to "
-        "open Settings → Build server → Pairing requests, then retry",
-    ),
-    IntentResponse.REJECTED: (
-        ErrorCode.PRECONDITION_FAILED,
-        "receiver declined the pair request",
-    ),
-}
-
-
-def _intent_response_to_command_error(status: IntentResponse) -> CommandError | None:
-    """Translate a non-success ``IntentResponse`` to a typed ``CommandError``.
-
-    Returns ``None`` for the success values
-    (``OK``, ``PENDING``, ``APPROVED``); the caller branches on
-    those for persistence. Returns a fresh ``CommandError`` (not
-    yet raised) for ``REJECTED`` / ``NO_PAIRING_WINDOW`` so the
-    caller can decide whether to attach extra context before
-    raising.
-    """
-    pair = _INTENT_RESPONSE_ERRORS.get(status)
-    if pair is None:
-        return None
-    code, msg = pair
-    return CommandError(code, msg)
-
-
-def _enforce_pin_match(*, expected: str, observed: str) -> None:
-    """Raise ``CommandError(PRECONDITION_FAILED)`` on a TOCTOU pin drift.
-
-    The offloader's ``request_pair`` (and any future
-    pin-pinned re-handshake) compares the pin the user
-    OOB-confirmed during ``preview_pair`` against the actual
-    pubkey from the live handshake. A mismatch means the
-    receiver rotated identity (or a MITM intervened) between
-    preview and request; the offloader bails before persisting
-    the row so a fresh preview round-trip is required.
-
-    The error message carries both pins in full (no
-    truncation) so the user can do a side-by-side OOB
-    comparison against the receiver's "Build server"
-    Settings card and tell which end's pin changed.
-    Truncating the displayed pin would shrink the log volume
-    but at the cost of letting an attacker who deliberately
-    collides a 16-char prefix slip the mismatch past a
-    quick visual scan; the human OOB check is the
-    load-bearing security property, so full digest wins.
-    """
-    # Plain ``==`` is fine here: the pin is a SHA-256 of a public
-    # key, broadcast in mDNS and rendered in the receiver's UI.
-    # There's no secret to leak via timing; constant-time
-    # comparison would be defending nothing.
-    if expected == observed:
-        return
-    msg = f"receiver pin changed since preview; expected {expected}, got {observed}"
-    raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-
-
-def _validate_dashboard_id(raw: object) -> str:
-    """
-    Validate a user-supplied ``dashboard_id`` argument.
-
-    Same alphabet and length cap the peer-link Noise dispatcher
-    enforces on the msg3-supplied ``dashboard_id`` (see
-    :func:`controllers.remote_build_peer_link._dispatch_intent`);
-    the regex + max-length live in :mod:`helpers.dashboard_identity`
-    so the WS-command path here and the Noise-frame path can't
-    drift apart.
-
-    Rejects non-string / empty / oversized / non-base64url input
-    with ``INVALID_ARGS`` rather than silently looking up nothing
-    (which would yield a misleading ``NOT_FOUND``).
-    """
-    if not isinstance(raw, str):
-        msg = "dashboard_id must be a string"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    cleaned = raw.strip()
-    if (
-        not cleaned
-        or len(cleaned) > DASHBOARD_ID_MAX_CHARS
-        or not DASHBOARD_ID_PATTERN.fullmatch(cleaned)
-    ):
-        msg = f"dashboard_id must be 1-{DASHBOARD_ID_MAX_CHARS} base64url chars"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return cleaned
-
-
-def _validate_port(raw: object, *, context: _HostFieldContext = _HostFieldContext.RECEIVER) -> int:
-    """
-    Validate a user-entered port number.
-
-    ``bool`` is rejected even though ``isinstance(True, int)`` is
-    true; accepting ``True`` for a port number is a footgun
-    (silently coerces to 1, which IANA reserves for tcpmux).
-    Range is the IANA-registered ephemeral plus
-    well-known: 1-65535.
-
-    *context* prefixes every error message; see
-    :class:`_HostFieldContext` for the rationale and the
-    list of valid prefixes.
-    """
-    if isinstance(raw, bool) or not isinstance(raw, int):
-        msg = f"{context}: 'port' must be an integer"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    if not 1 <= raw <= 65535:
-        msg = f"{context}: 'port' must be between 1 and 65535"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return raw
 
 
 # Sleep before reconnecting a pair-status listener whose Noise WS
@@ -927,58 +392,6 @@ _CLEANUP_SWEEP_INTERVAL_SECONDS = 60 * 60
 # (Noise WS ``_DEFAULT_TIMEOUT_SECONDS`` ~ 10 s) so an in-flight
 # probe never expires its own slot.
 _REBIND_PROBE_COOLDOWN_SECONDS = 30.0
-
-# On-disk filename for the offloader-side pairings store. Sibling
-# of ``.device-builder.json`` in ``config_dir`` rather than a
-# sub-key of it: per-domain atomicity, no lock contention against
-# unrelated writers, and matches HA's per-file ``Store`` shape.
-# Leading dot keeps the file out of normal directory listings on
-# the user's editor pane (same convention as ``.device-builder.json``).
-_OFFLOADER_PAIRINGS_FILE = ".offloader_pairings.json"
-_RECEIVER_PEERS_FILE = ".receiver_peers.json"
-
-
-def _encode_pairings(value: OffloaderRemoteBuildSettings) -> bytes:
-    """Serialise the offloader-side pairings shape for the store."""
-    return json_dumps(value.to_dict())
-
-
-def _decode_pairings(raw: bytes) -> OffloaderRemoteBuildSettings:
-    """Decode the offloader-side pairings shape from the store.
-
-    Defaults on a malformed blob rather than crashing dashboard
-    startup. The ``Store`` lets decoder errors propagate so a
-    consumer can pick the recovery posture; here we want
-    "soft-recover to empty" because a corrupt pairings file means
-    every offloader has to re-pair (annoying) but isn't fatal,
-    whereas crashing the dashboard would lock the user out
-    entirely.
-    """
-    try:
-        return OffloaderRemoteBuildSettings.from_dict(json_loads(raw))
-    except Exception:
-        _LOGGER.exception("Corrupt offloader pairings file; resetting to empty")
-        return OffloaderRemoteBuildSettings()
-
-
-def _encode_peers(value: ReceiverPeers) -> bytes:
-    """Serialise the receiver-side peers shape for the store."""
-    return json_dumps(value.to_dict())
-
-
-def _decode_peers(raw: bytes) -> ReceiverPeers:
-    """Decode the receiver-side peers shape from the store.
-
-    Soft-recover to empty on malformed blobs, mirror of
-    :func:`_decode_pairings`. A corrupt peers file means every
-    paired offloader has to re-pair — annoying, not fatal — so
-    crashing dashboard startup is the wrong recovery posture.
-    """
-    try:
-        return ReceiverPeers.from_dict(json_loads(raw))
-    except Exception:
-        _LOGGER.exception("Corrupt receiver peers file; resetting to empty")
-        return ReceiverPeers()
 
 
 class RemoteBuildController:
@@ -1307,9 +720,9 @@ class RemoteBuildController:
         # chain is unbroken.
         self._shutdown_callbacks: list[ShutdownCallback] = []
         self._pairings_store: Store[OffloaderRemoteBuildSettings] = Store(
-            self._db.settings.config_dir / _OFFLOADER_PAIRINGS_FILE,
-            encoder=_encode_pairings,
-            decoder=_decode_pairings,
+            self._db.settings.config_dir / OFFLOADER_PAIRINGS_FILE,
+            encoder=encode_pairings,
+            decoder=decode_pairings,
             shutdown_register=self._shutdown_callbacks.append,
             name="offloader_pairings",
         )
@@ -1320,9 +733,9 @@ class RemoteBuildController:
         # ``async_delay_save`` so a burst of ``approve_peer`` /
         # ``remove_peer`` collapses into one disk write.
         self._peers_store: Store[ReceiverPeers] = Store(
-            self._db.settings.config_dir / _RECEIVER_PEERS_FILE,
-            encoder=_encode_peers,
-            decoder=_decode_peers,
+            self._db.settings.config_dir / RECEIVER_PEERS_FILE,
+            encoder=encode_peers,
+            decoder=decode_peers,
             shutdown_register=self._shutdown_callbacks.append,
             name="receiver_peers",
         )
@@ -2346,7 +1759,7 @@ class RemoteBuildController:
         dashboards on the same host on different ports as
         distinct peer candidates.
         """
-        peer = _peer_from_service_info(name, info)
+        peer = peer_from_service_info(name, info)
         if self._is_self_endpoint(peer.hostname, peer.port):
             return
         self._peers[name] = peer
@@ -2380,7 +1793,7 @@ class RemoteBuildController:
         if endpoint is None:
             return False
         own_host, own_port = endpoint
-        return _endpoints_equal(hostname, port, own_host, own_port)
+        return endpoints_equal(hostname, port, own_host, own_port)
 
     def _fire_host_removed(self, name: str) -> None:
         """Fire ``REMOTE_BUILD_HOST_REMOVED`` for *name*."""
@@ -2626,7 +2039,7 @@ class RemoteBuildController:
         if pairing is None or pairing.status is not PeerStatus.APPROVED:
             return
         new_hostname = normalize_hostname(peer.hostname)
-        if _endpoints_equal(
+        if endpoints_equal(
             pairing.receiver_hostname, pairing.receiver_port, new_hostname, new_port
         ):
             return
@@ -2798,10 +2211,10 @@ class RemoteBuildController:
         """
         sessions = self._peer_link_sessions
         return [
-            _peer_summary(p, status=PeerStatus.PENDING, connected=False)
+            peer_summary(p, status=PeerStatus.PENDING, connected=False)
             for p in self._pending_peers.values()
         ] + [
-            _peer_summary(p, status=PeerStatus.APPROVED, connected=p.dashboard_id in sessions)
+            peer_summary(p, status=PeerStatus.APPROVED, connected=p.dashboard_id in sessions)
             for p in self._approved_peers.values()
         ]
 
@@ -3021,7 +2434,7 @@ class RemoteBuildController:
         ``_pairings_store`` (the master toggle lives on the
         same on-disk shape as the pairings list).
         """
-        self._remote_builds_enabled = _validate_bool(
+        self._remote_builds_enabled = validate_bool(
             remote_builds_enabled,
             command="remote_build/set_offloader_settings",
             field="remote_builds_enabled",
@@ -3055,7 +2468,7 @@ class RemoteBuildController:
 
         Both ``pin_sha256`` and ``enabled`` are strictly
         validated (the same shape gate
-        :data:`_validate_pin_sha256` uses across this
+        :data:`validate_pin_sha256` uses across this
         controller). An unknown pin raises ``NOT_FOUND``
         rather than silently no-op'ing so a stale UI doesn't
         get the wrong "switch flipped" feedback.
@@ -3064,8 +2477,8 @@ class RemoteBuildController:
         for cross-tab UI sync, then debounce-saves the
         pairings store so the choice survives restart.
         """
-        clean_pin = _validate_pin_sha256(pin_sha256)
-        clean_enabled = _validate_bool(
+        clean_pin = validate_pin_sha256(pin_sha256)
+        clean_enabled = validate_bool(
             enabled, command="remote_build/set_pairing_enabled", field="enabled"
         )
         pairing = self._pairings.get(clean_pin)
@@ -3118,8 +2531,8 @@ class RemoteBuildController:
             timeout, malformed Noise frame, mismatched
             ``intent_response``).
         """
-        clean_host = _validate_hostname(hostname, context=_HostFieldContext.RECEIVER)
-        clean_port = _validate_port(port, context=_HostFieldContext.RECEIVER)
+        clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
+        clean_port = validate_port(port, context=HostFieldContext.RECEIVER)
         loop = asyncio.get_running_loop()
         identity = await loop.run_in_executor(
             None,
@@ -3185,7 +2598,7 @@ class RemoteBuildController:
 
         Args:
             hostname: Receiver's hostname (validated /
-                normalised by :func:`_validate_hostname`;
+                normalised by :func:`validate_hostname`;
                 yarl-correct).
             port: Receiver's peer-link port (1-65535).
             pin_sha256: Lowercase-hex SHA-256 of the receiver's
@@ -3230,14 +2643,14 @@ class RemoteBuildController:
         pending dict anyway, so cross-restart pending is never
         a coherent state on either side).
         """
-        clean_host = _validate_hostname(hostname, context=_HostFieldContext.RECEIVER)
-        clean_port = _validate_port(port, context=_HostFieldContext.RECEIVER)
-        clean_pin = _validate_pin_sha256(pin_sha256)
-        clean_receiver_label = _validate_pair_label(
-            receiver_label, field=_PairLabelField.RECEIVER_LABEL
+        clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
+        clean_port = validate_port(port, context=HostFieldContext.RECEIVER)
+        clean_pin = validate_pin_sha256(pin_sha256)
+        clean_receiver_label = validate_pair_label(
+            receiver_label, field=PairLabelField.RECEIVER_LABEL
         )
-        clean_offloader_label = _validate_pair_label(
-            offloader_label, field=_PairLabelField.OFFLOADER_LABEL
+        clean_offloader_label = validate_pair_label(
+            offloader_label, field=PairLabelField.OFFLOADER_LABEL
         )
         peer_link_identity, dashboard_identity = await self._load_offloader_identities_async()
 
@@ -3253,8 +2666,8 @@ class RemoteBuildController:
         except PeerLinkClientError as exc:
             raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
 
-        _enforce_pin_match(expected=clean_pin, observed=result.pin_sha256)
-        if (err := _intent_response_to_command_error(result.status)) is not None:
+        enforce_pin_match(expected=clean_pin, observed=result.pin_sha256)
+        if (err := intent_response_to_command_error(result.status)) is not None:
             raise err
         if result.status not in (IntentResponse.PENDING, IntentResponse.APPROVED):
             msg = f"unexpected receiver intent_response={result.status.value!r}"
@@ -3372,7 +2785,7 @@ class RemoteBuildController:
         promptly so the offloader's open Noise WS to the receiver
         closes cleanly rather than waiting on a now-irrelevant flip.
         """
-        key = _validate_pin_sha256(pin_sha256)
+        key = validate_pin_sha256(pin_sha256)
 
         # Cancel BEFORE mutating the dict: the listener task holds
         # an open Noise WS to the receiver, and we want it closed
@@ -3472,12 +2885,12 @@ class RemoteBuildController:
                 key (not the routing coordinates, which are what
                 we're updating).
             hostname: New routing host (validated as for manual
-                hosts via :func:`_validate_hostname`: non-empty,
+                hosts via :func:`validate_hostname`: non-empty,
                 ≤255 chars, trimmed + ``str.lower``-normalised
                 so the stored value's case is consistent. The
                 trailing-dot / FQDN-form folding the
                 no-op-edit guard cares about happens inside
-                :func:`_endpoints_equal`'s
+                :func:`endpoints_equal`'s
                 :func:`normalize_hostname` call at compare time
                 only; the value persisted on
                 :class:`StoredPairing.receiver_hostname` keeps
@@ -3515,9 +2928,9 @@ class RemoteBuildController:
                 untouched so a retry against the correct coords
                 lands cleanly.
         """
-        pin = _validate_pin_sha256(pin_sha256)
-        clean_host = _validate_hostname(hostname, context=_HostFieldContext.RECEIVER)
-        clean_port = _validate_port(port, context=_HostFieldContext.RECEIVER)
+        pin = validate_pin_sha256(pin_sha256)
+        clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
+        clean_port = validate_port(port, context=HostFieldContext.RECEIVER)
 
         pairing = self._pairings.get(pin)
         if pairing is None:
@@ -3534,7 +2947,7 @@ class RemoteBuildController:
         if self._offloader_peer_link_priv is None:
             msg = "edit_pairing_endpoint: offloader peer-link identity not loaded yet"
             raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-        if _endpoints_equal(
+        if endpoints_equal(
             pairing.receiver_hostname, pairing.receiver_port, clean_host, clean_port
         ):
             msg = f"edit_pairing_endpoint: new endpoint matches current ({clean_host}:{clean_port})"
@@ -3733,8 +3146,8 @@ class RemoteBuildController:
                 unexpected failures inside the bundle
                 subprocess (e.g. ``esphome`` not on PATH).
         """
-        clean_pin = _validate_pin_sha256(pin_sha256)
-        clean_target = _validate_submit_job_target(target)
+        clean_pin = validate_pin_sha256(pin_sha256)
+        clean_target = validate_submit_job_target(target)
         clean_config, yaml_path = await self._validate_submit_job_config(configuration)
         client = self._lookup_open_peer_link_client(clean_pin, label="submit_job")
         # Build the bundle off the event loop. Any
@@ -3834,7 +3247,7 @@ class RemoteBuildController:
                 read on the receiver — disk error, race with
                 cleanup).
         """
-        clean_pin = _validate_pin_sha256(pin_sha256)
+        clean_pin = validate_pin_sha256(pin_sha256)
         if not isinstance(job_id, str) or not job_id:
             msg = "job_id must be a non-empty string"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
@@ -3846,7 +3259,7 @@ class RemoteBuildController:
         except SubmitJobSessionLostError as exc:
             raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
         except DownloadArtifactsError as exc:
-            raise _download_artifacts_error_to_command_error(exc) from exc
+            raise download_artifacts_error_to_command_error(exc) from exc
         try:
             return await asyncio.get_running_loop().run_in_executor(
                 None, unpack_artifacts_response, packed, job_id
@@ -3889,7 +3302,7 @@ class RemoteBuildController:
                 pairing isn't APPROVED, or the peer-link
                 session isn't currently live.
         """
-        clean_pin = _validate_pin_sha256(pin_sha256)
+        clean_pin = validate_pin_sha256(pin_sha256)
         if not isinstance(job_id, str) or not job_id:
             msg = "job_id must be a non-empty string"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
@@ -4029,7 +3442,7 @@ class RemoteBuildController:
         defaults.
         """
         handle = self._peer_link_clients.get(pairing.pin_sha256)
-        return _pairing_summary(
+        return pairing_summary(
             pairing,
             connected=pairing.pin_sha256 in self._open_peer_links,
             connecting=handle is not None and handle.client.is_connecting,
@@ -4560,7 +3973,7 @@ class RemoteBuildController:
         identity = await loop.run_in_executor(
             None, get_or_create_identity, self._db.settings.config_dir
         )
-        return _identity_view(identity, listener_bound=self._db.is_remote_build_listener_bound)
+        return identity_view(identity, listener_bound=self._db.is_remote_build_listener_bound)
 
     @api_command("remote_build/rotate_identity")
     async def rotate_identity(self, **kwargs: Any) -> IdentityView:
@@ -4627,7 +4040,7 @@ class RemoteBuildController:
                     pin_sha256=identity.pin_sha256,
                 ),
             )
-            return _identity_view(identity, listener_bound=listener_bound)
+            return identity_view(identity, listener_bound=listener_bound)
         finally:
             self._rotation_in_flight = False
 
@@ -4655,7 +4068,7 @@ class RemoteBuildController:
         almost always a UI race; refuse rather than silently
         re-fire the event).
         """
-        clean_id = _validate_dashboard_id(dashboard_id)
+        clean_id = validate_dashboard_id(dashboard_id)
 
         pending = self._pending_peers.pop(clean_id, None)
         if pending is None:
@@ -4698,7 +4111,7 @@ class RemoteBuildController:
 
         ``NOT_FOUND`` if neither dict has a row.
         """
-        clean_id = _validate_dashboard_id(dashboard_id)
+        clean_id = validate_dashboard_id(dashboard_id)
 
         # PENDING: in-memory, no disk write needed (PENDING never
         # reaches the peers store).
@@ -5288,14 +4701,3 @@ class RemoteBuildController:
         self._pending_peers.clear()
         for dashboard_id in cleared:
             self._fire_pair_status_changed(dashboard_id, "removed")
-
-
-def _identity_view(identity: DashboardIdentity, *, listener_bound: bool) -> IdentityView:
-    """Project a :class:`DashboardIdentity` into the wire shape."""
-    return IdentityView(
-        dashboard_id=identity.dashboard_id,
-        pin_sha256=identity.pin_sha256,
-        server_version=server_version,
-        esphome_version=esphome_version,
-        listener_bound=listener_bound,
-    )
