@@ -1056,6 +1056,62 @@ async def test_remote_compile_ignores_session_closed_for_other_pin(
 
 
 @pytest.mark.asyncio
+async def test_remote_compile_cancel_before_runner_registers_event_still_fires(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """
+    A cancel landed before the runner registered its event still fires the wire cancel.
+
+    The race the event-driven design opened up: between
+    ``_execute_job`` setting ``_current_job = job`` and the
+    runner registering its ``cancel_event`` on the
+    controller, the WS cancel handler may run. It would
+    happily ``_cancel_requested.add(job_id)`` and then find
+    no event in ``_cancel_events`` (the runner hasn't
+    arrived yet) — so the ``set()`` is skipped and the
+    runner parks on a future that will never wake. Without
+    the late-bind replay at registration time, the runner
+    hangs until either the receiver completes or the
+    peer-link heartbeat surfaces ``session_lost``.
+
+    The fix: at registration, the runner checks
+    ``_cancel_requested`` and self-fires the event if the
+    cancel already arrived. This test pins that path by
+    flipping ``_cancel_requested`` before the runner
+    starts, then asserting the runner still translates the
+    cancel onto the wire (instead of hanging on its newly-
+    created event).
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = _make_remote_job()
+
+    # Cancel landed BEFORE the runner registers its event —
+    # ``_cancel_requested`` carries the flag, but no entry
+    # exists in ``_cancel_events`` yet (the runner hasn't
+    # been called).
+    controller._cancel_requested.add(job.job_id)
+
+    runner = asyncio.create_task(remote_runner.run_remote_compile_job(controller, job))
+    # The runner's bundle build + submit will still complete
+    # (the cancel-aware ``_fail_locally`` short-circuit only
+    # kicks in when one of those branches raises). The
+    # registration's self-fire is what keeps the happy
+    # dispatch path from hanging on the cancel event.
+    await _wait_for_wire_cancel(client)
+    client.cancel_job.assert_awaited_once_with(job_id=job.job_id)
+
+    _fire_state(controller, job_id=job.job_id, status="cancelled")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.CANCELLED
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
+
+
+@pytest.mark.asyncio
 async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,

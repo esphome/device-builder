@@ -113,6 +113,16 @@ async def run_remote_compile_job(
     # and wakes on whichever fires first.
     cancel_event = asyncio.Event()
     controller._cancel_events[job.job_id] = cancel_event
+    # A cancel that landed during ``_execute_job``'s pre-runner
+    # phase (``_current_job = job`` is set before the persist
+    # await, so the cancel handler accepts the request and
+    # writes to ``_cancel_requested`` — but the runner hasn't
+    # yet installed its event, so the handler's
+    # ``_cancel_events.get(job_id)`` returns ``None`` and the
+    # ``set()`` is skipped). Replay the late wake here so the
+    # runner doesn't park on an event that will never fire.
+    if job.job_id in controller._cancel_requested:
+        cancel_event.set()
 
     def _is_ours(data: OffloaderJobOutputData | OffloaderJobStateChangedData) -> bool:
         """Return True if *data* belongs to this runner's (pin, job_id) pair."""
