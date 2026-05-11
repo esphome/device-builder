@@ -152,6 +152,25 @@ default to both roles on.
    requests** screen. The pairing persists on both sides and
    survives restarts.
 
+If a dashboard you expected to show up doesn't appear in
+**Known dashboards**, run `esphome-device-builder-discover` on
+the sending host before troubleshooting the UI. The CLI browses
+the same mDNS service the dashboard does and prints what it
+sees, including the receiver's peer-link port and identity
+fingerprint:
+
+```
+Status |Name |Address:Port        |Server   |ESPHome   |RB Port |Pin (sha256)
+-------+-----+--------------------+---------+----------+--------+--------------
+ONLINE |mac  |192.168.1.75:6052   |0.1.0b39 |2026.4.5  |6055    |3968ef58…
+```
+
+If the receiver shows up in the CLI but not in the UI, the
+discovery layer is fine and the gap is somewhere downstream; if
+neither side sees the other, mDNS isn't crossing the network
+(different subnet without a reflector, container without host
+networking, firewall blocking 5353/udp).
+
 After pairing, clicking Install on a device automatically routes
 through the paired receiver as soon as one is online. The
 scheduler prefers an idle receiver, but if every paired receiver
