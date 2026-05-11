@@ -165,6 +165,25 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--remote-build-host",
+        # Real default (``0.0.0.0``) lives in
+        # ``DashboardSettings.parse_args`` so the env-var fallback
+        # and the CLI flag share one resolution path. Suppressing
+        # argparse's default rendering keeps the help text from
+        # contradicting that resolution order.
+        default=argparse.SUPPRESS,
+        help=(
+            "Bind address for the remote-build peer-link receiver. "
+            "Defaults to 0.0.0.0 (all interfaces) so paired peers on "
+            "the LAN can reach the receiver — the peer-link's "
+            "security is Noise + pre-shared pin, independent of bind "
+            "address. Override (e.g. 127.0.0.1) only if you want to "
+            "restrict the receiver to a specific interface. Falls "
+            "back to $ESPHOME_REMOTE_BUILD_HOST when unset. Only "
+            "bound when remote-build is enabled in Settings"
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="info",
         choices=["debug", "info", "warning", "error"],

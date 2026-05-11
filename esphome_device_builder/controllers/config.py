@@ -77,6 +77,16 @@ class DashboardSettings:
     # haven't opted in. Lives separately from ``port`` because it
     # serves a TLS-pinned route group with its own auth gate.
     remote_build_port: int = DEFAULT_REMOTE_BUILD_PORT
+    # Bind address for the remote-build peer-link receiver. Defaults
+    # to all interfaces — the feature's whole point is letting paired
+    # peers on the LAN reach this dashboard, and the security gate is
+    # Noise + pre-shared pin (not bind address). Lives separately from
+    # ``host`` because the HTTP/WS dashboard often binds to
+    # ``127.0.0.1`` (desktop app loopback security model) while the
+    # peer-link still needs to be LAN-reachable. Operators who want
+    # to lock the receiver to a specific NIC can override via
+    # ``--remote-build-host`` / ``$ESPHOME_REMOTE_BUILD_HOST``.
+    remote_build_host: str = "0.0.0.0"
     # In dev mode the SPA shell is served with ``Cache-Control: no-cache``
     # so a re-deployed wheel isn't masked by a browser-cached
     # ``index.html`` pointing at a now-deleted hashed bundle. In
@@ -182,6 +192,21 @@ class DashboardSettings:
                     DEFAULT_REMOTE_BUILD_PORT,
                 )
                 self.remote_build_port = DEFAULT_REMOTE_BUILD_PORT
+        # ``--remote-build-host`` (or ``$ESPHOME_REMOTE_BUILD_HOST``).
+        # Same precedence pattern as the port: an explicit CLI value
+        # wins; absence means "consult the env var, then fall back to
+        # the default". The default is ``0.0.0.0`` (all interfaces) —
+        # binding the peer-link receiver to the same interface as the
+        # HTTP dashboard would break the desktop-app shape, where
+        # ``--host 127.0.0.1`` is the dashboard's security boundary
+        # but the peer-link still needs to be LAN-reachable so paired
+        # peers can actually dial the IPs the mDNS announce broadcasts.
+        cli_remote_build_host = getattr(args, "remote_build_host", None)
+        if cli_remote_build_host is not None:
+            self.remote_build_host = cli_remote_build_host
+        else:
+            env_remote_build_host = os.getenv("ESPHOME_REMOTE_BUILD_HOST", "")
+            self.remote_build_host = env_remote_build_host or "0.0.0.0"
         self.dev_mode = bool(getattr(args, "dev", False))
         # ``--trusted-domains a,b,c`` (or ``$ESPHOME_TRUSTED_DOMAINS``).
         # Comma-separated. Lower-cased for the case-insensitive match

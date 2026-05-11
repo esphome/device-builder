@@ -1057,6 +1057,20 @@ class DeviceBuilder:
         passed ``--remote-build-port 0`` (ephemeral); otherwise the
         configured value verbatim. Reading the real port off the
         socket prevents mDNS / log lines from claiming port 0.
+
+        Bind address comes from
+        :attr:`DashboardSettings.remote_build_host` (``0.0.0.0`` by
+        default) rather than the HTTP/WS dashboard's
+        :attr:`~DashboardSettings.host`. The desktop app shape
+        passes ``--host 127.0.0.1`` for the dashboard's loopback
+        security model, but the peer-link still needs to be
+        LAN-reachable so paired peers can dial the IPs the mDNS
+        announce broadcasts (the announce carries every non-loopback
+        adapter address). The peer-link's security gate is Noise +
+        pre-shared pin, so binding to all interfaces by default is
+        the right behaviour. Operators who want to lock the receiver
+        to a specific NIC can override via ``--remote-build-host`` /
+        ``$ESPHOME_REMOTE_BUILD_HOST``.
         """
         loop = self.loop
         assert loop is not None  # caller-checked
@@ -1084,7 +1098,7 @@ class DeviceBuilder:
             # each rebuild; production deploys with a fixed port.
             site = web.TCPSite(
                 runner,
-                self.settings.host,
+                self.settings.remote_build_host,
                 configured_port,
                 reuse_address=True,
             )
