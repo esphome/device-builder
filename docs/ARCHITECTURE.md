@@ -274,7 +274,14 @@ The 15-character RFC 6335 §5.1 cap on service-type labels is why the new type i
 
 ## Remote build
 
-The dashboard can play *receiver* (lend its CPU to other dashboards) and *offloader* (delegate compiles to a paired receiver). Transport is Noise XX over plain-TCP WebSocket — the original HTTPS-plus-bearer-token shape was pivoted out during the receiver-side rewrite when the Noise XX peer-link replaced both transport security and auth on a single channel.
+The dashboard can play two roles, often both at once:
+
+* **Receiver** — lends its CPU to other dashboards. Accepts pair requests, compiles, returns artifacts. Surfaced in the UI as **"Build server"** (Settings → Build server, the card that shows this dashboard's identity fingerprint + paired senders).
+* **Offloader** — delegates compiles to a paired receiver. The dashboard the user clicks Install on. Surfaced in the UI as **"Send builds"** (Settings → Send builds, the section that lists known + paired receivers).
+
+A single dashboard can be both roles simultaneously — the HA add-on ships offloader-on / receiver-off by default (a typically-shared host shouldn't accept inbound build jobs without opt-in), while ESPHome Desktop and standalone installs default to both roles on. The two surfaces don't conflict: a dashboard can have receivers paired to it AND be paired to other receivers itself.
+
+Transport is Noise XX over plain-TCP WebSocket — the original HTTPS-plus-bearer-token shape was pivoted out during the receiver-side rewrite when the Noise XX peer-link replaced both transport security and auth on a single channel.
 
 ### Pairing auth flow (Noise XX)
 
@@ -357,7 +364,12 @@ sequenceDiagram
 
 **Window-state disclosure.** The `no_pairing_window` response from `record_pair_request` only reaches an offloader whose `dashboard_id` doesn't match an APPROVED row (the APPROVED check short-circuits ahead of the window gate). Random callers / unknown peers get the same NO_PAIRING_WINDOW response when window is closed, so the window flag is observable to anyone who can reach the listener — but it's not informationally useful: the listener's mDNS TXT broadcasts `pin_sha256` + `remote_build_port` only while bound, which is itself the strongest signal of the receiver's overall pair-acceptance state.
 
-**Identity rotation.** `rotate_identity` mints a fresh X25519 peer-link keypair, writes it to `.device-builder-peer-link-key.bin`, and tears down + rebuilds the listener so the in-flight Noise dispatch closure picks up the new private bytes. The `dashboard_id` stays stable across rotation but `pin_sha256` (the SHA-256 of the new pubkey) changes; every paired peer sees a `pin_mismatch` event on the next handshake and has to re-pair. That's the intended UX for "operator suspects compromise" — a single rotation revokes every existing trust on this side without touching anything else.
+**Identity rotation.** `rotate_identity` mints a fresh X25519 peer-link keypair and writes it to `.device-builder-peer-link-key.bin`. The follow-up listener-rebuild step is conditional on the listener's current bind state:
+
+* **Listener bound** — `DeviceBuilder.reload_remote_build_identity` tears down the current runner (the in-flight Noise dispatch closure holds the old private bytes; without a rebuild the next session would still handshake against the old key), clears `pin_sha256` + `remote_build_port` from the mDNS TXT (TXT contract: those fields appear iff the listener is currently bound), and re-runs the bind path to load the new identity. Fail-soft: a rebuild failure leaves the dashboard running without a receiver listener.
+* **Listener not bound** — no-op beyond the disk write. The new key sits at the canonical path and the next successful bind picks it up; no mDNS push happens because there's no port to advertise.
+
+The `dashboard_id` stays stable across rotation either way; `pin_sha256` (the SHA-256 of the new pubkey) changes, so every paired peer sees a `pin_mismatch` event on the next handshake and has to re-pair. That's the intended UX for "operator suspects compromise" — one rotation revokes every existing trust on this side without touching anything else.
 
 ### Listener internals
 
@@ -391,7 +403,7 @@ Once an offloader and receiver are paired (APPROVED on both sides), the offloade
 * `queue_status` broadcast on every firmware-queue transition.
 * `job_state_changed` / `job_output` per-job fan-out: `JobFanout` subscribes to firmware `JOB_*` bus events, filters to jobs whose `remote_peer` matches an active peer-link session, and routes through the submitting session's `send_app_frame`.
 
-**Offloader-side.** `PeerLinkClient` builds a `PeerLinkChannel` over `(noise, ws)`, fires `EventType.OFFLOADER_PEER_LINK_OPENED` with `{receiver_hostname, receiver_port}`, and parks on its own receive loop with a parallel heartbeat task. The frontend Settings UI's "connected" indicator subscribes to this event.
+**Offloader-side.** `PeerLinkClient` builds a `PeerLinkChannel` over `(noise, ws)`, fires `EventType.OFFLOADER_PEER_LINK_OPENED` with `{receiver_hostname, receiver_port, pin_sha256, esphome_version}`, and parks on its own receive loop with a parallel heartbeat task. The frontend Settings UI's "connected" indicator subscribes to this event; `pin_sha256` lets subscribers correlate to a specific paired row without an additional lookup, and `esphome_version` carries the receiver's `esphome.const.__version__` from the post-handshake `intent_response` so paired-row UI can render it without a follow-up RPC.
 
 *Inbound dispatch:*
 
