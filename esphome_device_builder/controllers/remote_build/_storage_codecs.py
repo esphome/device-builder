@@ -10,9 +10,6 @@ codecs are tiny but the soft-recover-on-corruption posture on
 the decoder side (a corrupt file means every paired peer
 re-pairs; a startup crash locks the user out of the dashboard
 entirely) is load-bearing enough to live in its own seam.
-
-Extracted from ``controller.py`` as part of the package-split
-DRY pass.
 """
 
 from __future__ import annotations

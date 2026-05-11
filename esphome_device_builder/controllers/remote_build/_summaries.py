@@ -15,9 +15,6 @@ caller).
 Module-level rather than controller methods so the registries
 aren't directly reachable from here; callers dereference and
 thread the values through.
-
-Extracted from ``controller.py`` as part of the package-split
-DRY pass.
 """
 
 from __future__ import annotations

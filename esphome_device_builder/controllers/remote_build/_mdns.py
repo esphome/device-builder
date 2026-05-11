@@ -14,9 +14,6 @@ Two endpoints also compare ``(host, port)`` tuples
 case-and-trailing-dot-insensitively (the dashboard's own
 advertise lookup, and the mDNS-driven auto-rebind path), so
 that lives here too.
-
-Extracted from ``controller.py`` as part of the package-split
-DRY pass.
 """
 
 from __future__ import annotations

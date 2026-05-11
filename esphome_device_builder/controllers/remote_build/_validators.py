@@ -17,9 +17,6 @@ on the peer-link wire (``IntentResponse.REJECTED`` /
 the matching :class:`CommandError` shape so the WS layer
 surfaces a single typed error rather than wire strings the
 frontend would have to parse.
-
-Extracted from ``controller.py`` as part of the package-split
-DRY pass; the controller imports back what it needs.
 """
 
 from __future__ import annotations

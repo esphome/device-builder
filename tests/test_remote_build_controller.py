@@ -144,7 +144,7 @@ async def _seed_metadata(config_dir: Any, remote_build: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _decode_txt_value
+# decode_txt_value
 # ---------------------------------------------------------------------------
 
 
@@ -166,7 +166,7 @@ def test_decode_txt_value_falls_back_on_invalid_utf8() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _peer_from_service_info
+# peer_from_service_info
 # ---------------------------------------------------------------------------
 
 
@@ -3376,7 +3376,7 @@ def _valid_stored_pairing(
     )
 
 
-# --- _validate_pin_sha256 ---
+# --- validate_pin_sha256 ---
 
 
 def test_validate_pin_sha256_accepts_canonical() -> None:
@@ -3467,7 +3467,7 @@ def test_validate_pair_label_accepts_non_ascii_printables() -> None:
     assert validate_pair_label("café 🚀", field=PairLabelField.RECEIVER_LABEL) == "café 🚀"
 
 
-# --- _intent_response_to_command_error ---
+# --- intent_response_to_command_error ---
 
 
 def test_intent_response_to_command_error_pending_returns_none() -> None:
@@ -3489,7 +3489,7 @@ def test_intent_response_to_command_error_rejected() -> None:
     assert err.code == ErrorCode.PRECONDITION_FAILED
 
 
-# --- _enforce_pin_match ---
+# --- enforce_pin_match ---
 
 
 def test_enforce_pin_match_passes_on_match() -> None:
@@ -3513,7 +3513,7 @@ def test_enforce_pin_match_raises_precondition_failed_on_drift() -> None:
     assert "got " + "b" * 64 in str(exc.value)
 
 
-# --- _pairing_summary ---
+# --- pairing_summary ---
 
 
 def test_pairing_summary_drops_static_pubkey() -> None:
@@ -3530,7 +3530,7 @@ def test_pairing_summary_drops_static_pubkey() -> None:
     assert not hasattr(summary, "static_x25519_pub")
 
 
-# --- _decode_pairings / _encode_pairings ---
+# --- decode_pairings / encode_pairings ---
 
 
 def test_encode_decode_pairings_round_trip() -> None:

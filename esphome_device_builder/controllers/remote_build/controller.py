@@ -2468,7 +2468,7 @@ class RemoteBuildController:
 
         Both ``pin_sha256`` and ``enabled`` are strictly
         validated (the same shape gate
-        :data:`validate_pin_sha256` uses across this
+        :func:`validate_pin_sha256` uses across this
         controller). An unknown pin raises ``NOT_FOUND``
         rather than silently no-op'ing so a stale UI doesn't
         get the wrong "switch flipped" feedback.
