@@ -164,6 +164,18 @@ asyncio_mode = "auto"
 # ``ComponentCatalog.load`` (~2s on Linux CI) per run instead of
 # paying it on every xdist worker.
 addopts = "--dist=loadgroup"
+# Default per-test timeout (pytest-timeout plugin) so a local
+# ``pytest tests/...`` invocation doesn't wedge forever when an
+# event loop deadlocks, a subprocess hangs, or an asyncio.wait_for
+# is forgotten. Slowest tests in the suite today land under 3s
+# (catalog setup + a couple of peer-link reconnect probes), so 10s
+# gives ~3x headroom against any single test legitimately running
+# slow. CI passes ``--timeout=120`` explicitly (see
+# ``.github/workflows/test.yml``) for the looser cap that covers
+# noisy runners; the CLI flag wins over this default. Override
+# locally with ``--timeout=30`` or ``--timeout=0`` when iterating
+# on a known-slow test.
+timeout = 10
 
 [build-system]
 build-backend = "setuptools.build_meta"
