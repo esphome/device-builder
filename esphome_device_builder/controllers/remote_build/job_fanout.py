@@ -2,7 +2,7 @@
 Receiver-side fan-out from firmware ``JOB_*`` events to peer-link frames.
 
 Pairs with the receiver-side accept path
-(:mod:`controllers.remote_build_submit_job`): once a remote-peer
+(:mod:`controllers.remote_build.submit_job`): once a remote-peer
 :class:`FirmwareJob` is queued (carrying ``remote_peer`` +
 ``remote_job_id``), the firmware controller's existing
 :attr:`EventType.JOB_*` events drive lifecycle and output
