@@ -18,10 +18,16 @@
 
 ## Project Structure
 
+High-level orientation; not exhaustive. The larger surfaces
+(`controllers/devices/`, `controllers/firmware/`,
+`controllers/remote_build/`) are Python packages with several
+submodules each — see the source for the full layout.
+
 ```
 esphome_device_builder/
 ├── device_builder.py          # Core singleton — owns controllers, event bus, web app
 ├── __main__.py                # CLI entry point
+├── discover.py                # LAN discovery CLI
 ├── constants.py               # Version + defaults
 │
 ├── models/                    # Data shapes only — no logic
@@ -30,21 +36,34 @@ esphome_device_builder/
 │   ├── boards.py              # Board enums + models
 │   ├── components.py          # Component enums + models
 │   ├── firmware.py            # FirmwareJob, JobStatus, JobType
+│   ├── labels.py              # Label catalog model
+│   ├── onboarding.py          # First-run state model
+│   ├── remote_build.py        # StoredPeer / StoredPairing + remote-build event payloads
 │   ├── preferences.py         # UserPreferences, Theme, DashboardView
 │   └── api.py                 # WebSocket protocol models
 │
 ├── controllers/               # Business logic — all state lives here
-│   ├── boards.py              # BoardCatalog: 559 boards across 7 platforms
-│   ├── components.py          # ComponentCatalog: 655 components
-│   ├── devices.py             # DevicesController: CRUD, file scanning, logs
-│   ├── firmware.py            # FirmwareController: job queue, compile, install
+│   ├── boards.py              # BoardCatalog: 490 boards across 6 platforms
+│   ├── components.py          # ComponentCatalog: 896 components
+│   ├── devices/               # DevicesController package: CRUD, file scanning, logs
+│   ├── firmware/              # FirmwareController package: job queue, local + remote runners
+│   ├── remote_build/          # RemoteBuildController package: pair flow, peer-link transport, job fanout
 │   ├── automations.py         # AutomationsController: triggers + actions
-│   └── config.py              # ConfigController + DashboardSettings + metadata
+│   ├── auth.py                # AuthController: session tokens
+│   ├── config.py              # ConfigController + DashboardSettings + metadata
+│   ├── editor.py              # EditorController: YAML editor + validation
+│   ├── labels.py              # LabelsController: label CRUD
+│   └── onboarding.py          # OnboardingController: first-run setup state
 │
-├── helpers/                   # Pure utilities
+├── helpers/                   # Pure utilities (full set in source; key entries below)
 │   ├── api.py                 # @api_command decorator
+│   ├── atomic_io.py           # atomic_write (tempfile + os.replace)
+│   ├── build_scheduler.py     # pick_build_path: LOCAL-vs-REMOTE dispatch decision
+│   ├── dashboard_identity.py  # dashboard_id minting + metadata-sidecar I/O
 │   ├── event_bus.py           # EventBus
 │   ├── json.py                # JSON response, CORS
+│   ├── peer_link_identity.py  # X25519 peer-link keypair load / rotate
+│   ├── single_instance.py     # fcntl.flock guard for one process per <config_dir>
 │   └── yaml.py                # YAML generation
 │
 ├── api/                       # Transport layer
@@ -66,10 +85,14 @@ esphome_device_builder/
 | Boards | Board catalog with search, filtering, pin maps |
 | Components | Component catalog with search, config entries |
 | Automations | Context-aware triggers + actions |
+| Auth | Session tokens, password gate, ingress-skip |
 | Config | Version, serial ports, preferences, secrets |
+| Editor | YAML editor save / validate / format |
+| Labels | Label catalog CRUD |
 | Onboarding | First-run setup state (welcome flow, default secrets, sample device) |
 | RemoteBuild | mDNS browse + Noise XX peer-link pair / unpair / pair-status flows for the remote-build offload feature (issue #106) |
-| Built-in | ping, subscribe_events |
+
+`ping` and `subscribe_events` are dispatched directly in `api/ws.py` and don't live on a controller.
 
 ## Event bus
 
@@ -128,7 +151,7 @@ def _on_pair_status(event: Event[RemoteBuildPairStatusChangedData]) -> None:
 bus.add_listener(EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED, _on_pair_status)
 ```
 
-`add_listener` is *not* generic on `_DataT` — listeners share a bucket type-erased as `Callable[[Event[Any]], None]` and `Any`'s bidirectional compatibility lets a `Callable[[Event[XData]], None]` register cleanly. The alternative — per-event-type overloads keyed on `Literal[EventType.X]` — was rejected: at end-state it would mean ~42 overloads (21 events × `fire`+`add_listener`), past mypy's practical resolution-perf limits. The trade: the type system enforces the *correct* pairing (subscriber typed for the matching event) but doesn't reject the *wrong* pairing (subscriber typed for a different event). Mismatches live in code review.
+`add_listener` is *not* generic on `DataT` — listeners share a bucket type-erased as `Callable[[Event[Any]], None]` and `Any`'s bidirectional compatibility lets a `Callable[[Event[XData]], None]` register cleanly. The type system enforces the *correct* pairing (subscriber typed for the matching event) but doesn't reject the *wrong* pairing (subscriber typed for a different event). Mismatches live in code review.
 
 Mirrors HA core's `Event[_DataT]` / `EventType[_DataT]` pattern. Deliberate divergence: HA bounds `_DataT` to `Mapping[str, Any]` with that as the default so untyped events fall through; we drop the bound entirely. Untyped fire sites pass plain `dict[str, Any]` and mypy infers `DataT` from the call.
 
@@ -146,7 +169,7 @@ New events should ship with a TypedDict from day one.
 
 Any per-session list whose contents mutate over the lifetime of a connected client (devices, importable devices, offloader pairings, receiver peers, …) reaches the frontend through one shape:
 
-1. **RAM-canonical state on the controller.** A keyed dict (`controller._approved_peers: dict[str, StoredPeer]`, `_pairings: dict[tuple[str, int], StoredPairing]`, etc.) is the runtime source of truth. Mutations update the dict immediately and schedule a debounced disk write through a per-file `helpers.storage.Store` (`.receiver_peers.json`, `.offloader_pairings.json`). Reads — projections, post-mutation responses, dispatch lookups — read straight off the dict; no executor hop, no disk read, no read-vs-write race window. RAM seeds from the Store at `controller.start()`; disk is just persistence.
+1. **RAM-canonical state on the controller.** A keyed dict (`controller._approved_peers: dict[str, StoredPeer]` keyed on `dashboard_id`, `_pairings: dict[str, StoredPairing]` keyed on `pin_sha256`, etc.) is the runtime source of truth. Mutations update the dict immediately and schedule a debounced disk write through a per-file `helpers.storage.Store` (`.receiver_peers.json`, `.offloader_pairings.json`). Reads — projections, post-mutation responses, dispatch lookups — read straight off the dict; no executor hop, no disk read, no read-vs-write race window. RAM seeds from the Store at `controller.start()`; disk is just persistence.
 
 2. **First paint via `subscribe_events` `initial_state`.** A sync `*_snapshot()` method on the controller (`pairings_snapshot()`, `peers_snapshot()`) returns the projection. The seed point is the `_send_initial` inner async helper inside `DeviceBuilder._cmd_subscribe_events`, passed as the `send_initial=` callback to `helpers.event_bus.stream_events`; it stitches the snapshot into `initial["<key>"] = [s.to_dict() for s in controller.<key>_snapshot()]`. Snapshot reads must be sync — the subscribe handler runs in the WS dispatch hot path.
 
@@ -270,8 +293,6 @@ Two mDNS surfaces ride the same `AsyncEsphomeZeroconf` instance the device state
 
 **Dashboards** (`_esphomebuilder._tcp.local.`) — bidirectional. The dashboard advertises its own service instance on startup (skipped in HA-addon mode by default; the addon container's docker IP isn't LAN-routable). TXT carries `server_version` + `esphome_version` always; `pin_sha256` + `remote_build_port` are added when the remote-build receiver site is bound. Browse runs in `RemoteBuildController` and populates `self._peers`; a sync `hosts_snapshot()` seeds the `subscribe_events` initial-state push under `hosts` and the browser's `_on_service_state_change` / `_resolve_and_apply` callbacks fire `remote_build_host_added` / `remote_build_host_removed` events as dashboards come and go. Cross-subnet peers (the LAN's mDNS doesn't reach them) bypass discovery entirely — the pair dialog accepts a typed `hostname` / `port` and `request_pair` either succeeds or fails.
 
-The 15-character RFC 6335 §5.1 cap on service-type labels is why the new type is `_esphomebuilder` (14 chars) rather than `_esphomedashboard` (16, would be truncated). Keeps the `_esphome*` prefix consistent with the existing device service type.
-
 ## Remote build
 
 The dashboard can play two roles, often both at once:
@@ -291,9 +312,7 @@ Out-of-band pin verification defeats a LAN MITM at first contact (the only windo
 
 The cryptographic primitives are `Noise_XX_25519_ChaChaPoly_SHA256` (mutual identity exchange + forward secrecy) over a dedicated peer-link TCP listener (default port 6055, separate from the dashboard UI port; configurable via `--remote-build-port`). Each dashboard holds a long-lived X25519 keypair as its peer-link identity, persisted at `<config_dir>/.device-builder-peer-link-key.bin` (0o600); `pin_sha256` is the lowercase-hex SHA-256 of the static pubkey.
 
-The numbered phases:
-
-All WS commands below use the `remote_build/` namespace and all events use the `remote_build_` prefix (matching the existing convention in `docs/API.md` and `models/common.py`); the diagram further down strips both for readability.
+The numbered phases (WS commands in the `remote_build/` namespace and events with the `remote_build_` prefix are abbreviated in the diagram further down):
 
 1. **Discovery** — both dashboards advertise on mDNS (`_esphomebuilder._tcp.local`); TXT carries `remote_build_port` + `pin_sha256` (lowercase-hex SHA-256 of the X25519 peer-link pubkey).
 2. **Receiver opens pairing window** — the user opens Settings → Build server → Pairing requests on the receiving dashboard; the frontend calls `remote_build/set_pairing_window` with `open=true`; the backend flips an in-process deadline and fires `remote_build_pairing_window_changed`. The window closes automatically on screen-unmount or user-idle timeout.
@@ -373,7 +392,7 @@ The `dashboard_id` stays stable across rotation either way; `pin_sha256` (the SH
 
 ### Listener internals
 
-**Second TCP listener.** When `_remote_build.enabled` is `true`, `DeviceBuilder` binds an aiohttp `TCPSite` on `--remote-build-port` (default 6055) serving `/remote-build/peer-link`. Disabled by default; the listener doesn't bind at all when the toggle is off (a sidecar `enabled=false` skip beats default-deny 404s — nothing to probe). This sits alongside the public + ingress sites from the Authentication section: HA-addon mode with remote-build enabled binds three listeners on three different ports, each with its own role.
+**Second TCP listener.** When `_remote_build.enabled` is `true`, `DeviceBuilder` binds an aiohttp `TCPSite` on `--remote-build-port` (default 6055) serving `/remote-build/peer-link`. Default is `True` on standalone / Desktop installs; the HA addon overrides the default to `False` at the bind site (a fresh addon install with no persisted `_remote_build` block doesn't bind — the addon container's docker IP isn't LAN-routable without an explicit `ports:` override). When the toggle is off the listener doesn't bind at all (a sidecar `enabled=false` skip beats default-deny 404s — nothing to probe). This sits alongside the public + ingress sites from the Authentication section: HA-addon mode with remote-build enabled binds three listeners on three different ports, each with its own role.
 
 **Middleware.** A single `_strip_server_header_middleware` overrides aiohttp's `Server: Python/x.y aiohttp/z.w` banner to empty string on the peer-link site. (Setting to empty wins; `del response.headers["Server"]` doesn't catch the connection-level injection.)
 
@@ -457,11 +476,9 @@ Install is **one user-visible flow**: the user clicks Install on a device card, 
 
 **Load-bearing policy: the receiver only ever compiles; the offloader always installs.** Remote dispatch uses `remote_build/submit_job{target: "compile"}` exclusively. The receiver may not be able to reach the device (cross-subnet, NAT, segregated Wi-Fi); the offloader by definition can (it renders the device card with the IP its own scanner cached). One extra `download_artifacts` round-trip per remote install is the cost — paid for determinism and "the bytes always come from your dashboard." `target: "upload"` stays on the wire for the power-user direct-dispatch path but the transparent Install flow never takes it.
 
-**Build-path decision — `pick_build_path` (#553).** `helpers/build_scheduler.py` exports `pick_build_path(BuildSchedulerInputs) -> BuildPathDecision`, a pure function that takes the offloader's `_pairings` / `_open_peer_links` / `_peer_queue_status` snapshot (passed as a frozen `BuildSchedulerInputs` wrapper with `Mapping` / `frozenset` typing so mutation is locked at the type layer) plus the user's `remote_builds_enabled` toggle. Walks the pairings sorted by `paired_at` ascending (pin-sort tiebreaker so the choice is deterministic across `Mapping` impls), picks the first APPROVED + connected + idle candidate, or falls back to LOCAL. `BuildPathDecision.pin_sha256: str | None` rather than an empty-string sentinel — the type system forces every consumer to narrow before reading. The `is PeerStatus.APPROVED` gate is fail-closed-by-construction: future enum members are silent-fallback-LOCAL until the scheduler is explicitly taught about them.
+**Build-path decision — `pick_build_path` (#553).** `helpers/build_scheduler.py` exports `pick_build_path(BuildSchedulerInputs) -> BuildPathDecision`, a pure function that takes the offloader's `_pairings` / `_open_peer_links` / `_peer_queue_status` snapshot (passed as a frozen `BuildSchedulerInputs` wrapper with `Mapping` / `frozenset` typing so mutation is locked at the type layer) plus the user's `remote_builds_enabled` toggle. Walks the pairings sorted by `paired_at` ascending (pin-sort tiebreaker so the choice is deterministic across `Mapping` impls) in two passes: **first** picks the oldest APPROVED + connected + idle candidate so new installs fan out across multiple idle remotes; if no idle candidate qualifies, a **second pass** picks the oldest APPROVED + connected pairing regardless of queue state, so the dispatch lands behind the receiver's own firmware queue rather than silently falling back to LOCAL (which used to split the fleet across two compile contexts and re-flash from a different build than the first Install). LOCAL only when **no** APPROVED + connected pairing exists. `BuildPathDecision.pin_sha256: str | None` rather than an empty-string sentinel — the type system forces every consumer to narrow before reading. The `is PeerStatus.APPROVED` gate is fail-closed-by-construction: future enum members are silent-fallback-LOCAL until the scheduler is explicitly taught about them.
 
-**Local vs remote is a first-class property of `FirmwareJob`, not a synthetic wrapper (#556, #558).** An earlier draft of this design proposed a "synthetic offloader-side FirmwareJob" wrapping the receiver's job, with a bridge subscriber re-firing `OFFLOADER_JOB_*` events as local-shaped `JOB_*` events against the wrapper's id. That was extra ceremony for a problem that doesn't exist: lockstep frontend deployment means the install dialog can learn the new field in the same coordinated PR that lands the source-routed runner. The shipped shape — one `FirmwareJob` per build, the runner branches on `source` to pick its pipeline — is one less layer of indirection, no duplicate state, and no event-translation bookkeeping.
-
-`FirmwareJob` carries three dispatch-origin fields:
+**Local vs remote is a first-class property of `FirmwareJob` (#556, #558).** One `FirmwareJob` per build; the runner branches on `source` to pick its pipeline. No wrapper layer, no duplicate state, no event-translation bookkeeping. `FirmwareJob` carries three dispatch-origin fields:
 
 * `source: JobSource` — `LOCAL` or `REMOTE`. The discriminator the runner branches on.
 * `source_pin_sha256: str` — matches `StoredPairing.pin_sha256`. The machine-readable handle the runner needs to route `download_artifacts` / `cancel_job` against the right peer-link client after a restart-recovery (the RAM-only `_open_peer_links` cache doesn't survive).
@@ -509,7 +526,7 @@ The dashboard writes a small set of files into `<config_dir>` and treats them as
 | `.offloader_pairings.json` | Offloader-side pinned receivers (`StoredPairing` rows: `(receiver_hostname, receiver_port, pin_sha256, static_x25519_pub, label, paired_at, status, esphome_version, enabled)`). Owned by `helpers.storage.Store` with debounced writes; only APPROVED rows ever reach disk (PENDING is filtered out at serialise time). Same secret-equivalent shape as the receiver's `.receiver_peers.json`: a reader can enumerate which receivers this offloader has paired with, but neither pin nor pubkey is secret on its own. | 0o600 enforced at write time (default for `Store`) |
 | `.device-builder-peer-link-key.bin` | **Private X25519 peer-link key. Sensitive.** A reader of this file can impersonate the dashboard to any paired peer over the Noise XX handshake — this is the load-bearing transport-security key. | 0o600 enforced at write time |
 
-**Backup tools must preserve `0o600` on `.device-builder-peer-link-key.bin`.** The dashboard writes the file at the right mode via `tempfile.mkstemp` + `os.replace`, but a tar-then-restore-as-different-user round-trip can land it at the umask default. Operators backing up `<config_dir>` should use a tool that captures and restores POSIX modes (e.g. `tar --preserve-permissions`, `rsync -p`, `restic`). The dashboard does *not* re-tighten the mode on every load (the load-time chmod was deliberately removed as untested defensive code) — once relaxed it stays relaxed until the next `rotate_identity` call.
+**Backup tools must preserve `0o600` on `.device-builder-peer-link-key.bin`.** The dashboard writes the file at the right mode via `helpers.atomic_io.atomic_write` (sibling tempfile + `os.replace`, with `fchmod` before the rename so the mode carries to the destination), but a tar-then-restore-as-different-user round-trip can land it at the umask default. Operators backing up `<config_dir>` should use a tool that captures and restores POSIX modes (e.g. `tar --preserve-permissions`, `rsync -p`, `restic`). The dashboard does *not* re-tighten the mode on every load (the load-time chmod was deliberately removed as untested defensive code) — once relaxed it stays relaxed until the next `rotate_identity` call.
 
 **The dashboard expects — and enforces — exactly one process per `<config_dir>`.** Identity files, the metadata sidecar, and the build tree are all guarded by per-process `threading.Lock`s; two `device-builder` processes running against the same config directory would race on writes. Startup takes an exclusive `fcntl.flock` on `<config_dir>/.device-builder.lock` (see `helpers/single_instance.ensure_single_execution`); a second start refuses with the running PID + start time on stderr. The OS releases the lock on process exit, so a stale lock file with no holder is harmless and re-acquired cleanly. Windows lacks `fcntl` and the check is a silent no-op there; the HA-addon shape (the dominant production target) is POSIX-only, and dev / Desktop on Windows accept the residual race risk in exchange for not needing `msvcrt.locking` plumbing. If a multi-process model is ever needed, the per-process `threading.Lock`s would also need to become cross-process file-locks.
 
