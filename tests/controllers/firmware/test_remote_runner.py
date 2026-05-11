@@ -906,17 +906,58 @@ async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
     # A synthetic output line names the cause in the live log
     # stream too so the install dialog's main scroll buffer
-    # ends with a clear "build server lost connection" message
-    # right above the red "Install failed." banner — without it,
-    # the operator sees the last (half-rendered) compile line
-    # and no indication that the receiver dropped.
+    # ends with a clear "session closed" message right above the
+    # red "Install failed." banner. Without it, the operator
+    # sees the last (half-rendered) compile line and no
+    # indication that the receiver dropped. Wording is umbrella
+    # ("session closed") because the same code path covers
+    # transport_error, server_shutting_down, superseded,
+    # pin_mismatch / peer_revoked, and client_stopped — calling
+    # all of them "lost connection" would mislead operators
+    # about the cause.
     output_lines = [data["line"] for data in captured[EventType.JOB_OUTPUT]]
     assert any(
-        "remote build server lost connection" in line
+        "remote build session closed" in line
         and "transport_error" in line
         and "build was aborted" in line
         for line in output_lines
     ), output_lines
+
+
+@pytest.mark.asyncio
+async def test_remote_compile_session_lost_synthetic_line_skips_leading_newline(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    r"""
+    Synthetic line skips its leading newline when prior output already ends with one.
+
+    The receiver-side compile streams ``\n``-terminated lines via the
+    fan-out, so the common case has ``job.output[-1]`` already ending
+    in ``\n``. A blanket leading ``\n`` on the synthetic line would
+    add a visible empty row between the last compile line and the
+    "session closed" message.
+    """
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = _make_remote_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_dispatched(client)
+    # Seed an output line so the synthetic line's leading-newline
+    # heuristic has a previous line to test against.
+    _fire_output(controller, job_id=job.job_id, line="Compiling main.cpp\n")
+    _fire_session_closed(controller, reason="server_shutting_down")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    output_lines = [data["line"] for data in captured[EventType.JOB_OUTPUT]]
+    synthetic = next(line for line in output_lines if "remote build session closed" in line)
+    # No leading newline because the previous line already
+    # ended with one.
+    assert not synthetic.startswith("\n"), repr(synthetic)
+    assert "server_shutting_down" in synthetic
 
 
 @pytest.mark.asyncio
