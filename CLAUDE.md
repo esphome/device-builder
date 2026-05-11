@@ -60,6 +60,34 @@ toggle in the official ESPHome container and Home Assistant add-on.
   at the top of every module so we can use modern type syntax on
   Python 3.12+.
 
+- **File size: 800-line soft cap.** When a Python module reaches
+  ~800 lines, plan a split before adding more. The cap exists
+  because: large modules degrade LLM context budget (every edit
+  pays the full file size in input tokens), they slow human
+  review (a 5000-line controller is hard to hold in working
+  memory), and they accumulate cross-concern coupling that's
+  invisible until you try to test one piece in isolation.
+
+  The split pattern this codebase uses is: replace
+  `controllers/X.py` with a `controllers/X/` package containing
+  `controller.py` (the main class + public API) plus per-concern
+  submodules (`controllers/X/foo.py` for the foo concern,
+  `controllers/X/bar.py` for the bar concern). `__init__.py`
+  re-exports the controller class so existing
+  `from .controllers.X import XController` callers keep working.
+  See `controllers/devices/`, `controllers/firmware/`, and
+  `controllers/remote_build/` for the canonical shape.
+
+  Existing modules over 800 lines (audit `wc -l` periodically;
+  the worst offender at the time of writing was 5176 lines) are
+  grandfathered: opportunistic refactors are welcome, but a
+  drive-by split inside an unrelated bugfix PR is scope creep.
+  The hard rule is: a PR that pushes a module *over* 800 should
+  include the split in the same PR (the split makes the bugfix
+  reviewable), and a PR that touches a module *already over* 800
+  should not make it worse. New top-level modules start under
+  the cap.
+
 ## Commit / PR conventions
 
 - **No `Co-Authored-By: Claude` trailer.** Project preference.
