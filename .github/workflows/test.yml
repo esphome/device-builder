@@ -282,7 +282,16 @@ jobs:
         # ``instrumentation`` — same callgrind-based runner under
         # the hood, just renamed. The action prints a deprecation
         # warning when you ask for ``instrumentation`` explicitly.
+        #
+        # ``--timeout=600`` overrides the 10s per-test default set
+        # in ``pyproject.toml``. CodSpeed's callgrind instrumentation
+        # multiplies each benchmark's wallclock by 10-50x, so a
+        # microbenchmark that runs in 50ms outside the harness can
+        # legitimately take a few minutes here. 10 minutes covers
+        # worst-case (the catalog-load benchmark, which exercises
+        # every BoardCatalogEntry's nested dataclass deserialisation)
+        # with ~5x headroom over the observed 3-5 minute floor.
         uses: CodSpeedHQ/action@3194d9a39c4d46684cb44bf7207fc56626aad8fd  # v4.15.1
         with:
           mode: simulation
-          run: pytest tests/benchmarks --codspeed --no-cov
+          run: pytest tests/benchmarks --codspeed --no-cov --timeout=600
