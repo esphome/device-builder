@@ -1,0 +1,329 @@
+"""
+Source-routed runner branch for ``JobSource.REMOTE`` firmware jobs.
+
+Lives in its own module so ``controller.py`` stays focused on the
+local subprocess pipeline + WS surface. The branch is invoked
+from :meth:`FirmwareController._execute_job` when the job's
+``source`` field is ``REMOTE``, after ``JOB_STARTED`` has fired
+and before chip-verify; it returns once the receiver has emitted
+a terminal ``OFFLOADER_JOB_STATE_CHANGED`` (or a translatable
+failure path has been finalised locally).
+
+The receiver doesn't know about the offloader-side
+:class:`FirmwareJob` — it tracks its own row keyed by its own
+``job_id``, and echoes the offloader's id back on every
+fan-out frame so the offloader can correlate. We use
+``job.job_id`` (the offloader-side id) as the match key on
+inbound :class:`OffloaderJobOutputData` /
+:class:`OffloaderJobStateChangedData` events.
+
+Listener attach happens **before** ``submit_job`` is sent so an
+immediate ``running`` / ``output`` frame from the receiver
+can't outrace our subscription. The listener bucket is
+process-wide; a stray frame from a different in-flight remote
+job lands in a different match-id / pin combination and is
+filtered out at the callback boundary.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import TYPE_CHECKING
+
+from ...helpers.config_bundle import BundleBuildError, build_yaml_bundle
+from ...models import (
+    EventType,
+    FirmwareJob,
+    JobLifecycleData,
+    JobOutputData,
+    JobProgressData,
+    JobStatus,
+    JobType,
+    OffloaderJobOutputData,
+    OffloaderJobStateChangedData,
+)
+from ..remote_build.peer_link_client import (
+    PeerLinkNoSessionError,
+    SubmitJobSessionLostError,
+    SubmitJobTimeoutError,
+)
+from .constants import _INFLIGHT_TRIM_KEEP, _MAX_OUTPUT_LINES_INFLIGHT
+from .helpers import _mark_job_terminal, _parse_progress, _trim_job_output
+
+if TYPE_CHECKING:
+    from ...helpers.event_bus import Event
+    from .controller import FirmwareController
+
+_LOGGER = logging.getLogger(__name__)
+
+# Terminal receiver-side statuses on
+# :class:`OffloaderJobStateChangedData`. Mirror of
+# :data:`TERMINAL_JOB_STATUSES` but on the wire literal rather
+# than the local enum — receiver-side fan-out emits the lower-
+# case string per :class:`JobStateChangedFrameData`'s
+# ``Literal`` union.
+_TERMINAL_WIRE_STATUSES: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
+
+
+async def run_remote_compile_job(
+    controller: FirmwareController,
+    job: FirmwareJob,
+) -> None:
+    """Run a REMOTE-source compile job and finalise *job* on the offloader bus.
+
+    Caller (``FirmwareController._execute_job``) has already
+    set ``status = RUNNING`` and fired ``JOB_STARTED``; this
+    function is responsible for the entire run-and-finalise
+    middle and leaves the outer ``finally`` block to clear
+    ``_current_job`` / persist.
+    """
+    if job.job_type is not JobType.COMPILE:
+        _fail_locally(
+            controller,
+            job,
+            error=(
+                f"remote source only supports COMPILE jobs in this phase (got {job.job_type.value})"
+            ),
+        )
+        return
+
+    if not job.source_pin_sha256:
+        _fail_locally(
+            controller,
+            job,
+            error="remote source missing source_pin_sha256",
+        )
+        return
+
+    bus = controller._db.bus
+    pin = job.source_pin_sha256
+    target_job_id = job.job_id
+    loop = asyncio.get_running_loop()
+    terminal: asyncio.Future[OffloaderJobStateChangedData] = loop.create_future()
+
+    def _on_output(event: Event[OffloaderJobOutputData]) -> None:
+        data = event.data
+        if data["pin_sha256"] != pin or data["job_id"] != target_job_id:
+            return
+        line = data["line"]
+        job.output.append(line)
+        if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
+            _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
+        out_payload: JobOutputData = {"job_id": job.job_id, "line": line}
+        bus.fire(EventType.JOB_OUTPUT, out_payload)
+        progress = _parse_progress(line)
+        if progress is None:
+            return
+        current = job.progress or 0
+        if progress > current:
+            job.progress = progress
+            prog_payload: JobProgressData = {
+                "job_id": job.job_id,
+                "progress": progress,
+            }
+            bus.fire(EventType.JOB_PROGRESS, prog_payload)
+
+    def _on_state(event: Event[OffloaderJobStateChangedData]) -> None:
+        data = event.data
+        if data["pin_sha256"] != pin or data["job_id"] != target_job_id:
+            return
+        if data["status"] in _TERMINAL_WIRE_STATUSES and not terminal.done():
+            terminal.set_result(data)
+
+    with (
+        bus.listening([EventType.OFFLOADER_JOB_OUTPUT], _on_output),
+        bus.listening([EventType.OFFLOADER_JOB_STATE_CHANGED], _on_state),
+    ):
+        await _dispatch_and_drive(
+            controller=controller,
+            job=job,
+            terminal=terminal,
+        )
+
+
+async def _dispatch_and_drive(
+    *,
+    controller: FirmwareController,
+    job: FirmwareJob,
+    terminal: asyncio.Future[OffloaderJobStateChangedData],
+) -> None:
+    """Build the bundle, submit, then wait for the receiver's terminal frame.
+
+    Split out from :func:`run_remote_compile_job` so the
+    listener attach / detach lives in one ``with`` block at the
+    outer call site — every early-return failure path here
+    still releases the bus subscriptions.
+    """
+    loop = asyncio.get_running_loop()
+    yaml_path = await loop.run_in_executor(
+        None, controller._db.settings.rel_path, job.configuration
+    )
+
+    try:
+        bundle_bytes = await build_yaml_bundle(yaml_path)
+    except FileNotFoundError:
+        _fail_locally(
+            controller,
+            job,
+            error=f"remote build: configuration not found: {job.configuration}",
+        )
+        return
+    except BundleBuildError as exc:
+        _fail_locally(
+            controller,
+            job,
+            error=f"remote build: bundle failed: {exc.output or exc}",
+        )
+        return
+
+    remote_build = controller._db.remote_build
+    if remote_build is None:
+        _fail_locally(
+            controller,
+            job,
+            error="remote build: controller not initialised",
+        )
+        return
+    try:
+        client = remote_build._lookup_open_peer_link_client(
+            job.source_pin_sha256, label="firmware_remote"
+        )
+    except Exception as exc:  # CommandError shape — receiver gone / unpaired
+        _fail_locally(
+            controller,
+            job,
+            error=f"remote build: receiver not reachable: {exc}",
+        )
+        return
+
+    try:
+        ack = await client.submit_job(
+            job_id=job.job_id,
+            configuration_filename=job.configuration,
+            target="compile",
+            bundle_bytes=bundle_bytes,
+        )
+    except (PeerLinkNoSessionError, SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
+        _fail_locally(
+            controller,
+            job,
+            error=f"remote build: dispatch failed: {exc}",
+        )
+        return
+
+    if not ack["accepted"]:
+        reason = ack.get("reason", "no reason given")
+        _fail_locally(
+            controller,
+            job,
+            error=f"remote build: receiver rejected job: {reason}",
+        )
+        return
+
+    await _await_terminal(controller=controller, job=job, terminal=terminal)
+
+
+async def _await_terminal(
+    *,
+    controller: FirmwareController,
+    job: FirmwareJob,
+    terminal: asyncio.Future[OffloaderJobStateChangedData],
+) -> None:
+    """Wait for the receiver's terminal state, translating local cancel to the wire.
+
+    Polls a short ``asyncio.wait`` window so a
+    :attr:`FirmwareController._cancel_requested` flip lands
+    on the wire promptly without dedicating a separate task
+    to watch it. The receiver's resulting
+    ``job_state_changed{status: cancelled}`` is the
+    confirmation — we wait for it on the same future the
+    happy path uses.
+    """
+    cancel_sent = False
+    bus = controller._db.bus
+    while not terminal.done():
+        if job.job_id in controller._cancel_requested and not cancel_sent:
+            cancel_sent = True
+            remote_build = controller._db.remote_build
+            if remote_build is None:
+                # Receiver controller torn down mid-run — finalise as
+                # cancelled rather than spinning forever on a future
+                # that nothing will set.
+                controller._finalize_cancelled(job)
+                return
+            try:
+                client = remote_build._lookup_open_peer_link_client(
+                    job.source_pin_sha256, label="firmware_remote_cancel"
+                )
+                await client.cancel_job(job_id=job.job_id)
+            except PeerLinkNoSessionError as exc:
+                # Session dropped before cancel could land — finalise
+                # locally so the user's Stop click doesn't hang
+                # waiting for a frame that will never arrive.
+                _LOGGER.info(
+                    "remote cancel for job %s: session gone (%s); finalising locally",
+                    job.job_id,
+                    exc,
+                )
+                controller._finalize_cancelled(job)
+                return
+            except Exception as exc:
+                _LOGGER.warning(
+                    "remote cancel for job %s failed (%s); finalising locally",
+                    job.job_id,
+                    exc,
+                )
+                controller._finalize_cancelled(job)
+                return
+        await asyncio.wait([terminal], timeout=0.5)
+
+    data = terminal.result()
+    if job.job_id in controller._cancel_requested:
+        # User cancel beat the receiver's terminal frame to the
+        # loop (receiver completed / failed while our cancel was
+        # in flight). Mirror the local subprocess path: user
+        # intent wins, finalise as CANCELLED regardless of the
+        # status we received.
+        controller._finalize_cancelled(job)
+        return
+    status = data["status"]
+    if status == "completed":
+        _mark_job_terminal(job, JobStatus.COMPLETED)
+        payload: JobLifecycleData = {"job": job}
+        bus.fire(EventType.JOB_COMPLETED, payload)
+    elif status == "cancelled":
+        controller._finalize_cancelled(job)
+    else:
+        # ``failed`` — the only other element in
+        # :data:`_TERMINAL_WIRE_STATUSES`. Receiver-supplied
+        # error text rides into ``job.error``; an empty
+        # ``error_message`` (older receiver, internal bug)
+        # falls back to a generic string so subscribers always
+        # see a non-empty reason.
+        job.error = data["error_message"] or "remote build failed"
+        _mark_job_terminal(job, JobStatus.FAILED)
+        failed_payload: JobLifecycleData = {"job": job}
+        bus.fire(EventType.JOB_FAILED, failed_payload)
+
+
+def _fail_locally(
+    controller: FirmwareController,
+    job: FirmwareJob,
+    *,
+    error: str,
+) -> None:
+    """Mark *job* FAILED with *error* and fire ``JOB_FAILED`` on the local bus.
+
+    Centralises the three-line "remote path can't proceed,
+    finalise as failed" sequence so every early-exit failure
+    branch above stays one line at the call site. The text
+    rides into ``job.error`` so a frontend that already
+    renders ``error`` for local failures shows the remote
+    failure with no special-case code.
+    """
+    job.error = error
+    _mark_job_terminal(job, JobStatus.FAILED)
+    payload: JobLifecycleData = {"job": job}
+    controller._db.bus.fire(EventType.JOB_FAILED, payload)
+    _LOGGER.warning("Remote job %s failed: %s", job.job_id, error)

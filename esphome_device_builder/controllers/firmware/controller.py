@@ -43,6 +43,7 @@ from ...models import (
     JobLifecycleData,
     JobOutputData,
     JobProgressData,
+    JobSource,
     JobStatus,
     JobType,
     StreamEvent,
@@ -67,6 +68,7 @@ from .helpers import (
     _validate_port,
     _verify_esphome_importable,
 )
+from .remote_runner import run_remote_compile_job
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -833,6 +835,17 @@ class FirmwareController:
         await self._persist_jobs()
 
         try:
+            # Source-routed branch: REMOTE-source jobs dispatch via
+            # peer-link to a paired receiver instead of running a
+            # local subprocess. The receiver's ``OFFLOADER_JOB_*``
+            # fan-out events drive the same lifecycle / output /
+            # progress fires every local subscriber already
+            # consumes — follow_job and the firmware-tasks UI don't
+            # need to know whether the bytes are local or remote.
+            if job.source is JobSource.REMOTE:
+                await self._execute_remote_job(job)
+                return
+
             # Pre-flight: verify chip type for serial uploads
             if job.job_type in (JobType.UPLOAD, JobType.INSTALL):
                 await self._verify_chip(job)
@@ -1028,6 +1041,37 @@ class FirmwareController:
                 _trim_job_output(job)
                 self._prune_history()
             await self._persist_jobs()
+
+    async def _execute_remote_job(self, job: FirmwareJob) -> None:
+        """
+        Run a ``JobSource.REMOTE`` job by dispatching through peer-link.
+
+        Reads ``source_pin_sha256`` off *job*, looks up the live
+        :class:`PeerLinkClient` through the remote-build
+        controller, bundles the YAML via the ``esphome bundle``
+        subprocess, dispatches ``submit_job``, then translates
+        receiver-side ``OFFLOADER_JOB_OUTPUT`` /
+        ``OFFLOADER_JOB_STATE_CHANGED`` events into the same
+        local ``JOB_OUTPUT`` / ``JOB_PROGRESS`` /
+        ``JOB_<terminal>`` fires the local subprocess path emits.
+        ``follow_job`` and the firmware-tasks UI consume one
+        event stream regardless of which CPU compiled the bytes.
+
+        Scope is COMPILE-only — UPLOAD / INSTALL go through
+        7a-3 which adds a download-artifacts step on top to
+        pull the bytes back over peer-link before the local
+        flash phase. Anything else here lands as ``FAILED``
+        with an explanatory error.
+
+        Terminal states are mapped through the same helpers the
+        local path uses (``_mark_job_terminal`` /
+        ``_finalize_cancelled``), so the outer
+        ``_execute_job``'s ``finally`` runs the shared
+        ``_trim_job_output`` / ``_prune_history`` / persist
+        sequence regardless of which branch produced the
+        terminal status.
+        """
+        await run_remote_compile_job(self, job)
 
     @asynccontextmanager
     async def _tracked_subprocess(
