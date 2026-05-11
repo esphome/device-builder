@@ -346,7 +346,14 @@ class FirmwareController:
         return await self._enqueue(job)
 
     @api_command("firmware/install")
-    async def install(self, *, configuration: str, port: str = "OTA", **kwargs: Any) -> FirmwareJob:
+    async def install(
+        self,
+        *,
+        configuration: str,
+        port: str = "OTA",
+        force_local: bool = False,
+        **kwargs: Any,
+    ) -> FirmwareJob:
         """Queue a device update (compile + upload).
 
         ``port`` defaults to ``"OTA"`` — the CLI resolves the
@@ -359,7 +366,7 @@ class FirmwareController:
 
         Routes through :func:`helpers.build_scheduler.pick_build_path`
         before queuing: when a paired receiver is APPROVED +
-        peer-link-connected + idle, the resulting job carries
+        peer-link-connected, the resulting job carries
         ``source=REMOTE`` + ``source_pin_sha256=<pin>`` +
         ``source_label=<receiver_label>`` so the source-routed
         runner (7a-2b) dispatches the compile to that receiver
@@ -369,10 +376,25 @@ class FirmwareController:
         pipeline. Silent fallback by design — the user doesn't
         choose a build location; the scheduler routes
         transparently.
+
+        ``force_local`` opts out of the scheduler decision: the
+        install runs LOCAL regardless of what
+        :func:`pick_build_path` would have picked. Used by the
+        install dialog's "Build locally instead" override link
+        next to the "Building on {receiver}" sub-line — the
+        operator sees the scheduler picked REMOTE, decides
+        they want LOCAL anyway (cache hot locally, paired
+        receiver slow this week, network flakey, …), cancels
+        the in-flight remote and resubmits with this flag.
+        Default ``False`` preserves the transparent-install
+        behaviour for every existing caller.
         """
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
-        source, pin_sha256, label = self._resolve_install_source(configuration, port)
+        if force_local:
+            source, pin_sha256, label = JobSource.LOCAL, "", ""
+        else:
+            source, pin_sha256, label = self._resolve_install_source(configuration, port)
         job = self._create_job(
             configuration,
             JobType.INSTALL,

@@ -340,6 +340,65 @@ async def test_install_routes_to_remote_when_pairing_is_idle_and_connected(
 
 
 @pytest.mark.asyncio
+async def test_install_force_local_bypasses_scheduler(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """
+    ``force_local=True`` keeps the install LOCAL even with an idle pairing.
+
+    Pins the override path the install dialog's "Build
+    locally instead" link uses: an idle APPROVED paired
+    receiver would normally route REMOTE, but the operator
+    can opt out and get a LOCAL build regardless. Mirrors
+    the scheduler-disabled-by-master-switch shape but is a
+    per-install decision rather than a global one — the
+    next install (without the flag) routes REMOTE again as
+    usual.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    pairing = _make_pairing(label="desktop")
+    _stub_remote_build(
+        controller,
+        pairings=[pairing],
+        open_pins=frozenset({_PIN}),
+        idle_pins=frozenset({_PIN}),
+    )
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.install(configuration="kitchen.yaml", force_local=True)
+
+    assert job.source is JobSource.LOCAL
+    assert job.source_pin_sha256 == ""
+    assert job.source_label == ""
+
+
+@pytest.mark.asyncio
+async def test_install_force_local_default_false_keeps_scheduler_behaviour(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """
+    Default ``force_local=False`` keeps the transparent-install routing.
+
+    Pin the default to catch a future regression that flips
+    the flag's default to ``True`` — every existing caller
+    would silently lose the transparent-install routing.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    pairing = _make_pairing(label="desktop")
+    _stub_remote_build(
+        controller,
+        pairings=[pairing],
+        open_pins=frozenset({_PIN}),
+        idle_pins=frozenset({_PIN}),
+    )
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.install(configuration="kitchen.yaml")
+
+    assert job.source is JobSource.REMOTE
+
+
+@pytest.mark.asyncio
 async def test_install_still_routes_remote_when_receiver_is_busy(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
