@@ -132,12 +132,15 @@ default to both roles on.
 
 1. Start both dashboards on the same subnet, or with a working
    mDNS reflector between subnets. Outside the Home Assistant
-   add-on, a dashboard advertises itself over mDNS automatically;
-   the receiver listener publishes its port into the same TXT
-   record once it's bound, so peers can find both the dashboard
-   and the right port in one lookup. (HA add-on instances stay
-   silent on the network; two add-on dashboards on the same LAN
-   need the manual-entry flow below.)
+   add-on, a dashboard advertises itself over mDNS as soon as it
+   starts, independently of whether **Build server** is enabled.
+   The receiver's peer-link port lands in the same TXT record
+   only once **Build server** is enabled and the listener has
+   bound; a dashboard without **Build server** enabled still
+   appears in **Known dashboards** but can't be paired with until
+   the receiving side flips that toggle. (HA add-on instances
+   stay silent on the network; two add-on dashboards on the same
+   LAN need the manual-entry flow below.)
 2. On the dashboard you want to **send** builds from, open
    **Settings → Send builds → Known dashboards**. The list shows
    every dashboard the LAN discovered.
@@ -191,8 +194,11 @@ itself on mDNS), use the **Pair with another dashboard** section
 beneath **Known dashboards**. Click **Pair with a build server**,
 type the receiver's hostname and port, and submit; the pairing
 flow runs identically to the discovered-dashboard case from
-there. The peer-link listens on TCP port 6055 by default; the
-wire is Noise-encrypted regardless of how you reach it, and the
+there. The peer-link is a WebSocket served at
+`/remote-build/peer-link` over TCP port 6055 by default; if a
+reverse proxy or firewall sits between the two dashboards it
+needs to allow WebSocket upgrades on that path. The wire is
+Noise-encrypted regardless of how you reach it, and the
 emoji-fingerprint comparison still gates pairing the same way.
 
 ### Known limitations
