@@ -6,10 +6,7 @@ offloader-side intents the peer-link client drives —
 ``preview`` / ``pair_request`` / ``pair_status`` / ``peer_link``
 — plus the per-session in-flight state the long-lived
 :class:`PeerLinkClient` keeps alive between handshake and
-close. Pulled out of ``peer_link_client.py`` so the wire-shape
-data declarations sit in one place and the file holding the
-driver functions + the client class stays focused on
-behaviour.
+close.
 
 Public surface (every type without a leading underscore):
 
